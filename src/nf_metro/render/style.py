@@ -28,3 +28,8 @@ class Theme:
     legend_background: str
     legend_text_color: str
     legend_font_size: float
+    # Animation settings
+    animation_ball_radius: float = 3.0
+    animation_ball_color: str = "#ffffff"
+    animation_balls_per_line: int = 3
+    animation_speed: float = 80.0  # pixels per second
