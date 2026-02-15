@@ -93,12 +93,11 @@ def route_edges(
                     is_inter_section=True,
                 ))
             else:
-                # L-shape: center vertical bundle between source and
-                # target, with per-line offsets for visual separation.
+                # L-shape: vertical bundle between source and target,
+                # with per-line offsets for visual separation.
                 # Direction-aware: preserve top-to-bottom ordering as
                 # left-to-right when the bundle turns upward, and as
                 # right-to-left when it turns downward.
-                mid_x = (sx + tx) / 2
                 if dy < 0:
                     # Going UP: top line (i=0) -> leftmost
                     delta = (i - (n - 1) / 2) * offset_step
@@ -112,6 +111,15 @@ def route_edges(
                     delta = ((n - 1) / 2 - i) * offset_step
                     r_first = curve_radius + (n - 1 - i) * offset_step
                     r_second = curve_radius + i * offset_step
+
+                # Place vertical channel just far enough from source
+                # for the curve to fit, so the turn happens close to
+                # the source rather than midway to the target.
+                max_r = curve_radius + (n - 1) * offset_step
+                if dx > 0:
+                    mid_x = sx + max_r + offset_step
+                else:
+                    mid_x = sx - max_r - offset_step
                 vx = mid_x + delta
                 routes.append(RoutedPath(
                     edge=edge, line_id=edge.line_id,

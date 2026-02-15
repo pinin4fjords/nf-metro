@@ -21,8 +21,8 @@ def compute_layout(
     section_gap: float = 3.0,
     section_x_padding: float = 50.0,
     section_y_padding: float = 35.0,
-    section_x_gap: float = 80.0,
-    section_y_gap: float = 60.0,
+    section_x_gap: float = 50.0,
+    section_y_gap: float = 40.0,
 ) -> None:
     """Compute layout positions for all stations in the graph."""
     _compute_section_layout(
@@ -46,8 +46,8 @@ def _compute_section_layout(
     y_offset: float = 120.0,
     section_x_padding: float = 50.0,
     section_y_padding: float = 35.0,
-    section_x_gap: float = 80.0,
-    section_y_gap: float = 60.0,
+    section_x_gap: float = 50.0,
+    section_y_gap: float = 40.0,
 ) -> None:
     """Section-first layout pipeline.
 
@@ -186,9 +186,13 @@ def _position_junctions(graph: MetroGraph) -> None:
                     entry_port_xs.append(tgt.x)
 
         if exit_port_x is not None and exit_port_y is not None and entry_port_xs:
-            # Position at horizontal midpoint between exit port and nearest entry port
+            # Position close to the exit port with a small margin,
+            # rather than at the midpoint. This keeps the divergence
+            # point near the source section so lines turn sooner.
+            margin = 10.0
             nearest_entry_x = min(entry_port_xs, key=lambda x: abs(x - exit_port_x))
-            junction.x = (exit_port_x + nearest_entry_x) / 2
+            direction = 1.0 if nearest_entry_x > exit_port_x else -1.0
+            junction.x = exit_port_x + direction * margin
             junction.y = exit_port_y
 
 
