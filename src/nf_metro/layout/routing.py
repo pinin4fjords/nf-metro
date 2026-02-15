@@ -42,18 +42,14 @@ def route_edges(
 
     junction_ids = set(graph.junctions)
 
-    # Pre-compute per-line index and count at each junction
-    # for concentric arc radius calculations
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
-    junction_line_info: dict[tuple[str, str], tuple[int, int]] = {}
     offset_step = 3.0
-    for jid in junction_ids:
-        lines_at = graph.station_lines(jid)
-        lines_at.sort(key=lambda l: line_priority.get(l, 999))
-        n = len(lines_at)
-        for i, lid in enumerate(lines_at):
-            junction_line_info[(jid, lid)] = (i, n)
+
+    # Pre-compute bundle assignments: groups inter-section edges that
+    # share the same vertical channel so they get consistent per-line
+    # X offsets instead of overlapping.
+    bundle_info = _compute_bundle_info(graph, junction_ids, line_priority)
 
     for edge in graph.edges:
         src = graph.stations.get(edge.source)
@@ -73,11 +69,8 @@ def route_edges(
             and (tgt.is_port or edge.target in junction_ids)
         )
         if is_inter_section:
-            info = junction_line_info.get(
-                (edge.source, edge.line_id),
-                junction_line_info.get(
-                    (edge.target, edge.line_id), None))
-            i, n = info if info else (0, 1)
+            i, n = bundle_info.get(
+                (edge.source, edge.target, edge.line_id), (0, 1))
 
             if abs(dy) < 0.01:
                 # Same Y: straight horizontal
@@ -97,12 +90,24 @@ def route_edges(
             else:
                 # L-shape: center vertical bundle between source and
                 # target, with per-line offsets for visual separation.
+                # Direction-aware: preserve top-to-bottom ordering as
+                # left-to-right when the bundle turns upward, and as
+                # right-to-left when it turns downward.
                 mid_x = (sx + tx) / 2
-                delta = ((n - 1) / 2 - i) * offset_step
+                if dy < 0:
+                    # Going UP: top line (i=0) -> leftmost
+                    delta = (i - (n - 1) / 2) * offset_step
+                    # Bottom corner (right-to-up): concentric arcs
+                    r_first = curve_radius + i * offset_step
+                    # Top corner (up-to-right): concentric arcs,
+                    # leftmost (i=0) is outermost so gets largest radius
+                    r_second = curve_radius + (n - 1 - i) * offset_step
+                else:
+                    # Going DOWN: top line (i=0) -> rightmost
+                    delta = ((n - 1) / 2 - i) * offset_step
+                    r_first = curve_radius + (n - 1 - i) * offset_step
+                    r_second = curve_radius + i * offset_step
                 vx = mid_x + delta
-                # Concentric arcs: different radii at top vs bottom.
-                r_top = curve_radius + (n - 1 - i) * offset_step
-                r_bottom = curve_radius + i * offset_step
                 routes.append(RoutedPath(
                     edge=edge, line_id=edge.line_id,
                     points=[
@@ -112,7 +117,7 @@ def route_edges(
                         (tx, ty),
                     ],
                     is_inter_section=True,
-                    curve_radii=[r_top, r_bottom],
+                    curve_radii=[r_first, r_second],
                 ))
             continue
 
@@ -173,6 +178,87 @@ def route_edges(
             ))
 
     return routes
+
+
+def _compute_bundle_info(
+    graph: MetroGraph,
+    junction_ids: set[str],
+    line_priority: dict[str, int],
+) -> dict[tuple[str, str, str], tuple[int, int]]:
+    """Pre-compute bundle assignments for inter-section edges.
+
+    Groups inter-section edges that share the same geometric corridor
+    (same vertical channel position and direction) and assigns consistent
+    per-line positions within each bundle. This ensures lines traveling
+    between sections are visually parallel with proper spacing, rather
+    than overlapping at the same X coordinate.
+
+    Returns dict mapping (source_id, target_id, line_id) -> (index, count).
+    """
+    # Collect all inter-section edges with their geometry
+    inter_edges: list[tuple[Edge, float, float, float, float]] = []
+    for edge in graph.edges:
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if not src or not tgt:
+            continue
+
+        is_inter = (
+            (src.is_port or edge.source in junction_ids)
+            and (tgt.is_port or edge.target in junction_ids)
+        )
+        if not is_inter:
+            continue
+
+        inter_edges.append((edge, src.x, src.y, tgt.x, tgt.y))
+
+    # Group by corridor: edges sharing the same vertical channel
+    # Key: (route_type, rounded_channel_position, vertical_direction)
+    corridor_groups: dict[tuple[str, int, int], list[tuple[Edge, float, float, float, float]]] = defaultdict(list)
+
+    for item in inter_edges:
+        edge, sx, sy, tx, ty = item
+        dx = tx - sx
+        dy = ty - sy
+
+        if abs(dy) < 0.01:
+            continue  # Horizontal edges don't need bundling
+
+        v_dir = 1 if dy > 0 else -1
+
+        if abs(dx) < 1.0:
+            # Vertical: group by shared X position
+            key = ("V", round(sx), v_dir)
+        else:
+            # L-shaped: group by vertical channel midpoint
+            mid_x = (sx + tx) / 2
+            key = ("L", round(mid_x), v_dir)
+
+        corridor_groups[key].append(item)
+
+    # Assign per-line positions within each corridor
+    assignments: dict[tuple[str, str, str], tuple[int, int]] = {}
+
+    for _key, group in corridor_groups.items():
+        # Sort by the exit port's source-station Y ordering (same as
+        # compute_station_offsets uses for exit ports) so the bundle
+        # ordering matches the exit port's station offsets.
+        exit_port_id = group[0][0].source
+        port = graph.ports.get(exit_port_id)
+        if port and not port.is_entry:
+            source_y = _line_source_y_at_port(exit_port_id, graph)
+            group.sort(key=lambda e: (
+                source_y.get(e[0].line_id, 0),
+                line_priority.get(e[0].line_id, 999),
+            ))
+        else:
+            group.sort(key=lambda e: line_priority.get(e[0].line_id, 999))
+
+        n = len(group)
+        for i, (edge, *_rest) in enumerate(group):
+            assignments[(edge.source, edge.target, edge.line_id)] = (i, n)
+
+    return assignments
 
 
 def route_inter_section_edges(
@@ -255,16 +341,88 @@ def compute_station_offsets(
     each line at a consistent position as it passes through a station,
     so transitions between bundles of different sizes are smooth.
 
+    Port stations use physical Y ordering to preserve bundle consistency:
+    - Exit ports: sorted by connected internal station Y
+    - Entry ports: sorted by incoming connection's effective Y
+    This ensures the bundle ordering doesn't change between sections.
+
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
 
     offsets: dict[tuple[str, str], float] = {}
+
+    # Phase 1: Exit ports - sort by connected internal station Y
     for sid in graph.stations:
+        port = graph.ports.get(sid)
+        if not port or port.is_entry:
+            continue
+        lines = graph.station_lines(sid)
+        source_y = _line_source_y_at_port(sid, graph)
+        lines.sort(key=lambda l: (source_y.get(l, 0), line_priority.get(l, 999)))
+        for i, lid in enumerate(lines):
+            offsets[(sid, lid)] = i * offset_step
+
+    # Phase 2: Entry ports - sort by incoming source's effective Y
+    # (source station Y + its offset for the line) so bundle ordering
+    # is preserved through the turn into the section
+    for sid in graph.stations:
+        port = graph.ports.get(sid)
+        if not port or not port.is_entry:
+            continue
+        lines = graph.station_lines(sid)
+        incoming_y = _line_incoming_y_at_entry_port(sid, graph, offsets)
+        lines.sort(key=lambda l: (incoming_y.get(l, 0), line_priority.get(l, 999)))
+        for i, lid in enumerate(lines):
+            offsets[(sid, lid)] = i * offset_step
+
+    # Phase 3: All other stations - sort by line priority
+    for sid in graph.stations:
+        if (sid, graph.station_lines(sid)[0]) in offsets if graph.station_lines(sid) else False:
+            continue
         lines = graph.station_lines(sid)
         lines.sort(key=lambda l: line_priority.get(l, 999))
         for i, lid in enumerate(lines):
             offsets[(sid, lid)] = i * offset_step
 
     return offsets
+
+
+def _line_source_y_at_port(
+    port_id: str,
+    graph: MetroGraph,
+) -> dict[str, float]:
+    """Map line_id -> Y of connected internal station at an exit port.
+
+    For an exit port, looks at edges going TO the port (station -> port)
+    and returns the source station's Y position for each line.
+    """
+    line_y: dict[str, float] = {}
+    for edge in graph.edges:
+        if edge.target == port_id:
+            src = graph.stations.get(edge.source)
+            if src and not src.is_port:
+                line_y[edge.line_id] = src.y
+    return line_y
+
+
+def _line_incoming_y_at_entry_port(
+    port_id: str,
+    graph: MetroGraph,
+    exit_offsets: dict[tuple[str, str], float],
+) -> dict[str, float]:
+    """Map line_id -> effective Y of incoming connection at an entry port.
+
+    Uses the source station's Y + its already-computed station offset
+    for the line, so the entry port ordering matches the bundle ordering
+    from the source section.
+    """
+    line_y: dict[str, float] = {}
+    for edge in graph.edges:
+        if edge.target == port_id:
+            src = graph.stations.get(edge.source)
+            if src and src.is_port:
+                src_off = exit_offsets.get((edge.source, edge.line_id), 0)
+                line_y[edge.line_id] = src.y + src_off
+    return line_y

@@ -259,9 +259,10 @@ def _parse_edge(
 def _resolve_sections(graph: MetroGraph) -> None:
     """Post-parse: classify edges, create ports, rewrite inter-section edges.
 
-    Key design: ONE exit port per source station. All lines leave a station
-    together in the same direction, then fan out between sections. ONE entry
-    port per target station per side (side from hints or LEFT default).
+    Key design: ONE exit port per source section. All lines leaving a section
+    exit together, ensuring consistent ordering. Junctions handle fan-out
+    to multiple target sections. ONE entry port per target section per side
+    (side from hints or LEFT default).
     """
     # Build line->side mapping from explicit entry hints
     entry_side_for_line: dict[tuple[str, str], PortSide] = {}
@@ -292,8 +293,8 @@ def _resolve_sections(graph: MetroGraph) -> None:
                 section.number = i + 1
         return
 
-    # ONE exit port per source station (all lines leave together, always RIGHT)
-    exit_group_edges: dict[tuple[str, str], list[Edge]] = {}
+    # ONE exit port per source section (all lines leave together, always RIGHT)
+    exit_group_edges: dict[str, list[Edge]] = {}
     # ONE entry port per (target_section, entry_side) - lines going to the
     # same section travel bundled together, only fan out inside the section
     entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
@@ -303,17 +304,16 @@ def _resolve_sections(graph: MetroGraph) -> None:
         tgt_sec = graph.section_for_station(edge.target)
         entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
 
-        exit_key = (edge.source, src_sec)
-        exit_group_edges.setdefault(exit_key, []).append(edge)
+        exit_group_edges.setdefault(src_sec, []).append(edge)
 
         entry_key = (tgt_sec, entry_side)
         entry_group_edges.setdefault(entry_key, []).append(edge)
 
-    # Create exit ports (one per source station, RIGHT side)
+    # Create exit ports (one per source section, RIGHT side)
     port_counter = 0
-    exit_port_map: dict[tuple[str, str], str] = {}
+    exit_port_map: dict[str, str] = {}
 
-    for (source_id, sec_id), edges in exit_group_edges.items():
+    for sec_id, edges in exit_group_edges.items():
         all_line_ids = sorted({e.line_id for e in edges})
         port_id = f"{sec_id}__exit_right_{port_counter}"
         port = Port(
@@ -321,7 +321,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
             line_ids=all_line_ids, is_entry=False,
         )
         graph.add_port(port)
-        exit_port_map[(source_id, sec_id)] = port_id
+        exit_port_map[sec_id] = port_id
         port_counter += 1
 
     # Create entry ports (one per target section per side)
@@ -350,7 +350,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
         tgt_sec = graph.section_for_station(edge.target)
         entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
 
-        exit_port_id = exit_port_map[(edge.source, src_sec)]
+        exit_port_id = exit_port_map[src_sec]
         entry_port_id = entry_port_map[(tgt_sec, entry_side)]
 
         # source -> exit_port (always needed)
