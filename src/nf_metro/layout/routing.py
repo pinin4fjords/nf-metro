@@ -77,6 +77,17 @@ def route_edges(
             i, n = bundle_info.get(
                 (edge.source, edge.target, edge.line_id), (0, 1))
 
+            # Check for TB BOTTOM exit first: route as a near-vertical
+            # drop with reversed X offsets even with a small X offset
+            # (entry port may be at section right edge for RL targets).
+            src_port_obj2 = graph.ports.get(edge.source)
+            src_is_tb_bottom = (
+                src_port_obj2 is not None
+                and not src_port_obj2.is_entry
+                and src_port_obj2.side == PortSide.BOTTOM
+                and src.section_id in tb_sections
+            )
+
             if abs(dy) < 0.01:
                 # Same Y: straight horizontal
                 routes.append(RoutedPath(
@@ -84,39 +95,29 @@ def route_edges(
                     points=[(sx, sy), (tx, ty)],
                     is_inter_section=True,
                 ))
+            elif src_is_tb_bottom and station_offsets:
+                # Vertical drop from TB BOTTOM exit with reversed X offsets.
+                src_off = station_offsets.get(
+                    (edge.source, edge.line_id), 0.0)
+                all_offs = [
+                    station_offsets.get((edge.source, lid), 0.0)
+                    for lid in graph.station_lines(edge.source)
+                ]
+                max_off = max(all_offs) if all_offs else 0.0
+                rev_off = max_off - src_off
+                routes.append(RoutedPath(
+                    edge=edge, line_id=edge.line_id,
+                    points=[(sx + rev_off, sy), (tx + rev_off, ty)],
+                    is_inter_section=True,
+                    offsets_applied=True,
+                ))
             elif abs(dx) < 1.0:
-                # Same X: straight vertical drop.
-                # If source is a BOTTOM exit port from a TB section,
-                # use reversed X offsets to match the TB convention
-                # (lines separated horizontally in vertical runs).
-                src_port_obj2 = graph.ports.get(edge.source)
-                src_is_tb_bottom = (
-                    src_port_obj2 is not None
-                    and not src_port_obj2.is_entry
-                    and src_port_obj2.side == PortSide.BOTTOM
-                    and src.section_id in tb_sections
-                )
-                if src_is_tb_bottom and station_offsets:
-                    src_off = station_offsets.get(
-                        (edge.source, edge.line_id), 0.0)
-                    all_offs = [
-                        station_offsets.get((edge.source, lid), 0.0)
-                        for lid in graph.station_lines(edge.source)
-                    ]
-                    max_off = max(all_offs) if all_offs else 0.0
-                    rev_off = max_off - src_off
-                    routes.append(RoutedPath(
-                        edge=edge, line_id=edge.line_id,
-                        points=[(sx + rev_off, sy), (tx + rev_off, ty)],
-                        is_inter_section=True,
-                        offsets_applied=True,
-                    ))
-                else:
-                    routes.append(RoutedPath(
-                        edge=edge, line_id=edge.line_id,
-                        points=[(sx, sy), (tx, ty)],
-                        is_inter_section=True,
-                    ))
+                # Same X: straight vertical drop
+                routes.append(RoutedPath(
+                    edge=edge, line_id=edge.line_id,
+                    points=[(sx, sy), (tx, ty)],
+                    is_inter_section=True,
+                ))
             else:
                 # L-shape: vertical bundle between source and target,
                 # with per-line offsets for visual separation.
@@ -263,32 +264,28 @@ def route_edges(
                 max_src_off = max(all_src_offs) if all_src_offs else 0.0
                 rev_src_off = max_src_off - src_off
 
-                # Also reverse target Y offsets so bundle ordering
-                # is preserved at the corner: leftmost vertical line
-                # becomes topmost horizontal line when turning left.
-                all_tgt_offs = [
-                    station_offsets.get((edge.target, lid), 0.0)
-                    for lid in graph.station_lines(edge.target)
-                ]
-                max_tgt_off = max(all_tgt_offs) if all_tgt_offs else 0.0
-                rev_tgt_off = max_tgt_off - tgt_off
+                # Target Y offsets are used as-is (not reversed) because
+                # _detect_reversed_sections already flips the line ordering
+                # for stations in sections fed by TB exits. This keeps the
+                # arrival offsets consistent with the departure offsets.
 
                 if abs(dx) < 1.0:
+                    # Nearly same X: straight vertical drop
                     routes.append(RoutedPath(
                         edge=edge, line_id=edge.line_id,
-                        points=[(sx + rev_src_off, sy), (tx, ty + rev_tgt_off)],
+                        points=[(sx + rev_src_off, sy), (tx, ty + tgt_off)],
                         offsets_applied=True,
                     ))
                 else:
-                    # L-shape: vertical drop (reversed X) then horizontal
-                    # (reversed Y). Concentric curves at the corner:
-                    # outermost line gets largest radius.
+                    # L-shape: vertical drop (reversed X) then horizontal.
+                    # Concentric curves at the corner: outermost line
+                    # gets largest radius.
                     routes.append(RoutedPath(
                         edge=edge, line_id=edge.line_id,
                         points=[
                             (sx + rev_src_off, sy),
-                            (sx + rev_src_off, ty + rev_tgt_off),
-                            (tx, ty + rev_tgt_off),
+                            (sx + rev_src_off, ty + tgt_off),
+                            (tx, ty + tgt_off),
                         ],
                         offsets_applied=True,
                         curve_radii=[curve_radius + rev_src_off],
@@ -579,12 +576,19 @@ def compute_station_offsets(
         for i, lid in enumerate(lines):
             offsets[(sid, lid)] = i * offset_step
 
+    # Detect sections where incoming bundle has reversed line ordering
+    # (TOP entry fed by a TB section's BOTTOM exit). Internal station
+    # offsets must match so lines don't flip at the first station.
+    reversed_sections = _detect_reversed_sections(graph)
+
     # Phase 3: All other stations - sort by line priority
     for sid in graph.stations:
         if (sid, graph.station_lines(sid)[0]) in offsets if graph.station_lines(sid) else False:
             continue
         lines = graph.station_lines(sid)
-        lines.sort(key=lambda l: line_priority.get(l, 999))
+        station = graph.stations[sid]
+        reverse = station.section_id in reversed_sections
+        lines.sort(key=lambda l: line_priority.get(l, 999), reverse=reverse)
         for i, lid in enumerate(lines):
             offsets[(sid, lid)] = i * offset_step
 
@@ -628,3 +632,33 @@ def _line_incoming_y_at_entry_port(
                 src_off = exit_offsets.get((edge.source, edge.line_id), 0)
                 line_y[edge.line_id] = src.y + src_off
     return line_y
+
+
+def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
+    """Find sections where incoming bundle ordering is reversed.
+
+    A section is "reversed" when it receives lines via a TOP entry port
+    that connects upstream to a TB section's BOTTOM exit port. The TB
+    section reverses X offsets in the vertical bundle, so the downstream
+    section must use reversed Y ordering to match.
+    """
+    tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
+    reversed_secs: set[str] = set()
+
+    for sec_id, section in graph.sections.items():
+        for port_id in section.entry_ports:
+            port = graph.ports.get(port_id)
+            if not port or port.side != PortSide.TOP:
+                continue
+            for edge in graph.edges:
+                if edge.target == port_id:
+                    src = graph.stations.get(edge.source)
+                    if not src or not src.is_port:
+                        continue
+                    src_port = graph.ports.get(edge.source)
+                    if (src_port and not src_port.is_entry
+                            and src_port.side == PortSide.BOTTOM
+                            and src.section_id in tb_sections):
+                        reversed_secs.add(sec_id)
+
+    return reversed_secs
