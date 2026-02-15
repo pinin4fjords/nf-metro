@@ -126,6 +126,7 @@ class MetroGraph:
     ports: dict[str, Port] = field(default_factory=dict)
     junctions: list[str] = field(default_factory=list)
     grid_overrides: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    legend_position: str = "bottom"
 
     def add_line(self, line: MetroLine) -> None:
         self.lines[line.id] = line

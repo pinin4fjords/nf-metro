@@ -6,6 +6,7 @@
 %%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
 %%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
 %%metro grid: postprocessing | 2,0,2
+%%metro legend: bl
 
 graph LR
     subgraph preprocessing [Pre-processing]
@@ -44,8 +45,8 @@ graph LR
         umi_tools_dedup[UMI-tools dedup]
 
         star -->|star_rsem| rsem
-        star -->|star_salmon| salmon_quant
-        salmon_quant -->|star_salmon| umi_tools_dedup
+        star -->|star_salmon| umi_tools_dedup
+        umi_tools_dedup -->|star_salmon| salmon_quant
         hisat2_align -->|hisat2| umi_tools_dedup
     end
 
@@ -56,10 +57,12 @@ graph LR
         picard[Picard]
         bedtools[BEDTools]
         bedgraph[bedGraphToBigWig]
+        stringtie[StringTie]
 
         samtools -->|star_salmon,star_rsem,hisat2| picard
         picard -->|star_salmon,star_rsem,hisat2| bedtools
         bedtools -->|star_salmon,star_rsem,hisat2| bedgraph
+        bedgraph -->|star_salmon,star_rsem,hisat2| stringtie
     end
 
     subgraph pseudo_align [Pseudo-alignment & quantification]
@@ -77,6 +80,6 @@ graph LR
     sortmerna -->|hisat2| hisat2_align
     sortmerna -->|pseudo_salmon| salmon_pseudo
     sortmerna -->|pseudo_kallisto| kallisto
-    umi_tools_dedup -->|star_salmon| samtools
+    salmon_quant -->|star_salmon| samtools
     rsem -->|star_rsem| samtools
     umi_tools_dedup -->|hisat2| samtools

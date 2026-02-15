@@ -7,7 +7,7 @@ import drawsvg as draw
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
 from nf_metro.parser.model import MetroGraph
-from nf_metro.render.legend import render_legend
+from nf_metro.render.legend import compute_legend_dimensions, render_legend
 from nf_metro.render.style import Theme
 
 
@@ -35,11 +35,46 @@ def render_svg(
             max_x = max(max_x, section.bbox_x + section.bbox_w)
             max_y = max(max_y, section.bbox_y + section.bbox_h)
 
-    # Reserve space for legend
-    legend_height = 24.0 * len(graph.lines) + 40.0 if graph.lines else 0
+    # Compute legend position based on legend_position directive
+    legend_x = 0.0
+    legend_y = 0.0
+    legend_w, legend_h = compute_legend_dimensions(graph, theme)
+    show_legend = graph.legend_position != "none" and legend_w > 0
+
+    if show_legend:
+        pos = graph.legend_position
+        gap = 30.0
+        inset = 10.0
+        # Section content bounds (or station bounds if no sections)
+        content_left = min((s.bbox_x for s in graph.sections.values() if s.bbox_w > 0), default=padding)
+        content_right = max_x
+        content_top = min((s.bbox_y for s in graph.sections.values() if s.bbox_w > 0), default=padding)
+        content_bottom = max_y
+
+        if pos == "bl":
+            legend_x = content_left
+            legend_y = content_bottom - legend_h
+        elif pos == "br":
+            legend_x = content_right - legend_w - inset
+            legend_y = content_bottom - legend_h - inset
+        elif pos == "tl":
+            legend_x = content_left + inset
+            legend_y = content_top + inset
+        elif pos == "tr":
+            legend_x = content_right - legend_w - inset
+            legend_y = content_top + inset
+        elif pos == "bottom":
+            legend_x = content_left
+            legend_y = content_bottom + gap
+        elif pos == "right":
+            legend_x = content_right + gap
+            legend_y = content_top
+
+        max_x = max(max_x, legend_x + legend_w)
+        max_y = max(max_y, legend_y + legend_h)
 
     auto_width = max_x + padding * 2
-    auto_height = max_y + padding * 2 + legend_height + 60
+    auto_height = max_y + padding * 2
 
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
@@ -79,9 +114,8 @@ def render_svg(
     _render_labels(d, labels, theme)
 
     # Legend
-    legend_x = padding
-    legend_y = max_y + padding + 30
-    render_legend(d, graph, theme, legend_x, legend_y)
+    if show_legend:
+        render_legend(d, graph, theme, legend_x, legend_y)
 
     return d.as_svg()
 

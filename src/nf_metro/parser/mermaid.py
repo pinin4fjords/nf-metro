@@ -111,6 +111,10 @@ def _parse_directive(
                 graph.sections[current_section_id].direction = direction
     elif content.startswith("grid:"):
         _parse_grid_directive(content, graph)
+    elif content.startswith("legend:"):
+        pos = content[len("legend:"):].strip().lower()
+        if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
+            graph.legend_position = pos
 
 
 def _parse_port_hint(
@@ -167,9 +171,9 @@ def _parse_grid_directive(content: str, graph: MetroGraph) -> None:
         col = int(coords[0].strip())
         row = int(coords[1].strip())
         rowspan = int(coords[2].strip()) if len(coords) >= 3 else 1
-        graph.grid_overrides[section_id] = (col, row, rowspan)
     except ValueError:
         return
+    graph.grid_overrides[section_id] = (col, row, rowspan)
 
 
 # Regex patterns for node shapes

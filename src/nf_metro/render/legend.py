@@ -8,6 +8,25 @@ from nf_metro.parser.model import MetroGraph
 from nf_metro.render.style import Theme
 
 
+def compute_legend_dimensions(graph: MetroGraph, theme: Theme) -> tuple[float, float]:
+    """Compute the width and height of the legend without rendering it.
+
+    Returns (width, height). Returns (0, 0) if there are no lines.
+    """
+    if not graph.lines:
+        return (0.0, 0.0)
+
+    line_height = 24.0
+    padding = 12.0
+    swatch_width = 24.0
+    text_offset = swatch_width + 12.0
+
+    max_name_len = max(len(ml.display_name) for ml in graph.lines.values())
+    width = text_offset + max_name_len * 7.5 + padding * 2
+    height = padding * 2 + len(graph.lines) * line_height
+    return (width, height)
+
+
 def render_legend(
     drawing: draw.Drawing,
     graph: MetroGraph,
@@ -27,10 +46,7 @@ def render_legend(
     swatch_width = 24.0
     text_offset = swatch_width + 12.0
 
-    # Calculate legend dimensions
-    max_name_len = max(len(ml.display_name) for ml in graph.lines.values())
-    legend_width = text_offset + max_name_len * 7.5 + padding * 2
-    legend_height = padding * 2 + len(graph.lines) * line_height
+    legend_width, legend_height = compute_legend_dimensions(graph, theme)
 
     # Background
     drawing.append(draw.Rectangle(
