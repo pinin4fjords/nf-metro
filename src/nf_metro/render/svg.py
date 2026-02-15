@@ -139,7 +139,7 @@ def render_svg(
     _render_stations(d, graph, theme, station_offsets)
 
     # Draw labels (horizontal, skip ports)
-    labels = place_labels(graph)
+    labels = place_labels(graph, station_offsets=station_offsets)
     _render_labels(d, labels, theme)
 
     # Legend
