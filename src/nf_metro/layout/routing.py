@@ -21,11 +21,13 @@ class RoutedPath:
     line_id: str
     points: list[tuple[float, float]]
     is_inter_section: bool = False
+    curve_radii: list[float] | None = None
 
 
 def route_edges(
     graph: MetroGraph,
     diagonal_run: float = 30.0,
+    curve_radius: float = 10.0,
 ) -> list[RoutedPath]:
     """Route all edges with smooth direction changes.
 
@@ -40,20 +42,18 @@ def route_edges(
 
     junction_ids = set(graph.junctions)
 
-    # Pre-compute horizontal offsets for lines at each junction
-    # so vertical bundles have visible line separation
+    # Pre-compute per-line index and count at each junction
+    # for concentric arc radius calculations
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
-    junction_x_offsets: dict[tuple[str, str], float] = {}
+    junction_line_info: dict[tuple[str, str], tuple[int, int]] = {}
     offset_step = 3.0
     for jid in junction_ids:
         lines_at = graph.station_lines(jid)
         lines_at.sort(key=lambda l: line_priority.get(l, 999))
         n = len(lines_at)
         for i, lid in enumerate(lines_at):
-            # Reverse order: lowest line (highest Y offset at target)
-            # gets smallest X offset (turns south first, leftmost)
-            junction_x_offsets[(jid, lid)] = (n - 1 - i) * offset_step
+            junction_line_info[(jid, lid)] = (i, n)
 
     for edge in graph.edges:
         src = graph.stations.get(edge.source)
@@ -73,9 +73,11 @@ def route_edges(
             and (tgt.is_port or edge.target in junction_ids)
         )
         if is_inter_section:
-            # Horizontal offset for vertical runs in bundles
-            x_off = junction_x_offsets.get((edge.source, edge.line_id),
-                     junction_x_offsets.get((edge.target, edge.line_id), 0.0))
+            info = junction_line_info.get(
+                (edge.source, edge.line_id),
+                junction_line_info.get(
+                    (edge.target, edge.line_id), None))
+            i, n = info if info else (0, 1)
 
             if abs(dy) < 0.01:
                 # Same Y: straight horizontal
@@ -86,36 +88,32 @@ def route_edges(
                 ))
             elif abs(dx) < 1.0:
                 # Same X: straight vertical - apply horizontal offset
+                x_off = curve_radius + (2 * (n - 1) - i) * offset_step
                 routes.append(RoutedPath(
                     edge=edge, line_id=edge.line_id,
                     points=[(sx + x_off, sy), (tx + x_off, ty)],
                     is_inter_section=True,
                 ))
             else:
-                # L-shape: vertical first, then horizontal to entry port.
-                # Include fan-out point only if x_off > 0 to avoid
-                # degenerate zero-length segments.
-                if abs(x_off) > 0.01:
-                    routes.append(RoutedPath(
-                        edge=edge, line_id=edge.line_id,
-                        points=[
-                            (sx, sy),
-                            (sx + x_off, sy),
-                            (sx + x_off, ty),
-                            (tx, ty),
-                        ],
-                        is_inter_section=True,
-                    ))
-                else:
-                    routes.append(RoutedPath(
-                        edge=edge, line_id=edge.line_id,
-                        points=[
-                            (sx, sy),
-                            (sx, ty),
-                            (tx, ty),
-                        ],
-                        is_inter_section=True,
-                    ))
+                # L-shape: center vertical bundle between source and
+                # target, with per-line offsets for visual separation.
+                mid_x = (sx + tx) / 2
+                delta = ((n - 1) / 2 - i) * offset_step
+                vx = mid_x + delta
+                # Concentric arcs: different radii at top vs bottom.
+                r_top = curve_radius + (n - 1 - i) * offset_step
+                r_bottom = curve_radius + i * offset_step
+                routes.append(RoutedPath(
+                    edge=edge, line_id=edge.line_id,
+                    points=[
+                        (sx, sy),
+                        (vx, sy),
+                        (vx, ty),
+                        (tx, ty),
+                    ],
+                    is_inter_section=True,
+                    curve_radii=[r_top, r_bottom],
+                ))
             continue
 
         # Detect cross-row edge: target is to the left (only in folded layouts)

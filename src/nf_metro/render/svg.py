@@ -348,7 +348,16 @@ def _render_edges(
                 dy2 = nxt[1] - curr[1]
                 len2 = (dx2**2 + dy2**2) ** 0.5
 
-                r = min(curve_radius, len1 / 2, len2 / 2)
+                # Only halve segment length when the adjacent point also
+                # has a curve; endpoints (first/last points) never do.
+                max_len1 = len1 / 2 if i > 1 else len1
+                max_len2 = len2 / 2 if i < len(pts) - 2 else len2
+                corner_idx = i - 1
+                if route.curve_radii and corner_idx < len(route.curve_radii):
+                    effective_r = route.curve_radii[corner_idx]
+                else:
+                    effective_r = curve_radius
+                r = min(effective_r, max_len1, max_len2)
 
                 if len1 > 0 and len2 > 0:
                     before_x = curr[0] - (dx1 / len1) * r
