@@ -77,10 +77,14 @@ def _compute_section_layout(
         unique_tracks = sorted(set(tracks.values()))
         track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
+        # Detect fork/join layers and add extra spacing so stations
+        # aren't too close to divergence/convergence points
+        layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing)
+
         for sid, station in sub.stations.items():
             station.layer = layers.get(sid, 0)
             station.track = tracks.get(sid, 0)
-            station.x = station.layer * x_spacing
+            station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
             station.y = track_rank[station.track] * y_spacing
 
         # Ensure minimum inner width so stations sit on visible track
@@ -260,3 +264,47 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
             ))
 
     return sub
+
+
+def _compute_fork_join_gaps(
+    sub: MetroGraph,
+    layers: dict[str, int],
+    x_spacing: float,
+) -> dict[int, float]:
+    """Compute extra X offset per layer at fork/join points.
+
+    Adds a fractional gap after fork layers (where tracks diverge) and
+    before join layers (where tracks converge) so labels aren't obscured
+    by diagonal crossings.
+    """
+    from collections import defaultdict
+
+    out_targets: dict[str, set[str]] = defaultdict(set)
+    in_sources: dict[str, set[str]] = defaultdict(set)
+    for edge in sub.edges:
+        out_targets[edge.source].add(edge.target)
+        in_sources[edge.target].add(edge.source)
+
+    fork_layers = {layers[sid] for sid, targets in out_targets.items()
+                   if len(targets) > 1 and sid in layers}
+    join_layers = {layers[sid] for sid, sources in in_sources.items()
+                   if len(sources) > 1 and sid in layers}
+
+    if not fork_layers and not join_layers:
+        return {}
+
+    max_layer = max(layers.values()) if layers else 0
+    gap = x_spacing * 0.4
+
+    cumulative = 0.0
+    layer_extra: dict[int, float] = {}
+    for layer in range(max_layer + 1):
+        # Add gap before join layers
+        if layer in join_layers:
+            cumulative += gap
+        layer_extra[layer] = cumulative
+        # Add gap after fork layers
+        if layer in fork_layers:
+            cumulative += gap
+
+    return layer_extra
