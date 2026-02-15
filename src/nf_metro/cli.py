@@ -33,6 +33,8 @@ def cli() -> None:
               help="Vertical spacing between tracks (default: 40)")
 @click.option("--max-layers-per-row", type=int, default=None,
               help="Max layers before folding to next row (default: auto)")
+@click.option("--animate/--no-animate", default=False,
+              help="Add animated balls traveling along lines")
 def render(
     input_file: Path,
     output: Path | None,
@@ -42,6 +44,7 @@ def render(
     x_spacing: float,
     y_spacing: float,
     max_layers_per_row: int | None,
+    animate: bool,
 ) -> None:
     """Render a Mermaid metro map definition to SVG."""
     text = input_file.read_text()
@@ -51,7 +54,7 @@ def render(
                    max_layers_per_row=max_layers_per_row)
 
     theme_obj = THEMES[theme]
-    svg = render_svg(graph, theme_obj, width=width, height=height)
+    svg = render_svg(graph, theme_obj, width=width, height=height, animate=animate)
 
     if output is None:
         output = input_file.with_suffix(".svg")

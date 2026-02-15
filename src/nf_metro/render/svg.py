@@ -19,6 +19,7 @@ def render_svg(
     width: int | None = None,
     height: int | None = None,
     padding: float = 60.0,
+    animate: bool = False,
 ) -> str:
     """Render a metro map graph to an SVG string."""
     if not graph.stations:
@@ -127,6 +128,11 @@ def render_svg(
 
     # Draw edges (lines) behind stations
     _render_edges(d, graph, routes, station_offsets, theme)
+
+    # Animation (after edges, before stations so balls travel behind station markers)
+    if animate:
+        from nf_metro.render.animate import render_animation
+        render_animation(d, graph, routes, station_offsets, theme)
 
     # Draw stations (all circles, skip ports)
     _render_stations(d, graph, theme, station_offsets)

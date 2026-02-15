@@ -22,4 +22,5 @@ LIGHT_THEME = Theme(
     legend_background="rgba(255, 255, 255, 0.8)",
     legend_text_color="#333333",
     legend_font_size=12.0,
+    animation_ball_color="#333333",
 )
