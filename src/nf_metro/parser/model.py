@@ -129,6 +129,8 @@ class MetroGraph:
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
     legend_position: str = "bottom"
     logo_path: str = ""
+    # Section IDs that had explicit %%metro direction: directives
+    _explicit_directions: set[str] = field(default_factory=set)
 
     def add_line(self, line: MetroLine) -> None:
         self.lines[line.id] = line

@@ -247,8 +247,8 @@ def test_grid_directive_parsing():
         "    a --> b\n"
     )
     graph = parse_metro_mermaid(text)
-    assert graph.grid_overrides["sec2"] == (1, 0)
-    assert graph.grid_overrides["sec3"] == (1, 1)
+    assert graph.grid_overrides["sec2"] == (1, 0, 1, 1)
+    assert graph.grid_overrides["sec3"] == (1, 1, 1, 1)
 
 
 def test_section_numbering():

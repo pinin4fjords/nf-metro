@@ -1,0 +1,516 @@
+"""Auto-layout: infer section grid positions, directions, and port sides.
+
+Runs BEFORE _resolve_sections() in the parser. Scans inter-section edges
+(by comparing station.section_id) and fills in missing grid_overrides,
+section.direction, section.entry_hints, and section.exit_hints.
+
+Preserves any values explicitly set by %%metro directives.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict, deque
+
+from nf_metro.parser.model import MetroGraph, PortSide
+
+
+def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> None:
+    """Infer missing layout parameters for sections.
+
+    Mutates graph in-place. Fills in missing grid_overrides,
+    section.direction, section.entry_hints, and section.exit_hints.
+    Preserves any values explicitly set by %%metro directives.
+
+    max_station_columns: fold into a new row when the cumulative station
+    layer count across sections in a row exceeds this threshold.
+    """
+    if len(graph.sections) <= 1:
+        return
+
+    successors, predecessors, edge_lines = _build_section_dag(graph)
+
+    # Only run grid/direction/port inference if there are inter-section edges
+    if not successors and not predecessors:
+        return
+
+    fold_sections = _assign_grid_positions(
+        graph, successors, predecessors, max_station_columns,
+    )
+    _optimize_rowspans(graph, fold_sections)
+    _optimize_colspans(graph, fold_sections)
+    _infer_directions(graph, successors, predecessors, fold_sections)
+    _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
+
+
+def _build_section_dag(
+    graph: MetroGraph,
+) -> tuple[
+    dict[str, set[str]],
+    dict[str, set[str]],
+    dict[tuple[str, str], set[str]],
+]:
+    """Build section dependency DAG from inter-section edges.
+
+    Returns:
+        successors: section_id -> set of downstream section_ids
+        predecessors: section_id -> set of upstream section_ids
+        edge_lines: (src_section, tgt_section) -> set of line_ids
+    """
+    successors: dict[str, set[str]] = defaultdict(set)
+    predecessors: dict[str, set[str]] = defaultdict(set)
+    edge_lines: dict[tuple[str, str], set[str]] = defaultdict(set)
+
+    for edge in graph.edges:
+        src_sec = graph.section_for_station(edge.source)
+        tgt_sec = graph.section_for_station(edge.target)
+        if src_sec and tgt_sec and src_sec != tgt_sec:
+            successors[src_sec].add(tgt_sec)
+            predecessors[tgt_sec].add(src_sec)
+            edge_lines[(src_sec, tgt_sec)].add(edge.line_id)
+
+    return dict(successors), dict(predecessors), dict(edge_lines)
+
+
+def _estimate_section_layers(graph: MetroGraph, section_id: str) -> int:
+    """Estimate the number of station layers (horizontal span) for a section.
+
+    Computes the longest path through internal edges via topological DP.
+    Returns at least 1.
+    """
+    section = graph.sections[section_id]
+    station_ids = set(section.station_ids)
+
+    # Build adjacency for internal edges only
+    adj: dict[str, set[str]] = defaultdict(set)
+    has_pred: set[str] = set()
+    for edge in graph.edges:
+        if edge.source in station_ids and edge.target in station_ids:
+            adj[edge.source].add(edge.target)
+            has_pred.add(edge.target)
+
+    if not adj:
+        return max(len(station_ids), 1)
+
+    # BFS longest path from roots
+    roots = station_ids - has_pred
+    if not roots:
+        return len(station_ids)
+
+    longest: dict[str, int] = {sid: 0 for sid in station_ids}
+    queue: deque[str] = deque(roots)
+    visited: set[str] = set()
+
+    while queue:
+        node = queue.popleft()
+        if node in visited:
+            continue
+        visited.add(node)
+        for succ in adj.get(node, set()):
+            if longest[node] + 1 > longest[succ]:
+                longest[succ] = longest[node] + 1
+            queue.append(succ)
+
+    return max(longest.values()) + 1  # +1: convert 0-indexed depth to layer count
+
+
+def _assign_grid_positions(
+    graph: MetroGraph,
+    successors: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
+    max_station_columns: int,
+) -> set[str]:
+    """Assign grid (col, row) positions to sections without explicit grid overrides.
+
+    When cumulative station columns in a row exceed the threshold, the
+    overflowing topo column becomes a "fold section" - it stays at the
+    right edge of the current row as a TB bridge. Subsequent topo columns
+    go into a new row below.
+
+    Returns the set of section IDs designated as fold sections.
+    """
+    section_ids = list(graph.sections.keys())
+
+    # BFS topological sort for column assignment
+    all_sections = set(section_ids)
+    in_degree: dict[str, int] = {sid: 0 for sid in section_ids}
+    adj: dict[str, list[str]] = {sid: [] for sid in section_ids}
+
+    for src, targets in successors.items():
+        for tgt in targets:
+            if src in all_sections and tgt in all_sections:
+                adj[src].append(tgt)
+                in_degree[tgt] += 1
+
+    col_assign: dict[str, int] = {}
+    queue: deque[str] = deque()
+    for sid in section_ids:
+        if in_degree[sid] == 0:
+            queue.append(sid)
+            col_assign[sid] = 0
+
+    while queue:
+        sid = queue.popleft()
+        for tgt in adj[sid]:
+            new_col = col_assign[sid] + 1
+            if tgt not in col_assign or new_col > col_assign[tgt]:
+                col_assign[tgt] = new_col
+            in_degree[tgt] -= 1
+            if in_degree[tgt] == 0:
+                queue.append(tgt)
+
+    # Handle disconnected sections
+    for sid in section_ids:
+        if sid not in col_assign:
+            col_assign[sid] = 0
+
+    # Skip sections already in grid_overrides
+    auto_sections = {sid for sid in section_ids if sid not in graph.grid_overrides}
+
+    # Group auto sections by topo column
+    col_groups: dict[int, list[str]] = defaultdict(list)
+    for sid in section_ids:
+        if sid in auto_sections:
+            col_groups[col_assign[sid]].append(sid)
+
+    # Sort within each column by definition order
+    section_order = list(graph.sections.keys())
+    for col in col_groups:
+        col_groups[col].sort(key=lambda s: section_order.index(s))
+
+    if not col_groups:
+        return set()
+
+    # Estimate station-layer width per topo column (max across stacked sections)
+    topo_col_width: dict[int, int] = {}
+    for col, sids in col_groups.items():
+        topo_col_width[col] = max(
+            _estimate_section_layers(graph, sid) for sid in sids
+        )
+
+    # Greedily pack topo columns into row bands.
+    # When overflow is detected, the overflowing column becomes the fold
+    # section (TB bridge) at the right edge of the current row. Subsequent
+    # columns start a new row band below.
+    sorted_cols = sorted(col_groups.keys())
+    fold_sections: set[str] = set()
+    folded: dict[str, tuple[int, int]] = {}
+
+    current_grid_col = 0
+    col_step = 1  # +1 in first row (LR), -1 after a fold (RL)
+    band_start_row = 0
+    max_stack_in_band = 0  # tallest topo column (stacking) in this band
+    cumulative_width = 0
+
+    for topo_col in sorted_cols:
+        sids = col_groups[topo_col]
+        w = topo_col_width[topo_col]
+        stack_size = len(sids)
+        need_fold = cumulative_width > 0 and cumulative_width + w > max_station_columns
+
+        if need_fold:
+            # This column is the fold point: place at right edge as TB bridge
+            for i, sid in enumerate(sids):
+                folded[sid] = (current_grid_col, band_start_row + i)
+                fold_sections.add(sid)
+            max_stack_in_band = max(max_stack_in_band, stack_size)
+            # Start new row band below all stacked rows in the current band
+            band_start_row += max(max_stack_in_band, 1)
+            # Post-fold sections start at the fold column (right-aligned
+            # by section_placement) then flow backward.
+            col_step = -1
+            cumulative_width = 0
+            max_stack_in_band = 0
+        else:
+            # Normal placement in current band
+            for i, sid in enumerate(sids):
+                folded[sid] = (current_grid_col, band_start_row + i)
+            max_stack_in_band = max(max_stack_in_band, stack_size)
+            current_grid_col += col_step
+            cumulative_width += w
+
+    # Write results to grid_overrides and section fields
+    for sid, (col, row) in folded.items():
+        graph.grid_overrides[sid] = (col, row, 1, 1)
+        graph.sections[sid].grid_col = col
+        graph.sections[sid].grid_row = row
+
+    return fold_sections
+
+
+def _optimize_rowspans(graph: MetroGraph, fold_sections: set[str]) -> None:
+    """Extend fold section rowspans to cover stacked sections in adjacent columns.
+
+    For each fold section (TB bridge), check the column to its left for
+    vertically stacked sections. Extend the fold section's rowspan to match
+    the number of rows occupied by those adjacent sections.
+    """
+    if not fold_sections:
+        return
+
+    # Group sections by column
+    col_groups: dict[int, list[str]] = defaultdict(list)
+    for sid, section in graph.sections.items():
+        if section.grid_col >= 0:
+            col_groups[section.grid_col].append(sid)
+
+    for fold_sid in fold_sections:
+        fold_sec = graph.sections[fold_sid]
+        fold_col = fold_sec.grid_col
+        fold_row = fold_sec.grid_row
+
+        # Look at the column to the left for stacked sections
+        left_col = fold_col - 1
+        if left_col not in col_groups:
+            continue
+
+        # Find the max row occupied by sections in the left column
+        # that are at or below the fold section's row (same band)
+        max_row = fold_row
+        for sid in col_groups[left_col]:
+            sec = graph.sections[sid]
+            if sec.grid_row >= fold_row:
+                max_row = max(max_row, sec.grid_row)
+
+        new_rowspan = max_row - fold_row + 1
+        if new_rowspan > fold_sec.grid_row_span:
+            fold_sec.grid_row_span = new_rowspan
+            graph.grid_overrides[fold_sid] = (
+                fold_col,
+                fold_row,
+                new_rowspan,
+                fold_sec.grid_col_span,
+            )
+
+
+def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
+    """Optimize column spans to reduce dead space from oversized sections.
+
+    Only targets columns that contain a fold section (TB bridge). Fold
+    sections are narrow horizontally, so a wider section sharing the column
+    inflates it unnecessarily. Spanning the wider section leftward lets the
+    column width be determined by the fold section's actual width.
+    """
+    if not fold_sections:
+        return
+
+    # Group sections by column
+    col_groups: dict[int, list[str]] = defaultdict(list)
+    for sid, section in graph.sections.items():
+        if section.grid_col >= 0:
+            col_groups[section.grid_col].append(sid)
+
+    # Estimate layers per section
+    section_layers: dict[str, int] = {}
+    for sid in graph.sections:
+        section_layers[sid] = _estimate_section_layers(graph, sid)
+
+    # Compute max estimated layers per column
+    col_max_layers: dict[int, int] = {}
+    for col, sids in col_groups.items():
+        col_max_layers[col] = max(section_layers[sid] for sid in sids)
+
+    for col, sids in sorted(col_groups.items()):
+        if len(sids) < 2:
+            continue
+
+        # Only optimize columns containing a fold section
+        if not any(sid in fold_sections for sid in sids):
+            continue
+
+        for sid in sids:
+            # Don't span fold sections themselves (they're the narrow ones)
+            if sid in fold_sections:
+                continue
+
+            # Check if this section inflates the column width
+            other_max = max(section_layers[s] for s in sids if s != sid)
+            if section_layers[sid] <= other_max:
+                continue
+
+            # Span leftward until accumulated width >= this section's layers
+            target = section_layers[sid]
+            accumulated = other_max  # column's width from other sections
+            start_col = col
+            colspan = 1
+
+            for left_col in range(col - 1, -1, -1):
+                if left_col not in col_max_layers:
+                    break
+                accumulated += col_max_layers[left_col]
+                start_col = left_col
+                colspan += 1
+                if accumulated >= target:
+                    break
+
+            if colspan > 1:
+                section = graph.sections[sid]
+                section.grid_col = start_col
+                section.grid_col_span = colspan
+                graph.grid_overrides[sid] = (
+                    start_col,
+                    section.grid_row,
+                    section.grid_row_span,
+                    colspan,
+                )
+
+
+def _infer_directions(
+    graph: MetroGraph,
+    successors: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
+    fold_sections: set[str],
+) -> None:
+    """Infer section flow direction (LR/RL/TB) from grid positions.
+
+    Only modifies sections NOT in graph._explicit_directions.
+    Fold sections are forced to TB (they bridge between row bands).
+    Sections whose predecessors are all to the right get RL.
+    """
+    for sec_id, section in graph.sections.items():
+        if sec_id in graph._explicit_directions:
+            continue
+
+        # Fold sections are always TB (vertical bridge between rows)
+        if sec_id in fold_sections:
+            section.direction = "TB"
+            continue
+
+        my_col = section.grid_col
+        my_row = section.grid_row
+
+        # Get successor positions
+        succ_cols = []
+        succ_rows = []
+        for tgt in successors.get(sec_id, set()):
+            tgt_sec = graph.sections.get(tgt)
+            if tgt_sec and tgt_sec.grid_col >= 0:
+                succ_cols.append(tgt_sec.grid_col)
+                succ_rows.append(tgt_sec.grid_row)
+
+        # Get predecessor positions
+        pred_cols = []
+        pred_rows = []
+        for src in predecessors.get(sec_id, set()):
+            src_sec = graph.sections.get(src)
+            if src_sec and src_sec.grid_col >= 0:
+                pred_cols.append(src_sec.grid_col)
+                pred_rows.append(src_sec.grid_row)
+
+        # RL: all successors to the left, same row
+        if succ_cols and all(c < my_col for c in succ_cols):
+            if succ_rows and all(r == my_row for r in succ_rows):
+                section.direction = "RL"
+                continue
+
+        # RL: leaf section (no successors) and all predecessors are
+        # above or to the right (post-fold return row)
+        if not succ_cols and pred_cols:
+            if all(c >= my_col for c in pred_cols) and any(r < my_row for r in pred_rows):
+                section.direction = "RL"
+                continue
+
+        # TB: all successors are below
+        if succ_rows and all(r > my_row for r in succ_rows):
+            section.direction = "TB"
+            continue
+
+        # Default: LR
+        section.direction = "LR"
+
+
+def _infer_port_sides(
+    graph: MetroGraph,
+    successors: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
+    edge_lines: dict[tuple[str, str], set[str]],
+    fold_sections: set[str],
+) -> None:
+    """Infer entry/exit port sides from relative section grid positions.
+
+    Fold sections (TB bridges) get entry LEFT, exit BOTTOM.
+    Other sections use _relative_side to determine sides from grid positions.
+    """
+    for sec_id, section in graph.sections.items():
+        my_col = section.grid_col
+        my_row = section.grid_row
+
+        # Infer exit hints (only if section has no explicit exit_hints)
+        if not section.exit_hints and sec_id in successors:
+            all_exit_lines: set[str] = set()
+            for tgt in successors[sec_id]:
+                lines = edge_lines.get((sec_id, tgt), set())
+                all_exit_lines.update(lines)
+
+            if all_exit_lines:
+                if sec_id in fold_sections:
+                    # Fold sections exit from BOTTOM to the row below
+                    section.exit_hints.append(
+                        (PortSide.BOTTOM, sorted(all_exit_lines))
+                    )
+                else:
+                    side_votes: dict[PortSide, int] = defaultdict(int)
+                    for tgt in successors[sec_id]:
+                        tgt_sec = graph.sections.get(tgt)
+                        if not tgt_sec or tgt_sec.grid_col < 0:
+                            continue
+                        lines = edge_lines.get((sec_id, tgt), set())
+                        side = _relative_side(
+                            my_col, my_row, tgt_sec.grid_col, tgt_sec.grid_row,
+                        )
+                        side_votes[side] += len(lines)
+                    if side_votes:
+                        dominant_side = max(
+                            side_votes,
+                            key=lambda s: (side_votes[s], s == PortSide.RIGHT),
+                        )
+                        section.exit_hints.append(
+                            (dominant_side, sorted(all_exit_lines))
+                        )
+
+        # Infer entry hints (only if section has no explicit entry_hints)
+        if not section.entry_hints and sec_id in predecessors:
+            side_lines: dict[PortSide, set[str]] = defaultdict(set)
+
+            for src in predecessors[sec_id]:
+                src_sec = graph.sections.get(src)
+                if not src_sec or src_sec.grid_col < 0:
+                    continue
+
+                lines = edge_lines.get((src, sec_id), set())
+                if sec_id in fold_sections:
+                    # Fold sections receive from LEFT (from the row)
+                    side_lines[PortSide.LEFT].update(lines)
+                else:
+                    side = _relative_side(
+                        my_col, my_row, src_sec.grid_col, src_sec.grid_row,
+                    )
+                    side_lines[side].update(lines)
+
+            for side, lines in sorted(side_lines.items(), key=lambda x: x[0].value):
+                if lines:
+                    section.entry_hints.append((side, sorted(lines)))
+
+
+def _relative_side(
+    my_col: int,
+    my_row: int,
+    other_col: int,
+    other_row: int,
+) -> PortSide:
+    """Determine which side of 'my' section faces 'other' section."""
+    dcol = other_col - my_col
+    drow = other_row - my_row
+
+    # Prefer horizontal direction when tie
+    if abs(dcol) >= abs(drow):
+        if dcol > 0:
+            return PortSide.RIGHT
+        elif dcol < 0:
+            return PortSide.LEFT
+        else:
+            return PortSide.RIGHT  # same position, default right
+    else:
+        if drow > 0:
+            return PortSide.BOTTOM
+        else:
+            return PortSide.TOP
