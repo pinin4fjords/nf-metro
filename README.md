@@ -2,7 +2,7 @@
 
 Generate metro-map-style SVG diagrams from Mermaid graph definitions with `%%metro` directives. Designed for visualizing bioinformatics pipeline workflows (e.g., nf-core pipelines) as transit-style maps where each analysis route is a colored "metro line."
 
-![nf-core/rnaseq metro map](examples/rnaseq_sections.png)
+![nf-core/rnaseq metro map](examples/rnaseq_sections_light_animated.svg)
 
 ## Installation
 
