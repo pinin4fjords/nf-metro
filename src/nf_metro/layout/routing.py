@@ -85,13 +85,38 @@ def route_edges(
                     is_inter_section=True,
                 ))
             elif abs(dx) < 1.0:
-                # Same X: straight vertical - apply horizontal offset
-                x_off = curve_radius + (2 * (n - 1) - i) * offset_step
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[(sx + x_off, sy), (tx + x_off, ty)],
-                    is_inter_section=True,
-                ))
+                # Same X: straight vertical drop.
+                # If source is a BOTTOM exit port from a TB section,
+                # use reversed X offsets to match the TB convention
+                # (lines separated horizontally in vertical runs).
+                src_port_obj2 = graph.ports.get(edge.source)
+                src_is_tb_bottom = (
+                    src_port_obj2 is not None
+                    and not src_port_obj2.is_entry
+                    and src_port_obj2.side == PortSide.BOTTOM
+                    and src.section_id in tb_sections
+                )
+                if src_is_tb_bottom and station_offsets:
+                    src_off = station_offsets.get(
+                        (edge.source, edge.line_id), 0.0)
+                    all_offs = [
+                        station_offsets.get((edge.source, lid), 0.0)
+                        for lid in graph.station_lines(edge.source)
+                    ]
+                    max_off = max(all_offs) if all_offs else 0.0
+                    rev_off = max_off - src_off
+                    routes.append(RoutedPath(
+                        edge=edge, line_id=edge.line_id,
+                        points=[(sx + rev_off, sy), (tx + rev_off, ty)],
+                        is_inter_section=True,
+                        offsets_applied=True,
+                    ))
+                else:
+                    routes.append(RoutedPath(
+                        edge=edge, line_id=edge.line_id,
+                        points=[(sx, sy), (tx, ty)],
+                        is_inter_section=True,
+                    ))
             else:
                 # L-shape: vertical bundle between source and target,
                 # with per-line offsets for visual separation.
@@ -136,14 +161,23 @@ def route_edges(
 
         # TB section internal edges: L-shaped elbows and vertical runs
         # with per-line offsets pre-applied to the correct axis.
+        # Also includes edges to BOTTOM exit ports so the vertical run
+        # continues straight down without an offset discontinuity.
         src_sec = src.section_id
         tgt_sec = tgt.section_id
+        tgt_exit_port = graph.ports.get(edge.target)
+        tgt_is_bottom_exit = (
+            tgt_exit_port is not None
+            and not tgt_exit_port.is_entry
+            and tgt_exit_port.side == PortSide.BOTTOM
+        )
         if (src_sec and src_sec == tgt_sec and src_sec in tb_sections
-                and not src.is_port and not tgt.is_port):
+                and not src.is_port
+                and (not tgt.is_port or tgt_is_bottom_exit)):
             src_off = station_offsets.get((edge.source, edge.line_id), 0.0) if station_offsets else 0.0
             tgt_off = station_offsets.get((edge.target, edge.line_id), 0.0) if station_offsets else 0.0
             src_is_vert = src.layer > 0
-            tgt_is_vert = tgt.layer > 0
+            tgt_is_vert = tgt.layer > 0 or tgt_is_bottom_exit
 
             # For downward-turning elbows: reverse X offsets so that the
             # top line in the horizontal bundle becomes the rightmost in
@@ -189,6 +223,77 @@ def route_edges(
                     edge=edge, line_id=edge.line_id,
                     points=[
                         (sx, sy + src_off),
+                        (tx, ty + tgt_off),
+                    ],
+                    offsets_applied=True,
+                ))
+            continue
+
+        # TOP/BOTTOM port → internal station: L-shaped elbow
+        # (e.g., vertical entry from above curving into an RL section)
+        src_port_obj = graph.ports.get(edge.source)
+        if (src_port_obj
+                and src_port_obj.side in (PortSide.TOP, PortSide.BOTTOM)
+                and not tgt.is_port):
+            src_off = station_offsets.get((edge.source, edge.line_id), 0.0) if station_offsets else 0.0
+            tgt_off = station_offsets.get((edge.target, edge.line_id), 0.0) if station_offsets else 0.0
+
+            # Check if the incoming chain uses reversed X offsets
+            # (from a TB section's BOTTOM exit port above).
+            uses_rev_x = False
+            if src_port_obj.is_entry and station_offsets:
+                for e2 in graph.edges:
+                    if e2.target == edge.source:
+                        upstream = graph.stations.get(e2.source)
+                        if upstream and upstream.is_port:
+                            up_port = graph.ports.get(e2.source)
+                            if (up_port and not up_port.is_entry
+                                    and up_port.side == PortSide.BOTTOM
+                                    and upstream.section_id in tb_sections):
+                                uses_rev_x = True
+                                break
+
+            if uses_rev_x:
+                # Reversed X offsets on vertical segment to match
+                # the TB section's convention above.
+                all_offs = [
+                    station_offsets.get((edge.source, lid), 0.0)
+                    for lid in graph.station_lines(edge.source)
+                ]
+                max_off = max(all_offs) if all_offs else 0.0
+                rev_src_off = max_off - src_off
+
+                if abs(dx) < 1.0:
+                    routes.append(RoutedPath(
+                        edge=edge, line_id=edge.line_id,
+                        points=[(sx + rev_src_off, sy), (tx, ty + tgt_off)],
+                        offsets_applied=True,
+                    ))
+                else:
+                    # L-shape: vertical drop (reversed X) then horizontal (Y)
+                    routes.append(RoutedPath(
+                        edge=edge, line_id=edge.line_id,
+                        points=[
+                            (sx + rev_src_off, sy),
+                            (sx + rev_src_off, ty + tgt_off),
+                            (tx, ty + tgt_off),
+                        ],
+                        offsets_applied=True,
+                    ))
+            elif abs(dx) < 1.0:
+                # Nearly vertical: straight drop with Y offsets
+                routes.append(RoutedPath(
+                    edge=edge, line_id=edge.line_id,
+                    points=[(sx, sy + src_off), (tx, ty + tgt_off)],
+                    offsets_applied=True,
+                ))
+            else:
+                # L-shape: vertical drop then horizontal to station
+                routes.append(RoutedPath(
+                    edge=edge, line_id=edge.line_id,
+                    points=[
+                        (sx, sy + src_off),
+                        (sx, ty + tgt_off),
                         (tx, ty + tgt_off),
                     ],
                     offsets_applied=True,

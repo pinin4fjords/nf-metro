@@ -87,11 +87,12 @@ def place_sections(
             col_assign[sid] = 0
 
     # Apply grid overrides
-    for sid, (col, row, rowspan) in graph.grid_overrides.items():
+    for sid, (col, row, rowspan, colspan) in graph.grid_overrides.items():
         if sid in graph.sections:
             graph.sections[sid].grid_col = col
             graph.sections[sid].grid_row = row
             graph.sections[sid].grid_row_span = rowspan
+            graph.sections[sid].grid_col_span = colspan
             col_assign[sid] = col
 
     # Group sections by column
@@ -128,12 +129,23 @@ def place_sections(
 
     # Compute pixel offsets
     max_col = max(col_assign.values()) if col_assign else 0
+    # Account for columns occupied by spanning sections
+    for sid in graph.sections:
+        cspan = graph.sections[sid].grid_col_span
+        col = col_assign.get(sid, 0)
+        max_col = max(max_col, col + cspan - 1)
 
-    # Max width per column (shared across rows for x alignment)
+    # Max width per column (only from single-column sections)
     col_widths: dict[int, float] = defaultdict(float)
     for sid, section in graph.sections.items():
-        col = col_assign.get(sid, 0)
-        col_widths[col] = max(col_widths[col], section.bbox_w)
+        if section.grid_col_span == 1:
+            col = col_assign.get(sid, 0)
+            col_widths[col] = max(col_widths[col], section.bbox_w)
+
+    # Ensure all columns have an entry
+    for c in range(max_col + 1):
+        if c not in col_widths:
+            col_widths[c] = 0.0
 
     # Cumulative x offsets (columns are shared)
     col_offsets: dict[int, float] = {}
@@ -176,15 +188,25 @@ def place_sections(
         section.offset_x = col_offsets.get(section.grid_col, 0)
         section.offset_y = row_offsets.get(section.grid_row, 0)
 
-        # For spanning sections, set bbox_h to cover all spanned rows + gaps
-        span = section.grid_row_span
-        if span > 1:
+        # For row-spanning sections, set bbox_h to cover all spanned rows + gaps
+        rspan = section.grid_row_span
+        if rspan > 1:
             start_row = section.grid_row
             spanned_height = sum(
-                row_heights[r] for r in range(start_row, start_row + span)
+                row_heights[r] for r in range(start_row, start_row + rspan)
             )
-            spanned_height += (span - 1) * section_y_gap
+            spanned_height += (rspan - 1) * section_y_gap
             section.bbox_h = spanned_height
+
+        # For col-spanning sections, set bbox_w to cover all spanned cols + gaps
+        cspan = section.grid_col_span
+        if cspan > 1:
+            start_col = section.grid_col
+            spanned_width = sum(
+                col_widths[c] for c in range(start_col, start_col + cspan)
+            )
+            spanned_width += (cspan - 1) * section_x_gap
+            section.bbox_w = spanned_width
 
 
 def position_ports(section: Section, graph: MetroGraph) -> None:

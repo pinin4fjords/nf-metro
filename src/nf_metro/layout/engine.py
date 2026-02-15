@@ -97,6 +97,12 @@ def _compute_section_layout(
                 station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
                 station.y = track_rank[station.track] * y_spacing
 
+        # RL: mirror X so layer 0 is rightmost
+        if section.direction == "RL":
+            max_x_val = max(s.x for s in sub.stations.values())
+            for s in sub.stations.values():
+                s.x = max_x_val - s.x
+
         # Ensure minimum inner extent so stations sit on visible track
         xs = [s.x for s in sub.stations.values()]
         ys = [s.y for s in sub.stations.values()]
@@ -210,50 +216,57 @@ def _align_entry_ports(graph: MetroGraph) -> None:
     for port_id, port in graph.ports.items():
         if not port.is_entry:
             continue
-        if port.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
 
         entry_section = graph.sections.get(port.section_id)
         if not entry_section:
             continue
 
-        # Find the source station connecting to this entry port
-        for edge in graph.edges:
-            if edge.target == port_id:
-                src = graph.stations.get(edge.source)
-                if not src or not (src.is_port or edge.source in junction_ids):
-                    continue
+        if port.side in (PortSide.LEFT, PortSide.RIGHT):
+            # Align Y with incoming source so horizontal runs are straight
+            for edge in graph.edges:
+                if edge.target == port_id:
+                    src = graph.stations.get(edge.source)
+                    if not src or not (src.is_port or edge.source in junction_ids):
+                        continue
 
-                # Find the source's section row
-                src_section_id = src.section_id
-                # For junctions, trace back to the exit port's section
-                if edge.source in junction_ids:
-                    for e2 in graph.edges:
-                        if e2.target == edge.source:
-                            s2 = graph.stations.get(e2.source)
-                            if s2 and s2.section_id:
-                                src_section_id = s2.section_id
-                                break
+                    src_section_id = src.section_id
+                    if edge.source in junction_ids:
+                        for e2 in graph.edges:
+                            if e2.target == edge.source:
+                                s2 = graph.stations.get(e2.source)
+                                if s2 and s2.section_id:
+                                    src_section_id = s2.section_id
+                                    break
 
-                src_section = graph.sections.get(src_section_id) if src_section_id else None
-                if not src_section:
-                    continue
+                    src_section = graph.sections.get(src_section_id) if src_section_id else None
+                    if not src_section:
+                        continue
 
-                # Only align if same grid row
-                if entry_section.grid_row == src_section.grid_row:
-                    if entry_section.direction == "TB":
-                        # TB entry port Y is constrained by the first
-                        # internal station; move the source to match.
-                        src.y = port.y
-                        src_port = graph.ports.get(edge.source)
-                        if src_port:
-                            src_port.y = port.y
-                    else:
-                        station = graph.stations.get(port_id)
-                        if station:
-                            station.y = src.y
-                        port.y = src.y
-                break
+                    if entry_section.grid_row == src_section.grid_row:
+                        if entry_section.direction == "TB":
+                            src.y = port.y
+                            src_port = graph.ports.get(edge.source)
+                            if src_port:
+                                src_port.y = port.y
+                        else:
+                            station = graph.stations.get(port_id)
+                            if station:
+                                station.y = src.y
+                            port.y = src.y
+                    break
+
+        elif port.side in (PortSide.TOP, PortSide.BOTTOM):
+            # Align X with incoming source so vertical drops are straight
+            for edge in graph.edges:
+                if edge.target == port_id:
+                    src = graph.stations.get(edge.source)
+                    if not src or not (src.is_port or edge.source in junction_ids):
+                        continue
+                    station = graph.stations.get(port_id)
+                    if station:
+                        station.x = src.x
+                    port.x = src.x
+                    break
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:

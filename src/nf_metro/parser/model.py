@@ -95,6 +95,7 @@ class Section:
     grid_col: int = -1  # -1 means auto
     grid_row: int = -1
     grid_row_span: int = 1
+    grid_col_span: int = 1
     # Global offset (set by section placement)
     offset_x: float = 0.0
     offset_y: float = 0.0
@@ -125,7 +126,7 @@ class MetroGraph:
     sections: dict[str, Section] = field(default_factory=dict)
     ports: dict[str, Port] = field(default_factory=dict)
     junctions: list[str] = field(default_factory=list)
-    grid_overrides: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
     legend_position: str = "bottom"
 
     def add_line(self, line: MetroLine) -> None:

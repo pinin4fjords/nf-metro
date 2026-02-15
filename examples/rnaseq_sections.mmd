@@ -6,6 +6,7 @@
 %%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
 %%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
 %%metro grid: postprocessing | 2,0,2
+%%metro grid: qc_report | 1,2,1,2
 %%metro legend: bl
 
 graph LR
@@ -53,6 +54,7 @@ graph LR
     subgraph postprocessing [Post-processing]
         %%metro direction: TB
         %%metro entry: left | star_salmon, star_rsem, hisat2
+        %%metro exit: bottom | star_salmon, star_rsem, hisat2
         samtools[SAMtools]
         picard[Picard]
         bedtools[BEDTools]
@@ -75,6 +77,25 @@ graph LR
         kallisto -->|pseudo_kallisto| multiqc_pseudo
     end
 
+    subgraph qc_report [Quality control & reporting]
+        %%metro direction: RL
+        %%metro entry: top | star_salmon, star_rsem, hisat2
+        rseqc[RSeQC]
+        preseq[Preseq]
+        qualimap[Qualimap]
+        dupradar[dupRadar]
+        deseq2_pca[DESeq2 PCA]
+        kraken2[Kraken2/Bracken]
+        multiqc_final[MultiQC]
+
+        rseqc -->|star_salmon,star_rsem,hisat2| preseq
+        preseq -->|star_salmon,star_rsem,hisat2| qualimap
+        qualimap -->|star_salmon,star_rsem,hisat2| dupradar
+        dupradar -->|star_salmon,star_rsem,hisat2| deseq2_pca
+        deseq2_pca -->|star_salmon,star_rsem,hisat2| kraken2
+        kraken2 -->|star_salmon,star_rsem,hisat2| multiqc_final
+    end
+
     %% Inter-section edges
     sortmerna -->|star_salmon,star_rsem| star
     sortmerna -->|hisat2| hisat2_align
@@ -83,3 +104,4 @@ graph LR
     salmon_quant -->|star_salmon| samtools
     rsem -->|star_rsem| samtools
     umi_tools_dedup -->|hisat2| samtools
+    stringtie -->|star_salmon,star_rsem,hisat2| rseqc

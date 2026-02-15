@@ -107,7 +107,7 @@ def _parse_directive(
     elif content.startswith("direction:"):
         if current_section_id and current_section_id in graph.sections:
             direction = content[len("direction:"):].strip().upper()
-            if direction in ("LR", "TB"):
+            if direction in ("LR", "RL", "TB"):
                 graph.sections[current_section_id].direction = direction
     elif content.startswith("grid:"):
         _parse_grid_directive(content, graph)
@@ -156,7 +156,7 @@ def _parse_port_hint(
 
 
 def _parse_grid_directive(content: str, graph: MetroGraph) -> None:
-    """Parse %%metro grid: section_id | col,row[,rowspan] directive."""
+    """Parse %%metro grid: section_id | col,row[,rowspan[,colspan]] directive."""
     rest = content[len("grid:"):].strip()
     parts = rest.split("|")
     if len(parts) < 2:
@@ -171,9 +171,10 @@ def _parse_grid_directive(content: str, graph: MetroGraph) -> None:
         col = int(coords[0].strip())
         row = int(coords[1].strip())
         rowspan = int(coords[2].strip()) if len(coords) >= 3 else 1
+        colspan = int(coords[3].strip()) if len(coords) >= 4 else 1
     except ValueError:
         return
-    graph.grid_overrides[section_id] = (col, row, rowspan)
+    graph.grid_overrides[section_id] = (col, row, rowspan, colspan)
 
 
 # Regex patterns for node shapes
@@ -303,10 +304,21 @@ def _resolve_sections(graph: MetroGraph) -> None:
                 section.number = i + 1
         return
 
-    # ONE exit port per source section (all lines leave together, always RIGHT)
+    # Determine section-level exit side from hints: if all exit hints
+    # point to ONE side, use that side; otherwise default to RIGHT.
+    # This keeps one exit port per section (no splitting), just changes
+    # which boundary it sits on.
+    section_exit_side: dict[str, PortSide] = {}
+    for sec_id, section in graph.sections.items():
+        unique_sides = {side for side, _line_ids in section.exit_hints}
+        if len(unique_sides) == 1:
+            section_exit_side[sec_id] = unique_sides.pop()
+        else:
+            section_exit_side[sec_id] = PortSide.RIGHT
+
+    # ONE exit port per source section (all lines leave together)
     exit_group_edges: dict[str, list[Edge]] = {}
-    # ONE entry port per (target_section, entry_side) - lines going to the
-    # same section travel bundled together, only fan out inside the section
+    # ONE entry port per (target_section, entry_side)
     entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
 
     for edge in inter_section_edges:
@@ -319,15 +331,16 @@ def _resolve_sections(graph: MetroGraph) -> None:
         entry_key = (tgt_sec, entry_side)
         entry_group_edges.setdefault(entry_key, []).append(edge)
 
-    # Create exit ports (one per source section, RIGHT side)
+    # Create exit ports (one per source section)
     port_counter = 0
     exit_port_map: dict[str, str] = {}
 
     for sec_id, edges in exit_group_edges.items():
+        side = section_exit_side.get(sec_id, PortSide.RIGHT)
         all_line_ids = sorted({e.line_id for e in edges})
-        port_id = f"{sec_id}__exit_right_{port_counter}"
+        port_id = f"{sec_id}__exit_{side.value}_{port_counter}"
         port = Port(
-            id=port_id, section_id=sec_id, side=PortSide.RIGHT,
+            id=port_id, section_id=sec_id, side=side,
             line_ids=all_line_ids, is_entry=False,
         )
         graph.add_port(port)
