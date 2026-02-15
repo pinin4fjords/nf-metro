@@ -237,6 +237,19 @@ def _render_edges(
     curve_radius: float = 10.0,
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
+    # Sort routes by effective Y of the source point (highest Y first) so
+    # lines are drawn bottom-to-top.  This ensures each interior line in a
+    # bundle only loses one boundary edge to its neighbor rather than having
+    # a line drawn first get painted over on both sides.
+    def _sort_key(route: RoutedPath) -> float:
+        if route.offsets_applied:
+            return -route.points[0][1]
+        src_off = station_offsets.get(
+            (route.edge.source, route.line_id), 0.0)
+        return -(route.points[0][1] + src_off)
+
+    routes = sorted(routes, key=_sort_key)
+
     for route in routes:
         line = graph.lines.get(route.line_id)
         color = line.color if line else "#888888"
