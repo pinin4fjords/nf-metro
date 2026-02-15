@@ -67,6 +67,7 @@ def _boxes_overlap(
 def place_labels(
     graph: MetroGraph,
     label_offset: float = 16.0,
+    station_offsets: dict[tuple[str, str], float] | None = None,
 ) -> list[LabelPlacement]:
     """Place horizontal labels alternating above/below stations.
 
@@ -83,6 +84,18 @@ def place_labels(
     placements: list[LabelPlacement] = []
 
     for i, station in enumerate(sorted_stations):
+        # Compute the vertical extent of the station pill so labels
+        # are offset from the pill edge, not from station.y.
+        if station_offsets:
+            line_offs = [
+                station_offsets.get((station.id, lid), 0.0)
+                for lid in graph.station_lines(station.id)
+            ]
+            min_off = min(line_offs) if line_offs else 0.0
+            max_off = max(line_offs) if line_offs else 0.0
+        else:
+            min_off = max_off = 0.0
+
         # Check if this is a TB section vertical station (layer > 0)
         is_tb_vert = False
         if station.section_id:
@@ -110,20 +123,28 @@ def place_labels(
         # Alternate by layer (column): even layers below, odd layers above
         start_above = (station.layer % 2 == 1)
 
-        candidate = _try_place(station, label_offset, start_above, placements)
+        candidate = _try_place(
+            station, label_offset, start_above, placements,
+            min_off, max_off)
 
         if _has_collision(candidate, placements):
             # Try the other side
-            candidate = _try_place(station, label_offset, not start_above, placements)
+            candidate = _try_place(
+                station, label_offset, not start_above, placements,
+                min_off, max_off)
 
             if _has_collision(candidate, placements):
                 # Push further in the non-default direction
                 direction = -1 if not start_above else 1
+                if direction < 0:
+                    y = station.y + min_off - label_offset * 2.2
+                else:
+                    y = station.y + max_off + label_offset * 2.2
                 candidate = LabelPlacement(
                     station_id=station.id,
                     text=station.label,
                     x=station.x,
-                    y=station.y + direction * label_offset * 2.2,
+                    y=y,
                     above=(direction < 0),
                 )
 
@@ -137,14 +158,20 @@ def _try_place(
     label_offset: float,
     above: bool,
     existing: list[LabelPlacement],
+    min_off: float = 0.0,
+    max_off: float = 0.0,
 ) -> LabelPlacement:
-    """Create a label placement above or below a station."""
+    """Create a label placement above or below a station.
+
+    Offsets are measured from the pill edge: above labels use min_off
+    (top of the pill) and below labels use max_off (bottom of the pill).
+    """
     if above:
         return LabelPlacement(
             station_id=station.id,
             text=station.label,
             x=station.x,
-            y=station.y - label_offset,
+            y=station.y + min_off - label_offset,
             above=True,
         )
     else:
@@ -152,7 +179,7 @@ def _try_place(
             station_id=station.id,
             text=station.label,
             x=station.x,
-            y=station.y + label_offset,
+            y=station.y + max_off + label_offset,
             above=False,
         )
 
