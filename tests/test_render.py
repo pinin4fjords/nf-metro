@@ -58,7 +58,9 @@ def test_render_light_theme():
     )
     compute_layout(graph)
     svg = render_svg(graph, LIGHT_THEME)
-    assert LIGHT_THEME.background_color in svg
+    # Light theme uses transparent background (no background rectangle)
+    assert LIGHT_THEME.background_color == "none"
+    assert '#333333' in svg  # label/stroke color present
 
 
 def test_render_empty_graph():
