@@ -71,6 +71,13 @@ def parse_metro_mermaid(text: str) -> MetroGraph:
         infer_section_layout(graph)
         _resolve_sections(graph)
 
+    # Apply pending terminus designations
+    for station_id, ext_label in graph._pending_terminus.items():
+        station = graph.stations.get(station_id)
+        if station:
+            station.is_terminus = True
+            station.terminus_label = ext_label
+
     return graph
 
 
@@ -120,6 +127,12 @@ def _parse_directive(
         pos = content[len("legend:"):].strip().lower()
         if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
             graph.legend_position = pos
+    elif content.startswith("file:"):
+        parts = content[len("file:"):].strip().split("|")
+        if len(parts) >= 2:
+            station_id = parts[0].strip()
+            ext_label = parts[1].strip()
+            graph._pending_terminus[station_id] = ext_label
 
 
 def _parse_port_hint(
@@ -270,6 +283,7 @@ def _parse_edge(
     line_ids = [lid.strip() for lid in label.split(",")]
     for line_id in line_ids:
         graph.add_edge(Edge(source=source, target=target, line_id=line_id))
+
 
 
 def _resolve_sections(graph: MetroGraph) -> None:

@@ -32,6 +32,8 @@ class Station:
     label: str
     section_id: str | None = None
     is_port: bool = False
+    is_terminus: bool = False
+    terminus_label: str = ""
     # Populated by layout engine
     x: float = 0.0
     y: float = 0.0
@@ -131,6 +133,8 @@ class MetroGraph:
     logo_path: str = ""
     # Section IDs that had explicit %%metro direction: directives
     _explicit_directions: set[str] = field(default_factory=set)
+    # Pending terminus designations: station_id -> extension label
+    _pending_terminus: dict[str, str] = field(default_factory=dict)
 
     def add_line(self, line: MetroLine) -> None:
         self.lines[line.id] = line

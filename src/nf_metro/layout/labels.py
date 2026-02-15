@@ -148,6 +148,16 @@ def place_labels(
                     above=(direction < 0),
                 )
 
+        # Clamp terminus labels so they stay within section bbox
+        if station.is_terminus and station.section_id:
+            sec = graph.sections.get(station.section_id)
+            if sec and sec.bbox_w > 0:
+                char_width = 7.0
+                text_half_w = len(candidate.text) * char_width / 2
+                min_x = sec.bbox_x + text_half_w + 4
+                max_x = sec.bbox_x + sec.bbox_w - text_half_w - 4
+                candidate.x = max(min_x, min(candidate.x, max_x))
+
         placements.append(candidate)
 
     return placements
