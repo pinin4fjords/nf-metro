@@ -188,6 +188,13 @@ def place_sections(
         section.offset_x = col_offsets.get(section.grid_col, 0)
         section.offset_y = row_offsets.get(section.grid_row, 0)
 
+        # Right-align RL and TB sections within their column so that
+        # fold sections and post-fold RL sections share a right edge.
+        if section.direction in ("RL", "TB") and section.grid_col_span == 1:
+            col_w = col_widths.get(section.grid_col, 0)
+            if col_w > section.bbox_w:
+                section.offset_x += col_w - section.bbox_w
+
         # For row-spanning sections, set bbox_h to cover all spanned rows + gaps
         rspan = section.grid_row_span
         if rspan > 1:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
-from nf_metro.parser.model import Edge, MetroGraph, Section, Station
+from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
 
 
 def compute_layout(
@@ -209,8 +209,6 @@ def _align_entry_ports(graph: MetroGraph) -> None:
     the source's section, so horizontal runs between adjacent sections are
     straight. Ports in different rows keep their position for L-shaped routing.
     """
-    from nf_metro.parser.model import PortSide
-
     junction_ids = set(graph.junctions)
 
     for port_id, port in graph.ports.items():

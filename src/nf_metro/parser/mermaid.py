@@ -65,8 +65,10 @@ def parse_metro_mermaid(text: str) -> MetroGraph:
         # Try node definition
         _parse_node(stripped, graph, current_section_id)
 
-    # Post-parse: resolve sections if we have subgraph-based sections
+    # Post-parse: auto-infer layout parameters, then resolve sections
     if graph.sections:
+        from nf_metro.layout.auto_layout import infer_section_layout
+        infer_section_layout(graph)
         _resolve_sections(graph)
 
     return graph
@@ -109,6 +111,7 @@ def _parse_directive(
             direction = content[len("direction:"):].strip().upper()
             if direction in ("LR", "RL", "TB"):
                 graph.sections[current_section_id].direction = direction
+                graph._explicit_directions.add(current_section_id)
     elif content.startswith("grid:"):
         _parse_grid_directive(content, graph)
     elif content.startswith("logo:"):
