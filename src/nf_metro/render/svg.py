@@ -9,6 +9,7 @@ import drawsvg as draw
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
 from nf_metro.parser.model import MetroGraph
+from nf_metro.render.icons import render_file_icon
 from nf_metro.render.legend import compute_legend_dimensions, render_legend
 from nf_metro.render.style import Theme
 
@@ -399,6 +400,47 @@ def _render_stations(
                 stroke=theme.station_stroke,
                 stroke_width=theme.station_stroke_width,
             ))
+
+        # Render file icon adjacent to terminus stations
+        if station.is_terminus:
+            section = graph.sections.get(station.section_id) if station.section_id else None
+            # Detect if station is a source (no incoming internal edges) or sink
+            is_source = True
+            if section:
+                for edge in section.internal_edges:
+                    if edge.target == station.id:
+                        is_source = False
+                        break
+            # Place icon on the "outside" of the flow
+            icon_gap = r + 6
+            icon_half_w = theme.terminus_width / 2
+            section_dir = section.direction if section else "LR"
+            if section_dir == "RL":
+                icon_cx_offset = (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
+            else:
+                icon_cx_offset = -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
+            icon_cx = station.x + icon_cx_offset
+            icon_cy = station.y + (min_off + max_off) / 2
+            # Clamp to stay within section bbox
+            if section and section.bbox_w > 0:
+                icon_cx = max(section.bbox_x + icon_half_w + 2,
+                              min(icon_cx, section.bbox_x + section.bbox_w - icon_half_w - 2))
+            render_file_icon(
+                d,
+                cx=icon_cx,
+                cy=icon_cy,
+                width=theme.terminus_width,
+                height=theme.terminus_height,
+                fold_size=theme.terminus_fold_size,
+                fill=theme.terminus_fill or theme.station_fill,
+                stroke=theme.terminus_stroke or theme.station_stroke,
+                stroke_width=theme.terminus_stroke_width,
+                corner_radius=theme.terminus_corner_radius,
+                label=station.terminus_label,
+                font_size=theme.terminus_font_size,
+                font_color="#000000",
+                font_family=theme.label_font_family,
+            )
 
 
 def _render_labels(
