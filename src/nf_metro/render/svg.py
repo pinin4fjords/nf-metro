@@ -102,8 +102,9 @@ def render_svg(
 
     d = draw.Drawing(svg_width, svg_height)
 
-    # Background
-    d.append(draw.Rectangle(0, 0, svg_width, svg_height, fill=theme.background_color))
+    # Background (skip for transparent themes)
+    if theme.background_color and theme.background_color != "none":
+        d.append(draw.Rectangle(0, 0, svg_width, svg_height, fill=theme.background_color))
 
     # Title / Logo
     if show_logo:

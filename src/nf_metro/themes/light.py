@@ -4,7 +4,7 @@ from nf_metro.render.style import Theme
 
 LIGHT_THEME = Theme(
     name="light",
-    background_color="#f5f5f5",
+    background_color="none",
     station_fill="#ffffff",
     station_stroke="#333333",
     station_radius=6.0,
