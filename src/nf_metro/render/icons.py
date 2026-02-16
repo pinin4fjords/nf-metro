@@ -9,12 +9,7 @@ def train_icon_path(x: float, y: float, size: float = 12.0) -> str:
     """Generate an SVG path string for a small train icon. Placeholder for future."""
     # Simple diamond shape as placeholder
     hs = size / 2
-    return (
-        f"M {x} {y - hs} "
-        f"L {x + hs} {y} "
-        f"L {x} {y + hs} "
-        f"L {x - hs} {y} Z"
-    )
+    return f"M {x} {y - hs} L {x + hs} {y} L {x} {y + hs} L {x - hs} {y} Z"
 
 
 def render_file_icon(
@@ -101,13 +96,16 @@ def render_file_icon(
     # Extension label centered in the body (shifted down slightly to
     # account for fold taking up top-right space)
     text_y = cy + f * 0.15
-    d.append(draw.Text(
-        label,
-        font_size,
-        cx, text_y,
-        fill=font_color,
-        font_family=font_family,
-        font_weight="bold",
-        text_anchor="middle",
-        dominant_baseline="central",
-    ))
+    d.append(
+        draw.Text(
+            label,
+            font_size,
+            cx,
+            text_y,
+            fill=font_color,
+            font_family=font_family,
+            font_weight="bold",
+            text_anchor="middle",
+            dominant_baseline="central",
+        )
+    )

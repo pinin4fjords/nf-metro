@@ -90,11 +90,15 @@ def _compute_section_layout(
                 # so the elbow (horizontal-to-vertical turn) happens
                 # AFTER the first station, not at it.
                 station.x = track_rank[station.track] * x_spacing
-                station.y = station.layer * y_spacing + layer_extra.get(station.layer, 0)
+                station.y = station.layer * y_spacing + layer_extra.get(
+                    station.layer, 0
+                )
                 if station.layer > 0:
                     station.x += x_spacing
             else:
-                station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
+                station.x = station.layer * x_spacing + layer_extra.get(
+                    station.layer, 0
+                )
                 station.y = track_rank[station.track] * y_spacing
 
         # For TB sections, shift layer > 0 stations further right so
@@ -126,8 +130,11 @@ def _compute_section_layout(
         # Anchor on non-terminus stations so adding terminus layers
         # extends leftward without shifting the entry point.
         if section.direction == "RL":
-            non_term = [s for s in sub.stations.values()
-                        if not (s.is_terminus and not s.label.strip())]
+            non_term = [
+                s
+                for s in sub.stations.values()
+                if not (s.is_terminus and not s.label.strip())
+            ]
             anchor_stations = non_term if non_term else list(sub.stations.values())
             max_x_val = max(s.x for s in anchor_stations)
             for s in sub.stations.values():
@@ -288,7 +295,9 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                                     src_section_id = s2.section_id
                                     break
 
-                    src_section = graph.sections.get(src_section_id) if src_section_id else None
+                    src_section = (
+                        graph.sections.get(src_section_id) if src_section_id else None
+                    )
                     if not src_section:
                         continue
 
@@ -340,24 +349,28 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
             station = graph.stations[sid]
             if station.is_port:
                 continue
-            sub.add_station(Station(
-                id=station.id,
-                label=station.label,
-                section_id=station.section_id,
-                is_port=False,
-                is_terminus=station.is_terminus,
-                terminus_label=station.terminus_label,
-            ))
+            sub.add_station(
+                Station(
+                    id=station.id,
+                    label=station.label,
+                    section_id=station.section_id,
+                    is_port=False,
+                    is_terminus=station.is_terminus,
+                    terminus_label=station.terminus_label,
+                )
+            )
             real_station_ids.add(sid)
 
     # Add only edges between real stations (no port-touching edges)
     for edge in graph.edges:
         if edge.source in real_station_ids and edge.target in real_station_ids:
-            sub.add_edge(Edge(
-                source=edge.source,
-                target=edge.target,
-                line_id=edge.line_id,
-            ))
+            sub.add_edge(
+                Edge(
+                    source=edge.source,
+                    target=edge.target,
+                    line_id=edge.line_id,
+                )
+            )
 
     return sub
 
@@ -381,10 +394,16 @@ def _compute_fork_join_gaps(
         out_targets[edge.source].add(edge.target)
         in_sources[edge.target].add(edge.source)
 
-    fork_layers = {layers[sid] for sid, targets in out_targets.items()
-                   if len(targets) > 1 and sid in layers}
-    join_layers = {layers[sid] for sid, sources in in_sources.items()
-                   if len(sources) > 1 and sid in layers}
+    fork_layers = {
+        layers[sid]
+        for sid, targets in out_targets.items()
+        if len(targets) > 1 and sid in layers
+    }
+    join_layers = {
+        layers[sid]
+        for sid, sources in in_sources.items()
+        if len(sources) > 1 and sid in layers
+    }
 
     if not fork_layers and not join_layers:
         return {}

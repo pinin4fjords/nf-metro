@@ -5,14 +5,19 @@ from pathlib import Path
 from nf_metro.layout.auto_layout import (
     _assign_grid_positions,
     _build_section_dag,
-    _estimate_section_layers,
     _infer_directions,
     _infer_port_sides,
     infer_section_layout,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import Edge, MetroGraph, MetroLine, PortSide, Section, Station
-
+from nf_metro.parser.model import (
+    Edge,
+    MetroGraph,
+    MetroLine,
+    PortSide,
+    Section,
+    Station,
+)
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
 
@@ -23,7 +28,8 @@ def _make_graph_with_sections(
 ) -> MetroGraph:
     """Helper to build a graph with sections and inter-section edges.
 
-    inter_edges: list of (source_station, source_section, target_station, target_section, line_id)
+    inter_edges: list of (source_station, source_section,
+        target_station, target_section, line_id)
     """
     graph = MetroGraph()
     graph.add_line(MetroLine(id="main", display_name="Main", color="#ff0000"))
@@ -55,7 +61,8 @@ def _make_graph_with_sections(
 
 
 def test_build_section_dag():
-    """_build_section_dag correctly identifies successors, predecessors, and edge lines."""
+    """_build_section_dag correctly identifies successors, predecessors,
+    and edge lines."""
     graph = _make_graph_with_sections(
         ["sec1", "sec2", "sec3"],
         [
@@ -134,11 +141,14 @@ def test_grid_assignment_fold():
     sections = [f"sec{i}" for i in range(5)]
     edges = []
     for i in range(4):
-        edges.append((f"sec{i}_s1", f"sec{i}", f"sec{i+1}_s1", f"sec{i+1}", "main"))
+        edges.append((f"sec{i}_s1", f"sec{i}", f"sec{i + 1}_s1", f"sec{i + 1}", "main"))
     graph = _make_graph_with_sections(sections, edges)
     successors, predecessors, _ = _build_section_dag(graph)
     fold_sections = _assign_grid_positions(
-        graph, successors, predecessors, max_station_columns=3,
+        graph,
+        successors,
+        predecessors,
+        max_station_columns=3,
     )
 
     # Row 0: sec0 at col 0, sec1 at col 1, sec2 at col 2
@@ -369,15 +379,15 @@ def test_rnaseq_auto_sections_have_ports():
 
     # Sections with outgoing inter-section edges should have exit ports
     preprocessing_exits = [
-        p for p in graph.ports.values()
+        p
+        for p in graph.ports.values()
         if p.section_id == "preprocessing" and not p.is_entry
     ]
     assert len(preprocessing_exits) >= 1
 
     # Genome alignment should have entry ports
     genome_entries = [
-        p for p in graph.ports.values()
-        if p.section_id == "genome_align" and p.is_entry
+        p for p in graph.ports.values() if p.section_id == "genome_align" and p.is_entry
     ]
     assert len(genome_entries) >= 1
 
@@ -396,7 +406,10 @@ def test_rnaseq_auto_grid_positions():
     assert graph.sections["preprocessing"].grid_row == 0
 
     # Genome alignment should be after preprocessing in row 0
-    assert graph.sections["genome_align"].grid_col > graph.sections["preprocessing"].grid_col
+    assert (
+        graph.sections["genome_align"].grid_col
+        > graph.sections["preprocessing"].grid_col
+    )
     assert graph.sections["genome_align"].grid_row == 0
 
     # Postprocessing is the fold section (TB bridge) at the right edge of row 0

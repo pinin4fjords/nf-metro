@@ -103,7 +103,6 @@ class Section:
     offset_y: float = 0.0
 
 
-
 @dataclass
 class RouteSegment:
     """A segment of a routed edge path (populated by routing engine)."""

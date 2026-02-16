@@ -48,7 +48,7 @@ def assign_tracks(
         node_lines = graph.station_lines(sid)
         if node_lines:
             node_primary[sid] = min(
-                node_lines, key=lambda l: line_priority.get(l, 999)
+                node_lines, key=lambda ln: line_priority.get(ln, 999)
             )
         else:
             node_primary[sid] = None
@@ -77,7 +77,13 @@ def assign_tracks(
 
             if len(nodes) == 1:
                 tracks[nodes[0]] = _place_single_node(
-                    nodes[0], base, line_gap, G, tracks, graph, layers,
+                    nodes[0],
+                    base,
+                    line_gap,
+                    G,
+                    tracks,
+                    graph,
+                    layers,
                 )
             else:
                 _place_fan_out(nodes, base, line_gap, G, tracks)
@@ -114,7 +120,7 @@ def _is_diamond_node(
 
     node_lines = set(graph.station_lines(node)) if graph else set()
 
-    same_layer = [n for n, l in layers.items() if l == layer and n != node]
+    same_layer = [n for n, ly in layers.items() if ly == layer and n != node]
     for other in same_layer:
         if set(G.predecessors(other)) == preds and succs & set(G.successors(other)):
             if graph:
@@ -126,7 +132,9 @@ def _is_diamond_node(
     return False
 
 
-def _predecessor_avg(node: str, G: nx.DiGraph, tracks: dict[str, float]) -> float | None:
+def _predecessor_avg(
+    node: str, G: nx.DiGraph, tracks: dict[str, float]
+) -> float | None:
     """Average track position of a node's already-placed predecessors."""
     preds = [p for p in G.predecessors(node) if p in tracks]
     if not preds:

@@ -68,6 +68,7 @@ def parse_metro_mermaid(text: str) -> MetroGraph:
     # Post-parse: auto-infer layout parameters, then resolve sections
     if graph.sections:
         from nf_metro.layout.auto_layout import infer_section_layout
+
         infer_section_layout(graph)
         _resolve_sections(graph)
 
@@ -82,9 +83,7 @@ def parse_metro_mermaid(text: str) -> MetroGraph:
 
 
 # Subgraph pattern: subgraph id [Display Name]
-_SUBGRAPH_PATTERN = re.compile(
-    r"^subgraph\s+(\w+)\s*(?:\[(.+?)\])?\s*$"
-)
+_SUBGRAPH_PATTERN = re.compile(r"^subgraph\s+(\w+)\s*(?:\[(.+?)\])?\s*$")
 
 
 def _parse_directive(
@@ -93,20 +92,22 @@ def _parse_directive(
     current_section_id: str | None = None,
 ) -> None:
     """Parse a %%metro directive line."""
-    content = line[len("%%metro"):].strip()
+    content = line[len("%%metro") :].strip()
 
     if content.startswith("title:"):
-        graph.title = content[len("title:"):].strip()
+        graph.title = content[len("title:") :].strip()
     elif content.startswith("style:"):
-        graph.style = content[len("style:"):].strip()
+        graph.style = content[len("style:") :].strip()
     elif content.startswith("line:"):
-        parts = content[len("line:"):].strip().split("|")
+        parts = content[len("line:") :].strip().split("|")
         if len(parts) >= 3:
-            graph.add_line(MetroLine(
-                id=parts[0].strip(),
-                display_name=parts[1].strip(),
-                color=parts[2].strip(),
-            ))
+            graph.add_line(
+                MetroLine(
+                    id=parts[0].strip(),
+                    display_name=parts[1].strip(),
+                    color=parts[2].strip(),
+                )
+            )
     elif content.startswith("entry:"):
         if current_section_id:
             _parse_port_hint(content, graph, current_section_id, is_entry=True)
@@ -115,20 +116,20 @@ def _parse_directive(
             _parse_port_hint(content, graph, current_section_id, is_entry=False)
     elif content.startswith("direction:"):
         if current_section_id and current_section_id in graph.sections:
-            direction = content[len("direction:"):].strip().upper()
+            direction = content[len("direction:") :].strip().upper()
             if direction in ("LR", "RL", "TB"):
                 graph.sections[current_section_id].direction = direction
                 graph._explicit_directions.add(current_section_id)
     elif content.startswith("grid:"):
         _parse_grid_directive(content, graph)
     elif content.startswith("logo:"):
-        graph.logo_path = content[len("logo:"):].strip()
+        graph.logo_path = content[len("logo:") :].strip()
     elif content.startswith("legend:"):
-        pos = content[len("legend:"):].strip().lower()
+        pos = content[len("legend:") :].strip().lower()
         if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
             graph.legend_position = pos
     elif content.startswith("file:"):
-        parts = content[len("file:"):].strip().split("|")
+        parts = content[len("file:") :].strip().split("|")
         if len(parts) >= 2:
             station_id = parts[0].strip()
             ext_label = parts[1].strip()
@@ -147,7 +148,7 @@ def _parse_port_hint(
     based on actual inter-section edges.
     """
     prefix = "entry:" if is_entry else "exit:"
-    rest = content[len(prefix):].strip()
+    rest = content[len(prefix) :].strip()
     parts = rest.split("|")
     if len(parts) < 2:
         return
@@ -175,7 +176,7 @@ def _parse_port_hint(
 
 def _parse_grid_directive(content: str, graph: MetroGraph) -> None:
     """Parse %%metro grid: section_id | col,row[,rowspan[,colspan]] directive."""
-    rest = content[len("grid:"):].strip()
+    rest = content[len("grid:") :].strip()
     parts = rest.split("|")
     if len(parts) < 2:
         return
@@ -215,10 +216,10 @@ _NODE_PATTERNS = [
 
 # Edge pattern: source -->|label| target  or  source --> target
 _EDGE_PATTERN = re.compile(
-    r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*"   # source
-    r"(-->|---|==>)"                     # arrow
-    r"(?:\|([^|]*)\|)?\s*"              # optional |label|
-    r"([a-zA-Z_][a-zA-Z0-9_]*)$"       # target
+    r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*"  # source
+    r"(-->|---|==>)"  # arrow
+    r"(?:\|([^|]*)\|)?\s*"  # optional |label|
+    r"([a-zA-Z_][a-zA-Z0-9_]*)$"  # target
 )
 
 
@@ -283,7 +284,6 @@ def _parse_edge(
     line_ids = [lid.strip() for lid in label.split(",")]
     for line_id in line_ids:
         graph.add_edge(Edge(source=source, target=target, line_id=line_id))
-
 
 
 def _resolve_sections(graph: MetroGraph) -> None:
@@ -359,8 +359,11 @@ def _resolve_sections(graph: MetroGraph) -> None:
         all_line_ids = sorted({e.line_id for e in edges})
         port_id = f"{sec_id}__exit_{side.value}_{port_counter}"
         port = Port(
-            id=port_id, section_id=sec_id, side=side,
-            line_ids=all_line_ids, is_entry=False,
+            id=port_id,
+            section_id=sec_id,
+            side=side,
+            line_ids=all_line_ids,
+            is_entry=False,
         )
         graph.add_port(port)
         exit_port_map[sec_id] = port_id
@@ -373,8 +376,11 @@ def _resolve_sections(graph: MetroGraph) -> None:
         all_line_ids = sorted({e.line_id for e in edges})
         port_id = f"{sec_id}__entry_{side.value}_{port_counter}"
         port = Port(
-            id=port_id, section_id=sec_id, side=side,
-            line_ids=all_line_ids, is_entry=True,
+            id=port_id,
+            section_id=sec_id,
+            side=side,
+            line_ids=all_line_ids,
+            is_entry=True,
         )
         graph.add_port(port)
         entry_port_map[(sec_id, side)] = port_id
@@ -396,9 +402,13 @@ def _resolve_sections(graph: MetroGraph) -> None:
         entry_port_id = entry_port_map[(tgt_sec, entry_side)]
 
         # source -> exit_port (always needed)
-        new_edges.append(Edge(source=edge.source, target=exit_port_id, line_id=edge.line_id))
+        new_edges.append(
+            Edge(source=edge.source, target=exit_port_id, line_id=edge.line_id)
+        )
         # entry_port -> target (always needed)
-        new_edges.append(Edge(source=entry_port_id, target=edge.target, line_id=edge.line_id))
+        new_edges.append(
+            Edge(source=entry_port_id, target=edge.target, line_id=edge.line_id)
+        )
 
         # Track the middle segment (exit_port -> entry_port) for junction insertion
         exit_fan.setdefault(exit_port_id, {}).setdefault(entry_port_id, []).append(edge)
@@ -409,7 +419,13 @@ def _resolve_sections(graph: MetroGraph) -> None:
             # Single destination - direct edge, no junction needed
             for entry_port_id, edges in entry_targets.items():
                 for edge in edges:
-                    new_edges.append(Edge(source=exit_port_id, target=entry_port_id, line_id=edge.line_id))
+                    new_edges.append(
+                        Edge(
+                            source=exit_port_id,
+                            target=entry_port_id,
+                            line_id=edge.line_id,
+                        )
+                    )
         else:
             # Multiple destinations - create a junction station
             junction_id = f"__junction_{port_counter}"
@@ -424,12 +440,20 @@ def _resolve_sections(graph: MetroGraph) -> None:
                 for edge in edges:
                     all_line_ids.add(edge.line_id)
             for lid in sorted(all_line_ids):
-                new_edges.append(Edge(source=exit_port_id, target=junction_id, line_id=lid))
+                new_edges.append(
+                    Edge(source=exit_port_id, target=junction_id, line_id=lid)
+                )
 
             # Per-destination: junction -> entry_port
             for entry_port_id, edges in entry_targets.items():
                 for edge in edges:
-                    new_edges.append(Edge(source=junction_id, target=entry_port_id, line_id=edge.line_id))
+                    new_edges.append(
+                        Edge(
+                            source=junction_id,
+                            target=entry_port_id,
+                            line_id=edge.line_id,
+                        )
+                    )
 
     graph.edges = new_edges
 
