@@ -272,6 +272,14 @@ def _optimize_rowspans(graph: MetroGraph, fold_sections: set[str]) -> None:
             if sec.grid_row >= fold_row:
                 max_row = max(max_row, sec.grid_row)
 
+        # Don't extend into rows occupied by other sections in the same column
+        for sid in col_groups[fold_col]:
+            if sid == fold_sid:
+                continue
+            sec = graph.sections[sid]
+            if sec.grid_row > fold_row:
+                max_row = min(max_row, sec.grid_row - 1)
+
         new_rowspan = max_row - fold_row + 1
         if new_rowspan > fold_sec.grid_row_span:
             fold_sec.grid_row_span = new_rowspan
@@ -310,6 +318,13 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
     for col, sids in col_groups.items():
         col_max_layers[col] = max(section_layers[sid] for sid in sids)
 
+    # Build a map of occupied (col, row) cells so we can avoid collisions
+    occupied: dict[tuple[int, int], str] = {}
+    for sid, section in graph.sections.items():
+        for c in range(section.grid_col, section.grid_col + section.grid_col_span):
+            for r in range(section.grid_row, section.grid_row + section.grid_row_span):
+                occupied[(c, r)] = sid
+
     for col, sids in sorted(col_groups.items()):
         if len(sids) < 2:
             continue
@@ -328,6 +343,11 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
             if section_layers[sid] <= other_max:
                 continue
 
+            section = graph.sections[sid]
+            sec_rows = range(
+                section.grid_row, section.grid_row + section.grid_row_span
+            )
+
             # Span leftward until accumulated width >= this section's layers
             target = section_layers[sid]
             accumulated = other_max  # column's width from other sections
@@ -337,6 +357,15 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
             for left_col in range(col - 1, -1, -1):
                 if left_col not in col_max_layers:
                     break
+                # Check for row conflicts in the target column
+                conflict = False
+                for r in sec_rows:
+                    occupant = occupied.get((left_col, r))
+                    if occupant is not None and occupant != sid:
+                        conflict = True
+                        break
+                if conflict:
+                    break
                 accumulated += col_max_layers[left_col]
                 start_col = left_col
                 colspan += 1
@@ -344,7 +373,10 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
                     break
 
             if colspan > 1:
-                section = graph.sections[sid]
+                # Update occupied map
+                for c in range(start_col, start_col + colspan):
+                    for r in sec_rows:
+                        occupied[(c, r)] = sid
                 section.grid_col = start_col
                 section.grid_col_span = colspan
                 graph.grid_overrides[sid] = (
