@@ -733,6 +733,19 @@ def compute_station_offsets(
             else:
                 offsets[(sid, lid)] = p * offset_step
 
+    # Reverse exit port offsets on TB sections with LEFT/RIGHT exits.
+    # The concentric corner routing reverses the bundle ordering, so
+    # exit port offsets must match for inter-section routes to connect.
+    tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
+    for port_id, port_obj in graph.ports.items():
+        if port_obj.is_entry or port_obj.section_id not in tb_sections:
+            continue
+        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        for lid in graph.station_lines(port_id):
+            p = line_priority.get(lid, 0)
+            offsets[(port_id, lid)] = (max_priority - p) * offset_step
+
     return offsets
 
 
@@ -778,10 +791,17 @@ def _line_incoming_y_at_entry_port(
 def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
     """Find sections where incoming bundle ordering is reversed.
 
-    A section is "reversed" when it receives lines via a TOP entry port
-    that connects upstream to a TB section's BOTTOM exit port. The TB
-    section reverses X offsets in the vertical bundle, so the downstream
-    section must use reversed Y ordering to match.
+    A section is "reversed" when it receives lines via a TB section's
+    exit port that reverses the bundle ordering. This happens in two cases:
+
+    1. TOP entry fed by a TB section's BOTTOM exit: the TB section reverses
+       X offsets in the vertical bundle, so the downstream section must use
+       reversed Y ordering to match.
+
+    2. LEFT/RIGHT entry fed by a TB section's LEFT/RIGHT exit: the
+       concentric corner routing reverses the bundle ordering (outermost
+       vertical line becomes outermost horizontal line), so the downstream
+       section must use reversed Y ordering to match.
 
     Reversal propagates: if a reversed section exits to another section
     on the same row, that downstream section is also reversed so bundle
@@ -789,8 +809,9 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
     """
     tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
     reversed_secs: set[str] = set()
+    junction_ids = set(graph.junctions)
 
-    # Phase 1: detect sections directly fed by TB BOTTOM exits
+    # Phase 1a: detect sections directly fed by TB BOTTOM exits
     for sec_id, section in graph.sections.items():
         for port_id in section.entry_ports:
             port = graph.ports.get(port_id)
@@ -809,6 +830,48 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
                         and src.section_id in tb_sections
                     ):
                         reversed_secs.add(sec_id)
+
+    # Phase 1b: detect sections fed by TB LEFT/RIGHT exits
+    # (concentric corner reverses bundle ordering)
+    for sec_id, section in graph.sections.items():
+        if sec_id in reversed_secs:
+            continue
+        for port_id in section.entry_ports:
+            port = graph.ports.get(port_id)
+            if not port or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
+            for edge in graph.edges:
+                if edge.target != port_id:
+                    continue
+                src = graph.stations.get(edge.source)
+                if not src:
+                    continue
+                # Direct connection from TB exit port
+                if src.is_port:
+                    src_port = graph.ports.get(edge.source)
+                    if (
+                        src_port
+                        and not src_port.is_entry
+                        and src_port.side in (PortSide.LEFT, PortSide.RIGHT)
+                        and src.section_id in tb_sections
+                    ):
+                        reversed_secs.add(sec_id)
+                # Connection through junction
+                elif edge.source in junction_ids:
+                    for e2 in graph.edges:
+                        if e2.target == edge.source:
+                            s2 = graph.stations.get(e2.source)
+                            if not s2 or not s2.is_port:
+                                continue
+                            s2_port = graph.ports.get(e2.source)
+                            if (
+                                s2_port
+                                and not s2_port.is_entry
+                                and s2_port.side
+                                in (PortSide.LEFT, PortSide.RIGHT)
+                                and s2.section_id in tb_sections
+                            ):
+                                reversed_secs.add(sec_id)
 
     # Phase 2: propagate reversal along the same grid row.
     # Build section adjacency from inter-section edges.
