@@ -48,9 +48,7 @@ def check_section_overlap(
     """
     violations: list[Violation] = []
     sections = [
-        (sid, s)
-        for sid, s in graph.sections.items()
-        if s.bbox_w > 0 and s.bbox_h > 0
+        (sid, s) for sid, s in graph.sections.items() if s.bbox_w > 0 and s.bbox_h > 0
     ]
 
     for i in range(len(sections)):
@@ -215,9 +213,7 @@ def check_minimum_section_spacing(
     """Check that adjacent sections have a minimum gap between them."""
     violations: list[Violation] = []
     sections = [
-        (sid, s)
-        for sid, s in graph.sections.items()
-        if s.bbox_w > 0 and s.bbox_h > 0
+        (sid, s) for sid, s in graph.sections.items() if s.bbox_w > 0 and s.bbox_h > 0
     ]
 
     for i in range(len(sections)):

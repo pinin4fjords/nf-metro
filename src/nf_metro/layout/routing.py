@@ -530,9 +530,7 @@ def _compute_bundle_info(
             # Fan-in: edges from different source ports. Sort by
             # actual source Y position to preserve spatial ordering
             # around the L-shaped corner.
-            group.sort(
-                key=lambda e: (e[2], line_priority.get(e[0].line_id, 999))
-            )
+            group.sort(key=lambda e: (e[2], line_priority.get(e[0].line_id, 999)))
 
         n = len(group)
         for i, (edge, *_rest) in enumerate(group):
