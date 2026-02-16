@@ -97,6 +97,31 @@ def _compute_section_layout(
                 station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
                 station.y = track_rank[station.track] * y_spacing
 
+        # For TB sections, shift layer > 0 stations further right so
+        # left-side labels fit within the section's left padding.
+        # Labels use text_anchor="end" so the full text width extends
+        # leftward from the station.  We keep layer 0 (entry) stations
+        # in place so the entry port and horizontal curve are unaffected.
+        if section.direction == "TB":
+            char_width = 7.0
+            label_pad = 6.0
+            layer0_xs = [s.x for s in sub.stations.values() if s.layer == 0]
+            min_layer0_x = min(layer0_xs) if layer0_xs else 0
+            bbox_left = min_layer0_x - section_x_padding
+            extra_shift = 0.0
+            for sid, s in sub.stations.items():
+                if s.layer > 0 and s.label.strip():
+                    n_lines = len(sub.station_lines(sid))
+                    offset_span = (n_lines - 1) * 3.0
+                    label_left = s.x - offset_span / 2 - 11 - len(s.label) * char_width
+                    min_allowed = bbox_left + label_pad
+                    if label_left < min_allowed:
+                        extra_shift = max(extra_shift, min_allowed - label_left)
+            if extra_shift > 0:
+                for s in sub.stations.values():
+                    if s.layer > 0:
+                        s.x += extra_shift
+
         # RL: mirror X so layer 0 is rightmost.
         # Anchor on non-terminus stations so adding terminus layers
         # extends leftward without shifting the entry point.
