@@ -344,9 +344,7 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
                 continue
 
             section = graph.sections[sid]
-            sec_rows = range(
-                section.grid_row, section.grid_row + section.grid_row_span
-            )
+            sec_rows = range(section.grid_row, section.grid_row + section.grid_row_span)
 
             # Span leftward until accumulated width >= this section's layers
             target = section_layers[sid]
