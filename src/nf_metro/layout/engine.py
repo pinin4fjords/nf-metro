@@ -86,16 +86,14 @@ def _compute_section_layout(
             station.layer = layers.get(sid, 0)
             station.track = tracks.get(sid, 0)
             if section.direction == "TB":
-                # Top-to-bottom: layers map to Y, tracks map to X
-                # Layer 0 stays at entry level; layer 1+ shift right
-                # so the elbow (horizontal-to-vertical turn) happens
-                # AFTER the first station, not at it.
+                # Top-to-bottom: layers map to Y, tracks map to X.
+                # All stations stay in the same vertical column so
+                # the flow is a clean straight-down path. The entry
+                # port connects horizontally from the section edge.
                 station.x = track_rank[station.track] * x_spacing
                 station.y = station.layer * y_spacing + layer_extra.get(
                     station.layer, 0
                 )
-                if station.layer > 0:
-                    station.x += x_spacing
             else:
                 station.x = station.layer * x_spacing + layer_extra.get(
                     station.layer, 0
@@ -109,31 +107,6 @@ def _compute_section_layout(
             if min_y != 0:
                 for s in sub.stations.values():
                     s.y -= min_y
-
-        # For TB sections, shift layer > 0 stations further right so
-        # left-side labels fit within the section's left padding.
-        # Labels use text_anchor="end" so the full text width extends
-        # leftward from the station.  We keep layer 0 (entry) stations
-        # in place so the entry port and horizontal curve are unaffected.
-        if section.direction == "TB":
-            char_width = 7.0
-            label_pad = 6.0
-            layer0_xs = [s.x for s in sub.stations.values() if s.layer == 0]
-            min_layer0_x = min(layer0_xs) if layer0_xs else 0
-            bbox_left = min_layer0_x - section_x_padding
-            extra_shift = 0.0
-            for sid, s in sub.stations.items():
-                if s.layer > 0 and s.label.strip():
-                    n_lines = len(sub.station_lines(sid))
-                    offset_span = (n_lines - 1) * 3.0
-                    label_left = s.x - offset_span / 2 - 11 - len(s.label) * char_width
-                    min_allowed = bbox_left + label_pad
-                    if label_left < min_allowed:
-                        extra_shift = max(extra_shift, min_allowed - label_left)
-            if extra_shift > 0:
-                for s in sub.stations.values():
-                    if s.layer > 0:
-                        s.x += extra_shift
 
         # RL: mirror X so layer 0 is rightmost.
         # Anchor on non-terminus stations so adding terminus layers
@@ -184,16 +157,55 @@ def _compute_section_layout(
         section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
         section.bbox_h = (max(ys) - min(ys)) + section_y_padding * 2
 
-        # When a horizontal section (LR/RL) has a TOP/BOTTOM entry, add
-        # extra width on the entry side so the grid allocates space for
-        # the line to curve in rather than dropping straight down.
+        # TB sections: labels extend leftward from the station (text_anchor=end).
+        # Expand bbox and shift stations right so labels fit within the section.
+        if section.direction == "TB":
+            char_width = 7.0
+            label_pad = 6.0
+            max_label_extent = 0.0
+            for sid, s in sub.stations.items():
+                if s.label.strip():
+                    n_lines = len(sub.station_lines(sid))
+                    offset_span = (n_lines - 1) * 3.0
+                    extent = offset_span / 2 + 11 + len(s.label) * char_width
+                    max_label_extent = max(max_label_extent, extent)
+            need_left = max_label_extent + label_pad
+            have_left = min(xs) - section.bbox_x
+            if need_left > have_left:
+                extra = need_left - have_left
+                for s in sub.stations.values():
+                    s.x += extra
+                xs = [s.x for s in sub.stations.values()]
+                section.bbox_w += extra
+
+        # Direction-change offset: when a section has an entry port
+        # perpendicular to its flow, shift stations in the flow direction
+        # so the first station isn't at the entry port (avoiding the
+        # station-as-elbow problem at direction changes).
+        if section.direction == "TB":
+            has_perp_entry = any(
+                graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
+                for pid in section.entry_ports
+                if pid in graph.ports
+            )
+            if has_perp_entry:
+                entry_shift = y_spacing * 0.6
+                for s in sub.stations.values():
+                    s.y += entry_shift
+                section.bbox_h += entry_shift
+
+        # LR/RL sections with TOP/BOTTOM entry: add extra bbox width so
+        # the grid allocates space for the vertical-to-horizontal curve.
+        # Unlike TB sections, no station shift is needed here because the
+        # entry port (on TOP/BOTTOM boundary) and the first station are
+        # already at different positions along the perpendicular axis.
         if section.direction in ("LR", "RL"):
-            has_vertical_entry = any(
+            has_perp_entry = any(
                 graph.ports[pid].side in (PortSide.TOP, PortSide.BOTTOM)
                 for pid in section.entry_ports
                 if pid in graph.ports
             )
-            if has_vertical_entry:
+            if has_perp_entry:
                 entry_inset = x_spacing * 0.3
                 section.bbox_w += entry_inset
 
@@ -311,16 +323,10 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                         continue
 
                     if entry_section.grid_row == src_section.grid_row:
-                        if entry_section.direction == "TB":
-                            src.y = port.y
-                            src_port = graph.ports.get(edge.source)
-                            if src_port:
-                                src_port.y = port.y
-                        else:
-                            station = graph.stations.get(port_id)
-                            if station:
-                                station.y = src.y
-                            port.y = src.y
+                        station = graph.stations.get(port_id)
+                        if station:
+                            station.y = src.y
+                        port.y = src.y
                     break
 
         elif port.side in (PortSide.TOP, PortSide.BOTTOM):

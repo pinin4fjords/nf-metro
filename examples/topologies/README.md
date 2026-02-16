@@ -99,3 +99,27 @@ A simplified RNA-seq pipeline with three analysis routes (STAR + Salmon, HISAT2,
 A variant calling pipeline with four lines (Whole Genome, Whole Exome, Targeted Panel, RNA Variants) sharing alignment but diverging to different callers before reconverging at annotation. Tests complex fork-join patterns with asymmetric branch depths.
 
 ![Variant Calling Pipeline](variant_calling.png)
+
+---
+
+## Fold Topologies
+
+These examples trigger the auto-layout engine's **fold logic**, which wraps long pipelines into a serpentine layout when cumulative station layers exceed the fold threshold (default 15 columns).
+
+### Fold Fan-Across
+
+Three lines (TMT, Label-Free, DIA) diverge from a wide preprocessing section into three stacked quantification sections, then converge at a fold section (Normalization) before continuing on the return row. Tests junction creation across fold boundaries, rowspan optimization for the TB bridge, and post-fold RL direction inference.
+
+![Fold Fan-Across](fold_fan_across.png)
+
+### Fold Double (Serpentine)
+
+A ten-section linear pipeline with two fold points, producing a true serpentine layout: LR on row 0, RL on row 1, LR on row 2. Tests the col_step zigzag toggle, ensuring the third row flows correctly instead of producing negative grid columns.
+
+![Fold Double](fold_double.png)
+
+### Fold Stacked Branch
+
+Three stacked analysis sections (RNA, ATAC, Protein) feed into a fold section (Integration) that fans out to two stacked targets (Biological Interpretation, Technical QC) on the return row, converging into a final report. Tests rowspan optimization, fan-out from a TB fold section, and post-fold stacked branching.
+
+![Fold Stacked Branch](fold_stacked_branch.png)

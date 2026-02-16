@@ -389,8 +389,8 @@ def _render_stations(
     """Render stations as pill shapes.
 
     Normal stations get vertical pills (tall, narrow). Stations in a TB
-    section's vertical part (layer > 0) get horizontal pills (wide, short)
-    since the lines run vertically through them.
+    section get horizontal pills (wide, short) since the lines run
+    vertically through them.
 
     Skips port stations (is_port=True).
     """
@@ -404,7 +404,7 @@ def _render_stations(
         is_tb_vert = False
         if station.section_id:
             sec = graph.sections.get(station.section_id)
-            if sec and sec.direction == "TB" and station.layer > 0:
+            if sec and sec.direction == "TB":
                 is_tb_vert = True
 
         if station_offsets:

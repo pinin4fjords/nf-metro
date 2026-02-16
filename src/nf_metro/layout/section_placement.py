@@ -132,11 +132,13 @@ def place_sections(
             next_row += 1
 
     # Compute pixel offsets
+    min_col = min(col_assign.values()) if col_assign else 0
     max_col = max(col_assign.values()) if col_assign else 0
     # Account for columns occupied by spanning sections
     for sid in graph.sections:
         cspan = graph.sections[sid].grid_col_span
         col = col_assign.get(sid, 0)
+        min_col = min(min_col, col)
         max_col = max(max_col, col + cspan - 1)
 
     # Max width per column (only from single-column sections)
@@ -146,8 +148,8 @@ def place_sections(
             col = col_assign.get(sid, 0)
             col_widths[col] = max(col_widths[col], section.bbox_w)
 
-    # Ensure all columns have an entry
-    for c in range(max_col + 1):
+    # Ensure all columns have an entry (handles negative grid columns)
+    for c in range(min_col, max_col + 1):
         if c not in col_widths:
             col_widths[c] = 0.0
 
@@ -164,10 +166,10 @@ def place_sections(
             deficit = section.bbox_w - spanned
             col_widths[start_col + cspan - 1] += deficit
 
-    # Cumulative x offsets (columns are shared)
+    # Cumulative x offsets (columns are shared, handles negative grid columns)
     col_offsets: dict[int, float] = {}
     cumulative_x = 0.0
-    for col in range(max_col + 1):
+    for col in range(min_col, max_col + 1):
         col_offsets[col] = cumulative_x
         cumulative_x += col_widths.get(col, 0) + section_x_gap
 
@@ -290,6 +292,8 @@ def _position_ports_vertical(
         if not station:
             continue
 
+        port = graph.ports.get(pid)
+
         # Find connected internal station
         connected_y = _find_connected_internal_y(pid, section, graph)
         station.x = x
@@ -300,7 +304,6 @@ def _position_ports_vertical(
         )
 
         # Update port data too
-        port = graph.ports.get(pid)
         if port:
             port.x = station.x
             port.y = station.y

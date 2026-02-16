@@ -217,8 +217,9 @@ def _assign_grid_positions(
             # Start new row band below all stacked rows in the current band
             band_start_row += max(max_stack_in_band, 1)
             # Post-fold sections start at the fold column (right-aligned
-            # by section_placement) then flow backward.
-            col_step = -1
+            # by section_placement) then flow in the opposite direction.
+            # Toggle: +1 -> -1 -> +1 (serpentine/zigzag layout).
+            col_step = -col_step
             cumulative_width = 0
             max_stack_in_band = 0
         else:
@@ -427,17 +428,19 @@ def _infer_directions(
                 pred_cols.append(src_sec.grid_col)
                 pred_rows.append(src_sec.grid_row)
 
-        # RL: all successors to the left, same row
+        # RL: all successors to the left (unless they're all strictly
+        # below, which is better handled as TB)
         if succ_cols and all(c < my_col for c in succ_cols):
-            if succ_rows and all(r == my_row for r in succ_rows):
+            if not all(r > my_row for r in succ_rows):
                 section.direction = "RL"
                 continue
 
         # RL: leaf section (no successors) and all predecessors are
-        # above or to the right (post-fold return row)
+        # to the right or same column, with at least one strictly to
+        # the right or above (post-fold return row)
         if not succ_cols and pred_cols:
-            if all(c >= my_col for c in pred_cols) and any(
-                r < my_row for r in pred_rows
+            if all(c >= my_col for c in pred_cols) and (
+                any(r < my_row for r in pred_rows) or any(c > my_col for c in pred_cols)
             ):
                 section.direction = "RL"
                 continue
@@ -511,17 +514,13 @@ def _infer_port_sides(
                     continue
 
                 lines = edge_lines.get((src, sec_id), set())
-                if sec_id in fold_sections:
-                    # Fold sections receive from LEFT (from the row)
-                    side_lines[PortSide.LEFT].update(lines)
-                else:
-                    side = _relative_side(
-                        my_col,
-                        my_row,
-                        src_sec.grid_col,
-                        src_sec.grid_row,
-                    )
-                    side_lines[side].update(lines)
+                side = _relative_side(
+                    my_col,
+                    my_row,
+                    src_sec.grid_col,
+                    src_sec.grid_row,
+                )
+                side_lines[side].update(lines)
 
             for side, lines in sorted(side_lines.items(), key=lambda x: x[0].value):
                 if lines:
@@ -534,20 +533,27 @@ def _relative_side(
     other_col: int,
     other_row: int,
 ) -> PortSide:
-    """Determine which side of 'my' section faces 'other' section."""
+    """Determine which side of 'my' section faces 'other' section.
+
+    Horizontal (LEFT/RIGHT) is preferred when sections are in different
+    columns, since pipeline flow is primarily horizontal. Vertical
+    (TOP/BOTTOM) is used only when sections share a column.
+    """
     dcol = other_col - my_col
     drow = other_row - my_row
 
-    # Prefer horizontal direction when tie
-    if abs(dcol) >= abs(drow):
-        if dcol > 0:
-            return PortSide.RIGHT
-        elif dcol < 0:
-            return PortSide.LEFT
-        else:
-            return PortSide.RIGHT  # same position, default right
-    else:
-        if drow > 0:
-            return PortSide.BOTTOM
-        else:
-            return PortSide.TOP
+    # Different column: prefer horizontal direction (pipeline flow).
+    # This handles stacked sections in fold layouts where row distance
+    # can exceed column distance but the connection is still horizontal.
+    if dcol > 0:
+        return PortSide.RIGHT
+    elif dcol < 0:
+        return PortSide.LEFT
+
+    # Same column: use vertical direction
+    if drow > 0:
+        return PortSide.BOTTOM
+    elif drow < 0:
+        return PortSide.TOP
+
+    return PortSide.RIGHT  # same position, default right

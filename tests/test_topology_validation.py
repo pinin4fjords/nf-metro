@@ -246,3 +246,112 @@ class TestTopologySpecific:
         violations = validate_layout(graph)
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
+
+    # --- Fold topology tests ---
+
+    def test_fold_fan_across_structure(self):
+        """Fan-out/fan-in across a fold boundary."""
+        graph = _load_and_layout(TOPOLOGIES_DIR / "fold_fan_across.mmd")
+        assert len(graph.sections) == 7
+        assert len(graph.lines) == 3
+
+        # normalize is the fold section (TB direction, rowspan=3)
+        normalize = graph.sections["normalize"]
+        assert normalize.direction == "TB"
+        assert normalize.grid_row_span == 3
+
+        # Three quant sections stacked at the same column
+        tmt = graph.sections["tmt_quant"]
+        lfq = graph.sections["lfq_quant"]
+        dia = graph.sections["dia_quant"]
+        assert tmt.grid_col == lfq.grid_col == dia.grid_col
+        assert len({tmt.grid_row, lfq.grid_row, dia.grid_row}) == 3
+
+        # stat_analysis is RL (post-fold return row)
+        stat = graph.sections["stat_analysis"]
+        assert stat.direction == "RL"
+
+        # All grid_cols are non-negative
+        for sid, sec in graph.sections.items():
+            assert sec.grid_col >= 0, f"{sid} has negative grid_col={sec.grid_col}"
+
+        violations = validate_layout(graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_fold_double_structure(self):
+        """Double fold producing a serpentine (zigzag) layout."""
+        graph = _load_and_layout(TOPOLOGIES_DIR / "fold_double.mmd")
+        assert len(graph.sections) == 10
+        assert len(graph.lines) == 2
+
+        # Two fold sections (TB direction)
+        calling = graph.sections["calling"]
+        integration = graph.sections["integration"]
+        assert calling.direction == "TB"
+        assert integration.direction == "TB"
+
+        # Serpentine: row 0 (LR), row 1 (RL), row 2 (LR)
+        row0_secs = [s for s in graph.sections.values() if s.grid_row == 0]
+        row1_secs = [s for s in graph.sections.values() if s.grid_row == 1]
+        row2_secs = [s for s in graph.sections.values() if s.grid_row == 2]
+        assert len(row0_secs) == 4  # input_qc, alignment, base_recal, calling
+        assert len(row1_secs) == 4  # hard_filter .. integration
+        assert len(row2_secs) == 2  # reporting, archival
+
+        # Row 1 post-fold sections flow RL
+        hard_filter = graph.sections["hard_filter"]
+        annotation = graph.sections["annotation"]
+        interpretation = graph.sections["interpretation"]
+        assert hard_filter.direction == "RL"
+        assert annotation.direction == "RL"
+        assert interpretation.direction == "RL"
+
+        # Row 2 post-second-fold sections flow LR
+        reporting = graph.sections["reporting"]
+        archival = graph.sections["archival"]
+        assert reporting.direction == "LR"
+        assert archival.direction == "LR"
+
+        # All grid_cols are non-negative (the double-fold bug fix)
+        for sid, sec in graph.sections.items():
+            assert sec.grid_col >= 0, f"{sid} has negative grid_col={sec.grid_col}"
+
+        violations = validate_layout(graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_fold_stacked_branch_structure(self):
+        """Stacked sections near fold + post-fold branching."""
+        graph = _load_and_layout(TOPOLOGIES_DIR / "fold_stacked_branch.mmd")
+        assert len(graph.sections) == 8
+        assert len(graph.lines) == 3
+
+        # integration is fold section (TB, rowspan=3)
+        integration = graph.sections["integration"]
+        assert integration.direction == "TB"
+        assert integration.grid_row_span == 3
+
+        # Three analysis sections stacked at same column
+        rna = graph.sections["rna_analysis"]
+        atac = graph.sections["atac_analysis"]
+        prot = graph.sections["protein_analysis"]
+        assert rna.grid_col == atac.grid_col == prot.grid_col
+        assert len({rna.grid_row, atac.grid_row, prot.grid_row}) == 3
+
+        # bio_interp and tech_qc are post-fold, stacked at same column
+        bio = graph.sections["bio_interp"]
+        tech = graph.sections["tech_qc"]
+        assert bio.grid_col == tech.grid_col
+        assert bio.grid_row != tech.grid_row
+
+        # bio_interp is RL (post-fold, successor to left)
+        assert bio.direction == "RL"
+
+        # All grid_cols are non-negative
+        for sid, sec in graph.sections.items():
+            assert sec.grid_col >= 0, f"{sid} has negative grid_col={sec.grid_col}"
+
+        violations = validate_layout(graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
