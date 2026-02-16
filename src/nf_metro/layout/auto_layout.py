@@ -216,10 +216,11 @@ def _assign_grid_positions(
             max_stack_in_band = max(max_stack_in_band, stack_size)
             # Start new row band below all stacked rows in the current band
             band_start_row += max(max_stack_in_band, 1)
-            # Post-fold sections start at the fold column (right-aligned
-            # by section_placement) then flow in the opposite direction.
+            # Post-fold sections flow in the opposite direction, starting
+            # one column past the fold (i.e. to its left on a return row).
             # Toggle: +1 -> -1 -> +1 (serpentine/zigzag layout).
             col_step = -col_step
+            current_grid_col += col_step
             cumulative_width = 0
             max_stack_in_band = 0
         else:
@@ -479,8 +480,34 @@ def _infer_port_sides(
 
             if all_exit_lines:
                 if sec_id in fold_sections:
-                    # Fold sections exit from BOTTOM to the row below
-                    section.exit_hints.append((PortSide.BOTTOM, sorted(all_exit_lines)))
+                    # Fold sections: infer exit side from successor positions.
+                    # Post-fold successors are to the left (return row), so
+                    # the exit is LEFT. Lines route down inside the section
+                    # then turn the corner to the exit port.
+                    side_votes_fold: dict[PortSide, int] = defaultdict(int)
+                    for tgt in successors[sec_id]:
+                        tgt_sec = graph.sections.get(tgt)
+                        if not tgt_sec:
+                            continue
+                        lines = edge_lines.get((sec_id, tgt), set())
+                        side = _relative_side(
+                            my_col,
+                            my_row,
+                            tgt_sec.grid_col,
+                            tgt_sec.grid_row,
+                        )
+                        side_votes_fold[side] += len(lines)
+                    if side_votes_fold:
+                        dominant = max(
+                            side_votes_fold, key=lambda s: side_votes_fold[s]
+                        )
+                        section.exit_hints.append(
+                            (dominant, sorted(all_exit_lines))
+                        )
+                    else:
+                        section.exit_hints.append(
+                            (PortSide.BOTTOM, sorted(all_exit_lines))
+                        )
                 else:
                     side_votes: dict[PortSide, int] = defaultdict(int)
                     for tgt in successors[sec_id]:

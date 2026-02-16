@@ -242,6 +242,11 @@ def _compute_section_layout(
     # so inter-section horizontal runs are straight
     _align_entry_ports(graph)
 
+    # Phase 8: Align LEFT/RIGHT exit ports on row-spanning (fold) sections
+    # with their target's Y so the exit is at the return row level
+    _align_exit_ports(graph)
+
+
 
 def _position_junctions(graph: MetroGraph) -> None:
     """Position junction stations at the midpoint of the inter-section gap.
@@ -341,6 +346,49 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                         station.x = src.x
                     port.x = src.x
                     break
+
+
+def _align_exit_ports(graph: MetroGraph) -> None:
+    """Align LEFT/RIGHT exit ports on row-spanning sections with their target's Y.
+
+    Only applies to sections with grid_row_span > 1 (fold sections). These
+    have exit ports initially placed near the last internal station, but the
+    target section is on the return row further down.
+    """
+    junction_ids = set(graph.junctions)
+
+    for port_id, port in graph.ports.items():
+        if port.is_entry:
+            continue
+
+        exit_section = graph.sections.get(port.section_id)
+        if not exit_section or exit_section.grid_row_span <= 1:
+            continue
+
+        if port.side in (PortSide.LEFT, PortSide.RIGHT):
+            # Find the target of this exit port (could go through a junction)
+            for edge in graph.edges:
+                if edge.source == port_id:
+                    tgt = graph.stations.get(edge.target)
+                    if not tgt:
+                        continue
+
+                    # If target is a junction, follow through to entry port
+                    if edge.target in junction_ids:
+                        for e2 in graph.edges:
+                            if e2.source == edge.target:
+                                t2 = graph.stations.get(e2.target)
+                                if t2 and t2.is_port:
+                                    tgt = t2
+                                    break
+
+                    if tgt.is_port or edge.target in junction_ids:
+                        station = graph.stations.get(port_id)
+                        if station:
+                            station.y = tgt.y
+                        port.y = tgt.y
+                    break
+
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:

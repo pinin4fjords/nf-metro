@@ -226,6 +226,58 @@ def route_edges(
             )
             continue
 
+        # Internal station → LEFT/RIGHT exit port in a TB section:
+        # L-shaped exit run (vertical drop then horizontal to exit port).
+        # Lines go straight down from the last station, turn the corner,
+        # and exit through the port at the return row level.
+        tgt_port_obj = graph.ports.get(edge.target)
+        tgt_is_lr_exit = (
+            tgt_port_obj is not None
+            and not tgt_port_obj.is_entry
+            and tgt_port_obj.side in (PortSide.LEFT, PortSide.RIGHT)
+        )
+        if (
+            tgt_is_lr_exit
+            and not src.is_port
+            and src.section_id in tb_sections
+            and src.section_id == tgt.section_id
+        ):
+            src_off = (
+                station_offsets.get((edge.source, edge.line_id), 0.0)
+                if station_offsets
+                else 0.0
+            )
+            # Reverse source offset for vertical segment (TB convention)
+            all_src_offs = (
+                [
+                    station_offsets.get((edge.source, lid), 0.0)
+                    for lid in graph.station_lines(edge.source)
+                ]
+                if station_offsets
+                else []
+            )
+            max_src_off = max(all_src_offs) if all_src_offs else 0.0
+            rev_src_off = max_src_off - src_off
+            # Concentric corner: the outermost vertical line (largest
+            # rev_src_off) becomes the outermost horizontal line and gets
+            # the largest curve radius, producing nested arcs.
+            horiz_y_off = rev_src_off
+            # L-shape: vertical from station, curve, horizontal to port
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[
+                        (sx + rev_src_off, sy),
+                        (sx + rev_src_off, ty + horiz_y_off),
+                        (tx, ty + horiz_y_off),
+                    ],
+                    offsets_applied=True,
+                    curve_radii=[curve_radius + rev_src_off],
+                )
+            )
+            continue
+
         # LEFT/RIGHT entry port → internal station in a TB section:
         # L-shaped entry run (horizontal then curve then vertical drop).
         # The port sits above the first station so the turn happens
