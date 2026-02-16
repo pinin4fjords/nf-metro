@@ -231,6 +231,27 @@ def _compute_section_layout(
         section.bbox_x += section.offset_x + x_offset
         section.bbox_y += section.offset_y + y_offset
 
+    # Phase 4b: Center content vertically in row-spanning non-TB sections.
+    # Rowspan expansion (from _expand_lone_rowspans) stretches the bbox but
+    # leaves stations at the top. Shift them down to center within the box.
+    for sec_id, section in graph.sections.items():
+        if section.grid_row_span <= 1 or section.direction == "TB":
+            continue
+        sub = section_subgraphs.get(sec_id)
+        if not sub:
+            continue
+        ys = [graph.stations[sid].y for sid in sub.stations if sid in graph.stations]
+        if not ys:
+            continue
+        content_h = (max(ys) - min(ys)) + 2 * section_y_padding
+        if content_h >= section.bbox_h:
+            continue
+        content_top = min(ys) - section_y_padding
+        shift = (section.bbox_h - content_h) / 2 - (content_top - section.bbox_y)
+        for sid in sub.stations:
+            if sid in graph.stations:
+                graph.stations[sid].y += shift
+
     # Phase 5: Position ports on section boundaries (after bbox is in global coords)
     for sec_id, section in graph.sections.items():
         position_ports(section, graph)
