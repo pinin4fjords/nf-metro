@@ -144,14 +144,13 @@ def route_edges(
                     r_first = curve_radius + (n - 1 - i) * offset_step
                     r_second = curve_radius + i * offset_step
 
-                # Place vertical channel just far enough from source
-                # for the curve to fit, so the turn happens close to
-                # the source rather than midway to the target.
+                # Place vertical channel in the inter-column gap so it
+                # doesn't pass through sibling sections stacked in the
+                # source's column.
                 max_r = curve_radius + (n - 1) * offset_step
-                if dx > 0:
-                    mid_x = sx + max_r + offset_step
-                else:
-                    mid_x = sx - max_r - offset_step
+                mid_x = _inter_column_channel_x(
+                    graph, src, tgt, sx, tx, dx, max_r, offset_step
+                )
                 vx = mid_x + delta
                 routes.append(
                     RoutedPath(
@@ -508,27 +507,105 @@ def _compute_bundle_info(
     assignments: dict[tuple[str, str, str], tuple[int, int]] = {}
 
     for _key, group in corridor_groups.items():
-        # Sort by the exit port's source-station Y ordering (same as
-        # compute_station_offsets uses for exit ports) so the bundle
-        # ordering matches the exit port's station offsets.
-        exit_port_id = group[0][0].source
-        port = graph.ports.get(exit_port_id)
-        if port and not port.is_entry:
-            source_y = _line_source_y_at_port(exit_port_id, graph)
-            group.sort(
-                key=lambda e: (
-                    source_y.get(e[0].line_id, 0),
-                    line_priority.get(e[0].line_id, 999),
+        # Sort by spatial ordering so the bundle's visual position
+        # is preserved around corners.
+        source_ids = {e[0].source for e in group}
+        if len(source_ids) == 1:
+            # All edges share the same source port: sort by the
+            # connected internal station's Y (consistent with
+            # compute_station_offsets).
+            exit_port_id = group[0][0].source
+            port = graph.ports.get(exit_port_id)
+            if port and not port.is_entry:
+                source_y = _line_source_y_at_port(exit_port_id, graph)
+                group.sort(
+                    key=lambda e: (
+                        source_y.get(e[0].line_id, 0),
+                        line_priority.get(e[0].line_id, 999),
+                    )
                 )
-            )
+            else:
+                group.sort(key=lambda e: line_priority.get(e[0].line_id, 999))
         else:
-            group.sort(key=lambda e: line_priority.get(e[0].line_id, 999))
+            # Fan-in: edges from different source ports. Sort by
+            # actual source Y position to preserve spatial ordering
+            # around the L-shaped corner.
+            group.sort(key=lambda e: (e[2], line_priority.get(e[0].line_id, 999)))
 
         n = len(group)
         for i, (edge, *_rest) in enumerate(group):
             assignments[(edge.source, edge.target, edge.line_id)] = (i, n)
 
     return assignments
+
+
+def _inter_column_channel_x(
+    graph: MetroGraph,
+    src,
+    tgt,
+    sx: float,
+    tx: float,
+    dx: float,
+    max_r: float,
+    offset_step: float,
+) -> float:
+    """Compute the X position for a vertical channel in an L-shaped route.
+
+    Places the channel in the gap between columns so it doesn't pass
+    through sibling sections stacked in the source's column. Falls
+    back to near-source placement when section info is unavailable.
+    """
+    src_sec = graph.sections.get(src.section_id) if src.section_id else None
+    tgt_sec = graph.sections.get(tgt.section_id) if tgt.section_id else None
+
+    if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
+        # Find the rightmost/leftmost edges of the source and target
+        # columns (accounting for sibling sections that may be wider).
+        src_col = src_sec.grid_col
+        tgt_col = tgt_sec.grid_col
+
+        if dx > 0:
+            col_right = max(
+                (
+                    s.bbox_x + s.bbox_w
+                    for s in graph.sections.values()
+                    if s.grid_col == src_col and s.bbox_w > 0
+                ),
+                default=sx,
+            )
+            col_left = min(
+                (
+                    s.bbox_x
+                    for s in graph.sections.values()
+                    if s.grid_col == tgt_col and s.bbox_w > 0
+                ),
+                default=tx,
+            )
+            return (col_right + col_left) / 2
+        else:
+            col_left = min(
+                (
+                    s.bbox_x
+                    for s in graph.sections.values()
+                    if s.grid_col == src_col and s.bbox_w > 0
+                ),
+                default=sx,
+            )
+            col_right = max(
+                (
+                    s.bbox_x + s.bbox_w
+                    for s in graph.sections.values()
+                    if s.grid_col == tgt_col and s.bbox_w > 0
+                ),
+                default=tx,
+            )
+            return (col_left + col_right) / 2
+
+    # Fallback: place near source
+    if dx > 0:
+        return sx + max_r + offset_step
+    else:
+        return sx - max_r - offset_step
 
 
 def route_inter_section_edges(
@@ -619,76 +696,35 @@ def compute_station_offsets(
 ) -> dict[tuple[str, str], float]:
     """Compute per-station Y offsets for each line.
 
-    At each station, lines are stacked in definition order: the first
-    line sits at offset 0, subsequent lines stack below. This keeps
-    each line at a consistent position as it passes through a station,
-    so transitions between bundles of different sizes are smooth.
+    Each line gets a globally consistent offset based on its declaration
+    order (priority). This ensures lines maintain their position within
+    bundles across all sections - when a line splits off and later
+    rejoins, it returns to its reserved slot rather than shifting.
 
-    Port stations use physical Y ordering to preserve bundle consistency:
-    - Exit ports: sorted by connected internal station Y
-    - Entry ports: sorted by incoming connection's effective Y
-    This ensures the bundle ordering doesn't change between sections.
+    For reversed sections (fed by a TB section's BOTTOM exit), offsets
+    are flipped so the bundle ordering matches the reversed spatial flow.
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
+    max_priority = len(line_order) - 1 if line_order else 0
 
-    offsets: dict[tuple[str, str], float] = {}
-
-    # Phase 1: Exit ports - sort by connected internal station Y
-    for sid in graph.stations:
-        port = graph.ports.get(sid)
-        if not port or port.is_entry:
-            continue
-        lines = graph.station_lines(sid)
-        source_y = _line_source_y_at_port(sid, graph)
-        lines.sort(key=lambda ln: (source_y.get(ln, 0), line_priority.get(ln, 999)))
-        for i, lid in enumerate(lines):
-            offsets[(sid, lid)] = i * offset_step
-
-    # Phase 2: Entry ports - sort by incoming source's effective Y
-    # (source station Y + its offset for the line) so bundle ordering
-    # is preserved through the turn into the section
-    for sid in graph.stations:
-        port = graph.ports.get(sid)
-        if not port or not port.is_entry:
-            continue
-        lines = graph.station_lines(sid)
-        incoming_y = _line_incoming_y_at_entry_port(sid, graph, offsets)
-        lines.sort(key=lambda ln: (incoming_y.get(ln, 0), line_priority.get(ln, 999)))
-        for i, lid in enumerate(lines):
-            offsets[(sid, lid)] = i * offset_step
-
-    # Detect sections where incoming bundle has reversed line ordering
-    # (TOP entry fed by a TB section's BOTTOM exit). Internal station
-    # offsets must match so lines don't flip at the first station.
     reversed_sections = _detect_reversed_sections(graph)
 
-    # Phase 3: All other stations - use priority-gap-aware spacing
-    # so that stations with a subset of lines preserve the gaps where
-    # missing lines would be (e.g. salmon_quant with star_salmon and
-    # bowtie2_salmon keeps a gap for hisat2 in the middle).
+    offsets: dict[tuple[str, str], float] = {}
     for sid in graph.stations:
-        if (
-            (sid, graph.station_lines(sid)[0]) in offsets
-            if graph.station_lines(sid)
-            else False
-        ):
-            continue
         lines = graph.station_lines(sid)
+        if not lines:
+            continue
         station = graph.stations[sid]
         reverse = station.section_id in reversed_sections
-        lines.sort(key=lambda ln: line_priority.get(ln, 999), reverse=reverse)
-        if lines:
-            priorities = [line_priority.get(lid, 0) for lid in lines]
-            base_p = max(priorities) if reverse else min(priorities)
-            for lid in lines:
-                p = line_priority.get(lid, 0)
-                offsets[(sid, lid)] = abs(p - base_p) * offset_step
-        else:
-            for i, lid in enumerate(lines):
-                offsets[(sid, lid)] = i * offset_step
+        for lid in lines:
+            p = line_priority.get(lid, 0)
+            if reverse:
+                offsets[(sid, lid)] = (max_priority - p) * offset_step
+            else:
+                offsets[(sid, lid)] = p * offset_step
 
     return offsets
 
