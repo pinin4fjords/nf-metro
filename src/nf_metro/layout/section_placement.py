@@ -147,6 +147,19 @@ def place_sections(
         if c not in col_widths:
             col_widths[c] = 0.0
 
+    # Expand columns if a spanning section's intrinsic width exceeds the
+    # sum of its spanned columns. Distributes the extra to the last column.
+    for sid, section in graph.sections.items():
+        cspan = section.grid_col_span
+        if cspan <= 1:
+            continue
+        start_col = col_assign.get(sid, 0)
+        spanned = sum(col_widths[c] for c in range(start_col, start_col + cspan))
+        spanned += (cspan - 1) * section_x_gap
+        if section.bbox_w > spanned:
+            deficit = section.bbox_w - spanned
+            col_widths[start_col + cspan - 1] += deficit
+
     # Cumulative x offsets (columns are shared)
     col_offsets: dict[int, float] = {}
     cumulative_x = 0.0
@@ -173,6 +186,18 @@ def place_sections(
     for r in range(max_row + 1):
         if r not in row_heights:
             row_heights[r] = 0.0
+
+    # Expand rows if a spanning section's intrinsic height exceeds spanned rows
+    for sid, section in graph.sections.items():
+        rspan = section.grid_row_span
+        if rspan <= 1:
+            continue
+        start_row = row_assign.get(sid, 0)
+        spanned = sum(row_heights[r] for r in range(start_row, start_row + rspan))
+        spanned += (rspan - 1) * section_y_gap
+        if section.bbox_h > spanned:
+            deficit = section.bbox_h - spanned
+            row_heights[start_row + rspan - 1] += deficit
 
     # Cumulative y offsets per row
     row_offsets: dict[int, float] = {}

@@ -1,6 +1,9 @@
 %%metro title: nf-core/rnaseq
 %%metro logo: examples/nf-core-rnaseq_logo_dark.png
 %%metro style: dark
+%%metro file: fastq_in | FASTQ
+%%metro file: report_final | HTML
+%%metro file: report_pseudo | HTML
 %%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
 %%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
 %%metro line: hisat2 | Aligner: HISAT2, Quantification: None | #f5c542
@@ -14,6 +17,7 @@ graph LR
     subgraph preprocessing [Pre-processing]
         %%metro exit: right | star_salmon, star_rsem, hisat2
         %%metro exit: bottom | pseudo_salmon, pseudo_kallisto
+        fastq_in[ ]
         cat_fastq[cat fastq]
         fastqc_raw[FastQC]
         infer_strandedness[infer strandedness]
@@ -24,6 +28,7 @@ graph LR
         bbsplit[BBSplit]
         sortmerna[SortMeRNA]
 
+        fastq_in -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| cat_fastq
         cat_fastq -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_raw
         fastqc_raw -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| infer_strandedness
         infer_strandedness -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| umi_tools_extract
@@ -73,9 +78,11 @@ graph LR
         salmon_pseudo[Salmon]
         kallisto[Kallisto]
         multiqc_pseudo[MultiQC]
+        report_pseudo[ ]
 
         salmon_pseudo -->|pseudo_salmon| multiqc_pseudo
         kallisto -->|pseudo_kallisto| multiqc_pseudo
+        multiqc_pseudo -->|pseudo_salmon,pseudo_kallisto| report_pseudo
     end
 
     subgraph qc_report [Quality control & reporting]
@@ -88,6 +95,7 @@ graph LR
         deseq2_pca[DESeq2 PCA]
         kraken2[Kraken2/Bracken]
         multiqc_final[MultiQC]
+        report_final[ ]
 
         rseqc -->|star_salmon,star_rsem,hisat2| preseq
         preseq -->|star_salmon,star_rsem,hisat2| qualimap
@@ -95,6 +103,7 @@ graph LR
         dupradar -->|star_salmon,star_rsem,hisat2| deseq2_pca
         deseq2_pca -->|star_salmon,star_rsem,hisat2| kraken2
         kraken2 -->|star_salmon,star_rsem,hisat2| multiqc_final
+        multiqc_final -->|star_salmon,star_rsem,hisat2| report_final
     end
 
     %% Inter-section edges

@@ -97,11 +97,25 @@ def _compute_section_layout(
                 station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
                 station.y = track_rank[station.track] * y_spacing
 
-        # RL: mirror X so layer 0 is rightmost
+        # RL: mirror X so layer 0 is rightmost.
+        # Anchor on non-terminus stations so adding terminus layers
+        # extends leftward without shifting the entry point.
         if section.direction == "RL":
-            max_x_val = max(s.x for s in sub.stations.values())
+            non_term = [s for s in sub.stations.values()
+                        if not (s.is_terminus and not s.label.strip())]
+            anchor_stations = non_term if non_term else list(sub.stations.values())
+            max_x_val = max(s.x for s in anchor_stations)
             for s in sub.stations.values():
                 s.x = max_x_val - s.x
+
+        # Normalize local X so leftmost station is at x=0.
+        # After RL mirror, terminus stations may have negative X; normalizing
+        # ensures bbox_x is always at -padding, and extra width from terminus
+        # goes into bbox_w (which feeds into grid column sizing).
+        min_local_x = min(s.x for s in sub.stations.values())
+        if min_local_x != 0:
+            for s in sub.stations.values():
+                s.x -= min_local_x
 
         # Ensure minimum inner extent so stations sit on visible track
         xs = [s.x for s in sub.stations.values()]
@@ -128,6 +142,19 @@ def _compute_section_layout(
         section.bbox_y = min(ys) - section_y_padding
         section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
         section.bbox_h = (max(ys) - min(ys)) + section_y_padding * 2
+
+        # When a horizontal section (LR/RL) has a TOP/BOTTOM entry, add
+        # extra width on the entry side so the grid allocates space for
+        # the line to curve in rather than dropping straight down.
+        if section.direction in ("LR", "RL"):
+            has_vertical_entry = any(
+                graph.ports[pid].side in (PortSide.TOP, PortSide.BOTTOM)
+                for pid in section.entry_ports
+                if pid in graph.ports
+            )
+            if has_vertical_entry:
+                entry_inset = x_spacing * 0.3
+                section.bbox_w += entry_inset
 
         section_subgraphs[sec_id] = sub
 
@@ -293,6 +320,8 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
                 label=station.label,
                 section_id=station.section_id,
                 is_port=False,
+                is_terminus=station.is_terminus,
+                terminus_label=station.terminus_label,
             ))
             real_station_ids.add(sid)
 

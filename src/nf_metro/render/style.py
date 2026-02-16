@@ -33,3 +33,13 @@ class Theme:
     animation_ball_color: str = "#ffffff"
     animation_balls_per_line: int = 3
     animation_speed: float = 80.0  # pixels per second
+    # Terminus (file icon) settings
+    terminus_width: float = 28.0
+    terminus_height: float = 32.0
+    terminus_fold_size: float = 8.0
+    terminus_fill: str = ""  # empty = inherit station_fill
+    terminus_stroke: str = ""  # empty = inherit station_stroke
+    terminus_stroke_width: float = 1.5
+    terminus_corner_radius: float = 2.0
+    terminus_font_size: float = 7.0
+    terminus_font_color: str = ""  # empty = inherit label_color
