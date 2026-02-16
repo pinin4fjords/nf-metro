@@ -25,6 +25,7 @@ dependencies = [
     "drawsvg>=2.0",
     "lark>=1.1",
     "networkx>=3.0",
+    "pillow>=9.0",
 ]
 
 [project.urls]
