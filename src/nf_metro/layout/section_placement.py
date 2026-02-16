@@ -263,6 +263,17 @@ def place_sections(
             spanned_width += (cspan - 1) * section_x_gap
             section.bbox_w = spanned_width
 
+    # Vertically center rowspan=1 sections within oversized rows.
+    # This happens when a TB fold section inflates the row height but
+    # LR/RL sections in the same row are much shorter.
+    for sid, section in graph.sections.items():
+        if section.grid_row_span != 1:
+            continue
+        row = row_assign.get(sid, 0)
+        row_h = row_heights.get(row, 0)
+        if row_h > section.bbox_h:
+            section.offset_y += (row_h - section.bbox_h) / 2
+
 
 def position_ports(section: Section, graph: MetroGraph) -> None:
     """Position port stations on section boundaries.
@@ -499,12 +510,16 @@ def _expand_lone_rowspans(
         row = row_assign.get(sid, 0)
         max_row = max(max_row, row + section.grid_row_span - 1)
 
-    # Process sections top to bottom to avoid conflicts
+    # Process sections top to bottom to avoid conflicts.
+    # Skip TB sections: they are fold bridges whose vertical extent is
+    # determined by their content. Expanding them would make the row too
+    # short, placing the return-row sections above the fold exit.
     candidates = sorted(
         [
             (sid, graph.sections[sid])
             for sid in graph.sections
             if graph.sections[sid].grid_row_span == 1
+            and graph.sections[sid].direction != "TB"
         ],
         key=lambda x: row_assign.get(x[0], 0),
     )
