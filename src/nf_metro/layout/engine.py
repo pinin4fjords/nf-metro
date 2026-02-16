@@ -73,7 +73,9 @@ def _compute_section_layout(
         if not layers:
             continue
 
-        # Compact track values to consecutive rows so there are no gaps
+        # Use raw track values (preserving fractional fan-out spacing)
+        # instead of compacting to consecutive integers which inflates
+        # the vertical spread of fork-join bubbles.
         unique_tracks = sorted(set(tracks.values()))
         track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
@@ -99,7 +101,15 @@ def _compute_section_layout(
                 station.x = station.layer * x_spacing + layer_extra.get(
                     station.layer, 0
                 )
-                station.y = track_rank[station.track] * y_spacing
+                station.y = station.track * y_spacing
+
+        # Normalize Y so minimum is 0 (raw tracks can be negative)
+        ys_all = [s.y for s in sub.stations.values()]
+        if ys_all:
+            min_y = min(ys_all)
+            if min_y != 0:
+                for s in sub.stations.values():
+                    s.y -= min_y
 
         # For TB sections, shift layer > 0 stations further right so
         # left-side labels fit within the section's left padding.

@@ -27,7 +27,7 @@ def render_svg(
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
     # Filter out port stations for dimension calculation
-    visible_stations = [s for s in graph.stations.values() if not s.is_port]
+    visible_stations = [s for s in graph.stations.values() if not s.is_port and not s.is_hidden]
     all_stations_for_bounds = (
         visible_stations if visible_stations else list(graph.stations.values())
     )
@@ -88,18 +88,30 @@ def render_svg(
         max_x = max(max_x, legend_x + legend_w)
         max_y = max(max_y, legend_y + legend_h)
 
-    # Position logo above the legend (or top-left if no legend)
+    # Position logo to the left of the legend: right-align the combo
+    # with the first section's right edge
     logo_x = 0.0
     logo_y = 0.0
     if show_logo:
-        logo_gap = 10.0
+        logo_gap = 15.0
         if show_legend:
-            logo_x = legend_x
-            logo_y = legend_y - logo_h - logo_gap
+            # Find the first section's right edge (leftmost column)
+            first_sections = [
+                s for s in graph.sections.values()
+                if s.bbox_w > 0 and s.grid_col == 0
+            ]
+            if first_sections:
+                anchor_right = max(s.bbox_x + s.bbox_w for s in first_sections)
+            else:
+                anchor_right = legend_x + logo_w + logo_gap + legend_w
+            # Right-align: legend right edge at anchor_right
+            legend_x = anchor_right - legend_w
+            logo_x = legend_x - logo_w - logo_gap
+            logo_y = legend_y + (legend_h - logo_h) / 2
         else:
             logo_x = padding
             logo_y = 5.0
-        max_x = max(max_x, logo_x + logo_w)
+        max_x = max(max_x, legend_x + legend_w if show_legend else logo_x + logo_w)
 
     auto_width = max_x + padding * 2
     auto_height = max_y + padding * 2
@@ -164,7 +176,7 @@ def render_svg(
 
 def compute_logo_dimensions(
     logo_path: str,
-    logo_height: float = 50.0,
+    logo_height: float = 80.0,
 ) -> tuple[float, float]:
     """Compute logo display dimensions preserving aspect ratio."""
     from PIL import Image as PILImage
@@ -382,7 +394,7 @@ def _render_stations(
     Skips port stations (is_port=True).
     """
     for station in graph.stations.values():
-        if station.is_port:
+        if station.is_port or station.is_hidden:
             continue
 
         r = theme.station_radius

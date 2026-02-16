@@ -32,6 +32,7 @@ class Station:
     label: str
     section_id: str | None = None
     is_port: bool = False
+    is_hidden: bool = False
     is_terminus: bool = False
     terminus_label: str = ""
     # Populated by layout engine
