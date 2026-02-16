@@ -235,7 +235,12 @@ def _parse_node(
             node_id = m.group(1)
             label = m.group(2).strip() if m.lastindex >= 2 else node_id
             if node_id not in graph.stations:
-                station = Station(id=node_id, label=label, section_id=section_id)
+                station = Station(
+                    id=node_id,
+                    label=label,
+                    section_id=section_id,
+                    is_hidden=node_id.startswith("_"),
+                )
                 graph.add_station(station)
                 if section_id and section_id in graph.sections:
                     graph.sections[section_id].station_ids.append(node_id)

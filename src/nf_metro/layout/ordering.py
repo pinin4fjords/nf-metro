@@ -227,7 +227,8 @@ def _place_fan_out(
         anchor = base
 
     # Center the fan-out around the anchor
+    fan_spacing = 1.5
     n = len(nodes)
     for i, node in enumerate(nodes):
-        offset = i - (n - 1) / 2
+        offset = (i - (n - 1) / 2) * fan_spacing
         tracks[node] = anchor + offset

@@ -5,23 +5,23 @@
 %%metro file: report_final | HTML
 %%metro file: report_quant | HTML
 %%metro file: report_bowtie2 | HTML
-%%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
-%%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
 %%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
 %%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
 %%metro line: hisat2 | Aligner: HISAT2, Quantification: None | #f5c542
 %%metro line: bowtie2_salmon | Aligner: Bowtie2, Quantification: Salmon | #ff8c00
+%%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
+%%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
 %%metro grid: preprocessing | 0,0,2,1
-%%metro grid: pseudo_align | 1,0
-%%metro grid: genome_align | 1,1
-%%metro grid: postprocessing | 2,1
+%%metro grid: genome_align | 1,0
+%%metro grid: pseudo_align | 1,1
+%%metro grid: postprocessing | 2,0,2,1
 %%metro grid: qc_report | 1,2,1,2
 %%metro legend: bl
 
 graph LR
     subgraph preprocessing [Pre-processing]
-        %%metro exit: top | pseudo_salmon, pseudo_kallisto
         %%metro exit: right | star_salmon, star_rsem, hisat2, bowtie2_salmon
+        %%metro exit: bottom | pseudo_salmon, pseudo_kallisto
         fastq_in[ ]
         cat_fastq[cat fastq]
         fastqc_raw[FastQC]
@@ -55,7 +55,8 @@ graph LR
 
     subgraph genome_align [Genome alignment & quantification]
         %%metro entry: left | star_salmon, star_rsem, hisat2, bowtie2_salmon
-        %%metro exit: right | star_salmon, star_rsem, hisat2
+        %%metro exit: right | star_salmon, star_rsem
+        %%metro exit: right | hisat2
         star[STAR]
         hisat2_align[HISAT2]
         bowtie2_align[Bowtie2]
@@ -63,18 +64,25 @@ graph LR
         salmon_quant[Salmon]
         umi_tools_dedup[UMI-tools dedup]
         tximport_ga[tximport]
-        summarized_exp_ga[SummarizedExperiment]
+        summarized_exp_ga[Sum. Exp.]
         multiqc_bowtie2[MultiQC]
         report_bowtie2[ ]
+        _h1[hidden]
+        _h2[hidden]
+        _h3[hidden]
 
         star -->|star_rsem| rsem
         star -->|star_salmon| umi_tools_dedup
         hisat2_align -->|hisat2| umi_tools_dedup
         bowtie2_align -->|bowtie2_salmon| umi_tools_dedup
-        umi_tools_dedup -->|star_salmon,hisat2,bowtie2_salmon| salmon_quant
+        umi_tools_dedup -->|star_salmon| salmon_quant
+        umi_tools_dedup -->|hisat2| _h1
+        _h1 -->|hisat2| _h2
+        _h2 -->|hisat2| _h3
         salmon_quant -->|star_salmon| tximport_ga
         rsem -->|star_rsem| tximport_ga
         tximport_ga -->|star_salmon,star_rsem| summarized_exp_ga
+        umi_tools_dedup -->|bowtie2_salmon| salmon_quant
         salmon_quant -->|bowtie2_salmon| multiqc_bowtie2
         multiqc_bowtie2 -->|bowtie2_salmon| report_bowtie2
     end
@@ -84,7 +92,7 @@ graph LR
         salmon_pseudo[Salmon]
         kallisto[Kallisto]
         tximport_pa[tximport]
-        summarized_exp_pa[SummarizedExperiment]
+        summarized_exp_pa[Sum. Exp.]
         multiqc_quant[MultiQC]
         report_quant[ ]
 
@@ -144,5 +152,5 @@ graph LR
     fastqc_filtered -->|pseudo_salmon| salmon_pseudo
     fastqc_filtered -->|pseudo_kallisto| kallisto
     summarized_exp_ga -->|star_salmon,star_rsem| samtools
-    salmon_quant -->|hisat2| samtools
+    _h3 -->|hisat2| samtools
     stringtie -->|star_salmon,star_rsem,hisat2| rseqc

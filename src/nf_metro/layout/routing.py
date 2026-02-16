@@ -665,7 +665,10 @@ def compute_station_offsets(
     # offsets must match so lines don't flip at the first station.
     reversed_sections = _detect_reversed_sections(graph)
 
-    # Phase 3: All other stations - sort by line priority
+    # Phase 3: All other stations - use priority-gap-aware spacing
+    # so that stations with a subset of lines preserve the gaps where
+    # missing lines would be (e.g. salmon_quant with star_salmon and
+    # bowtie2_salmon keeps a gap for hisat2 in the middle).
     for sid in graph.stations:
         if (
             (sid, graph.station_lines(sid)[0]) in offsets
@@ -677,8 +680,15 @@ def compute_station_offsets(
         station = graph.stations[sid]
         reverse = station.section_id in reversed_sections
         lines.sort(key=lambda ln: line_priority.get(ln, 999), reverse=reverse)
-        for i, lid in enumerate(lines):
-            offsets[(sid, lid)] = i * offset_step
+        if lines:
+            priorities = [line_priority.get(lid, 0) for lid in lines]
+            base_p = max(priorities) if reverse else min(priorities)
+            for lid in lines:
+                p = line_priority.get(lid, 0)
+                offsets[(sid, lid)] = abs(p - base_p) * offset_step
+        else:
+            for i, lid in enumerate(lines):
+                offsets[(sid, lid)] = i * offset_step
 
     return offsets
 
