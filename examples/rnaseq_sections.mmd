@@ -2,7 +2,7 @@
 %%metro logo: examples/nf-core-rnaseq_logo_dark.png
 %%metro style: dark
 %%metro file: cat_fastq | FASTQ
-%%metro file: multiqc_final | HTML
+%%metro file: report_final | HTML
 %%metro file: multiqc_pseudo | HTML
 %%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
 %%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
@@ -91,6 +91,7 @@ graph LR
         deseq2_pca[DESeq2 PCA]
         kraken2[Kraken2/Bracken]
         multiqc_final[MultiQC]
+        report_final[ ]
 
         rseqc -->|star_salmon,star_rsem,hisat2| preseq
         preseq -->|star_salmon,star_rsem,hisat2| qualimap
@@ -98,6 +99,7 @@ graph LR
         dupradar -->|star_salmon,star_rsem,hisat2| deseq2_pca
         deseq2_pca -->|star_salmon,star_rsem,hisat2| kraken2
         kraken2 -->|star_salmon,star_rsem,hisat2| multiqc_final
+        multiqc_final -->|star_salmon,star_rsem,hisat2| report_final
     end
 
     %% Inter-section edges
