@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.svg import render_svg
-from nf_metro.themes import NFCORE_THEME, LIGHT_THEME
+from nf_metro.themes import LIGHT_THEME, NFCORE_THEME
 
 
 def _render_simple():
@@ -60,7 +60,7 @@ def test_render_light_theme():
     svg = render_svg(graph, LIGHT_THEME)
     # Light theme uses transparent background (no background rectangle)
     assert LIGHT_THEME.background_color == "none"
-    assert '#333333' in svg  # label/stroke color present
+    assert "#333333" in svg  # label/stroke color present
 
 
 def test_render_empty_graph():
@@ -145,12 +145,13 @@ def test_render_sections_no_port_labels():
 def test_render_rnaseq_sections_example():
     """The rnaseq_sections.mmd example should render without errors."""
     from pathlib import Path
+
     examples = Path(__file__).parent.parent / "examples"
     text = (examples / "rnaseq_sections.mmd").read_text()
     graph = parse_metro_mermaid(text)
     compute_layout(graph)
     svg = render_svg(graph, NFCORE_THEME)
-    assert "nf-core/rnaseq" in svg
+    # Title text is replaced by embedded logo, so check section labels
     assert "Pre-processing" in svg
     root = ET.fromstring(svg)
     assert root.tag.endswith("svg") or "svg" in root.tag
