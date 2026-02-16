@@ -181,6 +181,15 @@ def _place_single_node(
                 # Permanent divergence: snap to base track
                 return base
 
+        # Detect convergence: node has more lines than its largest
+        # predecessor (lines merging from different tracks). Snap to
+        # base track so the main bundle stays compact and downstream
+        # stations don't zigzag between the merged and base positions.
+        if len(preds) > 1:
+            max_pred_lines = max(len(set(graph.station_lines(p))) for p in preds)
+            if len(node_lines) > max_pred_lines:
+                return base
+
     distance = abs(base - pred_avg)
     if distance <= line_gap:
         # Close enough - snap to base track

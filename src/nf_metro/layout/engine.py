@@ -73,9 +73,8 @@ def _compute_section_layout(
         if not layers:
             continue
 
-        # Use raw track values (preserving fractional fan-out spacing)
-        # instead of compacting to consecutive integers which inflates
-        # the vertical spread of fork-join bubbles.
+        # Compact tracks to consecutive integers so widely-spaced
+        # line priorities don't inflate the vertical spread.
         unique_tracks = sorted(set(tracks.values()))
         track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
@@ -101,7 +100,7 @@ def _compute_section_layout(
                 station.x = station.layer * x_spacing + layer_extra.get(
                     station.layer, 0
                 )
-                station.y = station.track * y_spacing
+                station.y = track_rank[station.track] * y_spacing
 
         # Normalize Y so minimum is 0 (raw tracks can be negative)
         ys_all = [s.y for s in sub.stations.values()]
