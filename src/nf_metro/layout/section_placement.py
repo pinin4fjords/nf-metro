@@ -131,6 +131,12 @@ def place_sections(
             used_rows.add(next_row)
             next_row += 1
 
+    # Expand rowspans for sections that inflate their row but have
+    # empty rows below in their column. Distributes the tall section's
+    # height across multiple rows, reducing dead space for shorter
+    # sections sharing the original row.
+    _expand_lone_rowspans(graph, col_assign, row_assign)
+
     # Compute pixel offsets
     min_col = min(col_assign.values()) if col_assign else 0
     max_col = max(col_assign.values()) if col_assign else 0
@@ -212,6 +218,13 @@ def place_sections(
         row_offsets[r] = cumulative_y
         cumulative_y += row_heights[r] + section_y_gap
 
+    # Columns containing RL or TB sections should right-align all their
+    # sections so stacked LR sections share a right edge with the RL/TB ones.
+    right_align_cols: set[int] = set()
+    for sid, section in graph.sections.items():
+        if section.direction in ("RL", "TB") and section.grid_col_span == 1:
+            right_align_cols.add(col_assign.get(sid, 0))
+
     # Set section offsets and adjust height for spanning sections
     for sid, section in graph.sections.items():
         section.grid_col = col_assign.get(sid, 0)
@@ -219,9 +232,13 @@ def place_sections(
         section.offset_x = col_offsets.get(section.grid_col, 0)
         section.offset_y = row_offsets.get(section.grid_row, 0)
 
-        # Right-align RL and TB sections within their column so that
-        # fold sections and post-fold RL sections share a right edge.
-        if section.direction in ("RL", "TB") and section.grid_col_span == 1:
+        # Right-align sections within columns that contain RL or TB sections,
+        # so fold sections and post-fold RL sections share a right edge with
+        # any LR sections stacked above them in the same column.
+        if section.grid_col_span == 1 and (
+            section.direction in ("RL", "TB")
+            or section.grid_col in right_align_cols
+        ):
             col_w = col_widths.get(section.grid_col, 0)
             if col_w > section.bbox_w:
                 section.offset_x += col_w - section.bbox_w
@@ -454,3 +471,78 @@ def _spread_overlapping_ports(
                     port.y = new_pos
                 else:
                     port.x = new_pos
+
+
+def _expand_lone_rowspans(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    row_assign: dict[str, int],
+) -> None:
+    """Expand rowspan for sections that inflate a row but have empty rows below.
+
+    When a section is the tallest in its row (among rowspan=1 sections) and
+    its column has consecutive empty rows below, expanding its rowspan
+    distributes its height across multiple rows. This reduces dead space
+    for shorter sections sharing the original row.
+    """
+    # Build occupancy grid (col, row) -> section_id
+    occupied: dict[tuple[int, int], str] = {}
+    for sid, section in graph.sections.items():
+        col = col_assign.get(sid, 0)
+        row = row_assign.get(sid, 0)
+        for c in range(col, col + section.grid_col_span):
+            for r in range(row, row + section.grid_row_span):
+                occupied[(c, r)] = sid
+
+    max_row = 0
+    for sid, section in graph.sections.items():
+        row = row_assign.get(sid, 0)
+        max_row = max(max_row, row + section.grid_row_span - 1)
+
+    # Process sections top to bottom to avoid conflicts
+    candidates = sorted(
+        [
+            (sid, graph.sections[sid])
+            for sid in graph.sections
+            if graph.sections[sid].grid_row_span == 1
+        ],
+        key=lambda x: row_assign.get(x[0], 0),
+    )
+
+    for sid, section in candidates:
+        col = col_assign.get(sid, 0)
+        row = row_assign.get(sid, 0)
+
+        # Find consecutive empty rows below in all columns this section occupies
+        max_expand_row = row
+        for r in range(row + 1, max_row + 1):
+            all_empty = True
+            for c in range(col, col + section.grid_col_span):
+                if (c, r) in occupied:
+                    all_empty = False
+                    break
+            if not all_empty:
+                break
+            max_expand_row = r
+
+        potential_rowspan = max_expand_row - row + 1
+        if potential_rowspan <= 1:
+            continue
+
+        # Only expand if this section is inflating its row: its bbox_h
+        # exceeds the tallest other rowspan=1 section in the same row.
+        max_other_h = 0.0
+        for other_sid, other in graph.sections.items():
+            if other_sid == sid:
+                continue
+            if row_assign.get(other_sid, -1) == row and other.grid_row_span == 1:
+                max_other_h = max(max_other_h, other.bbox_h)
+
+        if section.bbox_h <= max_other_h:
+            continue
+
+        # Expand rowspan
+        section.grid_row_span = potential_rowspan
+        for c in range(col, col + section.grid_col_span):
+            for r in range(row, row + potential_rowspan):
+                occupied[(c, r)] = sid
