@@ -9,20 +9,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from nf_metro.layout.engine import compute_layout
-from nf_metro.parser.mermaid import parse_metro_mermaid
-
 from layout_validator import (
     Severity,
     check_coordinate_sanity,
     check_edge_waypoints,
-    check_minimum_section_spacing,
     check_port_boundary,
     check_section_overlap,
     check_station_containment,
     validate_layout,
 )
+
+from nf_metro.layout.engine import compute_layout
+from nf_metro.parser.mermaid import parse_metro_mermaid
 
 TOPOLOGIES_DIR = Path(__file__).parent / "fixtures" / "topologies"
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
