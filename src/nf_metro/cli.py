@@ -35,6 +35,8 @@ def cli() -> None:
               help="Max layers before folding to next row (default: auto)")
 @click.option("--animate/--no-animate", default=False,
               help="Add animated balls traveling along lines")
+@click.option("--logo", type=click.Path(exists=True, path_type=Path), default=None,
+              help="Logo image path (overrides %%metro logo: directive)")
 def render(
     input_file: Path,
     output: Path | None,
@@ -45,10 +47,14 @@ def render(
     y_spacing: float,
     max_layers_per_row: int | None,
     animate: bool,
+    logo: Path | None,
 ) -> None:
     """Render a Mermaid metro map definition to SVG."""
     text = input_file.read_text()
     graph = parse_metro_mermaid(text)
+
+    if logo is not None:
+        graph.logo_path = str(logo)
 
     compute_layout(graph, x_spacing=x_spacing, y_spacing=y_spacing,
                    max_layers_per_row=max_layers_per_row)
