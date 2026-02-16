@@ -28,8 +28,7 @@ def render_svg(
 
     # Filter out port stations for dimension calculation
     visible_stations = [
-        s for s in graph.stations.values()
-        if not s.is_port and not s.is_hidden
+        s for s in graph.stations.values() if not s.is_port and not s.is_hidden
     ]
     all_stations_for_bounds = (
         visible_stations if visible_stations else list(graph.stations.values())
@@ -100,8 +99,7 @@ def render_svg(
         if show_legend:
             # Find the first section's right edge (leftmost column)
             first_sections = [
-                s for s in graph.sections.values()
-                if s.bbox_w > 0 and s.grid_col == 0
+                s for s in graph.sections.values() if s.bbox_w > 0 and s.grid_col == 0
             ]
             if first_sections:
                 anchor_right = max(s.bbox_x + s.bbox_w for s in first_sections)

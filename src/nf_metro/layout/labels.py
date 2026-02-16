@@ -78,7 +78,8 @@ def place_labels(
     """
     sorted_stations = sorted(
         (
-            s for s in graph.stations.values()
+            s
+            for s in graph.stations.values()
             if not s.is_port and not s.is_hidden and s.label.strip()
         ),
         key=lambda s: (s.layer, s.track),
