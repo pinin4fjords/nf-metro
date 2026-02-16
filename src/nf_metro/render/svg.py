@@ -27,7 +27,10 @@ def render_svg(
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
     # Filter out port stations for dimension calculation
-    visible_stations = [s for s in graph.stations.values() if not s.is_port and not s.is_hidden]
+    visible_stations = [
+        s for s in graph.stations.values()
+        if not s.is_port and not s.is_hidden
+    ]
     all_stations_for_bounds = (
         visible_stations if visible_stations else list(graph.stations.values())
     )
