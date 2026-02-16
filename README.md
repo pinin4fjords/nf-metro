@@ -14,9 +14,12 @@ pip install -e ".[dev]"
 
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg
+nf-metro render pipeline.mmd -o pipeline.svg --theme light --logo logo_light.png
 nf-metro validate pipeline.mmd
 nf-metro info pipeline.mmd
 ```
+
+The `--logo` flag overrides the `%%metro logo:` directive, letting you use the same `.mmd` file with different logos for dark/light themes.
 
 ## Input format
 
@@ -171,6 +174,7 @@ These are automatically rewritten into port-to-port connections with junction st
 | `%%metro line: <id> \| <name> \| <color>` | Global | Define a metro line |
 | `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Global | Pin section to grid position |
 | `%%metro legend: <position>` | Global | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, `none` |
+| `%%metro file: <station> \| <label>` | Global | Mark a station as a file terminus with a document icon |
 | `%%metro entry: <side> \| <lines>` | Section | Entry port hint |
 | `%%metro exit: <side> \| <lines>` | Section | Exit port hint |
 | `%%metro direction: <dir>` | Section | Flow direction: `LR`, `RL`, `TB` |
