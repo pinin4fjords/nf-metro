@@ -77,7 +77,7 @@ def place_labels(
     3. If still colliding, push further away.
     """
     sorted_stations = sorted(
-        (s for s in graph.stations.values() if not s.is_port),
+        (s for s in graph.stations.values() if not s.is_port and s.label.strip()),
         key=lambda s: (s.layer, s.track),
     )
 
@@ -148,15 +148,27 @@ def place_labels(
                     above=(direction < 0),
                 )
 
-        # Clamp terminus labels so they stay within section bbox
-        if station.is_terminus and station.section_id:
+        # Clamp labels so they stay within section bbox
+        if station.section_id:
             sec = graph.sections.get(station.section_id)
             if sec and sec.bbox_w > 0:
                 char_width = 7.0
+                font_height = 14.0
                 text_half_w = len(candidate.text) * char_width / 2
-                min_x = sec.bbox_x + text_half_w + 4
-                max_x = sec.bbox_x + sec.bbox_w - text_half_w - 4
+                margin = 4
+                # Horizontal clamping
+                min_x = sec.bbox_x + text_half_w + margin
+                max_x = sec.bbox_x + sec.bbox_w - text_half_w - margin
                 candidate.x = max(min_x, min(candidate.x, max_x))
+                # Vertical clamping
+                if candidate.above:
+                    min_y = sec.bbox_y + font_height + margin
+                    if candidate.y < min_y:
+                        candidate.y = min_y
+                else:
+                    max_y = sec.bbox_y + sec.bbox_h - font_height - margin
+                    if candidate.y > max_y:
+                        candidate.y = max_y
 
         placements.append(candidate)
 
