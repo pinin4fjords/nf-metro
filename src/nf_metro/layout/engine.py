@@ -108,15 +108,18 @@ def _compute_section_layout(
             for s in sub.stations.values():
                 s.x = max_x_val - s.x
 
-        # Ensure minimum inner extent so stations sit on visible track.
-        # Exclude terminus stations from extent/bbox so they don't
-        # affect section dimensions or port positions.
-        # Non-process terminus stations have blank labels
-        non_term_s = [s for s in sub.stations.values()
-                      if not (s.is_terminus and not s.label.strip())]
-        bbox_src = non_term_s if non_term_s else list(sub.stations.values())
-        xs = [s.x for s in bbox_src]
-        ys = [s.y for s in bbox_src]
+        # Normalize local X so leftmost station is at x=0.
+        # After RL mirror, terminus stations may have negative X; normalizing
+        # ensures bbox_x is always at -padding, and extra width from terminus
+        # goes into bbox_w (which feeds into grid column sizing).
+        min_local_x = min(s.x for s in sub.stations.values())
+        if min_local_x != 0:
+            for s in sub.stations.values():
+                s.x -= min_local_x
+
+        # Ensure minimum inner extent so stations sit on visible track
+        xs = [s.x for s in sub.stations.values()]
+        ys = [s.y for s in sub.stations.values()]
         if section.direction == "TB":
             inner_h = max(ys) - min(ys)
             min_inner_h = y_spacing
@@ -124,7 +127,7 @@ def _compute_section_layout(
                 shift = (min_inner_h - inner_h) / 2
                 for station in sub.stations.values():
                     station.y += shift
-                ys = [s.y for s in bbox_src]
+                ys = [s.y for s in sub.stations.values()]
         else:
             inner_w = max(xs) - min(xs)
             min_inner_w = x_spacing
@@ -132,13 +135,26 @@ def _compute_section_layout(
                 shift = (min_inner_w - inner_w) / 2
                 for station in sub.stations.values():
                     station.x += shift
-                xs = [s.x for s in bbox_src]
+                xs = [s.x for s in sub.stations.values()]
 
         # Compute section bounding box from real stations only
         section.bbox_x = min(xs) - section_x_padding
         section.bbox_y = min(ys) - section_y_padding
         section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
         section.bbox_h = (max(ys) - min(ys)) + section_y_padding * 2
+
+        # When a horizontal section (LR/RL) has a TOP/BOTTOM entry, add
+        # extra width on the entry side so the grid allocates space for
+        # the line to curve in rather than dropping straight down.
+        if section.direction in ("LR", "RL"):
+            has_vertical_entry = any(
+                graph.ports[pid].side in (PortSide.TOP, PortSide.BOTTOM)
+                for pid in section.entry_ports
+                if pid in graph.ports
+            )
+            if has_vertical_entry:
+                entry_inset = x_spacing * 0.3
+                section.bbox_w += entry_inset
 
         section_subgraphs[sec_id] = sub
 
@@ -161,32 +177,6 @@ def _compute_section_layout(
         # Update section bbox to global coords
         section.bbox_x += section.offset_x + x_offset
         section.bbox_y += section.offset_y + y_offset
-
-    # Phase 4.5: Expand section bboxes to include non-process terminus stations.
-    # The bbox was computed from process stations only, so terminus stations may
-    # sit outside. Expand toward them while keeping the opposite edge fixed.
-    for sec_id, section in graph.sections.items():
-        margin = section_x_padding
-        for sid in section.station_ids:
-            station = graph.stations.get(sid)
-            if not station or not (station.is_terminus and not station.label.strip()):
-                continue
-            right_edge = section.bbox_x + section.bbox_w
-            bottom_edge = section.bbox_y + section.bbox_h
-            if station.x - margin < section.bbox_x:
-                expand = section.bbox_x - (station.x - margin)
-                section.bbox_x -= expand
-                section.bbox_w += expand
-            if station.x + margin > right_edge:
-                expand = (station.x + margin) - right_edge
-                section.bbox_w += expand
-            if station.y - section_y_padding < section.bbox_y:
-                expand = section.bbox_y - (station.y - section_y_padding)
-                section.bbox_y -= expand
-                section.bbox_h += expand
-            if station.y + section_y_padding > bottom_edge:
-                expand = (station.y + section_y_padding) - bottom_edge
-                section.bbox_h += expand
 
     # Phase 5: Position ports on section boundaries (after bbox is in global coords)
     for sec_id, section in graph.sections.items():

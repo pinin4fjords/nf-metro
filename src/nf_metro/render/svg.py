@@ -374,7 +374,20 @@ def _render_stations(
 
         span = max_off - min_off
 
-        if is_tb_vert:
+        # Non-process terminus stations: filled rectangle (same size as pill, no rounding)
+        is_blank_terminus = station.is_terminus and not station.label.strip()
+        if is_blank_terminus:
+            w = r * 2
+            h = span + r * 2
+            cy = station.y + (min_off + max_off) / 2
+            d.append(draw.Rectangle(
+                station.x - w / 2, cy - h / 2,
+                w, h,
+                fill=theme.station_fill,
+                stroke=theme.station_stroke,
+                stroke_width=theme.station_stroke_width,
+            ))
+        elif is_tb_vert:
             # Horizontal pill: lines spread along X axis
             w = span + r * 2
             h = r * 2
