@@ -57,10 +57,10 @@ def _boxes_overlap(
 ) -> bool:
     """Check if two bounding boxes overlap."""
     return not (
-        a[2] + margin < b[0] or
-        b[2] + margin < a[0] or
-        a[3] + margin < b[1] or
-        b[3] + margin < a[1]
+        a[2] + margin < b[0]
+        or b[2] + margin < a[0]
+        or a[3] + margin < b[1]
+        or b[3] + margin < a[1]
     )
 
 
@@ -121,17 +121,17 @@ def place_labels(
             continue
 
         # Alternate by layer (column): even layers below, odd layers above
-        start_above = (station.layer % 2 == 1)
+        start_above = station.layer % 2 == 1
 
         candidate = _try_place(
-            station, label_offset, start_above, placements,
-            min_off, max_off)
+            station, label_offset, start_above, placements, min_off, max_off
+        )
 
         if _has_collision(candidate, placements):
             # Try the other side
             candidate = _try_place(
-                station, label_offset, not start_above, placements,
-                min_off, max_off)
+                station, label_offset, not start_above, placements, min_off, max_off
+            )
 
             if _has_collision(candidate, placements):
                 # Push further in the non-default direction

@@ -149,9 +149,14 @@ def test_section_layout_sections_dont_overlap():
     boxes = []
     for section in graph.sections.values():
         if section.bbox_w > 0:
-            boxes.append((section.bbox_x, section.bbox_y,
-                          section.bbox_x + section.bbox_w,
-                          section.bbox_y + section.bbox_h))
+            boxes.append(
+                (
+                    section.bbox_x,
+                    section.bbox_y,
+                    section.bbox_x + section.bbox_w,
+                    section.bbox_y + section.bbox_h,
+                )
+            )
 
     # Check pairwise non-overlap
     for i in range(len(boxes)):
@@ -159,7 +164,9 @@ def test_section_layout_sections_dont_overlap():
             ax1, ay1, ax2, ay2 = boxes[i]
             bx1, by1, bx2, by2 = boxes[j]
             overlap = not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
-            assert not overlap, f"Sections {i} and {j} overlap: {boxes[i]} vs {boxes[j]}"
+            assert not overlap, (
+                f"Sections {i} and {j} overlap: {boxes[i]} vs {boxes[j]}"
+            )
 
 
 def test_section_layout_preserves_edge_order():
@@ -217,5 +224,5 @@ def test_section_layout_ports_skip_rendering():
     graph = _make_section_graph()
     compute_layout(graph)
     labels = place_labels(graph)
-    port_labels = [l for l in labels if l.station_id in graph.ports]
+    port_labels = [lb for lb in labels if lb.station_id in graph.ports]
     assert len(port_labels) == 0

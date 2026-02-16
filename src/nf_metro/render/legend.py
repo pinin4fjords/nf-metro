@@ -49,32 +49,44 @@ def render_legend(
     legend_width, legend_height = compute_legend_dimensions(graph, theme)
 
     # Background
-    drawing.append(draw.Rectangle(
-        x, y,
-        legend_width, legend_height,
-        rx=6, ry=6,
-        fill=theme.legend_background,
-    ))
+    drawing.append(
+        draw.Rectangle(
+            x,
+            y,
+            legend_width,
+            legend_height,
+            rx=6,
+            ry=6,
+            fill=theme.legend_background,
+        )
+    )
 
     # Line entries
     for i, metro_line in enumerate(graph.lines.values()):
         entry_y = y + padding + i * line_height + line_height / 2
 
         # Color swatch (line segment)
-        drawing.append(draw.Line(
-            x + padding, entry_y,
-            x + padding + swatch_width, entry_y,
-            stroke=metro_line.color,
-            stroke_width=theme.line_width,
-            stroke_linecap="round",
-        ))
+        drawing.append(
+            draw.Line(
+                x + padding,
+                entry_y,
+                x + padding + swatch_width,
+                entry_y,
+                stroke=metro_line.color,
+                stroke_width=theme.line_width,
+                stroke_linecap="round",
+            )
+        )
 
         # Label
-        drawing.append(draw.Text(
-            metro_line.display_name,
-            theme.legend_font_size,
-            x + padding + text_offset, entry_y,
-            fill=theme.legend_text_color,
-            font_family=theme.label_font_family,
-            dominant_baseline="central",
-        ))
+        drawing.append(
+            draw.Text(
+                metro_line.display_name,
+                theme.legend_font_size,
+                x + padding + text_offset,
+                entry_y,
+                fill=theme.legend_text_color,
+                font_family=theme.label_font_family,
+                dominant_baseline="central",
+            )
+        )

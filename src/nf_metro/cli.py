@@ -21,22 +21,50 @@ def cli() -> None:
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True, path_type=Path))
-@click.option("-o", "--output", type=click.Path(path_type=Path), default=None,
-              help="Output SVG file path. Defaults to <input>.svg")
-@click.option("--theme", type=click.Choice(list(THEMES.keys())), default="nfcore",
-              help="Visual theme (default: nfcore)")
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output SVG file path. Defaults to <input>.svg",
+)
+@click.option(
+    "--theme",
+    type=click.Choice(list(THEMES.keys())),
+    default="nfcore",
+    help="Visual theme (default: nfcore)",
+)
 @click.option("--width", type=int, default=None, help="SVG width in pixels")
 @click.option("--height", type=int, default=None, help="SVG height in pixels")
-@click.option("--x-spacing", type=float, default=60.0,
-              help="Horizontal spacing between layers (default: 60)")
-@click.option("--y-spacing", type=float, default=40.0,
-              help="Vertical spacing between tracks (default: 40)")
-@click.option("--max-layers-per-row", type=int, default=None,
-              help="Max layers before folding to next row (default: auto)")
-@click.option("--animate/--no-animate", default=False,
-              help="Add animated balls traveling along lines")
-@click.option("--logo", type=click.Path(exists=True, path_type=Path), default=None,
-              help="Logo image path (overrides %%metro logo: directive)")
+@click.option(
+    "--x-spacing",
+    type=float,
+    default=60.0,
+    help="Horizontal spacing between layers (default: 60)",
+)
+@click.option(
+    "--y-spacing",
+    type=float,
+    default=40.0,
+    help="Vertical spacing between tracks (default: 40)",
+)
+@click.option(
+    "--max-layers-per-row",
+    type=int,
+    default=None,
+    help="Max layers before folding to next row (default: auto)",
+)
+@click.option(
+    "--animate/--no-animate",
+    default=False,
+    help="Add animated balls traveling along lines",
+)
+@click.option(
+    "--logo",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Logo image path (overrides %%metro logo: directive)",
+)
 def render(
     input_file: Path,
     output: Path | None,
@@ -56,8 +84,12 @@ def render(
     if logo is not None:
         graph.logo_path = str(logo)
 
-    compute_layout(graph, x_spacing=x_spacing, y_spacing=y_spacing,
-                   max_layers_per_row=max_layers_per_row)
+    compute_layout(
+        graph,
+        x_spacing=x_spacing,
+        y_spacing=y_spacing,
+        max_layers_per_row=max_layers_per_row,
+    )
 
     theme_obj = THEMES[theme]
     svg = render_svg(graph, theme_obj, width=width, height=height, animate=animate)
@@ -66,9 +98,11 @@ def render(
         output = input_file.with_suffix(".svg")
 
     output.write_text(svg)
-    click.echo(f"Rendered {len(graph.stations)} stations, "
-               f"{len(graph.edges)} edges, "
-               f"{len(graph.lines)} lines -> {output}")
+    click.echo(
+        f"Rendered {len(graph.stations)} stations, "
+        f"{len(graph.edges)} edges, "
+        f"{len(graph.lines)} lines -> {output}"
+    )
 
 
 @cli.command()
@@ -87,15 +121,18 @@ def validate(input_file: Path) -> None:
     # Check that all edge line_ids reference defined lines
     for edge in graph.edges:
         if edge.line_id != "default" and edge.line_id not in graph.lines:
-            errors.append(f"Edge {edge.source} -> {edge.target} references "
-                          f"undefined line '{edge.line_id}'")
+            errors.append(
+                f"Edge {edge.source} -> {edge.target} references "
+                f"undefined line '{edge.line_id}'"
+            )
 
     # Check that section station IDs exist
     for section in graph.sections.values():
         for sid in section.station_ids:
             if sid not in graph.stations:
-                errors.append(f"Section '{section.name}' references unknown "
-                              f"station '{sid}'")
+                errors.append(
+                    f"Section '{section.name}' references unknown station '{sid}'"
+                )
 
     if errors:
         click.echo("Validation errors:", err=True)
@@ -103,10 +140,12 @@ def validate(input_file: Path) -> None:
             click.echo(f"  - {err}", err=True)
         raise SystemExit(1)
 
-    click.echo(f"Valid: {len(graph.stations)} stations, "
-               f"{len(graph.edges)} edges, "
-               f"{len(graph.lines)} lines, "
-               f"{len(graph.sections)} sections")
+    click.echo(
+        f"Valid: {len(graph.stations)} stations, "
+        f"{len(graph.edges)} edges, "
+        f"{len(graph.lines)} lines, "
+        f"{len(graph.sections)} sections"
+    )
 
 
 @cli.command()
@@ -123,11 +162,9 @@ def info(input_file: Path) -> None:
     click.echo(f"Lines: {len(graph.lines)}")
     for lid, line in graph.lines.items():
         stations = graph.line_stations(lid)
-        click.echo(f"  {line.display_name} ({line.color}): "
-                    f"{len(stations)} stations")
+        click.echo(f"  {line.display_name} ({line.color}): {len(stations)} stations")
     click.echo(f"Sections: {len(graph.sections)}")
     for section in graph.sections.values():
-        click.echo(f"  [{section.number}] {section.name}: "
-                    f"{len(section.station_ids)} stations")
-
-
+        click.echo(
+            f"  [{section.number}] {section.name}: {len(section.station_ids)} stations"
+        )

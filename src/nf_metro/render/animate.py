@@ -27,16 +27,20 @@ def render_animation(
     with <animateMotion> to create the traveling ball effect.
     """
     line_paths = _build_line_motion_paths(
-        graph, routes, station_offsets, theme, curve_radius,
+        graph,
+        routes,
+        station_offsets,
+        theme,
+        curve_radius,
     )
 
     for idx, (line_id, d_attr) in enumerate(line_paths):
         path_id = f"motion-path-{line_id}-{idx}"
 
         # Invisible path for animateMotion to follow
-        d.append(draw.Raw(
-            f'<path id="{path_id}" d="{d_attr}" fill="none" stroke="none"/>'
-        ))
+        d.append(
+            draw.Raw(f'<path id="{path_id}" d="{d_attr}" fill="none" stroke="none"/>')
+        )
 
         # Compute duration from approximate path length
         path_length = _compute_path_length(d_attr)
@@ -45,16 +49,18 @@ def render_animation(
         n_balls = theme.animation_balls_per_line
         for i in range(n_balls):
             begin_offset = -i * dur / n_balls
-            d.append(draw.Raw(
-                f'<circle r="{theme.animation_ball_radius}" '
-                f'fill="{theme.animation_ball_color}" opacity="0.9">'
-                f'<animateMotion dur="{dur:.2f}s" '
-                f'repeatCount="indefinite" '
-                f'begin="{begin_offset:.2f}s">'
-                f'<mpath href="#{path_id}"/>'
-                f'</animateMotion>'
-                f'</circle>'
-            ))
+            d.append(
+                draw.Raw(
+                    f'<circle r="{theme.animation_ball_radius}" '
+                    f'fill="{theme.animation_ball_color}" opacity="0.9">'
+                    f'<animateMotion dur="{dur:.2f}s" '
+                    f'repeatCount="indefinite" '
+                    f'begin="{begin_offset:.2f}s">'
+                    f'<mpath href="#{path_id}"/>'
+                    f"</animateMotion>"
+                    f"</circle>"
+                )
+            )
 
 
 def _build_line_motion_paths(
@@ -112,7 +118,9 @@ def _build_line_motion_paths(
 
         for path_edges in all_paths:
             all_points = _chain_edge_points(
-                path_edges, route_by_edge, station_offsets,
+                path_edges,
+                route_by_edge,
+                station_offsets,
             )
             if len(all_points) < 2:
                 continue
@@ -261,7 +269,7 @@ def _compute_path_length(d_attr: str) -> float:
     For Q (quadratic Bezier), approximates with the chord length.
     """
     # Extract all numbers from the path
-    tokens = re.findall(r'[MLQ]|[-+]?\d*\.?\d+', d_attr)
+    tokens = re.findall(r"[MLQ]|[-+]?\d*\.?\d+", d_attr)
 
     total = 0.0
     cx, cy = 0.0, 0.0  # current position
@@ -269,17 +277,17 @@ def _compute_path_length(d_attr: str) -> float:
 
     while i < len(tokens):
         token = tokens[i]
-        if token == 'M':
+        if token == "M":
             cx = float(tokens[i + 1])
             cy = float(tokens[i + 2])
             i += 3
-        elif token == 'L':
+        elif token == "L":
             nx = float(tokens[i + 1])
             ny = float(tokens[i + 2])
             total += math.hypot(nx - cx, ny - cy)
             cx, cy = nx, ny
             i += 3
-        elif token == 'Q':
+        elif token == "Q":
             # Q cx cy ex ey - approximate with control point polygon
             qcx = float(tokens[i + 1])
             qcy = float(tokens[i + 2])

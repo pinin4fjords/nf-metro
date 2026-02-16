@@ -8,9 +8,7 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 def test_straight_route():
     """Edges on the same track should be straight horizontal lines."""
     graph = parse_metro_mermaid(
-        "%%metro line: main | Main | #ff0000\n"
-        "graph LR\n"
-        "    a -->|main| b\n"
+        "%%metro line: main | Main | #ff0000\ngraph LR\n    a -->|main| b\n"
     )
     compute_layout(graph)
     routes = route_edges(graph)
@@ -34,7 +32,7 @@ def test_diagonal_route():
     routes = route_edges(graph)
 
     # Find a route that changes tracks
-    diagonal_routes = [r for r in routes if len(r.points) == 4]
+    _ = [r for r in routes if len(r.points) == 4]
     # At least some routes should be diagonal (track changes)
     # The exact count depends on layout, but we should have some
     assert len(routes) == 4
@@ -43,9 +41,7 @@ def test_diagonal_route():
 def test_station_offsets_single_line():
     """Single line on a station should have zero offset."""
     graph = parse_metro_mermaid(
-        "%%metro line: main | Main | #ff0000\n"
-        "graph LR\n"
-        "    a -->|main| b\n"
+        "%%metro line: main | Main | #ff0000\ngraph LR\n    a -->|main| b\n"
     )
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
@@ -114,4 +110,7 @@ def test_section_routes_have_valid_points():
     compute_layout(graph)
     routes = route_edges(graph)
     for route in routes:
-        assert len(route.points) >= 2, f"Route {route.edge.source}->{route.edge.target} has {len(route.points)} points"
+        assert len(route.points) >= 2, (
+            f"Route {route.edge.source}->{route.edge.target}"
+            f" has {len(route.points)} points"
+        )

@@ -69,13 +69,11 @@ def route_edges(
 
         # Inter-section routing: edges between ports/junctions use only
         # horizontal and vertical segments (L-shapes), no diagonals.
-        is_inter_section = (
-            (src.is_port or edge.source in junction_ids)
-            and (tgt.is_port or edge.target in junction_ids)
+        is_inter_section = (src.is_port or edge.source in junction_ids) and (
+            tgt.is_port or edge.target in junction_ids
         )
         if is_inter_section:
-            i, n = bundle_info.get(
-                (edge.source, edge.target, edge.line_id), (0, 1))
+            i, n = bundle_info.get((edge.source, edge.target, edge.line_id), (0, 1))
 
             # Check for TB BOTTOM exit first: route as a near-vertical
             # drop with reversed X offsets even with a small X offset
@@ -90,34 +88,42 @@ def route_edges(
 
             if abs(dy) < 0.01:
                 # Same Y: straight horizontal
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[(sx, sy), (tx, ty)],
-                    is_inter_section=True,
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[(sx, sy), (tx, ty)],
+                        is_inter_section=True,
+                    )
+                )
             elif src_is_tb_bottom and station_offsets:
                 # Vertical drop from TB BOTTOM exit with reversed X offsets.
-                src_off = station_offsets.get(
-                    (edge.source, edge.line_id), 0.0)
+                src_off = station_offsets.get((edge.source, edge.line_id), 0.0)
                 all_offs = [
                     station_offsets.get((edge.source, lid), 0.0)
                     for lid in graph.station_lines(edge.source)
                 ]
                 max_off = max(all_offs) if all_offs else 0.0
                 rev_off = max_off - src_off
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[(sx + rev_off, sy), (tx + rev_off, ty)],
-                    is_inter_section=True,
-                    offsets_applied=True,
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[(sx + rev_off, sy), (tx + rev_off, ty)],
+                        is_inter_section=True,
+                        offsets_applied=True,
+                    )
+                )
             elif abs(dx) < 1.0:
                 # Same X: straight vertical drop
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[(sx, sy), (tx, ty)],
-                    is_inter_section=True,
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[(sx, sy), (tx, ty)],
+                        is_inter_section=True,
+                    )
+                )
             else:
                 # L-shape: vertical bundle between source and target,
                 # with per-line offsets for visual separation.
@@ -147,17 +153,20 @@ def route_edges(
                 else:
                     mid_x = sx - max_r - offset_step
                 vx = mid_x + delta
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[
-                        (sx, sy),
-                        (vx, sy),
-                        (vx, ty),
-                        (tx, ty),
-                    ],
-                    is_inter_section=True,
-                    curve_radii=[r_first, r_second],
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[
+                            (sx, sy),
+                            (vx, sy),
+                            (vx, ty),
+                            (tx, ty),
+                        ],
+                        is_inter_section=True,
+                        curve_radii=[r_first, r_second],
+                    )
+                )
             continue
 
         # TB section internal edges: L-shaped elbows and vertical runs
@@ -172,11 +181,23 @@ def route_edges(
             and not tgt_exit_port.is_entry
             and tgt_exit_port.side == PortSide.BOTTOM
         )
-        if (src_sec and src_sec == tgt_sec and src_sec in tb_sections
-                and not src.is_port
-                and (not tgt.is_port or tgt_is_bottom_exit)):
-            src_off = station_offsets.get((edge.source, edge.line_id), 0.0) if station_offsets else 0.0
-            tgt_off = station_offsets.get((edge.target, edge.line_id), 0.0) if station_offsets else 0.0
+        if (
+            src_sec
+            and src_sec == tgt_sec
+            and src_sec in tb_sections
+            and not src.is_port
+            and (not tgt.is_port or tgt_is_bottom_exit)
+        ):
+            src_off = (
+                station_offsets.get((edge.source, edge.line_id), 0.0)
+                if station_offsets
+                else 0.0
+            )
+            tgt_off = (
+                station_offsets.get((edge.target, edge.line_id), 0.0)
+                if station_offsets
+                else 0.0
+            )
             src_is_vert = src.layer > 0
             tgt_is_vert = tgt.layer > 0 or tgt_is_bottom_exit
 
@@ -184,10 +205,14 @@ def route_edges(
             # top line in the horizontal bundle becomes the rightmost in
             # the vertical bundle (concentric curves at the corner).
             def _reverse_off(station_id: str, off: float) -> float:
-                all_offs = [
-                    station_offsets.get((station_id, lid), 0.0)
-                    for lid in graph.station_lines(station_id)
-                ] if station_offsets else []
+                all_offs = (
+                    [
+                        station_offsets.get((station_id, lid), 0.0)
+                        for lid in graph.station_lines(station_id)
+                    ]
+                    if station_offsets
+                    else []
+                )
                 max_off = max(all_offs) if all_offs else 0.0
                 return max_off - off
 
@@ -196,48 +221,67 @@ def route_edges(
                 # Y offset on horizontal segment, reversed X offset on vertical.
                 # Concentric curve radii: outer line (rightmost) gets largest radius.
                 rev_tgt_off = _reverse_off(edge.target, tgt_off)
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[
-                        (sx, sy + src_off),
-                        (tx + rev_tgt_off, sy + src_off),
-                        (tx + rev_tgt_off, ty),
-                    ],
-                    offsets_applied=True,
-                    curve_radii=[curve_radius + rev_tgt_off],
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[
+                            (sx, sy + src_off),
+                            (tx + rev_tgt_off, sy + src_off),
+                            (tx + rev_tgt_off, ty),
+                        ],
+                        offsets_applied=True,
+                        curve_radii=[curve_radius + rev_tgt_off],
+                    )
+                )
             elif src_is_vert and tgt_is_vert:
                 # Vertical run: straight line with reversed X offsets
                 rev_src_off = _reverse_off(edge.source, src_off)
                 rev_tgt_off = _reverse_off(edge.target, tgt_off)
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[
-                        (sx + rev_src_off, sy),
-                        (tx + rev_tgt_off, ty),
-                    ],
-                    offsets_applied=True,
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[
+                            (sx + rev_src_off, sy),
+                            (tx + rev_tgt_off, ty),
+                        ],
+                        offsets_applied=True,
+                    )
+                )
             else:
                 # Horizontal run within TB section (layer 0 to layer 0)
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[
-                        (sx, sy + src_off),
-                        (tx, ty + tgt_off),
-                    ],
-                    offsets_applied=True,
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[
+                            (sx, sy + src_off),
+                            (tx, ty + tgt_off),
+                        ],
+                        offsets_applied=True,
+                    )
+                )
             continue
 
         # TOP/BOTTOM port → internal station: L-shaped elbow
         # (e.g., vertical entry from above curving into an RL section)
         src_port_obj = graph.ports.get(edge.source)
-        if (src_port_obj
-                and src_port_obj.side in (PortSide.TOP, PortSide.BOTTOM)
-                and not tgt.is_port):
-            src_off = station_offsets.get((edge.source, edge.line_id), 0.0) if station_offsets else 0.0
-            tgt_off = station_offsets.get((edge.target, edge.line_id), 0.0) if station_offsets else 0.0
+        if (
+            src_port_obj
+            and src_port_obj.side in (PortSide.TOP, PortSide.BOTTOM)
+            and not tgt.is_port
+        ):
+            src_off = (
+                station_offsets.get((edge.source, edge.line_id), 0.0)
+                if station_offsets
+                else 0.0
+            )
+            tgt_off = (
+                station_offsets.get((edge.target, edge.line_id), 0.0)
+                if station_offsets
+                else 0.0
+            )
 
             # Check if the incoming chain uses reversed X offsets
             # (from a TB section's BOTTOM exit port above).
@@ -248,9 +292,12 @@ def route_edges(
                         upstream = graph.stations.get(e2.source)
                         if upstream and upstream.is_port:
                             up_port = graph.ports.get(e2.source)
-                            if (up_port and not up_port.is_entry
-                                    and up_port.side == PortSide.BOTTOM
-                                    and upstream.section_id in tb_sections):
+                            if (
+                                up_port
+                                and not up_port.is_entry
+                                and up_port.side == PortSide.BOTTOM
+                                and upstream.section_id in tb_sections
+                            ):
                                 uses_rev_x = True
                                 break
 
@@ -271,43 +318,55 @@ def route_edges(
 
                 if abs(dx) < 1.0:
                     # Nearly same X: straight vertical drop
-                    routes.append(RoutedPath(
-                        edge=edge, line_id=edge.line_id,
-                        points=[(sx + rev_src_off, sy), (tx, ty + tgt_off)],
-                        offsets_applied=True,
-                    ))
+                    routes.append(
+                        RoutedPath(
+                            edge=edge,
+                            line_id=edge.line_id,
+                            points=[(sx + rev_src_off, sy), (tx, ty + tgt_off)],
+                            offsets_applied=True,
+                        )
+                    )
                 else:
                     # L-shape: vertical drop (reversed X) then horizontal.
                     # Concentric curves at the corner: outermost line
                     # gets largest radius.
-                    routes.append(RoutedPath(
-                        edge=edge, line_id=edge.line_id,
+                    routes.append(
+                        RoutedPath(
+                            edge=edge,
+                            line_id=edge.line_id,
+                            points=[
+                                (sx + rev_src_off, sy),
+                                (sx + rev_src_off, ty + tgt_off),
+                                (tx, ty + tgt_off),
+                            ],
+                            offsets_applied=True,
+                            curve_radii=[curve_radius + rev_src_off],
+                        )
+                    )
+            elif abs(dx) < 1.0:
+                # Nearly vertical: straight drop with Y offsets
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[(sx, sy + src_off), (tx, ty + tgt_off)],
+                        offsets_applied=True,
+                    )
+                )
+            else:
+                # L-shape: vertical drop then horizontal to station
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
                         points=[
-                            (sx + rev_src_off, sy),
-                            (sx + rev_src_off, ty + tgt_off),
+                            (sx, sy + src_off),
+                            (sx, ty + tgt_off),
                             (tx, ty + tgt_off),
                         ],
                         offsets_applied=True,
-                        curve_radii=[curve_radius + rev_src_off],
-                    ))
-            elif abs(dx) < 1.0:
-                # Nearly vertical: straight drop with Y offsets
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[(sx, sy + src_off), (tx, ty + tgt_off)],
-                    offsets_applied=True,
-                ))
-            else:
-                # L-shape: vertical drop then horizontal to station
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[
-                        (sx, sy + src_off),
-                        (sx, ty + tgt_off),
-                        (tx, ty + tgt_off),
-                    ],
-                    offsets_applied=True,
-                ))
+                    )
+                )
             continue
 
         # Detect cross-row edge: target is to the left (only in folded layouts)
@@ -318,28 +377,37 @@ def route_edges(
             # horizontal to target
             fold_margin = 30
             fold_right = fold_x + fold_margin
-            routes.append(RoutedPath(
-                edge=edge, line_id=edge.line_id,
-                points=[
-                    (sx, sy),
-                    (fold_right, sy),
-                    (fold_right, ty),
-                    (tx, ty),
-                ],
-            ))
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[
+                        (sx, sy),
+                        (fold_right, sy),
+                        (fold_right, ty),
+                        (tx, ty),
+                    ],
+                )
+            )
         elif abs(sy - ty) < 0.01:
             # Same track: straight line
-            routes.append(RoutedPath(
-                edge=edge, line_id=edge.line_id,
-                points=[(sx, sy), (tx, ty)],
-            ))
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[(sx, sy), (tx, ty)],
+                )
+            )
         else:
             # Different tracks: horizontal, diagonal, horizontal
             if abs(dx) < 1.0:
-                routes.append(RoutedPath(
-                    edge=edge, line_id=edge.line_id,
-                    points=[(sx, sy), (tx, ty)],
-                ))
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[(sx, sy), (tx, ty)],
+                    )
+                )
                 continue
 
             sign = 1.0 if dx > 0 else -1.0
@@ -363,15 +431,18 @@ def route_edges(
                 diag_start_x = min(diag_start_x, sx - min_straight)
                 diag_end_x = max(diag_end_x, tx + min_straight)
 
-            routes.append(RoutedPath(
-                edge=edge, line_id=edge.line_id,
-                points=[
-                    (sx, sy),
-                    (diag_start_x, sy),
-                    (diag_end_x, ty),
-                    (tx, ty),
-                ],
-            ))
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[
+                        (sx, sy),
+                        (diag_start_x, sy),
+                        (diag_end_x, ty),
+                        (tx, ty),
+                    ],
+                )
+            )
 
     return routes
 
@@ -399,9 +470,8 @@ def _compute_bundle_info(
         if not src or not tgt:
             continue
 
-        is_inter = (
-            (src.is_port or edge.source in junction_ids)
-            and (tgt.is_port or edge.target in junction_ids)
+        is_inter = (src.is_port or edge.source in junction_ids) and (
+            tgt.is_port or edge.target in junction_ids
         )
         if not is_inter:
             continue
@@ -410,7 +480,9 @@ def _compute_bundle_info(
 
     # Group by corridor: edges sharing the same vertical channel
     # Key: (route_type, rounded_channel_position, vertical_direction)
-    corridor_groups: dict[tuple[str, int, int], list[tuple[Edge, float, float, float, float]]] = defaultdict(list)
+    corridor_groups: dict[
+        tuple[str, int, int], list[tuple[Edge, float, float, float, float]]
+    ] = defaultdict(list)
 
     for item in inter_edges:
         edge, sx, sy, tx, ty = item
@@ -443,10 +515,12 @@ def _compute_bundle_info(
         port = graph.ports.get(exit_port_id)
         if port and not port.is_entry:
             source_y = _line_source_y_at_port(exit_port_id, graph)
-            group.sort(key=lambda e: (
-                source_y.get(e[0].line_id, 0),
-                line_priority.get(e[0].line_id, 999),
-            ))
+            group.sort(
+                key=lambda e: (
+                    source_y.get(e[0].line_id, 0),
+                    line_priority.get(e[0].line_id, 999),
+                )
+            )
         else:
             group.sort(key=lambda e: line_priority.get(e[0].line_id, 999))
 
@@ -460,6 +534,7 @@ def _compute_bundle_info(
 def route_inter_section_edges(
     graph: MetroGraph,
     diagonal_run: float = 30.0,
+    curve_radius: float = 10.0,
 ) -> list[RoutedPath]:
     """Route edges that cross section boundaries (port-to-port).
 
@@ -489,15 +564,21 @@ def route_inter_section_edges(
         dy = ty - sy
 
         if abs(dy) < 0.01:
-            routes.append(RoutedPath(
-                edge=edge, line_id=edge.line_id,
-                points=[(sx, sy), (tx, ty)],
-            ))
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[(sx, sy), (tx, ty)],
+                )
+            )
         elif abs(dx) < 1.0:
-            routes.append(RoutedPath(
-                edge=edge, line_id=edge.line_id,
-                points=[(sx, sy), (tx, ty)],
-            ))
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[(sx, sy), (tx, ty)],
+                )
+            )
         else:
             sign = 1.0 if dx > 0 else -1.0
             half_diag = diagonal_run / 2
@@ -516,15 +597,18 @@ def route_inter_section_edges(
                 diag_start_x = min(diag_start_x, sx - min_straight)
                 diag_end_x = max(diag_end_x, tx + min_straight)
 
-            routes.append(RoutedPath(
-                edge=edge, line_id=edge.line_id,
-                points=[
-                    (sx, sy),
-                    (diag_start_x, sy),
-                    (diag_end_x, ty),
-                    (tx, ty),
-                ],
-            ))
+            routes.append(
+                RoutedPath(
+                    edge=edge,
+                    line_id=edge.line_id,
+                    points=[
+                        (sx, sy),
+                        (diag_start_x, sy),
+                        (diag_end_x, ty),
+                        (tx, ty),
+                    ],
+                )
+            )
 
     return routes
 
@@ -559,7 +643,7 @@ def compute_station_offsets(
             continue
         lines = graph.station_lines(sid)
         source_y = _line_source_y_at_port(sid, graph)
-        lines.sort(key=lambda l: (source_y.get(l, 0), line_priority.get(l, 999)))
+        lines.sort(key=lambda ln: (source_y.get(ln, 0), line_priority.get(ln, 999)))
         for i, lid in enumerate(lines):
             offsets[(sid, lid)] = i * offset_step
 
@@ -572,7 +656,7 @@ def compute_station_offsets(
             continue
         lines = graph.station_lines(sid)
         incoming_y = _line_incoming_y_at_entry_port(sid, graph, offsets)
-        lines.sort(key=lambda l: (incoming_y.get(l, 0), line_priority.get(l, 999)))
+        lines.sort(key=lambda ln: (incoming_y.get(ln, 0), line_priority.get(ln, 999)))
         for i, lid in enumerate(lines):
             offsets[(sid, lid)] = i * offset_step
 
@@ -583,12 +667,16 @@ def compute_station_offsets(
 
     # Phase 3: All other stations - sort by line priority
     for sid in graph.stations:
-        if (sid, graph.station_lines(sid)[0]) in offsets if graph.station_lines(sid) else False:
+        if (
+            (sid, graph.station_lines(sid)[0]) in offsets
+            if graph.station_lines(sid)
+            else False
+        ):
             continue
         lines = graph.station_lines(sid)
         station = graph.stations[sid]
         reverse = station.section_id in reversed_sections
-        lines.sort(key=lambda l: line_priority.get(l, 999), reverse=reverse)
+        lines.sort(key=lambda ln: line_priority.get(ln, 999), reverse=reverse)
         for i, lid in enumerate(lines):
             offsets[(sid, lid)] = i * offset_step
 
@@ -656,9 +744,12 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
                     if not src or not src.is_port:
                         continue
                     src_port = graph.ports.get(edge.source)
-                    if (src_port and not src_port.is_entry
-                            and src_port.side == PortSide.BOTTOM
-                            and src.section_id in tb_sections):
+                    if (
+                        src_port
+                        and not src_port.is_entry
+                        and src_port.side == PortSide.BOTTOM
+                        and src.section_id in tb_sections
+                    ):
                         reversed_secs.add(sec_id)
 
     return reversed_secs
