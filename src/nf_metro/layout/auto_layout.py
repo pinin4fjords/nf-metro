@@ -541,7 +541,7 @@ def _infer_port_sides(
                     side_votes: dict[PortSide, int] = defaultdict(int)
                     for tgt in successors[sec_id]:
                         tgt_sec = graph.sections.get(tgt)
-                        if not tgt_sec or tgt_sec.grid_col < 0:
+                        if not tgt_sec or tgt not in graph.grid_overrides:
                             continue
                         lines = edge_lines.get((sec_id, tgt), set())
                         side = _relative_side(
@@ -566,7 +566,7 @@ def _infer_port_sides(
 
             for src in predecessors[sec_id]:
                 src_sec = graph.sections.get(src)
-                if not src_sec or src_sec.grid_col < 0:
+                if not src_sec or src not in graph.grid_overrides:
                     continue
 
                 lines = edge_lines.get((src, sec_id), set())
