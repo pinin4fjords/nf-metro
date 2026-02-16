@@ -16,10 +16,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from nf_metro.layout.engine import compute_layout
-from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.render.svg import render_svg
-from nf_metro.themes import THEMES
+from nf_metro.layout.engine import compute_layout  # noqa: E402
+from nf_metro.parser.mermaid import parse_metro_mermaid  # noqa: E402
+from nf_metro.render.svg import render_svg  # noqa: E402
+from nf_metro.themes import THEMES  # noqa: E402
 
 OUTPUT_DIR = Path("/tmp/nf_metro_topology_renders")
 TOPOLOGIES_DIR = project_root / "tests" / "fixtures" / "topologies"

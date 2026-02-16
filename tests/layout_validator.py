@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from nf_metro.layout.routing import route_edges, compute_station_offsets
+from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.parser.model import MetroGraph, PortSide
 
 
@@ -38,7 +38,9 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
     return violations
 
 
-def check_section_overlap(graph: MetroGraph, tolerance: float = -1.0) -> list[Violation]:
+def check_section_overlap(
+    graph: MetroGraph, tolerance: float = -1.0
+) -> list[Violation]:
     """Check that no two section bounding boxes overlap.
 
     A small negative tolerance allows sections to be flush (touching)
