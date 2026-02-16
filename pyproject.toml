@@ -9,20 +9,44 @@ description = "Generate metro-map-style SVG diagrams from Mermaid graph definiti
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
 dependencies = [
     "click>=8.0",
     "drawsvg>=2.0",
     "lark>=1.1",
     "networkx>=3.0",
+    "pillow>=9.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pinin4fjords/nf-metro"
+Repository = "https://github.com/pinin4fjords/nf-metro"
+Issues = "https://github.com/pinin4fjords/nf-metro/issues"
 
 [project.scripts]
 nf-metro = "nf_metro.cli:cli"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/nf_metro"]
-
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "ruff>=0.4",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nf_metro"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

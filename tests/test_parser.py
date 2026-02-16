@@ -4,7 +4,6 @@ from pathlib import Path
 
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
@@ -48,12 +47,7 @@ def test_parse_nodes_bare():
 
 
 def test_parse_edges():
-    text = (
-        "graph LR\n"
-        "    a[Input]\n"
-        "    b[Output]\n"
-        "    a -->|main| b\n"
-    )
+    text = "graph LR\n    a[Input]\n    b[Output]\n    a -->|main| b\n"
     graph = parse_metro_mermaid(text)
     assert len(graph.edges) == 1
     assert graph.edges[0].source == "a"
@@ -104,12 +98,7 @@ def test_parse_simple_fixture():
 
 
 def test_ignores_comments():
-    text = (
-        "%% This is a regular comment\n"
-        "%%metro title: Test\n"
-        "graph LR\n"
-        "    a --> b\n"
-    )
+    text = "%% This is a regular comment\n%%metro title: Test\ngraph LR\n    a --> b\n"
     graph = parse_metro_mermaid(text)
     assert graph.title == "Test"
     assert len(graph.edges) == 1
@@ -179,11 +168,13 @@ def test_subgraph_section_station_ids():
     )
     graph = parse_metro_mermaid(text)
     # sec1 has a, b plus port stations
-    real_stations_sec1 = [s for s in graph.sections["sec1"].station_ids
-                          if not graph.stations[s].is_port]
+    real_stations_sec1 = [
+        s for s in graph.sections["sec1"].station_ids if not graph.stations[s].is_port
+    ]
     assert set(real_stations_sec1) == {"a", "b"}
-    real_stations_sec2 = [s for s in graph.sections["sec2"].station_ids
-                          if not graph.stations[s].is_port]
+    real_stations_sec2 = [
+        s for s in graph.sections["sec2"].station_ids if not graph.stations[s].is_port
+    ]
     assert set(real_stations_sec2) == {"c"}
 
 
@@ -205,11 +196,14 @@ def test_inter_section_edge_rewriting():
     graph = parse_metro_mermaid(text)
     # Should have ports
     assert len(graph.ports) > 0
-    # Original direct b->c edge should be gone, replaced by b->exit, exit->entry, entry->c
+    # Original direct b->c edge should be gone,
+    # replaced by b->exit, exit->entry, entry->c
     direct_edges = [e for e in graph.edges if e.source == "b" and e.target == "c"]
     assert len(direct_edges) == 0
     # Should have edges from b to an exit port
-    b_to_port = [e for e in graph.edges if e.source == "b" and graph.stations[e.target].is_port]
+    b_to_port = [
+        e for e in graph.edges if e.source == "b" and graph.stations[e.target].is_port
+    ]
     assert len(b_to_port) >= 1
 
 
@@ -232,20 +226,19 @@ def test_port_directive_parsing():
     )
     graph = parse_metro_mermaid(text)
     # Should have explicit ports from directives plus auto-created ports
-    exit_ports = [p for p in graph.ports.values() if not p.is_entry and p.section_id == "sec1"]
-    entry_ports = [p for p in graph.ports.values() if p.is_entry and p.section_id == "sec2"]
+    exit_ports = [
+        p for p in graph.ports.values() if not p.is_entry and p.section_id == "sec1"
+    ]
+    entry_ports = [
+        p for p in graph.ports.values() if p.is_entry and p.section_id == "sec2"
+    ]
     assert len(exit_ports) >= 1
     assert len(entry_ports) >= 1
 
 
 def test_grid_directive_parsing():
     """%%metro grid: directives set grid overrides."""
-    text = (
-        "%%metro grid: sec2 | 1,0\n"
-        "%%metro grid: sec3 | 1,1\n"
-        "graph LR\n"
-        "    a --> b\n"
-    )
+    text = "%%metro grid: sec2 | 1,0\n%%metro grid: sec3 | 1,1\ngraph LR\n    a --> b\n"
     graph = parse_metro_mermaid(text)
     assert graph.grid_overrides["sec2"] == (1, 0, 1, 1)
     assert graph.grid_overrides["sec3"] == (1, 1, 1, 1)
@@ -276,12 +269,7 @@ def test_section_numbering():
 
 def test_subgraph_without_display_name():
     """Subgraph without [display name] uses the id as name."""
-    text = (
-        "graph LR\n"
-        "    subgraph mysection\n"
-        "        a[A]\n"
-        "    end\n"
-    )
+    text = "graph LR\n    subgraph mysection\n        a[A]\n    end\n"
     graph = parse_metro_mermaid(text)
     assert "mysection" in graph.sections
     assert graph.sections["mysection"].name == "mysection"

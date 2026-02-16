@@ -104,7 +104,11 @@ def place_sections(
     row_assign: dict[str, int] = {}
     for col, sids in sorted(col_groups.items()):
         # Respect explicit grid_row if set
-        explicit = [(sid, graph.sections[sid].grid_row) for sid in sids if graph.sections[sid].grid_row >= 0]
+        explicit = [
+            (sid, graph.sections[sid].grid_row)
+            for sid in sids
+            if graph.sections[sid].grid_row >= 0
+        ]
         auto = [sid for sid in sids if graph.sections[sid].grid_row < 0]
 
         # Sort auto sections by their number (definition order)
@@ -289,7 +293,11 @@ def _position_ports_vertical(
         # Find connected internal station
         connected_y = _find_connected_internal_y(pid, section, graph)
         station.x = x
-        station.y = connected_y if connected_y is not None else (section.bbox_y + section.bbox_h / 2)
+        station.y = (
+            connected_y
+            if connected_y is not None
+            else (section.bbox_y + section.bbox_h / 2)
+        )
 
         # Update port data too
         port = graph.ports.get(pid)
@@ -298,7 +306,13 @@ def _position_ports_vertical(
             port.y = station.y
 
     # If multiple ports are at the same Y, space them out
-    _spread_overlapping_ports(port_ids, graph, axis="y", span_start=section.bbox_y, span_end=section.bbox_y + section.bbox_h)
+    _spread_overlapping_ports(
+        port_ids,
+        graph,
+        axis="y",
+        span_start=section.bbox_y,
+        span_end=section.bbox_y + section.bbox_h,
+    )
 
 
 def _position_ports_horizontal(
@@ -317,7 +331,11 @@ def _position_ports_horizontal(
             continue
 
         connected_x = _find_connected_internal_x(pid, section, graph)
-        station.x = connected_x if connected_x is not None else (section.bbox_x + section.bbox_w / 2)
+        station.x = (
+            connected_x
+            if connected_x is not None
+            else (section.bbox_x + section.bbox_w / 2)
+        )
         station.y = y
 
         port = graph.ports.get(pid)
@@ -325,7 +343,13 @@ def _position_ports_horizontal(
             port.x = station.x
             port.y = station.y
 
-    _spread_overlapping_ports(port_ids, graph, axis="x", span_start=section.bbox_x, span_end=section.bbox_x + section.bbox_w)
+    _spread_overlapping_ports(
+        port_ids,
+        graph,
+        axis="x",
+        span_start=section.bbox_x,
+        span_end=section.bbox_x + section.bbox_w,
+    )
 
 
 def _find_connected_internal_y(
@@ -338,7 +362,9 @@ def _find_connected_internal_y(
     If the port connects to multiple stations (e.g. a shared entry port),
     returns the average Y of all connected stations.
     """
-    internal_ids = set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
+    internal_ids = (
+        set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
+    )
     ys: list[float] = []
     for edge in graph.edges:
         if edge.source == port_id and edge.target in internal_ids:
@@ -359,7 +385,9 @@ def _find_connected_internal_x(
 
     If the port connects to multiple stations, returns the average X.
     """
-    internal_ids = set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
+    internal_ids = (
+        set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
+    )
     xs: list[float] = []
     for edge in graph.edges:
         if edge.source == port_id and edge.target in internal_ids:

@@ -34,7 +34,10 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         return
 
     fold_sections = _assign_grid_positions(
-        graph, successors, predecessors, max_station_columns,
+        graph,
+        successors,
+        predecessors,
+        max_station_columns,
     )
     _optimize_rowspans(graph, fold_sections)
     _optimize_colspans(graph, fold_sections)
@@ -183,9 +186,7 @@ def _assign_grid_positions(
     # Estimate station-layer width per topo column (max across stacked sections)
     topo_col_width: dict[int, int] = {}
     for col, sids in col_groups.items():
-        topo_col_width[col] = max(
-            _estimate_section_layers(graph, sid) for sid in sids
-        )
+        topo_col_width[col] = max(_estimate_section_layers(graph, sid) for sid in sids)
 
     # Greedily pack topo columns into row bands.
     # When overflow is detected, the overflowing column becomes the fold
@@ -405,7 +406,9 @@ def _infer_directions(
         # RL: leaf section (no successors) and all predecessors are
         # above or to the right (post-fold return row)
         if not succ_cols and pred_cols:
-            if all(c >= my_col for c in pred_cols) and any(r < my_row for r in pred_rows):
+            if all(c >= my_col for c in pred_cols) and any(
+                r < my_row for r in pred_rows
+            ):
                 section.direction = "RL"
                 continue
 
@@ -444,9 +447,7 @@ def _infer_port_sides(
             if all_exit_lines:
                 if sec_id in fold_sections:
                     # Fold sections exit from BOTTOM to the row below
-                    section.exit_hints.append(
-                        (PortSide.BOTTOM, sorted(all_exit_lines))
-                    )
+                    section.exit_hints.append((PortSide.BOTTOM, sorted(all_exit_lines)))
                 else:
                     side_votes: dict[PortSide, int] = defaultdict(int)
                     for tgt in successors[sec_id]:
@@ -455,7 +456,10 @@ def _infer_port_sides(
                             continue
                         lines = edge_lines.get((sec_id, tgt), set())
                         side = _relative_side(
-                            my_col, my_row, tgt_sec.grid_col, tgt_sec.grid_row,
+                            my_col,
+                            my_row,
+                            tgt_sec.grid_col,
+                            tgt_sec.grid_row,
                         )
                         side_votes[side] += len(lines)
                     if side_votes:
@@ -482,7 +486,10 @@ def _infer_port_sides(
                     side_lines[PortSide.LEFT].update(lines)
                 else:
                     side = _relative_side(
-                        my_col, my_row, src_sec.grid_col, src_sec.grid_row,
+                        my_col,
+                        my_row,
+                        src_sec.grid_col,
+                        src_sec.grid_row,
                     )
                     side_lines[side].update(lines)
 

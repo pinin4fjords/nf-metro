@@ -28,7 +28,9 @@ def render_svg(
 
     # Filter out port stations for dimension calculation
     visible_stations = [s for s in graph.stations.values() if not s.is_port]
-    all_stations_for_bounds = visible_stations if visible_stations else list(graph.stations.values())
+    all_stations_for_bounds = (
+        visible_stations if visible_stations else list(graph.stations.values())
+    )
 
     max_x = max(s.x for s in all_stations_for_bounds)
     max_y = max(s.y for s in all_stations_for_bounds)
@@ -55,9 +57,13 @@ def render_svg(
         gap = 30.0
         inset = 10.0
         # Section content bounds (or station bounds if no sections)
-        content_left = min((s.bbox_x for s in graph.sections.values() if s.bbox_w > 0), default=padding)
+        content_left = min(
+            (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0), default=padding
+        )
         content_right = max_x
-        content_top = min((s.bbox_y for s in graph.sections.values() if s.bbox_w > 0), default=padding)
+        content_top = min(
+            (s.bbox_y for s in graph.sections.values() if s.bbox_w > 0), default=padding
+        )
         content_bottom = max_y
 
         if pos == "bl":
@@ -105,20 +111,25 @@ def render_svg(
 
     # Background (skip for transparent themes)
     if theme.background_color and theme.background_color != "none":
-        d.append(draw.Rectangle(0, 0, svg_width, svg_height, fill=theme.background_color))
+        d.append(
+            draw.Rectangle(0, 0, svg_width, svg_height, fill=theme.background_color)
+        )
 
     # Title / Logo
     if show_logo:
         _render_logo(d, graph.logo_path, logo_x, logo_y, logo_w, logo_h)
     elif graph.title:
-        d.append(draw.Text(
-            graph.title,
-            theme.title_font_size,
-            padding, 30,
-            fill=theme.title_color,
-            font_family=theme.label_font_family,
-            font_weight="bold",
-        ))
+        d.append(
+            draw.Text(
+                graph.title,
+                theme.title_font_size,
+                padding,
+                30,
+                fill=theme.title_color,
+                font_family=theme.label_font_family,
+                font_weight="bold",
+            )
+        )
 
     # Sections
     if graph.sections:
@@ -134,6 +145,7 @@ def render_svg(
     # Animation (after edges, before stations so balls travel behind station markers)
     if animate:
         from nf_metro.render.animate import render_animation
+
         render_animation(d, graph, routes, station_offsets, theme)
 
     # Draw stations (all circles, skip ports)
@@ -171,12 +183,16 @@ def _render_logo(
     logo_h: float,
 ) -> None:
     """Embed a logo image at the given position."""
-    d.append(draw.Image(
-        x, y,
-        logo_w, logo_h,
-        path=logo_path,
-        embed=True,
-    ))
+    d.append(
+        draw.Image(
+            x,
+            y,
+            logo_w,
+            logo_h,
+            path=logo_path,
+            embed=True,
+        )
+    )
 
 
 def _render_first_class_sections(
@@ -189,44 +205,59 @@ def _render_first_class_sections(
         if section.bbox_w <= 0 or section.bbox_h <= 0:
             continue
 
-        d.append(draw.Rectangle(
-            section.bbox_x, section.bbox_y,
-            section.bbox_w, section.bbox_h,
-            rx=8, ry=8,
-            fill=theme.section_fill,
-            stroke=theme.section_stroke,
-            stroke_width=1.0,
-        ))
+        d.append(
+            draw.Rectangle(
+                section.bbox_x,
+                section.bbox_y,
+                section.bbox_w,
+                section.bbox_h,
+                rx=8,
+                ry=8,
+                fill=theme.section_fill,
+                stroke=theme.section_stroke,
+                stroke_width=1.0,
+            )
+        )
 
         # Numbered circle above the box, left-aligned
         circle_r = 9
         cx = section.bbox_x + circle_r
         cy = section.bbox_y - circle_r - 4
 
-        d.append(draw.Circle(
-            cx, cy, circle_r,
-            fill=theme.station_stroke,
-        ))
-        d.append(draw.Text(
-            str(section.number),
-            9,
-            cx, cy,
-            fill=theme.station_fill,
-            font_family=theme.label_font_family,
-            font_weight="bold",
-            text_anchor="middle",
-            dominant_baseline="central",
-        ))
+        d.append(
+            draw.Circle(
+                cx,
+                cy,
+                circle_r,
+                fill=theme.station_stroke,
+            )
+        )
+        d.append(
+            draw.Text(
+                str(section.number),
+                9,
+                cx,
+                cy,
+                fill=theme.station_fill,
+                font_family=theme.label_font_family,
+                font_weight="bold",
+                text_anchor="middle",
+                dominant_baseline="central",
+            )
+        )
 
         # Section name to the right of the circle
-        d.append(draw.Text(
-            section.name,
-            theme.section_label_font_size,
-            cx + circle_r + 5, cy,
-            fill=theme.section_label_color,
-            font_family=theme.label_font_family,
-            dominant_baseline="central",
-        ))
+        d.append(
+            draw.Text(
+                section.name,
+                theme.section_label_font_size,
+                cx + circle_r + 5,
+                cy,
+                fill=theme.section_label_color,
+                font_family=theme.label_font_family,
+                dominant_baseline="central",
+            )
+        )
 
 
 def _render_edges(
@@ -238,6 +269,7 @@ def _render_edges(
     curve_radius: float = 10.0,
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
+
     # Sort routes by effective Y of the source point (highest Y first) so
     # lines are drawn bottom-to-top.  This ensures each interior line in a
     # bundle only loses one boundary edge to its neighbor rather than having
@@ -245,8 +277,7 @@ def _render_edges(
     def _sort_key(route: RoutedPath) -> float:
         if route.offsets_applied:
             return -route.points[0][1]
-        src_off = station_offsets.get(
-            (route.edge.source, route.line_id), 0.0)
+        src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
         return -(route.points[0][1] + src_off)
 
     routes = sorted(routes, key=_sort_key)
@@ -276,13 +307,17 @@ def _render_edges(
                     pts.append((x, y + tgt_off))
 
         if len(pts) == 2:
-            d.append(draw.Line(
-                pts[0][0], pts[0][1],
-                pts[1][0], pts[1][1],
-                stroke=color,
-                stroke_width=theme.line_width,
-                stroke_linecap="round",
-            ))
+            d.append(
+                draw.Line(
+                    pts[0][0],
+                    pts[0][1],
+                    pts[1][0],
+                    pts[1][1],
+                    stroke=color,
+                    stroke_width=theme.line_width,
+                    stroke_linecap="round",
+                )
+            )
         elif len(pts) >= 3:
             path = draw.Path(
                 stroke=color,
@@ -374,49 +409,66 @@ def _render_stations(
 
         span = max_off - min_off
 
-        # Non-process terminus stations: filled rectangle (same size as pill, no rounding)
+        # Non-process terminus stations: filled rectangle
+        # (same size as pill, no rounding)
         is_blank_terminus = station.is_terminus and not station.label.strip()
         if is_blank_terminus:
             w = r * 2
             h = span + r * 2
             cy = station.y + (min_off + max_off) / 2
-            d.append(draw.Rectangle(
-                station.x - w / 2, cy - h / 2,
-                w, h,
-                fill=theme.station_fill,
-                stroke=theme.station_stroke,
-                stroke_width=theme.station_stroke_width,
-            ))
+            d.append(
+                draw.Rectangle(
+                    station.x - w / 2,
+                    cy - h / 2,
+                    w,
+                    h,
+                    fill=theme.station_fill,
+                    stroke=theme.station_stroke,
+                    stroke_width=theme.station_stroke_width,
+                )
+            )
         elif is_tb_vert:
             # Horizontal pill: lines spread along X axis
             w = span + r * 2
             h = r * 2
             cx = station.x + (min_off + max_off) / 2
-            d.append(draw.Rectangle(
-                cx - w / 2, station.y - h / 2,
-                w, h,
-                rx=r, ry=r,
-                fill=theme.station_fill,
-                stroke=theme.station_stroke,
-                stroke_width=theme.station_stroke_width,
-            ))
+            d.append(
+                draw.Rectangle(
+                    cx - w / 2,
+                    station.y - h / 2,
+                    w,
+                    h,
+                    rx=r,
+                    ry=r,
+                    fill=theme.station_fill,
+                    stroke=theme.station_stroke,
+                    stroke_width=theme.station_stroke_width,
+                )
+            )
         else:
             # Vertical pill: lines spread along Y axis
             w = r * 2
             h = span + r * 2
             cy = station.y + (min_off + max_off) / 2
-            d.append(draw.Rectangle(
-                station.x - w / 2, cy - h / 2,
-                w, h,
-                rx=r, ry=r,
-                fill=theme.station_fill,
-                stroke=theme.station_stroke,
-                stroke_width=theme.station_stroke_width,
-            ))
+            d.append(
+                draw.Rectangle(
+                    station.x - w / 2,
+                    cy - h / 2,
+                    w,
+                    h,
+                    rx=r,
+                    ry=r,
+                    fill=theme.station_fill,
+                    stroke=theme.station_stroke,
+                    stroke_width=theme.station_stroke_width,
+                )
+            )
 
         # Render file icon adjacent to terminus stations
         if station.is_terminus:
-            section = graph.sections.get(station.section_id) if station.section_id else None
+            section = (
+                graph.sections.get(station.section_id) if station.section_id else None
+            )
             # Detect if station is a source (no incoming internal edges) or sink
             is_source = True
             if section:
@@ -429,15 +481,21 @@ def _render_stations(
             icon_half_w = theme.terminus_width / 2
             section_dir = section.direction if section else "LR"
             if section_dir == "RL":
-                icon_cx_offset = (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
+                icon_cx_offset = (
+                    (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
+                )
             else:
-                icon_cx_offset = -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
+                icon_cx_offset = (
+                    -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
+                )
             icon_cx = station.x + icon_cx_offset
             icon_cy = station.y + (min_off + max_off) / 2
             # Clamp to stay within section bbox
             if section and section.bbox_w > 0:
-                icon_cx = max(section.bbox_x + icon_half_w + 2,
-                              min(icon_cx, section.bbox_x + section.bbox_w - icon_half_w - 2))
+                icon_cx = max(
+                    section.bbox_x + icon_half_w + 2,
+                    min(icon_cx, section.bbox_x + section.bbox_w - icon_half_w - 2),
+                )
             render_file_icon(
                 d,
                 cx=icon_cx,
@@ -465,23 +523,29 @@ def _render_labels(
     for label in labels:
         if label.dominant_baseline:
             # Custom placement (e.g. TB vertical stations: right-side labels)
-            d.append(draw.Text(
-                label.text,
-                theme.label_font_size,
-                label.x, label.y,
-                fill=theme.label_color,
-                font_family=theme.label_font_family,
-                text_anchor=label.text_anchor,
-                dominant_baseline=label.dominant_baseline,
-            ))
+            d.append(
+                draw.Text(
+                    label.text,
+                    theme.label_font_size,
+                    label.x,
+                    label.y,
+                    fill=theme.label_color,
+                    font_family=theme.label_font_family,
+                    text_anchor=label.text_anchor,
+                    dominant_baseline=label.dominant_baseline,
+                )
+            )
         else:
             baseline = "auto" if label.above else "hanging"
-            d.append(draw.Text(
-                label.text,
-                theme.label_font_size,
-                label.x, label.y,
-                fill=theme.label_color,
-                font_family=theme.label_font_family,
-                text_anchor="middle",
-                dominant_baseline=baseline,
-            ))
+            d.append(
+                draw.Text(
+                    label.text,
+                    theme.label_font_size,
+                    label.x,
+                    label.y,
+                    fill=theme.label_color,
+                    font_family=theme.label_font_family,
+                    text_anchor="middle",
+                    dominant_baseline=baseline,
+                )
+            )
