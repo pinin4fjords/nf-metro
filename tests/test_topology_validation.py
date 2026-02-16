@@ -255,11 +255,11 @@ class TestTopologySpecific:
         assert len(graph.sections) == 7
         assert len(graph.lines) == 3
 
-        # normalize is the fold section (TB direction, rowspan=4 covering
-        # the 3 quant rows + the return row)
+        # normalize is the fold section (TB direction, rowspan=3 covering
+        # the 3 quant rows but not the return row)
         normalize = graph.sections["normalize"]
         assert normalize.direction == "TB"
-        assert normalize.grid_row_span == 4
+        assert normalize.grid_row_span == 3
 
         # Three quant sections stacked at the same column
         tmt = graph.sections["tmt_quant"]

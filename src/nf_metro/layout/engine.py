@@ -370,11 +370,12 @@ def _align_entry_ports(graph: MetroGraph) -> None:
 
 
 def _align_exit_ports(graph: MetroGraph) -> None:
-    """Align LEFT/RIGHT exit ports on row-spanning sections with their target's Y.
+    """Align LEFT/RIGHT exit ports on fold sections with their target's Y.
 
-    Only applies to sections with grid_row_span > 1 (fold sections). These
-    have exit ports initially placed near the last internal station, but the
-    target section is on the return row further down.
+    Applies to sections with grid_row_span > 1 OR TB direction (fold bridges).
+    These have exit ports placed near the section bottom, but the target
+    section's entry may be at a different Y. Aligning ensures a straight
+    horizontal inter-section connection.
     """
     junction_ids = set(graph.junctions)
 
@@ -383,7 +384,9 @@ def _align_exit_ports(graph: MetroGraph) -> None:
             continue
 
         exit_section = graph.sections.get(port.section_id)
-        if not exit_section or exit_section.grid_row_span <= 1:
+        if not exit_section:
+            continue
+        if exit_section.grid_row_span <= 1 and exit_section.direction != "TB":
             continue
 
         if port.side in (PortSide.LEFT, PortSide.RIGHT):

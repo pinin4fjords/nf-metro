@@ -190,7 +190,7 @@ def place_sections(
 
     row_heights: dict[int, float] = defaultdict(float)
     for sid, section in graph.sections.items():
-        if section.grid_row_span == 1:
+        if section.grid_row_span == 1 and section.direction != "TB":
             row = row_assign.get(sid, 0)
             row_heights[row] = max(row_heights[row], section.bbox_h)
 
@@ -217,6 +217,37 @@ def place_sections(
     for r in range(max_row + 1):
         row_offsets[r] = cumulative_y
         cumulative_y += row_heights[r] + section_y_gap
+
+    # TB fold sections (rowspan=1) visually span into the next row.
+    # Push the next row down so its non-TB sections' bottom aligns with
+    # the TB section's bottom, then extend the TB section's bbox to cover.
+    # Process top-to-bottom so cascading TB sections accumulate correctly.
+    tb_sections = sorted(
+        [
+            (sid, section)
+            for sid, section in graph.sections.items()
+            if section.direction == "TB" and section.grid_row_span == 1
+        ],
+        key=lambda x: row_assign.get(x[0], 0),
+    )
+    for sid, section in tb_sections:
+        row = row_assign.get(sid, 0)
+        next_row = row + 1
+        if next_row not in row_offsets:
+            continue
+        # Add exit routing margin so lines can flow down from the last
+        # station before curving out to the return row.
+        section.bbox_h += section_y_gap
+        tb_bottom = row_offsets[row] + section.bbox_h
+        next_row_bottom = row_offsets[next_row] + row_heights[next_row]
+        if tb_bottom > next_row_bottom:
+            delta = tb_bottom - next_row_bottom
+            for r in range(next_row, max_row + 1):
+                if r in row_offsets:
+                    row_offsets[r] += delta
+        # Extend bbox to cover through the next row
+        next_row_bottom = row_offsets[next_row] + row_heights[next_row]
+        section.bbox_h = next_row_bottom - row_offsets[row]
 
     # Columns containing RL or TB sections should right-align all their
     # sections so stacked LR sections share a right edge with the RL/TB ones.
@@ -302,6 +333,19 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
         elif side == PortSide.BOTTOM:
             y = section.bbox_y + section.bbox_h
             _position_ports_horizontal(port_ids, y, section, graph)
+
+    # TB sections: move LEFT/RIGHT exit ports to the section bottom
+    # so lines flow down from the last station then curve out.
+    if section.direction == "TB":
+        exit_set = set(section.exit_ports)
+        for pid in exit_set:
+            port = graph.ports.get(pid)
+            if port and port.side in (PortSide.LEFT, PortSide.RIGHT):
+                target_y = section.bbox_y + section.bbox_h
+                station = graph.stations.get(pid)
+                if station:
+                    station.y = target_y
+                port.y = target_y
 
 
 def _position_ports_vertical(

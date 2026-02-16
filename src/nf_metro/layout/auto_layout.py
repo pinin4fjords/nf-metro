@@ -39,7 +39,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         predecessors,
         max_station_columns,
     )
-    _optimize_rowspans(graph, fold_sections)
+    _optimize_rowspans(graph, fold_sections, successors)
     _optimize_colspans(graph, fold_sections)
     _infer_directions(graph, successors, predecessors, fold_sections)
     _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
@@ -240,12 +240,35 @@ def _assign_grid_positions(
     return fold_sections
 
 
-def _optimize_rowspans(graph: MetroGraph, fold_sections: set[str]) -> None:
+def _transitive_successors(
+    section_id: str,
+    successors: dict[str, set[str]],
+) -> set[str]:
+    """Compute all transitive successors of a section in the DAG."""
+    result: set[str] = set()
+    queue = deque(successors.get(section_id, set()))
+    while queue:
+        sid = queue.popleft()
+        if sid in result:
+            continue
+        result.add(sid)
+        queue.extend(successors.get(sid, set()))
+    return result
+
+
+def _optimize_rowspans(
+    graph: MetroGraph,
+    fold_sections: set[str],
+    successors: dict[str, set[str]],
+) -> None:
     """Extend fold section rowspans to cover stacked sections in adjacent columns.
 
     For each fold section (TB bridge), check the column to its left for
     vertically stacked sections. Extend the fold section's rowspan to match
     the number of rows occupied by those adjacent sections.
+
+    Sections that are transitive successors of the fold section (i.e. on
+    the return row) are excluded from the rowspan calculation.
     """
     if not fold_sections:
         return
@@ -261,15 +284,21 @@ def _optimize_rowspans(graph: MetroGraph, fold_sections: set[str]) -> None:
         fold_col = fold_sec.grid_col
         fold_row = fold_sec.grid_row
 
+        # Compute transitive successors of this fold section
+        downstream = _transitive_successors(fold_sid, successors)
+
         # Look at the column to the left for stacked sections
         left_col = fold_col - 1
         if left_col not in col_groups:
             continue
 
         # Find the max row occupied by sections in the left column
-        # that are at or below the fold section's row (same band)
+        # that are at or below the fold section's row (same band),
+        # excluding sections that are downstream of the fold (return row)
         max_row = fold_row
         for sid in col_groups[left_col]:
+            if sid in downstream:
+                continue
             sec = graph.sections[sid]
             if sec.grid_row >= fold_row:
                 max_row = max(max_row, sec.grid_row)
