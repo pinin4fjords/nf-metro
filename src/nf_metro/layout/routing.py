@@ -403,12 +403,24 @@ def route_edges(
             # (e.g. junction → TOP entry where both sit in the column
             # gap).  Combine into one L-shape with proper curves
             # instead of two disjoint segments with a right-angle seam.
+            # Skip TB BOTTOM exit ports: their vertical drop should stay
+            # separate so lines fall straight down between sections.
             upstream_st = None
             if station_offsets:
                 for e2 in graph.edges:
                     if e2.target == edge.source and e2.line_id == edge.line_id:
                         u = graph.stations.get(e2.source)
                         if u and abs(u.x - sx) < 1.0:
+                            # Don't merge with TB BOTTOM exits - keep the
+                            # clean vertical drop as a separate segment.
+                            u_port = graph.ports.get(e2.source)
+                            if (
+                                u_port
+                                and not u_port.is_entry
+                                and u_port.side == PortSide.BOTTOM
+                                and u.section_id in tb_sections
+                            ):
+                                continue
                             upstream_st = u
                             skip_edges.add(
                                 (e2.source, e2.target, e2.line_id)
@@ -897,6 +909,57 @@ def compute_station_offsets(
                         if port_off is not None:
                             offsets[(jid, lid)] = port_off
                     break
+
+    # Override TOP entry port offsets to match the inter-section routing
+    # from upstream TB BOTTOM exits.  The inter-section routing reverses
+    # exit port offsets using the local max at the exit port, but the
+    # default offsets above use the global max_priority.  This mismatch
+    # causes a visible horizontal discontinuity at the section boundary.
+    tb_right_entry: set[str] = set()
+    for port_obj in graph.ports.values():
+        if (
+            port_obj.is_entry
+            and port_obj.side == PortSide.RIGHT
+            and port_obj.section_id in tb_sections
+        ):
+            tb_right_entry.add(port_obj.section_id)
+
+    for port_id, port_obj in graph.ports.items():
+        if not port_obj.is_entry or port_obj.side != PortSide.TOP:
+            continue
+        for edge in graph.edges:
+            if edge.target != port_id:
+                continue
+            src = graph.stations.get(edge.source)
+            if not src or not src.is_port:
+                continue
+            src_port = graph.ports.get(edge.source)
+            if not (
+                src_port
+                and not src_port.is_entry
+                and src_port.side == PortSide.BOTTOM
+                and src.section_id in tb_sections
+            ):
+                continue
+            # Found a TB BOTTOM exit feeding this TOP entry.
+            # Compute the same reversed offsets that route_edges uses
+            # in the src_is_tb_bottom path.
+            exit_port_id = edge.source
+            all_exit_offs = [
+                offsets.get((exit_port_id, lid), 0.0)
+                for lid in graph.station_lines(exit_port_id)
+            ]
+            max_exit_off = max(all_exit_offs) if all_exit_offs else 0.0
+            if src.section_id in tb_right_entry:
+                for lid in graph.station_lines(port_id):
+                    offsets[(port_id, lid)] = offsets.get(
+                        (exit_port_id, lid), 0.0
+                    )
+            else:
+                for lid in graph.station_lines(port_id):
+                    exit_off = offsets.get((exit_port_id, lid), 0.0)
+                    offsets[(port_id, lid)] = max_exit_off - exit_off
+            break
 
     return offsets
 
