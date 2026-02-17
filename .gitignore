@@ -7,3 +7,6 @@ build/
 *.egg
 .venv/
 .env
+site/
+docs/gallery/
+docs/assets/renders/

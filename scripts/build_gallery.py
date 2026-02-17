@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Build the docs gallery: render .mmd examples to SVG and generate gallery/index.md.
+
+Usage:
+    python scripts/build_gallery.py
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from nf_metro.layout.engine import compute_layout  # noqa: E402
+from nf_metro.parser.mermaid import parse_metro_mermaid  # noqa: E402
+from nf_metro.render.svg import render_svg  # noqa: E402
+from nf_metro.themes import THEMES  # noqa: E402
+
+EXAMPLES_DIR = project_root / "examples"
+TOPOLOGIES_DIR = project_root / "examples" / "topologies"
+GALLERY_DIR = project_root / "docs" / "gallery"
+RENDERS_DIR = project_root / "docs" / "assets" / "renders"
+
+# Ordered list of examples. Each entry is (filename_stem, source_dir, description).
+# Main examples first, then topologies grouped by category.
+GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
+    # --- Main examples ---
+    (
+        "simple_pipeline",
+        EXAMPLES_DIR,
+        "Minimal two-line pipeline with no sections.",
+    ),
+    (
+        "rnaseq_auto",
+        EXAMPLES_DIR,
+        "nf-core/rnaseq with fully auto-inferred layout.",
+    ),
+    (
+        "rnaseq_sections",
+        EXAMPLES_DIR,
+        "nf-core/rnaseq with manual grid overrides and file markers.",
+    ),
+    # --- Simple topologies ---
+    (
+        "single_section",
+        TOPOLOGIES_DIR,
+        "One section, one line. The simplest possible case.",
+    ),
+    (
+        "deep_linear",
+        TOPOLOGIES_DIR,
+        "Seven sections in a straight chain. Exercises the grid fold threshold.",
+    ),
+    (
+        "parallel_independent",
+        TOPOLOGIES_DIR,
+        "Two disconnected pipelines stacked vertically.",
+    ),
+    # --- Fan-out and fan-in ---
+    (
+        "wide_fan_out",
+        TOPOLOGIES_DIR,
+        "One source fanning out to four target sections.",
+    ),
+    (
+        "wide_fan_in",
+        TOPOLOGIES_DIR,
+        "Four sources converging into one target section.",
+    ),
+    (
+        "section_diamond",
+        TOPOLOGIES_DIR,
+        "Section-level fork-join: fan-out then reconverge.",
+    ),
+    # --- Branching and multipath ---
+    (
+        "asymmetric_tree",
+        TOPOLOGIES_DIR,
+        "One root branching into three paths of different depths.",
+    ),
+    (
+        "complex_multipath",
+        TOPOLOGIES_DIR,
+        "Four lines taking different routes through six sections.",
+    ),
+    # --- Multi-line bundles ---
+    (
+        "multi_line_bundle",
+        TOPOLOGIES_DIR,
+        "Six lines travelling through the same three-section chain.",
+    ),
+    (
+        "mixed_port_sides",
+        TOPOLOGIES_DIR,
+        "A section with both RIGHT and BOTTOM exits.",
+    ),
+    # --- Realistic pipelines ---
+    (
+        "rnaseq_lite",
+        TOPOLOGIES_DIR,
+        "Simplified RNA-seq pipeline with three analysis routes.",
+    ),
+    (
+        "variant_calling",
+        TOPOLOGIES_DIR,
+        "Variant calling pipeline with four lines sharing alignment.",
+    ),
+    # --- Fold topologies ---
+    (
+        "fold_fan_across",
+        TOPOLOGIES_DIR,
+        "Three lines diverge, converge at a fold, then continue on the return row.",
+    ),
+    (
+        "fold_double",
+        TOPOLOGIES_DIR,
+        "Ten-section linear pipeline with two fold points (serpentine layout).",
+    ),
+    (
+        "fold_stacked_branch",
+        TOPOLOGIES_DIR,
+        "Stacked analysis sections feeding through a fold into branching targets.",
+    ),
+]
+
+# Category headers inserted before specific entries
+CATEGORY_HEADERS: dict[str, str] = {
+    "simple_pipeline": "Main Examples",
+    "single_section": "Simple Topologies",
+    "wide_fan_out": "Fan-out and Fan-in",
+    "asymmetric_tree": "Branching and Multipath",
+    "multi_line_bundle": "Multi-line Bundles",
+    "rnaseq_lite": "Realistic Pipelines",
+    "fold_fan_across": "Fold Topologies",
+}
+
+
+def render_mmd(mmd_path: Path, svg_path: Path) -> None:
+    """Parse, layout, and render a .mmd file to SVG."""
+    text = mmd_path.read_text()
+    graph = parse_metro_mermaid(text)
+    compute_layout(graph)
+    theme_name = graph.style if graph.style in THEMES else "nfcore"
+    theme = THEMES[theme_name]
+    svg_str = render_svg(graph, theme)
+    svg_path.write_text(svg_str)
+
+
+def clean_name(stem: str) -> str:
+    """Convert filename stem to a display-friendly heading."""
+    return stem.replace("_", " ").title()
+
+
+def build_gallery() -> None:
+    """Generate docs/gallery/index.md and docs/assets/renders/*.svg."""
+    GALLERY_DIR.mkdir(parents=True, exist_ok=True)
+    RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+
+    lines: list[str] = [
+        "# Gallery",
+        "",
+        "Rendered examples covering a range of layout patterns. "
+        "Click any heading in the right-hand table of contents to jump to an example.",
+        "",
+    ]
+
+    for stem, source_dir, description in GALLERY_ENTRIES:
+        mmd_path = source_dir / f"{stem}.mmd"
+        svg_path = RENDERS_DIR / f"{stem}.svg"
+
+        if not mmd_path.exists():
+            print(f"  WARNING: {mmd_path} not found, skipping")
+            continue
+
+        # Category header
+        if stem in CATEGORY_HEADERS:
+            lines.append("---\n")
+            lines.append(f"## {CATEGORY_HEADERS[stem]}\n")
+
+        # Render SVG
+        try:
+            render_mmd(mmd_path, svg_path)
+            status = "OK"
+        except Exception as e:
+            status = f"FAIL: {e}"
+            print(f"  {stem}: {status}")
+            continue
+
+        print(f"  {stem}: {status}")
+
+        # Determine the CLI command path
+        if source_dir == EXAMPLES_DIR:
+            cli_path = f"examples/{stem}.mmd"
+        else:
+            cli_path = f"examples/topologies/{stem}.mmd"
+
+        heading = clean_name(stem)
+        mmd_source = mmd_path.read_text()
+
+        lines.append(f"### {heading}\n")
+        lines.append(f"{description}\n")
+        lines.append("**CLI command:**\n")
+        lines.append(f"```bash\nnf-metro render {cli_path} -o {stem}.svg\n```\n")
+        lines.append('??? note "Mermaid source"\n')
+        lines.append("    ```text")
+        for src_line in mmd_source.rstrip().split("\n"):
+            lines.append(f"    {src_line}")
+        lines.append("    ```\n")
+        lines.append("**Rendered output:**\n")
+        lines.append(f"![{heading}](../assets/renders/{stem}.svg)\n")
+
+    gallery_md = "\n".join(lines)
+    gallery_path = GALLERY_DIR / "index.md"
+    gallery_path.write_text(gallery_md)
+    print(f"\nGallery written to {gallery_path}")
+    print(f"SVG renders in {RENDERS_DIR}")
+
+
+if __name__ == "__main__":
+    build_gallery()
