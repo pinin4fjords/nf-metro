@@ -68,7 +68,13 @@ def route_edges(
     # X offsets instead of overlapping.
     bundle_info = _compute_bundle_info(graph, junction_ids, line_priority)
 
+    # Edges absorbed into a combined inter-section + entry route
+    skip_edges: set[tuple[str, str, str]] = set()
+
     for edge in graph.edges:
+        if (edge.source, edge.target, edge.line_id) in skip_edges:
+            continue
+
         src = graph.stations.get(edge.source)
         tgt = graph.stations.get(edge.target)
         if not src or not tgt:
@@ -384,7 +390,50 @@ def route_edges(
                 else 0.0
             )
 
-            if abs(dx) < 1.0:
+            # Check for an upstream inter-section edge at the same X
+            # (e.g. junction → TOP entry where both sit in the column
+            # gap).  Combine into one L-shape with proper curves
+            # instead of two disjoint segments with a right-angle seam.
+            upstream_st = None
+            if station_offsets:
+                for e2 in graph.edges:
+                    if e2.target == edge.source and e2.line_id == edge.line_id:
+                        u = graph.stations.get(e2.source)
+                        if u and abs(u.x - sx) < 1.0:
+                            upstream_st = u
+                            skip_edges.add(
+                                (e2.source, e2.target, e2.line_id)
+                            )
+                            break
+
+            if upstream_st is not None:
+                # Combined route: upstream station → horizontal →
+                # vertical → horizontal → internal station.
+                up_y_off = station_offsets.get(
+                    (upstream_st.id, edge.line_id), 0.0
+                )
+                mid_x = _inter_column_channel_x(
+                    graph, upstream_st, tgt, upstream_st.x, tgt.x,
+                    tgt.x - upstream_st.x, curve_radius, offset_step,
+                )
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[
+                            (upstream_st.x, upstream_st.y + up_y_off),
+                            (mid_x + src_off, upstream_st.y + up_y_off),
+                            (mid_x + src_off, ty + tgt_off),
+                            (tx, ty + tgt_off),
+                        ],
+                        offsets_applied=True,
+                        curve_radii=[
+                            curve_radius,
+                            curve_radius + src_off,
+                        ],
+                    )
+                )
+            elif abs(dx) < 1.0:
                 # Nearly same X: straight vertical drop
                 routes.append(
                     RoutedPath(

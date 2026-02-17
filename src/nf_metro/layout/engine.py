@@ -24,6 +24,16 @@ def compute_layout(
     section_y_gap: float = 40.0,
 ) -> None:
     """Compute layout positions for all stations in the graph."""
+    if not graph.sections:
+        _compute_flat_layout(
+            graph,
+            x_spacing=x_spacing,
+            y_spacing=y_spacing,
+            x_offset=x_offset,
+            y_offset=y_offset,
+        )
+        return
+
     _compute_section_layout(
         graph,
         x_spacing=x_spacing,
@@ -35,6 +45,38 @@ def compute_layout(
         section_x_gap=section_x_gap,
         section_y_gap=section_y_gap,
     )
+
+
+def _compute_flat_layout(
+    graph: MetroGraph,
+    x_spacing: float = 60.0,
+    y_spacing: float = 40.0,
+    x_offset: float = 80.0,
+    y_offset: float = 120.0,
+) -> None:
+    """Flat layout for sectionless pipelines.
+
+    Runs layer/track assignment directly on the full graph and maps
+    to coordinates without section boxes or port routing.
+    """
+    layers = assign_layers(graph)
+    tracks = assign_tracks(graph, layers)
+
+    if not layers:
+        return
+
+    unique_tracks = sorted(set(tracks.values()))
+    track_rank = {t: i for i, t in enumerate(unique_tracks)}
+
+    layer_extra = _compute_fork_join_gaps(graph, layers, x_spacing)
+
+    for sid, station in graph.stations.items():
+        station.layer = layers.get(sid, 0)
+        station.track = tracks.get(sid, 0)
+        station.x = x_offset + station.layer * x_spacing + layer_extra.get(
+            station.layer, 0
+        )
+        station.y = y_offset + track_rank[station.track] * y_spacing
 
 
 def _compute_section_layout(
