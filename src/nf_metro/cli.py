@@ -79,7 +79,10 @@ def render(
 ) -> None:
     """Render a Mermaid metro map definition to SVG."""
     text = input_file.read_text()
-    graph = parse_metro_mermaid(text)
+    graph = parse_metro_mermaid(
+        text,
+        max_station_columns=max_layers_per_row or 15,
+    )
 
     if logo is not None:
         graph.logo_path = str(logo)
@@ -88,7 +91,6 @@ def render(
         graph,
         x_spacing=x_spacing,
         y_spacing=y_spacing,
-        max_layers_per_row=max_layers_per_row,
     )
 
     theme_obj = THEMES[theme]

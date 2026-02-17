@@ -21,7 +21,9 @@ from nf_metro.parser.model import (
 )
 
 
-def parse_metro_mermaid(text: str) -> MetroGraph:
+def parse_metro_mermaid(
+    text: str, max_station_columns: int = 15
+) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives."""
     graph = MetroGraph()
     lines = text.strip().split("\n")
@@ -69,7 +71,7 @@ def parse_metro_mermaid(text: str) -> MetroGraph:
     if graph.sections:
         from nf_metro.layout.auto_layout import infer_section_layout
 
-        infer_section_layout(graph)
+        infer_section_layout(graph, max_station_columns=max_station_columns)
         _resolve_sections(graph)
 
     # Apply pending terminus designations

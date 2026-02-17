@@ -16,7 +16,6 @@ def compute_layout(
     y_spacing: float = 40.0,
     x_offset: float = 80.0,
     y_offset: float = 120.0,
-    max_layers_per_row: int | None = None,
     row_gap: float = 120.0,
     section_gap: float = 3.0,
     section_x_padding: float = 50.0,

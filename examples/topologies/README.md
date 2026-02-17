@@ -104,7 +104,15 @@ A variant calling pipeline with four lines (Whole Genome, Whole Exome, Targeted 
 
 ## Fold Topologies
 
-These examples trigger the auto-layout engine's **fold logic**, which wraps long pipelines into a serpentine layout when cumulative station layers exceed the fold threshold (default 15 columns).
+These examples trigger the auto-layout engine's **fold logic**, which wraps long pipelines into a serpentine layout when cumulative station layers exceed the fold threshold (default 15 columns). The threshold is configurable via `--max-layers-per-row`:
+
+```bash
+# Narrower layout with more folds
+nf-metro render examples/topologies/deep_linear.mmd -o output.svg --max-layers-per-row 6
+
+# Wider layout with fewer folds
+nf-metro render examples/topologies/deep_linear.mmd -o output.svg --max-layers-per-row 20
+```
 
 ### Fold Fan-Across
 

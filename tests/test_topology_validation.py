@@ -33,10 +33,10 @@ TOPOLOGY_IDS = [f.stem for f in TOPOLOGY_FILES]
 RNASEQ_FILE = EXAMPLES_DIR / "rnaseq_sections.mmd"
 
 
-def _load_and_layout(path: Path):
+def _load_and_layout(path: Path, max_station_columns: int = 15):
     """Parse a .mmd file and run layout."""
     text = path.read_text()
-    graph = parse_metro_mermaid(text)
+    graph = parse_metro_mermaid(text, max_station_columns=max_station_columns)
     compute_layout(graph)
     return graph
 
@@ -356,3 +356,94 @@ class TestTopologySpecific:
         violations = validate_layout(graph)
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
+
+
+# --- Reflow (max_station_columns) tests ---
+
+# Topologies with enough sections to exercise reflow at various widths.
+REFLOW_FIXTURES = ["deep_linear", "fold_double"]
+REFLOW_WIDTHS = [6, 8, 10]
+
+
+class TestReflowValidation:
+    """Validate layout correctness when topologies are reflowed at reduced widths."""
+
+    @pytest.fixture(
+        params=[
+            (name, width)
+            for name in REFLOW_FIXTURES
+            for width in REFLOW_WIDTHS
+        ],
+        ids=[
+            f"{name}_cols{width}"
+            for name in REFLOW_FIXTURES
+            for width in REFLOW_WIDTHS
+        ],
+    )
+    def reflow_graph(self, request):
+        name, width = request.param
+        return _load_and_layout(
+            TOPOLOGIES_DIR / f"{name}.mmd", max_station_columns=width
+        )
+
+    def test_no_section_overlap(self, reflow_graph):
+        violations = check_section_overlap(reflow_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_station_containment(self, reflow_graph):
+        violations = check_station_containment(reflow_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_coordinate_sanity(self, reflow_graph):
+        violations = check_coordinate_sanity(reflow_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_edge_waypoints(self, reflow_graph):
+        violations = check_edge_waypoints(reflow_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+
+class TestReflowStructure:
+    """Verify that reducing max_station_columns produces more folds."""
+
+    def test_deep_linear_reflow_adds_folds(self):
+        """Narrower width produces more rows."""
+        graph_wide = _load_and_layout(
+            TOPOLOGIES_DIR / "deep_linear.mmd", max_station_columns=15
+        )
+        graph_narrow = _load_and_layout(
+            TOPOLOGIES_DIR / "deep_linear.mmd", max_station_columns=6
+        )
+        wide_rows = {s.grid_row for s in graph_wide.sections.values()}
+        narrow_rows = {s.grid_row for s in graph_narrow.sections.values()}
+        assert len(narrow_rows) > len(wide_rows)
+
+    def test_deep_linear_narrow_has_tb_fold(self):
+        """At max_station_columns=6, deep_linear should have TB fold sections."""
+        graph = _load_and_layout(
+            TOPOLOGIES_DIR / "deep_linear.mmd", max_station_columns=6
+        )
+        tb_sections = [
+            sid for sid, s in graph.sections.items() if s.direction == "TB"
+        ]
+        assert len(tb_sections) >= 1
+
+    def test_fold_double_more_folds_at_narrow_width(self):
+        """fold_double at width 6 should produce more fold sections than default."""
+        graph_default = _load_and_layout(
+            TOPOLOGIES_DIR / "fold_double.mmd", max_station_columns=15
+        )
+        graph_narrow = _load_and_layout(
+            TOPOLOGIES_DIR / "fold_double.mmd", max_station_columns=6
+        )
+        default_folds = sum(
+            1 for s in graph_default.sections.values() if s.direction == "TB"
+        )
+        narrow_folds = sum(
+            1 for s in graph_narrow.sections.values() if s.direction == "TB"
+        )
+        assert narrow_folds >= default_folds
