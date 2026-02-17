@@ -129,212 +129,11 @@ def _compute_section_layout(
     # Phase 2: Lay out each section independently (real stations only, no ports)
     section_subgraphs: dict[str, MetroGraph] = {}
     for sec_id, section in graph.sections.items():
-        sub = _build_section_subgraph(graph, section)
-        if not sub.stations:
-            continue
-
-        # Run standard layout on the sub-graph
-        layers = assign_layers(sub)
-        tracks = assign_tracks(sub, layers)
-
-        if not layers:
-            continue
-
-        # Compact tracks to consecutive integers so widely-spaced
-        # line priorities don't inflate the vertical spread.
-        unique_tracks = sorted(set(tracks.values()))
-        track_rank = {t: i for i, t in enumerate(unique_tracks)}
-
-        # Detect fork/join layers and add extra spacing so stations
-        # aren't too close to divergence/convergence points.
-        # Pass full graph so port-touching edges count as forks/joins.
-        section_sids = set(section.station_ids)
-        layer_extra = _compute_fork_join_gaps(
-            sub, layers, x_spacing, graph, section_sids
+        sub = _layout_single_section(
+            graph, section, x_spacing, y_spacing, section_x_padding, section_y_padding
         )
-
-        for sid, station in sub.stations.items():
-            station.layer = layers.get(sid, 0)
-            station.track = tracks.get(sid, 0)
-            if section.direction == "TB":
-                # Top-to-bottom: layers map to Y, tracks map to X.
-                # All stations stay in the same vertical column so
-                # the flow is a clean straight-down path. The entry
-                # port connects horizontally from the section edge.
-                station.x = track_rank[station.track] * x_spacing
-                station.y = station.layer * y_spacing + layer_extra.get(
-                    station.layer, 0
-                )
-            else:
-                station.x = station.layer * x_spacing + layer_extra.get(
-                    station.layer, 0
-                )
-                station.y = track_rank[station.track] * y_spacing
-
-        # Normalize Y so minimum is 0 (raw tracks can be negative)
-        ys_all = [s.y for s in sub.stations.values()]
-        if ys_all:
-            min_y = min(ys_all)
-            if min_y != 0:
-                for s in sub.stations.values():
-                    s.y -= min_y
-
-        # RL: mirror X so layer 0 is rightmost.
-        # Anchor on non-terminus stations so adding terminus layers
-        # extends leftward without shifting the entry point.
-        if section.direction == "RL":
-            non_term = [
-                s
-                for s in sub.stations.values()
-                if not (s.is_terminus and not s.label.strip())
-            ]
-            anchor_stations = non_term if non_term else list(sub.stations.values())
-            max_x_val = max(s.x for s in anchor_stations)
-            for s in sub.stations.values():
-                s.x = max_x_val - s.x
-
-        # Normalize local X so leftmost station is at x=0.
-        # After RL mirror, terminus stations may have negative X; normalizing
-        # ensures bbox_x is always at -padding, and extra width from terminus
-        # goes into bbox_w (which feeds into grid column sizing).
-        min_local_x = min(s.x for s in sub.stations.values())
-        if min_local_x != 0:
-            for s in sub.stations.values():
-                s.x -= min_local_x
-
-        # Ensure minimum inner extent so stations sit on visible track
-        xs = [s.x for s in sub.stations.values()]
-        ys = [s.y for s in sub.stations.values()]
-        if section.direction == "TB":
-            inner_h = max(ys) - min(ys)
-            min_inner_h = y_spacing
-            if inner_h < min_inner_h:
-                shift = (min_inner_h - inner_h) / 2
-                for station in sub.stations.values():
-                    station.y += shift
-                ys = [s.y for s in sub.stations.values()]
-        else:
-            inner_w = max(xs) - min(xs)
-            min_inner_w = x_spacing
-            if inner_w < min_inner_w:
-                shift = (min_inner_w - inner_w) / 2
-                for station in sub.stations.values():
-                    station.x += shift
-                xs = [s.x for s in sub.stations.values()]
-
-        # Compute section bounding box from real stations only
-        section.bbox_x = min(xs) - section_x_padding
-        section.bbox_y = min(ys) - section_y_padding
-        section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
-        section.bbox_h = (max(ys) - min(ys)) + section_y_padding * 2
-
-        # TB sections: labels extend leftward from the station (text_anchor=end).
-        # Expand bbox and shift stations right so labels fit within the section.
-        if section.direction == "TB":
-            max_label_extent = 0.0
-            for sid, s in sub.stations.items():
-                if s.label.strip():
-                    n_lines = len(sub.station_lines(sid))
-                    offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
-                    extent = offset_span / 2 + 11 + len(s.label) * CHAR_WIDTH
-                    max_label_extent = max(max_label_extent, extent)
-            need_left = max_label_extent + LABEL_PAD
-            have_left = min(xs) - section.bbox_x
-            if need_left > have_left:
-                extra = need_left - have_left
-                for s in sub.stations.values():
-                    s.x += extra
-                xs = [s.x for s in sub.stations.values()]
-                section.bbox_w += extra
-
-        # Direction-change offset: when a section has an entry port
-        # perpendicular to its flow, shift stations in the flow direction
-        # so the first station isn't at the entry port (avoiding the
-        # station-as-elbow problem at direction changes).
-        if section.direction == "TB":
-            has_perp_entry = any(
-                graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
-                for pid in section.entry_ports
-                if pid in graph.ports
-            )
-            if has_perp_entry:
-                entry_shift = y_spacing * ENTRY_SHIFT_TB
-                for s in sub.stations.values():
-                    s.y += entry_shift
-                section.bbox_h += entry_shift
-
-        # TB sections with TOP entry from a cross-column source: shift
-        # stations down so there's room for the L-shape entry routing
-        # above the first station. Without this, the entry port sits at
-        # the bbox top and lines from adjacent columns go all the way up.
-        if section.direction == "TB":
-            has_cross_col_top_entry = False
-            for pid in section.entry_ports:
-                port = graph.ports.get(pid)
-                if not port or port.side != PortSide.TOP:
-                    continue
-                for edge in graph.edges:
-                    if edge.target == pid:
-                        src = graph.stations.get(edge.source)
-                        if src and src.section_id:
-                            src_sec = graph.sections.get(src.section_id)
-                            if src_sec and src_sec.grid_col != section.grid_col:
-                                has_cross_col_top_entry = True
-                                break
-                if has_cross_col_top_entry:
-                    break
-            if has_cross_col_top_entry:
-                entry_shift = y_spacing * ENTRY_SHIFT_TB_CROSS
-                for s in sub.stations.values():
-                    s.y += entry_shift
-                section.bbox_h += entry_shift
-
-        # LR/RL sections with TOP/BOTTOM entry: add extra bbox width so
-        # the grid allocates space for the vertical-to-horizontal curve.
-        if section.direction in ("LR", "RL"):
-            has_perp_entry = any(
-                graph.ports[pid].side in (PortSide.TOP, PortSide.BOTTOM)
-                for pid in section.entry_ports
-                if pid in graph.ports
-            )
-            if has_perp_entry:
-                entry_inset = x_spacing * ENTRY_INSET_LR
-                section.bbox_w += entry_inset
-
-        # LR/RL sections with exit ports on the flow side: add clearance
-        # so diagonal routing from the last station to the exit port doesn't
-        # overlap station labels. Gap is proportional to the longest label at
-        # the exit-side layer, mirroring _compute_fork_join_gaps logic.
-        if section.direction in ("LR", "RL"):
-            flow_exit_side = (
-                PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
-            )
-            has_flow_exit = any(
-                graph.ports[pid].side == flow_exit_side
-                for pid in section.exit_ports
-                if pid in graph.ports
-            )
-            if has_flow_exit and layers:
-                max_layer = max(layers.values())
-                max_label_half = 0.0
-                for sid_l, layer_num in layers.items():
-                    if layer_num == max_layer:
-                        station = sub.stations.get(sid_l)
-                        if station and station.label.strip():
-                            label_half = len(station.label) * CHAR_WIDTH / 2
-                            max_label_half = max(max_label_half, label_half)
-                exit_gap = max(x_spacing * EXIT_GAP_MULTIPLIER, max_label_half)
-                if section.direction == "LR":
-                    section.bbox_w += exit_gap
-                else:
-                    # Shift stations right to create clearance on the left
-                    # (exit) side without moving the bbox boundary, which
-                    # would misalign the section within its grid column.
-                    for s in sub.stations.values():
-                        s.x += exit_gap
-                    section.bbox_w += exit_gap
-
-        section_subgraphs[sec_id] = sub
+        if sub is not None:
+            section_subgraphs[sec_id] = sub
 
     # Phase 3: Place sections on the canvas
     place_sections(graph, section_x_gap, section_y_gap)
@@ -375,6 +174,276 @@ def _compute_section_layout(
     # Phase 8 may have moved exit ports on fold sections, so junctions
     # placed in Phase 6 need updating to match the new exit port Y.
     _position_junctions(graph)
+
+
+def _layout_single_section(
+    graph: MetroGraph,
+    section: Section,
+    x_spacing: float,
+    y_spacing: float,
+    section_x_padding: float,
+    section_y_padding: float,
+) -> MetroGraph | None:
+    """Lay out a single section's internal stations and compute its bbox.
+
+    Runs layer/track assignment on the section's real stations, applies
+    direction-specific adjustments (RL mirror, TB label extent, entry shifts),
+    and computes the section bounding box. Returns the section subgraph with
+    positioned stations, or None if the section has no layoutable stations.
+    """
+    sub = _build_section_subgraph(graph, section)
+    if not sub.stations:
+        return None
+
+    layers = assign_layers(sub)
+    tracks = assign_tracks(sub, layers)
+
+    if not layers:
+        return None
+
+    # Compact tracks to consecutive integers so widely-spaced
+    # line priorities don't inflate the vertical spread.
+    unique_tracks = sorted(set(tracks.values()))
+    track_rank = {t: i for i, t in enumerate(unique_tracks)}
+
+    # Detect fork/join layers and add extra spacing so stations
+    # aren't too close to divergence/convergence points.
+    # Pass full graph so port-touching edges count as forks/joins.
+    section_sids = set(section.station_ids)
+    layer_extra = _compute_fork_join_gaps(
+        sub, layers, x_spacing, graph, section_sids
+    )
+
+    # Assign local coordinates based on section direction
+    for sid, station in sub.stations.items():
+        station.layer = layers.get(sid, 0)
+        station.track = tracks.get(sid, 0)
+        if section.direction == "TB":
+            station.x = track_rank[station.track] * x_spacing
+            station.y = station.layer * y_spacing + layer_extra.get(
+                station.layer, 0
+            )
+        else:
+            station.x = station.layer * x_spacing + layer_extra.get(
+                station.layer, 0
+            )
+            station.y = track_rank[station.track] * y_spacing
+
+    # Normalize Y so minimum is 0 (raw tracks can be negative)
+    _normalize_min(sub, axis="y")
+
+    # RL: mirror X so layer 0 is rightmost
+    if section.direction == "RL":
+        _mirror_rl(sub)
+
+    # Normalize local X so leftmost station is at x=0
+    _normalize_min(sub, axis="x")
+
+    # Ensure minimum inner extent so stations sit on visible track
+    _enforce_min_extent(sub, section, x_spacing, y_spacing)
+
+    # Compute section bounding box from real stations only
+    xs = [s.x for s in sub.stations.values()]
+    ys = [s.y for s in sub.stations.values()]
+    section.bbox_x = min(xs) - section_x_padding
+    section.bbox_y = min(ys) - section_y_padding
+    section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
+    section.bbox_h = (max(ys) - min(ys)) + section_y_padding * 2
+
+    # Apply direction-specific bbox adjustments
+    _adjust_tb_labels(sub, section, graph)
+    _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
+    _adjust_lr_entry_inset(section, graph, x_spacing)
+    _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
+
+    return sub
+
+
+def _normalize_min(sub: MetroGraph, axis: str) -> None:
+    """Shift all stations so the minimum coordinate on the given axis is 0."""
+    vals = [getattr(s, axis) for s in sub.stations.values()]
+    if vals:
+        min_val = min(vals)
+        if min_val != 0:
+            for s in sub.stations.values():
+                setattr(s, axis, getattr(s, axis) - min_val)
+
+
+def _mirror_rl(sub: MetroGraph) -> None:
+    """Mirror X coordinates for RL sections so layer 0 is rightmost.
+
+    Anchors on non-terminus stations so adding terminus layers
+    extends leftward without shifting the entry point.
+    """
+    non_term = [
+        s
+        for s in sub.stations.values()
+        if not (s.is_terminus and not s.label.strip())
+    ]
+    anchor_stations = non_term if non_term else list(sub.stations.values())
+    max_x_val = max(s.x for s in anchor_stations)
+    for s in sub.stations.values():
+        s.x = max_x_val - s.x
+
+
+def _enforce_min_extent(
+    sub: MetroGraph,
+    section: Section,
+    x_spacing: float,
+    y_spacing: float,
+) -> None:
+    """Ensure minimum inner extent so stations sit on visible track."""
+    xs = [s.x for s in sub.stations.values()]
+    ys = [s.y for s in sub.stations.values()]
+    if section.direction == "TB":
+        inner_h = max(ys) - min(ys)
+        min_inner_h = y_spacing
+        if inner_h < min_inner_h:
+            shift = (min_inner_h - inner_h) / 2
+            for station in sub.stations.values():
+                station.y += shift
+    else:
+        inner_w = max(xs) - min(xs)
+        min_inner_w = x_spacing
+        if inner_w < min_inner_w:
+            shift = (min_inner_w - inner_w) / 2
+            for station in sub.stations.values():
+                station.x += shift
+
+
+def _adjust_tb_labels(
+    sub: MetroGraph,
+    section: Section,
+    graph: MetroGraph,
+) -> None:
+    """TB sections: expand bbox and shift stations right so labels fit.
+
+    Labels extend leftward from the station (text_anchor=end).
+    """
+    if section.direction != "TB":
+        return
+
+    xs = [s.x for s in sub.stations.values()]
+    max_label_extent = 0.0
+    for sid, s in sub.stations.items():
+        if s.label.strip():
+            n_lines = len(sub.station_lines(sid))
+            offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
+            extent = offset_span / 2 + 11 + len(s.label) * CHAR_WIDTH
+            max_label_extent = max(max_label_extent, extent)
+    need_left = max_label_extent + LABEL_PAD
+    have_left = min(xs) - section.bbox_x
+    if need_left > have_left:
+        extra = need_left - have_left
+        for s in sub.stations.values():
+            s.x += extra
+        section.bbox_w += extra
+
+
+def _adjust_tb_entry_shifts(
+    section: Section,
+    sub: MetroGraph,
+    graph: MetroGraph,
+    y_spacing: float,
+) -> None:
+    """Apply TB section entry shifts for perpendicular and cross-column entries."""
+    if section.direction != "TB":
+        return
+
+    # Perpendicular entry: shift stations down so first station isn't
+    # at the entry port (avoiding station-as-elbow).
+    has_perp_entry = any(
+        graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
+        for pid in section.entry_ports
+        if pid in graph.ports
+    )
+    if has_perp_entry:
+        entry_shift = y_spacing * ENTRY_SHIFT_TB
+        for s in sub.stations.values():
+            s.y += entry_shift
+        section.bbox_h += entry_shift
+
+    # Cross-column TOP entry: shift stations down for L-shape routing room.
+    has_cross_col_top_entry = False
+    for pid in section.entry_ports:
+        port = graph.ports.get(pid)
+        if not port or port.side != PortSide.TOP:
+            continue
+        for edge in graph.edges:
+            if edge.target == pid:
+                src = graph.stations.get(edge.source)
+                if src and src.section_id:
+                    src_sec = graph.sections.get(src.section_id)
+                    if src_sec and src_sec.grid_col != section.grid_col:
+                        has_cross_col_top_entry = True
+                        break
+        if has_cross_col_top_entry:
+            break
+    if has_cross_col_top_entry:
+        entry_shift = y_spacing * ENTRY_SHIFT_TB_CROSS
+        for s in sub.stations.values():
+            s.y += entry_shift
+        section.bbox_h += entry_shift
+
+
+def _adjust_lr_entry_inset(
+    section: Section,
+    graph: MetroGraph,
+    x_spacing: float,
+) -> None:
+    """LR/RL sections with TOP/BOTTOM entry: add extra bbox width for curves."""
+    if section.direction not in ("LR", "RL"):
+        return
+
+    has_perp_entry = any(
+        graph.ports[pid].side in (PortSide.TOP, PortSide.BOTTOM)
+        for pid in section.entry_ports
+        if pid in graph.ports
+    )
+    if has_perp_entry:
+        entry_inset = x_spacing * ENTRY_INSET_LR
+        section.bbox_w += entry_inset
+
+
+def _adjust_lr_exit_gap(
+    sub: MetroGraph,
+    section: Section,
+    graph: MetroGraph,
+    layers: dict[str, int],
+    x_spacing: float,
+) -> None:
+    """LR/RL sections with flow-side exit: add label clearance gap."""
+    if section.direction not in ("LR", "RL"):
+        return
+
+    flow_exit_side = (
+        PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
+    )
+    has_flow_exit = any(
+        graph.ports[pid].side == flow_exit_side
+        for pid in section.exit_ports
+        if pid in graph.ports
+    )
+    if not has_flow_exit or not layers:
+        return
+
+    max_layer = max(layers.values())
+    max_label_half = 0.0
+    for sid_l, layer_num in layers.items():
+        if layer_num == max_layer:
+            station = sub.stations.get(sid_l)
+            if station and station.label.strip():
+                label_half = len(station.label) * CHAR_WIDTH / 2
+                max_label_half = max(max_label_half, label_half)
+    exit_gap = max(x_spacing * EXIT_GAP_MULTIPLIER, max_label_half)
+    if section.direction == "LR":
+        section.bbox_w += exit_gap
+    else:
+        # Shift stations right to create clearance on the left
+        # (exit) side without moving the bbox boundary.
+        for s in sub.stations.values():
+            s.x += exit_gap
+        section.bbox_w += exit_gap
 
 
 def _position_junctions(graph: MetroGraph) -> None:
@@ -476,75 +545,15 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                                 break
                         target_y = src.y
 
-                        # Clamp for TB sections with perpendicular entry:
-                        # the entry port must stay above the first internal
-                        # station so the direction-change curve has room.
+                        # Clamp for TB sections with perpendicular entry
                         if entry_section.direction == "TB" and port.side in (
                             PortSide.LEFT,
                             PortSide.RIGHT,
                         ):
-                            internal_ids = (
-                                set(entry_section.station_ids)
-                                - set(entry_section.entry_ports)
-                                - set(entry_section.exit_ports)
+                            target_y = _clamp_tb_entry_port(
+                                graph, entry_section, target_y,
+                                edge, src, junction_ids,
                             )
-                            internal_ys = [
-                                graph.stations[sid].y
-                                for sid in internal_ids
-                                if sid in graph.stations
-                                and not graph.stations[sid].is_port
-                            ]
-                            if internal_ys:
-                                first_y = min(internal_ys)
-                                min_gap = MIN_PORT_STATION_GAP
-                                max_y = first_y - min_gap
-                                if target_y > max_y:
-                                    # Prefer the topmost source-side
-                                    # station feeding the exit port so
-                                    # that line exits horizontally.
-                                    exit_pid = edge.source
-                                    if edge.source in junction_ids:
-                                        for e2 in graph.edges:
-                                            if e2.target == edge.source:
-                                                ep = graph.stations.get(e2.source)
-                                                if ep and ep.is_port:
-                                                    exit_pid = e2.source
-                                                    break
-                                    top_src_y = None
-                                    for e3 in graph.edges:
-                                        if e3.target == exit_pid:
-                                            s3 = graph.stations.get(e3.source)
-                                            if (
-                                                s3
-                                                and not s3.is_port
-                                                and e3.source not in junction_ids
-                                            ):
-                                                if (
-                                                    top_src_y is None
-                                                    or s3.y < top_src_y
-                                                ):
-                                                    top_src_y = s3.y
-                                    if top_src_y is not None and top_src_y < max_y:
-                                        target_y = top_src_y
-                                    else:
-                                        target_y = max_y
-                                    # Pull source up to maintain straight
-                                    # horizontal run
-                                    src.y = target_y
-                                    if src.is_port and edge.source in graph.ports:
-                                        graph.ports[edge.source].y = target_y
-                                    # If source is a junction, also pull
-                                    # the exit port feeding it
-                                    if edge.source in junction_ids:
-                                        for e2 in graph.edges:
-                                            if e2.target == edge.source:
-                                                ep = graph.stations.get(e2.source)
-                                                if ep and ep.is_port:
-                                                    ep.y = target_y
-                                                    if e2.source in graph.ports:
-                                                        graph.ports[
-                                                            e2.source
-                                                        ].y = target_y
 
                         station = graph.stations.get(port_id)
                         if station:
@@ -723,6 +732,82 @@ def _align_exit_ports(graph: MetroGraph) -> None:
                             station.y = tgt.y
                         port.y = tgt.y
                     break
+
+
+def _clamp_tb_entry_port(
+    graph: MetroGraph,
+    entry_section: Section,
+    target_y: float,
+    edge: Edge,
+    src: Station,
+    junction_ids: set[str],
+) -> float:
+    """Clamp a TB section's perpendicular entry port above internal stations.
+
+    The entry port must stay above the first internal station so the
+    direction-change curve has room. When clamped, also pulls the source
+    station/junction up to maintain a straight horizontal run.
+
+    Returns the (possibly clamped) target_y.
+    """
+    internal_ids = (
+        set(entry_section.station_ids)
+        - set(entry_section.entry_ports)
+        - set(entry_section.exit_ports)
+    )
+    internal_ys = [
+        graph.stations[sid].y
+        for sid in internal_ids
+        if sid in graph.stations
+        and not graph.stations[sid].is_port
+    ]
+    if not internal_ys:
+        return target_y
+
+    first_y = min(internal_ys)
+    max_y = first_y - MIN_PORT_STATION_GAP
+    if target_y <= max_y:
+        return target_y
+
+    # Prefer the topmost source-side station feeding the exit port
+    # so that line exits horizontally.
+    exit_pid = edge.source
+    if edge.source in junction_ids:
+        for e2 in graph.edges:
+            if e2.target == edge.source:
+                ep = graph.stations.get(e2.source)
+                if ep and ep.is_port:
+                    exit_pid = e2.source
+                    break
+
+    top_src_y = None
+    for e3 in graph.edges:
+        if e3.target == exit_pid:
+            s3 = graph.stations.get(e3.source)
+            if s3 and not s3.is_port and e3.source not in junction_ids:
+                if top_src_y is None or s3.y < top_src_y:
+                    top_src_y = s3.y
+
+    if top_src_y is not None and top_src_y < max_y:
+        target_y = top_src_y
+    else:
+        target_y = max_y
+
+    # Pull source up to maintain straight horizontal run
+    src.y = target_y
+    if src.is_port and edge.source in graph.ports:
+        graph.ports[edge.source].y = target_y
+    # If source is a junction, also pull the exit port feeding it
+    if edge.source in junction_ids:
+        for e2 in graph.edges:
+            if e2.target == edge.source:
+                ep = graph.stations.get(e2.source)
+                if ep and ep.is_port:
+                    ep.y = target_y
+                    if e2.source in graph.ports:
+                        graph.ports[e2.source].y = target_y
+
+    return target_y
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
