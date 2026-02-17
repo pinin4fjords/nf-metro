@@ -404,11 +404,6 @@ def _optimize_colspans(
             if sid in fold_sections:
                 continue
 
-            # Don't span below-fold sections (they sit directly under
-            # the fold and shouldn't extend into adjacent columns)
-            if sid in below_fold_sections:
-                continue
-
             section = graph.sections[sid]
 
             # Only optimize fold columns (original) or RL return-row sections
@@ -569,6 +564,8 @@ def _infer_port_sides(
                             my_row,
                             tgt_sec.grid_col,
                             tgt_sec.grid_row,
+                            section.grid_col_span,
+                            tgt_sec.grid_col_span,
                         )
                         side_votes_fold[side] += len(lines)
                     if side_votes_fold:
@@ -594,6 +591,8 @@ def _infer_port_sides(
                             my_row,
                             tgt_sec.grid_col,
                             tgt_sec.grid_row,
+                            section.grid_col_span,
+                            tgt_sec.grid_col_span,
                         )
                         side_votes[side] += len(lines)
                     if side_votes:
@@ -620,6 +619,8 @@ def _infer_port_sides(
                     my_row,
                     src_sec.grid_col,
                     src_sec.grid_row,
+                    section.grid_col_span,
+                    src_sec.grid_col_span,
                 )
                 side_lines[side].update(lines)
 
@@ -633,25 +634,32 @@ def _relative_side(
     my_row: int,
     other_col: int,
     other_row: int,
+    my_col_span: int = 1,
+    other_col_span: int = 1,
 ) -> PortSide:
     """Determine which side of 'my' section faces 'other' section.
 
     Horizontal (LEFT/RIGHT) is preferred when sections are in different
     columns, since pipeline flow is primarily horizontal. Vertical
-    (TOP/BOTTOM) is used only when sections share a column.
+    (TOP/BOTTOM) is used when sections share a column or when their
+    column spans overlap (e.g. a colspan-2 section sitting below a
+    section that occupies one of its spanned columns).
     """
-    dcol = other_col - my_col
+    # Check if column ranges overlap (accounts for colspan)
+    my_col_end = my_col + my_col_span - 1
+    other_col_end = other_col + other_col_span - 1
+    cols_overlap = my_col <= other_col_end and other_col <= my_col_end
+
+    if not cols_overlap:
+        # No column overlap: prefer horizontal direction (pipeline flow)
+        dcol = other_col - my_col
+        if dcol > 0:
+            return PortSide.RIGHT
+        elif dcol < 0:
+            return PortSide.LEFT
+
+    # Columns overlap (or same column): use vertical direction
     drow = other_row - my_row
-
-    # Different column: prefer horizontal direction (pipeline flow).
-    # This handles stacked sections in fold layouts where row distance
-    # can exceed column distance but the connection is still horizontal.
-    if dcol > 0:
-        return PortSide.RIGHT
-    elif dcol < 0:
-        return PortSide.LEFT
-
-    # Same column: use vertical direction
     if drow > 0:
         return PortSide.BOTTOM
     elif drow < 0:
