@@ -35,6 +35,7 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
     violations.extend(check_coordinate_sanity(graph))
     violations.extend(check_minimum_section_spacing(graph))
     violations.extend(check_edge_waypoints(graph))
+    violations.extend(check_station_as_elbow(graph))
     return violations
 
 
@@ -309,5 +310,114 @@ def check_edge_waypoints(graph: MetroGraph) -> list[Violation]:
                         },
                     )
                 )
+
+    return violations
+
+
+def check_station_as_elbow(
+    graph: MetroGraph, tolerance: float = 10.0
+) -> list[Violation]:
+    """Check that perpendicular ports don't align with internal stations.
+
+    Only flags ports that are perpendicular to the section's flow direction,
+    where the line must bend and could pass through a station:
+    - LEFT/RIGHT ports on TB sections (horizontal entry into vertical flow)
+    - TOP/BOTTOM ports on LR/RL sections (vertical entry into horizontal flow)
+
+    Ports along the flow direction (e.g. LEFT entry on LR section) naturally
+    share coordinates with stations on the main track and are not checked.
+
+    The default tolerance of 10px accounts for station marker diameter
+    (station_radius is typically 5-6px).
+    """
+    violations: list[Violation] = []
+
+    # Group internal (non-port) stations by section
+    section_stations: dict[str, list[tuple[str, float, float]]] = {}
+    for sid, station in graph.stations.items():
+        if station.is_port or station.section_id is None:
+            continue
+        sec_id = station.section_id
+        if sec_id not in section_stations:
+            section_stations[sec_id] = []
+        section_stations[sec_id].append((sid, station.x, station.y))
+
+    for pid, port in graph.ports.items():
+        port_station = graph.stations.get(pid)
+        if not port_station:
+            continue
+
+        section = graph.sections.get(port.section_id)
+        if not section:
+            continue
+        direction = section.direction
+
+        internals = section_stations.get(port.section_id, [])
+        if not internals:
+            continue
+
+        # Only check perpendicular ports (where a bend is required)
+        is_perpendicular = False
+        if direction == "TB" and port.side in (PortSide.LEFT, PortSide.RIGHT):
+            is_perpendicular = True
+        elif direction in ("LR", "RL") and port.side in (
+            PortSide.TOP,
+            PortSide.BOTTOM,
+        ):
+            is_perpendicular = True
+
+        if not is_perpendicular:
+            continue
+
+        # LEFT/RIGHT ports: line runs horizontally at port.y, check Y
+        # TOP/BOTTOM ports: line runs vertically at port.x, check X
+        if port.side in (PortSide.LEFT, PortSide.RIGHT):
+            for st_id, st_x, st_y in internals:
+                if abs(port_station.y - st_y) <= tolerance:
+                    violations.append(
+                        Violation(
+                            check="station_as_elbow",
+                            severity=Severity.ERROR,
+                            message=(
+                                f"Port '{pid}' ({port.side.value}, "
+                                f"y={port_station.y:.1f}) aligns with "
+                                f"station '{st_id}' (y={st_y:.1f}) in "
+                                f"section '{port.section_id}' - line "
+                                f"would route through the station"
+                            ),
+                            context={
+                                "port": pid,
+                                "station": st_id,
+                                "section": port.section_id,
+                                "axis": "y",
+                                "port_coord": port_station.y,
+                                "station_coord": st_y,
+                            },
+                        )
+                    )
+        else:  # TOP / BOTTOM
+            for st_id, st_x, st_y in internals:
+                if abs(port_station.x - st_x) <= tolerance:
+                    violations.append(
+                        Violation(
+                            check="station_as_elbow",
+                            severity=Severity.ERROR,
+                            message=(
+                                f"Port '{pid}' ({port.side.value}, "
+                                f"x={port_station.x:.1f}) aligns with "
+                                f"station '{st_id}' (x={st_x:.1f}) in "
+                                f"section '{port.section_id}' - line "
+                                f"would route through the station"
+                            ),
+                            context={
+                                "port": pid,
+                                "station": st_id,
+                                "section": port.section_id,
+                                "axis": "x",
+                                "port_coord": port_station.x,
+                                "station_coord": st_x,
+                            },
+                        )
+                    )
 
     return violations
