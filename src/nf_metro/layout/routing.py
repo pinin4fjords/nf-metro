@@ -174,9 +174,7 @@ def route_edges(
                 # with the exit_port -> junction segment above.
                 exit_pid = bottom_exit_junction_ports[edge.source]
                 if station_offsets:
-                    src_off = station_offsets.get(
-                        (exit_pid, edge.line_id), 0.0
-                    )
+                    src_off = station_offsets.get((exit_pid, edge.line_id), 0.0)
                     exit_src = graph.stations.get(exit_pid)
                     if exit_src and exit_src.section_id in tb_right_entry:
                         x_off = src_off
@@ -189,6 +187,14 @@ def route_edges(
                         x_off = max_off - src_off
                 else:
                     x_off = ((n - 1) / 2 - i) * offset_step
+                # Manually apply target entry port Y offset (the
+                # renderer can't do it because offsets_applied=True,
+                # which is needed since the source X offsets are TB).
+                tgt_off = (
+                    station_offsets.get((edge.target, edge.line_id), 0.0)
+                    if station_offsets
+                    else 0.0
+                )
                 r = curve_radius + x_off
                 routes.append(
                     RoutedPath(
@@ -196,8 +202,8 @@ def route_edges(
                         line_id=edge.line_id,
                         points=[
                             (sx + x_off, sy),
-                            (sx + x_off, ty),
-                            (tx, ty),
+                            (sx + x_off, ty + tgt_off),
+                            (tx, ty + tgt_off),
                         ],
                         is_inter_section=True,
                         curve_radii=[r],
@@ -757,10 +763,7 @@ def _compute_bundle_info(
                         line_priority.get(e[0].line_id, 999),
                     )
                 )
-            elif (
-                (port := graph.ports.get(exit_port_id))
-                and not port.is_entry
-            ):
+            elif (port := graph.ports.get(exit_port_id)) and not port.is_entry:
                 source_y = _line_source_y_at_port(exit_port_id, graph)
                 group.sort(
                     key=lambda e: (
