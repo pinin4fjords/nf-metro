@@ -8,6 +8,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nf_metro.layout.constants import (
+    CHAR_WIDTH,
+    COLLISION_MULTIPLIER,
+    FONT_HEIGHT,
+    LABEL_BBOX_MARGIN,
+    LABEL_MARGIN,
+    LABEL_OFFSET,
+    TB_LABEL_H_SPACING,
+    TB_LINE_Y_OFFSET,
+    TB_PILL_EDGE_OFFSET,
+)
 from nf_metro.parser.model import MetroGraph
 
 
@@ -27,8 +38,8 @@ class LabelPlacement:
 
 def _label_bbox(
     placement: LabelPlacement,
-    char_width: float = 7.0,
-    font_height: float = 14.0,
+    char_width: float = CHAR_WIDTH,
+    font_height: float = FONT_HEIGHT,
 ) -> tuple[float, float, float, float]:
     """Return (x_min, y_min, x_max, y_max) bounding box for a label."""
     text_width = len(placement.text) * char_width
@@ -53,7 +64,7 @@ def _label_bbox(
 def _boxes_overlap(
     a: tuple[float, float, float, float],
     b: tuple[float, float, float, float],
-    margin: float = 2.0,
+    margin: float = LABEL_MARGIN,
 ) -> bool:
     """Check if two bounding boxes overlap."""
     return not (
@@ -66,7 +77,7 @@ def _boxes_overlap(
 
 def place_labels(
     graph: MetroGraph,
-    label_offset: float = 16.0,
+    label_offset: float = LABEL_OFFSET,
     station_offsets: dict[tuple[str, str], float] | None = None,
 ) -> list[LabelPlacement]:
     """Place horizontal labels alternating above/below stations.
@@ -110,12 +121,12 @@ def place_labels(
         if is_tb_vert:
             # Place label to the left of the horizontal pill
             n_lines = len(graph.station_lines(station.id))
-            offset_span = (n_lines - 1) * 3.0
-            pill_left = station.x - offset_span / 2 - 5
+            offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
+            pill_left = station.x - offset_span / 2 - TB_PILL_EDGE_OFFSET
             candidate = LabelPlacement(
                 station_id=station.id,
                 text=station.label,
-                x=pill_left - 6,
+                x=pill_left - TB_LABEL_H_SPACING,
                 y=station.y,
                 above=True,
                 text_anchor="end",
@@ -141,9 +152,9 @@ def place_labels(
                 # Push further in the non-default direction
                 direction = -1 if not start_above else 1
                 if direction < 0:
-                    y = station.y + min_off - label_offset * 2.2
+                    y = station.y + min_off - label_offset * COLLISION_MULTIPLIER
                 else:
-                    y = station.y + max_off + label_offset * 2.2
+                    y = station.y + max_off + label_offset * COLLISION_MULTIPLIER
                 candidate = LabelPlacement(
                     station_id=station.id,
                     text=station.label,
@@ -156,21 +167,19 @@ def place_labels(
         if station.section_id:
             sec = graph.sections.get(station.section_id)
             if sec and sec.bbox_w > 0:
-                char_width = 7.0
-                font_height = 14.0
-                text_half_w = len(candidate.text) * char_width / 2
-                margin = 4
+                text_half_w = len(candidate.text) * CHAR_WIDTH / 2
+                margin = LABEL_BBOX_MARGIN
                 # Horizontal clamping
                 min_x = sec.bbox_x + text_half_w + margin
                 max_x = sec.bbox_x + sec.bbox_w - text_half_w - margin
                 candidate.x = max(min_x, min(candidate.x, max_x))
                 # Vertical clamping
                 if candidate.above:
-                    min_y = sec.bbox_y + font_height + margin
+                    min_y = sec.bbox_y + FONT_HEIGHT + margin
                     if candidate.y < min_y:
                         candidate.y = min_y
                 else:
-                    max_y = sec.bbox_y + sec.bbox_h - font_height - margin
+                    max_y = sec.bbox_y + sec.bbox_h - FONT_HEIGHT - margin
                     if candidate.y > max_y:
                         candidate.y = max_y
 

@@ -562,79 +562,14 @@ def _infer_port_sides(
 
             if all_exit_lines:
                 if sec_id in fold_sections:
-                    # Fold sections: infer exit side from successor positions.
-                    # Post-fold successors are to the left (return row), so
-                    # the exit is LEFT. Lines route down inside the section
-                    # then turn the corner to the exit port.
-                    side_votes_fold: dict[PortSide, int] = defaultdict(int)
-                    for tgt in successors[sec_id]:
-                        tgt_sec = graph.sections.get(tgt)
-                        if not tgt_sec:
-                            continue
-                        lines = edge_lines.get((sec_id, tgt), set())
-                        side = _relative_side(
-                            my_col,
-                            my_row,
-                            tgt_sec.grid_col,
-                            tgt_sec.grid_row,
-                            section.grid_col_span,
-                            tgt_sec.grid_col_span,
-                        )
-                        side_votes_fold[side] += len(lines)
-                    if side_votes_fold:
-                        dominant = max(
-                            side_votes_fold, key=lambda s: side_votes_fold[s]
-                        )
-                        # Override: if the section spans multiple rows
-                        # and all successors are below the fold span,
-                        # use BOTTOM exit so lines continue their
-                        # vertical flow instead of routing horizontally
-                        # along the section bottom edge. Only for
-                        # multi-row spans; single-row folds use the
-                        # standard LEFT/RIGHT exit to the next row.
-                        if section.grid_row_span > 1:
-                            fold_bottom_row = (
-                                section.grid_row + section.grid_row_span - 1
-                            )
-                            all_below = all(
-                                graph.sections[tgt].grid_row > fold_bottom_row
-                                for tgt in successors[sec_id]
-                                if tgt in graph.sections
-                            )
-                            if all_below and dominant in (
-                                PortSide.LEFT,
-                                PortSide.RIGHT,
-                            ):
-                                dominant = PortSide.BOTTOM
-                        section.exit_hints.append((dominant, sorted(all_exit_lines)))
-                    else:
-                        section.exit_hints.append(
-                            (PortSide.BOTTOM, sorted(all_exit_lines))
-                        )
+                    exit_side = _compute_fold_exit_side(
+                        graph, section, sec_id, successors, edge_lines
+                    )
+                    section.exit_hints.append((exit_side, sorted(all_exit_lines)))
                 else:
-                    # Group exit lines by the side toward their target
-                    # section, creating one exit hint per side.
-                    side_exit_lines: dict[PortSide, set[str]] = defaultdict(set)
-                    for tgt in successors[sec_id]:
-                        tgt_sec = graph.sections.get(tgt)
-                        if not tgt_sec or tgt not in graph.grid_overrides:
-                            continue
-                        lines = edge_lines.get((sec_id, tgt), set())
-                        side = _relative_side(
-                            my_col,
-                            my_row,
-                            tgt_sec.grid_col,
-                            tgt_sec.grid_row,
-                            section.grid_col_span,
-                            tgt_sec.grid_col_span,
-                        )
-                        side_exit_lines[side].update(lines)
-                    if side_exit_lines:
-                        for side, lines in sorted(
-                            side_exit_lines.items(), key=lambda x: x[0].value
-                        ):
-                            if lines:
-                                section.exit_hints.append((side, sorted(lines)))
+                    _compute_exit_hints_by_side(
+                        graph, section, sec_id, successors, edge_lines
+                    )
 
         # Infer entry hints (only if section has no explicit entry_hints)
         if not section.entry_hints and sec_id in predecessors:
@@ -659,6 +594,95 @@ def _infer_port_sides(
             for side, lines in sorted(side_lines.items(), key=lambda x: x[0].value):
                 if lines:
                     section.entry_hints.append((side, sorted(lines)))
+
+
+def _compute_fold_exit_side(
+    graph: MetroGraph,
+    section,
+    sec_id: str,
+    successors: dict[str, set[str]],
+    edge_lines: dict[tuple[str, str], set[str]],
+) -> PortSide:
+    """Compute exit side for a fold section from successor positions.
+
+    Post-fold successors are typically to the left (return row), so the
+    exit is LEFT. For multi-row spans where all successors are below,
+    uses BOTTOM so lines continue their vertical flow.
+    """
+    my_col = section.grid_col
+    my_row = section.grid_row
+
+    side_votes: dict[PortSide, int] = defaultdict(int)
+    for tgt in successors.get(sec_id, set()):
+        tgt_sec = graph.sections.get(tgt)
+        if not tgt_sec:
+            continue
+        lines = edge_lines.get((sec_id, tgt), set())
+        side = _relative_side(
+            my_col,
+            my_row,
+            tgt_sec.grid_col,
+            tgt_sec.grid_row,
+            section.grid_col_span,
+            tgt_sec.grid_col_span,
+        )
+        side_votes[side] += len(lines)
+
+    if not side_votes:
+        return PortSide.BOTTOM
+
+    dominant = max(side_votes, key=lambda s: side_votes[s])
+
+    # Override for multi-row spans: if all successors are below the fold
+    # span, use BOTTOM exit so lines continue their vertical flow.
+    if section.grid_row_span > 1:
+        fold_bottom_row = section.grid_row + section.grid_row_span - 1
+        all_below = all(
+            graph.sections[tgt].grid_row > fold_bottom_row
+            for tgt in successors.get(sec_id, set())
+            if tgt in graph.sections
+        )
+        if all_below and dominant in (PortSide.LEFT, PortSide.RIGHT):
+            dominant = PortSide.BOTTOM
+
+    return dominant
+
+
+def _compute_exit_hints_by_side(
+    graph: MetroGraph,
+    section,
+    sec_id: str,
+    successors: dict[str, set[str]],
+    edge_lines: dict[tuple[str, str], set[str]],
+) -> None:
+    """Compute exit hints grouped by the side toward each target section.
+
+    Creates one exit hint per side, collecting all lines that exit
+    toward that side.
+    """
+    my_col = section.grid_col
+    my_row = section.grid_row
+
+    side_exit_lines: dict[PortSide, set[str]] = defaultdict(set)
+    for tgt in successors.get(sec_id, set()):
+        tgt_sec = graph.sections.get(tgt)
+        if not tgt_sec or tgt not in graph.grid_overrides:
+            continue
+        lines = edge_lines.get((sec_id, tgt), set())
+        side = _relative_side(
+            my_col,
+            my_row,
+            tgt_sec.grid_col,
+            tgt_sec.grid_row,
+            section.grid_col_span,
+            tgt_sec.grid_col_span,
+        )
+        side_exit_lines[side].update(lines)
+
+    if side_exit_lines:
+        for side, lines in sorted(side_exit_lines.items(), key=lambda x: x[0].value):
+            if lines:
+                section.exit_hints.append((side, sorted(lines)))
 
 
 def _relative_side(

@@ -299,14 +299,50 @@ def _resolve_sections(graph: MetroGraph) -> None:
     to multiple target sections. ONE entry port per target section per side
     (side from hints or LEFT default).
     """
-    # Build line->side mapping from explicit entry hints
+    entry_side_for_line = _build_entry_side_mapping(graph)
+    internal_edges, inter_section_edges = _classify_edges(graph)
+
+    if not inter_section_edges:
+        for i, section in enumerate(graph.sections.values()):
+            if section.number == 0:
+                section.number = i + 1
+        return
+
+    _create_ports_and_junctions(
+        graph, internal_edges, inter_section_edges, entry_side_for_line
+    )
+
+    for i, section in enumerate(graph.sections.values()):
+        if section.number == 0:
+            section.number = i + 1
+
+
+def _build_entry_side_mapping(
+    graph: MetroGraph,
+) -> dict[tuple[str, str], PortSide]:
+    """Build per-line entry side lookup from explicit entry hints.
+
+    Returns dict mapping (section_id, line_id) -> PortSide.
+    """
     entry_side_for_line: dict[tuple[str, str], PortSide] = {}
     for sec_id, section in graph.sections.items():
         for side, line_ids in section.entry_hints:
             for lid in line_ids:
                 entry_side_for_line[(sec_id, lid)] = side
+    return entry_side_for_line
 
-    # Classify edges as internal or inter-section
+
+def _classify_edges(
+    graph: MetroGraph,
+) -> tuple[list[Edge], list[Edge]]:
+    """Separate edges into internal and inter-section categories.
+
+    Internal edges stay within a single section. Inter-section edges
+    cross section boundaries and need port/junction rewriting.
+    Also populates section.internal_edges for each section.
+
+    Returns (internal_edges, inter_section_edges).
+    """
     internal_edges: list[Edge] = []
     inter_section_edges: list[Edge] = []
 
@@ -322,16 +358,22 @@ def _resolve_sections(graph: MetroGraph) -> None:
             if sec_id and sec_id in graph.sections:
                 graph.sections[sec_id].internal_edges.append(edge)
 
-    if not inter_section_edges:
-        for i, section in enumerate(graph.sections.values()):
-            if section.number == 0:
-                section.number = i + 1
-        return
+    return internal_edges, inter_section_edges
 
-    # Determine section-level exit side from hints: if all exit hints
-    # point to ONE side, use that side; otherwise default to RIGHT.
-    # This keeps one exit port per section (no splitting), just changes
-    # which boundary it sits on.
+
+def _create_ports_and_junctions(
+    graph: MetroGraph,
+    internal_edges: list[Edge],
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+) -> None:
+    """Create exit/entry ports and junctions, rewrite inter-section edges.
+
+    Creates one exit port per source section, one entry port per
+    (target_section, entry_side), and inserts junction stations where
+    an exit port fans out to multiple entry ports.
+    """
+    # Determine section-level exit side from hints
     section_exit_side: dict[str, PortSide] = {}
     for sec_id, section in graph.sections.items():
         unique_sides = {side for side, _line_ids in section.exit_hints}
@@ -340,9 +382,8 @@ def _resolve_sections(graph: MetroGraph) -> None:
         else:
             section_exit_side[sec_id] = PortSide.RIGHT
 
-    # ONE exit port per source section (all lines leave together)
+    # Group edges by exit and entry
     exit_group_edges: dict[str, list[Edge]] = {}
-    # ONE entry port per (target_section, entry_side)
     entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
 
     for edge in inter_section_edges:
@@ -351,9 +392,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
         entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
 
         exit_group_edges.setdefault(src_sec, []).append(edge)
-
-        entry_key = (tgt_sec, entry_side)
-        entry_group_edges.setdefault(entry_key, []).append(edge)
+        entry_group_edges.setdefault((tgt_sec, entry_side), []).append(edge)
 
     # Create exit ports (one per source section)
     port_counter = 0
@@ -394,8 +433,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
     # Rewrite inter-section edges into 3-part chains
     new_edges: list[Edge] = list(internal_edges)
 
-    # Group inter-section edges by exit port to detect fan-outs
-    # Key: exit_port_id -> dict of entry_port_id -> list of (edge, entry_port_id)
+    # Group by exit port to detect fan-outs
     exit_fan: dict[str, dict[str, list[Edge]]] = {}
 
     for edge in inter_section_edges:
@@ -406,22 +444,18 @@ def _resolve_sections(graph: MetroGraph) -> None:
         exit_port_id = exit_port_map[src_sec]
         entry_port_id = entry_port_map[(tgt_sec, entry_side)]
 
-        # source -> exit_port (always needed)
         new_edges.append(
             Edge(source=edge.source, target=exit_port_id, line_id=edge.line_id)
         )
-        # entry_port -> target (always needed)
         new_edges.append(
             Edge(source=entry_port_id, target=edge.target, line_id=edge.line_id)
         )
 
-        # Track the middle segment (exit_port -> entry_port) for junction insertion
         exit_fan.setdefault(exit_port_id, {}).setdefault(entry_port_id, []).append(edge)
 
     # Insert junctions where an exit port fans out to multiple entry ports
     for exit_port_id, entry_targets in exit_fan.items():
         if len(entry_targets) <= 1:
-            # Single destination - direct edge, no junction needed
             for entry_port_id, edges in entry_targets.items():
                 for edge in edges:
                     new_edges.append(
@@ -432,24 +466,21 @@ def _resolve_sections(graph: MetroGraph) -> None:
                         )
                     )
         else:
-            # Multiple destinations - create a junction station
             junction_id = f"__junction_{port_counter}"
             port_counter += 1
             junction = Station(id=junction_id, label="", is_port=True, section_id=None)
             graph.add_station(junction)
             graph.junctions.append(junction_id)
 
-            # All lines: exit_port -> junction
-            all_line_ids: set[str] = set()
+            all_line_ids_set: set[str] = set()
             for edges in entry_targets.values():
                 for edge in edges:
-                    all_line_ids.add(edge.line_id)
-            for lid in sorted(all_line_ids):
+                    all_line_ids_set.add(edge.line_id)
+            for lid in sorted(all_line_ids_set):
                 new_edges.append(
                     Edge(source=exit_port_id, target=junction_id, line_id=lid)
                 )
 
-            # Per-destination: junction -> entry_port
             for entry_port_id, edges in entry_targets.items():
                 for edge in edges:
                     new_edges.append(
@@ -461,7 +492,3 @@ def _resolve_sections(graph: MetroGraph) -> None:
                     )
 
     graph.edges = new_edges
-
-    for i, section in enumerate(graph.sections.values()):
-        if section.number == 0:
-            section.number = i + 1

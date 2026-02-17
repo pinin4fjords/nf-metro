@@ -9,6 +9,13 @@ import drawsvg as draw
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
 from nf_metro.parser.model import MetroGraph
+from nf_metro.render.constants import (
+    CANVAS_PADDING,
+    LEGEND_GAP,
+    LEGEND_INSET,
+    LOGO_Y_STANDALONE,
+    SVG_CURVE_RADIUS,
+)
 from nf_metro.render.icons import render_file_icon
 from nf_metro.render.legend import compute_legend_dimensions, render_legend
 from nf_metro.render.style import Theme
@@ -19,7 +26,7 @@ def render_svg(
     theme: Theme,
     width: int | None = None,
     height: int | None = None,
-    padding: float = 60.0,
+    padding: float = CANVAS_PADDING,
     animate: bool = False,
     debug: bool = False,
 ) -> str:
@@ -67,8 +74,8 @@ def render_svg(
 
     if show_legend:
         pos = graph.legend_position
-        gap = 30.0
-        inset = 10.0
+        gap = LEGEND_GAP
+        inset = LEGEND_INSET
         # Section content bounds (or station bounds if no sections)
         content_left = min(
             (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0), default=padding
@@ -113,7 +120,7 @@ def render_svg(
     logo_y = 0.0
     if show_logo and not show_legend:
         logo_x = padding
-        logo_y = 5.0
+        logo_y = LOGO_Y_STANDALONE
         max_x = max(max_x, logo_x + logo_w)
 
     auto_width = max_x + padding * 2
@@ -342,7 +349,7 @@ def _render_edges(
     routes: list[RoutedPath],
     station_offsets: dict[tuple[str, str], float],
     theme: Theme,
-    curve_radius: float = 10.0,
+    curve_radius: float = SVG_CURVE_RADIUS,
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
 
