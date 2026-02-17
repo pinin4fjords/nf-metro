@@ -44,6 +44,16 @@ def route_edges(
 
     junction_ids = set(graph.junctions)
 
+    # Identify junctions fed by BOTTOM exit ports for vertical-first routing
+    bottom_exit_junctions: set[str] = set()
+    bottom_exit_junction_ports: dict[str, str] = {}  # junction -> exit port
+    for e in graph.edges:
+        if e.target in junction_ids:
+            port = graph.ports.get(e.source)
+            if port and not port.is_entry and port.side == PortSide.BOTTOM:
+                bottom_exit_junctions.add(e.target)
+                bottom_exit_junction_ports[e.target] = e.source
+
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
     offset_step = 3.0
@@ -75,7 +85,9 @@ def route_edges(
     # Pre-compute bundle assignments: groups inter-section edges that
     # share the same vertical channel so they get consistent per-line
     # X offsets instead of overlapping.
-    bundle_info = _compute_bundle_info(graph, junction_ids, line_priority)
+    bundle_info = _compute_bundle_info(
+        graph, junction_ids, line_priority, bottom_exit_junctions
+    )
 
     # Edges absorbed into a combined inter-section + entry route
     skip_edges: set[tuple[str, str, str]] = set()
@@ -153,6 +165,43 @@ def route_edges(
                         line_id=edge.line_id,
                         points=[(sx, sy), (tx, ty)],
                         is_inter_section=True,
+                    )
+                )
+            elif edge.source in bottom_exit_junctions:
+                # Vertical-first L-shape from bottom exit junction:
+                # drop to target Y, then horizontal to target.
+                # Use exit port's station offsets for X continuity
+                # with the exit_port -> junction segment above.
+                exit_pid = bottom_exit_junction_ports[edge.source]
+                if station_offsets:
+                    src_off = station_offsets.get(
+                        (exit_pid, edge.line_id), 0.0
+                    )
+                    exit_src = graph.stations.get(exit_pid)
+                    if exit_src and exit_src.section_id in tb_right_entry:
+                        x_off = src_off
+                    else:
+                        all_offs = [
+                            station_offsets.get((exit_pid, lid), 0.0)
+                            for lid in graph.station_lines(exit_pid)
+                        ]
+                        max_off = max(all_offs) if all_offs else 0.0
+                        x_off = max_off - src_off
+                else:
+                    x_off = ((n - 1) / 2 - i) * offset_step
+                r = curve_radius + x_off
+                routes.append(
+                    RoutedPath(
+                        edge=edge,
+                        line_id=edge.line_id,
+                        points=[
+                            (sx + x_off, sy),
+                            (sx + x_off, ty),
+                            (tx, ty),
+                        ],
+                        is_inter_section=True,
+                        curve_radii=[r],
+                        offsets_applied=True,
                     )
                 )
             else:
@@ -631,6 +680,7 @@ def _compute_bundle_info(
     graph: MetroGraph,
     junction_ids: set[str],
     line_priority: dict[str, int],
+    bottom_exit_junctions: set[str] | None = None,
 ) -> dict[tuple[str, str, str], tuple[int, int]]:
     """Pre-compute bundle assignments for inter-section edges.
 
@@ -697,12 +747,20 @@ def _compute_bundle_info(
         # is preserved around corners.
         source_ids = {e[0].source for e in group}
         if len(source_ids) == 1:
-            # All edges share the same source port: sort by the
-            # connected internal station's Y (consistent with
-            # compute_station_offsets).
             exit_port_id = group[0][0].source
-            port = graph.ports.get(exit_port_id)
-            if port and not port.is_entry:
+            if bottom_exit_junctions and exit_port_id in bottom_exit_junctions:
+                # Vertical-first: longest drop (largest target Y) is
+                # outermost (i=0) to prevent crossings at corners.
+                group.sort(
+                    key=lambda e: (
+                        -e[4],
+                        line_priority.get(e[0].line_id, 999),
+                    )
+                )
+            elif (
+                (port := graph.ports.get(exit_port_id))
+                and not port.is_entry
+            ):
                 source_y = _line_source_y_at_port(exit_port_id, graph)
                 group.sort(
                     key=lambda e: (

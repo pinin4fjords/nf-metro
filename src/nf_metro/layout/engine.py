@@ -373,6 +373,7 @@ def _position_junctions(graph: MetroGraph) -> None:
         # Find the exit port feeding this junction (source of edge to junction)
         exit_port_x: float | None = None
         exit_port_y: float | None = None
+        exit_port_id: str | None = None
         entry_port_xs: list[float] = []
 
         for edge in graph.edges:
@@ -381,20 +382,32 @@ def _position_junctions(graph: MetroGraph) -> None:
                 if src and src.is_port:
                     exit_port_x = src.x
                     exit_port_y = src.y
+                    exit_port_id = edge.source
             if edge.source == jid:
                 tgt = graph.stations.get(edge.target)
                 if tgt and tgt.is_port:
                     entry_port_xs.append(tgt.x)
 
         if exit_port_x is not None and exit_port_y is not None and entry_port_xs:
-            # Position close to the exit port with a small margin,
-            # rather than at the midpoint. This keeps the divergence
-            # point near the source section so lines turn sooner.
             margin = 10.0
-            nearest_entry_x = min(entry_port_xs, key=lambda x: abs(x - exit_port_x))
-            direction = 1.0 if nearest_entry_x > exit_port_x else -1.0
-            junction.x = exit_port_x + direction * margin
-            junction.y = exit_port_y
+            exit_port_obj = (
+                graph.ports.get(exit_port_id) if exit_port_id else None
+            )
+            if exit_port_obj and exit_port_obj.side == PortSide.BOTTOM:
+                # BOTTOM exit: position junction below (same X, Y + margin)
+                # so lines continue their vertical drop.
+                junction.x = exit_port_x
+                junction.y = exit_port_y + margin
+            else:
+                # Position close to the exit port with a small margin,
+                # rather than at the midpoint. This keeps the divergence
+                # point near the source section so lines turn sooner.
+                nearest_entry_x = min(
+                    entry_port_xs, key=lambda x: abs(x - exit_port_x)
+                )
+                direction = 1.0 if nearest_entry_x > exit_port_x else -1.0
+                junction.x = exit_port_x + direction * margin
+                junction.y = exit_port_y
 
 
 def _align_entry_ports(graph: MetroGraph) -> None:

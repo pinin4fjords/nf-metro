@@ -585,7 +585,33 @@ def _infer_port_sides(
                         dominant = max(
                             side_votes_fold, key=lambda s: side_votes_fold[s]
                         )
-                        section.exit_hints.append((dominant, sorted(all_exit_lines)))
+                        # Override: if the section spans multiple rows
+                        # and all successors are below the fold span,
+                        # use BOTTOM exit so lines continue their
+                        # vertical flow instead of routing horizontally
+                        # along the section bottom edge. Only for
+                        # multi-row spans; single-row folds use the
+                        # standard LEFT/RIGHT exit to the next row.
+                        if section.grid_row_span > 1:
+                            fold_bottom_row = (
+                                section.grid_row
+                                + section.grid_row_span
+                                - 1
+                            )
+                            all_below = all(
+                                graph.sections[tgt].grid_row
+                                > fold_bottom_row
+                                for tgt in successors[sec_id]
+                                if tgt in graph.sections
+                            )
+                            if all_below and dominant in (
+                                PortSide.LEFT,
+                                PortSide.RIGHT,
+                            ):
+                                dominant = PortSide.BOTTOM
+                        section.exit_hints.append(
+                            (dominant, sorted(all_exit_lines))
+                        )
                     else:
                         section.exit_hints.append(
                             (PortSide.BOTTOM, sorted(all_exit_lines))
