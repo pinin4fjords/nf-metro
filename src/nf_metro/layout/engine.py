@@ -239,11 +239,34 @@ def _compute_section_layout(
                     s.y += entry_shift
                 section.bbox_h += entry_shift
 
+        # TB sections with TOP entry from a cross-column source: shift
+        # stations down so there's room for the L-shape entry routing
+        # above the first station. Without this, the entry port sits at
+        # the bbox top and lines from adjacent columns go all the way up.
+        if section.direction == "TB":
+            has_cross_col_top_entry = False
+            for pid in section.entry_ports:
+                port = graph.ports.get(pid)
+                if not port or port.side != PortSide.TOP:
+                    continue
+                for edge in graph.edges:
+                    if edge.target == pid:
+                        src = graph.stations.get(edge.source)
+                        if src and src.section_id:
+                            src_sec = graph.sections.get(src.section_id)
+                            if src_sec and src_sec.grid_col != section.grid_col:
+                                has_cross_col_top_entry = True
+                                break
+                if has_cross_col_top_entry:
+                    break
+            if has_cross_col_top_entry:
+                entry_shift = y_spacing * 1.0
+                for s in sub.stations.values():
+                    s.y += entry_shift
+                section.bbox_h += entry_shift
+
         # LR/RL sections with TOP/BOTTOM entry: add extra bbox width so
         # the grid allocates space for the vertical-to-horizontal curve.
-        # Unlike TB sections, no station shift is needed here because the
-        # entry port (on TOP/BOTTOM boundary) and the first station are
-        # already at different positions along the perpendicular axis.
         if section.direction in ("LR", "RL"):
             has_perp_entry = any(
                 graph.ports[pid].side in (PortSide.TOP, PortSide.BOTTOM)
@@ -399,6 +422,14 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                         continue
 
                     if entry_section.grid_row == src_section.grid_row:
+                        # Skip alignment if source Y is outside entry section bbox
+                        # (e.g. tall rspan source whose center is far from this section)
+                        entry_station = graph.stations.get(port_id)
+                        if entry_station:
+                            bbox_top = entry_section.bbox_y
+                            bbox_bot = entry_section.bbox_y + entry_section.bbox_h
+                            if not (bbox_top <= src.y <= bbox_bot):
+                                break
                         target_y = src.y
 
                         # Clamp for TB sections with perpendicular entry:
@@ -494,17 +525,119 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                     break
 
         elif port.side in (PortSide.TOP, PortSide.BOTTOM):
-            # Align X with incoming source so vertical drops are straight
+            # Collect all incoming sources to determine alignment
+            sources: list[tuple[Station, str | None]] = []  # (station, section_id)
             for edge in graph.edges:
                 if edge.target == port_id:
                     src = graph.stations.get(edge.source)
                     if not src or not (src.is_port or edge.source in junction_ids):
                         continue
-                    station = graph.stations.get(port_id)
-                    if station:
-                        station.x = src.x
-                    port.x = src.x
-                    break
+                    src_section_id = src.section_id
+                    if edge.source in junction_ids:
+                        for e2 in graph.edges:
+                            if e2.target == edge.source:
+                                s2 = graph.stations.get(e2.source)
+                                if s2 and s2.section_id:
+                                    src_section_id = s2.section_id
+                                    break
+                    sources.append((src, src_section_id))
+
+            if not sources:
+                continue
+
+            # Check if any source is cross-column
+            my_cols = set(range(
+                entry_section.grid_col,
+                entry_section.grid_col + entry_section.grid_col_span,
+            ))
+            is_cross_column = False
+            for _, src_sid in sources:
+                src_sec = graph.sections.get(src_sid) if src_sid else None
+                if src_sec:
+                    src_cols = set(range(
+                        src_sec.grid_col,
+                        src_sec.grid_col + src_sec.grid_col_span,
+                    ))
+                    if not (src_cols & my_cols):
+                        is_cross_column = True
+                        break
+
+            if is_cross_column:
+                # Cross-column: don't align X. Set Y to the closest
+                # source level so lines converge there instead of
+                # going all the way to the bbox boundary.
+                src_ys = [s.y for s, _ in sources]
+                if port.side == PortSide.TOP:
+                    target_y = min(src_ys)
+                else:
+                    target_y = max(src_ys)
+                # Clamp within bbox
+                target_y = max(target_y, entry_section.bbox_y)
+                target_y = min(
+                    target_y, entry_section.bbox_y + entry_section.bbox_h
+                )
+                station = graph.stations.get(port_id)
+                if station:
+                    station.y = target_y
+                port.y = target_y
+                # Only nudge X for LR/RL sections where TOP/BOTTOM ports
+                # are perpendicular.  For TB sections, TOP/BOTTOM ports
+                # SHOULD share X with internal stations (flow direction).
+                if entry_section.direction in ("LR", "RL"):
+                    _nudge_port_from_stations(
+                        port_id, entry_section, graph
+                    )
+            else:
+                # Same-column: align X with source for vertical drop
+                src, _ = sources[0]
+                station = graph.stations.get(port_id)
+                if station:
+                    station.x = src.x
+                port.x = src.x
+
+
+def _nudge_port_from_stations(
+    port_id: str, section: Section, graph: MetroGraph, tolerance: float = 12.0
+) -> None:
+    """Nudge a TOP/BOTTOM port away from any internal station at the same X.
+
+    Moves the port toward the entry side of the section so it doesn't
+    visually pass through a station marker (station-as-elbow).
+    """
+    station = graph.stations.get(port_id)
+    port = graph.ports.get(port_id)
+    if not station or not port:
+        return
+
+    internal_ids = (
+        set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
+    )
+    internal_xs = [
+        graph.stations[sid].x
+        for sid in internal_ids
+        if sid in graph.stations and not graph.stations[sid].is_port
+    ]
+    if not internal_xs:
+        return
+
+    # Check if port X coincides with any internal station X
+    if not any(abs(station.x - ix) < tolerance for ix in internal_xs):
+        return
+
+    # Move port toward the entry side of the section
+    # For LR: entry is left, so move port left (toward bbox_x)
+    # For RL: entry is right, so move port right (toward bbox_x + bbox_w)
+    if section.direction == "RL":
+        new_x = max(internal_xs) + tolerance
+        # Clamp within bbox
+        new_x = min(new_x, section.bbox_x + section.bbox_w - tolerance)
+    else:
+        new_x = min(internal_xs) - tolerance
+        # Clamp within bbox
+        new_x = max(new_x, section.bbox_x + tolerance)
+
+    station.x = new_x
+    port.x = new_x
 
 
 def _align_exit_ports(graph: MetroGraph) -> None:
@@ -528,23 +661,32 @@ def _align_exit_ports(graph: MetroGraph) -> None:
             continue
 
         if port.side in (PortSide.LEFT, PortSide.RIGHT):
-            # Find the target of this exit port (could go through a junction)
+            # Find the target of this exit port
             for edge in graph.edges:
                 if edge.source == port_id:
                     tgt = graph.stations.get(edge.target)
                     if not tgt:
                         continue
 
-                    # If target is a junction, follow through to entry port
+                    # If target is a junction (fan-out), don't align --
+                    # the junction routes to multiple entry ports at
+                    # different Y levels; aligning with one is arbitrary.
                     if edge.target in junction_ids:
-                        for e2 in graph.edges:
-                            if e2.source == edge.target:
-                                t2 = graph.stations.get(e2.target)
-                                if t2 and t2.is_port:
-                                    tgt = t2
-                                    break
+                        break
 
-                    if tgt.is_port or edge.target in junction_ids:
+                    if tgt.is_port:
+                        # Don't align with perpendicular target ports (cross-axis)
+                        tgt_port_obj = graph.ports.get(tgt.id)
+                        if tgt_port_obj and tgt_port_obj.side in (
+                            PortSide.TOP,
+                            PortSide.BOTTOM,
+                        ):
+                            break
+                        # Don't pull exit port outside its section bbox
+                        bbox_top = exit_section.bbox_y
+                        bbox_bot = exit_section.bbox_y + exit_section.bbox_h
+                        if not (bbox_top <= tgt.y <= bbox_bot):
+                            break
                         station = graph.stations.get(port_id)
                         if station:
                             station.y = tgt.y

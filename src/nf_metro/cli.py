@@ -60,6 +60,11 @@ def cli() -> None:
     help="Add animated balls traveling along lines",
 )
 @click.option(
+    "--debug/--no-debug",
+    default=False,
+    help="Show debug overlay (ports, hidden stations, edge waypoints)",
+)
+@click.option(
     "--logo",
     type=click.Path(exists=True, path_type=Path),
     default=None,
@@ -75,6 +80,7 @@ def render(
     y_spacing: float,
     max_layers_per_row: int | None,
     animate: bool,
+    debug: bool,
     logo: Path | None,
 ) -> None:
     """Render a Mermaid metro map definition to SVG."""
@@ -94,7 +100,9 @@ def render(
     )
 
     theme_obj = THEMES[theme]
-    svg = render_svg(graph, theme_obj, width=width, height=height, animate=animate)
+    svg = render_svg(
+        graph, theme_obj, width=width, height=height, animate=animate, debug=debug
+    )
 
     if output is None:
         output = input_file.with_suffix(".svg")

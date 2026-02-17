@@ -21,15 +21,20 @@ def render_svg(
     height: int | None = None,
     padding: float = 60.0,
     animate: bool = False,
+    debug: bool = False,
 ) -> str:
     """Render a metro map graph to an SVG string."""
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
     # Filter out port stations for dimension calculation
-    visible_stations = [
-        s for s in graph.stations.values() if not s.is_port and not s.is_hidden
-    ]
+    # In debug mode, include ports/hidden stations in bounds so they are visible
+    if debug:
+        visible_stations = list(graph.stations.values())
+    else:
+        visible_stations = [
+            s for s in graph.stations.values() if not s.is_port and not s.is_hidden
+        ]
     all_stations_for_bounds = (
         visible_stations if visible_stations else list(graph.stations.values())
     )
@@ -164,6 +169,10 @@ def render_svg(
     # Draw labels (horizontal, skip ports)
     labels = place_labels(graph, station_offsets=station_offsets)
     _render_labels(d, labels, theme)
+
+    # Debug overlay (ports, hidden stations, edge waypoints)
+    if debug:
+        _render_debug_overlay(d, graph, routes, station_offsets, theme)
 
     # Legend (with embedded logo if present)
     if show_legend:
@@ -616,3 +625,109 @@ def _render_labels(
                     dominant_baseline=baseline,
                 )
             )
+
+
+def _render_debug_overlay(
+    d: draw.Drawing,
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    station_offsets: dict[tuple[str, str], float],
+    theme: Theme,
+) -> None:
+    """Render debug markers for ports, hidden stations, and edge waypoints."""
+    debug_font = theme.label_font_family
+    debug_font_size = 7
+
+    # Edge waypoints: small filled circles at intermediate points
+    for route in routes:
+        if len(route.points) <= 2:
+            continue
+        if route.offsets_applied:
+            pts = list(route.points)
+        else:
+            src_off = station_offsets.get(
+                (route.edge.source, route.line_id), 0.0
+            )
+            tgt_off = station_offsets.get(
+                (route.edge.target, route.line_id), 0.0
+            )
+            orig_sy = route.points[0][1]
+            orig_ty = route.points[-1][1]
+            pts = []
+            for i, (x, y) in enumerate(route.points):
+                if i == 0:
+                    pts.append((x, y + src_off))
+                elif i == len(route.points) - 1:
+                    pts.append((x, y + tgt_off))
+                elif abs(y - orig_sy) <= abs(y - orig_ty):
+                    pts.append((x, y + src_off))
+                else:
+                    pts.append((x, y + tgt_off))
+        # Draw intermediate waypoints (skip first/last which are at stations)
+        for px, py in pts[1:-1]:
+            d.append(
+                draw.Circle(px, py, 3, fill="rgba(255, 200, 50, 0.6)")
+            )
+
+    # Port stations: diamond markers with labels
+    for station in graph.stations.values():
+        if not station.is_port:
+            continue
+        port = graph.ports.get(station.id)
+        is_entry = port.is_entry if port else True
+        color = (
+            "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
+        )
+        # Diamond (rotated square)
+        r = 5
+        diamond = draw.Path(fill=color, stroke="none")
+        diamond.M(station.x, station.y - r)
+        diamond.L(station.x + r, station.y)
+        diamond.L(station.x, station.y + r)
+        diamond.L(station.x - r, station.y)
+        diamond.Z()
+        d.append(diamond)
+        # Label: port ID + side
+        side_str = port.side.value if port else "?"
+        label_text = f"{station.id} ({side_str})"
+        d.append(
+            draw.Text(
+                label_text,
+                debug_font_size,
+                station.x,
+                station.y - r - 3,
+                fill=color,
+                font_family=debug_font,
+                text_anchor="middle",
+                dominant_baseline="auto",
+            )
+        )
+
+    # Hidden stations: dashed-outline circles with labels
+    for station in graph.stations.values():
+        if not station.is_hidden or station.is_port:
+            continue
+        color = "rgba(180, 80, 255, 0.7)"
+        d.append(
+            draw.Circle(
+                station.x,
+                station.y,
+                5,
+                fill="none",
+                stroke=color,
+                stroke_width=1.5,
+                stroke_dasharray="3,2",
+            )
+        )
+        d.append(
+            draw.Text(
+                station.id,
+                debug_font_size,
+                station.x,
+                station.y - 8,
+                fill=color,
+                font_family=debug_font,
+                text_anchor="middle",
+                dominant_baseline="auto",
+            )
+        )

@@ -41,7 +41,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     )
     _optimize_rowspans(graph, fold_sections, successors)
     _infer_directions(graph, successors, predecessors, fold_sections, below_fold_sections)
-    _optimize_colspans(graph, fold_sections, below_fold_sections)
+    _optimize_colspans(graph, fold_sections, below_fold_sections, successors)
     _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
 
 
@@ -358,6 +358,7 @@ def _optimize_colspans(
     graph: MetroGraph,
     fold_sections: set[str],
     below_fold_sections: set[str] = frozenset(),
+    successors: dict[str, set[str]] | None = None,
 ) -> None:
     """Optimize column spans to reduce dead space from oversized sections.
 
@@ -402,6 +403,12 @@ def _optimize_colspans(
         for sid in sids:
             # Don't span fold sections themselves (they're the narrow ones)
             if sid in fold_sections:
+                continue
+
+            # Skip below-fold sections that have downstream sections.
+            # Expanding their colspan would push successors further away.
+            # Leaf below-fold sections (no successors) still get colspan.
+            if sid in below_fold_sections and successors and successors.get(sid):
                 continue
 
             section = graph.sections[sid]
@@ -499,9 +506,11 @@ def _infer_directions(
                 pred_rows.append(src_sec.grid_row)
 
         # RL: all successors to the left (unless they're all strictly
-        # below, which is better handled as TB)
+        # below, which is better handled as TB -- but below-fold sections
+        # keep RL even when successors are below, since they're on a
+        # return row routing leftward)
         if succ_cols and all(c < my_col for c in succ_cols):
-            if not all(r > my_row for r in succ_rows):
+            if not all(r > my_row for r in succ_rows) or sec_id in below_fold_sections:
                 section.direction = "RL"
                 continue
 
