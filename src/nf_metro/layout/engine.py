@@ -5,6 +5,28 @@ Section-first layout: sections are laid out independently, then placed on a meta
 
 from __future__ import annotations
 
+from nf_metro.layout.constants import (
+    CHAR_WIDTH,
+    ENTRY_INSET_LR,
+    ENTRY_SHIFT_TB,
+    ENTRY_SHIFT_TB_CROSS,
+    EXIT_GAP_MULTIPLIER,
+    JUNCTION_MARGIN,
+    LABEL_PAD,
+    MIN_PORT_STATION_GAP,
+    ROW_GAP,
+    SECTION_GAP,
+    SECTION_X_GAP,
+    SECTION_X_PADDING,
+    SECTION_Y_GAP,
+    SECTION_Y_PADDING,
+    STATION_ELBOW_TOLERANCE,
+    TB_LINE_Y_OFFSET,
+    X_OFFSET,
+    X_SPACING,
+    Y_OFFSET,
+    Y_SPACING,
+)
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
@@ -12,16 +34,16 @@ from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
 
 def compute_layout(
     graph: MetroGraph,
-    x_spacing: float = 60.0,
-    y_spacing: float = 40.0,
-    x_offset: float = 80.0,
-    y_offset: float = 120.0,
-    row_gap: float = 120.0,
-    section_gap: float = 3.0,
-    section_x_padding: float = 50.0,
-    section_y_padding: float = 35.0,
-    section_x_gap: float = 50.0,
-    section_y_gap: float = 40.0,
+    x_spacing: float = X_SPACING,
+    y_spacing: float = Y_SPACING,
+    x_offset: float = X_OFFSET,
+    y_offset: float = Y_OFFSET,
+    row_gap: float = ROW_GAP,
+    section_gap: float = SECTION_GAP,
+    section_x_padding: float = SECTION_X_PADDING,
+    section_y_padding: float = SECTION_Y_PADDING,
+    section_x_gap: float = SECTION_X_GAP,
+    section_y_gap: float = SECTION_Y_GAP,
 ) -> None:
     """Compute layout positions for all stations in the graph."""
     if not graph.sections:
@@ -49,10 +71,10 @@ def compute_layout(
 
 def _compute_flat_layout(
     graph: MetroGraph,
-    x_spacing: float = 60.0,
-    y_spacing: float = 40.0,
-    x_offset: float = 80.0,
-    y_offset: float = 120.0,
+    x_spacing: float = X_SPACING,
+    y_spacing: float = Y_SPACING,
+    x_offset: float = X_OFFSET,
+    y_offset: float = Y_OFFSET,
 ) -> None:
     """Flat layout for sectionless pipelines.
 
@@ -85,14 +107,14 @@ def _compute_flat_layout(
 
 def _compute_section_layout(
     graph: MetroGraph,
-    x_spacing: float = 60.0,
-    y_spacing: float = 40.0,
-    x_offset: float = 80.0,
-    y_offset: float = 120.0,
-    section_x_padding: float = 50.0,
-    section_y_padding: float = 35.0,
-    section_x_gap: float = 50.0,
-    section_y_gap: float = 40.0,
+    x_spacing: float = X_SPACING,
+    y_spacing: float = Y_SPACING,
+    x_offset: float = X_OFFSET,
+    y_offset: float = Y_OFFSET,
+    section_x_padding: float = SECTION_X_PADDING,
+    section_y_padding: float = SECTION_Y_PADDING,
+    section_x_gap: float = SECTION_X_GAP,
+    section_y_gap: float = SECTION_Y_GAP,
 ) -> None:
     """Section-first layout pipeline.
 
@@ -209,16 +231,14 @@ def _compute_section_layout(
         # TB sections: labels extend leftward from the station (text_anchor=end).
         # Expand bbox and shift stations right so labels fit within the section.
         if section.direction == "TB":
-            char_width = 7.0
-            label_pad = 6.0
             max_label_extent = 0.0
             for sid, s in sub.stations.items():
                 if s.label.strip():
                     n_lines = len(sub.station_lines(sid))
-                    offset_span = (n_lines - 1) * 3.0
-                    extent = offset_span / 2 + 11 + len(s.label) * char_width
+                    offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
+                    extent = offset_span / 2 + 11 + len(s.label) * CHAR_WIDTH
                     max_label_extent = max(max_label_extent, extent)
-            need_left = max_label_extent + label_pad
+            need_left = max_label_extent + LABEL_PAD
             have_left = min(xs) - section.bbox_x
             if need_left > have_left:
                 extra = need_left - have_left
@@ -238,7 +258,7 @@ def _compute_section_layout(
                 if pid in graph.ports
             )
             if has_perp_entry:
-                entry_shift = y_spacing * 0.6
+                entry_shift = y_spacing * ENTRY_SHIFT_TB
                 for s in sub.stations.values():
                     s.y += entry_shift
                 section.bbox_h += entry_shift
@@ -264,7 +284,7 @@ def _compute_section_layout(
                 if has_cross_col_top_entry:
                     break
             if has_cross_col_top_entry:
-                entry_shift = y_spacing * 1.0
+                entry_shift = y_spacing * ENTRY_SHIFT_TB_CROSS
                 for s in sub.stations.values():
                     s.y += entry_shift
                 section.bbox_h += entry_shift
@@ -278,7 +298,7 @@ def _compute_section_layout(
                 if pid in graph.ports
             )
             if has_perp_entry:
-                entry_inset = x_spacing * 0.3
+                entry_inset = x_spacing * ENTRY_INSET_LR
                 section.bbox_w += entry_inset
 
         # LR/RL sections with exit ports on the flow side: add clearance
@@ -296,15 +316,14 @@ def _compute_section_layout(
             )
             if has_flow_exit and layers:
                 max_layer = max(layers.values())
-                char_width = 7.0
                 max_label_half = 0.0
                 for sid_l, layer_num in layers.items():
                     if layer_num == max_layer:
                         station = sub.stations.get(sid_l)
                         if station and station.label.strip():
-                            label_half = len(station.label) * char_width / 2
+                            label_half = len(station.label) * CHAR_WIDTH / 2
                             max_label_half = max(max_label_half, label_half)
-                exit_gap = max(x_spacing * 0.4, max_label_half)
+                exit_gap = max(x_spacing * EXIT_GAP_MULTIPLIER, max_label_half)
                 if section.direction == "LR":
                     section.bbox_w += exit_gap
                 else:
@@ -389,7 +408,7 @@ def _position_junctions(graph: MetroGraph) -> None:
                     entry_port_xs.append(tgt.x)
 
         if exit_port_x is not None and exit_port_y is not None and entry_port_xs:
-            margin = 10.0
+            margin = JUNCTION_MARGIN
             exit_port_obj = graph.ports.get(exit_port_id) if exit_port_id else None
             if exit_port_obj and exit_port_obj.side == PortSide.BOTTOM:
                 # BOTTOM exit: position junction below (same X, Y + margin)
@@ -477,7 +496,7 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                             ]
                             if internal_ys:
                                 first_y = min(internal_ys)
-                                min_gap = 16.0
+                                min_gap = MIN_PORT_STATION_GAP
                                 max_y = first_y - min_gap
                                 if target_y > max_y:
                                     # Prefer the topmost source-side
@@ -606,7 +625,10 @@ def _align_entry_ports(graph: MetroGraph) -> None:
 
 
 def _nudge_port_from_stations(
-    port_id: str, section: Section, graph: MetroGraph, tolerance: float = 12.0
+    port_id: str,
+    section: Section,
+    graph: MetroGraph,
+    tolerance: float = STATION_ELBOW_TOLERANCE,
 ) -> None:
     """Nudge a TOP/BOTTOM port away from any internal station at the same X.
 
@@ -803,12 +825,11 @@ def _compute_fork_join_gaps(
         return {}
 
     max_layer = max(layers.values()) if layers else 0
-    base_gap = x_spacing * 0.4
+    base_gap = x_spacing * EXIT_GAP_MULTIPLIER
 
     # Compute per-layer gap scaled by label width at fork/join stations.
     # The gap must be large enough that the diagonal transition starts
     # past the label text and still has room for the transition itself.
-    char_width = 7.0
     layer_gap: dict[int, float] = {}
     for layer in fork_layers | join_layers:
         max_label_half = 0.0
@@ -816,7 +837,7 @@ def _compute_fork_join_gaps(
             if lyr == layer:
                 station = sub.stations.get(sid)
                 if station and station.label.strip():
-                    label_half = len(station.label) * char_width / 2
+                    label_half = len(station.label) * CHAR_WIDTH / 2
                     max_label_half = max(max_label_half, label_half)
         layer_gap[layer] = max(base_gap, max_label_half)
 

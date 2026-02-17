@@ -5,6 +5,16 @@ from __future__ import annotations
 import drawsvg as draw
 
 from nf_metro.parser.model import MetroGraph
+from nf_metro.render.constants import (
+    LEGEND_BORDER_RADIUS,
+    LEGEND_CHAR_WIDTH_RATIO,
+    LEGEND_LINE_HEIGHT,
+    LEGEND_PADDING,
+    LEGEND_SWATCH_WIDTH,
+    LEGEND_TEXT_GAP,
+    LOGO_GAP,
+    LOGO_SCALE_FACTOR,
+)
 from nf_metro.render.style import Theme
 
 
@@ -18,7 +28,7 @@ def _scale_logo_to_content(
     orig_w, orig_h = logo_size
     if orig_h <= 0:
         return (0.0, 0.0)
-    target_h = content_height * 0.6
+    target_h = content_height * LOGO_SCALE_FACTOR
     aspect = orig_w / orig_h
     return (target_h * aspect, target_h)
 
@@ -36,13 +46,13 @@ def compute_legend_dimensions(
     if not graph.lines:
         return (0.0, 0.0)
 
-    line_height = 24.0
-    padding = 12.0
-    swatch_width = 24.0
-    text_offset = swatch_width + 12.0
+    line_height = LEGEND_LINE_HEIGHT
+    padding = LEGEND_PADDING
+    swatch_width = LEGEND_SWATCH_WIDTH
+    text_offset = swatch_width + LEGEND_TEXT_GAP
 
     max_name_len = max(len(ml.display_name) for ml in graph.lines.values())
-    char_width = theme.legend_font_size * 0.48
+    char_width = theme.legend_font_size * LEGEND_CHAR_WIDTH_RATIO
     content_height = len(graph.lines) * line_height
 
     # Logo scaled to fit content height
@@ -51,7 +61,7 @@ def compute_legend_dimensions(
     if logo_size:
         scaled_w, _ = _scale_logo_to_content(logo_size, content_height)
         logo_w = scaled_w
-        logo_gap = 12.0
+        logo_gap = LOGO_GAP
 
     width = padding * 2 + logo_w + logo_gap + text_offset + max_name_len * char_width
     height = padding * 2 + content_height
@@ -76,10 +86,10 @@ def render_legend(
     if not graph.lines:
         return
 
-    line_height = 24.0
-    padding = 12.0
-    swatch_width = 24.0
-    text_offset = swatch_width + 12.0
+    line_height = LEGEND_LINE_HEIGHT
+    padding = LEGEND_PADDING
+    swatch_width = LEGEND_SWATCH_WIDTH
+    text_offset = swatch_width + LEGEND_TEXT_GAP
     content_height = len(graph.lines) * line_height
 
     legend_width, legend_height = compute_legend_dimensions(
@@ -93,8 +103,8 @@ def render_legend(
             y,
             legend_width,
             legend_height,
-            rx=6,
-            ry=6,
+            rx=LEGEND_BORDER_RADIUS,
+            ry=LEGEND_BORDER_RADIUS,
             fill=theme.legend_background,
         )
     )
@@ -103,7 +113,7 @@ def render_legend(
     logo_offset = 0.0
     if logo_path and logo_size:
         scaled_w, scaled_h = _scale_logo_to_content(logo_size, content_height)
-        logo_gap = 12.0
+        logo_gap = LOGO_GAP
         logo_x = x + padding
         logo_y = y + padding + (content_height - scaled_h) / 2
         drawing.append(

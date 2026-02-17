@@ -9,6 +9,11 @@ import drawsvg as draw
 
 from nf_metro.layout.routing import RoutedPath
 from nf_metro.parser.model import MetroGraph
+from nf_metro.render.constants import (
+    ANIMATION_CURVE_RADIUS,
+    EDGE_CONNECT_TOLERANCE,
+    MIN_ANIMATION_DURATION,
+)
 from nf_metro.render.style import Theme
 
 
@@ -18,7 +23,7 @@ def render_animation(
     routes: list[RoutedPath],
     station_offsets: dict[tuple[str, str], float],
     theme: Theme,
-    curve_radius: float = 10.0,
+    curve_radius: float = ANIMATION_CURVE_RADIUS,
 ) -> None:
     """Add animated balls traveling along each metro line.
 
@@ -44,7 +49,7 @@ def render_animation(
 
         # Compute duration from approximate path length
         path_length = _compute_path_length(d_attr)
-        dur = max(path_length / theme.animation_speed, 2.0)
+        dur = max(path_length / theme.animation_speed, MIN_ANIMATION_DURATION)
 
         n_balls = theme.animation_balls_per_line
         for i in range(n_balls):
@@ -68,7 +73,7 @@ def _build_line_motion_paths(
     routes: list[RoutedPath],
     station_offsets: dict[tuple[str, str], float],
     theme: Theme,
-    curve_radius: float = 10.0,
+    curve_radius: float = ANIMATION_CURVE_RADIUS,
 ) -> list[tuple[str, str]]:
     """Build continuous SVG motion paths for each metro line.
 
@@ -173,7 +178,10 @@ def _chain_edge_points(
         elif pts:
             last = all_points[-1]
             first = pts[0]
-            if abs(last[0] - first[0]) < 1.0 and abs(last[1] - first[1]) < 1.0:
+            if (
+                abs(last[0] - first[0]) < EDGE_CONNECT_TOLERANCE
+                and abs(last[1] - first[1]) < EDGE_CONNECT_TOLERANCE
+            ):
                 all_points.extend(pts[1:])
             else:
                 all_points.extend(pts)
@@ -209,7 +217,7 @@ def _apply_offsets(
 
 def _points_to_svg_path(
     pts: list[tuple[float, float]],
-    curve_radius: float = 10.0,
+    curve_radius: float = ANIMATION_CURVE_RADIUS,
     route_curve_radii: list[float] | None = None,
 ) -> str:
     """Convert a list of waypoints to an SVG path 'd' attribute.

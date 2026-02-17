@@ -10,6 +10,19 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
+from nf_metro.layout.constants import (
+    CHAR_WIDTH,
+    COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
+    CROSS_ROW_THRESHOLD,
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    FOLD_MARGIN,
+    MIN_STRAIGHT_EDGE,
+    MIN_STRAIGHT_INTER,
+    MIN_STRAIGHT_PORT,
+    OFFSET_STEP,
+)
 from nf_metro.parser.model import Edge, MetroGraph, PortSide
 
 
@@ -27,8 +40,8 @@ class RoutedPath:
 
 def route_edges(
     graph: MetroGraph,
-    diagonal_run: float = 30.0,
-    curve_radius: float = 10.0,
+    diagonal_run: float = DIAGONAL_RUN,
+    curve_radius: float = CURVE_RADIUS,
     station_offsets: dict[tuple[str, str], float] | None = None,
 ) -> list[RoutedPath]:
     """Route all edges with smooth direction changes.
@@ -56,7 +69,7 @@ def route_edges(
 
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
-    offset_step = 3.0
+    offset_step = OFFSET_STEP
 
     # Pre-compute fork and join stations for diagonal bias and label clearance
     _fork_targets: dict[str, set[str]] = defaultdict(set)
@@ -125,7 +138,7 @@ def route_edges(
                 and src.section_id in tb_sections
             )
 
-            if abs(dy) < 0.01:
+            if abs(dy) < COORD_TOLERANCE_FINE:
                 # Same Y: straight horizontal
                 routes.append(
                     RoutedPath(
@@ -157,7 +170,7 @@ def route_edges(
                         offsets_applied=True,
                     )
                 )
-            elif abs(dx) < 1.0:
+            elif abs(dx) < COORD_TOLERANCE:
                 # Same X: straight vertical drop
                 routes.append(
                     RoutedPath(
@@ -494,7 +507,7 @@ def route_edges(
 
             if upstream_st is not None:
                 up_y_off = station_offsets.get((upstream_st.id, edge.line_id), 0.0)
-                if abs(upstream_st.x - sx) < 1.0:
+                if abs(upstream_st.x - sx) < COORD_TOLERANCE:
                     # Same X: 4-point combined route through
                     # inter-column channel (vertical drop case).
                     mid_x = _inter_column_channel_x(
@@ -551,7 +564,7 @@ def route_edges(
                             curve_radii=[curve_radius + rev_tgt_off],
                         )
                     )
-            elif abs(dx) < 1.0:
+            elif abs(dx) < COORD_TOLERANCE:
                 # Nearly same X: straight vertical drop
                 routes.append(
                     RoutedPath(
@@ -579,12 +592,12 @@ def route_edges(
             continue
 
         # Detect cross-row edge: target is to the left (only in folded layouts)
-        is_cross_row = dx <= 0 and abs(dy) > 80
+        is_cross_row = dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD
 
         if is_cross_row:
             # Route through fold edge: horizontal to fold, vertical drop,
             # horizontal to target
-            fold_margin = 30
+            fold_margin = FOLD_MARGIN
             fold_right = fold_x + fold_margin
             routes.append(
                 RoutedPath(
@@ -598,7 +611,7 @@ def route_edges(
                     ],
                 )
             )
-        elif abs(sy - ty) < 0.01:
+        elif abs(sy - ty) < COORD_TOLERANCE_FINE:
             # Same track: straight line
             routes.append(
                 RoutedPath(
@@ -609,7 +622,7 @@ def route_edges(
             )
         else:
             # Different tracks: horizontal, diagonal, horizontal
-            if abs(dx) < 1.0:
+            if abs(dx) < COORD_TOLERANCE:
                 routes.append(
                     RoutedPath(
                         edge=edge,
@@ -626,20 +639,19 @@ def route_edges(
             # Port-adjacent edges need more room so stations sit on
             # visible straight track, not on a curve.
             if src.is_port or tgt.is_port:
-                min_straight = curve_radius + 5
+                min_straight = curve_radius + MIN_STRAIGHT_PORT
             else:
-                min_straight = 10
+                min_straight = MIN_STRAIGHT_EDGE
 
             # At fork/join stations, extend the straight run past the
             # label so diverging/converging diagonals don't cross
             # through the label text.
-            char_width = 7.0
             src_min = min_straight
             tgt_min = min_straight
             if edge.source in fork_stations and src.label.strip():
-                src_min = max(min_straight, len(src.label) * char_width / 2)
+                src_min = max(min_straight, len(src.label) * CHAR_WIDTH / 2)
             if edge.target in join_stations and tgt.label.strip():
-                tgt_min = max(min_straight, len(tgt.label) * char_width / 2)
+                tgt_min = max(min_straight, len(tgt.label) * CHAR_WIDTH / 2)
 
             # Bias diagonal toward source at fork points so the
             # visual divergence happens near the fork, avoiding
@@ -725,12 +737,12 @@ def _compute_bundle_info(
         dx = tx - sx
         dy = ty - sy
 
-        if abs(dy) < 0.01:
+        if abs(dy) < COORD_TOLERANCE_FINE:
             continue  # Horizontal edges don't need bundling
 
         v_dir = 1 if dy > 0 else -1
 
-        if abs(dx) < 1.0:
+        if abs(dx) < COORD_TOLERANCE:
             # Vertical: group by shared X position
             key = ("V", round(sx), v_dir)
         else:
@@ -857,8 +869,8 @@ def _inter_column_channel_x(
 
 def route_inter_section_edges(
     graph: MetroGraph,
-    diagonal_run: float = 30.0,
-    curve_radius: float = 10.0,
+    diagonal_run: float = DIAGONAL_RUN,
+    curve_radius: float = CURVE_RADIUS,
 ) -> list[RoutedPath]:
     """Route edges that cross section boundaries (port-to-port).
 
@@ -887,7 +899,7 @@ def route_inter_section_edges(
         dx = tx - sx
         dy = ty - sy
 
-        if abs(dy) < 0.01:
+        if abs(dy) < COORD_TOLERANCE_FINE:
             routes.append(
                 RoutedPath(
                     edge=edge,
@@ -895,7 +907,7 @@ def route_inter_section_edges(
                     points=[(sx, sy), (tx, ty)],
                 )
             )
-        elif abs(dx) < 1.0:
+        elif abs(dx) < COORD_TOLERANCE:
             routes.append(
                 RoutedPath(
                     edge=edge,
@@ -913,7 +925,7 @@ def route_inter_section_edges(
 
             # Ensure minimum straight track at each station so the
             # station sits on a visible horizontal segment, not a curve.
-            min_straight = curve_radius + 15
+            min_straight = curve_radius + MIN_STRAIGHT_INTER
             if sign > 0:
                 diag_start_x = max(diag_start_x, sx + min_straight)
                 diag_end_x = min(diag_end_x, tx - min_straight)
