@@ -594,13 +594,10 @@ def _infer_port_sides(
                         # standard LEFT/RIGHT exit to the next row.
                         if section.grid_row_span > 1:
                             fold_bottom_row = (
-                                section.grid_row
-                                + section.grid_row_span
-                                - 1
+                                section.grid_row + section.grid_row_span - 1
                             )
                             all_below = all(
-                                graph.sections[tgt].grid_row
-                                > fold_bottom_row
+                                graph.sections[tgt].grid_row > fold_bottom_row
                                 for tgt in successors[sec_id]
                                 if tgt in graph.sections
                             )
@@ -609,9 +606,7 @@ def _infer_port_sides(
                                 PortSide.RIGHT,
                             ):
                                 dominant = PortSide.BOTTOM
-                        section.exit_hints.append(
-                            (dominant, sorted(all_exit_lines))
-                        )
+                        section.exit_hints.append((dominant, sorted(all_exit_lines)))
                     else:
                         section.exit_hints.append(
                             (PortSide.BOTTOM, sorted(all_exit_lines))
