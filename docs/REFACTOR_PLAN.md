@@ -32,21 +32,16 @@ Known constants to extract (non-exhaustive):
 
 ---
 
-## Phase 2: Standardize naming conventions (low risk, mechanical)
+## Phase 2: Standardize naming conventions - SKIPPED
 
-**Problem**: Inconsistent abbreviations throughout (`station_id`/`sid`/`node`, `section_id`/`sec_id`/`sec`, `metro_line`/`line`/`lid`, `port_id`/`pid`/`port`).
+**Original problem**: Inconsistent abbreviations throughout.
 
-**Action**: Pick one convention per concept and apply consistently:
-- `station_id` / `stn` (short form)
-- `section_id` / `sec` (short form)
-- `line_id` / `lid` (short form)
-- `port_id` (no short form needed)
+**Audit result**: The codebase already follows a consistent convention:
+- Short forms (`sid`, `sec_id`, `lid`, `pid`) for loop variables and local identifiers
+- Long forms (`station_id`, `section_id`, `line_id`, `port_id`) for dataclass fields and public parameters
+- `node_id` in `mermaid.py` is domain-correct (parsing Mermaid "nodes")
 
-One commit per concept to keep diffs reviewable.
-
-**Note**: Type hints already use `X | None` consistently (zero `Optional[]` usage found). This phase is purely about variable/parameter naming.
-
-**Files touched**: All source files.
+Forcing a single form per concept would make either loops verbose or fields cryptic. No action needed.
 
 ---
 
