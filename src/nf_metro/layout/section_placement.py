@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 
+from nf_metro.layout.constants import PLACEMENT_X_GAP, PLACEMENT_Y_GAP, PORT_MIN_GAP
 from nf_metro.parser.model import MetroGraph, PortSide, Section
 
 
 def place_sections(
     graph: MetroGraph,
-    section_x_gap: float = 80.0,
-    section_y_gap: float = 60.0,
+    section_x_gap: float = PLACEMENT_X_GAP,
+    section_y_gap: float = PLACEMENT_Y_GAP,
 ) -> None:
     """Place sections on the canvas by computing offsets.
 
@@ -466,7 +467,7 @@ def _spread_overlapping_ports(
     axis: str,
     span_start: float,
     span_end: float,
-    min_gap: float = 15.0,
+    min_gap: float = PORT_MIN_GAP,
 ) -> None:
     """Spread ports that ended up at the same position."""
     if len(port_ids) <= 1:

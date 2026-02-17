@@ -1,34 +1,39 @@
-"""Edge routing for metro map layout.
+"""Core edge routing: the main route_edges() dispatcher.
 
 Routes edges as horizontal segments with 45-degree diagonal transitions.
 For folded layouts, cross-row edges route through the fold edge with a
-clean vertical drop.
+clean vertical drop. Inter-section edges use L-shaped routing with
+per-line bundle offsets.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
 
-from nf_metro.parser.model import Edge, MetroGraph, PortSide
-
-
-@dataclass
-class RoutedPath:
-    """A routed path for an edge, consisting of (x, y) waypoints."""
-
-    edge: Edge
-    line_id: str
-    points: list[tuple[float, float]]
-    is_inter_section: bool = False
-    curve_radii: list[float] | None = None
-    offsets_applied: bool = False
+from nf_metro.layout.constants import (
+    CHAR_WIDTH,
+    COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
+    CROSS_ROW_THRESHOLD,
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    FOLD_MARGIN,
+    MIN_STRAIGHT_EDGE,
+    MIN_STRAIGHT_PORT,
+    OFFSET_STEP,
+)
+from nf_metro.layout.routing.common import (
+    RoutedPath,
+    compute_bundle_info,
+    inter_column_channel_x,
+)
+from nf_metro.parser.model import MetroGraph, PortSide
 
 
 def route_edges(
     graph: MetroGraph,
-    diagonal_run: float = 30.0,
-    curve_radius: float = 10.0,
+    diagonal_run: float = DIAGONAL_RUN,
+    curve_radius: float = CURVE_RADIUS,
     station_offsets: dict[tuple[str, str], float] | None = None,
 ) -> list[RoutedPath]:
     """Route all edges with smooth direction changes.
@@ -56,7 +61,7 @@ def route_edges(
 
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
-    offset_step = 3.0
+    offset_step = OFFSET_STEP
 
     # Pre-compute fork and join stations for diagonal bias and label clearance
     _fork_targets: dict[str, set[str]] = defaultdict(set)
@@ -85,7 +90,7 @@ def route_edges(
     # Pre-compute bundle assignments: groups inter-section edges that
     # share the same vertical channel so they get consistent per-line
     # X offsets instead of overlapping.
-    bundle_info = _compute_bundle_info(
+    bundle_info = compute_bundle_info(
         graph, junction_ids, line_priority, bottom_exit_junctions
     )
 
@@ -125,7 +130,7 @@ def route_edges(
                 and src.section_id in tb_sections
             )
 
-            if abs(dy) < 0.01:
+            if abs(dy) < COORD_TOLERANCE_FINE:
                 # Same Y: straight horizontal
                 routes.append(
                     RoutedPath(
@@ -157,7 +162,7 @@ def route_edges(
                         offsets_applied=True,
                     )
                 )
-            elif abs(dx) < 1.0:
+            elif abs(dx) < COORD_TOLERANCE:
                 # Same X: straight vertical drop
                 routes.append(
                     RoutedPath(
@@ -234,7 +239,7 @@ def route_edges(
                 # doesn't pass through sibling sections stacked in the
                 # source's column.
                 max_r = curve_radius + (n - 1) * offset_step
-                mid_x = _inter_column_channel_x(
+                mid_x = inter_column_channel_x(
                     graph, src, tgt, sx, tx, dx, max_r, offset_step
                 )
                 vx = mid_x + delta
@@ -318,7 +323,7 @@ def route_edges(
             )
             continue
 
-        # Internal station → LEFT/RIGHT exit port in a TB section:
+        # Internal station -> LEFT/RIGHT exit port in a TB section:
         # L-shaped exit run (vertical drop then horizontal to exit port).
         # Lines go straight down from the last station, turn the corner,
         # and exit through the port at the return row level.
@@ -365,7 +370,7 @@ def route_edges(
             # Concentric corner: the outermost vertical line gets the
             # largest curve radius, producing nested arcs.  horiz_y_off
             # uses rev_src_off for both sides so the radius formula
-            # (curve_radius + rev_src_off) maps outer → larger radius.
+            # (curve_radius + rev_src_off) maps outer -> larger radius.
             horiz_y_off = rev_src_off
             # L-shape: vertical from station, curve, horizontal to port
             routes.append(
@@ -383,7 +388,7 @@ def route_edges(
             )
             continue
 
-        # LEFT/RIGHT entry port → internal station in a TB section:
+        # LEFT/RIGHT entry port -> internal station in a TB section:
         # L-shaped entry run (horizontal then curve then vertical drop).
         # The port sits above the first station so the turn happens
         # before the station, not at it.
@@ -439,7 +444,7 @@ def route_edges(
             )
             continue
 
-        # TOP/BOTTOM port → internal station: L-shaped elbow
+        # TOP/BOTTOM port -> internal station: L-shaped elbow
         # (e.g., vertical entry from above curving into an RL section).
         # Station offsets from compute_station_offsets already account
         # for reversed sections (fed by TB BOTTOM exits), so we use
@@ -494,10 +499,10 @@ def route_edges(
 
             if upstream_st is not None:
                 up_y_off = station_offsets.get((upstream_st.id, edge.line_id), 0.0)
-                if abs(upstream_st.x - sx) < 1.0:
+                if abs(upstream_st.x - sx) < COORD_TOLERANCE:
                     # Same X: 4-point combined route through
                     # inter-column channel (vertical drop case).
-                    mid_x = _inter_column_channel_x(
+                    mid_x = inter_column_channel_x(
                         graph,
                         upstream_st,
                         tgt,
@@ -526,7 +531,7 @@ def route_edges(
                     )
                 else:
                     # Different X (cross-column entry): 3-point L-shape
-                    # horizontal from upstream → curve → vertical to
+                    # horizontal from upstream -> curve -> vertical to
                     # target.  Reverse target offset for TB convention.
                     all_tgt_offs = (
                         [
@@ -551,7 +556,7 @@ def route_edges(
                             curve_radii=[curve_radius + rev_tgt_off],
                         )
                     )
-            elif abs(dx) < 1.0:
+            elif abs(dx) < COORD_TOLERANCE:
                 # Nearly same X: straight vertical drop
                 routes.append(
                     RoutedPath(
@@ -579,12 +584,12 @@ def route_edges(
             continue
 
         # Detect cross-row edge: target is to the left (only in folded layouts)
-        is_cross_row = dx <= 0 and abs(dy) > 80
+        is_cross_row = dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD
 
         if is_cross_row:
             # Route through fold edge: horizontal to fold, vertical drop,
             # horizontal to target
-            fold_margin = 30
+            fold_margin = FOLD_MARGIN
             fold_right = fold_x + fold_margin
             routes.append(
                 RoutedPath(
@@ -598,7 +603,7 @@ def route_edges(
                     ],
                 )
             )
-        elif abs(sy - ty) < 0.01:
+        elif abs(sy - ty) < COORD_TOLERANCE_FINE:
             # Same track: straight line
             routes.append(
                 RoutedPath(
@@ -609,7 +614,7 @@ def route_edges(
             )
         else:
             # Different tracks: horizontal, diagonal, horizontal
-            if abs(dx) < 1.0:
+            if abs(dx) < COORD_TOLERANCE:
                 routes.append(
                     RoutedPath(
                         edge=edge,
@@ -626,20 +631,19 @@ def route_edges(
             # Port-adjacent edges need more room so stations sit on
             # visible straight track, not on a curve.
             if src.is_port or tgt.is_port:
-                min_straight = curve_radius + 5
+                min_straight = curve_radius + MIN_STRAIGHT_PORT
             else:
-                min_straight = 10
+                min_straight = MIN_STRAIGHT_EDGE
 
             # At fork/join stations, extend the straight run past the
             # label so diverging/converging diagonals don't cross
             # through the label text.
-            char_width = 7.0
             src_min = min_straight
             tgt_min = min_straight
             if edge.source in fork_stations and src.label.strip():
-                src_min = max(min_straight, len(src.label) * char_width / 2)
+                src_min = max(min_straight, len(src.label) * CHAR_WIDTH / 2)
             if edge.target in join_stations and tgt.label.strip():
-                tgt_min = max(min_straight, len(tgt.label) * char_width / 2)
+                tgt_min = max(min_straight, len(tgt.label) * CHAR_WIDTH / 2)
 
             # Bias diagonal toward source at fork points so the
             # visual divergence happens near the fork, avoiding
@@ -680,620 +684,3 @@ def route_edges(
             )
 
     return routes
-
-
-def _compute_bundle_info(
-    graph: MetroGraph,
-    junction_ids: set[str],
-    line_priority: dict[str, int],
-    bottom_exit_junctions: set[str] | None = None,
-) -> dict[tuple[str, str, str], tuple[int, int]]:
-    """Pre-compute bundle assignments for inter-section edges.
-
-    Groups inter-section edges that share the same geometric corridor
-    (same vertical channel position and direction) and assigns consistent
-    per-line positions within each bundle. This ensures lines traveling
-    between sections are visually parallel with proper spacing, rather
-    than overlapping at the same X coordinate.
-
-    Returns dict mapping (source_id, target_id, line_id) -> (index, count).
-    """
-    # Collect all inter-section edges with their geometry
-    inter_edges: list[tuple[Edge, float, float, float, float]] = []
-    for edge in graph.edges:
-        src = graph.stations.get(edge.source)
-        tgt = graph.stations.get(edge.target)
-        if not src or not tgt:
-            continue
-
-        is_inter = (src.is_port or edge.source in junction_ids) and (
-            tgt.is_port or edge.target in junction_ids
-        )
-        if not is_inter:
-            continue
-
-        inter_edges.append((edge, src.x, src.y, tgt.x, tgt.y))
-
-    # Group by corridor: edges sharing the same vertical channel
-    # Key: (route_type, rounded_channel_position, vertical_direction)
-    corridor_groups: dict[
-        tuple[str, int, int], list[tuple[Edge, float, float, float, float]]
-    ] = defaultdict(list)
-
-    for item in inter_edges:
-        edge, sx, sy, tx, ty = item
-        dx = tx - sx
-        dy = ty - sy
-
-        if abs(dy) < 0.01:
-            continue  # Horizontal edges don't need bundling
-
-        v_dir = 1 if dy > 0 else -1
-
-        if abs(dx) < 1.0:
-            # Vertical: group by shared X position
-            key = ("V", round(sx), v_dir)
-        else:
-            # L-shaped: group by source X and horizontal direction.
-            # The vertical channel is placed in the inter-column gap
-            # near the source, so source X is the right grouping key.
-            # Using midpoint (sx+tx)/2 fails for junction fan-outs
-            # where targets are at different X positions but share
-            # the same vertical channel.
-            h_dir = 1 if dx > 0 else -1
-            key = ("L", round(sx), v_dir, h_dir)
-
-        corridor_groups[key].append(item)
-
-    # Assign per-line positions within each corridor
-    assignments: dict[tuple[str, str, str], tuple[int, int]] = {}
-
-    for _key, group in corridor_groups.items():
-        # Sort by spatial ordering so the bundle's visual position
-        # is preserved around corners.
-        source_ids = {e[0].source for e in group}
-        if len(source_ids) == 1:
-            exit_port_id = group[0][0].source
-            if bottom_exit_junctions and exit_port_id in bottom_exit_junctions:
-                # Vertical-first: longest drop (largest target Y) is
-                # outermost (i=0) to prevent crossings at corners.
-                group.sort(
-                    key=lambda e: (
-                        -e[4],
-                        line_priority.get(e[0].line_id, 999),
-                    )
-                )
-            elif (port := graph.ports.get(exit_port_id)) and not port.is_entry:
-                source_y = _line_source_y_at_port(exit_port_id, graph)
-                group.sort(
-                    key=lambda e: (
-                        source_y.get(e[0].line_id, 0),
-                        line_priority.get(e[0].line_id, 999),
-                    )
-                )
-            else:
-                group.sort(key=lambda e: line_priority.get(e[0].line_id, 999))
-        else:
-            # Fan-in: edges from different source ports. Sort by
-            # actual source Y position to preserve spatial ordering
-            # around the L-shaped corner.
-            group.sort(key=lambda e: (e[2], line_priority.get(e[0].line_id, 999)))
-
-        n = len(group)
-        for i, (edge, *_rest) in enumerate(group):
-            assignments[(edge.source, edge.target, edge.line_id)] = (i, n)
-
-    return assignments
-
-
-def _inter_column_channel_x(
-    graph: MetroGraph,
-    src,
-    tgt,
-    sx: float,
-    tx: float,
-    dx: float,
-    max_r: float,
-    offset_step: float,
-) -> float:
-    """Compute the X position for a vertical channel in an L-shaped route.
-
-    Places the channel in the gap between columns so it doesn't pass
-    through sibling sections stacked in the source's column. Falls
-    back to near-source placement when section info is unavailable.
-    """
-    src_sec = graph.sections.get(src.section_id) if src.section_id else None
-    tgt_sec = graph.sections.get(tgt.section_id) if tgt.section_id else None
-
-    if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
-        # Find the rightmost/leftmost edges of the source and target
-        # columns (accounting for sibling sections that may be wider).
-        src_col = src_sec.grid_col
-        tgt_col = tgt_sec.grid_col
-
-        if dx > 0:
-            col_right = max(
-                (
-                    s.bbox_x + s.bbox_w
-                    for s in graph.sections.values()
-                    if s.grid_col == src_col and s.bbox_w > 0
-                ),
-                default=sx,
-            )
-            col_left = min(
-                (
-                    s.bbox_x
-                    for s in graph.sections.values()
-                    if s.grid_col == tgt_col and s.bbox_w > 0
-                ),
-                default=tx,
-            )
-            return (col_right + col_left) / 2
-        else:
-            col_left = min(
-                (
-                    s.bbox_x
-                    for s in graph.sections.values()
-                    if s.grid_col == src_col and s.bbox_w > 0
-                ),
-                default=sx,
-            )
-            col_right = max(
-                (
-                    s.bbox_x + s.bbox_w
-                    for s in graph.sections.values()
-                    if s.grid_col == tgt_col and s.bbox_w > 0
-                ),
-                default=tx,
-            )
-            return (col_left + col_right) / 2
-
-    # Fallback: place near source
-    if dx > 0:
-        return sx + max_r + offset_step
-    else:
-        return sx - max_r - offset_step
-
-
-def route_inter_section_edges(
-    graph: MetroGraph,
-    diagonal_run: float = 30.0,
-    curve_radius: float = 10.0,
-) -> list[RoutedPath]:
-    """Route edges that cross section boundaries (port-to-port).
-
-    These are edges where both source and target are ports (or one is a port).
-    Uses the same routing style as regular edges.
-    """
-    routes: list[RoutedPath] = []
-
-    for edge in graph.edges:
-        src = graph.stations.get(edge.source)
-        tgt = graph.stations.get(edge.target)
-        if not src or not tgt:
-            continue
-
-        # Only route edges that cross section boundaries:
-        # - Both endpoints in different sections, OR
-        # - One endpoint is a junction (section_id=None, e.g. divergence point)
-        src_sec = src.section_id
-        tgt_sec = tgt.section_id
-        is_junction_edge = src_sec is None or tgt_sec is None
-        if not is_junction_edge and (src_sec == tgt_sec):
-            continue
-
-        sx, sy = src.x, src.y
-        tx, ty = tgt.x, tgt.y
-        dx = tx - sx
-        dy = ty - sy
-
-        if abs(dy) < 0.01:
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[(sx, sy), (tx, ty)],
-                )
-            )
-        elif abs(dx) < 1.0:
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[(sx, sy), (tx, ty)],
-                )
-            )
-        else:
-            sign = 1.0 if dx > 0 else -1.0
-            half_diag = diagonal_run / 2
-
-            mid_x = (sx + tx) / 2
-            diag_start_x = mid_x - sign * half_diag
-            diag_end_x = mid_x + sign * half_diag
-
-            # Ensure minimum straight track at each station so the
-            # station sits on a visible horizontal segment, not a curve.
-            min_straight = curve_radius + 15
-            if sign > 0:
-                diag_start_x = max(diag_start_x, sx + min_straight)
-                diag_end_x = min(diag_end_x, tx - min_straight)
-            else:
-                diag_start_x = min(diag_start_x, sx - min_straight)
-                diag_end_x = max(diag_end_x, tx + min_straight)
-
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[
-                        (sx, sy),
-                        (diag_start_x, sy),
-                        (diag_end_x, ty),
-                        (tx, ty),
-                    ],
-                )
-            )
-
-    return routes
-
-
-def compute_station_offsets(
-    graph: MetroGraph,
-    offset_step: float = 3.0,
-) -> dict[tuple[str, str], float]:
-    """Compute per-station Y offsets for each line.
-
-    Each line gets a globally consistent offset based on its declaration
-    order (priority). This ensures lines maintain their position within
-    bundles across all sections - when a line splits off and later
-    rejoins, it returns to its reserved slot rather than shifting.
-
-    For reversed sections (fed by a TB section's BOTTOM exit), offsets
-    are flipped so the bundle ordering matches the reversed spatial flow.
-
-    Returns dict mapping (station_id, line_id) -> y_offset.
-    """
-    line_order = list(graph.lines.keys())
-    line_priority = {lid: i for i, lid in enumerate(line_order)}
-    max_priority = len(line_order) - 1 if line_order else 0
-
-    reversed_sections = _detect_reversed_sections(graph)
-
-    offsets: dict[tuple[str, str], float] = {}
-    for sid in graph.stations:
-        lines = graph.station_lines(sid)
-        if not lines:
-            continue
-        station = graph.stations[sid]
-        reverse = station.section_id in reversed_sections
-        for lid in lines:
-            p = line_priority.get(lid, 0)
-            if reverse:
-                offsets[(sid, lid)] = (max_priority - p) * offset_step
-            else:
-                offsets[(sid, lid)] = p * offset_step
-
-    # Set exit port offsets on TB sections with LEFT/RIGHT exits to
-    # match the exit L-shape's horiz_y_off.  For non-reversed sections,
-    # reverse the internal offset (concentric arc swaps ordering).
-    # For reversed sections, keep the internal offset as-is (the
-    # internal offsets already account for the reversal).
-    tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
-    for port_id, port_obj in graph.ports.items():
-        if port_obj.is_entry or port_obj.section_id not in tb_sections:
-            continue
-        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
-        # Find offsets at the internal station feeding this exit port
-        internal_offs: dict[str, float] = {}
-        for edge in graph.edges:
-            if edge.target == port_id:
-                src_st = graph.stations.get(edge.source)
-                if src_st and not src_st.is_port:
-                    internal_offs[edge.line_id] = offsets.get(
-                        (edge.source, edge.line_id), 0.0
-                    )
-        if internal_offs:
-            max_int = max(internal_offs.values())
-            for lid, ioff in internal_offs.items():
-                offsets[(port_id, lid)] = max_int - ioff
-
-    # Junctions have section_id=None so they get default line-priority
-    # ordering above, which may not match the exit port feeding them.
-    # Inherit offsets from the upstream exit port instead.
-    for jid in graph.junctions:
-        for edge in graph.edges:
-            if edge.target == jid:
-                src = graph.stations.get(edge.source)
-                port_obj = graph.ports.get(edge.source)
-                if src and src.is_port and port_obj and not port_obj.is_entry:
-                    # Copy exit port's offsets to the junction
-                    for lid in graph.station_lines(jid):
-                        port_off = offsets.get((edge.source, lid))
-                        if port_off is not None:
-                            offsets[(jid, lid)] = port_off
-                    break
-
-    # Override TOP entry port offsets to match the inter-section routing
-    # from upstream TB BOTTOM exits.  The inter-section routing reverses
-    # exit port offsets using the local max at the exit port, but the
-    # default offsets above use the global max_priority.  This mismatch
-    # causes a visible horizontal discontinuity at the section boundary.
-    tb_right_entry: set[str] = set()
-    for port_obj in graph.ports.values():
-        if (
-            port_obj.is_entry
-            and port_obj.side == PortSide.RIGHT
-            and port_obj.section_id in tb_sections
-        ):
-            tb_right_entry.add(port_obj.section_id)
-
-    for port_id, port_obj in graph.ports.items():
-        if not port_obj.is_entry or port_obj.side != PortSide.TOP:
-            continue
-        for edge in graph.edges:
-            if edge.target != port_id:
-                continue
-            src = graph.stations.get(edge.source)
-            if not src or not src.is_port:
-                continue
-            src_port = graph.ports.get(edge.source)
-            if not (
-                src_port
-                and not src_port.is_entry
-                and src_port.side == PortSide.BOTTOM
-                and src.section_id in tb_sections
-            ):
-                continue
-            # Found a TB BOTTOM exit feeding this TOP entry.
-            # Compute the same reversed offsets that route_edges uses
-            # in the src_is_tb_bottom path.
-            exit_port_id = edge.source
-            all_exit_offs = [
-                offsets.get((exit_port_id, lid), 0.0)
-                for lid in graph.station_lines(exit_port_id)
-            ]
-            max_exit_off = max(all_exit_offs) if all_exit_offs else 0.0
-            if src.section_id in tb_right_entry:
-                for lid in graph.station_lines(port_id):
-                    offsets[(port_id, lid)] = offsets.get((exit_port_id, lid), 0.0)
-            else:
-                for lid in graph.station_lines(port_id):
-                    exit_off = offsets.get((exit_port_id, lid), 0.0)
-                    offsets[(port_id, lid)] = max_exit_off - exit_off
-            break
-
-    return offsets
-
-
-def _line_source_y_at_port(
-    port_id: str,
-    graph: MetroGraph,
-) -> dict[str, float]:
-    """Map line_id -> Y of connected internal station at an exit port.
-
-    For an exit port, looks at edges going TO the port (station -> port)
-    and returns the source station's Y position for each line.
-    """
-    line_y: dict[str, float] = {}
-    for edge in graph.edges:
-        if edge.target == port_id:
-            src = graph.stations.get(edge.source)
-            if src and not src.is_port:
-                line_y[edge.line_id] = src.y
-    return line_y
-
-
-def _line_incoming_y_at_entry_port(
-    port_id: str,
-    graph: MetroGraph,
-    exit_offsets: dict[tuple[str, str], float],
-) -> dict[str, float]:
-    """Map line_id -> effective Y of incoming connection at an entry port.
-
-    Uses the source station's Y + its already-computed station offset
-    for the line, so the entry port ordering matches the bundle ordering
-    from the source section.
-    """
-    line_y: dict[str, float] = {}
-    for edge in graph.edges:
-        if edge.target == port_id:
-            src = graph.stations.get(edge.source)
-            if src and src.is_port:
-                src_off = exit_offsets.get((edge.source, edge.line_id), 0)
-                line_y[edge.line_id] = src.y + src_off
-    return line_y
-
-
-def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
-    """Find sections where incoming bundle ordering is reversed.
-
-    A section is "reversed" when it receives lines via a TB section's
-    exit port that reverses the bundle ordering. This happens in two cases:
-
-    1. TOP entry fed by a TB section's BOTTOM exit: the TB section reverses
-       X offsets in the vertical bundle, so the downstream section must use
-       reversed Y ordering to match.
-
-    2. LEFT/RIGHT entry fed by a TB section's LEFT/RIGHT exit: the
-       concentric corner routing reverses the bundle ordering (outermost
-       vertical line becomes outermost horizontal line), so the downstream
-       section must use reversed Y ordering to match.
-
-    Reversal propagates: if a reversed section exits to another section
-    on the same row, that downstream section is also reversed so bundle
-    ordering stays consistent along the return row.
-    """
-    tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
-    reversed_secs: set[str] = set()
-    junction_ids = set(graph.junctions)
-
-    # Phase 1a: detect sections directly fed by TB BOTTOM exits
-    for sec_id, section in graph.sections.items():
-        for port_id in section.entry_ports:
-            port = graph.ports.get(port_id)
-            if not port or port.side != PortSide.TOP:
-                continue
-            for edge in graph.edges:
-                if edge.target == port_id:
-                    src = graph.stations.get(edge.source)
-                    if not src or not src.is_port:
-                        continue
-                    src_port = graph.ports.get(edge.source)
-                    if (
-                        src_port
-                        and not src_port.is_entry
-                        and src_port.side == PortSide.BOTTOM
-                        and src.section_id in tb_sections
-                    ):
-                        reversed_secs.add(sec_id)
-
-    # Build section adjacency from inter-section edges (used by
-    # propagation phases below).
-    sec_successors: dict[str, set[str]] = {}
-    for edge in graph.edges:
-        src = graph.stations.get(edge.source)
-        tgt = graph.stations.get(edge.target)
-        if not src or not tgt:
-            continue
-        if src.section_id and tgt.section_id and src.section_id != tgt.section_id:
-            sec_successors.setdefault(src.section_id, set()).add(tgt.section_id)
-
-    def _is_horizontal_successor(sec_id: str, succ_id: str) -> bool:
-        """Check if succ_id is reached via a horizontal port connection."""
-        for edge in graph.edges:
-            src = graph.stations.get(edge.source)
-            tgt = graph.stations.get(edge.target)
-            if not src or not tgt:
-                continue
-            if src.section_id != sec_id or tgt.section_id != succ_id:
-                continue
-            src_port = graph.ports.get(edge.source)
-            tgt_port = graph.ports.get(edge.target)
-            if (
-                src_port
-                and not src_port.is_entry
-                and src_port.side in (PortSide.LEFT, PortSide.RIGHT)
-                and tgt_port
-                and tgt_port.is_entry
-                and tgt_port.side in (PortSide.LEFT, PortSide.RIGHT)
-            ):
-                return True
-        return False
-
-    def _propagate_along_rows() -> bool:
-        """Propagate reversal to horizontal successors.
-
-        Propagates when the successor is on the same row or is reached
-        via a direct horizontal port connection (LEFT/RIGHT exit to
-        LEFT/RIGHT entry), which is effectively a straight continuation
-        with no direction change.
-
-        Returns True if any new sections were added.
-        """
-        added_any = False
-        changed = True
-        while changed:
-            changed = False
-            for sec_id in list(reversed_secs):
-                section = graph.sections.get(sec_id)
-                if not section:
-                    continue
-                # TB sections transform ordering in their exit L-shape;
-                # don't propagate reversal through them to downstream
-                # sections (the exit already un-reverses the bundle).
-                if sec_id in tb_sections:
-                    continue
-                for succ_id in sec_successors.get(sec_id, set()):
-                    if succ_id in reversed_secs:
-                        continue
-                    succ = graph.sections.get(succ_id)
-                    if not succ:
-                        continue
-                    if succ.grid_row == section.grid_row or _is_horizontal_successor(
-                        sec_id, succ_id
-                    ):
-                        reversed_secs.add(succ_id)
-                        changed = True
-                        added_any = True
-        return added_any
-
-    # Propagate Phase 1a reversals to horizontal successors
-    # (e.g. stat_analysis → reporting via LEFT exit → RIGHT entry).
-    _propagate_along_rows()
-
-    # Phase 1b + Phase 2: iteratively detect sections fed by TB
-    # LEFT/RIGHT exits and propagate along rows.  The concentric
-    # corner reverses the bundle ordering ONLY when the TB section
-    # uses non-reversed internal offsets.  If the TB section is
-    # itself already reversed (e.g. via propagation from an earlier
-    # TB exit), its exit L-shape un-reverses back to standard, so
-    # the downstream section should NOT be marked reversed.
-    #
-    # We iterate because a later TB section may become reversed
-    # through row propagation from an earlier TB section's
-    # downstream (e.g. calling -> hard_filter -> ... -> integration).
-    def _is_tb_lr_exit_nonreversed(port_obj):
-        """Check if port is an LR exit of a non-reversed TB section."""
-        return (
-            port_obj is not None
-            and not port_obj.is_entry
-            and port_obj.side in (PortSide.LEFT, PortSide.RIGHT)
-            and port_obj.section_id in tb_sections
-            and port_obj.section_id not in reversed_secs
-        )
-
-    # Process one TB exit at a time: add the downstream section,
-    # propagate along rows (which may mark the next TB section as
-    # reversed), then re-scan.  This ensures that propagation from
-    # an earlier TB exit's downstream is visible when checking later
-    # TB exits.
-    stable = False
-    while not stable:
-        stable = True
-
-        for sec_id, section in graph.sections.items():
-            if sec_id in reversed_secs:
-                continue
-            added = False
-            for port_id in section.entry_ports:
-                if added:
-                    break
-                port = graph.ports.get(port_id)
-                if not port or port.side not in (
-                    PortSide.LEFT,
-                    PortSide.RIGHT,
-                ):
-                    continue
-                for edge in graph.edges:
-                    if added:
-                        break
-                    if edge.target != port_id:
-                        continue
-                    src = graph.stations.get(edge.source)
-                    if not src:
-                        continue
-                    matched = False
-                    if edge.source in junction_ids:
-                        # Look through junction to find upstream exit port
-                        for e2 in graph.edges:
-                            if e2.target == edge.source:
-                                s2 = graph.stations.get(e2.source)
-                                if not s2 or not s2.is_port:
-                                    continue
-                                s2_port = graph.ports.get(e2.source)
-                                if _is_tb_lr_exit_nonreversed(s2_port):
-                                    matched = True
-                                    break
-                    elif src.is_port:
-                        src_port = graph.ports.get(edge.source)
-                        matched = _is_tb_lr_exit_nonreversed(src_port)
-                    if matched:
-                        reversed_secs.add(sec_id)
-                        _propagate_along_rows()
-                        stable = False
-                        added = True
-            if added:
-                break  # restart outer scan
-
-    return reversed_secs

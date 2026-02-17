@@ -30,14 +30,14 @@ pytest tests/test_parser.py::test_parse_title
 ruff check src/ tests/
 ```
 
-Dependencies: click, drawsvg, lark, networkx, pillow. Dev: pytest, ruff.
+Dependencies: click, drawsvg, networkx, pillow. Dev: pytest, ruff.
 
 ## Architecture
 
 The pipeline is: **Parse** -> **Layout** -> **Render**
 
 ### Parser (`src/nf_metro/parser/`)
-- `mermaid.py` - Line-by-line regex parser (not the Lark grammar in `grammar.lark`, which is unused). Parses Mermaid `graph LR` syntax plus custom `%%metro` directives.
+- `mermaid.py` - Line-by-line regex parser. Parses Mermaid `graph LR` syntax plus custom `%%metro` directives.
 - `model.py` - Core data model: `MetroGraph`, `Station`, `Edge`, `MetroLine`, `Section`, `Port`. The `MetroGraph` dataclass is the central data structure passed through all stages.
 - Sections are defined as Mermaid `subgraph` blocks with `%%metro entry:/exit:` port directives.
 - Post-parse `_resolve_sections()` rewrites inter-section edges into 3-part chains: source -> exit_port -> entry_port -> target, inserting junction stations for fan-outs.

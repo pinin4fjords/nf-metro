@@ -12,13 +12,19 @@ from collections import defaultdict
 
 import networkx as nx
 
+from nf_metro.layout.constants import (
+    DIAMOND_COMPRESSION,
+    FANOUT_SPACING,
+    LINE_GAP,
+    SIDE_BRANCH_NUDGE,
+)
 from nf_metro.parser.model import MetroGraph
 
 
 def assign_tracks(
     graph: MetroGraph,
     layers: dict[str, int],
-    line_gap: float = 1.0,
+    line_gap: float = LINE_GAP,
 ) -> dict[str, float]:
     """Assign each station a track using the track-per-line strategy.
 
@@ -176,7 +182,7 @@ def _place_single_node(
             node_layer = layers.get(node, 0) if layers else 0
             if layers and _is_diamond_node(node, node_layer, G, layers, graph):
                 # Diamond: compress toward trunk for compact visual
-                return pred_avg + (base - pred_avg) * 0.25
+                return pred_avg + (base - pred_avg) * DIAMOND_COMPRESSION
             else:
                 # Permanent divergence: snap to base track
                 return base
@@ -197,7 +203,7 @@ def _place_single_node(
     else:
         # Side-branch: stay near predecessors, nudge toward base
         direction = 1.0 if base > pred_avg else -1.0
-        return pred_avg + direction * 1.0
+        return pred_avg + direction * SIDE_BRANCH_NUDGE
 
 
 def _place_fan_out(
@@ -236,7 +242,7 @@ def _place_fan_out(
         anchor = base
 
     # Center the fan-out around the anchor
-    fan_spacing = 1.5
+    fan_spacing = FANOUT_SPACING
     n = len(nodes)
     for i, node in enumerate(nodes):
         offset = (i - (n - 1) / 2) * fan_spacing
