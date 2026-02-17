@@ -144,7 +144,7 @@ def test_grid_assignment_fold():
         edges.append((f"sec{i}_s1", f"sec{i}", f"sec{i + 1}_s1", f"sec{i + 1}", "main"))
     graph = _make_graph_with_sections(sections, edges)
     successors, predecessors, _ = _build_section_dag(graph)
-    fold_sections = _assign_grid_positions(
+    fold_sections, _below = _assign_grid_positions(
         graph,
         successors,
         predecessors,
@@ -162,10 +162,10 @@ def test_grid_assignment_fold():
     assert "sec3" in fold_sections
     assert graph.sections["sec3"].grid_col == 3
     assert graph.sections["sec3"].grid_row == 0
-    # sec4 starts a new row band at the fold column (right-aligned
-    # by section_placement so right edges align with the fold section)
+    # sec4 starts a new row band one column past the fold (leftward),
+    # so it doesn't share the narrow fold column
     assert graph.sections["sec4"].grid_row == 1
-    assert graph.sections["sec4"].grid_col == 3  # same col as fold section
+    assert graph.sections["sec4"].grid_col == 2  # one left of fold section
 
 
 def test_grid_preserves_explicit_overrides():
