@@ -33,15 +33,15 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     if not successors and not predecessors:
         return
 
-    fold_sections = _assign_grid_positions(
+    fold_sections, below_fold_sections = _assign_grid_positions(
         graph,
         successors,
         predecessors,
         max_station_columns,
     )
     _optimize_rowspans(graph, fold_sections, successors)
-    _infer_directions(graph, successors, predecessors, fold_sections)
-    _optimize_colspans(graph, fold_sections)
+    _infer_directions(graph, successors, predecessors, fold_sections, below_fold_sections)
+    _optimize_colspans(graph, fold_sections, below_fold_sections)
     _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
 
 
@@ -121,7 +121,7 @@ def _assign_grid_positions(
     successors: dict[str, set[str]],
     predecessors: dict[str, set[str]],
     max_station_columns: int,
-) -> set[str]:
+) -> tuple[set[str], set[str]]:
     """Assign grid (col, row) positions to sections without explicit grid overrides.
 
     When cumulative station columns in a row exceed the threshold, the
@@ -129,7 +129,10 @@ def _assign_grid_positions(
     right edge of the current row as a TB bridge. Subsequent topo columns
     go into a new row below.
 
-    Returns the set of section IDs designated as fold sections.
+    Returns (fold_sections, below_fold_sections). below_fold_sections are
+    sections placed directly below a fold instead of on the return row,
+    used when the fold has a single successor and the band has stacked
+    sections (making a return row visually awkward).
     """
     section_ids = list(graph.sections.keys())
 
@@ -181,7 +184,7 @@ def _assign_grid_positions(
         col_groups[col].sort(key=lambda s: section_order.index(s))
 
     if not col_groups:
-        return set()
+        return set(), set()
 
     # Estimate station-layer width per topo column (max across stacked sections)
     topo_col_width: dict[int, int] = {}
@@ -194,7 +197,9 @@ def _assign_grid_positions(
     # columns start a new row band below.
     sorted_cols = sorted(col_groups.keys())
     fold_sections: set[str] = set()
+    below_fold_sections: set[str] = set()
     folded: dict[str, tuple[int, int]] = {}
+    skip_topo_cols: set[int] = set()
 
     current_grid_col = 0
     col_step = 1  # +1 in first row (LR), -1 after a fold (RL)
@@ -202,27 +207,54 @@ def _assign_grid_positions(
     max_stack_in_band = 0  # tallest topo column (stacking) in this band
     cumulative_width = 0
 
-    for topo_col in sorted_cols:
+    for topo_idx, topo_col in enumerate(sorted_cols):
+        if topo_col in skip_topo_cols:
+            continue
+
         sids = col_groups[topo_col]
         w = topo_col_width[topo_col]
         stack_size = len(sids)
         need_fold = cumulative_width > 0 and cumulative_width + w > max_station_columns
 
         if need_fold:
+            fold_col = current_grid_col
             # This column is the fold point: place at right edge as TB bridge
             for i, sid in enumerate(sids):
-                folded[sid] = (current_grid_col, band_start_row + i)
+                folded[sid] = (fold_col, band_start_row + i)
                 fold_sections.add(sid)
-            max_stack_in_band = max(max_stack_in_band, stack_size)
+            band_height = max(max_stack_in_band, stack_size)
             # Start new row band below all stacked rows in the current band
-            band_start_row += max(max_stack_in_band, 1)
+            band_start_row += max(band_height, 1)
             # Post-fold sections flow in the opposite direction, starting
             # one column past the fold (i.e. to its left on a return row).
             # Toggle: +1 -> -1 -> +1 (serpentine/zigzag layout).
             col_step = -col_step
-            current_grid_col += col_step
+            current_grid_col = fold_col + col_step
             cumulative_width = 0
             max_stack_in_band = 0
+
+            # Below-fold placement: when the band has stacked sections
+            # (band_height > 1), a return row would route backward over
+            # that content. If every fold section has exactly one successor
+            # and those successors are the only sections in the next topo
+            # column, place them directly below the fold instead.
+            if band_height > 1 and topo_idx + 1 < len(sorted_cols):
+                next_topo = sorted_cols[topo_idx + 1]
+                next_sids = col_groups[next_topo]
+                fold_succs: set[str] = set()
+                all_single = True
+                for fs in sids:
+                    fs_succs = successors.get(fs, set())
+                    if len(fs_succs) != 1:
+                        all_single = False
+                        break
+                    fold_succs.update(fs_succs)
+                if all_single and fold_succs == set(next_sids):
+                    for j, ns in enumerate(next_sids):
+                        folded[ns] = (fold_col, band_start_row + j)
+                        below_fold_sections.add(ns)
+                    skip_topo_cols.add(next_topo)
+                    band_start_row += len(next_sids)
         else:
             # Normal placement in current band
             for i, sid in enumerate(sids):
@@ -237,7 +269,7 @@ def _assign_grid_positions(
         graph.sections[sid].grid_col = col
         graph.sections[sid].grid_row = row
 
-    return fold_sections
+    return fold_sections, below_fold_sections
 
 
 def _transitive_successors(
@@ -322,7 +354,11 @@ def _optimize_rowspans(
             )
 
 
-def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
+def _optimize_colspans(
+    graph: MetroGraph,
+    fold_sections: set[str],
+    below_fold_sections: set[str] = frozenset(),
+) -> None:
     """Optimize column spans to reduce dead space from oversized sections.
 
     Targets columns where one section inflates the width beyond what the
@@ -366,6 +402,11 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
         for sid in sids:
             # Don't span fold sections themselves (they're the narrow ones)
             if sid in fold_sections:
+                continue
+
+            # Don't span below-fold sections (they sit directly under
+            # the fold and shouldn't extend into adjacent columns)
+            if sid in below_fold_sections:
                 continue
 
             section = graph.sections[sid]
@@ -424,6 +465,7 @@ def _infer_directions(
     successors: dict[str, set[str]],
     predecessors: dict[str, set[str]],
     fold_sections: set[str],
+    below_fold_sections: set[str] = frozenset(),
 ) -> None:
     """Infer section flow direction (LR/RL/TB) from grid positions.
 
@@ -470,7 +512,7 @@ def _infer_directions(
 
         # RL: leaf section (no successors) and all predecessors are
         # to the right or same column, with at least one strictly to
-        # the right or above (post-fold return row)
+        # the right or above (post-fold return row or below-fold).
         if not succ_cols and pred_cols:
             if all(c >= my_col for c in pred_cols) and (
                 any(r < my_row for r in pred_rows) or any(c > my_col for c in pred_cols)

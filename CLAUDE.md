@@ -93,6 +93,15 @@ Edges support comma-separated line IDs: `a -->|line1,line2,line3| b` creates one
 - Layout uses networkx only for DAG operations (topological sort); all coordinate computation is custom.
 - Auto-layout (`auto_layout.py`) infers everything from the section DAG, so most `.mmd` files need no `%%metro grid:` directives. Explicit directives override inferred values.
 
+## Station-as-Elbow Constraint (CRITICAL)
+
+**NEVER position a perpendicular port at the same coordinate as an internal station.** This is validated by `check_station_as_elbow` in `tests/layout_validator.py` (10px tolerance).
+
+- TOP/BOTTOM ports on LR/RL sections must NOT share X with any internal station.
+- LEFT/RIGHT ports on TB sections must NOT share Y with any internal station.
+
+When fixing routing or alignment issues, do NOT "solve" a kink by moving a port to match a station's coordinate. That creates a station-as-elbow violation where the line visually passes through the station marker. Instead, accept small offsets between ports and stations and handle them via routing (near-vertical drops, gentle curves, etc.).
+
 ## Rendering the rnaseq Example to PNG
 
 ```bash
