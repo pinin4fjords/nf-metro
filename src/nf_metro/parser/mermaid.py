@@ -21,9 +21,7 @@ from nf_metro.parser.model import (
 )
 
 
-def parse_metro_mermaid(
-    text: str, max_station_columns: int = 15
-) -> MetroGraph:
+def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives."""
     graph = MetroGraph()
     lines = text.strip().split("\n")

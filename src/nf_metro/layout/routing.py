@@ -235,6 +235,7 @@ def route_edges(
                 x_src = src_off
                 x_tgt = tgt_off
             else:
+
                 def _reverse_off(station_id: str, off: float) -> float:
                     all_offs = (
                         [
@@ -433,21 +434,23 @@ def route_edges(
                             if abs(u.y - sy) > 1.0:
                                 continue
                             upstream_st = u
-                            skip_edges.add(
-                                (e2.source, e2.target, e2.line_id)
-                            )
+                            skip_edges.add((e2.source, e2.target, e2.line_id))
                             break
 
             if upstream_st is not None:
-                up_y_off = station_offsets.get(
-                    (upstream_st.id, edge.line_id), 0.0
-                )
+                up_y_off = station_offsets.get((upstream_st.id, edge.line_id), 0.0)
                 if abs(upstream_st.x - sx) < 1.0:
                     # Same X: 4-point combined route through
                     # inter-column channel (vertical drop case).
                     mid_x = _inter_column_channel_x(
-                        graph, upstream_st, tgt, upstream_st.x, tgt.x,
-                        tgt.x - upstream_st.x, curve_radius, offset_step,
+                        graph,
+                        upstream_st,
+                        tgt,
+                        upstream_st.x,
+                        tgt.x,
+                        tgt.x - upstream_st.x,
+                        curve_radius,
+                        offset_step,
                     )
                     routes.append(
                         RoutedPath(
@@ -941,7 +944,8 @@ def compute_station_offsets(
         for edge in graph.edges:
             if edge.target == jid:
                 src = graph.stations.get(edge.source)
-                if src and src.is_port and not graph.ports.get(edge.source, None).is_entry:
+                port_obj = graph.ports.get(edge.source)
+                if src and src.is_port and port_obj and not port_obj.is_entry:
                     # Copy exit port's offsets to the junction
                     for lid in graph.station_lines(jid):
                         port_off = offsets.get((edge.source, lid))
@@ -991,9 +995,7 @@ def compute_station_offsets(
             max_exit_off = max(all_exit_offs) if all_exit_offs else 0.0
             if src.section_id in tb_right_entry:
                 for lid in graph.station_lines(port_id):
-                    offsets[(port_id, lid)] = offsets.get(
-                        (exit_port_id, lid), 0.0
-                    )
+                    offsets[(port_id, lid)] = offsets.get((exit_port_id, lid), 0.0)
             else:
                 for lid in graph.station_lines(port_id):
                     exit_off = offsets.get((exit_port_id, lid), 0.0)
@@ -1147,9 +1149,8 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
                     succ = graph.sections.get(succ_id)
                     if not succ:
                         continue
-                    if (
-                        succ.grid_row == section.grid_row
-                        or _is_horizontal_successor(sec_id, succ_id)
+                    if succ.grid_row == section.grid_row or _is_horizontal_successor(
+                        sec_id, succ_id
                     ):
                         reversed_secs.add(succ_id)
                         changed = True

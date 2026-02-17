@@ -261,8 +261,7 @@ def place_sections(
         # so fold sections and post-fold RL sections share a right edge with
         # any LR sections stacked above them in the same column.
         if section.grid_col_span == 1 and (
-            section.direction in ("RL", "TB")
-            or section.grid_col in right_align_cols
+            section.direction in ("RL", "TB") or section.grid_col in right_align_cols
         ):
             col_w = col_widths.get(section.grid_col, 0)
             if col_w > section.bbox_w:
