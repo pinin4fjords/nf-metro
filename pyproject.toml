@@ -43,6 +43,7 @@ dev = [
 ]
 docs = [
     "mkdocs-material>=9.0",
+    "mike>=2.0",
     "cairosvg>=2.5",
 ]
 
