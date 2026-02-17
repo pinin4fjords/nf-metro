@@ -277,6 +277,36 @@ def _compute_section_layout(
                 entry_inset = x_spacing * 0.3
                 section.bbox_w += entry_inset
 
+        # LR/RL sections with exit ports on the flow side: add clearance
+        # so diagonal routing from the last station to the exit port doesn't
+        # overlap station labels. Gap is proportional to the longest label at
+        # the exit-side layer, mirroring _compute_fork_join_gaps logic.
+        if section.direction in ("LR", "RL"):
+            flow_exit_side = (
+                PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
+            )
+            has_flow_exit = any(
+                graph.ports[pid].side == flow_exit_side
+                for pid in section.exit_ports
+                if pid in graph.ports
+            )
+            if has_flow_exit and layers:
+                max_layer = max(layers.values())
+                char_width = 7.0
+                max_label_half = 0.0
+                for sid_l, l in layers.items():
+                    if l == max_layer:
+                        station = sub.stations.get(sid_l)
+                        if station and station.label.strip():
+                            label_half = len(station.label) * char_width / 2
+                            max_label_half = max(max_label_half, label_half)
+                exit_gap = max(x_spacing * 0.4, max_label_half)
+                if section.direction == "LR":
+                    section.bbox_w += exit_gap
+                else:
+                    section.bbox_x -= exit_gap
+                    section.bbox_w += exit_gap
+
         section_subgraphs[sec_id] = sub
 
     # Phase 3: Place sections on the canvas

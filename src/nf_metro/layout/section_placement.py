@@ -288,16 +288,9 @@ def place_sections(
             spanned_width += (cspan - 1) * section_x_gap
             section.bbox_w = spanned_width
 
-    # Vertically center rowspan=1 sections within oversized rows.
-    # This happens when a TB fold section inflates the row height but
-    # LR/RL sections in the same row are much shorter.
-    for sid, section in graph.sections.items():
-        if section.grid_row_span != 1:
-            continue
-        row = row_assign.get(sid, 0)
-        row_h = row_heights.get(row, 0)
-        if row_h > section.bbox_h:
-            section.offset_y += (row_h - section.bbox_h) / 2
+    # Top-align sections within their row. No vertical centering -- this
+    # keeps the top edges flush so horizontal lines between sections in
+    # the same row don't need unnecessary vertical jogs.
 
 
 def position_ports(section: Section, graph: MetroGraph) -> None:
