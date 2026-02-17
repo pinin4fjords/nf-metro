@@ -239,6 +239,25 @@ class TestTopologySpecific:
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
 
+    def test_rnaseq_lite_top_alignment(self):
+        """Same-row sections in rnaseq_lite should share the same top edge."""
+        graph = _load_and_layout(TOPOLOGIES_DIR / "rnaseq_lite.mmd")
+        # Group sections by grid_row
+        rows: dict[int, list] = {}
+        for sid, sec in graph.sections.items():
+            rows.setdefault(sec.grid_row, []).append((sid, sec))
+        # For each row with multiple sections, check top edges are flush
+        for row, secs in rows.items():
+            if len(secs) <= 1:
+                continue
+            top_ys = [(sid, sec.bbox_y) for sid, sec in secs]
+            ref_y = top_ys[0][1]
+            for sid, y in top_ys[1:]:
+                assert abs(y - ref_y) < 1.0, (
+                    f"Row {row}: {sid} bbox_y={y} differs from "
+                    f"{top_ys[0][0]} bbox_y={ref_y} (not top-aligned)"
+                )
+
     def test_variant_calling_structure(self):
         graph = _load_and_layout(TOPOLOGIES_DIR / "variant_calling.mmd")
         assert len(graph.sections) == 6
@@ -370,15 +389,9 @@ class TestReflowValidation:
     """Validate layout correctness when topologies are reflowed at reduced widths."""
 
     @pytest.fixture(
-        params=[
-            (name, width)
-            for name in REFLOW_FIXTURES
-            for width in REFLOW_WIDTHS
-        ],
+        params=[(name, width) for name in REFLOW_FIXTURES for width in REFLOW_WIDTHS],
         ids=[
-            f"{name}_cols{width}"
-            for name in REFLOW_FIXTURES
-            for width in REFLOW_WIDTHS
+            f"{name}_cols{width}" for name in REFLOW_FIXTURES for width in REFLOW_WIDTHS
         ],
     )
     def reflow_graph(self, request):
@@ -428,9 +441,7 @@ class TestReflowStructure:
         graph = _load_and_layout(
             TOPOLOGIES_DIR / "deep_linear.mmd", max_station_columns=6
         )
-        tb_sections = [
-            sid for sid, s in graph.sections.items() if s.direction == "TB"
-        ]
+        tb_sections = [sid for sid, s in graph.sections.items() if s.direction == "TB"]
         assert len(tb_sections) >= 1
 
     def test_fold_double_more_folds_at_narrow_width(self):

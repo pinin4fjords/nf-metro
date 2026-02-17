@@ -418,3 +418,45 @@ def test_rnaseq_auto_grid_positions():
 
     # QC report should be in the next row band (below the fold)
     assert graph.sections["qc_report"].grid_row > 0
+
+
+# --- Below-fold row sharing ---
+
+
+def test_below_fold_sections_share_rows_with_return():
+    """Below-fold sections (in the fold column) should not push return-row
+    sections to extra rows. They occupy different columns so can share rows."""
+    # sec1 -> {sec2a, sec2b} -> sec3 (fold) -> sec4 (below) -> sec5
+    # max_station_columns=2: fold at sec3 with band_height=2
+    # sec3 has single successor sec4 -> below-fold placement
+    # sec5 on the return row should share rows with sec4
+    graph = _make_graph_with_sections(
+        ["sec1", "sec2a", "sec2b", "sec3", "sec4", "sec5"],
+        [
+            ("sec1_s1", "sec1", "sec2a_s1", "sec2a", "main"),
+            ("sec1_s1", "sec1", "sec2b_s1", "sec2b", "main"),
+            ("sec2a_s1", "sec2a", "sec3_s1", "sec3", "main"),
+            ("sec2b_s1", "sec2b", "sec3_s1", "sec3", "main"),
+            ("sec3_s1", "sec3", "sec4_s1", "sec4", "main"),
+            ("sec4_s1", "sec4", "sec5_s1", "sec5", "main"),
+        ],
+    )
+    successors, predecessors, edge_lines = _build_section_dag(graph)
+    fold_sections, below_fold = _assign_grid_positions(
+        graph, successors, predecessors, max_station_columns=2
+    )
+
+    # sec3 should be the fold section
+    assert "sec3" in fold_sections
+
+    # sec4 should be placed below the fold
+    assert "sec4" in below_fold
+
+    # sec5 (return row) should share the same row as sec4 (below-fold),
+    # not be pushed to a later row. They're in different columns so sharing is fine.
+    sec4_row = graph.sections["sec4"].grid_row
+    sec5_row = graph.sections["sec5"].grid_row
+    assert sec5_row == sec4_row, (
+        f"Return section sec5 at row {sec5_row} should share row with "
+        f"below-fold sec4 at row {sec4_row}"
+    )
