@@ -20,16 +20,96 @@ For development:
 pip install -e ".[dev]"
 ```
 
-## Usage
+Requires Python 3.10+.
+
+## Quick start
+
+Render a metro map from a `.mmd` file:
 
 ```bash
-nf-metro render pipeline.mmd -o pipeline.svg
-nf-metro render pipeline.mmd -o pipeline.svg --theme light --logo logo_light.png
-nf-metro validate pipeline.mmd
-nf-metro info pipeline.mmd
+nf-metro render examples/simple_pipeline.mmd -o pipeline.svg
 ```
 
-The `--logo` flag overrides the `%%metro logo:` directive, letting you use the same `.mmd` file with different logos for dark/light themes.
+Validate your input without rendering:
+
+```bash
+nf-metro validate examples/simple_pipeline.mmd
+```
+
+Inspect structure (sections, lines, stations):
+
+```bash
+nf-metro info examples/simple_pipeline.mmd
+```
+
+## CLI reference
+
+### `nf-metro render`
+
+Render a Mermaid metro map definition to SVG.
+
+```
+nf-metro render [OPTIONS] INPUT_FILE
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-o`, `--output PATH` | `<input>.svg` | Output SVG file path |
+| `--theme [nfcore\|light]` | `nfcore` | Visual theme |
+| `--width INTEGER` | auto | SVG width in pixels |
+| `--height INTEGER` | auto | SVG height in pixels |
+| `--x-spacing FLOAT` | `60` | Horizontal spacing between layers |
+| `--y-spacing FLOAT` | `40` | Vertical spacing between tracks |
+| `--max-layers-per-row INTEGER` | auto | Max layers before folding to next row |
+| `--animate / --no-animate` | off | Add animated balls traveling along lines |
+| `--debug / --no-debug` | off | Show debug overlay (ports, hidden stations, edge waypoints) |
+| `--logo PATH` | none | Logo image path (overrides `%%metro logo:` directive) |
+
+The `--logo` flag lets you use the same `.mmd` file with different logos for dark/light themes:
+
+```bash
+nf-metro render pipeline.mmd -o pipeline_dark.svg --theme nfcore --logo logo_dark.png
+nf-metro render pipeline.mmd -o pipeline_light.svg --theme light --logo logo_light.png
+```
+
+### `nf-metro validate`
+
+Check a `.mmd` file for errors without producing output.
+
+```
+nf-metro validate INPUT_FILE
+```
+
+### `nf-metro info`
+
+Print a summary of the parsed map: sections, lines, stations, and edges.
+
+```
+nf-metro info INPUT_FILE
+```
+
+## Examples
+
+The [`examples/`](examples/) directory contains ready-to-render `.mmd` files:
+
+| Example | Description |
+|---------|-------------|
+| [`simple_pipeline.mmd`](examples/simple_pipeline.mmd) | Minimal two-line pipeline with no sections |
+| [`rnaseq_auto.mmd`](examples/rnaseq_auto.mmd) | nf-core/rnaseq with fully auto-inferred layout |
+| [`rnaseq_sections.mmd`](examples/rnaseq_sections.mmd) | nf-core/rnaseq with manual grid overrides |
+
+### Topology gallery
+
+The [`examples/topologies/`](examples/topologies/) directory has 15 examples covering a range of layout patterns. See the [topology README](examples/topologies/README.md) for descriptions and rendered previews.
+
+A few highlights:
+
+| | | |
+|:---:|:---:|:---:|
+| **Wide Fan-Out** | **Section Diamond** | **Variant Calling** |
+| ![Wide Fan-Out](examples/topologies/wide_fan_out.png) | ![Section Diamond](examples/topologies/section_diamond.png) | ![Variant Calling](examples/topologies/variant_calling.png) |
+| **Fold Serpentine** | **Multi-Line Bundle** | **RNA-seq Lite** |
+| ![Fold Double](examples/topologies/fold_double.png) | ![Multi-Line Bundle](examples/topologies/multi_line_bundle.png) | ![RNA-seq Lite](examples/topologies/rnaseq_lite.png) |
 
 ## Input format
 
@@ -188,3 +268,7 @@ These are automatically rewritten into port-to-port connections with junction st
 | `%%metro entry: <side> \| <lines>` | Section | Entry port hint |
 | `%%metro exit: <side> \| <lines>` | Section | Exit port hint |
 | `%%metro direction: <dir>` | Section | Flow direction: `LR`, `RL`, `TB` |
+
+## License
+
+[MIT](LICENSE)
