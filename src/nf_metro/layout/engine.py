@@ -395,10 +395,98 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                         continue
 
                     if entry_section.grid_row == src_section.grid_row:
+                        target_y = src.y
+
+                        # Clamp for TB sections with perpendicular entry:
+                        # the entry port must stay above the first internal
+                        # station so the direction-change curve has room.
+                        if (
+                            entry_section.direction == "TB"
+                            and port.side in (PortSide.LEFT, PortSide.RIGHT)
+                        ):
+                            internal_ids = (
+                                set(entry_section.station_ids)
+                                - set(entry_section.entry_ports)
+                                - set(entry_section.exit_ports)
+                            )
+                            internal_ys = [
+                                graph.stations[sid].y
+                                for sid in internal_ids
+                                if sid in graph.stations
+                                and not graph.stations[sid].is_port
+                            ]
+                            if internal_ys:
+                                first_y = min(internal_ys)
+                                min_gap = 16.0
+                                max_y = first_y - min_gap
+                                if target_y > max_y:
+                                    # Prefer the topmost source-side
+                                    # station feeding the exit port so
+                                    # that line exits horizontally.
+                                    exit_pid = edge.source
+                                    if edge.source in junction_ids:
+                                        for e2 in graph.edges:
+                                            if e2.target == edge.source:
+                                                ep = graph.stations.get(
+                                                    e2.source
+                                                )
+                                                if ep and ep.is_port:
+                                                    exit_pid = e2.source
+                                                    break
+                                    top_src_y = None
+                                    for e3 in graph.edges:
+                                        if e3.target == exit_pid:
+                                            s3 = graph.stations.get(
+                                                e3.source
+                                            )
+                                            if (
+                                                s3
+                                                and not s3.is_port
+                                                and e3.source
+                                                not in junction_ids
+                                            ):
+                                                if (
+                                                    top_src_y is None
+                                                    or s3.y < top_src_y
+                                                ):
+                                                    top_src_y = s3.y
+                                    if (
+                                        top_src_y is not None
+                                        and top_src_y < max_y
+                                    ):
+                                        target_y = top_src_y
+                                    else:
+                                        target_y = max_y
+                                    # Pull source up to maintain straight
+                                    # horizontal run
+                                    src.y = target_y
+                                    if (
+                                        src.is_port
+                                        and edge.source in graph.ports
+                                    ):
+                                        graph.ports[edge.source].y = target_y
+                                    # If source is a junction, also pull
+                                    # the exit port feeding it
+                                    if edge.source in junction_ids:
+                                        for e2 in graph.edges:
+                                            if e2.target == edge.source:
+                                                ep = graph.stations.get(
+                                                    e2.source
+                                                )
+                                                if ep and ep.is_port:
+                                                    ep.y = target_y
+                                                    if (
+                                                        e2.source
+                                                        in graph.ports
+                                                    ):
+                                                        graph.ports[
+                                                            e2.source
+                                                        ].y = target_y
+
                         station = graph.stations.get(port_id)
                         if station:
-                            station.y = src.y
-                        port.y = src.y
+                            station.y = target_y
+                        port.y = target_y
                     break
 
         elif port.side in (PortSide.TOP, PortSide.BOTTOM):
