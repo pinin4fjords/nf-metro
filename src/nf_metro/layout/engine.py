@@ -120,8 +120,12 @@ def _compute_section_layout(
         track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
         # Detect fork/join layers and add extra spacing so stations
-        # aren't too close to divergence/convergence points
-        layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing)
+        # aren't too close to divergence/convergence points.
+        # Pass full graph so port-touching edges count as forks/joins.
+        section_sids = set(section.station_ids)
+        layer_extra = _compute_fork_join_gaps(
+            sub, layers, x_spacing, graph, section_sids
+        )
 
         for sid, station in sub.stations.items():
             station.layer = layers.get(sid, 0)
@@ -600,20 +604,37 @@ def _compute_fork_join_gaps(
     sub: MetroGraph,
     layers: dict[str, int],
     x_spacing: float,
+    full_graph: MetroGraph | None = None,
+    section_station_ids: set[str] | None = None,
 ) -> dict[int, float]:
     """Compute extra X offset per layer at fork/join points.
 
     Adds a fractional gap after fork layers (where tracks diverge) and
     before join layers (where tracks converge) so labels aren't obscured
     by diagonal crossings.
+
+    When full_graph and section_station_ids are provided, fork/join
+    detection uses all edges within the section (including port-touching
+    edges). This catches divergences where a station connects to both
+    internal stations and exit ports (e.g. umi_tools_dedup forking to
+    salmon_quant and an exit port).
     """
     from collections import defaultdict
 
     out_targets: dict[str, set[str]] = defaultdict(set)
     in_sources: dict[str, set[str]] = defaultdict(set)
-    for edge in sub.edges:
-        out_targets[edge.source].add(edge.target)
-        in_sources[edge.target].add(edge.source)
+
+    # Use full graph edges for fork/join detection when available,
+    # so that edges to/from port stations are counted as divergences.
+    if full_graph is not None and section_station_ids is not None:
+        for edge in full_graph.edges:
+            if edge.source in section_station_ids and edge.target in section_station_ids:
+                out_targets[edge.source].add(edge.target)
+                in_sources[edge.target].add(edge.source)
+    else:
+        for edge in sub.edges:
+            out_targets[edge.source].add(edge.target)
+            in_sources[edge.target].add(edge.source)
 
     fork_layers = {
         layers[sid]
