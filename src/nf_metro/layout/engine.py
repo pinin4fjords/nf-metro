@@ -65,6 +65,10 @@ def _compute_flat_layout(
     if not layers:
         return
 
+    # When tracks is empty (e.g. no named lines), default all to track 0.
+    if not tracks:
+        tracks = {sid: 0 for sid in layers}
+
     unique_tracks = sorted(set(tracks.values()))
     track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
