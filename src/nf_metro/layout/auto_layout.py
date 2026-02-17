@@ -254,7 +254,9 @@ def _assign_grid_positions(
                         folded[ns] = (fold_col, band_start_row + j)
                         below_fold_sections.add(ns)
                     skip_topo_cols.add(next_topo)
-                    band_start_row += len(next_sids)
+                    # Don't increment band_start_row: below-fold sections
+                    # are in the fold column, so return-row sections (in
+                    # adjacent columns) can share the same rows.
         else:
             # Normal placement in current band
             for i, sid in enumerate(sids):

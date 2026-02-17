@@ -304,7 +304,11 @@ def _compute_section_layout(
                 if section.direction == "LR":
                     section.bbox_w += exit_gap
                 else:
-                    section.bbox_x -= exit_gap
+                    # Shift stations right to create clearance on the left
+                    # (exit) side without moving the bbox boundary, which
+                    # would misalign the section within its grid column.
+                    for s in sub.stations.values():
+                        s.x += exit_gap
                     section.bbox_w += exit_gap
 
         section_subgraphs[sec_id] = sub
