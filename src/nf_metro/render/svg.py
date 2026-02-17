@@ -21,15 +21,20 @@ def render_svg(
     height: int | None = None,
     padding: float = 60.0,
     animate: bool = False,
+    debug: bool = False,
 ) -> str:
     """Render a metro map graph to an SVG string."""
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
     # Filter out port stations for dimension calculation
-    visible_stations = [
-        s for s in graph.stations.values() if not s.is_port and not s.is_hidden
-    ]
+    # In debug mode, include ports/hidden stations in bounds so they are visible
+    if debug:
+        visible_stations = list(graph.stations.values())
+    else:
+        visible_stations = [
+            s for s in graph.stations.values() if not s.is_port and not s.is_hidden
+        ]
     all_stations_for_bounds = (
         visible_stations if visible_stations else list(graph.stations.values())
     )
@@ -44,15 +49,21 @@ def render_svg(
             max_y = max(max_y, section.bbox_y + section.bbox_h)
 
     # Compute legend and logo dimensions
-    legend_x = 0.0
-    legend_y = 0.0
-    legend_w, legend_h = compute_legend_dimensions(graph, theme)
-    show_legend = graph.legend_position != "none" and legend_w > 0
-
     logo_w, logo_h = (0.0, 0.0)
     show_logo = graph.logo_path and Path(graph.logo_path).is_file()
     if show_logo:
         logo_w, logo_h = compute_logo_dimensions(graph.logo_path)
+
+    # When both logo and legend are active, embed logo inside the legend box
+    logo_in_legend = show_logo and graph.legend_position != "none"
+    legend_logo_size = (logo_w, logo_h) if logo_in_legend else None
+
+    legend_x = 0.0
+    legend_y = 0.0
+    legend_w, legend_h = compute_legend_dimensions(
+        graph, theme, logo_size=legend_logo_size
+    )
+    show_legend = graph.legend_position != "none" and legend_w > 0
 
     if show_legend:
         pos = graph.legend_position
@@ -87,32 +98,23 @@ def render_svg(
             legend_x = content_right + gap
             legend_y = content_top
 
+        # If the legend overlaps any section, push it below the canvas
+        if pos not in ("bottom", "right") and _legend_overlaps_sections(
+            legend_x, legend_y, legend_w, legend_h, graph
+        ):
+            legend_x = content_left
+            legend_y = content_bottom + gap
+
         max_x = max(max_x, legend_x + legend_w)
         max_y = max(max_y, legend_y + legend_h)
 
-    # Position logo to the left of the legend: right-align the combo
-    # with the first section's right edge
+    # Standalone logo positioning (only when no legend to embed it in)
     logo_x = 0.0
     logo_y = 0.0
-    if show_logo:
-        logo_gap = 15.0
-        if show_legend:
-            # Find the first section's right edge (leftmost column)
-            first_sections = [
-                s for s in graph.sections.values() if s.bbox_w > 0 and s.grid_col == 0
-            ]
-            if first_sections:
-                anchor_right = max(s.bbox_x + s.bbox_w for s in first_sections)
-            else:
-                anchor_right = legend_x + logo_w + logo_gap + legend_w
-            # Right-align: legend right edge at anchor_right
-            legend_x = anchor_right - legend_w
-            logo_x = legend_x - logo_w - logo_gap
-            logo_y = legend_y + (legend_h - logo_h) / 2
-        else:
-            logo_x = padding
-            logo_y = 5.0
-        max_x = max(max_x, legend_x + legend_w if show_legend else logo_x + logo_w)
+    if show_logo and not show_legend:
+        logo_x = padding
+        logo_y = 5.0
+        max_x = max(max_x, logo_x + logo_w)
 
     auto_width = max_x + padding * 2
     auto_height = max_y + padding * 2
@@ -128,10 +130,10 @@ def render_svg(
             draw.Rectangle(0, 0, svg_width, svg_height, fill=theme.background_color)
         )
 
-    # Title / Logo
-    if show_logo:
+    # Title / Logo (standalone logo only when not embedded in legend)
+    if show_logo and not logo_in_legend:
         _render_logo(d, graph.logo_path, logo_x, logo_y, logo_w, logo_h)
-    elif graph.title:
+    elif graph.title and not logo_in_legend:
         d.append(
             draw.Text(
                 graph.title,
@@ -168,11 +170,72 @@ def render_svg(
     labels = place_labels(graph, station_offsets=station_offsets)
     _render_labels(d, labels, theme)
 
-    # Legend
+    # Debug overlay (ports, hidden stations, edge waypoints)
+    if debug:
+        _render_debug_overlay(d, graph, routes, station_offsets, theme)
+
+    # Legend (with embedded logo if present)
     if show_legend:
-        render_legend(d, graph, theme, legend_x, legend_y)
+        render_legend(
+            d,
+            graph,
+            theme,
+            legend_x,
+            legend_y,
+            logo_path=graph.logo_path if logo_in_legend else None,
+            logo_size=legend_logo_size,
+        )
+
+    # Attribution watermark
+    d.append(
+        draw.Text(
+            f"created with nf-metro {_version_string()}",
+            8,
+            svg_width - padding * 0.5,
+            svg_height - 8,
+            fill="rgba(150, 150, 150, 0.6)",
+            font_family=theme.label_font_family,
+            text_anchor="end",
+        )
+    )
 
     return d.as_svg()
+
+
+def _legend_overlaps_sections(
+    lx: float, ly: float, lw: float, lh: float, graph: MetroGraph
+) -> bool:
+    """Check if a legend rectangle overlaps any section bounding box."""
+    for section in graph.sections.values():
+        if section.bbox_w <= 0:
+            continue
+        if (
+            lx < section.bbox_x + section.bbox_w
+            and lx + lw > section.bbox_x
+            and ly < section.bbox_y + section.bbox_h
+            and ly + lh > section.bbox_y
+        ):
+            return True
+    return False
+
+
+def _version_string() -> str:
+    """Return version string, appending '+dev' for editable/non-release installs."""
+    from nf_metro import __version__
+
+    try:
+        import importlib.metadata
+        import json
+
+        dist = importlib.metadata.distribution("nf-metro")
+        direct_url = dist.read_text("direct_url.json")
+        if direct_url:
+            data = json.loads(direct_url)
+            if data.get("dir_info", {}).get("editable"):
+                return f"v{__version__}+dev"
+    except Exception:
+        pass
+    return f"v{__version__}"
 
 
 def compute_logo_dimensions(
@@ -389,8 +452,8 @@ def _render_stations(
     """Render stations as pill shapes.
 
     Normal stations get vertical pills (tall, narrow). Stations in a TB
-    section's vertical part (layer > 0) get horizontal pills (wide, short)
-    since the lines run vertically through them.
+    section get horizontal pills (wide, short) since the lines run
+    vertically through them.
 
     Skips port stations (is_port=True).
     """
@@ -404,7 +467,7 @@ def _render_stations(
         is_tb_vert = False
         if station.section_id:
             sec = graph.sections.get(station.section_id)
-            if sec and sec.direction == "TB" and station.layer > 0:
+            if sec and sec.direction == "TB":
                 is_tb_vert = True
 
         if station_offsets:
@@ -562,3 +625,109 @@ def _render_labels(
                     dominant_baseline=baseline,
                 )
             )
+
+
+def _render_debug_overlay(
+    d: draw.Drawing,
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    station_offsets: dict[tuple[str, str], float],
+    theme: Theme,
+) -> None:
+    """Render debug markers for ports, hidden stations, and edge waypoints."""
+    debug_font = theme.label_font_family
+    debug_font_size = 7
+
+    # Edge waypoints: small filled circles at intermediate points
+    for route in routes:
+        if len(route.points) <= 2:
+            continue
+        if route.offsets_applied:
+            pts = list(route.points)
+        else:
+            src_off = station_offsets.get(
+                (route.edge.source, route.line_id), 0.0
+            )
+            tgt_off = station_offsets.get(
+                (route.edge.target, route.line_id), 0.0
+            )
+            orig_sy = route.points[0][1]
+            orig_ty = route.points[-1][1]
+            pts = []
+            for i, (x, y) in enumerate(route.points):
+                if i == 0:
+                    pts.append((x, y + src_off))
+                elif i == len(route.points) - 1:
+                    pts.append((x, y + tgt_off))
+                elif abs(y - orig_sy) <= abs(y - orig_ty):
+                    pts.append((x, y + src_off))
+                else:
+                    pts.append((x, y + tgt_off))
+        # Draw intermediate waypoints (skip first/last which are at stations)
+        for px, py in pts[1:-1]:
+            d.append(
+                draw.Circle(px, py, 3, fill="rgba(255, 200, 50, 0.6)")
+            )
+
+    # Port stations: diamond markers with labels
+    for station in graph.stations.values():
+        if not station.is_port:
+            continue
+        port = graph.ports.get(station.id)
+        is_entry = port.is_entry if port else True
+        color = (
+            "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
+        )
+        # Diamond (rotated square)
+        r = 5
+        diamond = draw.Path(fill=color, stroke="none")
+        diamond.M(station.x, station.y - r)
+        diamond.L(station.x + r, station.y)
+        diamond.L(station.x, station.y + r)
+        diamond.L(station.x - r, station.y)
+        diamond.Z()
+        d.append(diamond)
+        # Label: port ID + side
+        side_str = port.side.value if port else "?"
+        label_text = f"{station.id} ({side_str})"
+        d.append(
+            draw.Text(
+                label_text,
+                debug_font_size,
+                station.x,
+                station.y - r - 3,
+                fill=color,
+                font_family=debug_font,
+                text_anchor="middle",
+                dominant_baseline="auto",
+            )
+        )
+
+    # Hidden stations: dashed-outline circles with labels
+    for station in graph.stations.values():
+        if not station.is_hidden or station.is_port:
+            continue
+        color = "rgba(180, 80, 255, 0.7)"
+        d.append(
+            draw.Circle(
+                station.x,
+                station.y,
+                5,
+                fill="none",
+                stroke=color,
+                stroke_width=1.5,
+                stroke_dasharray="3,2",
+            )
+        )
+        d.append(
+            draw.Text(
+                station.id,
+                debug_font_size,
+                station.x,
+                station.y - 8,
+                fill=color,
+                font_family=debug_font,
+                text_anchor="middle",
+                dominant_baseline="auto",
+            )
+        )
