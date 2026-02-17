@@ -108,6 +108,12 @@ def render_svg(
             # Right-align: legend right edge at anchor_right
             legend_x = anchor_right - legend_w
             logo_x = legend_x - logo_w - logo_gap
+            # Clamp so logo doesn't go off the left edge of the canvas
+            min_logo_x = padding * 0.5
+            if logo_x < min_logo_x:
+                shift = min_logo_x - logo_x
+                logo_x = min_logo_x
+                legend_x += shift
             logo_y = legend_y + (legend_h - logo_h) / 2
         else:
             logo_x = padding

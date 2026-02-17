@@ -40,8 +40,8 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         max_station_columns,
     )
     _optimize_rowspans(graph, fold_sections, successors)
-    _optimize_colspans(graph, fold_sections)
     _infer_directions(graph, successors, predecessors, fold_sections)
+    _optimize_colspans(graph, fold_sections)
     _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
 
 
@@ -325,19 +325,20 @@ def _optimize_rowspans(
 def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
     """Optimize column spans to reduce dead space from oversized sections.
 
-    Only targets columns that contain a fold section (TB bridge). Fold
-    sections are narrow horizontally, so a wider section sharing the column
-    inflates it unnecessarily. Spanning the wider section leftward lets the
-    column width be determined by the fold section's actual width.
+    Targets columns where one section inflates the width beyond what the
+    other sections need. This includes fold columns (where a wide section
+    shares with a narrow TB bridge) and columns where a wide RL return-row
+    section shares with narrower LR sections. Spanning the wider section
+    leftward lets the column width be determined by the narrower sections.
     """
-    if not fold_sections:
-        return
-
     # Group sections by column
     col_groups: dict[int, list[str]] = defaultdict(list)
     for sid, section in graph.sections.items():
         if section.grid_col >= 0:
             col_groups[section.grid_col].append(sid)
+
+    if not any(len(sids) >= 2 for sids in col_groups.values()):
+        return
 
     # Estimate layers per section
     section_layers: dict[str, int] = {}
@@ -360,21 +361,23 @@ def _optimize_colspans(graph: MetroGraph, fold_sections: set[str]) -> None:
         if len(sids) < 2:
             continue
 
-        # Only optimize columns containing a fold section
-        if not any(sid in fold_sections for sid in sids):
-            continue
+        is_fold_column = any(s in fold_sections for s in sids)
 
         for sid in sids:
             # Don't span fold sections themselves (they're the narrow ones)
             if sid in fold_sections:
                 continue
 
+            section = graph.sections[sid]
+
+            # Only optimize fold columns (original) or RL return-row sections
+            if not is_fold_column and section.direction != "RL":
+                continue
+
             # Check if this section inflates the column width
             other_max = max(section_layers[s] for s in sids if s != sid)
             if section_layers[sid] <= other_max:
                 continue
-
-            section = graph.sections[sid]
             sec_rows = range(section.grid_row, section.grid_row + section.grid_row_span)
 
             # Span leftward until accumulated width >= this section's layers
