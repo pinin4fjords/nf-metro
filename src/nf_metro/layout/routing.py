@@ -540,9 +540,14 @@ def _compute_bundle_info(
             # Vertical: group by shared X position
             key = ("V", round(sx), v_dir)
         else:
-            # L-shaped: group by vertical channel midpoint
-            mid_x = (sx + tx) / 2
-            key = ("L", round(mid_x), v_dir)
+            # L-shaped: group by source X and horizontal direction.
+            # The vertical channel is placed in the inter-column gap
+            # near the source, so source X is the right grouping key.
+            # Using midpoint (sx+tx)/2 fails for junction fan-outs
+            # where targets are at different X positions but share
+            # the same vertical channel.
+            h_dir = 1 if dx > 0 else -1
+            key = ("L", round(sx), v_dir, h_dir)
 
         corridor_groups[key].append(item)
 
