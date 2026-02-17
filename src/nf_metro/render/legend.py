@@ -11,12 +11,16 @@ from nf_metro.render.style import Theme
 def _scale_logo_to_content(
     logo_size: tuple[float, float], content_height: float
 ) -> tuple[float, float]:
-    """Scale logo to fit content height, preserving aspect ratio."""
+    """Scale logo to fit within content height, preserving aspect ratio.
+
+    Uses 60% of content_height so the logo doesn't dominate the legend.
+    """
     orig_w, orig_h = logo_size
     if orig_h <= 0:
         return (0.0, 0.0)
+    target_h = content_height * 0.6
     aspect = orig_w / orig_h
-    return (content_height * aspect, content_height)
+    return (target_h * aspect, target_h)
 
 
 def compute_legend_dimensions(
@@ -38,7 +42,7 @@ def compute_legend_dimensions(
     text_offset = swatch_width + 12.0
 
     max_name_len = max(len(ml.display_name) for ml in graph.lines.values())
-    char_width = theme.legend_font_size * 0.55
+    char_width = theme.legend_font_size * 0.48
     content_height = len(graph.lines) * line_height
 
     # Logo scaled to fit content height

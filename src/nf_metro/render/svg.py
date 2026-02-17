@@ -93,6 +93,13 @@ def render_svg(
             legend_x = content_right + gap
             legend_y = content_top
 
+        # If the legend overlaps any section, push it below the canvas
+        if pos not in ("bottom", "right") and _legend_overlaps_sections(
+            legend_x, legend_y, legend_w, legend_h, graph
+        ):
+            legend_x = content_left
+            legend_y = content_bottom + gap
+
         max_x = max(max_x, legend_x + legend_w)
         max_y = max(max_y, legend_y + legend_h)
 
@@ -184,6 +191,23 @@ def render_svg(
     )
 
     return d.as_svg()
+
+
+def _legend_overlaps_sections(
+    lx: float, ly: float, lw: float, lh: float, graph: MetroGraph
+) -> bool:
+    """Check if a legend rectangle overlaps any section bounding box."""
+    for section in graph.sections.values():
+        if section.bbox_w <= 0:
+            continue
+        if (
+            lx < section.bbox_x + section.bbox_w
+            and lx + lw > section.bbox_x
+            and ly < section.bbox_y + section.bbox_h
+            and ly + lh > section.bbox_y
+        ):
+            return True
+    return False
 
 
 def _version_string() -> str:
