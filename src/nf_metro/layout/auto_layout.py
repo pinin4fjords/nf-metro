@@ -589,7 +589,9 @@ def _infer_port_sides(
                             (PortSide.BOTTOM, sorted(all_exit_lines))
                         )
                 else:
-                    side_votes: dict[PortSide, int] = defaultdict(int)
+                    # Group exit lines by the side toward their target
+                    # section, creating one exit hint per side.
+                    side_exit_lines: dict[PortSide, set[str]] = defaultdict(set)
                     for tgt in successors[sec_id]:
                         tgt_sec = graph.sections.get(tgt)
                         if not tgt_sec or tgt not in graph.grid_overrides:
@@ -603,15 +605,15 @@ def _infer_port_sides(
                             section.grid_col_span,
                             tgt_sec.grid_col_span,
                         )
-                        side_votes[side] += len(lines)
-                    if side_votes:
-                        dominant_side = max(
-                            side_votes,
-                            key=lambda s: (side_votes[s], s == PortSide.RIGHT),
-                        )
-                        section.exit_hints.append(
-                            (dominant_side, sorted(all_exit_lines))
-                        )
+                        side_exit_lines[side].update(lines)
+                    if side_exit_lines:
+                        for side, lines in sorted(
+                            side_exit_lines.items(), key=lambda x: x[0].value
+                        ):
+                            if lines:
+                                section.exit_hints.append(
+                                    (side, sorted(lines))
+                                )
 
         # Infer entry hints (only if section has no explicit entry_hints)
         if not section.entry_hints and sec_id in predecessors:
