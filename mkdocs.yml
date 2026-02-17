@@ -6,6 +6,7 @@ repo_name: pinin4fjords/nf-metro
 
 theme:
   name: material
+  custom_dir: docs/overrides
   palette:
     scheme: slate
     primary: teal
@@ -17,6 +18,10 @@ theme:
     - navigation.sections
     - content.code.copy
     - toc.follow
+
+extra:
+  version:
+    provider: mike
 
 markdown_extensions:
   - pymdownx.highlight:
