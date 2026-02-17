@@ -9,6 +9,7 @@ A single-page gallery site deployed via GitHub Pages. Each example shows the CLI
 - Navigation sidebar auto-generated from headings (easy to scroll between examples)
 - Dark mode by default (matches the nf-core theme renders)
 - GitHub Actions deploys automatically on push to `main`
+- Versioned docs via `mike`: "dev" from main, release versions on publish
 
 ## File Structure
 
@@ -143,17 +144,17 @@ Descriptions are derived from:
 
 ### 5. Create `.github/workflows/docs.yml`
 
-GitHub Actions workflow that:
-1. Installs Python 3.12 + `pip install -e ".[docs]"`
-2. Runs `python scripts/build_gallery.py` to generate SVGs + gallery markdown
-3. Runs `mkdocs build --strict`
-4. Deploys to GitHub Pages via `actions/deploy-pages@v4`
+GitHub Actions workflow using `mike` for versioned deploys:
 
-Triggered on pushes to `main` and manual `workflow_dispatch`.
+- **On push to `main`**: deploys as `dev` version
+- **On GitHub release**: deploys as the release version (e.g., `0.2.0`) with a `latest` alias, and sets `latest` as the default redirect
+- **On `workflow_dispatch`**: deploys as `dev` (manual trigger)
+
+`mike` pushes versioned builds to the `gh-pages` branch. Each version lives in its own subdirectory. The mkdocs-material version selector dropdown lets users switch between versions.
 
 ### 6. Enable GitHub Pages
 
-In the repo settings: Settings > Pages > Source: "GitHub Actions".
+In the repo settings: Settings > Pages > Source: "Deploy from a branch", branch: `gh-pages`.
 
 ### 7. Local preview workflow
 
