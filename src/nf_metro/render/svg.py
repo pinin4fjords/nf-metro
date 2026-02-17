@@ -645,12 +645,8 @@ def _render_debug_overlay(
         if route.offsets_applied:
             pts = list(route.points)
         else:
-            src_off = station_offsets.get(
-                (route.edge.source, route.line_id), 0.0
-            )
-            tgt_off = station_offsets.get(
-                (route.edge.target, route.line_id), 0.0
-            )
+            src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
+            tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
             orig_sy = route.points[0][1]
             orig_ty = route.points[-1][1]
             pts = []
@@ -665,9 +661,7 @@ def _render_debug_overlay(
                     pts.append((x, y + tgt_off))
         # Draw intermediate waypoints (skip first/last which are at stations)
         for px, py in pts[1:-1]:
-            d.append(
-                draw.Circle(px, py, 3, fill="rgba(255, 200, 50, 0.6)")
-            )
+            d.append(draw.Circle(px, py, 3, fill="rgba(255, 200, 50, 0.6)"))
 
     # Port stations: diamond markers with labels
     for station in graph.stations.values():
@@ -675,9 +669,7 @@ def _render_debug_overlay(
             continue
         port = graph.ports.get(station.id)
         is_entry = port.is_entry if port else True
-        color = (
-            "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
-        )
+        color = "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
         # Diamond (rotated square)
         r = 5
         diamond = draw.Path(fill=color, stroke="none")

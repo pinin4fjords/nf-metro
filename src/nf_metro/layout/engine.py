@@ -77,8 +77,8 @@ def _compute_flat_layout(
     for sid, station in graph.stations.items():
         station.layer = layers.get(sid, 0)
         station.track = tracks.get(sid, 0)
-        station.x = x_offset + station.layer * x_spacing + layer_extra.get(
-            station.layer, 0
+        station.x = (
+            x_offset + station.layer * x_spacing + layer_extra.get(station.layer, 0)
         )
         station.y = y_offset + track_rank[station.track] * y_spacing
 
@@ -298,8 +298,8 @@ def _compute_section_layout(
                 max_layer = max(layers.values())
                 char_width = 7.0
                 max_label_half = 0.0
-                for sid_l, l in layers.items():
-                    if l == max_layer:
+                for sid_l, layer_num in layers.items():
+                    if layer_num == max_layer:
                         station = sub.stations.get(sid_l)
                         if station and station.label.strip():
                             label_half = len(station.label) * char_width / 2
@@ -356,7 +356,6 @@ def _compute_section_layout(
     # Phase 8 may have moved exit ports on fold sections, so junctions
     # placed in Phase 6 need updating to match the new exit port Y.
     _position_junctions(graph)
-
 
 
 def _position_junctions(graph: MetroGraph) -> None:
@@ -452,9 +451,9 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                         # Clamp for TB sections with perpendicular entry:
                         # the entry port must stay above the first internal
                         # station so the direction-change curve has room.
-                        if (
-                            entry_section.direction == "TB"
-                            and port.side in (PortSide.LEFT, PortSide.RIGHT)
+                        if entry_section.direction == "TB" and port.side in (
+                            PortSide.LEFT,
+                            PortSide.RIGHT,
                         ):
                             internal_ids = (
                                 set(entry_section.station_ids)
@@ -479,58 +478,42 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                                     if edge.source in junction_ids:
                                         for e2 in graph.edges:
                                             if e2.target == edge.source:
-                                                ep = graph.stations.get(
-                                                    e2.source
-                                                )
+                                                ep = graph.stations.get(e2.source)
                                                 if ep and ep.is_port:
                                                     exit_pid = e2.source
                                                     break
                                     top_src_y = None
                                     for e3 in graph.edges:
                                         if e3.target == exit_pid:
-                                            s3 = graph.stations.get(
-                                                e3.source
-                                            )
+                                            s3 = graph.stations.get(e3.source)
                                             if (
                                                 s3
                                                 and not s3.is_port
-                                                and e3.source
-                                                not in junction_ids
+                                                and e3.source not in junction_ids
                                             ):
                                                 if (
                                                     top_src_y is None
                                                     or s3.y < top_src_y
                                                 ):
                                                     top_src_y = s3.y
-                                    if (
-                                        top_src_y is not None
-                                        and top_src_y < max_y
-                                    ):
+                                    if top_src_y is not None and top_src_y < max_y:
                                         target_y = top_src_y
                                     else:
                                         target_y = max_y
                                     # Pull source up to maintain straight
                                     # horizontal run
                                     src.y = target_y
-                                    if (
-                                        src.is_port
-                                        and edge.source in graph.ports
-                                    ):
+                                    if src.is_port and edge.source in graph.ports:
                                         graph.ports[edge.source].y = target_y
                                     # If source is a junction, also pull
                                     # the exit port feeding it
                                     if edge.source in junction_ids:
                                         for e2 in graph.edges:
                                             if e2.target == edge.source:
-                                                ep = graph.stations.get(
-                                                    e2.source
-                                                )
+                                                ep = graph.stations.get(e2.source)
                                                 if ep and ep.is_port:
                                                     ep.y = target_y
-                                                    if (
-                                                        e2.source
-                                                        in graph.ports
-                                                    ):
+                                                    if e2.source in graph.ports:
                                                         graph.ports[
                                                             e2.source
                                                         ].y = target_y
@@ -563,18 +546,22 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                 continue
 
             # Check if any source is cross-column
-            my_cols = set(range(
-                entry_section.grid_col,
-                entry_section.grid_col + entry_section.grid_col_span,
-            ))
+            my_cols = set(
+                range(
+                    entry_section.grid_col,
+                    entry_section.grid_col + entry_section.grid_col_span,
+                )
+            )
             is_cross_column = False
             for _, src_sid in sources:
                 src_sec = graph.sections.get(src_sid) if src_sid else None
                 if src_sec:
-                    src_cols = set(range(
-                        src_sec.grid_col,
-                        src_sec.grid_col + src_sec.grid_col_span,
-                    ))
+                    src_cols = set(
+                        range(
+                            src_sec.grid_col,
+                            src_sec.grid_col + src_sec.grid_col_span,
+                        )
+                    )
                     if not (src_cols & my_cols):
                         is_cross_column = True
                         break
@@ -590,9 +577,7 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                     target_y = max(src_ys)
                 # Clamp within bbox
                 target_y = max(target_y, entry_section.bbox_y)
-                target_y = min(
-                    target_y, entry_section.bbox_y + entry_section.bbox_h
-                )
+                target_y = min(target_y, entry_section.bbox_y + entry_section.bbox_h)
                 station = graph.stations.get(port_id)
                 if station:
                     station.y = target_y
@@ -601,9 +586,7 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                 # are perpendicular.  For TB sections, TOP/BOTTOM ports
                 # SHOULD share X with internal stations (flow direction).
                 if entry_section.direction in ("LR", "RL"):
-                    _nudge_port_from_stations(
-                        port_id, entry_section, graph
-                    )
+                    _nudge_port_from_stations(port_id, entry_section, graph)
             else:
                 # Same-column: align X with source for vertical drop
                 src, _ = sources[0]
@@ -711,7 +694,6 @@ def _align_exit_ports(graph: MetroGraph) -> None:
                     break
 
 
-
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
     """Build a temporary MetroGraph containing only a section's real stations and edges.
 
@@ -787,7 +769,9 @@ def _compute_fork_join_gaps(
     # so that edges to/from port stations are counted as divergences.
     if full_graph is not None and section_station_ids is not None:
         for edge in full_graph.edges:
-            if edge.source in section_station_ids and edge.target in section_station_ids:
+            src_in = edge.source in section_station_ids
+            tgt_in = edge.target in section_station_ids
+            if src_in and tgt_in:
                 out_targets[edge.source].add(edge.target)
                 in_sources[edge.target].add(edge.source)
     else:
@@ -819,8 +803,8 @@ def _compute_fork_join_gaps(
     layer_gap: dict[int, float] = {}
     for layer in fork_layers | join_layers:
         max_label_half = 0.0
-        for sid, l in layers.items():
-            if l == layer:
+        for sid, lyr in layers.items():
+            if lyr == layer:
                 station = sub.stations.get(sid)
                 if station and station.label.strip():
                     label_half = len(station.label) * char_width / 2

@@ -40,7 +40,9 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         max_station_columns,
     )
     _optimize_rowspans(graph, fold_sections, successors)
-    _infer_directions(graph, successors, predecessors, fold_sections, below_fold_sections)
+    _infer_directions(
+        graph, successors, predecessors, fold_sections, below_fold_sections
+    )
     _optimize_colspans(graph, fold_sections, below_fold_sections, successors)
     _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
 
@@ -583,9 +585,7 @@ def _infer_port_sides(
                         dominant = max(
                             side_votes_fold, key=lambda s: side_votes_fold[s]
                         )
-                        section.exit_hints.append(
-                            (dominant, sorted(all_exit_lines))
-                        )
+                        section.exit_hints.append((dominant, sorted(all_exit_lines)))
                     else:
                         section.exit_hints.append(
                             (PortSide.BOTTOM, sorted(all_exit_lines))
@@ -613,9 +613,7 @@ def _infer_port_sides(
                             side_exit_lines.items(), key=lambda x: x[0].value
                         ):
                             if lines:
-                                section.exit_hints.append(
-                                    (side, sorted(lines))
-                                )
+                                section.exit_hints.append((side, sorted(lines)))
 
         # Infer entry hints (only if section has no explicit entry_hints)
         if not section.entry_hints and sec_id in predecessors:
