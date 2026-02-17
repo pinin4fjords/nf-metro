@@ -44,15 +44,21 @@ def render_svg(
             max_y = max(max_y, section.bbox_y + section.bbox_h)
 
     # Compute legend and logo dimensions
-    legend_x = 0.0
-    legend_y = 0.0
-    legend_w, legend_h = compute_legend_dimensions(graph, theme)
-    show_legend = graph.legend_position != "none" and legend_w > 0
-
     logo_w, logo_h = (0.0, 0.0)
     show_logo = graph.logo_path and Path(graph.logo_path).is_file()
     if show_logo:
         logo_w, logo_h = compute_logo_dimensions(graph.logo_path)
+
+    # When both logo and legend are active, embed logo inside the legend box
+    logo_in_legend = show_logo and graph.legend_position != "none"
+    legend_logo_size = (logo_w, logo_h) if logo_in_legend else None
+
+    legend_x = 0.0
+    legend_y = 0.0
+    legend_w, legend_h = compute_legend_dimensions(
+        graph, theme, logo_size=legend_logo_size
+    )
+    show_legend = graph.legend_position != "none" and legend_w > 0
 
     if show_legend:
         pos = graph.legend_position
@@ -90,35 +96,13 @@ def render_svg(
         max_x = max(max_x, legend_x + legend_w)
         max_y = max(max_y, legend_y + legend_h)
 
-    # Position logo to the left of the legend: right-align the combo
-    # with the first section's right edge
+    # Standalone logo positioning (only when no legend to embed it in)
     logo_x = 0.0
     logo_y = 0.0
-    if show_logo:
-        logo_gap = 15.0
-        if show_legend:
-            # Find the first section's right edge (leftmost column)
-            first_sections = [
-                s for s in graph.sections.values() if s.bbox_w > 0 and s.grid_col == 0
-            ]
-            if first_sections:
-                anchor_right = max(s.bbox_x + s.bbox_w for s in first_sections)
-            else:
-                anchor_right = legend_x + logo_w + logo_gap + legend_w
-            # Right-align: legend right edge at anchor_right
-            legend_x = anchor_right - legend_w
-            logo_x = legend_x - logo_w - logo_gap
-            # Clamp so logo doesn't go off the left edge of the canvas
-            min_logo_x = padding * 0.5
-            if logo_x < min_logo_x:
-                shift = min_logo_x - logo_x
-                logo_x = min_logo_x
-                legend_x += shift
-            logo_y = legend_y + (legend_h - logo_h) / 2
-        else:
-            logo_x = padding
-            logo_y = 5.0
-        max_x = max(max_x, legend_x + legend_w if show_legend else logo_x + logo_w)
+    if show_logo and not show_legend:
+        logo_x = padding
+        logo_y = 5.0
+        max_x = max(max_x, logo_x + logo_w)
 
     auto_width = max_x + padding * 2
     auto_height = max_y + padding * 2
@@ -134,10 +118,10 @@ def render_svg(
             draw.Rectangle(0, 0, svg_width, svg_height, fill=theme.background_color)
         )
 
-    # Title / Logo
-    if show_logo:
+    # Title / Logo (standalone logo only when not embedded in legend)
+    if show_logo and not logo_in_legend:
         _render_logo(d, graph.logo_path, logo_x, logo_y, logo_w, logo_h)
-    elif graph.title:
+    elif graph.title and not logo_in_legend:
         d.append(
             draw.Text(
                 graph.title,
@@ -174,9 +158,17 @@ def render_svg(
     labels = place_labels(graph, station_offsets=station_offsets)
     _render_labels(d, labels, theme)
 
-    # Legend
+    # Legend (with embedded logo if present)
     if show_legend:
-        render_legend(d, graph, theme, legend_x, legend_y)
+        render_legend(
+            d,
+            graph,
+            theme,
+            legend_x,
+            legend_y,
+            logo_path=graph.logo_path if logo_in_legend else None,
+            logo_size=legend_logo_size,
+        )
 
     return d.as_svg()
 

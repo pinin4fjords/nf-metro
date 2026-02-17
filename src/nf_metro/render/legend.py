@@ -8,10 +8,26 @@ from nf_metro.parser.model import MetroGraph
 from nf_metro.render.style import Theme
 
 
-def compute_legend_dimensions(graph: MetroGraph, theme: Theme) -> tuple[float, float]:
+def _scale_logo_to_content(
+    logo_size: tuple[float, float], content_height: float
+) -> tuple[float, float]:
+    """Scale logo to fit content height, preserving aspect ratio."""
+    orig_w, orig_h = logo_size
+    if orig_h <= 0:
+        return (0.0, 0.0)
+    aspect = orig_w / orig_h
+    return (content_height * aspect, content_height)
+
+
+def compute_legend_dimensions(
+    graph: MetroGraph,
+    theme: Theme,
+    logo_size: tuple[float, float] | None = None,
+) -> tuple[float, float]:
     """Compute the width and height of the legend without rendering it.
 
     Returns (width, height). Returns (0, 0) if there are no lines.
+    logo_size is the original (width, height) of the logo image if present.
     """
     if not graph.lines:
         return (0.0, 0.0)
@@ -22,8 +38,19 @@ def compute_legend_dimensions(graph: MetroGraph, theme: Theme) -> tuple[float, f
     text_offset = swatch_width + 12.0
 
     max_name_len = max(len(ml.display_name) for ml in graph.lines.values())
-    width = text_offset + max_name_len * 7.5 + padding * 2
-    height = padding * 2 + len(graph.lines) * line_height
+    char_width = theme.legend_font_size * 0.55
+    content_height = len(graph.lines) * line_height
+
+    # Logo scaled to fit content height
+    logo_w = 0.0
+    logo_gap = 0.0
+    if logo_size:
+        scaled_w, _ = _scale_logo_to_content(logo_size, content_height)
+        logo_w = scaled_w
+        logo_gap = 12.0
+
+    width = padding * 2 + logo_w + logo_gap + text_offset + max_name_len * char_width
+    height = padding * 2 + content_height
     return (width, height)
 
 
@@ -33,10 +60,14 @@ def render_legend(
     theme: Theme,
     x: float,
     y: float,
+    logo_path: str | None = None,
+    logo_size: tuple[float, float] | None = None,
 ) -> None:
     """Render a legend showing all metro lines and their colors.
 
-    Positioned at (x, y), drawing downward.
+    Positioned at (x, y), drawing downward. If logo_path and logo_size are
+    provided, the logo is embedded inside the legend box to the left of the
+    line entries.
     """
     if not graph.lines:
         return
@@ -45,8 +76,11 @@ def render_legend(
     padding = 12.0
     swatch_width = 24.0
     text_offset = swatch_width + 12.0
+    content_height = len(graph.lines) * line_height
 
-    legend_width, legend_height = compute_legend_dimensions(graph, theme)
+    legend_width, legend_height = compute_legend_dimensions(
+        graph, theme, logo_size=logo_size
+    )
 
     # Background
     drawing.append(
@@ -61,6 +95,25 @@ def render_legend(
         )
     )
 
+    # Logo (left side, vertically centered in content area)
+    logo_offset = 0.0
+    if logo_path and logo_size:
+        scaled_w, scaled_h = _scale_logo_to_content(logo_size, content_height)
+        logo_gap = 12.0
+        logo_x = x + padding
+        logo_y = y + padding + (content_height - scaled_h) / 2
+        drawing.append(
+            draw.Image(
+                logo_x,
+                logo_y,
+                scaled_w,
+                scaled_h,
+                path=logo_path,
+                embed=True,
+            )
+        )
+        logo_offset = scaled_w + logo_gap
+
     # Line entries
     for i, metro_line in enumerate(graph.lines.values()):
         entry_y = y + padding + i * line_height + line_height / 2
@@ -68,9 +121,9 @@ def render_legend(
         # Color swatch (line segment)
         drawing.append(
             draw.Line(
-                x + padding,
+                x + padding + logo_offset,
                 entry_y,
-                x + padding + swatch_width,
+                x + padding + logo_offset + swatch_width,
                 entry_y,
                 stroke=metro_line.color,
                 stroke_width=theme.line_width,
@@ -83,7 +136,7 @@ def render_legend(
             draw.Text(
                 metro_line.display_name,
                 theme.legend_font_size,
-                x + padding + text_offset,
+                x + padding + logo_offset + text_offset,
                 entry_y,
                 fill=theme.legend_text_color,
                 font_family=theme.label_font_family,
