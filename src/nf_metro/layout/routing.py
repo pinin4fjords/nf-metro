@@ -60,10 +60,6 @@ def route_edges(
     # Identify TB sections for special routing
     tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
 
-    # Reversed TB sections: internal offsets already account for reversal,
-    # so the exit L-shape should NOT double-reverse.
-    reversed_sections = _detect_reversed_sections(graph)
-
     # TB sections entered from the RIGHT side need non-reversed X offsets
     # on their internal vertical edges (to stay consistent with the
     # direction-aware entry/exit L-shapes).
@@ -300,26 +296,21 @@ def route_edges(
                 else []
             )
             max_src_off = max(all_src_offs) if all_src_offs else 0.0
-            is_reversed = src.section_id in reversed_sections
-            if is_reversed:
-                # Reversed section: use src_off directly so route
-                # starts at the station marker position (no crossing).
+            rev_src_off = max_src_off - src_off
+            # Direction-aware X offset: LEFT port = DOWN-to-LEFT turn
+            # (use reversed), RIGHT port = DOWN-to-RIGHT turn (use
+            # non-reversed).  For reversed TB sections the station
+            # offsets are already flipped, so the standard formula
+            # produces the correct un-reversed exit ordering.
+            if tgt_port_obj.side == PortSide.RIGHT:
                 vert_x_off = src_off
-                horiz_y_off = src_off
             else:
-                rev_src_off = max_src_off - src_off
-                # Direction-aware X offset: LEFT port = DOWN-to-LEFT turn
-                # (use reversed), RIGHT port = DOWN-to-RIGHT turn (use
-                # non-reversed).
-                if tgt_port_obj.side == PortSide.RIGHT:
-                    vert_x_off = src_off
-                else:
-                    vert_x_off = rev_src_off
-                # Concentric corner: the outermost vertical line gets the
-                # largest curve radius, producing nested arcs.  horiz_y_off
-                # uses rev_src_off for both sides so the radius formula
-                # (curve_radius + rev_src_off) maps outer → larger radius.
-                horiz_y_off = rev_src_off
+                vert_x_off = rev_src_off
+            # Concentric corner: the outermost vertical line gets the
+            # largest curve radius, producing nested arcs.  horiz_y_off
+            # uses rev_src_off for both sides so the radius formula
+            # (curve_radius + rev_src_off) maps outer → larger radius.
+            horiz_y_off = rev_src_off
             # L-shape: vertical from station, curve, horizontal to port
             routes.append(
                 RoutedPath(
@@ -331,7 +322,7 @@ def route_edges(
                         (tx, ty + horiz_y_off),
                     ],
                     offsets_applied=True,
-                    curve_radii=[curve_radius + (src_off if is_reversed else rev_src_off)],
+                    curve_radii=[curve_radius + rev_src_off],
                 )
             )
             continue
@@ -939,15 +930,9 @@ def compute_station_offsets(
                         (edge.source, edge.line_id), 0.0
                     )
         if internal_offs:
-            is_reversed = port_obj.section_id in reversed_sections
-            if is_reversed:
-                # Reversed: keep internal offsets (no double-reversal)
-                for lid, ioff in internal_offs.items():
-                    offsets[(port_id, lid)] = ioff
-            else:
-                max_int = max(internal_offs.values())
-                for lid, ioff in internal_offs.items():
-                    offsets[(port_id, lid)] = max_int - ioff
+            max_int = max(internal_offs.values())
+            for lid, ioff in internal_offs.items():
+                offsets[(port_id, lid)] = max_int - ioff
 
     # Junctions have section_id=None so they get default line-priority
     # ordering above, which may not match the exit port feeding them.
@@ -1150,6 +1135,11 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
             for sec_id in list(reversed_secs):
                 section = graph.sections.get(sec_id)
                 if not section:
+                    continue
+                # TB sections transform ordering in their exit L-shape;
+                # don't propagate reversal through them to downstream
+                # sections (the exit already un-reverses the bundle).
+                if sec_id in tb_sections:
                     continue
                 for succ_id in sec_successors.get(sec_id, set()):
                     if succ_id in reversed_secs:
