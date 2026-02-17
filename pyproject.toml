@@ -41,6 +41,10 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4",
 ]
+docs = [
+    "mkdocs-material>=9.0",
+    "cairosvg>=2.5",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
