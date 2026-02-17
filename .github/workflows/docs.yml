@@ -3,22 +3,24 @@ name: Deploy docs
 on:
   push:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: docs
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -27,22 +29,25 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[docs]"
 
+      - name: Configure git for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Build gallery (render SVGs + generate markdown)
         run: python scripts/build_gallery.py
 
-      - name: Build docs
-        run: mkdocs build --strict
+      - name: Deploy dev docs (on push to main)
+        if: github.event_name == 'push'
+        run: mike deploy --push dev
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/
+      - name: Deploy release docs (on release)
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mike deploy --push --update-aliases "$VERSION" latest
+          mike set-default --push latest
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4
+      - name: Deploy dev docs (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: mike deploy --push dev
