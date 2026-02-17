@@ -48,6 +48,12 @@ def route_edges(
     line_priority = {lid: i for i, lid in enumerate(line_order)}
     offset_step = 3.0
 
+    # Pre-compute fork stations (multiple distinct targets) for diagonal bias
+    _fork_targets: dict[str, set[str]] = defaultdict(set)
+    for e in graph.edges:
+        _fork_targets[e.source].add(e.target)
+    fork_stations = {sid for sid, tgts in _fork_targets.items() if len(tgts) > 1}
+
     # Identify TB sections for special routing
     tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
 
@@ -504,17 +510,26 @@ def route_edges(
             sign = 1.0 if dx > 0 else -1.0
             half_diag = diagonal_run / 2
 
-            mid_x = (sx + tx) / 2
-            diag_start_x = mid_x - sign * half_diag
-            diag_end_x = mid_x + sign * half_diag
-
-            # Ensure minimum straight track at each station.
+            # Minimum straight track at each station endpoint.
             # Port-adjacent edges need more room so stations sit on
             # visible straight track, not on a curve.
             if src.is_port or tgt.is_port:
                 min_straight = curve_radius + 5
             else:
                 min_straight = 10
+
+            # Bias diagonal toward source at fork points so the
+            # visual divergence happens near the fork, avoiding
+            # diagonals that pass through intermediate stations.
+            if edge.source in fork_stations:
+                mid_x = sx + sign * (min_straight + half_diag)
+            else:
+                mid_x = (sx + tx) / 2
+
+            diag_start_x = mid_x - sign * half_diag
+            diag_end_x = mid_x + sign * half_diag
+
+            # Clamp to ensure minimum straight track at each station.
             if sign > 0:
                 diag_start_x = max(diag_start_x, sx + min_straight)
                 diag_end_x = min(diag_end_x, tx - min_straight)
