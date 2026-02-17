@@ -100,11 +100,11 @@ def place_labels(
         else:
             min_off = max_off = 0.0
 
-        # Check if this is a TB section vertical station (layer > 0)
+        # Check if this is a TB section station (horizontal pill)
         is_tb_vert = False
         if station.section_id:
             sec = graph.sections.get(station.section_id)
-            if sec and sec.direction == "TB" and station.layer > 0:
+            if sec and sec.direction == "TB":
                 is_tb_vert = True
 
         if is_tb_vert:

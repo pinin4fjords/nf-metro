@@ -132,11 +132,13 @@ def place_sections(
             next_row += 1
 
     # Compute pixel offsets
+    min_col = min(col_assign.values()) if col_assign else 0
     max_col = max(col_assign.values()) if col_assign else 0
     # Account for columns occupied by spanning sections
     for sid in graph.sections:
         cspan = graph.sections[sid].grid_col_span
         col = col_assign.get(sid, 0)
+        min_col = min(min_col, col)
         max_col = max(max_col, col + cspan - 1)
 
     # Max width per column (only from single-column sections)
@@ -146,8 +148,8 @@ def place_sections(
             col = col_assign.get(sid, 0)
             col_widths[col] = max(col_widths[col], section.bbox_w)
 
-    # Ensure all columns have an entry
-    for c in range(max_col + 1):
+    # Ensure all columns have an entry (handles negative grid columns)
+    for c in range(min_col, max_col + 1):
         if c not in col_widths:
             col_widths[c] = 0.0
 
@@ -164,10 +166,10 @@ def place_sections(
             deficit = section.bbox_w - spanned
             col_widths[start_col + cspan - 1] += deficit
 
-    # Cumulative x offsets (columns are shared)
+    # Cumulative x offsets (columns are shared, handles negative grid columns)
     col_offsets: dict[int, float] = {}
     cumulative_x = 0.0
-    for col in range(max_col + 1):
+    for col in range(min_col, max_col + 1):
         col_offsets[col] = cumulative_x
         cumulative_x += col_widths.get(col, 0) + section_x_gap
 
@@ -182,7 +184,7 @@ def place_sections(
 
     row_heights: dict[int, float] = defaultdict(float)
     for sid, section in graph.sections.items():
-        if section.grid_row_span == 1:
+        if section.grid_row_span == 1 and section.direction != "TB":
             row = row_assign.get(sid, 0)
             row_heights[row] = max(row_heights[row], section.bbox_h)
 
@@ -210,6 +212,44 @@ def place_sections(
         row_offsets[r] = cumulative_y
         cumulative_y += row_heights[r] + section_y_gap
 
+    # TB fold sections (rowspan=1) visually span into the next row.
+    # Push the next row down so its non-TB sections' bottom aligns with
+    # the TB section's bottom, then extend the TB section's bbox to cover.
+    # Process top-to-bottom so cascading TB sections accumulate correctly.
+    tb_sections = sorted(
+        [
+            (sid, section)
+            for sid, section in graph.sections.items()
+            if section.direction == "TB" and section.grid_row_span == 1
+        ],
+        key=lambda x: row_assign.get(x[0], 0),
+    )
+    for sid, section in tb_sections:
+        row = row_assign.get(sid, 0)
+        next_row = row + 1
+        if next_row not in row_offsets:
+            continue
+        # Add exit routing margin so lines can flow down from the last
+        # station before curving out to the return row.
+        section.bbox_h += section_y_gap
+        tb_bottom = row_offsets[row] + section.bbox_h
+        next_row_bottom = row_offsets[next_row] + row_heights[next_row]
+        if tb_bottom > next_row_bottom:
+            delta = tb_bottom - next_row_bottom
+            for r in range(next_row, max_row + 1):
+                if r in row_offsets:
+                    row_offsets[r] += delta
+        # Extend bbox to cover through the next row
+        next_row_bottom = row_offsets[next_row] + row_heights[next_row]
+        section.bbox_h = next_row_bottom - row_offsets[row]
+
+    # Columns containing RL or TB sections should right-align all their
+    # sections so stacked LR sections share a right edge with the RL/TB ones.
+    right_align_cols: set[int] = set()
+    for sid, section in graph.sections.items():
+        if section.direction in ("RL", "TB") and section.grid_col_span == 1:
+            right_align_cols.add(col_assign.get(sid, 0))
+
     # Set section offsets and adjust height for spanning sections
     for sid, section in graph.sections.items():
         section.grid_col = col_assign.get(sid, 0)
@@ -217,9 +257,12 @@ def place_sections(
         section.offset_x = col_offsets.get(section.grid_col, 0)
         section.offset_y = row_offsets.get(section.grid_row, 0)
 
-        # Right-align RL and TB sections within their column so that
-        # fold sections and post-fold RL sections share a right edge.
-        if section.direction in ("RL", "TB") and section.grid_col_span == 1:
+        # Right-align sections within columns that contain RL or TB sections,
+        # so fold sections and post-fold RL sections share a right edge with
+        # any LR sections stacked above them in the same column.
+        if section.grid_col_span == 1 and (
+            section.direction in ("RL", "TB") or section.grid_col in right_align_cols
+        ):
             col_w = col_widths.get(section.grid_col, 0)
             if col_w > section.bbox_w:
                 section.offset_x += col_w - section.bbox_w
@@ -243,6 +286,10 @@ def place_sections(
             )
             spanned_width += (cspan - 1) * section_x_gap
             section.bbox_w = spanned_width
+
+    # Top-align sections within their row. No vertical centering -- this
+    # keeps the top edges flush so horizontal lines between sections in
+    # the same row don't need unnecessary vertical jogs.
 
 
 def position_ports(section: Section, graph: MetroGraph) -> None:
@@ -273,6 +320,19 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
             y = section.bbox_y + section.bbox_h
             _position_ports_horizontal(port_ids, y, section, graph)
 
+    # TB sections: move LEFT/RIGHT exit ports to the section bottom
+    # so lines flow down from the last station then curve out.
+    if section.direction == "TB":
+        exit_set = set(section.exit_ports)
+        for pid in exit_set:
+            port = graph.ports.get(pid)
+            if port and port.side in (PortSide.LEFT, PortSide.RIGHT):
+                target_y = section.bbox_y + section.bbox_h
+                station = graph.stations.get(pid)
+                if station:
+                    station.y = target_y
+                port.y = target_y
+
 
 def _position_ports_vertical(
     port_ids: list[str],
@@ -290,6 +350,8 @@ def _position_ports_vertical(
         if not station:
             continue
 
+        port = graph.ports.get(pid)
+
         # Find connected internal station
         connected_y = _find_connected_internal_y(pid, section, graph)
         station.x = x
@@ -300,7 +362,6 @@ def _position_ports_vertical(
         )
 
         # Update port data too
-        port = graph.ports.get(pid)
         if port:
             port.x = station.x
             port.y = station.y
@@ -451,3 +512,82 @@ def _spread_overlapping_ports(
                     port.y = new_pos
                 else:
                     port.x = new_pos
+
+
+def _expand_lone_rowspans(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    row_assign: dict[str, int],
+) -> None:
+    """Expand rowspan for sections that inflate a row but have empty rows below.
+
+    When a section is the tallest in its row (among rowspan=1 sections) and
+    its column has consecutive empty rows below, expanding its rowspan
+    distributes its height across multiple rows. This reduces dead space
+    for shorter sections sharing the original row.
+    """
+    # Build occupancy grid (col, row) -> section_id
+    occupied: dict[tuple[int, int], str] = {}
+    for sid, section in graph.sections.items():
+        col = col_assign.get(sid, 0)
+        row = row_assign.get(sid, 0)
+        for c in range(col, col + section.grid_col_span):
+            for r in range(row, row + section.grid_row_span):
+                occupied[(c, r)] = sid
+
+    max_row = 0
+    for sid, section in graph.sections.items():
+        row = row_assign.get(sid, 0)
+        max_row = max(max_row, row + section.grid_row_span - 1)
+
+    # Process sections top to bottom to avoid conflicts.
+    # Skip TB sections: they are fold bridges whose vertical extent is
+    # determined by their content. Expanding them would make the row too
+    # short, placing the return-row sections above the fold exit.
+    candidates = sorted(
+        [
+            (sid, graph.sections[sid])
+            for sid in graph.sections
+            if graph.sections[sid].grid_row_span == 1
+            and graph.sections[sid].direction != "TB"
+        ],
+        key=lambda x: row_assign.get(x[0], 0),
+    )
+
+    for sid, section in candidates:
+        col = col_assign.get(sid, 0)
+        row = row_assign.get(sid, 0)
+
+        # Find consecutive empty rows below in all columns this section occupies
+        max_expand_row = row
+        for r in range(row + 1, max_row + 1):
+            all_empty = True
+            for c in range(col, col + section.grid_col_span):
+                if (c, r) in occupied:
+                    all_empty = False
+                    break
+            if not all_empty:
+                break
+            max_expand_row = r
+
+        potential_rowspan = max_expand_row - row + 1
+        if potential_rowspan <= 1:
+            continue
+
+        # Only expand if this section is inflating its row: its bbox_h
+        # exceeds the tallest other rowspan=1 section in the same row.
+        max_other_h = 0.0
+        for other_sid, other in graph.sections.items():
+            if other_sid == sid:
+                continue
+            if row_assign.get(other_sid, -1) == row and other.grid_row_span == 1:
+                max_other_h = max(max_other_h, other.bbox_h)
+
+        if section.bbox_h <= max_other_h:
+            continue
+
+        # Expand rowspan
+        section.grid_row_span = potential_rowspan
+        for c in range(col, col + section.grid_col_span):
+            for r in range(row, row + potential_rowspan):
+                occupied[(c, r)] = sid

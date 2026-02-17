@@ -4,7 +4,7 @@ Test fixtures and infrastructure for stress-testing the auto-layout engine again
 
 ## Status
 
-- **158 tests pass** (66 original + 92 topology)
+- **179 tests pass** (66 original + 113 topology)
 - **rnaseq regression**: confirmed unbroken
 - **2 routing bugs fixed** in `src/nf_metro/layout/routing.py`
 - **Visual review**: pending final rating on all renders
@@ -27,7 +27,7 @@ Test fixtures and infrastructure for stress-testing the auto-layout engine again
 
 **Visible in**: `section_diamond` - right_path now routes through the gap between Branch Left and Finish instead of through Branch Left.
 
-## Fixtures (12 .mmd files)
+## Fixtures (15 .mmd files)
 
 | File | Sections | Lines | What it stresses |
 |------|----------|-------|-----------------|
@@ -43,6 +43,9 @@ Test fixtures and infrastructure for stress-testing the auto-layout engine again
 | `multi_line_bundle.mmd` | 3 | 6 | 6 lines through same 3-section chain, tall pills |
 | `rnaseq_lite.mmd` | 5 | 3 | Simplified rnaseq: bottom exit, TB/RL sections, diamond |
 | `variant_calling.mmd` | 6 | 4 | DNA/RNA split, fork-join, 4 callers fan into merge |
+| `fold_fan_across.mmd` | 7 | 3 | Fan-out/fan-in across fold boundary, rowspan optimization |
+| `fold_double.mmd` | 10 | 2 | Double fold serpentine (LR -> RL -> LR), col_step zigzag |
+| `fold_stacked_branch.mmd` | 8 | 3 | Stacked sections near fold, post-fold branching, TB fan-out |
 
 All use auto-layout (no `%%metro grid:` directives). These are intended to eventually move to `examples/` once visually polished.
 

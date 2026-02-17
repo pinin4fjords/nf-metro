@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -30,7 +31,9 @@ FIXTURE_FILES = sorted(TOPOLOGIES_DIR.glob("*.mmd"))
 EXTRA_FILES = [EXAMPLES_DIR / "rnaseq_sections.mmd"]
 
 
-def render_file(mmd_path: Path, output_dir: Path) -> tuple[str, list[str]]:
+def render_file(
+    mmd_path: Path, output_dir: Path, *, debug: bool = False
+) -> tuple[str, list[str]]:
     """Parse, layout, and render a .mmd file to SVG (and optionally PNG).
 
     Returns (name, list_of_issues).
@@ -53,7 +56,7 @@ def render_file(mmd_path: Path, output_dir: Path) -> tuple[str, list[str]]:
     theme = THEMES[theme_name]
 
     try:
-        svg_str = render_svg(graph, theme)
+        svg_str = render_svg(graph, theme, debug=debug)
     except Exception as e:
         return name, [f"RENDER ERROR: {e}"]
 
@@ -75,16 +78,25 @@ def render_file(mmd_path: Path, output_dir: Path) -> tuple[str, list[str]]:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Batch render topology fixtures")
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug overlay (ports, hidden stations, waypoints)"
+    )
+    args = parser.parse_args()
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     all_files = list(FIXTURE_FILES) + EXTRA_FILES
-    print(f"Rendering {len(all_files)} files to {OUTPUT_DIR}/\n")
+    print(f"Rendering {len(all_files)} files to {OUTPUT_DIR}/")
+    if args.debug:
+        print("Debug overlay: ON")
+    print()
 
     max_name_len = max(len(f.stem) for f in all_files)
     any_errors = False
 
     for mmd_path in all_files:
-        name, issues = render_file(mmd_path, OUTPUT_DIR)
+        name, issues = render_file(mmd_path, OUTPUT_DIR, debug=args.debug)
         status = "OK" if not issues else "ISSUES"
         if any("ERROR" in i for i in issues):
             status = "FAIL"

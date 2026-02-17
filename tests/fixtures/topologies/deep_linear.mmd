@@ -5,23 +5,18 @@
 
 graph LR
     subgraph sec1 [Input]
-        %%metro exit: right | main, alt
         s1a[Read]
         s1b[Validate]
         s1a -->|main,alt| s1b
     end
 
     subgraph sec2 [QC]
-        %%metro entry: left | main, alt
-        %%metro exit: right | main, alt
         s2a[FastQC]
         s2b[MultiQC]
         s2a -->|main,alt| s2b
     end
 
     subgraph sec3 [Trim]
-        %%metro entry: left | main, alt
-        %%metro exit: right | main, alt
         s3a[Trim]
         s3b[Filter]
         s3c[Check]
@@ -31,8 +26,6 @@ graph LR
     end
 
     subgraph sec4 [Align]
-        %%metro entry: left | main, alt
-        %%metro exit: right | main, alt
         s4a[Index]
         s4b[Map]
         s4c[Sort]
@@ -41,16 +34,12 @@ graph LR
     end
 
     subgraph sec5 [Quant]
-        %%metro entry: left | main, alt
-        %%metro exit: right | main, alt
         s5a[Count]
         s5b[Normalize]
         s5a -->|main,alt| s5b
     end
 
     subgraph sec6 [Analysis]
-        %%metro entry: left | main, alt
-        %%metro exit: right | main, alt
         s6a[Diff Expr]
         s6b[Pathway]
         s6c[Annotate]
@@ -59,7 +48,6 @@ graph LR
     end
 
     subgraph sec7 [Report]
-        %%metro entry: left | main, alt
         s7a[Aggregate]
         s7b[Report]
         s7a -->|main,alt| s7b

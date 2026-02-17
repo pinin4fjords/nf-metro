@@ -226,3 +226,139 @@ def test_section_layout_ports_skip_rendering():
     labels = place_labels(graph)
     port_labels = [lb for lb in labels if lb.station_id in graph.ports]
     assert len(port_labels) == 0
+
+
+# --- Top-alignment tests ---
+
+
+def test_sections_top_aligned_in_same_row():
+    """Sections in the same row share the same top, not centered."""
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro line: alt | Alt | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec1 [Tall Section]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        a -->|main| b\n"
+        "        a -->|alt| c\n"
+        "        b -->|main| d\n"
+        "        c -->|alt| d\n"
+        "    end\n"
+        "    subgraph sec2 [Short Section]\n"
+        "        e[E]\n"
+        "        f[F]\n"
+        "        e -->|main| f\n"
+        "    end\n"
+        "    d -->|main| e\n"
+    )
+    compute_layout(graph)
+    sec1 = graph.sections["sec1"]
+    sec2 = graph.sections["sec2"]
+    # Both should be in the same row
+    assert sec1.grid_row == sec2.grid_row == 0
+    # Top edges should be flush (same bbox_y)
+    assert abs(sec1.bbox_y - sec2.bbox_y) < 1.0, (
+        f"Not top-aligned: sec1={sec1.bbox_y}, sec2={sec2.bbox_y}"
+    )
+
+
+# --- Exit-side clearance tests ---
+
+
+def test_lr_exit_clearance_widens_bbox():
+    """LR section with exit port gets wider bbox for label clearance."""
+    # Build two sections so an exit port is created on sec1's right side
+    graph_with_exit = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[LongLabelStation]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "    end\n"
+        "    b -->|main| c\n"
+    )
+    # Build a standalone section (no exit port) with the same internal content
+    graph_no_exit = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[LongLabelStation]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+    )
+    compute_layout(graph_with_exit)
+    compute_layout(graph_no_exit)
+    # The section with exit should be wider
+    w_exit = graph_with_exit.sections["sec1"].bbox_w
+    w_no = graph_no_exit.sections["sec1"].bbox_w
+    assert w_exit > w_no
+
+
+def test_rl_exit_clearance_preserves_bbox_x():
+    """RL section exit clearance should shift stations right, not move bbox_x left."""
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Source]\n"
+        "        a[A]\n"
+        "    end\n"
+        "    subgraph sec2 [RL Section]\n"
+        "        b[B]\n"
+        "        c[LongLabel]\n"
+        "        c -->|main| b\n"
+        "    end\n"
+        "    subgraph sec3 [Target]\n"
+        "        d[D]\n"
+        "    end\n"
+        "    a -->|main| c\n"
+        "    b -->|main| d\n"
+    )
+    compute_layout(graph)
+    sec2 = graph.sections["sec2"]
+    # The section should have a valid bbox_x aligned with its grid column offset.
+    # The key invariant: stations within the section should be contained within
+    # the bbox (checked by station_containment validator).
+    for sid in sec2.station_ids:
+        station = graph.stations.get(sid)
+        if station and not station.is_port:
+            assert station.x >= sec2.bbox_x, (
+                f"Station {sid} at x={station.x} is left of bbox_x={sec2.bbox_x}"
+            )
+            assert station.x <= sec2.bbox_x + sec2.bbox_w, (
+                f"Station {sid} at x={station.x} is right of bbox edge"
+            )
+
+
+# --- Flat layout empty tracks test ---
+
+
+def test_flat_layout_unnamed_edges():
+    """Flat layout with unnamed edges (no line IDs) should not crash."""
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\ngraph LR\n    a --> b\n"
+    )
+    compute_layout(graph)
+    # Both stations should have coordinates assigned
+    assert graph.stations["a"].x >= 0
+    assert graph.stations["b"].x > graph.stations["a"].x
+
+
+def test_flat_layout_no_named_lines():
+    """Flat layout with a line defined but unnamed edges should still work."""
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    a[Start]\n"
+        "    b[End]\n"
+        "    a --> b\n"
+    )
+    compute_layout(graph)
+    assert graph.stations["a"].x < graph.stations["b"].x
