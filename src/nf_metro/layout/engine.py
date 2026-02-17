@@ -210,9 +210,7 @@ def _layout_single_section(
     # aren't too close to divergence/convergence points.
     # Pass full graph so port-touching edges count as forks/joins.
     section_sids = set(section.station_ids)
-    layer_extra = _compute_fork_join_gaps(
-        sub, layers, x_spacing, graph, section_sids
-    )
+    layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing, graph, section_sids)
 
     # Assign local coordinates based on section direction
     for sid, station in sub.stations.items():
@@ -220,13 +218,9 @@ def _layout_single_section(
         station.track = tracks.get(sid, 0)
         if section.direction == "TB":
             station.x = track_rank[station.track] * x_spacing
-            station.y = station.layer * y_spacing + layer_extra.get(
-                station.layer, 0
-            )
+            station.y = station.layer * y_spacing + layer_extra.get(station.layer, 0)
         else:
-            station.x = station.layer * x_spacing + layer_extra.get(
-                station.layer, 0
-            )
+            station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
             station.y = track_rank[station.track] * y_spacing
 
     # Normalize Y so minimum is 0 (raw tracks can be negative)
@@ -276,9 +270,7 @@ def _mirror_rl(sub: MetroGraph) -> None:
     extends leftward without shifting the entry point.
     """
     non_term = [
-        s
-        for s in sub.stations.values()
-        if not (s.is_terminus and not s.label.strip())
+        s for s in sub.stations.values() if not (s.is_terminus and not s.label.strip())
     ]
     anchor_stations = non_term if non_term else list(sub.stations.values())
     max_x_val = max(s.x for s in anchor_stations)
@@ -416,9 +408,7 @@ def _adjust_lr_exit_gap(
     if section.direction not in ("LR", "RL"):
         return
 
-    flow_exit_side = (
-        PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
-    )
+    flow_exit_side = PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
     has_flow_exit = any(
         graph.ports[pid].side == flow_exit_side
         for pid in section.exit_ports
@@ -551,8 +541,12 @@ def _align_entry_ports(graph: MetroGraph) -> None:
                             PortSide.RIGHT,
                         ):
                             target_y = _clamp_tb_entry_port(
-                                graph, entry_section, target_y,
-                                edge, src, junction_ids,
+                                graph,
+                                entry_section,
+                                target_y,
+                                edge,
+                                src,
+                                junction_ids,
                             )
 
                         station = graph.stations.get(port_id)
@@ -758,8 +752,7 @@ def _clamp_tb_entry_port(
     internal_ys = [
         graph.stations[sid].y
         for sid in internal_ids
-        if sid in graph.stations
-        and not graph.stations[sid].is_port
+        if sid in graph.stations and not graph.stations[sid].is_port
     ]
     if not internal_ys:
         return target_y

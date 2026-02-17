@@ -680,9 +680,7 @@ def _compute_exit_hints_by_side(
         side_exit_lines[side].update(lines)
 
     if side_exit_lines:
-        for side, lines in sorted(
-            side_exit_lines.items(), key=lambda x: x[0].value
-        ):
+        for side, lines in sorted(side_exit_lines.items(), key=lambda x: x[0].value):
             if lines:
                 section.exit_hints.append((side, sorted(lines)))
 

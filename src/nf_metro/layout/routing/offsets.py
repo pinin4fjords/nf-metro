@@ -126,9 +126,7 @@ def compute_station_offsets(
             max_exit_off = max(all_exit_offs) if all_exit_offs else 0.0
             if src.section_id in tb_right_entry:
                 for lid in graph.station_lines(port_id):
-                    offsets[(port_id, lid)] = offsets.get(
-                        (exit_port_id, lid), 0.0
-                    )
+                    offsets[(port_id, lid)] = offsets.get((exit_port_id, lid), 0.0)
             else:
                 for lid in graph.station_lines(port_id):
                     exit_off = offsets.get((exit_port_id, lid), 0.0)
