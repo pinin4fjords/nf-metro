@@ -170,7 +170,39 @@ def render_svg(
             logo_size=legend_logo_size,
         )
 
+    # Attribution watermark
+    d.append(
+        draw.Text(
+            f"created with nf-metro {_version_string()}",
+            8,
+            svg_width - padding * 0.5,
+            svg_height - 8,
+            fill="rgba(150, 150, 150, 0.6)",
+            font_family=theme.label_font_family,
+            text_anchor="end",
+        )
+    )
+
     return d.as_svg()
+
+
+def _version_string() -> str:
+    """Return version string, appending '+dev' for editable/non-release installs."""
+    from nf_metro import __version__
+
+    try:
+        import importlib.metadata
+        import json
+
+        dist = importlib.metadata.distribution("nf-metro")
+        direct_url = dist.read_text("direct_url.json")
+        if direct_url:
+            data = json.loads(direct_url)
+            if data.get("dir_info", {}).get("editable"):
+                return f"v{__version__}+dev"
+    except Exception:
+        pass
+    return f"v{__version__}"
 
 
 def compute_logo_dimensions(
