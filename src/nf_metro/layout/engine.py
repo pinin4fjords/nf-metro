@@ -266,6 +266,11 @@ def _compute_section_layout(
     # with their target's Y so the exit is at the return row level
     _align_exit_ports(graph)
 
+    # Phase 9: Re-position junctions after exit port alignment.
+    # Phase 8 may have moved exit ports on fold sections, so junctions
+    # placed in Phase 6 need updating to match the new exit port Y.
+    _position_junctions(graph)
+
 
 
 def _position_junctions(graph: MetroGraph) -> None:

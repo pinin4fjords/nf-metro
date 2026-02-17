@@ -794,6 +794,21 @@ def compute_station_offsets(
             for lid, ioff in internal_offs.items():
                 offsets[(port_id, lid)] = max_int - ioff
 
+    # Junctions have section_id=None so they get default line-priority
+    # ordering above, which may not match the exit port feeding them.
+    # Inherit offsets from the upstream exit port instead.
+    for jid in graph.junctions:
+        for edge in graph.edges:
+            if edge.target == jid:
+                src = graph.stations.get(edge.source)
+                if src and src.is_port and not graph.ports.get(edge.source, None).is_entry:
+                    # Copy exit port's offsets to the junction
+                    for lid in graph.station_lines(jid):
+                        port_off = offsets.get((edge.source, lid))
+                        if port_off is not None:
+                            offsets[(jid, lid)] = port_off
+                    break
+
     return offsets
 
 
@@ -965,10 +980,8 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
                     if not src:
                         continue
                     matched = False
-                    if src.is_port:
-                        src_port = graph.ports.get(edge.source)
-                        matched = _is_tb_lr_exit_nonreversed(src_port)
-                    elif edge.source in junction_ids:
+                    if edge.source in junction_ids:
+                        # Look through junction to find upstream exit port
                         for e2 in graph.edges:
                             if e2.target == edge.source:
                                 s2 = graph.stations.get(e2.source)
@@ -978,6 +991,9 @@ def _detect_reversed_sections(graph: MetroGraph) -> set[str]:
                                 if _is_tb_lr_exit_nonreversed(s2_port):
                                     matched = True
                                     break
+                    elif src.is_port:
+                        src_port = graph.ports.get(edge.source)
+                        matched = _is_tb_lr_exit_nonreversed(src_port)
                     if matched:
                         reversed_secs.add(sec_id)
                         _propagate_along_rows()
