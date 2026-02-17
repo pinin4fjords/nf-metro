@@ -131,12 +131,6 @@ def place_sections(
             used_rows.add(next_row)
             next_row += 1
 
-    # Expand rowspans for sections that inflate their row but have
-    # empty rows below in their column. Distributes the tall section's
-    # height across multiple rows, reducing dead space for shorter
-    # sections sharing the original row.
-    _expand_lone_rowspans(graph, col_assign, row_assign)
-
     # Compute pixel offsets
     min_col = min(col_assign.values()) if col_assign else 0
     max_col = max(col_assign.values()) if col_assign else 0
