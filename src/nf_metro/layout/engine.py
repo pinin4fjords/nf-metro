@@ -630,17 +630,32 @@ def _compute_fork_join_gaps(
         return {}
 
     max_layer = max(layers.values()) if layers else 0
-    gap = x_spacing * 0.4
+    base_gap = x_spacing * 0.4
+
+    # Compute per-layer gap scaled by label width at fork/join stations.
+    # The gap must be large enough that the diagonal transition starts
+    # past the label text and still has room for the transition itself.
+    char_width = 7.0
+    layer_gap: dict[int, float] = {}
+    for layer in fork_layers | join_layers:
+        max_label_half = 0.0
+        for sid, l in layers.items():
+            if l == layer:
+                station = sub.stations.get(sid)
+                if station and station.label.strip():
+                    label_half = len(station.label) * char_width / 2
+                    max_label_half = max(max_label_half, label_half)
+        layer_gap[layer] = max(base_gap, max_label_half)
 
     cumulative = 0.0
     layer_extra: dict[int, float] = {}
     for layer in range(max_layer + 1):
         # Add gap before join layers
         if layer in join_layers:
-            cumulative += gap
+            cumulative += layer_gap.get(layer, base_gap)
         layer_extra[layer] = cumulative
         # Add gap after fork layers
         if layer in fork_layers:
-            cumulative += gap
+            cumulative += layer_gap.get(layer, base_gap)
 
     return layer_extra

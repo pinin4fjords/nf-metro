@@ -48,11 +48,14 @@ def route_edges(
     line_priority = {lid: i for i, lid in enumerate(line_order)}
     offset_step = 3.0
 
-    # Pre-compute fork stations (multiple distinct targets) for diagonal bias
+    # Pre-compute fork and join stations for diagonal bias and label clearance
     _fork_targets: dict[str, set[str]] = defaultdict(set)
+    _join_sources: dict[str, set[str]] = defaultdict(set)
     for e in graph.edges:
         _fork_targets[e.source].add(e.target)
+        _join_sources[e.target].add(e.source)
     fork_stations = {sid for sid, tgts in _fork_targets.items() if len(tgts) > 1}
+    join_stations = {sid for sid, srcs in _join_sources.items() if len(srcs) > 1}
 
     # Identify TB sections for special routing
     tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
@@ -518,24 +521,41 @@ def route_edges(
             else:
                 min_straight = 10
 
+            # At fork/join stations, extend the straight run past the
+            # label so diverging/converging diagonals don't cross
+            # through the label text.
+            char_width = 7.0
+            src_min = min_straight
+            tgt_min = min_straight
+            if edge.source in fork_stations and src.label.strip():
+                src_min = max(min_straight, len(src.label) * char_width / 2)
+            if edge.target in join_stations and tgt.label.strip():
+                tgt_min = max(min_straight, len(tgt.label) * char_width / 2)
+
             # Bias diagonal toward source at fork points so the
             # visual divergence happens near the fork, avoiding
             # diagonals that pass through intermediate stations.
             if edge.source in fork_stations:
-                mid_x = sx + sign * (min_straight + half_diag)
+                mid_x = sx + sign * (src_min + half_diag)
             else:
                 mid_x = (sx + tx) / 2
 
             diag_start_x = mid_x - sign * half_diag
             diag_end_x = mid_x + sign * half_diag
 
-            # Clamp to ensure minimum straight track at each station.
+            # Clamp to ensure label clearance at each station.
             if sign > 0:
-                diag_start_x = max(diag_start_x, sx + min_straight)
-                diag_end_x = min(diag_end_x, tx - min_straight)
+                diag_start_x = max(diag_start_x, sx + src_min)
+                diag_end_x = min(diag_end_x, tx - tgt_min)
+                if diag_end_x < diag_start_x:
+                    midpoint = (diag_start_x + diag_end_x) / 2
+                    diag_start_x = diag_end_x = midpoint
             else:
-                diag_start_x = min(diag_start_x, sx - min_straight)
-                diag_end_x = max(diag_end_x, tx + min_straight)
+                diag_start_x = min(diag_start_x, sx - src_min)
+                diag_end_x = max(diag_end_x, tx + tgt_min)
+                if diag_end_x > diag_start_x:
+                    midpoint = (diag_start_x + diag_end_x) / 2
+                    diag_start_x = diag_end_x = midpoint
 
             routes.append(
                 RoutedPath(
