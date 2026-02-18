@@ -21,8 +21,39 @@ from nf_metro.parser.model import (
 )
 
 
+def _check_unsupported_input(text: str) -> None:
+    """Detect common unsupported input formats and raise helpful errors."""
+    lines = text.strip().split("\n")
+    has_flowchart = any(
+        line.strip().startswith("flowchart ") for line in lines
+    )
+    has_metro_directives = any(
+        line.strip().startswith("%%metro") for line in lines
+    )
+
+    if has_flowchart and not has_metro_directives:
+        raise ValueError(
+            "This looks like raw Nextflow DAG output (flowchart syntax "
+            "without %%metro directives). nf-metro requires its own input "
+            "format with %%metro directives to define lines, sections, and "
+            "layout.\n\n"
+            "See the guide: "
+            "https://pinin4fjords.github.io/nf-metro/latest/guide/"
+        )
+
+    if has_flowchart:
+        raise ValueError(
+            "Mermaid 'flowchart' syntax is not supported. "
+            "Use 'graph LR' with %%metro directives instead.\n\n"
+            "See the guide: "
+            "https://pinin4fjords.github.io/nf-metro/latest/guide/"
+        )
+
+
 def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives."""
+    _check_unsupported_input(text)
+
     graph = MetroGraph()
     lines = text.strip().split("\n")
 
