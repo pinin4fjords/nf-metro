@@ -5,22 +5,18 @@
 
 graph LR
     subgraph origin [Origin]
-        %%metro exit: right | horizontal
-        %%metro exit: bottom | vertical
         start[Start]
         fork[Fork]
         start -->|horizontal,vertical| fork
     end
 
     subgraph right_sec [Right Section]
-        %%metro entry: left | horizontal
         r1[Right A]
         r2[Right B]
         r1 -->|horizontal| r2
     end
 
     subgraph bottom_sec [Bottom Section]
-        %%metro entry: top | vertical
         b1[Bottom A]
         b2[Bottom B]
         b1 -->|vertical| b2
