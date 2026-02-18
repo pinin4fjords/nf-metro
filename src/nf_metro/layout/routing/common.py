@@ -55,9 +55,9 @@ def compute_bundle_info(
 
     # Group by corridor: edges sharing the same vertical channel
     # Key: (route_type, rounded_channel_position, vertical_direction)
-    corridor_groups: dict[
-        tuple, list[tuple[Edge, float, float, float, float]]
-    ] = defaultdict(list)
+    corridor_groups: dict[tuple, list[tuple[Edge, float, float, float, float]]] = (
+        defaultdict(list)
+    )
 
     for item in inter_edges:
         edge, sx, sy, tx, ty = item
@@ -92,11 +92,7 @@ def compute_bundle_info(
                 if tgt_st and tgt_st.section_id
                 else None
             )
-            if (
-                src_sec
-                and tgt_sec
-                and src_sec.grid_col != tgt_sec.grid_col
-            ):
+            if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
                 col_key = (src_sec.grid_col, tgt_sec.grid_col)
             else:
                 col_key = round(sx)

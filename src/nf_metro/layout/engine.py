@@ -751,9 +751,7 @@ def _align_exit_ports(graph: MetroGraph) -> None:
                                     # Shift the target section's internal
                                     # stations down by the same delta so the
                                     # entry port aligns with the station row
-                                    tgt_sec = graph.sections.get(
-                                        tgt_port.section_id
-                                    )
+                                    tgt_sec = graph.sections.get(tgt_port.section_id)
                                     if tgt_sec:
                                         for sid in tgt_sec.station_ids:
                                             s = graph.stations.get(sid)
@@ -765,12 +763,9 @@ def _align_exit_ports(graph: MetroGraph) -> None:
                                         # Shift target section bbox down
                                         tgt_sec.bbox_y += delta
                                         # Extend TB section to align bottoms
-                                        new_bot = (
-                                            tgt_sec.bbox_y + tgt_sec.bbox_h
-                                        )
+                                        new_bot = tgt_sec.bbox_y + tgt_sec.bbox_h
                                         exit_bot = (
-                                            exit_section.bbox_y
-                                            + exit_section.bbox_h
+                                            exit_section.bbox_y + exit_section.bbox_h
                                         )
                                         if new_bot > exit_bot:
                                             exit_section.bbox_h = (

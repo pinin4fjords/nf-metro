@@ -1,10 +1,12 @@
 # Writing metro maps
 
-nf-metro input files use a subset of Mermaid `graph LR` syntax extended with `%%metro` directives. This guide walks through the format from a minimal example up to a full multi-section pipeline.
+nf-metro turns text descriptions of pipelines into metro-map-style diagrams. Input files use a subset of [Mermaid](https://mermaid.js.org/) `graph LR` syntax, extended with `%%metro` directives for colors, sections, and layout control.
 
-## Minimal example
+This guide builds up the format step by step, starting from a flat list of stations and finishing with a multi-section pipeline that fans out, changes direction, and reconverges.
 
-The simplest metro map needs just lines, stations, and edges:
+## 1. Stations, lines, and edges
+
+The simplest metro map needs three things: **lines** (colored routes), **stations** (pipeline steps), and **edges** (connections that carry lines between stations).
 
 ```text
 %%metro title: Simple Pipeline
@@ -31,17 +33,18 @@ graph LR
 
 ![Minimal example](assets/renders/01_minimal.svg)
 
-The key elements:
+A few things to notice:
 
-- **`%%metro line:`** defines a route with `id | Display Name | #hexcolor`
-- **`graph LR`** starts the Mermaid graph (always left-to-right)
-- **Stations** use Mermaid node syntax: `node_id[Label]`
-- **Edges** carry line IDs: `source -->|line_id| target`
-- An edge can carry multiple lines: `a -->|line1,line2| b`
+- **`%%metro line:`** defines a route as `id | Display Name | #hexcolor`. Every edge must reference one of these IDs.
+- **`graph LR`** starts the Mermaid graph. nf-metro always uses left-to-right flow at the top level.
+- **Stations** use Mermaid node syntax: `node_id[Label]`.
+- **Edges** carry a line ID: `source -->|line_id| target`. An edge can carry multiple lines at once: `a -->|line1,line2| b`.
 
-## Adding sections
+Without sections, all stations sit on a single track. That works for simple pipelines, but real workflows have logical groupings.
 
-Sections group related stations into visual boxes using Mermaid `subgraph` blocks. Lines can diverge to different sections, showing how routes split through the pipeline:
+## 2. Grouping stations into sections
+
+Sections wrap related stations in visual boxes using Mermaid `subgraph` blocks. This makes the diagram easier to read and lets the layout engine route lines between groups automatically.
 
 ```text
 %%metro title: Sectioned Pipeline
@@ -76,9 +79,11 @@ graph LR
 
 ![Sectioned example](assets/renders/02_sections.svg)
 
-Sections are laid out automatically on a grid based on their dependencies. Edges between stations in different sections must go **outside** all `subgraph`/`end` blocks. nf-metro automatically creates port connections and junction stations at fan-out points.
+There is one important rule: **edges between stations in different sections must go outside all `subgraph`/`end` blocks.** The three inter-section edges at the bottom of the file connect Pre-processing to Analysis and Reporting.
 
-## Fan-out and fan-in
+nf-metro places sections on a grid automatically based on their dependencies. It also creates port connections at section boundaries and junction stations where lines diverge.
+
+## 3. Fan-out and fan-in
 
 When lines diverge from a shared section into separate analysis paths and then reconverge, nf-metro stacks the target sections vertically and routes each line to its destination:
 
@@ -130,135 +135,106 @@ graph LR
 
 ![Fan-out example](assets/renders/03_fan_out.svg)
 
-Each line takes a different route through its own analysis section, then all three reconverge at the annotation section. The layout engine handles the junction creation and routing automatically.
+Each line takes a different route through its own analysis section, then all three reconverge at annotation. The layout engine handles junction creation, vertical stacking, and routing automatically. You don't need to specify any positions or port sides.
 
-## Full example: nf-core/rnaseq
+## 4. Section directions
 
-The complete nf-core/rnaseq example at [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd) combines all these patterns into a real-world pipeline:
+By default every section flows left-to-right (`LR`). You can change a section's internal flow direction with `%%metro direction:` to create more compact or visually interesting layouts.
+
+This example adds a top-to-bottom (`TB`) section that acts as a vertical connector between the fan-out analysis paths and the final reporting section:
+
+```text
+%%metro title: Section Directions
+%%metro style: dark
+%%metro line: rna | RNA-seq | #2db572
+%%metro line: dna | DNA-seq | #e63946
+%%metro legend: bl
+
+graph LR
+    subgraph preprocessing [Pre-processing]
+        fastqc[FastQC]
+        trim[Trimming]
+        fastqc -->|rna,dna| trim
+    end
+    subgraph rna_analysis [RNA Analysis]
+        star[STAR]
+        salmon[Salmon]
+        star -->|rna| salmon
+    end
+    subgraph dna_analysis [DNA Analysis]
+        bwa[BWA-MEM]
+        gatk[GATK]
+        bwa -->|dna| gatk
+    end
+    subgraph postprocessing [Post-processing]
+        %%metro direction: TB
+        samtools[SAMtools]
+        picard[Picard]
+        bedtools[BEDTools]
+        samtools -->|rna,dna| picard
+        picard -->|rna,dna| bedtools
+    end
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report[Report]
+        multiqc -->|rna,dna| report
+    end
+    trim -->|rna| star
+    trim -->|dna| bwa
+    salmon -->|rna| samtools
+    gatk -->|dna| samtools
+    bedtools -->|rna,dna| multiqc
+```
+
+![Directions example](assets/renders/04_directions.svg)
+
+The Post-processing section flows top-to-bottom, collecting the RNA and DNA lines from the sections above and below, then handing them off horizontally to Reporting. The only change from a normal section is the single `%%metro direction: TB` directive.
+
+The available directions are:
+
+- **`LR`** (default) -- left to right
+- **`TB`** -- top to bottom, useful for vertical connector sections
+- **`RL`** -- right to left, used automatically by the layout engine for serpentine folds in long pipelines
+
+## 5. Putting it all together
+
+The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
 
 ![nf-core/rnaseq](assets/renders/rnaseq_auto.svg)
 
-Five analysis routes share preprocessing, then diverge to different aligners, reconverge at post-processing, and flow through QC. This example also demonstrates **section directions** - while most sections flow left-to-right (`LR`, the default), two other directions create more interesting layouts:
-
-- **`TB`** (top-to-bottom) - the Post-processing section flows vertically, acting as a connector between the aligners above and below
-- **`RL`** (right-to-left) - the QC section flows right-to-left, creating a serpentine return path
-
-The layout engine often infers these directions automatically from the graph topology, but you can set them explicitly with `%%metro direction: TB` or `%%metro direction: RL` inside a `subgraph` block. The example also uses:
-
-- **Multiple exit sides** on preprocessing (right for aligners, bottom for pseudo-aligners)
-- **Grid overrides** to pin sections the auto-layout can't infer perfectly
+Five analysis routes share preprocessing, fan out to different aligners, reconverge at post-processing (a `TB` section), and fold back through QC (an `RL` section that creates a serpentine return path). The layout engine infers section directions, grid positions, and port sides automatically from the graph topology.
 
 See the [Gallery](gallery/index.md) for more rendered examples.
 
-## Global directives
-
-These go at the top of the file, before `graph LR`:
-
-### Title and theme
-
-```text
-%%metro title: nf-core/rnaseq
-%%metro style: dark
-```
-
-Themes: `dark` (default) or `light`.
-
-### Logo
-
-```text
-%%metro logo: path/to/logo.png
-```
-
-Replaces the text title with an image. Use the `--logo` CLI flag to override per-render (useful for dark/light variants).
-
-### Lines
-
-```text
-%%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
-%%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
-%%metro line: hisat2 | Aligner: HISAT2, Quantification: None | #f5c542
-```
-
-Each line needs a unique ID, a display name (shown in the legend), and a hex color.
-
-### Legend
-
-```text
-%%metro legend: bl
-```
-
-Positions: `tl`, `tr`, `bl`, `br` (corners), `bottom`, `right`, or `none`.
-
-### Grid placement
-
-Sections are placed automatically, but you can pin specific sections:
-
-```text
-%%metro grid: postprocessing | 2,0,2
-%%metro grid: qc_report | 1,2,1,2
-```
-
-Format: `section_id | col,row[,rowspan[,colspan]]`.
-
-### File markers
-
-```text
-%%metro file: fastq_in | FASTQ
-%%metro file: report_final | HTML
-```
-
-Marks a station as a file terminus with a document icon and label.
-
-## Section directives
-
-These go inside `subgraph` blocks.
-
-### Entry and exit hints
-
-```text
-subgraph preprocessing [Pre-processing]
-    %%metro exit: right | star_salmon, star_rsem, hisat2
-    %%metro exit: bottom | pseudo_salmon, pseudo_kallisto
-    ...
-end
-```
-
-Entry/exit hints tell the layout engine which side of the section box lines should enter or leave from. Sides: `left`, `right`, `top`, `bottom`.
-
-Most of the time you can **omit these entirely** and let the auto-layout engine infer them from the graph topology. Explicit hints are useful when:
-
-- You want lines to exit from different sides (e.g., right for some, bottom for others)
-- The auto-inferred placement doesn't match your intended layout
-
-### Section direction
-
-```text
-subgraph postprocessing [Post-processing]
-    %%metro direction: TB
-    ...
-end
-```
-
-Controls the flow direction within a section:
-
-- **`LR`** (default) - left to right
-- **`RL`** - right to left, useful for creating serpentine layouts where a section flows back
-- **`TB`** - top to bottom, useful for vertical connector sections
+---
 
 ## Directive reference
 
-| Directive | Scope | Description |
-|-----------|-------|-------------|
-| `%%metro title: <text>` | Global | Map title |
-| `%%metro logo: <path>` | Global | Logo image (replaces title text) |
-| `%%metro style: <name>` | Global | Theme: `dark`, `light` |
-| `%%metro line: <id> \| <name> \| <color>` | Global | Define a metro line |
-| `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Global | Pin section to grid position |
-| `%%metro legend: <position>` | Global | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, `none` |
-| `%%metro file: <station> \| <label>` | Global | Mark a station as a file terminus with a document icon |
-| `%%metro entry: <side> \| <lines>` | Section | Entry port hint |
-| `%%metro exit: <side> \| <lines>` | Section | Exit port hint |
-| `%%metro direction: <dir>` | Section | Flow direction: `LR`, `RL`, `TB` |
+### Global directives
+
+These go at the top of the file, before `graph LR`.
+
+| Directive | Description |
+|-----------|-------------|
+| `%%metro title: <text>` | Map title |
+| `%%metro logo: <path>` | Logo image (replaces title text). Use `--logo` CLI flag to override per-render. |
+| `%%metro style: <name>` | Theme: `dark` (default) or `light` |
+| `%%metro line: <id> \| <name> \| <color>` | Define a metro line with ID, display name, and hex color |
+| `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Pin a section to a grid position |
+| `%%metro legend: <position>` | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` |
+| `%%metro file: <station> \| <label>` | Mark a station as a file terminus with a document icon |
+
+### Section directives
+
+These go inside `subgraph` blocks.
+
+| Directive | Description |
+|-----------|-------------|
+| `%%metro entry: <side> \| <lines>` | Entry port hint. Sides: `left`, `right`, `top`, `bottom` |
+| `%%metro exit: <side> \| <lines>` | Exit port hint. Sides: `left`, `right`, `top`, `bottom` |
+| `%%metro direction: <dir>` | Internal flow direction: `LR`, `RL`, or `TB` |
+
+Entry/exit hints tell the layout engine which side of the section box lines should enter or leave from. Most of the time you can **omit these entirely** and let the auto-layout engine figure it out. They are useful when you want lines to exit from different sides of the same section (e.g., right for some lines, bottom for others).
 
 ## Tips
 
