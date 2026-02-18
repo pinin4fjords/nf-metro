@@ -85,10 +85,13 @@ def render(
 ) -> None:
     """Render a Mermaid metro map definition to SVG."""
     text = input_file.read_text()
-    graph = parse_metro_mermaid(
-        text,
-        max_station_columns=max_layers_per_row or 15,
-    )
+    try:
+        graph = parse_metro_mermaid(
+            text,
+            max_station_columns=max_layers_per_row or 15,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
     if logo is not None:
         graph.logo_path = str(logo)
@@ -163,7 +166,10 @@ def validate(input_file: Path) -> None:
 def info(input_file: Path) -> None:
     """Show information about a Mermaid metro map definition."""
     text = input_file.read_text()
-    graph = parse_metro_mermaid(text)
+    try:
+        graph = parse_metro_mermaid(text)
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
     click.echo(f"Title: {graph.title or '(none)'}")
     click.echo(f"Style: {graph.style}")
