@@ -1351,72 +1351,60 @@
 <a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>graph LR
 <a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    subgraph sec1 [Input]
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>        %%metro exit: right | main, alt
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>        s1a[Read]
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>        s1b[Validate]
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>        s1a --&gt;|main,alt| s1b
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    end
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>    subgraph sec2 [QC]
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>        %%metro entry: left | main, alt
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>        %%metro exit: right | main, alt
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>        s2a[FastQC]
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>        s2b[MultiQC]
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>        s2a --&gt;|main,alt| s2b
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>    end
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>    subgraph sec3 [Trim]
-<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>        %%metro entry: left | main, alt
-<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>        %%metro exit: right | main, alt
-<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>        s3a[Trim]
-<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a>        s3b[Filter]
-<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>        s3c[Check]
-<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>        s3a --&gt;|main| s3b
-<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>        s3a --&gt;|alt| s3b
-<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a>        s3b --&gt;|main,alt| s3c
-<a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a>    end
-<a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a>
-<a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a>    subgraph sec4 [Align]
-<a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a>        %%metro entry: left | main, alt
-<a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a>        %%metro exit: right | main, alt
-<a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a>        s4a[Index]
-<a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a>        s4b[Map]
-<a id="__codelineno-9-38" name="__codelineno-9-38" href="#__codelineno-9-38"></a>        s4c[Sort]
-<a id="__codelineno-9-39" name="__codelineno-9-39" href="#__codelineno-9-39"></a>        s4a --&gt;|main,alt| s4b
-<a id="__codelineno-9-40" name="__codelineno-9-40" href="#__codelineno-9-40"></a>        s4b --&gt;|main,alt| s4c
-<a id="__codelineno-9-41" name="__codelineno-9-41" href="#__codelineno-9-41"></a>    end
-<a id="__codelineno-9-42" name="__codelineno-9-42" href="#__codelineno-9-42"></a>
-<a id="__codelineno-9-43" name="__codelineno-9-43" href="#__codelineno-9-43"></a>    subgraph sec5 [Quant]
-<a id="__codelineno-9-44" name="__codelineno-9-44" href="#__codelineno-9-44"></a>        %%metro entry: left | main, alt
-<a id="__codelineno-9-45" name="__codelineno-9-45" href="#__codelineno-9-45"></a>        %%metro exit: right | main, alt
-<a id="__codelineno-9-46" name="__codelineno-9-46" href="#__codelineno-9-46"></a>        s5a[Count]
-<a id="__codelineno-9-47" name="__codelineno-9-47" href="#__codelineno-9-47"></a>        s5b[Normalize]
-<a id="__codelineno-9-48" name="__codelineno-9-48" href="#__codelineno-9-48"></a>        s5a --&gt;|main,alt| s5b
-<a id="__codelineno-9-49" name="__codelineno-9-49" href="#__codelineno-9-49"></a>    end
-<a id="__codelineno-9-50" name="__codelineno-9-50" href="#__codelineno-9-50"></a>
-<a id="__codelineno-9-51" name="__codelineno-9-51" href="#__codelineno-9-51"></a>    subgraph sec6 [Analysis]
-<a id="__codelineno-9-52" name="__codelineno-9-52" href="#__codelineno-9-52"></a>        %%metro entry: left | main, alt
-<a id="__codelineno-9-53" name="__codelineno-9-53" href="#__codelineno-9-53"></a>        %%metro exit: right | main, alt
-<a id="__codelineno-9-54" name="__codelineno-9-54" href="#__codelineno-9-54"></a>        s6a[Diff Expr]
-<a id="__codelineno-9-55" name="__codelineno-9-55" href="#__codelineno-9-55"></a>        s6b[Pathway]
-<a id="__codelineno-9-56" name="__codelineno-9-56" href="#__codelineno-9-56"></a>        s6c[Annotate]
-<a id="__codelineno-9-57" name="__codelineno-9-57" href="#__codelineno-9-57"></a>        s6a --&gt;|main,alt| s6b
-<a id="__codelineno-9-58" name="__codelineno-9-58" href="#__codelineno-9-58"></a>        s6b --&gt;|main,alt| s6c
-<a id="__codelineno-9-59" name="__codelineno-9-59" href="#__codelineno-9-59"></a>    end
-<a id="__codelineno-9-60" name="__codelineno-9-60" href="#__codelineno-9-60"></a>
-<a id="__codelineno-9-61" name="__codelineno-9-61" href="#__codelineno-9-61"></a>    subgraph sec7 [Report]
-<a id="__codelineno-9-62" name="__codelineno-9-62" href="#__codelineno-9-62"></a>        %%metro entry: left | main, alt
-<a id="__codelineno-9-63" name="__codelineno-9-63" href="#__codelineno-9-63"></a>        s7a[Aggregate]
-<a id="__codelineno-9-64" name="__codelineno-9-64" href="#__codelineno-9-64"></a>        s7b[Report]
-<a id="__codelineno-9-65" name="__codelineno-9-65" href="#__codelineno-9-65"></a>        s7a --&gt;|main,alt| s7b
-<a id="__codelineno-9-66" name="__codelineno-9-66" href="#__codelineno-9-66"></a>    end
-<a id="__codelineno-9-67" name="__codelineno-9-67" href="#__codelineno-9-67"></a>
-<a id="__codelineno-9-68" name="__codelineno-9-68" href="#__codelineno-9-68"></a>    s1b --&gt;|main,alt| s2a
-<a id="__codelineno-9-69" name="__codelineno-9-69" href="#__codelineno-9-69"></a>    s2b --&gt;|main,alt| s3a
-<a id="__codelineno-9-70" name="__codelineno-9-70" href="#__codelineno-9-70"></a>    s3c --&gt;|main,alt| s4a
-<a id="__codelineno-9-71" name="__codelineno-9-71" href="#__codelineno-9-71"></a>    s4c --&gt;|main,alt| s5a
-<a id="__codelineno-9-72" name="__codelineno-9-72" href="#__codelineno-9-72"></a>    s5b --&gt;|main,alt| s6a
-<a id="__codelineno-9-73" name="__codelineno-9-73" href="#__codelineno-9-73"></a>    s6c --&gt;|main,alt| s7a
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>        s1a[Read]
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>        s1b[Validate]
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>        s1a --&gt;|main,alt| s1b
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>    end
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>    subgraph sec2 [QC]
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>        s2a[FastQC]
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>        s2b[MultiQC]
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>        s2a --&gt;|main,alt| s2b
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>    end
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>    subgraph sec3 [Trim]
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>        s3a[Trim]
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>        s3b[Filter]
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>        s3c[Check]
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>        s3a --&gt;|main| s3b
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>        s3a --&gt;|alt| s3b
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>        s3b --&gt;|main,alt| s3c
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a>    end
+<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>
+<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>    subgraph sec4 [Align]
+<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>        s4a[Index]
+<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a>        s4b[Map]
+<a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a>        s4c[Sort]
+<a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a>        s4a --&gt;|main,alt| s4b
+<a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a>        s4b --&gt;|main,alt| s4c
+<a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a>    end
+<a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a>
+<a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a>    subgraph sec5 [Quant]
+<a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a>        s5a[Count]
+<a id="__codelineno-9-38" name="__codelineno-9-38" href="#__codelineno-9-38"></a>        s5b[Normalize]
+<a id="__codelineno-9-39" name="__codelineno-9-39" href="#__codelineno-9-39"></a>        s5a --&gt;|main,alt| s5b
+<a id="__codelineno-9-40" name="__codelineno-9-40" href="#__codelineno-9-40"></a>    end
+<a id="__codelineno-9-41" name="__codelineno-9-41" href="#__codelineno-9-41"></a>
+<a id="__codelineno-9-42" name="__codelineno-9-42" href="#__codelineno-9-42"></a>    subgraph sec6 [Analysis]
+<a id="__codelineno-9-43" name="__codelineno-9-43" href="#__codelineno-9-43"></a>        s6a[Diff Expr]
+<a id="__codelineno-9-44" name="__codelineno-9-44" href="#__codelineno-9-44"></a>        s6b[Pathway]
+<a id="__codelineno-9-45" name="__codelineno-9-45" href="#__codelineno-9-45"></a>        s6c[Annotate]
+<a id="__codelineno-9-46" name="__codelineno-9-46" href="#__codelineno-9-46"></a>        s6a --&gt;|main,alt| s6b
+<a id="__codelineno-9-47" name="__codelineno-9-47" href="#__codelineno-9-47"></a>        s6b --&gt;|main,alt| s6c
+<a id="__codelineno-9-48" name="__codelineno-9-48" href="#__codelineno-9-48"></a>    end
+<a id="__codelineno-9-49" name="__codelineno-9-49" href="#__codelineno-9-49"></a>
+<a id="__codelineno-9-50" name="__codelineno-9-50" href="#__codelineno-9-50"></a>    subgraph sec7 [Report]
+<a id="__codelineno-9-51" name="__codelineno-9-51" href="#__codelineno-9-51"></a>        s7a[Aggregate]
+<a id="__codelineno-9-52" name="__codelineno-9-52" href="#__codelineno-9-52"></a>        s7b[Report]
+<a id="__codelineno-9-53" name="__codelineno-9-53" href="#__codelineno-9-53"></a>        s7a --&gt;|main,alt| s7b
+<a id="__codelineno-9-54" name="__codelineno-9-54" href="#__codelineno-9-54"></a>    end
+<a id="__codelineno-9-55" name="__codelineno-9-55" href="#__codelineno-9-55"></a>
+<a id="__codelineno-9-56" name="__codelineno-9-56" href="#__codelineno-9-56"></a>    s1b --&gt;|main,alt| s2a
+<a id="__codelineno-9-57" name="__codelineno-9-57" href="#__codelineno-9-57"></a>    s2b --&gt;|main,alt| s3a
+<a id="__codelineno-9-58" name="__codelineno-9-58" href="#__codelineno-9-58"></a>    s3c --&gt;|main,alt| s4a
+<a id="__codelineno-9-59" name="__codelineno-9-59" href="#__codelineno-9-59"></a>    s4c --&gt;|main,alt| s5a
+<a id="__codelineno-9-60" name="__codelineno-9-60" href="#__codelineno-9-60"></a>    s5b --&gt;|main,alt| s6a
+<a id="__codelineno-9-61" name="__codelineno-9-61" href="#__codelineno-9-61"></a>    s6c --&gt;|main,alt| s7a
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1435,35 +1423,31 @@
 <a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
 <a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>graph LR
 <a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>    subgraph dna_input [DNA Input]
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>        %%metro exit: right | dna
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>        di1[Read DNA]
-<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>        di2[QC DNA]
-<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>        di1 --&gt;|dna| di2
-<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>    end
-<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>
-<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>    subgraph dna_process [DNA Process]
-<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>        %%metro entry: left | dna
-<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>        dp1[Align DNA]
-<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>        dp2[Call Variants]
-<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>        dp1 --&gt;|dna| dp2
-<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>    end
-<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>
-<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>    subgraph rna_input [RNA Input]
-<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>        %%metro exit: right | rna
-<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>        ri1[Read RNA]
-<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>        ri2[QC RNA]
-<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>        ri1 --&gt;|rna| ri2
-<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a>    end
-<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a>
-<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a>    subgraph rna_process [RNA Process]
-<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a>        %%metro entry: left | rna
-<a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a>        rp1[Align RNA]
-<a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a>        rp2[Quantify]
-<a id="__codelineno-11-32" name="__codelineno-11-32" href="#__codelineno-11-32"></a>        rp1 --&gt;|rna| rp2
-<a id="__codelineno-11-33" name="__codelineno-11-33" href="#__codelineno-11-33"></a>    end
-<a id="__codelineno-11-34" name="__codelineno-11-34" href="#__codelineno-11-34"></a>
-<a id="__codelineno-11-35" name="__codelineno-11-35" href="#__codelineno-11-35"></a>    di2 --&gt;|dna| dp1
-<a id="__codelineno-11-36" name="__codelineno-11-36" href="#__codelineno-11-36"></a>    ri2 --&gt;|rna| rp1
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>        di1[Read DNA]
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>        di2[QC DNA]
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>        di1 --&gt;|dna| di2
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>    end
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>    subgraph dna_process [DNA Process]
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>        dp1[Align DNA]
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>        dp2[Call Variants]
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>        dp1 --&gt;|dna| dp2
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>    end
+<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>
+<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>    subgraph rna_input [RNA Input]
+<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>        ri1[Read RNA]
+<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>        ri2[QC RNA]
+<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>        ri1 --&gt;|rna| ri2
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>    end
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>    subgraph rna_process [RNA Process]
+<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a>        rp1[Align RNA]
+<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a>        rp2[Quantify]
+<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a>        rp1 --&gt;|rna| rp2
+<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a>    end
+<a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a>
+<a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a>    di2 --&gt;|dna| dp1
+<a id="__codelineno-11-32" name="__codelineno-11-32" href="#__codelineno-11-32"></a>    ri2 --&gt;|rna| rp1
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1486,44 +1470,39 @@
 <a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
 <a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>graph LR
 <a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>    subgraph source [Source]
-<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>        %%metro exit: right | alpha, beta, gamma, delta
-<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>        input[Input]
-<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>        process[Process]
-<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>        input --&gt;|alpha,beta,gamma,delta| process
-<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>    end
-<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>
-<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>    subgraph target_a [Target A]
-<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>        %%metro entry: left | alpha
-<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>        a1[Step A1]
-<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>        a2[Step A2]
-<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>        a1 --&gt;|alpha| a2
-<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>    end
-<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>
-<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>    subgraph target_b [Target B]
-<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a>        %%metro entry: left | beta
-<a id="__codelineno-13-25" name="__codelineno-13-25" href="#__codelineno-13-25"></a>        b1[Step B1]
-<a id="__codelineno-13-26" name="__codelineno-13-26" href="#__codelineno-13-26"></a>        b2[Step B2]
-<a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a>        b1 --&gt;|beta| b2
-<a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a>    end
-<a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a>
-<a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a>    subgraph target_c [Target C]
-<a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a>        %%metro entry: left | gamma
-<a id="__codelineno-13-32" name="__codelineno-13-32" href="#__codelineno-13-32"></a>        c1[Step C1]
-<a id="__codelineno-13-33" name="__codelineno-13-33" href="#__codelineno-13-33"></a>        c2[Step C2]
-<a id="__codelineno-13-34" name="__codelineno-13-34" href="#__codelineno-13-34"></a>        c1 --&gt;|gamma| c2
-<a id="__codelineno-13-35" name="__codelineno-13-35" href="#__codelineno-13-35"></a>    end
-<a id="__codelineno-13-36" name="__codelineno-13-36" href="#__codelineno-13-36"></a>
-<a id="__codelineno-13-37" name="__codelineno-13-37" href="#__codelineno-13-37"></a>    subgraph target_d [Target D]
-<a id="__codelineno-13-38" name="__codelineno-13-38" href="#__codelineno-13-38"></a>        %%metro entry: left | delta
-<a id="__codelineno-13-39" name="__codelineno-13-39" href="#__codelineno-13-39"></a>        d1[Step D1]
-<a id="__codelineno-13-40" name="__codelineno-13-40" href="#__codelineno-13-40"></a>        d2[Step D2]
-<a id="__codelineno-13-41" name="__codelineno-13-41" href="#__codelineno-13-41"></a>        d1 --&gt;|delta| d2
-<a id="__codelineno-13-42" name="__codelineno-13-42" href="#__codelineno-13-42"></a>    end
-<a id="__codelineno-13-43" name="__codelineno-13-43" href="#__codelineno-13-43"></a>
-<a id="__codelineno-13-44" name="__codelineno-13-44" href="#__codelineno-13-44"></a>    process --&gt;|alpha| a1
-<a id="__codelineno-13-45" name="__codelineno-13-45" href="#__codelineno-13-45"></a>    process --&gt;|beta| b1
-<a id="__codelineno-13-46" name="__codelineno-13-46" href="#__codelineno-13-46"></a>    process --&gt;|gamma| c1
-<a id="__codelineno-13-47" name="__codelineno-13-47" href="#__codelineno-13-47"></a>    process --&gt;|delta| d1
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>        input[Input]
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>        process[Process]
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>        input --&gt;|alpha,beta,gamma,delta| process
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>    end
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>    subgraph target_a [Target A]
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>        a1[Step A1]
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>        a2[Step A2]
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>        a1 --&gt;|alpha| a2
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>    end
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>    subgraph target_b [Target B]
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>        b1[Step B1]
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>        b2[Step B2]
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a>        b1 --&gt;|beta| b2
+<a id="__codelineno-13-25" name="__codelineno-13-25" href="#__codelineno-13-25"></a>    end
+<a id="__codelineno-13-26" name="__codelineno-13-26" href="#__codelineno-13-26"></a>
+<a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a>    subgraph target_c [Target C]
+<a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a>        c1[Step C1]
+<a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a>        c2[Step C2]
+<a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a>        c1 --&gt;|gamma| c2
+<a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a>    end
+<a id="__codelineno-13-32" name="__codelineno-13-32" href="#__codelineno-13-32"></a>
+<a id="__codelineno-13-33" name="__codelineno-13-33" href="#__codelineno-13-33"></a>    subgraph target_d [Target D]
+<a id="__codelineno-13-34" name="__codelineno-13-34" href="#__codelineno-13-34"></a>        d1[Step D1]
+<a id="__codelineno-13-35" name="__codelineno-13-35" href="#__codelineno-13-35"></a>        d2[Step D2]
+<a id="__codelineno-13-36" name="__codelineno-13-36" href="#__codelineno-13-36"></a>        d1 --&gt;|delta| d2
+<a id="__codelineno-13-37" name="__codelineno-13-37" href="#__codelineno-13-37"></a>    end
+<a id="__codelineno-13-38" name="__codelineno-13-38" href="#__codelineno-13-38"></a>
+<a id="__codelineno-13-39" name="__codelineno-13-39" href="#__codelineno-13-39"></a>    process --&gt;|alpha| a1
+<a id="__codelineno-13-40" name="__codelineno-13-40" href="#__codelineno-13-40"></a>    process --&gt;|beta| b1
+<a id="__codelineno-13-41" name="__codelineno-13-41" href="#__codelineno-13-41"></a>    process --&gt;|gamma| c1
+<a id="__codelineno-13-42" name="__codelineno-13-42" href="#__codelineno-13-42"></a>    process --&gt;|delta| d1
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1544,44 +1523,39 @@
 <a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
 <a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>graph LR
 <a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>    subgraph src_a [Source A]
-<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>        %%metro exit: right | alpha
-<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>        a1[Step A1]
-<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>        a2[Step A2]
-<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>        a1 --&gt;|alpha| a2
-<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>    end
-<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>
-<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>    subgraph src_b [Source B]
-<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>        %%metro exit: right | beta
-<a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>        b1[Step B1]
-<a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a>        b2[Step B2]
-<a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a>        b1 --&gt;|beta| b2
-<a id="__codelineno-15-21" name="__codelineno-15-21" href="#__codelineno-15-21"></a>    end
-<a id="__codelineno-15-22" name="__codelineno-15-22" href="#__codelineno-15-22"></a>
-<a id="__codelineno-15-23" name="__codelineno-15-23" href="#__codelineno-15-23"></a>    subgraph src_c [Source C]
-<a id="__codelineno-15-24" name="__codelineno-15-24" href="#__codelineno-15-24"></a>        %%metro exit: right | gamma
-<a id="__codelineno-15-25" name="__codelineno-15-25" href="#__codelineno-15-25"></a>        c1[Step C1]
-<a id="__codelineno-15-26" name="__codelineno-15-26" href="#__codelineno-15-26"></a>        c2[Step C2]
-<a id="__codelineno-15-27" name="__codelineno-15-27" href="#__codelineno-15-27"></a>        c1 --&gt;|gamma| c2
-<a id="__codelineno-15-28" name="__codelineno-15-28" href="#__codelineno-15-28"></a>    end
-<a id="__codelineno-15-29" name="__codelineno-15-29" href="#__codelineno-15-29"></a>
-<a id="__codelineno-15-30" name="__codelineno-15-30" href="#__codelineno-15-30"></a>    subgraph src_d [Source D]
-<a id="__codelineno-15-31" name="__codelineno-15-31" href="#__codelineno-15-31"></a>        %%metro exit: right | delta
-<a id="__codelineno-15-32" name="__codelineno-15-32" href="#__codelineno-15-32"></a>        d1[Step D1]
-<a id="__codelineno-15-33" name="__codelineno-15-33" href="#__codelineno-15-33"></a>        d2[Step D2]
-<a id="__codelineno-15-34" name="__codelineno-15-34" href="#__codelineno-15-34"></a>        d1 --&gt;|delta| d2
-<a id="__codelineno-15-35" name="__codelineno-15-35" href="#__codelineno-15-35"></a>    end
-<a id="__codelineno-15-36" name="__codelineno-15-36" href="#__codelineno-15-36"></a>
-<a id="__codelineno-15-37" name="__codelineno-15-37" href="#__codelineno-15-37"></a>    subgraph sink [Sink]
-<a id="__codelineno-15-38" name="__codelineno-15-38" href="#__codelineno-15-38"></a>        %%metro entry: left | alpha, beta, gamma, delta
-<a id="__codelineno-15-39" name="__codelineno-15-39" href="#__codelineno-15-39"></a>        merge[Merge]
-<a id="__codelineno-15-40" name="__codelineno-15-40" href="#__codelineno-15-40"></a>        output[Output]
-<a id="__codelineno-15-41" name="__codelineno-15-41" href="#__codelineno-15-41"></a>        merge --&gt;|alpha,beta,gamma,delta| output
-<a id="__codelineno-15-42" name="__codelineno-15-42" href="#__codelineno-15-42"></a>    end
-<a id="__codelineno-15-43" name="__codelineno-15-43" href="#__codelineno-15-43"></a>
-<a id="__codelineno-15-44" name="__codelineno-15-44" href="#__codelineno-15-44"></a>    a2 --&gt;|alpha| merge
-<a id="__codelineno-15-45" name="__codelineno-15-45" href="#__codelineno-15-45"></a>    b2 --&gt;|beta| merge
-<a id="__codelineno-15-46" name="__codelineno-15-46" href="#__codelineno-15-46"></a>    c2 --&gt;|gamma| merge
-<a id="__codelineno-15-47" name="__codelineno-15-47" href="#__codelineno-15-47"></a>    d2 --&gt;|delta| merge
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>        a1[Step A1]
+<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>        a2[Step A2]
+<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>        a1 --&gt;|alpha| a2
+<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>    end
+<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>
+<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>    subgraph src_b [Source B]
+<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>        b1[Step B1]
+<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>        b2[Step B2]
+<a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>        b1 --&gt;|beta| b2
+<a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a>    end
+<a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a>
+<a id="__codelineno-15-21" name="__codelineno-15-21" href="#__codelineno-15-21"></a>    subgraph src_c [Source C]
+<a id="__codelineno-15-22" name="__codelineno-15-22" href="#__codelineno-15-22"></a>        c1[Step C1]
+<a id="__codelineno-15-23" name="__codelineno-15-23" href="#__codelineno-15-23"></a>        c2[Step C2]
+<a id="__codelineno-15-24" name="__codelineno-15-24" href="#__codelineno-15-24"></a>        c1 --&gt;|gamma| c2
+<a id="__codelineno-15-25" name="__codelineno-15-25" href="#__codelineno-15-25"></a>    end
+<a id="__codelineno-15-26" name="__codelineno-15-26" href="#__codelineno-15-26"></a>
+<a id="__codelineno-15-27" name="__codelineno-15-27" href="#__codelineno-15-27"></a>    subgraph src_d [Source D]
+<a id="__codelineno-15-28" name="__codelineno-15-28" href="#__codelineno-15-28"></a>        d1[Step D1]
+<a id="__codelineno-15-29" name="__codelineno-15-29" href="#__codelineno-15-29"></a>        d2[Step D2]
+<a id="__codelineno-15-30" name="__codelineno-15-30" href="#__codelineno-15-30"></a>        d1 --&gt;|delta| d2
+<a id="__codelineno-15-31" name="__codelineno-15-31" href="#__codelineno-15-31"></a>    end
+<a id="__codelineno-15-32" name="__codelineno-15-32" href="#__codelineno-15-32"></a>
+<a id="__codelineno-15-33" name="__codelineno-15-33" href="#__codelineno-15-33"></a>    subgraph sink [Sink]
+<a id="__codelineno-15-34" name="__codelineno-15-34" href="#__codelineno-15-34"></a>        merge[Merge]
+<a id="__codelineno-15-35" name="__codelineno-15-35" href="#__codelineno-15-35"></a>        output[Output]
+<a id="__codelineno-15-36" name="__codelineno-15-36" href="#__codelineno-15-36"></a>        merge --&gt;|alpha,beta,gamma,delta| output
+<a id="__codelineno-15-37" name="__codelineno-15-37" href="#__codelineno-15-37"></a>    end
+<a id="__codelineno-15-38" name="__codelineno-15-38" href="#__codelineno-15-38"></a>
+<a id="__codelineno-15-39" name="__codelineno-15-39" href="#__codelineno-15-39"></a>    a2 --&gt;|alpha| merge
+<a id="__codelineno-15-40" name="__codelineno-15-40" href="#__codelineno-15-40"></a>    b2 --&gt;|beta| merge
+<a id="__codelineno-15-41" name="__codelineno-15-41" href="#__codelineno-15-41"></a>    c2 --&gt;|gamma| merge
+<a id="__codelineno-15-42" name="__codelineno-15-42" href="#__codelineno-15-42"></a>    d2 --&gt;|delta| merge
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1600,41 +1574,35 @@
 <a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
 <a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>graph LR
 <a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>    subgraph start [Start]
-<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>        %%metro exit: right | left_path, right_path
-<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>        input[Input]
-<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>        prep[Prepare]
-<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>        input --&gt;|left_path,right_path| prep
-<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>    end
-<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>
-<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>    subgraph branch_left [Branch Left]
-<a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a>        %%metro entry: left | left_path
-<a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a>        %%metro exit: right | left_path
-<a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a>        l1[Left Step 1]
-<a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a>        l2[Left Step 2]
-<a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a>        l3[Left Step 3]
-<a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>        l1 --&gt;|left_path| l2
-<a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a>        l2 --&gt;|left_path| l3
-<a id="__codelineno-17-22" name="__codelineno-17-22" href="#__codelineno-17-22"></a>    end
-<a id="__codelineno-17-23" name="__codelineno-17-23" href="#__codelineno-17-23"></a>
-<a id="__codelineno-17-24" name="__codelineno-17-24" href="#__codelineno-17-24"></a>    subgraph branch_right [Branch Right]
-<a id="__codelineno-17-25" name="__codelineno-17-25" href="#__codelineno-17-25"></a>        %%metro entry: left | right_path
-<a id="__codelineno-17-26" name="__codelineno-17-26" href="#__codelineno-17-26"></a>        %%metro exit: right | right_path
-<a id="__codelineno-17-27" name="__codelineno-17-27" href="#__codelineno-17-27"></a>        r1[Right Step 1]
-<a id="__codelineno-17-28" name="__codelineno-17-28" href="#__codelineno-17-28"></a>        r2[Right Step 2]
-<a id="__codelineno-17-29" name="__codelineno-17-29" href="#__codelineno-17-29"></a>        r1 --&gt;|right_path| r2
-<a id="__codelineno-17-30" name="__codelineno-17-30" href="#__codelineno-17-30"></a>    end
-<a id="__codelineno-17-31" name="__codelineno-17-31" href="#__codelineno-17-31"></a>
-<a id="__codelineno-17-32" name="__codelineno-17-32" href="#__codelineno-17-32"></a>    subgraph finish [Finish]
-<a id="__codelineno-17-33" name="__codelineno-17-33" href="#__codelineno-17-33"></a>        %%metro entry: left | left_path, right_path
-<a id="__codelineno-17-34" name="__codelineno-17-34" href="#__codelineno-17-34"></a>        merge[Merge]
-<a id="__codelineno-17-35" name="__codelineno-17-35" href="#__codelineno-17-35"></a>        report[Report]
-<a id="__codelineno-17-36" name="__codelineno-17-36" href="#__codelineno-17-36"></a>        merge --&gt;|left_path,right_path| report
-<a id="__codelineno-17-37" name="__codelineno-17-37" href="#__codelineno-17-37"></a>    end
-<a id="__codelineno-17-38" name="__codelineno-17-38" href="#__codelineno-17-38"></a>
-<a id="__codelineno-17-39" name="__codelineno-17-39" href="#__codelineno-17-39"></a>    prep --&gt;|left_path| l1
-<a id="__codelineno-17-40" name="__codelineno-17-40" href="#__codelineno-17-40"></a>    prep --&gt;|right_path| r1
-<a id="__codelineno-17-41" name="__codelineno-17-41" href="#__codelineno-17-41"></a>    l3 --&gt;|left_path| merge
-<a id="__codelineno-17-42" name="__codelineno-17-42" href="#__codelineno-17-42"></a>    r2 --&gt;|right_path| merge
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>        input[Input]
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>        prep[Prepare]
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>        input --&gt;|left_path,right_path| prep
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>    end
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>    subgraph branch_left [Branch Left]
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>        l1[Left Step 1]
+<a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a>        l2[Left Step 2]
+<a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a>        l3[Left Step 3]
+<a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a>        l1 --&gt;|left_path| l2
+<a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a>        l2 --&gt;|left_path| l3
+<a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a>    end
+<a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>
+<a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a>    subgraph branch_right [Branch Right]
+<a id="__codelineno-17-22" name="__codelineno-17-22" href="#__codelineno-17-22"></a>        r1[Right Step 1]
+<a id="__codelineno-17-23" name="__codelineno-17-23" href="#__codelineno-17-23"></a>        r2[Right Step 2]
+<a id="__codelineno-17-24" name="__codelineno-17-24" href="#__codelineno-17-24"></a>        r1 --&gt;|right_path| r2
+<a id="__codelineno-17-25" name="__codelineno-17-25" href="#__codelineno-17-25"></a>    end
+<a id="__codelineno-17-26" name="__codelineno-17-26" href="#__codelineno-17-26"></a>
+<a id="__codelineno-17-27" name="__codelineno-17-27" href="#__codelineno-17-27"></a>    subgraph finish [Finish]
+<a id="__codelineno-17-28" name="__codelineno-17-28" href="#__codelineno-17-28"></a>        merge[Merge]
+<a id="__codelineno-17-29" name="__codelineno-17-29" href="#__codelineno-17-29"></a>        report[Report]
+<a id="__codelineno-17-30" name="__codelineno-17-30" href="#__codelineno-17-30"></a>        merge --&gt;|left_path,right_path| report
+<a id="__codelineno-17-31" name="__codelineno-17-31" href="#__codelineno-17-31"></a>    end
+<a id="__codelineno-17-32" name="__codelineno-17-32" href="#__codelineno-17-32"></a>
+<a id="__codelineno-17-33" name="__codelineno-17-33" href="#__codelineno-17-33"></a>    prep --&gt;|left_path| l1
+<a id="__codelineno-17-34" name="__codelineno-17-34" href="#__codelineno-17-34"></a>    prep --&gt;|right_path| r1
+<a id="__codelineno-17-35" name="__codelineno-17-35" href="#__codelineno-17-35"></a>    l3 --&gt;|left_path| merge
+<a id="__codelineno-17-36" name="__codelineno-17-36" href="#__codelineno-17-36"></a>    r2 --&gt;|right_path| merge
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1656,63 +1624,53 @@
 <a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>
 <a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>graph LR
 <a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>    subgraph root [Root]
-<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>        %%metro exit: right | short, medium, long
-<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a>        input[Input]
-<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a>        dispatch[Dispatch]
-<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>        input --&gt;|short,medium,long| dispatch
-<a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a>    end
-<a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a>
-<a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a>    subgraph branch_short [Short]
-<a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>        %%metro entry: left | short
-<a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a>        s1[Quick]
-<a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a>        s2[Result]
-<a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a>        s1 --&gt;|short| s2
-<a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a>    end
-<a id="__codelineno-19-21" name="__codelineno-19-21" href="#__codelineno-19-21"></a>
-<a id="__codelineno-19-22" name="__codelineno-19-22" href="#__codelineno-19-22"></a>    subgraph branch_med_1 [Medium Step 1]
-<a id="__codelineno-19-23" name="__codelineno-19-23" href="#__codelineno-19-23"></a>        %%metro entry: left | medium
-<a id="__codelineno-19-24" name="__codelineno-19-24" href="#__codelineno-19-24"></a>        %%metro exit: right | medium
-<a id="__codelineno-19-25" name="__codelineno-19-25" href="#__codelineno-19-25"></a>        m1[Medium A]
-<a id="__codelineno-19-26" name="__codelineno-19-26" href="#__codelineno-19-26"></a>        m2[Medium B]
-<a id="__codelineno-19-27" name="__codelineno-19-27" href="#__codelineno-19-27"></a>        m1 --&gt;|medium| m2
-<a id="__codelineno-19-28" name="__codelineno-19-28" href="#__codelineno-19-28"></a>    end
-<a id="__codelineno-19-29" name="__codelineno-19-29" href="#__codelineno-19-29"></a>
-<a id="__codelineno-19-30" name="__codelineno-19-30" href="#__codelineno-19-30"></a>    subgraph branch_med_2 [Medium Step 2]
-<a id="__codelineno-19-31" name="__codelineno-19-31" href="#__codelineno-19-31"></a>        %%metro entry: left | medium
-<a id="__codelineno-19-32" name="__codelineno-19-32" href="#__codelineno-19-32"></a>        m3[Medium C]
-<a id="__codelineno-19-33" name="__codelineno-19-33" href="#__codelineno-19-33"></a>        m4[Medium D]
-<a id="__codelineno-19-34" name="__codelineno-19-34" href="#__codelineno-19-34"></a>        m3 --&gt;|medium| m4
-<a id="__codelineno-19-35" name="__codelineno-19-35" href="#__codelineno-19-35"></a>    end
-<a id="__codelineno-19-36" name="__codelineno-19-36" href="#__codelineno-19-36"></a>
-<a id="__codelineno-19-37" name="__codelineno-19-37" href="#__codelineno-19-37"></a>    subgraph branch_long_1 [Long Step 1]
-<a id="__codelineno-19-38" name="__codelineno-19-38" href="#__codelineno-19-38"></a>        %%metro entry: left | long
-<a id="__codelineno-19-39" name="__codelineno-19-39" href="#__codelineno-19-39"></a>        %%metro exit: right | long
-<a id="__codelineno-19-40" name="__codelineno-19-40" href="#__codelineno-19-40"></a>        l1[Long A]
-<a id="__codelineno-19-41" name="__codelineno-19-41" href="#__codelineno-19-41"></a>        l2[Long B]
-<a id="__codelineno-19-42" name="__codelineno-19-42" href="#__codelineno-19-42"></a>        l1 --&gt;|long| l2
-<a id="__codelineno-19-43" name="__codelineno-19-43" href="#__codelineno-19-43"></a>    end
-<a id="__codelineno-19-44" name="__codelineno-19-44" href="#__codelineno-19-44"></a>
-<a id="__codelineno-19-45" name="__codelineno-19-45" href="#__codelineno-19-45"></a>    subgraph branch_long_2 [Long Step 2]
-<a id="__codelineno-19-46" name="__codelineno-19-46" href="#__codelineno-19-46"></a>        %%metro entry: left | long
-<a id="__codelineno-19-47" name="__codelineno-19-47" href="#__codelineno-19-47"></a>        %%metro exit: right | long
-<a id="__codelineno-19-48" name="__codelineno-19-48" href="#__codelineno-19-48"></a>        l3[Long C]
-<a id="__codelineno-19-49" name="__codelineno-19-49" href="#__codelineno-19-49"></a>        l4[Long D]
-<a id="__codelineno-19-50" name="__codelineno-19-50" href="#__codelineno-19-50"></a>        l3 --&gt;|long| l4
-<a id="__codelineno-19-51" name="__codelineno-19-51" href="#__codelineno-19-51"></a>    end
-<a id="__codelineno-19-52" name="__codelineno-19-52" href="#__codelineno-19-52"></a>
-<a id="__codelineno-19-53" name="__codelineno-19-53" href="#__codelineno-19-53"></a>    subgraph branch_long_3 [Long Step 3]
-<a id="__codelineno-19-54" name="__codelineno-19-54" href="#__codelineno-19-54"></a>        %%metro entry: left | long
-<a id="__codelineno-19-55" name="__codelineno-19-55" href="#__codelineno-19-55"></a>        l5[Long E]
-<a id="__codelineno-19-56" name="__codelineno-19-56" href="#__codelineno-19-56"></a>        l6[Long F]
-<a id="__codelineno-19-57" name="__codelineno-19-57" href="#__codelineno-19-57"></a>        l5 --&gt;|long| l6
-<a id="__codelineno-19-58" name="__codelineno-19-58" href="#__codelineno-19-58"></a>    end
-<a id="__codelineno-19-59" name="__codelineno-19-59" href="#__codelineno-19-59"></a>
-<a id="__codelineno-19-60" name="__codelineno-19-60" href="#__codelineno-19-60"></a>    dispatch --&gt;|short| s1
-<a id="__codelineno-19-61" name="__codelineno-19-61" href="#__codelineno-19-61"></a>    dispatch --&gt;|medium| m1
-<a id="__codelineno-19-62" name="__codelineno-19-62" href="#__codelineno-19-62"></a>    dispatch --&gt;|long| l1
-<a id="__codelineno-19-63" name="__codelineno-19-63" href="#__codelineno-19-63"></a>    m2 --&gt;|medium| m3
-<a id="__codelineno-19-64" name="__codelineno-19-64" href="#__codelineno-19-64"></a>    l2 --&gt;|long| l3
-<a id="__codelineno-19-65" name="__codelineno-19-65" href="#__codelineno-19-65"></a>    l4 --&gt;|long| l5
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>        input[Input]
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a>        dispatch[Dispatch]
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a>        input --&gt;|short,medium,long| dispatch
+<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>    end
+<a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a>
+<a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a>    subgraph branch_short [Short]
+<a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a>        s1[Quick]
+<a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>        s2[Result]
+<a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a>        s1 --&gt;|short| s2
+<a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a>    end
+<a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a>
+<a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a>    subgraph branch_med_1 [Medium Step 1]
+<a id="__codelineno-19-21" name="__codelineno-19-21" href="#__codelineno-19-21"></a>        m1[Medium A]
+<a id="__codelineno-19-22" name="__codelineno-19-22" href="#__codelineno-19-22"></a>        m2[Medium B]
+<a id="__codelineno-19-23" name="__codelineno-19-23" href="#__codelineno-19-23"></a>        m1 --&gt;|medium| m2
+<a id="__codelineno-19-24" name="__codelineno-19-24" href="#__codelineno-19-24"></a>    end
+<a id="__codelineno-19-25" name="__codelineno-19-25" href="#__codelineno-19-25"></a>
+<a id="__codelineno-19-26" name="__codelineno-19-26" href="#__codelineno-19-26"></a>    subgraph branch_med_2 [Medium Step 2]
+<a id="__codelineno-19-27" name="__codelineno-19-27" href="#__codelineno-19-27"></a>        m3[Medium C]
+<a id="__codelineno-19-28" name="__codelineno-19-28" href="#__codelineno-19-28"></a>        m4[Medium D]
+<a id="__codelineno-19-29" name="__codelineno-19-29" href="#__codelineno-19-29"></a>        m3 --&gt;|medium| m4
+<a id="__codelineno-19-30" name="__codelineno-19-30" href="#__codelineno-19-30"></a>    end
+<a id="__codelineno-19-31" name="__codelineno-19-31" href="#__codelineno-19-31"></a>
+<a id="__codelineno-19-32" name="__codelineno-19-32" href="#__codelineno-19-32"></a>    subgraph branch_long_1 [Long Step 1]
+<a id="__codelineno-19-33" name="__codelineno-19-33" href="#__codelineno-19-33"></a>        l1[Long A]
+<a id="__codelineno-19-34" name="__codelineno-19-34" href="#__codelineno-19-34"></a>        l2[Long B]
+<a id="__codelineno-19-35" name="__codelineno-19-35" href="#__codelineno-19-35"></a>        l1 --&gt;|long| l2
+<a id="__codelineno-19-36" name="__codelineno-19-36" href="#__codelineno-19-36"></a>    end
+<a id="__codelineno-19-37" name="__codelineno-19-37" href="#__codelineno-19-37"></a>
+<a id="__codelineno-19-38" name="__codelineno-19-38" href="#__codelineno-19-38"></a>    subgraph branch_long_2 [Long Step 2]
+<a id="__codelineno-19-39" name="__codelineno-19-39" href="#__codelineno-19-39"></a>        l3[Long C]
+<a id="__codelineno-19-40" name="__codelineno-19-40" href="#__codelineno-19-40"></a>        l4[Long D]
+<a id="__codelineno-19-41" name="__codelineno-19-41" href="#__codelineno-19-41"></a>        l3 --&gt;|long| l4
+<a id="__codelineno-19-42" name="__codelineno-19-42" href="#__codelineno-19-42"></a>    end
+<a id="__codelineno-19-43" name="__codelineno-19-43" href="#__codelineno-19-43"></a>
+<a id="__codelineno-19-44" name="__codelineno-19-44" href="#__codelineno-19-44"></a>    subgraph branch_long_3 [Long Step 3]
+<a id="__codelineno-19-45" name="__codelineno-19-45" href="#__codelineno-19-45"></a>        l5[Long E]
+<a id="__codelineno-19-46" name="__codelineno-19-46" href="#__codelineno-19-46"></a>        l6[Long F]
+<a id="__codelineno-19-47" name="__codelineno-19-47" href="#__codelineno-19-47"></a>        l5 --&gt;|long| l6
+<a id="__codelineno-19-48" name="__codelineno-19-48" href="#__codelineno-19-48"></a>    end
+<a id="__codelineno-19-49" name="__codelineno-19-49" href="#__codelineno-19-49"></a>
+<a id="__codelineno-19-50" name="__codelineno-19-50" href="#__codelineno-19-50"></a>    dispatch --&gt;|short| s1
+<a id="__codelineno-19-51" name="__codelineno-19-51" href="#__codelineno-19-51"></a>    dispatch --&gt;|medium| m1
+<a id="__codelineno-19-52" name="__codelineno-19-52" href="#__codelineno-19-52"></a>    dispatch --&gt;|long| l1
+<a id="__codelineno-19-53" name="__codelineno-19-53" href="#__codelineno-19-53"></a>    m2 --&gt;|medium| m3
+<a id="__codelineno-19-54" name="__codelineno-19-54" href="#__codelineno-19-54"></a>    l2 --&gt;|long| l3
+<a id="__codelineno-19-55" name="__codelineno-19-55" href="#__codelineno-19-55"></a>    l4 --&gt;|long| l5
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1733,62 +1691,52 @@
 <a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>
 <a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>graph LR
 <a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a>    subgraph input_sec [Input]
-<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a>        %%metro exit: right | fast, standard, detailed, legacy
-<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a>        raw[Raw Data]
-<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a>        validate[Validate]
-<a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a>        raw --&gt;|fast,standard,detailed,legacy| validate
-<a id="__codelineno-21-14" name="__codelineno-21-14" href="#__codelineno-21-14"></a>    end
-<a id="__codelineno-21-15" name="__codelineno-21-15" href="#__codelineno-21-15"></a>
-<a id="__codelineno-21-16" name="__codelineno-21-16" href="#__codelineno-21-16"></a>    subgraph fast_track [Fast Track]
-<a id="__codelineno-21-17" name="__codelineno-21-17" href="#__codelineno-21-17"></a>        %%metro entry: left | fast
-<a id="__codelineno-21-18" name="__codelineno-21-18" href="#__codelineno-21-18"></a>        %%metro exit: right | fast
-<a id="__codelineno-21-19" name="__codelineno-21-19" href="#__codelineno-21-19"></a>        quick_align[Quick Align]
-<a id="__codelineno-21-20" name="__codelineno-21-20" href="#__codelineno-21-20"></a>        quick_quant[Quick Quant]
-<a id="__codelineno-21-21" name="__codelineno-21-21" href="#__codelineno-21-21"></a>        quick_align --&gt;|fast| quick_quant
-<a id="__codelineno-21-22" name="__codelineno-21-22" href="#__codelineno-21-22"></a>    end
-<a id="__codelineno-21-23" name="__codelineno-21-23" href="#__codelineno-21-23"></a>
-<a id="__codelineno-21-24" name="__codelineno-21-24" href="#__codelineno-21-24"></a>    subgraph full_preprocess [Full Pre-process]
-<a id="__codelineno-21-25" name="__codelineno-21-25" href="#__codelineno-21-25"></a>        %%metro entry: left | standard, detailed, legacy
-<a id="__codelineno-21-26" name="__codelineno-21-26" href="#__codelineno-21-26"></a>        %%metro exit: right | standard, detailed, legacy
-<a id="__codelineno-21-27" name="__codelineno-21-27" href="#__codelineno-21-27"></a>        trim[Trim]
-<a id="__codelineno-21-28" name="__codelineno-21-28" href="#__codelineno-21-28"></a>        filter[Filter]
-<a id="__codelineno-21-29" name="__codelineno-21-29" href="#__codelineno-21-29"></a>        qc_check[QC Check]
-<a id="__codelineno-21-30" name="__codelineno-21-30" href="#__codelineno-21-30"></a>        trim --&gt;|standard,detailed,legacy| filter
-<a id="__codelineno-21-31" name="__codelineno-21-31" href="#__codelineno-21-31"></a>        filter --&gt;|standard,detailed,legacy| qc_check
-<a id="__codelineno-21-32" name="__codelineno-21-32" href="#__codelineno-21-32"></a>    end
-<a id="__codelineno-21-33" name="__codelineno-21-33" href="#__codelineno-21-33"></a>
-<a id="__codelineno-21-34" name="__codelineno-21-34" href="#__codelineno-21-34"></a>    subgraph standard_analysis [Standard Analysis]
-<a id="__codelineno-21-35" name="__codelineno-21-35" href="#__codelineno-21-35"></a>        %%metro entry: left | standard, legacy
-<a id="__codelineno-21-36" name="__codelineno-21-36" href="#__codelineno-21-36"></a>        %%metro exit: right | standard, legacy
-<a id="__codelineno-21-37" name="__codelineno-21-37" href="#__codelineno-21-37"></a>        align[Align]
-<a id="__codelineno-21-38" name="__codelineno-21-38" href="#__codelineno-21-38"></a>        quant[Quantify]
-<a id="__codelineno-21-39" name="__codelineno-21-39" href="#__codelineno-21-39"></a>        align --&gt;|standard,legacy| quant
-<a id="__codelineno-21-40" name="__codelineno-21-40" href="#__codelineno-21-40"></a>    end
-<a id="__codelineno-21-41" name="__codelineno-21-41" href="#__codelineno-21-41"></a>
-<a id="__codelineno-21-42" name="__codelineno-21-42" href="#__codelineno-21-42"></a>    subgraph deep_analysis [Deep Analysis]
-<a id="__codelineno-21-43" name="__codelineno-21-43" href="#__codelineno-21-43"></a>        %%metro entry: left | detailed
-<a id="__codelineno-21-44" name="__codelineno-21-44" href="#__codelineno-21-44"></a>        %%metro exit: right | detailed
-<a id="__codelineno-21-45" name="__codelineno-21-45" href="#__codelineno-21-45"></a>        hq_align[HQ Align]
-<a id="__codelineno-21-46" name="__codelineno-21-46" href="#__codelineno-21-46"></a>        dedup[Dedup]
-<a id="__codelineno-21-47" name="__codelineno-21-47" href="#__codelineno-21-47"></a>        hq_quant[HQ Quantify]
-<a id="__codelineno-21-48" name="__codelineno-21-48" href="#__codelineno-21-48"></a>        hq_align --&gt;|detailed| dedup
-<a id="__codelineno-21-49" name="__codelineno-21-49" href="#__codelineno-21-49"></a>        dedup --&gt;|detailed| hq_quant
-<a id="__codelineno-21-50" name="__codelineno-21-50" href="#__codelineno-21-50"></a>    end
-<a id="__codelineno-21-51" name="__codelineno-21-51" href="#__codelineno-21-51"></a>
-<a id="__codelineno-21-52" name="__codelineno-21-52" href="#__codelineno-21-52"></a>    subgraph output_sec [Output]
-<a id="__codelineno-21-53" name="__codelineno-21-53" href="#__codelineno-21-53"></a>        %%metro entry: left | fast, standard, detailed, legacy
-<a id="__codelineno-21-54" name="__codelineno-21-54" href="#__codelineno-21-54"></a>        aggregate[Aggregate]
-<a id="__codelineno-21-55" name="__codelineno-21-55" href="#__codelineno-21-55"></a>        report[Report]
-<a id="__codelineno-21-56" name="__codelineno-21-56" href="#__codelineno-21-56"></a>        aggregate --&gt;|fast,standard,detailed,legacy| report
-<a id="__codelineno-21-57" name="__codelineno-21-57" href="#__codelineno-21-57"></a>    end
-<a id="__codelineno-21-58" name="__codelineno-21-58" href="#__codelineno-21-58"></a>
-<a id="__codelineno-21-59" name="__codelineno-21-59" href="#__codelineno-21-59"></a>    validate --&gt;|fast| quick_align
-<a id="__codelineno-21-60" name="__codelineno-21-60" href="#__codelineno-21-60"></a>    validate --&gt;|standard,detailed,legacy| trim
-<a id="__codelineno-21-61" name="__codelineno-21-61" href="#__codelineno-21-61"></a>    qc_check --&gt;|standard,legacy| align
-<a id="__codelineno-21-62" name="__codelineno-21-62" href="#__codelineno-21-62"></a>    qc_check --&gt;|detailed| hq_align
-<a id="__codelineno-21-63" name="__codelineno-21-63" href="#__codelineno-21-63"></a>    quick_quant --&gt;|fast| aggregate
-<a id="__codelineno-21-64" name="__codelineno-21-64" href="#__codelineno-21-64"></a>    quant --&gt;|standard,legacy| aggregate
-<a id="__codelineno-21-65" name="__codelineno-21-65" href="#__codelineno-21-65"></a>    hq_quant --&gt;|detailed| aggregate
+<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a>        raw[Raw Data]
+<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a>        validate[Validate]
+<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a>        raw --&gt;|fast,standard,detailed,legacy| validate
+<a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a>    end
+<a id="__codelineno-21-14" name="__codelineno-21-14" href="#__codelineno-21-14"></a>
+<a id="__codelineno-21-15" name="__codelineno-21-15" href="#__codelineno-21-15"></a>    subgraph fast_track [Fast Track]
+<a id="__codelineno-21-16" name="__codelineno-21-16" href="#__codelineno-21-16"></a>        quick_align[Quick Align]
+<a id="__codelineno-21-17" name="__codelineno-21-17" href="#__codelineno-21-17"></a>        quick_quant[Quick Quant]
+<a id="__codelineno-21-18" name="__codelineno-21-18" href="#__codelineno-21-18"></a>        quick_align --&gt;|fast| quick_quant
+<a id="__codelineno-21-19" name="__codelineno-21-19" href="#__codelineno-21-19"></a>    end
+<a id="__codelineno-21-20" name="__codelineno-21-20" href="#__codelineno-21-20"></a>
+<a id="__codelineno-21-21" name="__codelineno-21-21" href="#__codelineno-21-21"></a>    subgraph full_preprocess [Full Pre-process]
+<a id="__codelineno-21-22" name="__codelineno-21-22" href="#__codelineno-21-22"></a>        trim[Trim]
+<a id="__codelineno-21-23" name="__codelineno-21-23" href="#__codelineno-21-23"></a>        filter[Filter]
+<a id="__codelineno-21-24" name="__codelineno-21-24" href="#__codelineno-21-24"></a>        qc_check[QC Check]
+<a id="__codelineno-21-25" name="__codelineno-21-25" href="#__codelineno-21-25"></a>        trim --&gt;|standard,detailed,legacy| filter
+<a id="__codelineno-21-26" name="__codelineno-21-26" href="#__codelineno-21-26"></a>        filter --&gt;|standard,detailed,legacy| qc_check
+<a id="__codelineno-21-27" name="__codelineno-21-27" href="#__codelineno-21-27"></a>    end
+<a id="__codelineno-21-28" name="__codelineno-21-28" href="#__codelineno-21-28"></a>
+<a id="__codelineno-21-29" name="__codelineno-21-29" href="#__codelineno-21-29"></a>    subgraph standard_analysis [Standard Analysis]
+<a id="__codelineno-21-30" name="__codelineno-21-30" href="#__codelineno-21-30"></a>        align[Align]
+<a id="__codelineno-21-31" name="__codelineno-21-31" href="#__codelineno-21-31"></a>        quant[Quantify]
+<a id="__codelineno-21-32" name="__codelineno-21-32" href="#__codelineno-21-32"></a>        align --&gt;|standard,legacy| quant
+<a id="__codelineno-21-33" name="__codelineno-21-33" href="#__codelineno-21-33"></a>    end
+<a id="__codelineno-21-34" name="__codelineno-21-34" href="#__codelineno-21-34"></a>
+<a id="__codelineno-21-35" name="__codelineno-21-35" href="#__codelineno-21-35"></a>    subgraph deep_analysis [Deep Analysis]
+<a id="__codelineno-21-36" name="__codelineno-21-36" href="#__codelineno-21-36"></a>        hq_align[HQ Align]
+<a id="__codelineno-21-37" name="__codelineno-21-37" href="#__codelineno-21-37"></a>        dedup[Dedup]
+<a id="__codelineno-21-38" name="__codelineno-21-38" href="#__codelineno-21-38"></a>        hq_quant[HQ Quantify]
+<a id="__codelineno-21-39" name="__codelineno-21-39" href="#__codelineno-21-39"></a>        hq_align --&gt;|detailed| dedup
+<a id="__codelineno-21-40" name="__codelineno-21-40" href="#__codelineno-21-40"></a>        dedup --&gt;|detailed| hq_quant
+<a id="__codelineno-21-41" name="__codelineno-21-41" href="#__codelineno-21-41"></a>    end
+<a id="__codelineno-21-42" name="__codelineno-21-42" href="#__codelineno-21-42"></a>
+<a id="__codelineno-21-43" name="__codelineno-21-43" href="#__codelineno-21-43"></a>    subgraph output_sec [Output]
+<a id="__codelineno-21-44" name="__codelineno-21-44" href="#__codelineno-21-44"></a>        aggregate[Aggregate]
+<a id="__codelineno-21-45" name="__codelineno-21-45" href="#__codelineno-21-45"></a>        report[Report]
+<a id="__codelineno-21-46" name="__codelineno-21-46" href="#__codelineno-21-46"></a>        aggregate --&gt;|fast,standard,detailed,legacy| report
+<a id="__codelineno-21-47" name="__codelineno-21-47" href="#__codelineno-21-47"></a>    end
+<a id="__codelineno-21-48" name="__codelineno-21-48" href="#__codelineno-21-48"></a>
+<a id="__codelineno-21-49" name="__codelineno-21-49" href="#__codelineno-21-49"></a>    validate --&gt;|fast| quick_align
+<a id="__codelineno-21-50" name="__codelineno-21-50" href="#__codelineno-21-50"></a>    validate --&gt;|standard,detailed,legacy| trim
+<a id="__codelineno-21-51" name="__codelineno-21-51" href="#__codelineno-21-51"></a>    qc_check --&gt;|standard,legacy| align
+<a id="__codelineno-21-52" name="__codelineno-21-52" href="#__codelineno-21-52"></a>    qc_check --&gt;|detailed| hq_align
+<a id="__codelineno-21-53" name="__codelineno-21-53" href="#__codelineno-21-53"></a>    quick_quant --&gt;|fast| aggregate
+<a id="__codelineno-21-54" name="__codelineno-21-54" href="#__codelineno-21-54"></a>    quant --&gt;|standard,legacy| aggregate
+<a id="__codelineno-21-55" name="__codelineno-21-55" href="#__codelineno-21-55"></a>    hq_quant --&gt;|detailed| aggregate
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1813,31 +1761,27 @@
 <a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a>
 <a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a>graph LR
 <a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a>    subgraph input_sec [Input]
-<a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a>        %%metro exit: right | line1, line2, line3, line4, line5, line6
-<a id="__codelineno-23-13" name="__codelineno-23-13" href="#__codelineno-23-13"></a>        raw[Raw]
-<a id="__codelineno-23-14" name="__codelineno-23-14" href="#__codelineno-23-14"></a>        qc[QC]
-<a id="__codelineno-23-15" name="__codelineno-23-15" href="#__codelineno-23-15"></a>        raw --&gt;|line1,line2,line3,line4,line5,line6| qc
-<a id="__codelineno-23-16" name="__codelineno-23-16" href="#__codelineno-23-16"></a>    end
-<a id="__codelineno-23-17" name="__codelineno-23-17" href="#__codelineno-23-17"></a>
-<a id="__codelineno-23-18" name="__codelineno-23-18" href="#__codelineno-23-18"></a>    subgraph process_sec [Processing]
-<a id="__codelineno-23-19" name="__codelineno-23-19" href="#__codelineno-23-19"></a>        %%metro entry: left | line1, line2, line3, line4, line5, line6
-<a id="__codelineno-23-20" name="__codelineno-23-20" href="#__codelineno-23-20"></a>        %%metro exit: right | line1, line2, line3, line4, line5, line6
-<a id="__codelineno-23-21" name="__codelineno-23-21" href="#__codelineno-23-21"></a>        align[Align]
-<a id="__codelineno-23-22" name="__codelineno-23-22" href="#__codelineno-23-22"></a>        sort[Sort]
-<a id="__codelineno-23-23" name="__codelineno-23-23" href="#__codelineno-23-23"></a>        dedup[Dedup]
-<a id="__codelineno-23-24" name="__codelineno-23-24" href="#__codelineno-23-24"></a>        align --&gt;|line1,line2,line3,line4,line5,line6| sort
-<a id="__codelineno-23-25" name="__codelineno-23-25" href="#__codelineno-23-25"></a>        sort --&gt;|line1,line2,line3,line4,line5,line6| dedup
-<a id="__codelineno-23-26" name="__codelineno-23-26" href="#__codelineno-23-26"></a>    end
-<a id="__codelineno-23-27" name="__codelineno-23-27" href="#__codelineno-23-27"></a>
-<a id="__codelineno-23-28" name="__codelineno-23-28" href="#__codelineno-23-28"></a>    subgraph output_sec [Output]
-<a id="__codelineno-23-29" name="__codelineno-23-29" href="#__codelineno-23-29"></a>        %%metro entry: left | line1, line2, line3, line4, line5, line6
-<a id="__codelineno-23-30" name="__codelineno-23-30" href="#__codelineno-23-30"></a>        quant[Quantify]
-<a id="__codelineno-23-31" name="__codelineno-23-31" href="#__codelineno-23-31"></a>        report[Report]
-<a id="__codelineno-23-32" name="__codelineno-23-32" href="#__codelineno-23-32"></a>        quant --&gt;|line1,line2,line3,line4,line5,line6| report
-<a id="__codelineno-23-33" name="__codelineno-23-33" href="#__codelineno-23-33"></a>    end
-<a id="__codelineno-23-34" name="__codelineno-23-34" href="#__codelineno-23-34"></a>
-<a id="__codelineno-23-35" name="__codelineno-23-35" href="#__codelineno-23-35"></a>    qc --&gt;|line1,line2,line3,line4,line5,line6| align
-<a id="__codelineno-23-36" name="__codelineno-23-36" href="#__codelineno-23-36"></a>    dedup --&gt;|line1,line2,line3,line4,line5,line6| quant
+<a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a>        raw[Raw]
+<a id="__codelineno-23-13" name="__codelineno-23-13" href="#__codelineno-23-13"></a>        qc[QC]
+<a id="__codelineno-23-14" name="__codelineno-23-14" href="#__codelineno-23-14"></a>        raw --&gt;|line1,line2,line3,line4,line5,line6| qc
+<a id="__codelineno-23-15" name="__codelineno-23-15" href="#__codelineno-23-15"></a>    end
+<a id="__codelineno-23-16" name="__codelineno-23-16" href="#__codelineno-23-16"></a>
+<a id="__codelineno-23-17" name="__codelineno-23-17" href="#__codelineno-23-17"></a>    subgraph process_sec [Processing]
+<a id="__codelineno-23-18" name="__codelineno-23-18" href="#__codelineno-23-18"></a>        align[Align]
+<a id="__codelineno-23-19" name="__codelineno-23-19" href="#__codelineno-23-19"></a>        sort[Sort]
+<a id="__codelineno-23-20" name="__codelineno-23-20" href="#__codelineno-23-20"></a>        dedup[Dedup]
+<a id="__codelineno-23-21" name="__codelineno-23-21" href="#__codelineno-23-21"></a>        align --&gt;|line1,line2,line3,line4,line5,line6| sort
+<a id="__codelineno-23-22" name="__codelineno-23-22" href="#__codelineno-23-22"></a>        sort --&gt;|line1,line2,line3,line4,line5,line6| dedup
+<a id="__codelineno-23-23" name="__codelineno-23-23" href="#__codelineno-23-23"></a>    end
+<a id="__codelineno-23-24" name="__codelineno-23-24" href="#__codelineno-23-24"></a>
+<a id="__codelineno-23-25" name="__codelineno-23-25" href="#__codelineno-23-25"></a>    subgraph output_sec [Output]
+<a id="__codelineno-23-26" name="__codelineno-23-26" href="#__codelineno-23-26"></a>        quant[Quantify]
+<a id="__codelineno-23-27" name="__codelineno-23-27" href="#__codelineno-23-27"></a>        report[Report]
+<a id="__codelineno-23-28" name="__codelineno-23-28" href="#__codelineno-23-28"></a>        quant --&gt;|line1,line2,line3,line4,line5,line6| report
+<a id="__codelineno-23-29" name="__codelineno-23-29" href="#__codelineno-23-29"></a>    end
+<a id="__codelineno-23-30" name="__codelineno-23-30" href="#__codelineno-23-30"></a>
+<a id="__codelineno-23-31" name="__codelineno-23-31" href="#__codelineno-23-31"></a>    qc --&gt;|line1,line2,line3,line4,line5,line6| align
+<a id="__codelineno-23-32" name="__codelineno-23-32" href="#__codelineno-23-32"></a>    dedup --&gt;|line1,line2,line3,line4,line5,line6| quant
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1856,29 +1800,25 @@
 <a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>
 <a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>graph LR
 <a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a>    subgraph origin [Origin]
-<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a>        %%metro exit: right | horizontal
-<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a>        %%metro exit: bottom | vertical
-<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a>        start[Start]
-<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a>        fork[Fork]
-<a id="__codelineno-25-12" name="__codelineno-25-12" href="#__codelineno-25-12"></a>        start --&gt;|horizontal,vertical| fork
-<a id="__codelineno-25-13" name="__codelineno-25-13" href="#__codelineno-25-13"></a>    end
-<a id="__codelineno-25-14" name="__codelineno-25-14" href="#__codelineno-25-14"></a>
-<a id="__codelineno-25-15" name="__codelineno-25-15" href="#__codelineno-25-15"></a>    subgraph right_sec [Right Section]
-<a id="__codelineno-25-16" name="__codelineno-25-16" href="#__codelineno-25-16"></a>        %%metro entry: left | horizontal
-<a id="__codelineno-25-17" name="__codelineno-25-17" href="#__codelineno-25-17"></a>        r1[Right A]
-<a id="__codelineno-25-18" name="__codelineno-25-18" href="#__codelineno-25-18"></a>        r2[Right B]
-<a id="__codelineno-25-19" name="__codelineno-25-19" href="#__codelineno-25-19"></a>        r1 --&gt;|horizontal| r2
-<a id="__codelineno-25-20" name="__codelineno-25-20" href="#__codelineno-25-20"></a>    end
-<a id="__codelineno-25-21" name="__codelineno-25-21" href="#__codelineno-25-21"></a>
-<a id="__codelineno-25-22" name="__codelineno-25-22" href="#__codelineno-25-22"></a>    subgraph bottom_sec [Bottom Section]
-<a id="__codelineno-25-23" name="__codelineno-25-23" href="#__codelineno-25-23"></a>        %%metro entry: top | vertical
-<a id="__codelineno-25-24" name="__codelineno-25-24" href="#__codelineno-25-24"></a>        b1[Bottom A]
-<a id="__codelineno-25-25" name="__codelineno-25-25" href="#__codelineno-25-25"></a>        b2[Bottom B]
-<a id="__codelineno-25-26" name="__codelineno-25-26" href="#__codelineno-25-26"></a>        b1 --&gt;|vertical| b2
-<a id="__codelineno-25-27" name="__codelineno-25-27" href="#__codelineno-25-27"></a>    end
-<a id="__codelineno-25-28" name="__codelineno-25-28" href="#__codelineno-25-28"></a>
-<a id="__codelineno-25-29" name="__codelineno-25-29" href="#__codelineno-25-29"></a>    fork --&gt;|horizontal| r1
-<a id="__codelineno-25-30" name="__codelineno-25-30" href="#__codelineno-25-30"></a>    fork --&gt;|vertical| b1
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a>        start[Start]
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a>        fork[Fork]
+<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a>        start --&gt;|horizontal,vertical| fork
+<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a>    end
+<a id="__codelineno-25-12" name="__codelineno-25-12" href="#__codelineno-25-12"></a>
+<a id="__codelineno-25-13" name="__codelineno-25-13" href="#__codelineno-25-13"></a>    subgraph right_sec [Right Section]
+<a id="__codelineno-25-14" name="__codelineno-25-14" href="#__codelineno-25-14"></a>        r1[Right A]
+<a id="__codelineno-25-15" name="__codelineno-25-15" href="#__codelineno-25-15"></a>        r2[Right B]
+<a id="__codelineno-25-16" name="__codelineno-25-16" href="#__codelineno-25-16"></a>        r1 --&gt;|horizontal| r2
+<a id="__codelineno-25-17" name="__codelineno-25-17" href="#__codelineno-25-17"></a>    end
+<a id="__codelineno-25-18" name="__codelineno-25-18" href="#__codelineno-25-18"></a>
+<a id="__codelineno-25-19" name="__codelineno-25-19" href="#__codelineno-25-19"></a>    subgraph bottom_sec [Bottom Section]
+<a id="__codelineno-25-20" name="__codelineno-25-20" href="#__codelineno-25-20"></a>        b1[Bottom A]
+<a id="__codelineno-25-21" name="__codelineno-25-21" href="#__codelineno-25-21"></a>        b2[Bottom B]
+<a id="__codelineno-25-22" name="__codelineno-25-22" href="#__codelineno-25-22"></a>        b1 --&gt;|vertical| b2
+<a id="__codelineno-25-23" name="__codelineno-25-23" href="#__codelineno-25-23"></a>    end
+<a id="__codelineno-25-24" name="__codelineno-25-24" href="#__codelineno-25-24"></a>
+<a id="__codelineno-25-25" name="__codelineno-25-25" href="#__codelineno-25-25"></a>    fork --&gt;|horizontal| r1
+<a id="__codelineno-25-26" name="__codelineno-25-26" href="#__codelineno-25-26"></a>    fork --&gt;|vertical| b1
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1900,80 +1840,73 @@
 <a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a>
 <a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a>graph LR
 <a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a>    subgraph preprocessing [Pre-processing]
-<a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a>        %%metro exit: right | star, hisat, pseudo
-<a id="__codelineno-27-10" name="__codelineno-27-10" href="#__codelineno-27-10"></a>        input[Input]
-<a id="__codelineno-27-11" name="__codelineno-27-11" href="#__codelineno-27-11"></a>        fastqc_raw[FastQC]
-<a id="__codelineno-27-12" name="__codelineno-27-12" href="#__codelineno-27-12"></a>        fastp[FastP]
-<a id="__codelineno-27-13" name="__codelineno-27-13" href="#__codelineno-27-13"></a>        trimgalore[Trim Galore!]
-<a id="__codelineno-27-14" name="__codelineno-27-14" href="#__codelineno-27-14"></a>        fastqc_trim[FastQC]
-<a id="__codelineno-27-15" name="__codelineno-27-15" href="#__codelineno-27-15"></a>        filter[SortMeRNA]
-<a id="__codelineno-27-16" name="__codelineno-27-16" href="#__codelineno-27-16"></a>        fastqc_filt[FastQC]
-<a id="__codelineno-27-17" name="__codelineno-27-17" href="#__codelineno-27-17"></a>
-<a id="__codelineno-27-18" name="__codelineno-27-18" href="#__codelineno-27-18"></a>        input --&gt;|star,hisat,pseudo| fastqc_raw
-<a id="__codelineno-27-19" name="__codelineno-27-19" href="#__codelineno-27-19"></a>        fastqc_raw --&gt;|star,hisat,pseudo| fastp
-<a id="__codelineno-27-20" name="__codelineno-27-20" href="#__codelineno-27-20"></a>        fastqc_raw --&gt;|star,hisat,pseudo| trimgalore
-<a id="__codelineno-27-21" name="__codelineno-27-21" href="#__codelineno-27-21"></a>        fastp --&gt;|star,hisat,pseudo| fastqc_trim
-<a id="__codelineno-27-22" name="__codelineno-27-22" href="#__codelineno-27-22"></a>        trimgalore --&gt;|star,hisat,pseudo| fastqc_trim
-<a id="__codelineno-27-23" name="__codelineno-27-23" href="#__codelineno-27-23"></a>        fastqc_trim --&gt;|star,hisat,pseudo| filter
-<a id="__codelineno-27-24" name="__codelineno-27-24" href="#__codelineno-27-24"></a>        filter --&gt;|star,hisat,pseudo| fastqc_filt
-<a id="__codelineno-27-25" name="__codelineno-27-25" href="#__codelineno-27-25"></a>    end
-<a id="__codelineno-27-26" name="__codelineno-27-26" href="#__codelineno-27-26"></a>
-<a id="__codelineno-27-27" name="__codelineno-27-27" href="#__codelineno-27-27"></a>    subgraph genome_align [Genome alignment]
-<a id="__codelineno-27-28" name="__codelineno-27-28" href="#__codelineno-27-28"></a>        %%metro entry: left | star, hisat
-<a id="__codelineno-27-29" name="__codelineno-27-29" href="#__codelineno-27-29"></a>        %%metro exit: right | star, hisat
-<a id="__codelineno-27-30" name="__codelineno-27-30" href="#__codelineno-27-30"></a>        star_align[STAR]
-<a id="__codelineno-27-31" name="__codelineno-27-31" href="#__codelineno-27-31"></a>        hisat_align[HISAT2]
-<a id="__codelineno-27-32" name="__codelineno-27-32" href="#__codelineno-27-32"></a>        umi_dedup[UMI-tools dedup]
-<a id="__codelineno-27-33" name="__codelineno-27-33" href="#__codelineno-27-33"></a>        salmon_quant[Salmon]
-<a id="__codelineno-27-34" name="__codelineno-27-34" href="#__codelineno-27-34"></a>        rsem_quant[featureCounts]
-<a id="__codelineno-27-35" name="__codelineno-27-35" href="#__codelineno-27-35"></a>
-<a id="__codelineno-27-36" name="__codelineno-27-36" href="#__codelineno-27-36"></a>        star_align --&gt;|star| umi_dedup
-<a id="__codelineno-27-37" name="__codelineno-27-37" href="#__codelineno-27-37"></a>        hisat_align --&gt;|hisat| umi_dedup
-<a id="__codelineno-27-38" name="__codelineno-27-38" href="#__codelineno-27-38"></a>        umi_dedup --&gt;|star| salmon_quant
-<a id="__codelineno-27-39" name="__codelineno-27-39" href="#__codelineno-27-39"></a>        umi_dedup --&gt;|hisat| rsem_quant
-<a id="__codelineno-27-40" name="__codelineno-27-40" href="#__codelineno-27-40"></a>    end
-<a id="__codelineno-27-41" name="__codelineno-27-41" href="#__codelineno-27-41"></a>
-<a id="__codelineno-27-42" name="__codelineno-27-42" href="#__codelineno-27-42"></a>    subgraph pseudo_align [Pseudo-alignment]
-<a id="__codelineno-27-43" name="__codelineno-27-43" href="#__codelineno-27-43"></a>        %%metro entry: left | pseudo
-<a id="__codelineno-27-44" name="__codelineno-27-44" href="#__codelineno-27-44"></a>        salmon_pseudo[Salmon]
-<a id="__codelineno-27-45" name="__codelineno-27-45" href="#__codelineno-27-45"></a>        tximport[tximport]
-<a id="__codelineno-27-46" name="__codelineno-27-46" href="#__codelineno-27-46"></a>        summarized_exp[Sum. Exp.]
+<a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a>        input[Input]
+<a id="__codelineno-27-10" name="__codelineno-27-10" href="#__codelineno-27-10"></a>        fastqc_raw[FastQC]
+<a id="__codelineno-27-11" name="__codelineno-27-11" href="#__codelineno-27-11"></a>        fastp[FastP]
+<a id="__codelineno-27-12" name="__codelineno-27-12" href="#__codelineno-27-12"></a>        trimgalore[Trim Galore!]
+<a id="__codelineno-27-13" name="__codelineno-27-13" href="#__codelineno-27-13"></a>        fastqc_trim[FastQC]
+<a id="__codelineno-27-14" name="__codelineno-27-14" href="#__codelineno-27-14"></a>        filter[SortMeRNA]
+<a id="__codelineno-27-15" name="__codelineno-27-15" href="#__codelineno-27-15"></a>        fastqc_filt[FastQC]
+<a id="__codelineno-27-16" name="__codelineno-27-16" href="#__codelineno-27-16"></a>
+<a id="__codelineno-27-17" name="__codelineno-27-17" href="#__codelineno-27-17"></a>        input --&gt;|star,hisat,pseudo| fastqc_raw
+<a id="__codelineno-27-18" name="__codelineno-27-18" href="#__codelineno-27-18"></a>        fastqc_raw --&gt;|star,hisat,pseudo| fastp
+<a id="__codelineno-27-19" name="__codelineno-27-19" href="#__codelineno-27-19"></a>        fastqc_raw --&gt;|star,hisat,pseudo| trimgalore
+<a id="__codelineno-27-20" name="__codelineno-27-20" href="#__codelineno-27-20"></a>        fastp --&gt;|star,hisat,pseudo| fastqc_trim
+<a id="__codelineno-27-21" name="__codelineno-27-21" href="#__codelineno-27-21"></a>        trimgalore --&gt;|star,hisat,pseudo| fastqc_trim
+<a id="__codelineno-27-22" name="__codelineno-27-22" href="#__codelineno-27-22"></a>        fastqc_trim --&gt;|star,hisat,pseudo| filter
+<a id="__codelineno-27-23" name="__codelineno-27-23" href="#__codelineno-27-23"></a>        filter --&gt;|star,hisat,pseudo| fastqc_filt
+<a id="__codelineno-27-24" name="__codelineno-27-24" href="#__codelineno-27-24"></a>    end
+<a id="__codelineno-27-25" name="__codelineno-27-25" href="#__codelineno-27-25"></a>
+<a id="__codelineno-27-26" name="__codelineno-27-26" href="#__codelineno-27-26"></a>    subgraph genome_align [Genome alignment]
+<a id="__codelineno-27-27" name="__codelineno-27-27" href="#__codelineno-27-27"></a>        star_align[STAR]
+<a id="__codelineno-27-28" name="__codelineno-27-28" href="#__codelineno-27-28"></a>        hisat_align[HISAT2]
+<a id="__codelineno-27-29" name="__codelineno-27-29" href="#__codelineno-27-29"></a>        umi_dedup[UMI-tools dedup]
+<a id="__codelineno-27-30" name="__codelineno-27-30" href="#__codelineno-27-30"></a>        salmon_quant[Salmon]
+<a id="__codelineno-27-31" name="__codelineno-27-31" href="#__codelineno-27-31"></a>        rsem_quant[featureCounts]
+<a id="__codelineno-27-32" name="__codelineno-27-32" href="#__codelineno-27-32"></a>
+<a id="__codelineno-27-33" name="__codelineno-27-33" href="#__codelineno-27-33"></a>        star_align --&gt;|star| umi_dedup
+<a id="__codelineno-27-34" name="__codelineno-27-34" href="#__codelineno-27-34"></a>        hisat_align --&gt;|hisat| umi_dedup
+<a id="__codelineno-27-35" name="__codelineno-27-35" href="#__codelineno-27-35"></a>        umi_dedup --&gt;|star| salmon_quant
+<a id="__codelineno-27-36" name="__codelineno-27-36" href="#__codelineno-27-36"></a>        umi_dedup --&gt;|hisat| rsem_quant
+<a id="__codelineno-27-37" name="__codelineno-27-37" href="#__codelineno-27-37"></a>    end
+<a id="__codelineno-27-38" name="__codelineno-27-38" href="#__codelineno-27-38"></a>
+<a id="__codelineno-27-39" name="__codelineno-27-39" href="#__codelineno-27-39"></a>    subgraph pseudo_align [Pseudo-alignment]
+<a id="__codelineno-27-40" name="__codelineno-27-40" href="#__codelineno-27-40"></a>        salmon_pseudo[Salmon]
+<a id="__codelineno-27-41" name="__codelineno-27-41" href="#__codelineno-27-41"></a>        tximport[tximport]
+<a id="__codelineno-27-42" name="__codelineno-27-42" href="#__codelineno-27-42"></a>        summarized_exp[Sum. Exp.]
+<a id="__codelineno-27-43" name="__codelineno-27-43" href="#__codelineno-27-43"></a>
+<a id="__codelineno-27-44" name="__codelineno-27-44" href="#__codelineno-27-44"></a>        salmon_pseudo --&gt;|pseudo| tximport
+<a id="__codelineno-27-45" name="__codelineno-27-45" href="#__codelineno-27-45"></a>        tximport --&gt;|pseudo| summarized_exp
+<a id="__codelineno-27-46" name="__codelineno-27-46" href="#__codelineno-27-46"></a>    end
 <a id="__codelineno-27-47" name="__codelineno-27-47" href="#__codelineno-27-47"></a>
-<a id="__codelineno-27-48" name="__codelineno-27-48" href="#__codelineno-27-48"></a>        salmon_pseudo --&gt;|pseudo| tximport
-<a id="__codelineno-27-49" name="__codelineno-27-49" href="#__codelineno-27-49"></a>        tximport --&gt;|pseudo| summarized_exp
-<a id="__codelineno-27-50" name="__codelineno-27-50" href="#__codelineno-27-50"></a>    end
-<a id="__codelineno-27-51" name="__codelineno-27-51" href="#__codelineno-27-51"></a>
-<a id="__codelineno-27-52" name="__codelineno-27-52" href="#__codelineno-27-52"></a>    subgraph postprocessing [Post-processing]
-<a id="__codelineno-27-53" name="__codelineno-27-53" href="#__codelineno-27-53"></a>        %%metro entry: left | star, hisat
-<a id="__codelineno-27-54" name="__codelineno-27-54" href="#__codelineno-27-54"></a>        %%metro exit: right | star, hisat
-<a id="__codelineno-27-55" name="__codelineno-27-55" href="#__codelineno-27-55"></a>        samtools[SAMtools]
-<a id="__codelineno-27-56" name="__codelineno-27-56" href="#__codelineno-27-56"></a>        picard[Picard]
-<a id="__codelineno-27-57" name="__codelineno-27-57" href="#__codelineno-27-57"></a>        bedtools[BEDTools]
-<a id="__codelineno-27-58" name="__codelineno-27-58" href="#__codelineno-27-58"></a>        bigwig[bedGraphToBigWig]
-<a id="__codelineno-27-59" name="__codelineno-27-59" href="#__codelineno-27-59"></a>
-<a id="__codelineno-27-60" name="__codelineno-27-60" href="#__codelineno-27-60"></a>        samtools --&gt;|star,hisat| picard
-<a id="__codelineno-27-61" name="__codelineno-27-61" href="#__codelineno-27-61"></a>        picard --&gt;|star,hisat| bedtools
-<a id="__codelineno-27-62" name="__codelineno-27-62" href="#__codelineno-27-62"></a>        bedtools --&gt;|star,hisat| bigwig
-<a id="__codelineno-27-63" name="__codelineno-27-63" href="#__codelineno-27-63"></a>    end
+<a id="__codelineno-27-48" name="__codelineno-27-48" href="#__codelineno-27-48"></a>    subgraph postprocessing [Post-processing]
+<a id="__codelineno-27-49" name="__codelineno-27-49" href="#__codelineno-27-49"></a>        samtools[SAMtools]
+<a id="__codelineno-27-50" name="__codelineno-27-50" href="#__codelineno-27-50"></a>        picard[Picard]
+<a id="__codelineno-27-51" name="__codelineno-27-51" href="#__codelineno-27-51"></a>        bedtools[BEDTools]
+<a id="__codelineno-27-52" name="__codelineno-27-52" href="#__codelineno-27-52"></a>        bigwig[bedGraphToBigWig]
+<a id="__codelineno-27-53" name="__codelineno-27-53" href="#__codelineno-27-53"></a>
+<a id="__codelineno-27-54" name="__codelineno-27-54" href="#__codelineno-27-54"></a>        samtools --&gt;|star,hisat| picard
+<a id="__codelineno-27-55" name="__codelineno-27-55" href="#__codelineno-27-55"></a>        picard --&gt;|star,hisat| bedtools
+<a id="__codelineno-27-56" name="__codelineno-27-56" href="#__codelineno-27-56"></a>        bedtools --&gt;|star,hisat| bigwig
+<a id="__codelineno-27-57" name="__codelineno-27-57" href="#__codelineno-27-57"></a>    end
+<a id="__codelineno-27-58" name="__codelineno-27-58" href="#__codelineno-27-58"></a>
+<a id="__codelineno-27-59" name="__codelineno-27-59" href="#__codelineno-27-59"></a>    subgraph qc_report [QC &amp; Reporting]
+<a id="__codelineno-27-60" name="__codelineno-27-60" href="#__codelineno-27-60"></a>        rseqc[RSeQC]
+<a id="__codelineno-27-61" name="__codelineno-27-61" href="#__codelineno-27-61"></a>        dupradar[dupRadar]
+<a id="__codelineno-27-62" name="__codelineno-27-62" href="#__codelineno-27-62"></a>        featurecounts[featureCounts]
+<a id="__codelineno-27-63" name="__codelineno-27-63" href="#__codelineno-27-63"></a>        multiqc[MultiQC]
 <a id="__codelineno-27-64" name="__codelineno-27-64" href="#__codelineno-27-64"></a>
-<a id="__codelineno-27-65" name="__codelineno-27-65" href="#__codelineno-27-65"></a>    subgraph qc_report [QC &amp; Reporting]
-<a id="__codelineno-27-66" name="__codelineno-27-66" href="#__codelineno-27-66"></a>        %%metro entry: left | star, hisat
-<a id="__codelineno-27-67" name="__codelineno-27-67" href="#__codelineno-27-67"></a>        rseqc[RSeQC]
-<a id="__codelineno-27-68" name="__codelineno-27-68" href="#__codelineno-27-68"></a>        dupradar[dupRadar]
-<a id="__codelineno-27-69" name="__codelineno-27-69" href="#__codelineno-27-69"></a>        featurecounts[featureCounts]
-<a id="__codelineno-27-70" name="__codelineno-27-70" href="#__codelineno-27-70"></a>        multiqc[MultiQC]
-<a id="__codelineno-27-71" name="__codelineno-27-71" href="#__codelineno-27-71"></a>
-<a id="__codelineno-27-72" name="__codelineno-27-72" href="#__codelineno-27-72"></a>        rseqc --&gt;|star,hisat| dupradar
-<a id="__codelineno-27-73" name="__codelineno-27-73" href="#__codelineno-27-73"></a>        dupradar --&gt;|star,hisat| featurecounts
-<a id="__codelineno-27-74" name="__codelineno-27-74" href="#__codelineno-27-74"></a>        featurecounts --&gt;|star,hisat| multiqc
-<a id="__codelineno-27-75" name="__codelineno-27-75" href="#__codelineno-27-75"></a>    end
-<a id="__codelineno-27-76" name="__codelineno-27-76" href="#__codelineno-27-76"></a>
-<a id="__codelineno-27-77" name="__codelineno-27-77" href="#__codelineno-27-77"></a>    fastqc_filt --&gt;|star| star_align
-<a id="__codelineno-27-78" name="__codelineno-27-78" href="#__codelineno-27-78"></a>    fastqc_filt --&gt;|hisat| hisat_align
-<a id="__codelineno-27-79" name="__codelineno-27-79" href="#__codelineno-27-79"></a>    fastqc_filt --&gt;|pseudo| salmon_pseudo
-<a id="__codelineno-27-80" name="__codelineno-27-80" href="#__codelineno-27-80"></a>    salmon_quant --&gt;|star| samtools
-<a id="__codelineno-27-81" name="__codelineno-27-81" href="#__codelineno-27-81"></a>    rsem_quant --&gt;|hisat| samtools
-<a id="__codelineno-27-82" name="__codelineno-27-82" href="#__codelineno-27-82"></a>    bigwig --&gt;|star,hisat| rseqc
+<a id="__codelineno-27-65" name="__codelineno-27-65" href="#__codelineno-27-65"></a>        rseqc --&gt;|star,hisat| dupradar
+<a id="__codelineno-27-66" name="__codelineno-27-66" href="#__codelineno-27-66"></a>        dupradar --&gt;|star,hisat| featurecounts
+<a id="__codelineno-27-67" name="__codelineno-27-67" href="#__codelineno-27-67"></a>        featurecounts --&gt;|star,hisat| multiqc
+<a id="__codelineno-27-68" name="__codelineno-27-68" href="#__codelineno-27-68"></a>    end
+<a id="__codelineno-27-69" name="__codelineno-27-69" href="#__codelineno-27-69"></a>
+<a id="__codelineno-27-70" name="__codelineno-27-70" href="#__codelineno-27-70"></a>    fastqc_filt --&gt;|star| star_align
+<a id="__codelineno-27-71" name="__codelineno-27-71" href="#__codelineno-27-71"></a>    fastqc_filt --&gt;|hisat| hisat_align
+<a id="__codelineno-27-72" name="__codelineno-27-72" href="#__codelineno-27-72"></a>    fastqc_filt --&gt;|pseudo| salmon_pseudo
+<a id="__codelineno-27-73" name="__codelineno-27-73" href="#__codelineno-27-73"></a>    salmon_quant --&gt;|star| samtools
+<a id="__codelineno-27-74" name="__codelineno-27-74" href="#__codelineno-27-74"></a>    rsem_quant --&gt;|hisat| samtools
+<a id="__codelineno-27-75" name="__codelineno-27-75" href="#__codelineno-27-75"></a>    bigwig --&gt;|star,hisat| rseqc
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
@@ -1994,88 +1927,77 @@
 <a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a>
 <a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a>graph LR
 <a id="__codelineno-29-9" name="__codelineno-29-9" href="#__codelineno-29-9"></a>    subgraph input_qc [Input &amp; QC]
-<a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a>        %%metro exit: right | wgs, wes, panel, rna_var
-<a id="__codelineno-29-11" name="__codelineno-29-11" href="#__codelineno-29-11"></a>        input[Input]
-<a id="__codelineno-29-12" name="__codelineno-29-12" href="#__codelineno-29-12"></a>        fastqc[FastQC]
-<a id="__codelineno-29-13" name="__codelineno-29-13" href="#__codelineno-29-13"></a>        fastp[FastP]
-<a id="__codelineno-29-14" name="__codelineno-29-14" href="#__codelineno-29-14"></a>        trimgalore[Trim Galore!]
-<a id="__codelineno-29-15" name="__codelineno-29-15" href="#__codelineno-29-15"></a>        fastqc_trim[FastQC]
-<a id="__codelineno-29-16" name="__codelineno-29-16" href="#__codelineno-29-16"></a>
-<a id="__codelineno-29-17" name="__codelineno-29-17" href="#__codelineno-29-17"></a>        input --&gt;|wgs,wes,panel,rna_var| fastqc
-<a id="__codelineno-29-18" name="__codelineno-29-18" href="#__codelineno-29-18"></a>        fastqc --&gt;|wgs,wes,panel,rna_var| fastp
-<a id="__codelineno-29-19" name="__codelineno-29-19" href="#__codelineno-29-19"></a>        fastqc --&gt;|wgs,wes,panel,rna_var| trimgalore
-<a id="__codelineno-29-20" name="__codelineno-29-20" href="#__codelineno-29-20"></a>        fastp --&gt;|wgs,wes,panel,rna_var| fastqc_trim
-<a id="__codelineno-29-21" name="__codelineno-29-21" href="#__codelineno-29-21"></a>        trimgalore --&gt;|wgs,wes,panel,rna_var| fastqc_trim
-<a id="__codelineno-29-22" name="__codelineno-29-22" href="#__codelineno-29-22"></a>    end
-<a id="__codelineno-29-23" name="__codelineno-29-23" href="#__codelineno-29-23"></a>
-<a id="__codelineno-29-24" name="__codelineno-29-24" href="#__codelineno-29-24"></a>    subgraph alignment [Alignment]
-<a id="__codelineno-29-25" name="__codelineno-29-25" href="#__codelineno-29-25"></a>        %%metro entry: left | wgs, wes, panel, rna_var
-<a id="__codelineno-29-26" name="__codelineno-29-26" href="#__codelineno-29-26"></a>        %%metro exit: right | wgs, wes, panel
-<a id="__codelineno-29-27" name="__codelineno-29-27" href="#__codelineno-29-27"></a>        %%metro exit: right | rna_var
-<a id="__codelineno-29-28" name="__codelineno-29-28" href="#__codelineno-29-28"></a>        bwa[BWA-MEM2]
-<a id="__codelineno-29-29" name="__codelineno-29-29" href="#__codelineno-29-29"></a>        star_align[STAR]
-<a id="__codelineno-29-30" name="__codelineno-29-30" href="#__codelineno-29-30"></a>        samtools[SAMtools sort]
-<a id="__codelineno-29-31" name="__codelineno-29-31" href="#__codelineno-29-31"></a>        markdup[MarkDuplicates]
-<a id="__codelineno-29-32" name="__codelineno-29-32" href="#__codelineno-29-32"></a>        bqsr[BQSR]
-<a id="__codelineno-29-33" name="__codelineno-29-33" href="#__codelineno-29-33"></a>
-<a id="__codelineno-29-34" name="__codelineno-29-34" href="#__codelineno-29-34"></a>        bwa --&gt;|wgs,wes,panel| samtools
-<a id="__codelineno-29-35" name="__codelineno-29-35" href="#__codelineno-29-35"></a>        star_align --&gt;|rna_var| samtools
-<a id="__codelineno-29-36" name="__codelineno-29-36" href="#__codelineno-29-36"></a>        samtools --&gt;|wgs,wes,panel,rna_var| markdup
-<a id="__codelineno-29-37" name="__codelineno-29-37" href="#__codelineno-29-37"></a>        markdup --&gt;|wgs,wes,panel,rna_var| bqsr
-<a id="__codelineno-29-38" name="__codelineno-29-38" href="#__codelineno-29-38"></a>    end
-<a id="__codelineno-29-39" name="__codelineno-29-39" href="#__codelineno-29-39"></a>
-<a id="__codelineno-29-40" name="__codelineno-29-40" href="#__codelineno-29-40"></a>    subgraph dna_calling [DNA Variant Calling]
-<a id="__codelineno-29-41" name="__codelineno-29-41" href="#__codelineno-29-41"></a>        %%metro entry: left | wgs, wes, panel
-<a id="__codelineno-29-42" name="__codelineno-29-42" href="#__codelineno-29-42"></a>        %%metro exit: right | wgs, wes, panel
-<a id="__codelineno-29-43" name="__codelineno-29-43" href="#__codelineno-29-43"></a>        haplotypecaller[HaplotypeCaller]
-<a id="__codelineno-29-44" name="__codelineno-29-44" href="#__codelineno-29-44"></a>        deepvariant[DeepVariant]
-<a id="__codelineno-29-45" name="__codelineno-29-45" href="#__codelineno-29-45"></a>        strelka[Strelka2]
-<a id="__codelineno-29-46" name="__codelineno-29-46" href="#__codelineno-29-46"></a>        merge_vcf[Merge VCFs]
-<a id="__codelineno-29-47" name="__codelineno-29-47" href="#__codelineno-29-47"></a>
-<a id="__codelineno-29-48" name="__codelineno-29-48" href="#__codelineno-29-48"></a>        haplotypecaller --&gt;|wgs| merge_vcf
-<a id="__codelineno-29-49" name="__codelineno-29-49" href="#__codelineno-29-49"></a>        deepvariant --&gt;|wes| merge_vcf
-<a id="__codelineno-29-50" name="__codelineno-29-50" href="#__codelineno-29-50"></a>        strelka --&gt;|panel| merge_vcf
-<a id="__codelineno-29-51" name="__codelineno-29-51" href="#__codelineno-29-51"></a>    end
-<a id="__codelineno-29-52" name="__codelineno-29-52" href="#__codelineno-29-52"></a>
-<a id="__codelineno-29-53" name="__codelineno-29-53" href="#__codelineno-29-53"></a>    subgraph rna_calling [RNA Variant Calling]
-<a id="__codelineno-29-54" name="__codelineno-29-54" href="#__codelineno-29-54"></a>        %%metro entry: left | rna_var
-<a id="__codelineno-29-55" name="__codelineno-29-55" href="#__codelineno-29-55"></a>        %%metro exit: right | rna_var
-<a id="__codelineno-29-56" name="__codelineno-29-56" href="#__codelineno-29-56"></a>        splitncigar[SplitNCigar]
-<a id="__codelineno-29-57" name="__codelineno-29-57" href="#__codelineno-29-57"></a>        rna_hc[HaplotypeCaller]
-<a id="__codelineno-29-58" name="__codelineno-29-58" href="#__codelineno-29-58"></a>        rna_filter[FilterVariants]
-<a id="__codelineno-29-59" name="__codelineno-29-59" href="#__codelineno-29-59"></a>
-<a id="__codelineno-29-60" name="__codelineno-29-60" href="#__codelineno-29-60"></a>        splitncigar --&gt;|rna_var| rna_hc
-<a id="__codelineno-29-61" name="__codelineno-29-61" href="#__codelineno-29-61"></a>        rna_hc --&gt;|rna_var| rna_filter
-<a id="__codelineno-29-62" name="__codelineno-29-62" href="#__codelineno-29-62"></a>    end
-<a id="__codelineno-29-63" name="__codelineno-29-63" href="#__codelineno-29-63"></a>
-<a id="__codelineno-29-64" name="__codelineno-29-64" href="#__codelineno-29-64"></a>    subgraph annotation [Annotation &amp; Filtering]
-<a id="__codelineno-29-65" name="__codelineno-29-65" href="#__codelineno-29-65"></a>        %%metro entry: left | wgs, wes, panel, rna_var
-<a id="__codelineno-29-66" name="__codelineno-29-66" href="#__codelineno-29-66"></a>        %%metro exit: right | wgs, wes, panel, rna_var
-<a id="__codelineno-29-67" name="__codelineno-29-67" href="#__codelineno-29-67"></a>        vep[VEP]
-<a id="__codelineno-29-68" name="__codelineno-29-68" href="#__codelineno-29-68"></a>        snpsift[SnpSift]
-<a id="__codelineno-29-69" name="__codelineno-29-69" href="#__codelineno-29-69"></a>        filter_pass[Filter PASS]
-<a id="__codelineno-29-70" name="__codelineno-29-70" href="#__codelineno-29-70"></a>
-<a id="__codelineno-29-71" name="__codelineno-29-71" href="#__codelineno-29-71"></a>        vep --&gt;|wgs,wes,panel,rna_var| snpsift
-<a id="__codelineno-29-72" name="__codelineno-29-72" href="#__codelineno-29-72"></a>        snpsift --&gt;|wgs,wes,panel,rna_var| filter_pass
-<a id="__codelineno-29-73" name="__codelineno-29-73" href="#__codelineno-29-73"></a>    end
-<a id="__codelineno-29-74" name="__codelineno-29-74" href="#__codelineno-29-74"></a>
-<a id="__codelineno-29-75" name="__codelineno-29-75" href="#__codelineno-29-75"></a>    subgraph reporting [Reporting]
-<a id="__codelineno-29-76" name="__codelineno-29-76" href="#__codelineno-29-76"></a>        %%metro entry: left | wgs, wes, panel, rna_var
-<a id="__codelineno-29-77" name="__codelineno-29-77" href="#__codelineno-29-77"></a>        bcftools_stats[bcftools stats]
-<a id="__codelineno-29-78" name="__codelineno-29-78" href="#__codelineno-29-78"></a>        multiqc[MultiQC]
-<a id="__codelineno-29-79" name="__codelineno-29-79" href="#__codelineno-29-79"></a>
-<a id="__codelineno-29-80" name="__codelineno-29-80" href="#__codelineno-29-80"></a>        bcftools_stats --&gt;|wgs,wes,panel,rna_var| multiqc
-<a id="__codelineno-29-81" name="__codelineno-29-81" href="#__codelineno-29-81"></a>    end
-<a id="__codelineno-29-82" name="__codelineno-29-82" href="#__codelineno-29-82"></a>
-<a id="__codelineno-29-83" name="__codelineno-29-83" href="#__codelineno-29-83"></a>    fastqc_trim --&gt;|wgs,wes,panel| bwa
-<a id="__codelineno-29-84" name="__codelineno-29-84" href="#__codelineno-29-84"></a>    fastqc_trim --&gt;|rna_var| star_align
-<a id="__codelineno-29-85" name="__codelineno-29-85" href="#__codelineno-29-85"></a>    bqsr --&gt;|wgs| haplotypecaller
-<a id="__codelineno-29-86" name="__codelineno-29-86" href="#__codelineno-29-86"></a>    bqsr --&gt;|wes| deepvariant
-<a id="__codelineno-29-87" name="__codelineno-29-87" href="#__codelineno-29-87"></a>    bqsr --&gt;|panel| strelka
-<a id="__codelineno-29-88" name="__codelineno-29-88" href="#__codelineno-29-88"></a>    bqsr --&gt;|rna_var| splitncigar
-<a id="__codelineno-29-89" name="__codelineno-29-89" href="#__codelineno-29-89"></a>    merge_vcf --&gt;|wgs,wes,panel| vep
-<a id="__codelineno-29-90" name="__codelineno-29-90" href="#__codelineno-29-90"></a>    rna_filter --&gt;|rna_var| vep
-<a id="__codelineno-29-91" name="__codelineno-29-91" href="#__codelineno-29-91"></a>    filter_pass --&gt;|wgs,wes,panel,rna_var| bcftools_stats
+<a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a>        input[Input]
+<a id="__codelineno-29-11" name="__codelineno-29-11" href="#__codelineno-29-11"></a>        fastqc[FastQC]
+<a id="__codelineno-29-12" name="__codelineno-29-12" href="#__codelineno-29-12"></a>        fastp[FastP]
+<a id="__codelineno-29-13" name="__codelineno-29-13" href="#__codelineno-29-13"></a>        trimgalore[Trim Galore!]
+<a id="__codelineno-29-14" name="__codelineno-29-14" href="#__codelineno-29-14"></a>        fastqc_trim[FastQC]
+<a id="__codelineno-29-15" name="__codelineno-29-15" href="#__codelineno-29-15"></a>
+<a id="__codelineno-29-16" name="__codelineno-29-16" href="#__codelineno-29-16"></a>        input --&gt;|wgs,wes,panel,rna_var| fastqc
+<a id="__codelineno-29-17" name="__codelineno-29-17" href="#__codelineno-29-17"></a>        fastqc --&gt;|wgs,wes,panel,rna_var| fastp
+<a id="__codelineno-29-18" name="__codelineno-29-18" href="#__codelineno-29-18"></a>        fastqc --&gt;|wgs,wes,panel,rna_var| trimgalore
+<a id="__codelineno-29-19" name="__codelineno-29-19" href="#__codelineno-29-19"></a>        fastp --&gt;|wgs,wes,panel,rna_var| fastqc_trim
+<a id="__codelineno-29-20" name="__codelineno-29-20" href="#__codelineno-29-20"></a>        trimgalore --&gt;|wgs,wes,panel,rna_var| fastqc_trim
+<a id="__codelineno-29-21" name="__codelineno-29-21" href="#__codelineno-29-21"></a>    end
+<a id="__codelineno-29-22" name="__codelineno-29-22" href="#__codelineno-29-22"></a>
+<a id="__codelineno-29-23" name="__codelineno-29-23" href="#__codelineno-29-23"></a>    subgraph alignment [Alignment]
+<a id="__codelineno-29-24" name="__codelineno-29-24" href="#__codelineno-29-24"></a>        bwa[BWA-MEM2]
+<a id="__codelineno-29-25" name="__codelineno-29-25" href="#__codelineno-29-25"></a>        star_align[STAR]
+<a id="__codelineno-29-26" name="__codelineno-29-26" href="#__codelineno-29-26"></a>        samtools[SAMtools sort]
+<a id="__codelineno-29-27" name="__codelineno-29-27" href="#__codelineno-29-27"></a>        markdup[MarkDuplicates]
+<a id="__codelineno-29-28" name="__codelineno-29-28" href="#__codelineno-29-28"></a>        bqsr[BQSR]
+<a id="__codelineno-29-29" name="__codelineno-29-29" href="#__codelineno-29-29"></a>
+<a id="__codelineno-29-30" name="__codelineno-29-30" href="#__codelineno-29-30"></a>        bwa --&gt;|wgs,wes,panel| samtools
+<a id="__codelineno-29-31" name="__codelineno-29-31" href="#__codelineno-29-31"></a>        star_align --&gt;|rna_var| samtools
+<a id="__codelineno-29-32" name="__codelineno-29-32" href="#__codelineno-29-32"></a>        samtools --&gt;|wgs,wes,panel,rna_var| markdup
+<a id="__codelineno-29-33" name="__codelineno-29-33" href="#__codelineno-29-33"></a>        markdup --&gt;|wgs,wes,panel,rna_var| bqsr
+<a id="__codelineno-29-34" name="__codelineno-29-34" href="#__codelineno-29-34"></a>    end
+<a id="__codelineno-29-35" name="__codelineno-29-35" href="#__codelineno-29-35"></a>
+<a id="__codelineno-29-36" name="__codelineno-29-36" href="#__codelineno-29-36"></a>    subgraph dna_calling [DNA Variant Calling]
+<a id="__codelineno-29-37" name="__codelineno-29-37" href="#__codelineno-29-37"></a>        haplotypecaller[HaplotypeCaller]
+<a id="__codelineno-29-38" name="__codelineno-29-38" href="#__codelineno-29-38"></a>        deepvariant[DeepVariant]
+<a id="__codelineno-29-39" name="__codelineno-29-39" href="#__codelineno-29-39"></a>        strelka[Strelka2]
+<a id="__codelineno-29-40" name="__codelineno-29-40" href="#__codelineno-29-40"></a>        merge_vcf[Merge VCFs]
+<a id="__codelineno-29-41" name="__codelineno-29-41" href="#__codelineno-29-41"></a>
+<a id="__codelineno-29-42" name="__codelineno-29-42" href="#__codelineno-29-42"></a>        haplotypecaller --&gt;|wgs| merge_vcf
+<a id="__codelineno-29-43" name="__codelineno-29-43" href="#__codelineno-29-43"></a>        deepvariant --&gt;|wes| merge_vcf
+<a id="__codelineno-29-44" name="__codelineno-29-44" href="#__codelineno-29-44"></a>        strelka --&gt;|panel| merge_vcf
+<a id="__codelineno-29-45" name="__codelineno-29-45" href="#__codelineno-29-45"></a>    end
+<a id="__codelineno-29-46" name="__codelineno-29-46" href="#__codelineno-29-46"></a>
+<a id="__codelineno-29-47" name="__codelineno-29-47" href="#__codelineno-29-47"></a>    subgraph rna_calling [RNA Variant Calling]
+<a id="__codelineno-29-48" name="__codelineno-29-48" href="#__codelineno-29-48"></a>        splitncigar[SplitNCigar]
+<a id="__codelineno-29-49" name="__codelineno-29-49" href="#__codelineno-29-49"></a>        rna_hc[HaplotypeCaller]
+<a id="__codelineno-29-50" name="__codelineno-29-50" href="#__codelineno-29-50"></a>        rna_filter[FilterVariants]
+<a id="__codelineno-29-51" name="__codelineno-29-51" href="#__codelineno-29-51"></a>
+<a id="__codelineno-29-52" name="__codelineno-29-52" href="#__codelineno-29-52"></a>        splitncigar --&gt;|rna_var| rna_hc
+<a id="__codelineno-29-53" name="__codelineno-29-53" href="#__codelineno-29-53"></a>        rna_hc --&gt;|rna_var| rna_filter
+<a id="__codelineno-29-54" name="__codelineno-29-54" href="#__codelineno-29-54"></a>    end
+<a id="__codelineno-29-55" name="__codelineno-29-55" href="#__codelineno-29-55"></a>
+<a id="__codelineno-29-56" name="__codelineno-29-56" href="#__codelineno-29-56"></a>    subgraph annotation [Annotation &amp; Filtering]
+<a id="__codelineno-29-57" name="__codelineno-29-57" href="#__codelineno-29-57"></a>        vep[VEP]
+<a id="__codelineno-29-58" name="__codelineno-29-58" href="#__codelineno-29-58"></a>        snpsift[SnpSift]
+<a id="__codelineno-29-59" name="__codelineno-29-59" href="#__codelineno-29-59"></a>        filter_pass[Filter PASS]
+<a id="__codelineno-29-60" name="__codelineno-29-60" href="#__codelineno-29-60"></a>
+<a id="__codelineno-29-61" name="__codelineno-29-61" href="#__codelineno-29-61"></a>        vep --&gt;|wgs,wes,panel,rna_var| snpsift
+<a id="__codelineno-29-62" name="__codelineno-29-62" href="#__codelineno-29-62"></a>        snpsift --&gt;|wgs,wes,panel,rna_var| filter_pass
+<a id="__codelineno-29-63" name="__codelineno-29-63" href="#__codelineno-29-63"></a>    end
+<a id="__codelineno-29-64" name="__codelineno-29-64" href="#__codelineno-29-64"></a>
+<a id="__codelineno-29-65" name="__codelineno-29-65" href="#__codelineno-29-65"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-29-66" name="__codelineno-29-66" href="#__codelineno-29-66"></a>        bcftools_stats[bcftools stats]
+<a id="__codelineno-29-67" name="__codelineno-29-67" href="#__codelineno-29-67"></a>        multiqc[MultiQC]
+<a id="__codelineno-29-68" name="__codelineno-29-68" href="#__codelineno-29-68"></a>
+<a id="__codelineno-29-69" name="__codelineno-29-69" href="#__codelineno-29-69"></a>        bcftools_stats --&gt;|wgs,wes,panel,rna_var| multiqc
+<a id="__codelineno-29-70" name="__codelineno-29-70" href="#__codelineno-29-70"></a>    end
+<a id="__codelineno-29-71" name="__codelineno-29-71" href="#__codelineno-29-71"></a>
+<a id="__codelineno-29-72" name="__codelineno-29-72" href="#__codelineno-29-72"></a>    fastqc_trim --&gt;|wgs,wes,panel| bwa
+<a id="__codelineno-29-73" name="__codelineno-29-73" href="#__codelineno-29-73"></a>    fastqc_trim --&gt;|rna_var| star_align
+<a id="__codelineno-29-74" name="__codelineno-29-74" href="#__codelineno-29-74"></a>    bqsr --&gt;|wgs| haplotypecaller
+<a id="__codelineno-29-75" name="__codelineno-29-75" href="#__codelineno-29-75"></a>    bqsr --&gt;|wes| deepvariant
+<a id="__codelineno-29-76" name="__codelineno-29-76" href="#__codelineno-29-76"></a>    bqsr --&gt;|panel| strelka
+<a id="__codelineno-29-77" name="__codelineno-29-77" href="#__codelineno-29-77"></a>    bqsr --&gt;|rna_var| splitncigar
+<a id="__codelineno-29-78" name="__codelineno-29-78" href="#__codelineno-29-78"></a>    merge_vcf --&gt;|wgs,wes,panel| vep
+<a id="__codelineno-29-79" name="__codelineno-29-79" href="#__codelineno-29-79"></a>    rna_filter --&gt;|rna_var| vep
+<a id="__codelineno-29-80" name="__codelineno-29-80" href="#__codelineno-29-80"></a>    filter_pass --&gt;|wgs,wes,panel,rna_var| bcftools_stats
 </code></pre></div>
 </details>
 <p><strong>Rendered output:</strong></p>
