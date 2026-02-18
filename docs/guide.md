@@ -29,11 +29,7 @@ graph LR
     fastqc -->|qc| multiqc
 ```
 
-Save this as `pipeline.mmd` and render it:
-
-```bash
-nf-metro render pipeline.mmd -o pipeline.svg
-```
+![Minimal example](assets/renders/01_minimal.svg)
 
 The key elements:
 
@@ -45,7 +41,7 @@ The key elements:
 
 ## Adding sections
 
-Sections group related stations into visual boxes. They use Mermaid `subgraph` blocks:
+Sections group related stations into visual boxes using Mermaid `subgraph` blocks. Lines can diverge to different sections, showing how routes split through the pipeline:
 
 ```text
 %%metro title: Sectioned Pipeline
@@ -55,8 +51,10 @@ Sections group related stations into visual boxes. They use Mermaid `subgraph` b
 
 graph LR
     subgraph preprocessing [Pre-processing]
+        input[Input]
         trim[Trimming]
         fastqc[FastQC]
+        input -->|main,qc| trim
         trim -->|main,qc| fastqc
     end
 
@@ -66,12 +64,91 @@ graph LR
         align -->|main| quant
     end
 
-    %% Inter-section edges (outside all subgraph blocks)
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report[Report]
+        multiqc -->|qc| report
+    end
+
     fastqc -->|main| align
-    fastqc -->|qc| quant
+    fastqc -->|qc| multiqc
 ```
 
+![Sectioned example](assets/renders/02_sections.svg)
+
 Sections are laid out automatically on a grid based on their dependencies. Edges between stations in different sections must go **outside** all `subgraph`/`end` blocks. nf-metro automatically creates port connections and junction stations at fan-out points.
+
+## Fan-out and fan-in
+
+When lines diverge from a shared section into separate analysis paths and then reconverge, nf-metro stacks the target sections vertically and routes each line to its destination:
+
+```text
+%%metro title: Fan-out Pipeline
+%%metro style: dark
+%%metro line: wgs | Whole Genome | #e63946
+%%metro line: wes | Whole Exome | #0570b0
+%%metro line: panel | Targeted Panel | #2db572
+
+graph LR
+    subgraph preprocessing [Pre-processing]
+        fastqc[FastQC]
+        trim[Trimming]
+        fastqc -->|wgs,wes,panel| trim
+    end
+
+    subgraph wgs_analysis [WGS Analysis]
+        bwa_wgs[BWA-MEM]
+        gatk_wgs[GATK HaplotypeCaller]
+        bwa_wgs -->|wgs| gatk_wgs
+    end
+
+    subgraph wes_analysis [WES Analysis]
+        bwa_wes[BWA-MEM]
+        gatk_wes[GATK Mutect2]
+        bwa_wes -->|wes| gatk_wes
+    end
+
+    subgraph panel_analysis [Panel Analysis]
+        minimap[Minimap2]
+        freebayes[FreeBayes]
+        minimap -->|panel| freebayes
+    end
+
+    subgraph annotation [Annotation]
+        vep[VEP]
+        report[Report]
+        vep -->|wgs,wes,panel| report
+    end
+
+    trim -->|wgs| bwa_wgs
+    trim -->|wes| bwa_wes
+    trim -->|panel| minimap
+    gatk_wgs -->|wgs| vep
+    gatk_wes -->|wes| vep
+    freebayes -->|panel| vep
+```
+
+![Fan-out example](assets/renders/03_fan_out.svg)
+
+Each line takes a different route through its own analysis section, then all three reconverge at the annotation section. The layout engine handles the junction creation and routing automatically.
+
+## Full example: nf-core/rnaseq
+
+The complete nf-core/rnaseq example at [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd) combines all these patterns into a real-world pipeline:
+
+![nf-core/rnaseq](assets/renders/rnaseq_auto.svg)
+
+Five analysis routes share preprocessing, then diverge to different aligners, reconverge at post-processing, and flow through QC. This example also demonstrates **section directions** - while most sections flow left-to-right (`LR`, the default), two other directions create more interesting layouts:
+
+- **`TB`** (top-to-bottom) - the Post-processing section flows vertically, acting as a connector between the aligners above and below
+- **`RL`** (right-to-left) - the QC section flows right-to-left, creating a serpentine return path
+
+The layout engine often infers these directions automatically from the graph topology, but you can set them explicitly with `%%metro direction: TB` or `%%metro direction: RL` inside a `subgraph` block. The example also uses:
+
+- **Multiple exit sides** on preprocessing (right for aligners, bottom for pseudo-aligners)
+- **Grid overrides** to pin sections the auto-layout can't infer perfectly
+
+See the [Gallery](gallery/index.md) for more rendered examples.
 
 ## Global directives
 
@@ -167,118 +244,6 @@ Controls the flow direction within a section:
 - **`LR`** (default) - left to right
 - **`RL`** - right to left, useful for creating serpentine layouts where a section flows back
 - **`TB`** - top to bottom, useful for vertical connector sections
-
-## Stations and edges
-
-### Station syntax
-
-Stations use Mermaid node syntax:
-
-```text
-node_id[Label]
-```
-
-The `node_id` is used in edges and directives. The `Label` is what appears on the map.
-
-### Edge syntax
-
-Edges connect stations and specify which lines travel along them:
-
-```text
-%% Single line
-trim -->|main| align
-
-%% Multiple lines on the same edge
-cat_fastq -->|star_salmon,star_rsem,hisat2| fastqc
-```
-
-When multiple lines share an edge, they're drawn as parallel tracks through that connection.
-
-### Forking and joining
-
-Lines diverge when different edges carry different line IDs from the same station:
-
-```text
-star -->|star_rsem| rsem
-star -->|star_salmon| umi_tools_dedup
-hisat2_align -->|hisat2| umi_tools_dedup
-```
-
-Lines reconverge when edges from different stations target the same destination. The layout engine handles fork-join patterns automatically.
-
-### Inter-section edges
-
-Edges between stations in different sections go outside all `subgraph`/`end` blocks:
-
-```text
-    subgraph preprocessing [Pre-processing]
-        ...
-        sortmerna[SortMeRNA]
-    end
-
-    subgraph alignment [Alignment]
-        star[STAR]
-        hisat2_align[HISAT2]
-        ...
-    end
-
-    %% Inter-section edges
-    sortmerna -->|star_salmon,star_rsem| star
-    sortmerna -->|hisat2| hisat2_align
-```
-
-These are automatically rewritten into port-to-port connections with junction stations at fan-out points. You just specify the source and target stations directly.
-
-## Walkthrough: nf-core/rnaseq
-
-The full example is at [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd). Here's how the pieces fit together.
-
-The pipeline has five lines representing different analysis routes:
-
-```text
-%%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
-%%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
-%%metro line: hisat2 | Aligner: HISAT2, Quantification: None | #f5c542
-%%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
-%%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
-```
-
-All five share a preprocessing section, then diverge based on aligner choice. The preprocessing section exits right for alignment-based lines and bottom for pseudo-aligners:
-
-```text
-subgraph preprocessing [Pre-processing]
-    %%metro exit: right | star_salmon, star_rsem, hisat2
-    %%metro exit: bottom | pseudo_salmon, pseudo_kallisto
-    cat_fastq[cat fastq]
-    fastqc_raw[FastQC]
-    ...
-end
-```
-
-Post-processing uses `TB` direction to act as a vertical connector:
-
-```text
-subgraph postprocessing [Post-processing]
-    %%metro direction: TB
-    ...
-end
-```
-
-The QC section uses `RL` direction to flow backward, creating a serpentine layout:
-
-```text
-subgraph qc_report [Quality control & reporting]
-    %%metro direction: RL
-    ...
-end
-```
-
-Grid overrides pin sections that the auto-layout can't infer perfectly:
-
-```text
-%%metro grid: postprocessing | 2,0,2
-%%metro grid: qc_report | 1,2,1,2
-```
 
 ## Directive reference
 

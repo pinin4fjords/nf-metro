@@ -1,0 +1,28 @@
+%%metro title: Sectioned Pipeline
+%%metro style: dark
+%%metro line: main | Main | #4CAF50
+%%metro line: qc | Quality Control | #2196F3
+
+graph LR
+    subgraph preprocessing [Pre-processing]
+        input[Input]
+        trim[Trimming]
+        fastqc[FastQC]
+        input -->|main,qc| trim
+        trim -->|main,qc| fastqc
+    end
+
+    subgraph analysis [Analysis]
+        align[Alignment]
+        quant[Quantification]
+        align -->|main| quant
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report[Report]
+        multiqc -->|qc| report
+    end
+
+    fastqc -->|main| align
+    fastqc -->|qc| multiqc

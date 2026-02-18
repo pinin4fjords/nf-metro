@@ -1,0 +1,43 @@
+%%metro title: Fan-out Pipeline
+%%metro style: dark
+%%metro line: wgs | Whole Genome | #e63946
+%%metro line: wes | Whole Exome | #0570b0
+%%metro line: panel | Targeted Panel | #2db572
+
+graph LR
+    subgraph preprocessing [Pre-processing]
+        fastqc[FastQC]
+        trim[Trimming]
+        fastqc -->|wgs,wes,panel| trim
+    end
+
+    subgraph wgs_analysis [WGS Analysis]
+        bwa_wgs[BWA-MEM]
+        gatk_wgs[GATK HaplotypeCaller]
+        bwa_wgs -->|wgs| gatk_wgs
+    end
+
+    subgraph wes_analysis [WES Analysis]
+        bwa_wes[BWA-MEM]
+        gatk_wes[GATK Mutect2]
+        bwa_wes -->|wes| gatk_wes
+    end
+
+    subgraph panel_analysis [Panel Analysis]
+        minimap[Minimap2]
+        freebayes[FreeBayes]
+        minimap -->|panel| freebayes
+    end
+
+    subgraph annotation [Annotation]
+        vep[VEP]
+        report[Report]
+        vep -->|wgs,wes,panel| report
+    end
+
+    trim -->|wgs| bwa_wgs
+    trim -->|wes| bwa_wes
+    trim -->|panel| minimap
+    gatk_wgs -->|wgs| vep
+    gatk_wes -->|wes| vep
+    freebayes -->|panel| vep

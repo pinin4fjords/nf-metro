@@ -721,10 +721,69 @@ def _align_exit_ports(graph: MetroGraph) -> None:
                         bbox_bot = exit_section.bbox_y + exit_section.bbox_h
                         if not (bbox_top <= tgt.y <= bbox_bot):
                             break
+                        # Don't pull TB exit ports above the last
+                        # internal station -- that creates ugly routing
+                        # where lines reverse direction inside the section.
+                        if exit_section.direction == "TB":
+                            last_y = max(
+                                (
+                                    graph.stations[sid].y
+                                    for sid in exit_section.station_ids
+                                    if sid in graph.stations
+                                    and not graph.stations[sid].is_port
+                                ),
+                                default=port.y,
+                            )
+                            if tgt.y < last_y:
+                                break
+                            # Ensure minimum gap below last station
+                            # (mirrors _clamp_tb_entry_port gap above first)
+                            min_exit_y = last_y + MIN_PORT_STATION_GAP
+                            if tgt.y < min_exit_y:
+                                tgt_y = min_exit_y
+                                delta = tgt_y - tgt.y
+                                # Also push target entry port down to
+                                # keep a straight horizontal connection
+                                tgt.y = tgt_y
+                                tgt_port = graph.ports.get(tgt.id)
+                                if tgt_port:
+                                    tgt_port.y = tgt_y
+                                    # Shift the target section's internal
+                                    # stations down by the same delta so the
+                                    # entry port aligns with the station row
+                                    tgt_sec = graph.sections.get(
+                                        tgt_port.section_id
+                                    )
+                                    if tgt_sec:
+                                        for sid in tgt_sec.station_ids:
+                                            s = graph.stations.get(sid)
+                                            if s and s.id != tgt.id:
+                                                s.y += delta
+                                                p = graph.ports.get(sid)
+                                                if p:
+                                                    p.y += delta
+                                        # Shift target section bbox down
+                                        tgt_sec.bbox_y += delta
+                                        # Extend TB section to align bottoms
+                                        new_bot = (
+                                            tgt_sec.bbox_y + tgt_sec.bbox_h
+                                        )
+                                        exit_bot = (
+                                            exit_section.bbox_y
+                                            + exit_section.bbox_h
+                                        )
+                                        if new_bot > exit_bot:
+                                            exit_section.bbox_h = (
+                                                new_bot - exit_section.bbox_y
+                                            )
+                            else:
+                                tgt_y = tgt.y
+                        else:
+                            tgt_y = tgt.y
                         station = graph.stations.get(port_id)
                         if station:
-                            station.y = tgt.y
-                        port.y = tgt.y
+                            station.y = tgt_y
+                        port.y = tgt_y
                     break
 
 

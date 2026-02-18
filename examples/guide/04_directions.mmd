@@ -1,0 +1,45 @@
+%%metro title: Section Directions
+%%metro style: dark
+%%metro line: rna | RNA-seq | #2db572
+%%metro line: dna | DNA-seq | #e63946
+%%metro legend: bl
+
+graph LR
+    subgraph preprocessing [Pre-processing]
+        fastqc[FastQC]
+        trim[Trimming]
+        fastqc -->|rna,dna| trim
+    end
+
+    subgraph rna_analysis [RNA Analysis]
+        star[STAR]
+        salmon[Salmon]
+        star -->|rna| salmon
+    end
+
+    subgraph dna_analysis [DNA Analysis]
+        bwa[BWA-MEM]
+        gatk[GATK]
+        bwa -->|dna| gatk
+    end
+
+    subgraph postprocessing [Post-processing]
+        %%metro direction: TB
+        samtools[SAMtools]
+        picard[Picard]
+        bedtools[BEDTools]
+        samtools -->|rna,dna| picard
+        picard -->|rna,dna| bedtools
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report[Report]
+        multiqc -->|rna,dna| report
+    end
+
+    trim -->|rna| star
+    trim -->|dna| bwa
+    salmon -->|rna| samtools
+    gatk -->|dna| samtools
+    bedtools -->|rna,dna| multiqc
