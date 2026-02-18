@@ -24,12 +24,8 @@ from nf_metro.parser.model import (
 def _check_unsupported_input(text: str) -> None:
     """Detect common unsupported input formats and raise helpful errors."""
     lines = text.strip().split("\n")
-    has_flowchart = any(
-        line.strip().startswith("flowchart ") for line in lines
-    )
-    has_metro_directives = any(
-        line.strip().startswith("%%metro") for line in lines
-    )
+    has_flowchart = any(line.strip().startswith("flowchart ") for line in lines)
+    has_metro_directives = any(line.strip().startswith("%%metro") for line in lines)
 
     if has_flowchart and not has_metro_directives:
         raise ValueError(
