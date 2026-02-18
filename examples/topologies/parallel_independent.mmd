@@ -5,28 +5,24 @@
 
 graph LR
     subgraph dna_input [DNA Input]
-        %%metro exit: right | dna
         di1[Read DNA]
         di2[QC DNA]
         di1 -->|dna| di2
     end
 
     subgraph dna_process [DNA Process]
-        %%metro entry: left | dna
         dp1[Align DNA]
         dp2[Call Variants]
         dp1 -->|dna| dp2
     end
 
     subgraph rna_input [RNA Input]
-        %%metro exit: right | rna
         ri1[Read RNA]
         ri2[QC RNA]
         ri1 -->|rna| ri2
     end
 
     subgraph rna_process [RNA Process]
-        %%metro entry: left | rna
         rp1[Align RNA]
         rp2[Quantify]
         rp1 -->|rna| rp2

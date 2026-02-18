@@ -6,7 +6,6 @@
 
 graph LR
     subgraph preprocessing [Pre-processing]
-        %%metro exit: right | star, hisat, pseudo
         input[Input]
         fastqc_raw[FastQC]
         fastp[FastP]
@@ -25,8 +24,6 @@ graph LR
     end
 
     subgraph genome_align [Genome alignment]
-        %%metro entry: left | star, hisat
-        %%metro exit: right | star, hisat
         star_align[STAR]
         hisat_align[HISAT2]
         umi_dedup[UMI-tools dedup]
@@ -40,7 +37,6 @@ graph LR
     end
 
     subgraph pseudo_align [Pseudo-alignment]
-        %%metro entry: left | pseudo
         salmon_pseudo[Salmon]
         tximport[tximport]
         summarized_exp[Sum. Exp.]
@@ -50,8 +46,6 @@ graph LR
     end
 
     subgraph postprocessing [Post-processing]
-        %%metro entry: left | star, hisat
-        %%metro exit: right | star, hisat
         samtools[SAMtools]
         picard[Picard]
         bedtools[BEDTools]
@@ -63,7 +57,6 @@ graph LR
     end
 
     subgraph qc_report [QC & Reporting]
-        %%metro entry: left | star, hisat
         rseqc[RSeQC]
         dupradar[dupRadar]
         featurecounts[featureCounts]
