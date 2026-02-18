@@ -6,8 +6,24 @@ Generate metro-map-style SVG diagrams from Mermaid graph definitions with `%%met
 
 ## Installation
 
+### pip (PyPI)
+
 ```bash
 pip install nf-metro
+```
+
+### Conda (Bioconda)
+
+```bash
+conda install bioconda::nf-metro
+```
+
+### Container (Seqera Containers)
+
+A pre-built container is available via [Seqera Containers](https://seqera.io/containers/):
+
+```bash
+docker pull community.wave.seqera.io/library/pip_nf-metro:611b1ba39c6007f1
 ```
 
 Requires Python 3.10+.
