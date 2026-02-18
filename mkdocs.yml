@@ -38,4 +38,5 @@ exclude_docs: |
 
 nav:
   - Home: index.md
+  - Guide: guide.md
   - Gallery: gallery/index.md
