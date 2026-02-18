@@ -40,6 +40,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         max_station_columns,
     )
     _optimize_rowspans(graph, fold_sections, successors)
+    _adjust_explicit_tb_sections(graph, successors, fold_sections)
     _infer_directions(
         graph, successors, predecessors, fold_sections, below_fold_sections
     )
@@ -356,6 +357,87 @@ def _optimize_rowspans(
                 new_rowspan,
                 fold_sec.grid_col_span,
             )
+
+
+def _adjust_explicit_tb_sections(
+    graph: MetroGraph,
+    successors: dict[str, set[str]],
+    fold_sections: set[str],
+) -> None:
+    """Extend rowspans and adjust successor rows for explicit TB sections.
+
+    When a user sets ``%%metro direction: TB`` on a section, and the adjacent
+    column has stacked sections, the TB section should span those rows (like a
+    fold bridge). Successors to the right are then placed at the bottom of the
+    span so that lines exit downward naturally.
+    """
+    # Find explicit TB sections that aren't already handled as fold sections
+    explicit_tb = {
+        sid
+        for sid, sec in graph.sections.items()
+        if sec.direction == "TB" and sid not in fold_sections and sec.grid_col >= 0
+    }
+    if not explicit_tb:
+        return
+
+    # Group sections by column
+    col_groups: dict[int, list[str]] = defaultdict(list)
+    for sid, sec in graph.sections.items():
+        if sec.grid_col >= 0:
+            col_groups[sec.grid_col].append(sid)
+
+    for tb_sid in explicit_tb:
+        tb_sec = graph.sections[tb_sid]
+        tb_col = tb_sec.grid_col
+        tb_row = tb_sec.grid_row
+
+        # Check adjacent column (left) for stacked sections
+        left_col = tb_col - 1
+        if left_col in col_groups:
+            downstream = _transitive_successors(tb_sid, successors)
+            max_row = tb_row
+            for sid in col_groups[left_col]:
+                if sid in downstream:
+                    continue
+                sec = graph.sections[sid]
+                if sec.grid_row >= tb_row:
+                    max_row = max(max_row, sec.grid_row)
+
+            # Don't extend into rows occupied by other sections in same column
+            for sid in col_groups[tb_col]:
+                if sid == tb_sid:
+                    continue
+                sec = graph.sections[sid]
+                if sec.grid_row > tb_row:
+                    max_row = min(max_row, sec.grid_row - 1)
+
+            new_rowspan = max_row - tb_row + 1
+            if new_rowspan > tb_sec.grid_row_span:
+                tb_sec.grid_row_span = new_rowspan
+                graph.grid_overrides[tb_sid] = (
+                    tb_col,
+                    tb_row,
+                    new_rowspan,
+                    tb_sec.grid_col_span,
+                )
+
+        # Move successors from the top of the span to the bottom
+        if tb_sec.grid_row_span > 1:
+            bottom_row = tb_row + tb_sec.grid_row_span - 1
+            for succ_id in successors.get(tb_sid, set()):
+                succ = graph.sections.get(succ_id)
+                if not succ or succ.grid_row != tb_row:
+                    continue
+                # Only adjust auto-placed successors in columns to the right
+                if succ.grid_col <= tb_col:
+                    continue
+                succ.grid_row = bottom_row
+                graph.grid_overrides[succ_id] = (
+                    succ.grid_col,
+                    bottom_row,
+                    succ.grid_row_span,
+                    succ.grid_col_span,
+                )
 
 
 def _optimize_colspans(

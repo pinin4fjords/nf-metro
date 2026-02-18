@@ -56,7 +56,7 @@ def compute_bundle_info(
     # Group by corridor: edges sharing the same vertical channel
     # Key: (route_type, rounded_channel_position, vertical_direction)
     corridor_groups: dict[
-        tuple[str, int, int], list[tuple[Edge, float, float, float, float]]
+        tuple, list[tuple[Edge, float, float, float, float]]
     ] = defaultdict(list)
 
     for item in inter_edges:
@@ -73,14 +73,34 @@ def compute_bundle_info(
             # Vertical: group by shared X position
             key = ("V", round(sx), v_dir)
         else:
-            # L-shaped: group by source X and horizontal direction.
-            # The vertical channel is placed in the inter-column gap
-            # near the source, so source X is the right grouping key.
-            # Using midpoint (sx+tx)/2 fails for junction fan-outs
-            # where targets are at different X positions but share
-            # the same vertical channel.
+            # L-shaped: group by the inter-column gap the vertical
+            # channel will occupy.  Use (src_col, tgt_col) when
+            # section info is available so that edges from different
+            # ports in the same column share one bundle and get
+            # proper offsets.  Fall back to round(sx) for junctions
+            # or edges without section info.
             h_dir = 1 if dx > 0 else -1
-            key = ("L", round(sx), v_dir, h_dir)
+            src_st = graph.stations.get(edge.source)
+            tgt_st = graph.stations.get(edge.target)
+            src_sec = (
+                graph.sections.get(src_st.section_id)
+                if src_st and src_st.section_id
+                else None
+            )
+            tgt_sec = (
+                graph.sections.get(tgt_st.section_id)
+                if tgt_st and tgt_st.section_id
+                else None
+            )
+            if (
+                src_sec
+                and tgt_sec
+                and src_sec.grid_col != tgt_sec.grid_col
+            ):
+                col_key = (src_sec.grid_col, tgt_sec.grid_col)
+            else:
+                col_key = round(sx)
+            key = ("L", col_key, v_dir, h_dir)
 
         corridor_groups[key].append(item)
 
