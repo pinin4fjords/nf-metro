@@ -9,15 +9,12 @@
 
 graph LR
     subgraph input_sec [Input]
-        %%metro exit: right | line1, line2, line3, line4, line5, line6
         raw[Raw]
         qc[QC]
         raw -->|line1,line2,line3,line4,line5,line6| qc
     end
 
     subgraph process_sec [Processing]
-        %%metro entry: left | line1, line2, line3, line4, line5, line6
-        %%metro exit: right | line1, line2, line3, line4, line5, line6
         align[Align]
         sort[Sort]
         dedup[Dedup]
@@ -26,7 +23,6 @@ graph LR
     end
 
     subgraph output_sec [Output]
-        %%metro entry: left | line1, line2, line3, line4, line5, line6
         quant[Quantify]
         report[Report]
         quant -->|line1,line2,line3,line4,line5,line6| report
