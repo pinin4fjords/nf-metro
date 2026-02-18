@@ -7,7 +7,6 @@
 
 graph LR
     subgraph input_qc [Input & QC]
-        %%metro exit: right | wgs, wes, panel, rna_var
         input[Input]
         fastqc[FastQC]
         fastp[FastP]
@@ -22,9 +21,6 @@ graph LR
     end
 
     subgraph alignment [Alignment]
-        %%metro entry: left | wgs, wes, panel, rna_var
-        %%metro exit: right | wgs, wes, panel
-        %%metro exit: right | rna_var
         bwa[BWA-MEM2]
         star_align[STAR]
         samtools[SAMtools sort]
@@ -38,8 +34,6 @@ graph LR
     end
 
     subgraph dna_calling [DNA Variant Calling]
-        %%metro entry: left | wgs, wes, panel
-        %%metro exit: right | wgs, wes, panel
         haplotypecaller[HaplotypeCaller]
         deepvariant[DeepVariant]
         strelka[Strelka2]
@@ -51,8 +45,6 @@ graph LR
     end
 
     subgraph rna_calling [RNA Variant Calling]
-        %%metro entry: left | rna_var
-        %%metro exit: right | rna_var
         splitncigar[SplitNCigar]
         rna_hc[HaplotypeCaller]
         rna_filter[FilterVariants]
@@ -62,8 +54,6 @@ graph LR
     end
 
     subgraph annotation [Annotation & Filtering]
-        %%metro entry: left | wgs, wes, panel, rna_var
-        %%metro exit: right | wgs, wes, panel, rna_var
         vep[VEP]
         snpsift[SnpSift]
         filter_pass[Filter PASS]
@@ -73,7 +63,6 @@ graph LR
     end
 
     subgraph reporting [Reporting]
-        %%metro entry: left | wgs, wes, panel, rna_var
         bcftools_stats[bcftools stats]
         multiqc[MultiQC]
 

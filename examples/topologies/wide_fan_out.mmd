@@ -7,35 +7,30 @@
 
 graph LR
     subgraph source [Source]
-        %%metro exit: right | alpha, beta, gamma, delta
         input[Input]
         process[Process]
         input -->|alpha,beta,gamma,delta| process
     end
 
     subgraph target_a [Target A]
-        %%metro entry: left | alpha
         a1[Step A1]
         a2[Step A2]
         a1 -->|alpha| a2
     end
 
     subgraph target_b [Target B]
-        %%metro entry: left | beta
         b1[Step B1]
         b2[Step B2]
         b1 -->|beta| b2
     end
 
     subgraph target_c [Target C]
-        %%metro entry: left | gamma
         c1[Step C1]
         c2[Step C2]
         c1 -->|gamma| c2
     end
 
     subgraph target_d [Target D]
-        %%metro entry: left | delta
         d1[Step D1]
         d2[Step D2]
         d1 -->|delta| d2
