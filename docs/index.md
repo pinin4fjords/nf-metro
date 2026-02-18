@@ -71,28 +71,13 @@ Print a summary of the parsed map: sections, lines, stations, and edges.
 nf-metro info INPUT_FILE
 ```
 
+## Writing metro maps
+
+Read the [Guide](guide.md) to learn how to write `.mmd` files, from minimal examples to multi-section pipelines with custom grid layouts.
+
 ## Gallery
 
 See the [Gallery](gallery/index.md) for rendered examples covering simple pipelines, complex multi-line topologies, fan-out/fan-in patterns, fold layouts, and realistic bioinformatics workflows.
-
-## Input format
-
-Input files use a subset of Mermaid `graph LR` syntax extended with `%%metro` directives. See the full [directive reference](https://github.com/pinin4fjords/nf-metro#directive-reference) in the README.
-
-### Directive reference
-
-| Directive | Scope | Description |
-|-----------|-------|-------------|
-| `%%metro title: <text>` | Global | Map title |
-| `%%metro logo: <path>` | Global | Logo image (replaces title text) |
-| `%%metro style: <name>` | Global | Theme: `dark`, `light` |
-| `%%metro line: <id> \| <name> \| <color>` | Global | Define a metro line |
-| `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Global | Pin section to grid position |
-| `%%metro legend: <position>` | Global | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, `none` |
-| `%%metro file: <station> \| <label>` | Global | Mark a station as a file terminus with a document icon |
-| `%%metro entry: <side> \| <lines>` | Section | Entry port hint |
-| `%%metro exit: <side> \| <lines>` | Section | Exit port hint |
-| `%%metro direction: <dir>` | Section | Flow direction: `LR`, `RL`, `TB` |
 
 ## License
 

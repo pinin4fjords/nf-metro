@@ -21,6 +21,7 @@ from nf_metro.themes import THEMES  # noqa: E402
 
 EXAMPLES_DIR = project_root / "examples"
 TOPOLOGIES_DIR = project_root / "examples" / "topologies"
+GUIDE_DIR = project_root / "examples" / "guide"
 GALLERY_DIR = project_root / "docs" / "gallery"
 RENDERS_DIR = project_root / "docs" / "assets" / "renders"
 
@@ -154,6 +155,20 @@ def clean_name(stem: str) -> str:
     return stem.replace("_", " ").title()
 
 
+def render_guide_examples() -> None:
+    """Render all guide examples to docs/assets/renders/."""
+    RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+    print("Guide examples:")
+    for mmd_path in sorted(GUIDE_DIR.glob("*.mmd")):
+        svg_path = RENDERS_DIR / f"{mmd_path.stem}.svg"
+        try:
+            render_mmd(mmd_path, svg_path)
+            print(f"  {mmd_path.stem}: OK")
+        except Exception as e:
+            print(f"  {mmd_path.stem}: FAIL - {e}")
+    print()
+
+
 def build_gallery() -> None:
     """Generate docs/gallery/index.md and docs/assets/renders/*.svg."""
     GALLERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -220,4 +235,5 @@ def build_gallery() -> None:
 
 
 if __name__ == "__main__":
+    render_guide_examples()
     build_gallery()
