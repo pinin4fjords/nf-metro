@@ -5,15 +5,12 @@
 
 graph LR
     subgraph start [Start]
-        %%metro exit: right | left_path, right_path
         input[Input]
         prep[Prepare]
         input -->|left_path,right_path| prep
     end
 
     subgraph branch_left [Branch Left]
-        %%metro entry: left | left_path
-        %%metro exit: right | left_path
         l1[Left Step 1]
         l2[Left Step 2]
         l3[Left Step 3]
@@ -22,15 +19,12 @@ graph LR
     end
 
     subgraph branch_right [Branch Right]
-        %%metro entry: left | right_path
-        %%metro exit: right | right_path
         r1[Right Step 1]
         r2[Right Step 2]
         r1 -->|right_path| r2
     end
 
     subgraph finish [Finish]
-        %%metro entry: left | left_path, right_path
         merge[Merge]
         report[Report]
         merge -->|left_path,right_path| report
