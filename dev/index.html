@@ -302,6 +302,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Installation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pip-pypi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pip (PyPI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conda-bioconda" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conda (Bioconda)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#container-seqera-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Container (Seqera Containers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -495,6 +534,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Installation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pip-pypi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pip (PyPI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conda-bioconda" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conda (Bioconda)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#container-seqera-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Container (Seqera Containers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -615,23 +693,31 @@
 <p>Generate metro-map-style SVG diagrams from Mermaid graph definitions with <code>%%metro</code> directives. Designed for visualizing bioinformatics pipeline workflows (e.g., nf-core pipelines) as transit-style maps where each analysis route is a colored "metro line."</p>
 <p><img alt="nf-core/rnaseq metro map" src="assets/renders/rnaseq_auto.svg" /></p>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<h3 id="pip-pypi">pip (PyPI)<a class="headerlink" href="#pip-pypi" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>nf-metro
+</code></pre></div>
+<h3 id="conda-bioconda">Conda (Bioconda)<a class="headerlink" href="#conda-bioconda" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>conda<span class="w"> </span>install<span class="w"> </span>bioconda::nf-metro
+</code></pre></div>
+<h3 id="container-seqera-containers">Container (Seqera Containers)<a class="headerlink" href="#container-seqera-containers" title="Permanent link">&para;</a></h3>
+<p>A pre-built container is available via <a href="https://seqera.io/containers/">Seqera Containers</a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>pull<span class="w"> </span>community.wave.seqera.io/library/pip_nf-metro:611b1ba39c6007f1
 </code></pre></div>
 <p>Requires Python 3.10+.</p>
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <p>Render a metro map from a <code>.mmd</code> file:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>nf-metro<span class="w"> </span>render<span class="w"> </span>examples/simple_pipeline.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.svg
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>nf-metro<span class="w"> </span>render<span class="w"> </span>examples/simple_pipeline.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.svg
 </code></pre></div>
 <p>Validate your input without rendering:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>nf-metro<span class="w"> </span>validate<span class="w"> </span>examples/simple_pipeline.mmd
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>nf-metro<span class="w"> </span>validate<span class="w"> </span>examples/simple_pipeline.mmd
 </code></pre></div>
 <p>Inspect structure (sections, lines, stations):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>nf-metro<span class="w"> </span>info<span class="w"> </span>examples/simple_pipeline.mmd
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>nf-metro<span class="w"> </span>info<span class="w"> </span>examples/simple_pipeline.mmd
 </code></pre></div>
 <h2 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h2>
 <h3 id="nf-metro-render"><code>nf-metro render</code><a class="headerlink" href="#nf-metro-render" title="Permanent link">&para;</a></h3>
 <p>Render a Mermaid metro map definition to SVG.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>nf-metro render [OPTIONS] INPUT_FILE
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>nf-metro render [OPTIONS] INPUT_FILE
 </code></pre></div>
 <table>
 <thead>
@@ -696,11 +782,11 @@
 </table>
 <h3 id="nf-metro-validate"><code>nf-metro validate</code><a class="headerlink" href="#nf-metro-validate" title="Permanent link">&para;</a></h3>
 <p>Check a <code>.mmd</code> file for errors without producing output.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>nf-metro validate INPUT_FILE
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>nf-metro validate INPUT_FILE
 </code></pre></div>
 <h3 id="nf-metro-info"><code>nf-metro info</code><a class="headerlink" href="#nf-metro-info" title="Permanent link">&para;</a></h3>
 <p>Print a summary of the parsed map: sections, lines, stations, and edges.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>nf-metro info INPUT_FILE
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>nf-metro info INPUT_FILE
 </code></pre></div>
 <h2 id="writing-metro-maps">Writing metro maps<a class="headerlink" href="#writing-metro-maps" title="Permanent link">&para;</a></h2>
 <p>Read the <a href="guide/">Guide</a> to learn how to write <code>.mmd</code> files, from minimal examples to multi-section pipelines with custom grid layouts.</p>
