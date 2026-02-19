@@ -39,4 +39,5 @@ exclude_docs: |
 nav:
   - Home: index.md
   - Guide: guide.md
+  - Nextflow Import: nextflow.md
   - Gallery: gallery/index.md
