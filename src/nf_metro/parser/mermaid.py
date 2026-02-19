@@ -21,17 +21,33 @@ from nf_metro.parser.model import (
 )
 
 
+def _check_unsupported_input(text: str) -> None:
+    """Detect common unsupported input formats and raise helpful errors."""
+    lines = text.strip().split("\n")
+    has_flowchart = any(line.strip().startswith("flowchart ") for line in lines)
+    has_metro_directives = any(line.strip().startswith("%%metro") for line in lines)
+
+    if has_flowchart and not has_metro_directives:
+        raise ValueError(
+            "This looks like raw Nextflow DAG output (flowchart syntax "
+            "without %%metro directives). Use 'nf-metro convert' to "
+            "convert it to nf-metro format first, or pass "
+            "'--from-nextflow' to 'nf-metro render'.\n\n"
+            "See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/"
+        )
+
+    if has_flowchart:
+        raise ValueError(
+            "Mermaid 'flowchart' syntax is not supported. "
+            "Use 'graph LR' with %%metro directives instead.\n\n"
+            "See the guide: "
+            "https://pinin4fjords.github.io/nf-metro/latest/guide/"
+        )
+
+
 def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives."""
-    # Detect Nextflow DAG input and give a helpful error
-    stripped = text.strip()
-    if stripped.startswith("flowchart "):
-        raise ValueError(
-            "This looks like a Nextflow -with-dag mermaid file "
-            "(starts with 'flowchart'). Use 'nf-metro convert' to "
-            "convert it to nf-metro format first, or pass "
-            "'--from-nextflow' to 'nf-metro render'."
-        )
+    _check_unsupported_input(text)
 
     graph = MetroGraph()
     lines = text.strip().split("\n")
