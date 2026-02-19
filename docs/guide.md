@@ -222,6 +222,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro line: <id> \| <name> \| <color>` | Define a metro line with ID, display name, and hex color |
 | `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Pin a section to a grid position |
 | `%%metro legend: <position>` | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` |
+| `%%metro line_order: <strategy>` | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks) |
 | `%%metro file: <station> \| <label>` | Mark a station as a file terminus with a document icon |
 
 ### Section directives
