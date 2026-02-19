@@ -437,8 +437,8 @@ def test_flat_layout_no_named_lines():
 
 def test_label_clamp_flips_when_overlapping_pill():
     """Label clamped into pill should flip to the opposite side (issue #58)."""
-    from nf_metro.layout.labels import place_labels
     from nf_metro.layout.constants import LABEL_OFFSET
+    from nf_metro.layout.labels import place_labels
     from nf_metro.layout.routing.offsets import compute_station_offsets
 
     # Build a section with many tracks so the bottom station is near
@@ -487,8 +487,8 @@ def test_label_clamp_flips_when_overlapping_pill():
 
 def test_label_clamp_expands_bbox_when_both_sides_tight():
     """When neither side fits, the section bbox should expand (issue #58)."""
-    from nf_metro.layout.labels import place_labels, _clamp_label_vertical, LabelPlacement
-    from nf_metro.layout.constants import FONT_HEIGHT, LABEL_OFFSET, LABEL_BBOX_MARGIN
+    from nf_metro.layout.constants import LABEL_BBOX_MARGIN, LABEL_OFFSET
+    from nf_metro.layout.labels import LabelPlacement, _clamp_label_vertical
     from nf_metro.parser.model import Section, Station
 
     # Create a tiny section where neither above nor below would fit
@@ -504,9 +504,7 @@ def test_label_clamp_expands_bbox_when_both_sides_tight():
     station.section_id = "tiny"
 
     # Label below would be at y=141 (125+16), bottom at 155 > section bottom 150
-    candidate = LabelPlacement(
-        station_id="s", text="Test", x=100, y=141, above=False
-    )
+    candidate = LabelPlacement(station_id="s", text="Test", x=100, y=141, above=False)
     original_bbox_h = sec.bbox_h
     result = _clamp_label_vertical(
         candidate, sec, station, LABEL_OFFSET, 0.0, 0.0, LABEL_BBOX_MARGIN
