@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from nf_metro.layout.constants import BYPASS_CLEARANCE, COORD_TOLERANCE, COORD_TOLERANCE_FINE
+from nf_metro.layout.constants import (
+    BYPASS_CLEARANCE,
+    COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
+)
 from nf_metro.parser.model import Edge, MetroGraph
 
 
