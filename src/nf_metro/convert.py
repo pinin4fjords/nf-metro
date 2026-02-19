@@ -146,9 +146,7 @@ def _parse_nextflow_mermaid(text: str) -> _ParsedDag:
         # Stadium node (process)
         m = _NF_STADIUM.match(line)
         if m:
-            node = _NfNode(
-                id=m.group(1), label=m.group(2), shape="stadium"
-            )
+            node = _NfNode(id=m.group(1), label=m.group(2), shape="stadium")
             if current_subgraph:
                 node.subgraph = current_subgraph
                 dag.subgraphs[current_subgraph].node_ids.append(node.id)
@@ -158,9 +156,7 @@ def _parse_nextflow_mermaid(text: str) -> _ParsedDag:
         # Square bracket node (value/channel)
         m = _NF_SQUARE.match(line)
         if m:
-            node = _NfNode(
-                id=m.group(1), label=m.group(2), shape="square"
-            )
+            node = _NfNode(id=m.group(1), label=m.group(2), shape="square")
             if current_subgraph:
                 node.subgraph = current_subgraph
             dag.nodes[node.id] = node
@@ -169,9 +165,7 @@ def _parse_nextflow_mermaid(text: str) -> _ParsedDag:
         # Circle node (operator)
         m = _NF_CIRCLE.match(line)
         if m:
-            node = _NfNode(
-                id=m.group(1), label=m.group(2), shape="circle"
-            )
+            node = _NfNode(id=m.group(1), label=m.group(2), shape="circle")
             if current_subgraph:
                 node.subgraph = current_subgraph
             dag.nodes[node.id] = node
@@ -456,7 +450,7 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     color_idx += 1
 
     bypass_lines: dict[tuple[str, str], tuple[str, str, str]] = {}
-    for (src_sec, tgt_sec) in sorted(bypass_groups.keys()):
+    for src_sec, tgt_sec in sorted(bypass_groups.keys()):
         src_name = _humanize_label(section_names[src_sec], abbreviate=False)
         tgt_name = _humanize_label(section_names[tgt_sec], abbreviate=False)
         line_id = _sanitize_id(f"{section_names[src_sec]}_{section_names[tgt_sec]}")
