@@ -1,0 +1,31 @@
+%%metro title: Hidden Stations
+%%metro style: dark
+%%metro line: dna | DNA | #e63946
+%%metro line: rna | RNA | #0570b0
+%%metro line: prot | Protein | #2db572
+
+graph LR
+    subgraph input [Input]
+        fetch[Fetch Data]
+        validate[Validate]
+        fetch -->|dna,rna,prot| validate
+    end
+
+    subgraph processing [Processing]
+        _branch
+        align[Alignment]
+        quant[Quantification]
+        search[Database Search]
+        _branch -->|dna,rna| align
+        _branch -->|prot| search
+        align -->|rna| quant
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+    end
+
+    validate -->|dna,rna,prot| _branch
+    align -->|dna| multiqc
+    quant -->|rna| multiqc
+    search -->|prot| multiqc

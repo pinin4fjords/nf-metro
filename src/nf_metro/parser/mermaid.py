@@ -276,6 +276,7 @@ def _parse_node(
             else:
                 # Update label if station was auto-created from an edge
                 graph.stations[node_id].label = label
+                graph.stations[node_id].is_hidden = node_id.startswith("_")
                 # Also set section if not yet set
                 if section_id and graph.stations[node_id].section_id is None:
                     graph.stations[node_id].section_id = section_id
@@ -304,9 +305,23 @@ def _parse_edge(
 
     # Ensure stations exist
     if source not in graph.stations:
-        graph.register_station(Station(id=source, label=source, section_id=section_id))
+        graph.register_station(
+            Station(
+                id=source,
+                label=source,
+                section_id=section_id,
+                is_hidden=source.startswith("_"),
+            )
+        )
     if target not in graph.stations:
-        graph.register_station(Station(id=target, label=target, section_id=section_id))
+        graph.register_station(
+            Station(
+                id=target,
+                label=target,
+                section_id=section_id,
+                is_hidden=target.startswith("_"),
+            )
+        )
 
     # Split comma-separated line IDs
     line_ids = [lid.strip() for lid in label.split(",")]
