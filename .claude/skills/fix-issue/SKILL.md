@@ -33,7 +33,7 @@ All subsequent work happens inside `/tmp/nf-metro-fix-<NUMBER>`.
 ## Phase 3: Create Micromamba Environment
 
 ```bash
-ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-fix-<NUMBER> python=3.11 -y
+ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-fix-<NUMBER> python=3.11 cairo -y
 source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
 pip install -e "/tmp/nf-metro-fix-<NUMBER>[dev]" && pip install cairosvg
 ```

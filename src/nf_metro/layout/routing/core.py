@@ -9,6 +9,7 @@ per-line bundle offsets.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
@@ -37,7 +38,38 @@ from nf_metro.layout.routing.corners import (
     tb_entry_corner,
     tb_exit_corner,
 )
-from nf_metro.parser.model import MetroGraph, PortSide
+from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
+
+# ---------------------------------------------------------------------------
+# Routing context: pre-computed state shared by all handlers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _RoutingCtx:
+    """Pre-computed state shared by edge routing handlers."""
+
+    graph: MetroGraph
+    fold_x: float
+    junction_ids: set[str]
+    bottom_exit_junctions: set[str]
+    bottom_exit_junction_ports: dict[str, str]
+    offset_step: float
+    fork_stations: set[str]
+    join_stations: set[str]
+    tb_sections: set[str]
+    tb_right_entry: set[str]
+    bundle_info: dict[tuple[str, str, str], tuple[int, int]]
+    bypass_gap_idx: dict[tuple[str, str, str], tuple[int, int, int, int]]
+    station_offsets: dict[tuple[str, str], float] | None
+    diagonal_run: float
+    curve_radius: float
+    skip_edges: set[tuple[str, str, str]] = field(default_factory=set)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def route_edges(
@@ -51,17 +83,59 @@ def route_edges(
     Detects cross-row edges (large Y gap relative to X gap) and routes
     them through a vertical connector at the fold edge.
     """
+    ctx = _build_routing_context(graph, diagonal_run, curve_radius, station_offsets)
     routes: list[RoutedPath] = []
 
-    # Detect fold: find the max X position (fold edge)
+    for edge in graph.edges:
+        if (edge.source, edge.target, edge.line_id) in ctx.skip_edges:
+            continue
+
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if not src or not tgt:
+            continue
+
+        # Try each routing handler in priority order.
+        # The first handler that returns a RoutedPath wins.
+        result = _route_inter_section(edge, src, tgt, ctx)
+        if result is None:
+            result = _route_tb_internal(edge, src, tgt, ctx)
+        if result is None:
+            result = _route_tb_lr_exit(edge, src, tgt, ctx)
+        if result is None:
+            result = _route_tb_lr_entry(edge, src, tgt, ctx)
+        if result is None:
+            result = _route_perp_entry(edge, src, tgt, ctx)
+        if result is None:
+            result = _route_intra_section(edge, src, tgt, ctx)
+
+        if result is not None:
+            routes.append(result)
+
+    return routes
+
+
+# ---------------------------------------------------------------------------
+# Context builder
+# ---------------------------------------------------------------------------
+
+
+def _build_routing_context(
+    graph: MetroGraph,
+    diagonal_run: float,
+    curve_radius: float,
+    station_offsets: dict[tuple[str, str], float] | None,
+) -> _RoutingCtx:
+    """Pre-compute all shared state for edge routing."""
+    junction_ids = set(graph.junctions)
+
+    # Fold edge: max X across all stations
     all_x = [s.x for s in graph.stations.values()]
     fold_x = max(all_x) if all_x else 0
 
-    junction_ids = set(graph.junctions)
-
-    # Identify junctions fed by BOTTOM exit ports for vertical-first routing
+    # Junctions fed by BOTTOM exit ports
     bottom_exit_junctions: set[str] = set()
-    bottom_exit_junction_ports: dict[str, str] = {}  # junction -> exit port
+    bottom_exit_junction_ports: dict[str, str] = {}
     for e in graph.edges:
         if e.target in junction_ids:
             port = graph.ports.get(e.source)
@@ -69,25 +143,17 @@ def route_edges(
                 bottom_exit_junctions.add(e.target)
                 bottom_exit_junction_ports[e.target] = e.source
 
-    line_order = list(graph.lines.keys())
-    line_priority = {lid: i for i, lid in enumerate(line_order)}
-    offset_step = OFFSET_STEP
-
-    # Pre-compute fork and join stations for diagonal bias and label clearance
-    _fork_targets: dict[str, set[str]] = defaultdict(set)
-    _join_sources: dict[str, set[str]] = defaultdict(set)
+    # Fork/join stations
+    fork_targets: dict[str, set[str]] = defaultdict(set)
+    join_sources: dict[str, set[str]] = defaultdict(set)
     for e in graph.edges:
-        _fork_targets[e.source].add(e.target)
-        _join_sources[e.target].add(e.source)
-    fork_stations = {sid for sid, tgts in _fork_targets.items() if len(tgts) > 1}
-    join_stations = {sid for sid, srcs in _join_sources.items() if len(srcs) > 1}
+        fork_targets[e.source].add(e.target)
+        join_sources[e.target].add(e.source)
+    fork_stations = {sid for sid, tgts in fork_targets.items() if len(tgts) > 1}
+    join_stations = {sid for sid, srcs in join_sources.items() if len(srcs) > 1}
 
-    # Identify TB sections for special routing
+    # TB sections and their entry sides
     tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
-
-    # TB sections entered from the RIGHT side need non-reversed X offsets
-    # on their internal vertical edges (to stay consistent with the
-    # direction-aware entry/exit L-shapes).
     tb_right_entry: set[str] = set()
     for port in graph.ports.values():
         if (
@@ -97,680 +163,654 @@ def route_edges(
         ):
             tb_right_entry.add(port.section_id)
 
-    # Pre-compute bundle assignments: groups inter-section edges that
-    # share the same vertical channel so they get consistent per-line
-    # X offsets instead of overlapping.
+    # Bundle assignments and bypass gap indices
+    line_priority = {lid: i for i, lid in enumerate(graph.lines.keys())}
     bundle_info = compute_bundle_info(
         graph, junction_ids, line_priority, bottom_exit_junctions
     )
-
-    # Pre-compute per-gap indices for bypass routes.  Bypass routes from
-    # different source columns can share the same physical gap (e.g.,
-    # two routes both rising through the gap between cols 3 and 4).
-    # Without per-gap offsets they overlap on the shared vertical.
     bypass_gap_idx = _compute_bypass_gap_indices(graph, junction_ids)
 
-    # Edges absorbed into a combined inter-section + entry route
-    skip_edges: set[tuple[str, str, str]] = set()
+    return _RoutingCtx(
+        graph=graph,
+        fold_x=fold_x,
+        junction_ids=junction_ids,
+        bottom_exit_junctions=bottom_exit_junctions,
+        bottom_exit_junction_ports=bottom_exit_junction_ports,
+        offset_step=OFFSET_STEP,
+        fork_stations=fork_stations,
+        join_stations=join_stations,
+        tb_sections=tb_sections,
+        tb_right_entry=tb_right_entry,
+        bundle_info=bundle_info,
+        bypass_gap_idx=bypass_gap_idx,
+        station_offsets=station_offsets,
+        diagonal_run=diagonal_run,
+        curve_radius=curve_radius,
+    )
 
-    for edge in graph.edges:
-        if (edge.source, edge.target, edge.line_id) in skip_edges:
-            continue
 
-        src = graph.stations.get(edge.source)
-        tgt = graph.stations.get(edge.target)
-        if not src or not tgt:
-            continue
+# ---------------------------------------------------------------------------
+# Offset helpers
+# ---------------------------------------------------------------------------
 
-        sx, sy = src.x, src.y
-        tx, ty = tgt.x, tgt.y
-        dx = tx - sx
-        dy = ty - sy
 
-        # Inter-section routing: edges between ports/junctions use only
-        # horizontal and vertical segments (L-shapes), no diagonals.
-        is_inter_section = (src.is_port or edge.source in junction_ids) and (
-            tgt.is_port or edge.target in junction_ids
+def _get_offset(ctx: _RoutingCtx, station_id: str, line_id: str) -> float:
+    """Get the station offset for a (station, line) pair, defaulting to 0."""
+    if ctx.station_offsets:
+        return ctx.station_offsets.get((station_id, line_id), 0.0)
+    return 0.0
+
+
+def _max_offset_at(ctx: _RoutingCtx, station_id: str) -> float:
+    """Get the maximum offset across all lines at a station."""
+    if not ctx.station_offsets:
+        return 0.0
+    all_offs = [
+        ctx.station_offsets.get((station_id, lid), 0.0)
+        for lid in ctx.graph.station_lines(station_id)
+    ]
+    return max(all_offs) if all_offs else 0.0
+
+
+def _tb_x_offset(
+    ctx: _RoutingCtx, station_id: str, line_id: str, section_id: str
+) -> float:
+    """Compute the TB-aware X offset for a station.
+
+    RIGHT-entry sections use non-reversed offsets; others use reversed.
+    """
+    off = _get_offset(ctx, station_id, line_id)
+    if section_id in ctx.tb_right_entry:
+        return off
+    return reversed_offset(off, _max_offset_at(ctx, station_id))
+
+
+# ---------------------------------------------------------------------------
+# Handler 1: Inter-section edges (port-to-port / junction)
+# ---------------------------------------------------------------------------
+
+
+def _route_inter_section(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route edges between ports/junctions using L-shapes (no diagonals)."""
+    graph = ctx.graph
+    is_inter = (src.is_port or edge.source in ctx.junction_ids) and (
+        tgt.is_port or edge.target in ctx.junction_ids
+    )
+    if not is_inter:
+        return None
+
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+    dy = ty - sy
+
+    i, n = ctx.bundle_info.get((edge.source, edge.target, edge.line_id), (0, 1))
+
+    # Check for TB BOTTOM exit
+    src_port = graph.ports.get(edge.source)
+    src_is_tb_bottom = (
+        src_port is not None
+        and not src_port.is_entry
+        and src_port.side == PortSide.BOTTOM
+        and src.section_id in ctx.tb_sections
+    )
+
+    # Resolve section columns for bypass detection
+    src_col = _resolve_section_col(graph, src, ctx.junction_ids)
+    tgt_col = _resolve_section_col(graph, tgt, ctx.junction_ids)
+    needs_bypass = (
+        src_col is not None
+        and tgt_col is not None
+        and abs(tgt_col - src_col) > 1
+        and _has_intervening_sections(graph, src_col, tgt_col)
+    )
+
+    if abs(dy) < COORD_TOLERANCE_FINE and not needs_bypass:
+        # Same Y: straight horizontal
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (tx, ty)],
+            is_inter_section=True,
         )
-        if is_inter_section:
-            i, n = bundle_info.get((edge.source, edge.target, edge.line_id), (0, 1))
 
-            # Check for TB BOTTOM exit first: route as a near-vertical
-            # drop with reversed X offsets even with a small X offset
-            # (entry port may be at section right edge for RL targets).
-            src_port_obj2 = graph.ports.get(edge.source)
-            src_is_tb_bottom = (
-                src_port_obj2 is not None
-                and not src_port_obj2.is_entry
-                and src_port_obj2.side == PortSide.BOTTOM
-                and src.section_id in tb_sections
-            )
+    if src_is_tb_bottom and ctx.station_offsets:
+        return _route_tb_bottom_exit(edge, src, tgt, ctx)
 
-            # Resolve section columns early for bypass detection.
-            # Must happen before the same-Y fast path, which would
-            # otherwise draw a straight line through intervening sections.
-            src_col = _resolve_section_col(graph, src, junction_ids)
-            tgt_col = _resolve_section_col(graph, tgt, junction_ids)
-            needs_bypass = (
-                src_col is not None
-                and tgt_col is not None
-                and abs(tgt_col - src_col) > 1
-                and _has_intervening_sections(graph, src_col, tgt_col)
-            )
-
-            if abs(dy) < COORD_TOLERANCE_FINE and not needs_bypass:
-                # Same Y: straight horizontal (no intervening sections)
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[(sx, sy), (tx, ty)],
-                        is_inter_section=True,
-                    )
-                )
-            elif src_is_tb_bottom and station_offsets:
-                # Vertical drop from TB BOTTOM exit with X offsets.
-                # RIGHT-entry sections use non-reversed; others reversed.
-                src_off = station_offsets.get((edge.source, edge.line_id), 0.0)
-                if src.section_id in tb_right_entry:
-                    x_off = src_off
-                else:
-                    all_offs = [
-                        station_offsets.get((edge.source, lid), 0.0)
-                        for lid in graph.station_lines(edge.source)
-                    ]
-                    max_off = max(all_offs) if all_offs else 0.0
-                    x_off = reversed_offset(src_off, max_off)
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[(sx + x_off, sy), (tx + x_off, ty)],
-                        is_inter_section=True,
-                        offsets_applied=True,
-                    )
-                )
-            elif abs(dx) < COORD_TOLERANCE:
-                # Same X: straight vertical drop
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[(sx, sy), (tx, ty)],
-                        is_inter_section=True,
-                    )
-                )
-            elif edge.source in bottom_exit_junctions:
-                # Vertical-first L-shape from bottom exit junction:
-                # drop to target Y, then horizontal to target.
-                # Use exit port's station offsets for X continuity
-                # with the exit_port -> junction segment above.
-                exit_pid = bottom_exit_junction_ports[edge.source]
-                if station_offsets:
-                    src_off = station_offsets.get((exit_pid, edge.line_id), 0.0)
-                    exit_src = graph.stations.get(exit_pid)
-                    if exit_src and exit_src.section_id in tb_right_entry:
-                        x_off = src_off
-                    else:
-                        all_offs = [
-                            station_offsets.get((exit_pid, lid), 0.0)
-                            for lid in graph.station_lines(exit_pid)
-                        ]
-                        max_off = max(all_offs) if all_offs else 0.0
-                        x_off = reversed_offset(src_off, max_off)
-                else:
-                    x_off = ((n - 1) / 2 - i) * offset_step
-                # Manually apply target entry port Y offset (the
-                # renderer can't do it because offsets_applied=True,
-                # which is needed since the source X offsets are TB).
-                tgt_off = (
-                    station_offsets.get((edge.target, edge.line_id), 0.0)
-                    if station_offsets
-                    else 0.0
-                )
-                r = curve_radius + x_off
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[
-                            (sx + x_off, sy),
-                            (sx + x_off, ty + tgt_off),
-                            (tx, ty + tgt_off),
-                        ],
-                        is_inter_section=True,
-                        curve_radii=[r],
-                        offsets_applied=True,
-                    )
-                )
-            else:
-                # src_col, tgt_col, and needs_bypass already resolved above.
-                if needs_bypass:
-                    # Per-gap indices so bypass routes sharing the same
-                    # physical gap get unique X offsets and Y nesting.
-                    ekey = (edge.source, edge.target, edge.line_id)
-                    g1_j, _g1_n, g2_j, _g2_n = bypass_gap_idx.get(ekey, (0, 1, 0, 1))
-
-                    # Use the wider of per-bundle or per-gap nesting so
-                    # bypass routes from different bundles that share the
-                    # same column range are still separated vertically.
-                    nest_idx = max(i, g2_j)
-                    nest_offset = nest_idx * BYPASS_NEST_STEP
-                    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
-                    by = base_y + nest_offset
-
-                    # Gap midpoints adjacent to source and target columns.
-                    # gap1 shifts toward the SOURCE so the first vertical
-                    # doesn't hug the next section being bypassed.  gap2
-                    # stays at the gap midpoint (only per-route offsets
-                    # applied) so it sits centred between the last
-                    # bypassed section and the target.
-                    #
-                    # When multiple bypass routes share the same physical
-                    # gap (e.g., routes from different source columns both
-                    # rising through gap between cols 3-4), each gets an
-                    # additional per-route offset to prevent overlap.
-                    base_bypass_offset = curve_radius + offset_step
-                    gap1_extra = g1_j * offset_step
-                    gap2_extra = g2_j * offset_step
-                    if dx > 0:
-                        gap1_x = (
-                            adjacent_column_gap_x(graph, src_col, src_col + 1)
-                            - base_bypass_offset
-                            - gap1_extra
-                        )
-                        # Clamp: gap1 must stay right of source for a
-                        # valid horizontal run.
-                        gap1_x = max(gap1_x, sx + curve_radius)
-                        gap2_x = (
-                            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
-                            - gap2_extra
-                        )
-                    else:
-                        gap1_x = (
-                            adjacent_column_gap_x(graph, src_col - 1, src_col)
-                            + base_bypass_offset
-                            + gap1_extra
-                        )
-                        gap1_x = min(gap1_x, sx - curve_radius)
-                        gap2_x = (
-                            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
-                            + gap2_extra
-                        )
-
-                    # Uniform corner radius: use the larger per-gap offset
-                    # so all 4 corners of the U-shape match visually.
-                    # The gap X positions still use per-gap offsets for
-                    # route separation; only the radius is unified.
-                    r_bypass = curve_radius + max(gap1_extra, gap2_extra)
-                    routes.append(
-                        RoutedPath(
-                            edge=edge,
-                            line_id=edge.line_id,
-                            points=[
-                                (sx, sy),
-                                (gap1_x, sy),
-                                (gap1_x, by),
-                                (gap2_x, by),
-                                (gap2_x, ty),
-                                (tx, ty),
-                            ],
-                            is_inter_section=True,
-                            curve_radii=[r_bypass, r_bypass, r_bypass, r_bypass],
-                        )
-                    )
-                else:
-                    # Standard L-shape: vertical bundle between source
-                    # and target, with per-line offsets for visual
-                    # separation.
-                    # See corners.l_shape_radii for the concentric arc
-                    # geometry and direction-aware ordering.
-                    delta, r_first, r_second = l_shape_radii(
-                        i,
-                        n,
-                        going_down=(dy > 0),
-                        offset_step=offset_step,
-                        base_radius=curve_radius,
-                    )
-
-                    # Place vertical channel in the inter-column gap so
-                    # it doesn't pass through sibling sections stacked
-                    # in the source's column.
-                    max_r = curve_radius + (n - 1) * offset_step
-                    mid_x = inter_column_channel_x(
-                        graph, src, tgt, sx, tx, dx, max_r, offset_step
-                    )
-                    vx = mid_x + delta
-                    routes.append(
-                        RoutedPath(
-                            edge=edge,
-                            line_id=edge.line_id,
-                            points=[
-                                (sx, sy),
-                                (vx, sy),
-                                (vx, ty),
-                                (tx, ty),
-                            ],
-                            is_inter_section=True,
-                            curve_radii=[r_first, r_second],
-                        )
-                    )
-            continue
-
-        # TB section internal edges: L-shaped elbows and vertical runs
-        # with per-line offsets pre-applied to the correct axis.
-        # Also includes edges to BOTTOM exit ports so the vertical run
-        # continues straight down without an offset discontinuity.
-        src_sec = src.section_id
-        tgt_sec = tgt.section_id
-        tgt_exit_port = graph.ports.get(edge.target)
-        tgt_is_bottom_exit = (
-            tgt_exit_port is not None
-            and not tgt_exit_port.is_entry
-            and tgt_exit_port.side == PortSide.BOTTOM
+    if abs(dx) < COORD_TOLERANCE:
+        # Same X: straight vertical drop
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (tx, ty)],
+            is_inter_section=True,
         )
-        if (
-            src_sec
-            and src_sec == tgt_sec
-            and src_sec in tb_sections
-            and not src.is_port
-            and (not tgt.is_port or tgt_is_bottom_exit)
-        ):
-            src_off = (
-                station_offsets.get((edge.source, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-            tgt_off = (
-                station_offsets.get((edge.target, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-            # TB sections: internal edges are vertical drops with X offsets.
-            # LEFT-entry sections use reversed offsets; RIGHT-entry sections
-            # use non-reversed offsets (matching their L-shape corners).
-            if src_sec in tb_right_entry:
-                x_src = src_off
-                x_tgt = tgt_off
-            else:
 
-                def _max_off_at(station_id: str) -> float:
-                    all_offs = (
-                        [
-                            station_offsets.get((station_id, lid), 0.0)
-                            for lid in graph.station_lines(station_id)
-                        ]
-                        if station_offsets
-                        else []
-                    )
-                    return max(all_offs) if all_offs else 0.0
+    if edge.source in ctx.bottom_exit_junctions:
+        return _route_bottom_exit_junction(edge, src, tgt, i, n, ctx)
 
-                x_src = reversed_offset(src_off, _max_off_at(edge.source))
-                x_tgt = reversed_offset(tgt_off, _max_off_at(edge.target))
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[
-                        (sx + x_src, sy),
-                        (tx + x_tgt, ty),
-                    ],
-                    offsets_applied=True,
-                )
-            )
-            continue
+    if needs_bypass:
+        return _route_bypass(edge, src, tgt, i, src_col, tgt_col, ctx)
 
-        # Internal station -> LEFT/RIGHT exit port in a TB section:
-        # L-shaped exit run (vertical drop then horizontal to exit port).
-        # Lines go straight down from the last station, turn the corner,
-        # and exit through the port at the return row level.
-        tgt_port_obj = graph.ports.get(edge.target)
-        tgt_is_lr_exit = (
-            tgt_port_obj is not None
-            and not tgt_port_obj.is_entry
-            and tgt_port_obj.side in (PortSide.LEFT, PortSide.RIGHT)
+    # Standard L-shape
+    return _route_l_shape(edge, src, tgt, i, n, ctx)
+
+
+def _route_tb_bottom_exit(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Vertical drop from TB BOTTOM exit with X offsets."""
+    x_off = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(src.x + x_off, src.y), (tgt.x + x_off, tgt.y)],
+        is_inter_section=True,
+        offsets_applied=True,
+    )
+
+
+def _route_bottom_exit_junction(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Vertical-first L-shape from bottom exit junction."""
+    exit_pid = ctx.bottom_exit_junction_ports[edge.source]
+    if ctx.station_offsets:
+        exit_src = ctx.graph.stations.get(exit_pid)
+        sec_id = exit_src.section_id if exit_src else ""
+        x_off = _tb_x_offset(ctx, exit_pid, edge.line_id, sec_id or "")
+    else:
+        x_off = ((n - 1) / 2 - i) * ctx.offset_step
+
+    tgt_off = _get_offset(ctx, edge.target, edge.line_id)
+    r = ctx.curve_radius + x_off
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            (src.x + x_off, src.y),
+            (src.x + x_off, tgt.y + tgt_off),
+            (tgt.x, tgt.y + tgt_off),
+        ],
+        is_inter_section=True,
+        curve_radii=[r],
+        offsets_applied=True,
+    )
+
+
+def _route_bypass(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    i: int,
+    src_col: int,
+    tgt_col: int,
+    ctx: _RoutingCtx,
+) -> RoutedPath:
+    """U-shaped bypass route around intervening sections."""
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+    graph = ctx.graph
+
+    ekey = (edge.source, edge.target, edge.line_id)
+    g1_j, _g1_n, g2_j, _g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
+
+    nest_idx = max(i, g2_j)
+    nest_offset = nest_idx * BYPASS_NEST_STEP
+    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
+    by = base_y + nest_offset
+
+    base_bypass_offset = ctx.curve_radius + ctx.offset_step
+    gap1_extra = g1_j * ctx.offset_step
+    gap2_extra = g2_j * ctx.offset_step
+
+    if dx > 0:
+        gap1_x = (
+            adjacent_column_gap_x(graph, src_col, src_col + 1)
+            - base_bypass_offset
+            - gap1_extra
         )
-        if (
-            tgt_is_lr_exit
-            and not src.is_port
-            and src.section_id in tb_sections
-            and src.section_id == tgt.section_id
-        ):
-            src_off = (
-                station_offsets.get((edge.source, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-            all_src_offs = (
-                [
-                    station_offsets.get((edge.source, lid), 0.0)
-                    for lid in graph.station_lines(edge.source)
-                ]
-                if station_offsets
-                else []
-            )
-            max_src_off = max(all_src_offs) if all_src_offs else 0.0
-            # See corners.tb_exit_corner for concentric arc geometry.
-            vert_x_off, horiz_y_off, r = tb_exit_corner(
-                src_off,
-                max_src_off,
-                exit_right=(tgt_port_obj.side == PortSide.RIGHT),
-                base_radius=curve_radius,
-            )
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[
-                        (sx + vert_x_off, sy),
-                        (sx + vert_x_off, ty + horiz_y_off),
-                        (tx, ty + horiz_y_off),
-                    ],
-                    offsets_applied=True,
-                    curve_radii=[r],
-                )
-            )
+        gap1_x = max(gap1_x, sx + ctx.curve_radius)
+        gap2_x = adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) - gap2_extra
+    else:
+        gap1_x = (
+            adjacent_column_gap_x(graph, src_col - 1, src_col)
+            + base_bypass_offset
+            + gap1_extra
+        )
+        gap1_x = min(gap1_x, sx - ctx.curve_radius)
+        gap2_x = adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) + gap2_extra
+
+    r_bypass = ctx.curve_radius + max(gap1_extra, gap2_extra)
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            (sx, sy),
+            (gap1_x, sy),
+            (gap1_x, by),
+            (gap2_x, by),
+            (gap2_x, ty),
+            (tx, ty),
+        ],
+        is_inter_section=True,
+        curve_radii=[r_bypass, r_bypass, r_bypass, r_bypass],
+    )
+
+
+def _route_l_shape(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Standard L-shape inter-section route with concentric arcs."""
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+    dy = ty - sy
+
+    delta, r_first, r_second = l_shape_radii(
+        i,
+        n,
+        going_down=(dy > 0),
+        offset_step=ctx.offset_step,
+        base_radius=ctx.curve_radius,
+    )
+    max_r = ctx.curve_radius + (n - 1) * ctx.offset_step
+    mid_x = inter_column_channel_x(
+        ctx.graph, src, tgt, sx, tx, dx, max_r, ctx.offset_step
+    )
+    vx = mid_x + delta
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (vx, sy), (vx, ty), (tx, ty)],
+        is_inter_section=True,
+        curve_radii=[r_first, r_second],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handler 2: TB section internal edges
+# ---------------------------------------------------------------------------
+
+
+def _route_tb_internal(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route internal edges within TB sections as vertical drops."""
+    graph = ctx.graph
+    src_sec = src.section_id
+    tgt_sec = tgt.section_id
+
+    tgt_exit_port = graph.ports.get(edge.target)
+    tgt_is_bottom_exit = (
+        tgt_exit_port is not None
+        and not tgt_exit_port.is_entry
+        and tgt_exit_port.side == PortSide.BOTTOM
+    )
+    if not (
+        src_sec
+        and src_sec == tgt_sec
+        and src_sec in ctx.tb_sections
+        and not src.is_port
+        and (not tgt.is_port or tgt_is_bottom_exit)
+    ):
+        return None
+
+    x_src = _tb_x_offset(ctx, edge.source, edge.line_id, src_sec)
+    x_tgt = _tb_x_offset(ctx, edge.target, edge.line_id, src_sec)
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(src.x + x_src, src.y), (tgt.x + x_tgt, tgt.y)],
+        offsets_applied=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handler 3: TB section LEFT/RIGHT exit
+# ---------------------------------------------------------------------------
+
+
+def _route_tb_lr_exit(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route internal station -> LEFT/RIGHT exit port in a TB section."""
+    graph = ctx.graph
+    tgt_port = graph.ports.get(edge.target)
+    tgt_is_lr_exit = (
+        tgt_port is not None
+        and not tgt_port.is_entry
+        and tgt_port.side in (PortSide.LEFT, PortSide.RIGHT)
+    )
+    if not (
+        tgt_is_lr_exit
+        and not src.is_port
+        and src.section_id in ctx.tb_sections
+        and src.section_id == tgt.section_id
+    ):
+        return None
+
+    src_off = _get_offset(ctx, edge.source, edge.line_id)
+    max_src_off = _max_offset_at(ctx, edge.source)
+
+    vert_x_off, horiz_y_off, r = tb_exit_corner(
+        src_off,
+        max_src_off,
+        exit_right=(tgt_port.side == PortSide.RIGHT),
+        base_radius=ctx.curve_radius,
+    )
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            (src.x + vert_x_off, src.y),
+            (src.x + vert_x_off, tgt.y + horiz_y_off),
+            (tgt.x, tgt.y + horiz_y_off),
+        ],
+        offsets_applied=True,
+        curve_radii=[r],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handler 4: TB section LEFT/RIGHT entry
+# ---------------------------------------------------------------------------
+
+
+def _route_tb_lr_entry(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route LEFT/RIGHT entry port -> internal station in a TB section."""
+    graph = ctx.graph
+    src_port = graph.ports.get(edge.source)
+    if not (
+        src_port
+        and src_port.side in (PortSide.LEFT, PortSide.RIGHT)
+        and src_port.is_entry
+        and not tgt.is_port
+        and src.section_id in ctx.tb_sections
+    ):
+        return None
+
+    src_off = _get_offset(ctx, edge.source, edge.line_id)
+    tgt_off = _get_offset(ctx, edge.target, edge.line_id)
+    max_tgt_off = _max_offset_at(ctx, edge.target)
+
+    vert_x_off, r = tb_entry_corner(
+        tgt_off,
+        max_tgt_off,
+        entry_right=(src_port.side == PortSide.RIGHT),
+        base_radius=ctx.curve_radius,
+    )
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            (src.x, src.y + src_off),
+            (tgt.x + vert_x_off, src.y + src_off),
+            (tgt.x + vert_x_off, tgt.y),
+        ],
+        offsets_applied=True,
+        curve_radii=[r],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handler 5: Perpendicular (TOP/BOTTOM) port entry to internal station
+# ---------------------------------------------------------------------------
+
+
+def _route_perp_entry(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route TOP/BOTTOM port -> internal station with upstream merging."""
+    graph = ctx.graph
+    src_port = graph.ports.get(edge.source)
+    if not (
+        src_port
+        and src_port.side in (PortSide.TOP, PortSide.BOTTOM)
+        and not tgt.is_port
+    ):
+        return None
+
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+
+    src_off = _get_offset(ctx, edge.source, edge.line_id)
+    tgt_off = _get_offset(ctx, edge.target, edge.line_id)
+
+    # Try to merge with upstream inter-section edge
+    upstream_st = _find_upstream_for_merge(edge, src, ctx)
+
+    if upstream_st is not None:
+        return _route_perp_entry_merged(
+            edge, src, tgt, upstream_st, src_off, tgt_off, ctx
+        )
+
+    if abs(dx) < COORD_TOLERANCE:
+        # Nearly same X: straight vertical drop
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx + src_off, sy), (tx, ty + tgt_off)],
+            offsets_applied=True,
+        )
+
+    # L-shape: vertical drop then horizontal to station
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            (sx + src_off, sy),
+            (sx + src_off, ty + tgt_off),
+            (tx, ty + tgt_off),
+        ],
+        offsets_applied=True,
+        curve_radii=[ctx.curve_radius + src_off],
+    )
+
+
+def _find_upstream_for_merge(
+    edge: Edge, src: Station, ctx: _RoutingCtx
+) -> Station | None:
+    """Find an upstream station to merge with for combined L-shape routing.
+
+    Returns the upstream station if merging is appropriate, or None.
+    Adds the upstream edge to skip_edges when merging.
+    """
+    if not ctx.station_offsets:
+        return None
+
+    graph = ctx.graph
+    for e2 in graph.edges:
+        if e2.target != edge.source or e2.line_id != edge.line_id:
             continue
-
-        # LEFT/RIGHT entry port -> internal station in a TB section:
-        # L-shaped entry run (horizontal then curve then vertical drop).
-        # The port sits above the first station so the turn happens
-        # before the station, not at it.
-        src_port_obj = graph.ports.get(edge.source)
-        if (
-            src_port_obj
-            and src_port_obj.side in (PortSide.LEFT, PortSide.RIGHT)
-            and src_port_obj.is_entry
-            and not tgt.is_port
-            and src.section_id in tb_sections
-        ):
-            src_off = (
-                station_offsets.get((edge.source, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-            tgt_off = (
-                station_offsets.get((edge.target, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-            all_tgt_offs = (
-                [
-                    station_offsets.get((edge.target, lid), 0.0)
-                    for lid in graph.station_lines(edge.target)
-                ]
-                if station_offsets
-                else []
-            )
-            max_tgt_off = max(all_tgt_offs) if all_tgt_offs else 0.0
-            # See corners.tb_entry_corner for concentric arc geometry.
-            vert_x_off, r = tb_entry_corner(
-                tgt_off,
-                max_tgt_off,
-                entry_right=(src_port_obj.side == PortSide.RIGHT),
-                base_radius=curve_radius,
-            )
-
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[
-                        (sx, sy + src_off),
-                        (tx + vert_x_off, sy + src_off),
-                        (tx + vert_x_off, ty),
-                    ],
-                    offsets_applied=True,
-                    curve_radii=[r],
-                )
-            )
+        u = graph.stations.get(e2.source)
+        if not u:
             continue
-
-        # TOP/BOTTOM port -> internal station: L-shaped elbow
-        # (e.g., vertical entry from above curving into an RL section).
-        # Station offsets from compute_station_offsets already account
-        # for reversed sections (fed by TB BOTTOM exits), so we use
-        # src_off directly as the X offset on the vertical segment.
+        # Don't merge with TB BOTTOM exits
+        u_port = graph.ports.get(e2.source)
         if (
-            src_port_obj
-            and src_port_obj.side in (PortSide.TOP, PortSide.BOTTOM)
-            and not tgt.is_port
+            u_port
+            and not u_port.is_entry
+            and u_port.side == PortSide.BOTTOM
+            and u.section_id in ctx.tb_sections
         ):
-            src_off = (
-                station_offsets.get((edge.source, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-            tgt_off = (
-                station_offsets.get((edge.target, edge.line_id), 0.0)
-                if station_offsets
-                else 0.0
-            )
-
-            # Check for an upstream inter-section edge feeding this
-            # entry port.  Combine into one L-shape with proper curves
-            # instead of two disjoint segments with a right-angle seam.
-            # Skip TB BOTTOM exit ports: their vertical drop should stay
-            # separate so lines fall straight down between sections.
-            upstream_st = None
-            if station_offsets:
-                for e2 in graph.edges:
-                    if e2.target == edge.source and e2.line_id == edge.line_id:
-                        u = graph.stations.get(e2.source)
-                        if u:
-                            # Don't merge with TB BOTTOM exits - keep the
-                            # clean vertical drop as a separate segment.
-                            u_port = graph.ports.get(e2.source)
-                            if (
-                                u_port
-                                and not u_port.is_entry
-                                and u_port.side == PortSide.BOTTOM
-                                and u.section_id in tb_sections
-                            ):
-                                continue
-                            # Only merge when the upstream source is at the
-                            # same Y as the entry port.  Cross-column sources
-                            # at different Y levels must stay separate so
-                            # the inter-section L-shape converges them at the
-                            # entry port Y first.
-                            if abs(u.y - sy) > 1.0:
-                                continue
-                            upstream_st = u
-                            skip_edges.add((e2.source, e2.target, e2.line_id))
-                            break
-
-            if upstream_st is not None:
-                up_y_off = station_offsets.get((upstream_st.id, edge.line_id), 0.0)
-                if abs(upstream_st.x - sx) < COORD_TOLERANCE:
-                    # Same X: 4-point combined route through
-                    # inter-column channel (vertical drop case).
-                    mid_x = inter_column_channel_x(
-                        graph,
-                        upstream_st,
-                        tgt,
-                        upstream_st.x,
-                        tgt.x,
-                        tgt.x - upstream_st.x,
-                        curve_radius,
-                        offset_step,
-                    )
-                    routes.append(
-                        RoutedPath(
-                            edge=edge,
-                            line_id=edge.line_id,
-                            points=[
-                                (upstream_st.x, upstream_st.y + up_y_off),
-                                (mid_x + src_off, upstream_st.y + up_y_off),
-                                (mid_x + src_off, ty + tgt_off),
-                                (tx, ty + tgt_off),
-                            ],
-                            offsets_applied=True,
-                            curve_radii=[
-                                curve_radius,
-                                curve_radius + src_off,
-                            ],
-                        )
-                    )
-                else:
-                    # Different X (cross-column entry): 3-point L-shape
-                    # horizontal from upstream -> curve -> vertical to
-                    # target.  Reverse target offset for TB convention.
-                    all_tgt_offs = (
-                        [
-                            station_offsets.get((edge.target, lid), 0.0)
-                            for lid in graph.station_lines(edge.target)
-                        ]
-                        if station_offsets
-                        else []
-                    )
-                    max_tgt_off = max(all_tgt_offs) if all_tgt_offs else 0.0
-                    rev_tgt_off = reversed_offset(tgt_off, max_tgt_off)
-                    routes.append(
-                        RoutedPath(
-                            edge=edge,
-                            line_id=edge.line_id,
-                            points=[
-                                (upstream_st.x, upstream_st.y + up_y_off),
-                                (tx + rev_tgt_off, upstream_st.y + up_y_off),
-                                (tx + rev_tgt_off, ty + tgt_off),
-                            ],
-                            offsets_applied=True,
-                            curve_radii=[curve_radius + rev_tgt_off],
-                        )
-                    )
-            elif abs(dx) < COORD_TOLERANCE:
-                # Nearly same X: straight vertical drop
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[(sx + src_off, sy), (tx, ty + tgt_off)],
-                        offsets_applied=True,
-                    )
-                )
-            else:
-                # L-shape: vertical drop then horizontal to station
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[
-                            (sx + src_off, sy),
-                            (sx + src_off, ty + tgt_off),
-                            (tx, ty + tgt_off),
-                        ],
-                        offsets_applied=True,
-                        curve_radii=[curve_radius + src_off],
-                    )
-                )
             continue
+        # Only merge when upstream is at the same Y as the entry port
+        if abs(u.y - src.y) > COORD_TOLERANCE:
+            continue
+        ctx.skip_edges.add((e2.source, e2.target, e2.line_id))
+        return u
 
-        # Detect cross-row edge: target is to the left (only in folded layouts)
-        is_cross_row = dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD
+    return None
 
-        if is_cross_row:
-            # Route through fold edge: horizontal to fold, vertical drop,
-            # horizontal to target
-            fold_margin = FOLD_MARGIN
-            fold_right = fold_x + fold_margin
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[
-                        (sx, sy),
-                        (fold_right, sy),
-                        (fold_right, ty),
-                        (tx, ty),
-                    ],
-                )
-            )
-        elif abs(sy - ty) < COORD_TOLERANCE_FINE:
-            # Same track: straight line
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[(sx, sy), (tx, ty)],
-                )
-            )
-        else:
-            # Different tracks: horizontal, diagonal, horizontal
-            if abs(dx) < COORD_TOLERANCE:
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[(sx, sy), (tx, ty)],
-                    )
-                )
-                continue
 
-            sign = 1.0 if dx > 0 else -1.0
-            half_diag = diagonal_run / 2
+def _route_perp_entry_merged(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    upstream_st: Station,
+    src_off: float,
+    tgt_off: float,
+    ctx: _RoutingCtx,
+) -> RoutedPath:
+    """Route a combined inter-section + perpendicular entry as one L-shape."""
+    graph = ctx.graph
+    tx, ty = tgt.x, tgt.y
+    up_y_off = _get_offset(ctx, upstream_st.id, edge.line_id)
 
-            # Minimum straight track at each station endpoint.
-            # Port-adjacent edges need more room so stations sit on
-            # visible straight track, not on a curve.
-            if src.is_port or tgt.is_port:
-                min_straight = curve_radius + MIN_STRAIGHT_PORT
-            else:
-                min_straight = MIN_STRAIGHT_EDGE
+    if abs(upstream_st.x - src.x) < COORD_TOLERANCE:
+        # Same X: 4-point combined route through inter-column channel
+        mid_x = inter_column_channel_x(
+            graph,
+            upstream_st,
+            tgt,
+            upstream_st.x,
+            tgt.x,
+            tgt.x - upstream_st.x,
+            ctx.curve_radius,
+            ctx.offset_step,
+        )
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[
+                (upstream_st.x, upstream_st.y + up_y_off),
+                (mid_x + src_off, upstream_st.y + up_y_off),
+                (mid_x + src_off, ty + tgt_off),
+                (tx, ty + tgt_off),
+            ],
+            offsets_applied=True,
+            curve_radii=[ctx.curve_radius, ctx.curve_radius + src_off],
+        )
 
-            # At fork/join stations, extend the straight run past the
-            # label so diverging/converging diagonals don't cross
-            # through the label text.
-            src_min = min_straight
-            tgt_min = min_straight
-            if edge.source in fork_stations and src.label.strip():
-                src_min = max(min_straight, len(src.label) * CHAR_WIDTH / 2)
-            if edge.target in join_stations and tgt.label.strip():
-                tgt_min = max(min_straight, len(tgt.label) * CHAR_WIDTH / 2)
+    # Different X (cross-column entry): 3-point L-shape
+    max_tgt_off = _max_offset_at(ctx, edge.target)
+    rev_tgt_off = reversed_offset(tgt_off, max_tgt_off)
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            (upstream_st.x, upstream_st.y + up_y_off),
+            (tx + rev_tgt_off, upstream_st.y + up_y_off),
+            (tx + rev_tgt_off, ty + tgt_off),
+        ],
+        offsets_applied=True,
+        curve_radii=[ctx.curve_radius + rev_tgt_off],
+    )
 
-            # Bias diagonal toward source at fork points so the
-            # visual divergence happens near the fork, avoiding
-            # diagonals that pass through intermediate stations.
-            if edge.source in fork_stations:
-                mid_x = sx + sign * (src_min + half_diag)
-            else:
-                mid_x = (sx + tx) / 2
 
-            diag_start_x = mid_x - sign * half_diag
-            diag_end_x = mid_x + sign * half_diag
+# ---------------------------------------------------------------------------
+# Handler 6: Intra-section edges (diagonal transitions, folds, straights)
+# ---------------------------------------------------------------------------
 
-            # Clamp to ensure label clearance at each station.
-            if sign > 0:
-                diag_start_x = max(diag_start_x, sx + src_min)
-                diag_end_x = min(diag_end_x, tx - tgt_min)
-                if diag_end_x < diag_start_x:
-                    midpoint = (diag_start_x + diag_end_x) / 2
-                    diag_start_x = diag_end_x = midpoint
-            else:
-                diag_start_x = min(diag_start_x, sx - src_min)
-                diag_end_x = max(diag_end_x, tx + tgt_min)
-                if diag_end_x > diag_start_x:
-                    midpoint = (diag_start_x + diag_end_x) / 2
-                    diag_start_x = diag_end_x = midpoint
 
-            routes.append(
-                RoutedPath(
-                    edge=edge,
-                    line_id=edge.line_id,
-                    points=[
-                        (sx, sy),
-                        (diag_start_x, sy),
-                        (diag_end_x, ty),
-                        (tx, ty),
-                    ],
-                )
-            )
+def _route_intra_section(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route intra-section edges: diagonals, fold routing, straight lines."""
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+    dy = ty - sy
 
-    return routes
+    # Cross-row fold edge
+    if dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD:
+        fold_right = ctx.fold_x + FOLD_MARGIN
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (fold_right, sy), (fold_right, ty), (tx, ty)],
+        )
+
+    # Same track: straight line
+    if abs(sy - ty) < COORD_TOLERANCE_FINE:
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (tx, ty)],
+        )
+
+    # Near-zero X gap: straight line
+    if abs(dx) < COORD_TOLERANCE:
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (tx, ty)],
+        )
+
+    # Different tracks: horizontal -> diagonal -> horizontal
+    return _route_diagonal(edge, src, tgt, ctx)
+
+
+def _route_diagonal(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Route with horizontal runs and a 45-degree diagonal transition."""
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+
+    sign = 1.0 if dx > 0 else -1.0
+    half_diag = ctx.diagonal_run / 2
+
+    # Minimum straight track at endpoints
+    if src.is_port or tgt.is_port:
+        min_straight = ctx.curve_radius + MIN_STRAIGHT_PORT
+    else:
+        min_straight = MIN_STRAIGHT_EDGE
+
+    # Extend straight run past labels at fork/join stations
+    src_min = min_straight
+    tgt_min = min_straight
+    if edge.source in ctx.fork_stations and src.label.strip():
+        src_min = max(min_straight, len(src.label) * CHAR_WIDTH / 2)
+    if edge.target in ctx.join_stations and tgt.label.strip():
+        tgt_min = max(min_straight, len(tgt.label) * CHAR_WIDTH / 2)
+
+    # Bias diagonal toward source at fork points
+    if edge.source in ctx.fork_stations:
+        mid_x = sx + sign * (src_min + half_diag)
+    else:
+        mid_x = (sx + tx) / 2
+
+    diag_start_x = mid_x - sign * half_diag
+    diag_end_x = mid_x + sign * half_diag
+
+    # Clamp to ensure label clearance
+    if sign > 0:
+        diag_start_x = max(diag_start_x, sx + src_min)
+        diag_end_x = min(diag_end_x, tx - tgt_min)
+        if diag_end_x < diag_start_x:
+            midpoint = (diag_start_x + diag_end_x) / 2
+            diag_start_x = diag_end_x = midpoint
+    else:
+        diag_start_x = min(diag_start_x, sx - src_min)
+        diag_end_x = max(diag_end_x, tx + tgt_min)
+        if diag_end_x > diag_start_x:
+            midpoint = (diag_start_x + diag_end_x) / 2
+            diag_start_x = diag_end_x = midpoint
+
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (diag_start_x, sy), (diag_end_x, ty), (tx, ty)],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Utility functions (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def _resolve_section_col(
     graph: MetroGraph,
-    station,
+    station: Station,
     junction_ids: set[str],
 ) -> int | None:
     """Resolve the grid column for a port or junction station.
@@ -785,7 +825,6 @@ def _resolve_section_col(
         return None
 
     if station.id in junction_ids:
-        # Follow edges from/to this junction to find a connected port
         for e in graph.edges:
             other_id = None
             if e.source == station.id:
@@ -831,7 +870,6 @@ def _compute_bypass_gap_indices(
     dict mapping (source_id, target_id, line_id) to
     (gap1_idx, gap1_count, gap2_idx, gap2_count).
     """
-    # Collect all bypass edges with their gap column pairs
     EdgeKey = tuple[str, str, str]
     bypass_edges: list[tuple[EdgeKey, int, int, float]] = []
 
@@ -861,7 +899,6 @@ def _compute_bypass_gap_indices(
         ekey: EdgeKey = (edge.source, edge.target, edge.line_id)
         bypass_edges.append((ekey, src_col, tgt_col, dx))
 
-    # Group by gap1 and gap2 column pairs
     gap1_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
     gap2_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
 
@@ -875,8 +912,6 @@ def _compute_bypass_gap_indices(
         gap1_groups[gap1_pair].append((ekey, src_col))
         gap2_groups[gap2_pair].append((ekey, src_col))
 
-    # Assign per-gap indices, sorted by source column for consistent
-    # ordering (routes spanning more columns get outer positions).
     gap1_idx: dict[EdgeKey, tuple[int, int]] = {}
     gap2_idx: dict[EdgeKey, tuple[int, int]] = {}
 
@@ -892,7 +927,6 @@ def _compute_bypass_gap_indices(
         for j, (ek, _) in enumerate(group):
             gap2_idx[ek] = (j, n)
 
-    # Merge into single result
     result: dict[EdgeKey, tuple[int, int, int, int]] = {}
     all_keys = set(gap1_idx) | set(gap2_idx)
     for ek in all_keys:

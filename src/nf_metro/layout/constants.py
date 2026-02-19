@@ -176,3 +176,6 @@ FANOUT_SPACING: float = 1.5
 
 TERMINUS_NUDGE: float = 0.5
 """Track offset for nudging terminus stations away from passing lines."""
+
+DEFAULT_LINE_PRIORITY: int = 999
+"""Sentinel priority for lines not in the explicit line order."""

@@ -13,6 +13,7 @@ from collections import defaultdict
 import networkx as nx
 
 from nf_metro.layout.constants import (
+    DEFAULT_LINE_PRIORITY,
     DIAMOND_COMPRESSION,
     FANOUT_SPACING,
     LINE_GAP,
@@ -54,7 +55,7 @@ def assign_tracks(
         node_lines = graph.station_lines(sid)
         if node_lines:
             node_primary[sid] = min(
-                node_lines, key=lambda ln: line_priority.get(ln, 999)
+                node_lines, key=lambda ln: line_priority.get(ln, DEFAULT_LINE_PRIORITY)
             )
         else:
             node_primary[sid] = None
