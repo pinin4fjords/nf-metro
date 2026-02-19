@@ -184,10 +184,7 @@ def convert(
         # Count sections and processes in the output
         sections = result.count("subgraph ")
         processes = result.count("([")
-        click.echo(
-            f"Converted {processes} processes, "
-            f"{sections} sections -> {output}"
-        )
+        click.echo(f"Converted {processes} processes, {sections} sections -> {output}")
 
 
 @cli.command()
