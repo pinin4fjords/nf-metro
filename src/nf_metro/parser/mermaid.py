@@ -342,9 +342,7 @@ def _remove_empty_sections(graph: MetroGraph) -> None:
     Sections can end up empty when a subgraph contains only edges referencing
     nodes defined elsewhere. Empty sections cause layout failures.
     """
-    empty_ids = [
-        sid for sid, sec in graph.sections.items() if not sec.station_ids
-    ]
+    empty_ids = [sid for sid, sec in graph.sections.items() if not sec.station_ids]
     for sid in empty_ids:
         del graph.sections[sid]
         warnings.warn(
@@ -363,9 +361,7 @@ def _create_implicit_section(graph: MetroGraph) -> None:
     the remaining 'loose' stations so they participate in layout.
     """
     loose = [
-        s
-        for s in graph.stations.values()
-        if s.section_id is None and not s.is_port
+        s for s in graph.stations.values() if s.section_id is None and not s.is_port
     ]
     if not loose:
         return
