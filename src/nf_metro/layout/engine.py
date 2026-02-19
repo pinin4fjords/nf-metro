@@ -216,10 +216,22 @@ def _layout_single_section(
     # Nudge terminus stations off lines that pass through their Y
     _nudge_terminus_tracks(sub, graph, section, tracks)
 
-    # Compact tracks to consecutive integers so widely-spaced
-    # line priorities don't inflate the vertical spread.
+    # Compact tracks so widely-spaced line priorities don't inflate
+    # the vertical spread, while preserving relative spacing within
+    # groups (e.g. sub-linear fan-out spacing).  Gaps larger than
+    # LINE_GAP get capped to LINE_GAP so distant line base tracks
+    # don't create excessive whitespace.
+    from nf_metro.layout.constants import LINE_GAP
+
     unique_tracks = sorted(set(tracks.values()))
-    track_rank = {t: i for i, t in enumerate(unique_tracks)}
+    track_rank: dict[float, float] = {}
+    if unique_tracks:
+        track_rank[unique_tracks[0]] = 0.0
+        for idx in range(1, len(unique_tracks)):
+            gap = unique_tracks[idx] - unique_tracks[idx - 1]
+            track_rank[unique_tracks[idx]] = track_rank[unique_tracks[idx - 1]] + min(
+                gap, LINE_GAP
+            )
 
     # Detect fork/join layers and add extra spacing so stations
     # aren't too close to divergence/convergence points.

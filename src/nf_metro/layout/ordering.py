@@ -244,9 +244,15 @@ def _place_fan_out(
     else:
         anchor = base
 
-    # Center the fan-out around the anchor
-    fan_spacing = FANOUT_SPACING
+    # Center the fan-out around the anchor.
+    # Use sub-linear scaling so larger fans don't grow proportionally:
+    # per-item spacing = FANOUT_SPACING * (n-1)^(p-1) with p=0.8,
+    # giving total spread = FANOUT_SPACING * (n-1)^0.8.
     n = len(nodes)
+    if n > 2:
+        fan_spacing = FANOUT_SPACING * (n - 1) ** (0.8 - 1)
+    else:
+        fan_spacing = FANOUT_SPACING
     for i, node in enumerate(nodes):
         offset = (i - (n - 1) / 2) * fan_spacing
         tracks[node] = anchor + offset
