@@ -170,9 +170,7 @@ def _compute_section_offsets(
         if cspan <= 1:
             continue
         start_col = col_assign.get(sid, 0)
-        spanned = sum(
-            col_widths[c] for c in range(start_col, start_col + cspan)
-        )
+        spanned = sum(col_widths[c] for c in range(start_col, start_col + cspan))
         spanned += (cspan - 1) * section_x_gap
         if section.bbox_w > spanned:
             deficit = section.bbox_w - spanned
@@ -208,9 +206,7 @@ def _compute_section_offsets(
         if rspan <= 1:
             continue
         start_row = row_assign.get(sid, 0)
-        spanned = sum(
-            row_heights[r] for r in range(start_row, start_row + rspan)
-        )
+        spanned = sum(row_heights[r] for r in range(start_row, start_row + rspan))
         spanned += (rspan - 1) * section_y_gap
         if section.bbox_h > spanned:
             deficit = section.bbox_h - spanned
@@ -262,8 +258,7 @@ def _compute_section_offsets(
         section.offset_y = row_offsets.get(section.grid_row, 0)
 
         if section.grid_col_span == 1 and (
-            section.direction in ("RL", "TB")
-            or section.grid_col in right_align_cols
+            section.direction in ("RL", "TB") or section.grid_col in right_align_cols
         ):
             col_w = col_widths.get(section.grid_col, 0)
             if col_w > section.bbox_w:
@@ -273,8 +268,7 @@ def _compute_section_offsets(
         if rspan > 1:
             start_row = section.grid_row
             spanned_height = sum(
-                row_heights[r]
-                for r in range(start_row, start_row + rspan)
+                row_heights[r] for r in range(start_row, start_row + rspan)
             )
             spanned_height += (rspan - 1) * section_y_gap
             section.bbox_h = spanned_height
@@ -283,8 +277,7 @@ def _compute_section_offsets(
         if cspan > 1:
             start_col = section.grid_col
             spanned_width = sum(
-                col_widths[c]
-                for c in range(start_col, start_col + cspan)
+                col_widths[c] for c in range(start_col, start_col + cspan)
             )
             spanned_width += (cspan - 1) * section_x_gap
             section.bbox_w = spanned_width
@@ -433,9 +426,7 @@ def _position_ports_on_boundary(
         if not station:
             continue
 
-        connected = _find_connected_internal_coord(
-            pid, section, graph, free_axis
-        )
+        connected = _find_connected_internal_coord(pid, section, graph, free_axis)
         if free_axis == "y":
             default = section.bbox_y + section.bbox_h / 2
         else:
@@ -542,4 +533,3 @@ def _spread_overlapping_ports(
                     port.y = new_pos
                 else:
                     port.x = new_pos
-

@@ -61,12 +61,8 @@ def apply_route_offsets(
     if route.offsets_applied:
         return list(route.points)
 
-    src_off = station_offsets.get(
-        (route.edge.source, route.line_id), 0.0
-    )
-    tgt_off = station_offsets.get(
-        (route.edge.target, route.line_id), 0.0
-    )
+    src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
+    tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
 
     orig_sy = route.points[0][1]
     orig_ty = route.points[-1][1]
@@ -634,9 +630,7 @@ def _render_stations(
             )
 
         if station.is_terminus:
-            _render_terminus_icon(
-                d, station, graph, theme, r, min_off, max_off
-            )
+            _render_terminus_icon(d, station, graph, theme, r, min_off, max_off)
 
 
 def _render_terminus_icon(
@@ -665,26 +659,17 @@ def _render_terminus_icon(
     section_dir = section.direction if section else "LR"
     if section_dir == "RL":
         icon_cx_offset = (
-            (icon_gap + icon_half_w)
-            if is_source
-            else -(icon_gap + icon_half_w)
+            (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
         )
     else:
         icon_cx_offset = (
-            -(icon_gap + icon_half_w)
-            if is_source
-            else (icon_gap + icon_half_w)
+            -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
         )
     icon_cx = station.x + icon_cx_offset
     icon_cy = station.y + (min_off + max_off) / 2
     # Clamp to stay within section bbox
     if section and section.bbox_w > 0:
-        icon_right = (
-            section.bbox_x
-            + section.bbox_w
-            - icon_half_w
-            - ICON_BBOX_MARGIN
-        )
+        icon_right = section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
         icon_cx = max(
             section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
             min(icon_cx, icon_right),

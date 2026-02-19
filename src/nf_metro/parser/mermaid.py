@@ -143,9 +143,7 @@ def _parse_directive(
             _parse_port_hint(content, graph, current_section_id, is_entry=True)
     elif content.startswith("exit:"):
         if current_section_id:
-            _parse_port_hint(
-                content, graph, current_section_id, is_entry=False
-            )
+            _parse_port_hint(content, graph, current_section_id, is_entry=False)
     elif content.startswith("direction:"):
         if current_section_id and current_section_id in graph.sections:
             direction = content[len("direction:") :].strip().upper()
@@ -306,13 +304,9 @@ def _parse_edge(
 
     # Ensure stations exist
     if source not in graph.stations:
-        graph.register_station(
-            Station(id=source, label=source, section_id=section_id)
-        )
+        graph.register_station(Station(id=source, label=source, section_id=section_id))
     if target not in graph.stations:
-        graph.register_station(
-            Station(id=target, label=target, section_id=section_id)
-        )
+        graph.register_station(Station(id=target, label=target, section_id=section_id))
 
     # Split comma-separated line IDs
     line_ids = [lid.strip() for lid in label.split(",")]
@@ -416,9 +410,7 @@ def _group_inter_section_edges(
     for edge in inter_section_edges:
         src_sec = graph.section_for_station(edge.source)
         tgt_sec = graph.section_for_station(edge.target)
-        entry_side = entry_side_for_line.get(
-            (tgt_sec, edge.line_id), PortSide.LEFT
-        )
+        entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
 
         exit_group_edges.setdefault(src_sec, []).append(edge)
         entry_group_edges.setdefault((tgt_sec, entry_side), []).append(edge)
@@ -491,9 +483,7 @@ def _rewrite_edges_with_junctions(
     for edge in inter_section_edges:
         src_sec = graph.section_for_station(edge.source)
         tgt_sec = graph.section_for_station(edge.target)
-        entry_side = entry_side_for_line.get(
-            (tgt_sec, edge.line_id), PortSide.LEFT
-        )
+        entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
 
         exit_port_id = exit_port_map[src_sec]
         entry_port_id = entry_port_map[(tgt_sec, entry_side)]
@@ -505,9 +495,7 @@ def _rewrite_edges_with_junctions(
             Edge(source=entry_port_id, target=edge.target, line_id=edge.line_id)
         )
 
-        exit_fan.setdefault(exit_port_id, {}).setdefault(
-            entry_port_id, []
-        ).append(edge)
+        exit_fan.setdefault(exit_port_id, {}).setdefault(entry_port_id, []).append(edge)
 
     for exit_port_id, entry_targets in exit_fan.items():
         if len(entry_targets) <= 1:
@@ -523,9 +511,7 @@ def _rewrite_edges_with_junctions(
         else:
             junction_id = f"__junction_{port_counter}"
             port_counter += 1
-            junction = Station(
-                id=junction_id, label="", is_port=True, section_id=None
-            )
+            junction = Station(id=junction_id, label="", is_port=True, section_id=None)
             graph.add_station(junction)
             graph.junctions.append(junction_id)
 
