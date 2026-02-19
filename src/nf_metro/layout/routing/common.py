@@ -132,12 +132,21 @@ def compute_bundle_info(
                     )
                 )
             else:
-                group.sort(key=lambda e: line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY))
+                group.sort(
+                    key=lambda e: line_priority.get(
+                        e[0].line_id, DEFAULT_LINE_PRIORITY
+                    )
+                )
         else:
             # Fan-in: edges from different source ports. Sort by
             # actual source Y position to preserve spatial ordering
             # around the L-shaped corner.
-            group.sort(key=lambda e: (e[2], line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY)))
+            group.sort(
+                key=lambda e: (
+                    e[2],
+                    line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY),
+                )
+            )
 
         n = len(group)
         for i, (edge, *_rest) in enumerate(group):
