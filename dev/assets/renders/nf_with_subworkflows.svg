@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1171" height="498" viewBox="0 0 1171 498">
+     width="1171" height="506" viewBox="0 0 1171 506">
 <defs>
 </defs>
-<rect x="0" y="0" width="1171" height="498" fill="#2b2b2b" />
+<rect x="0" y="0" width="1171" height="506" fill="#2b2b2b" />
 <text x="60.0" y="30" font-size="18.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold">Preprocess / Alignment / Quantification Pipeline</text>
 <rect x="60.0" y="85.0" width="135.0" height="110.0" rx="8" ry="8" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.0" />
 <circle cx="69.0" cy="72.0" r="9" fill="#333333" />
@@ -24,8 +24,8 @@
 <path d="M110.0,166.0 L127.5,166.0 Q137.5,166.0,146.63811548620257,161.9386153394655 L158.36188451379743,156.72805132720114 Q167.5,152.66666666666666,177.5,152.66666666666666 L195.0,152.66666666666666" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M110.0,160.0 L127.5,160.0 Q137.5,160.0,146.63811548620257,155.9386153394655 L158.36188451379743,150.72805132720114 Q167.5,146.66666666666666,177.5,146.66666666666666 L195.0,146.66666666666666" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M195.0,152.66666666666666 L205.0,152.66666666666666" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M205.0,152.66666666666666 L218.0,152.66666666666666 Q228.0,152.66666666666666,228.0,162.66666666666666 L228.0,224.0 Q228.0,234.0,238.0,234.0 L903.5,234.0 Q913.5,234.0,913.5,224.0 L913.5,136.0 Q913.5,126.0,923.5,126.0 L951.5,126.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M205.0,152.66666666666666 L218.0,152.66666666666666 Q228.0,152.66666666666666,228.0,162.66666666666666 L228.0,224.0 Q228.0,234.0,238.0,234.0 L903.5,234.0 Q913.5,234.0,913.5,224.0 L913.5,136.0 Q913.5,126.0,923.5,126.0 L951.5,126.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M205.0,152.66666666666666 L218.0,152.66666666666666 Q231.0,152.66666666666666,231.0,165.66666666666666 L231.0,221.0 Q231.0,234.0,244.0,234.0 L897.5,234.0 Q910.5,234.0,910.5,221.0 L910.5,139.0 Q910.5,126.0,923.5,126.0 L951.5,126.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M205.0,152.66666666666666 L218.0,152.66666666666666 Q231.0,152.66666666666666,231.0,165.66666666666666 L231.0,221.0 Q231.0,234.0,244.0,234.0 L897.5,234.0 Q910.5,234.0,910.5,221.0 L910.5,139.0 Q910.5,126.0,923.5,126.0 L951.5,126.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M235.0,146.66666666666666 L282.5,146.66666666666666 Q292.5,146.66666666666666,299.9740931868366,140.02302827836746 L315.0259068131634,126.6436383882992 Q322.5,120.0,332.5,120.0 L380.0,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M195.0,146.66666666666666 L205.0,146.66666666666666" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M205.0,146.66666666666666 L235.0,146.66666666666666" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
@@ -36,7 +36,7 @@
 <path d="M380.0,123.0 L679.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M951.5,123.0 L1001.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M679.5,123.0 L689.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<path d="M689.5,123.0 L722.5,123.0 Q732.5,123.0,732.5,133.0 L732.5,213.0 Q732.5,223.0,742.5,223.0 L903.5,223.0 Q913.5,223.0,913.5,213.0 L913.5,133.0 Q913.5,123.0,923.5,123.0 L951.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M689.5,123.0 L722.5,123.0 Q732.5,123.0,732.5,133.0 L732.5,229.0 Q732.5,239.0,742.5,239.0 L891.5,239.0 Q907.5,239.0,907.5,223.0 L907.5,139.0 Q907.5,123.0,923.5,123.0 L951.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M285.0,120.0 L380.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M380.0,120.0 L475.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M809.5,120.0 L901.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
@@ -62,14 +62,14 @@
 <text x="380.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Star Align</text>
 <text x="475.0" y="145.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Samtools Sort</text>
 <text x="580.5" y="153.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Samtools Index</text>
-<rect x="60.0" y="258.0" width="176.15999999999997" height="120.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
-<path d="M72.0,282.0 L96.0,282.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<text x="108.0" y="282.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Main</text>
-<path d="M72.0,306.0 L96.0,306.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<text x="108.0" y="306.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Alignment - Reporting</text>
-<path d="M72.0,330.0 L96.0,330.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<text x="108.0" y="330.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Preprocess - Reporting</text>
-<path d="M72.0,354.0 L96.0,354.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<text x="108.0" y="354.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Spur</text>
-<text x="1141.0" y="490" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.3.0+dev</text>
+<rect x="60.0" y="266.0" width="176.15999999999997" height="120.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M72.0,290.0 L96.0,290.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="290.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Main</text>
+<path d="M72.0,314.0 L96.0,314.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="314.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Alignment - Reporting</text>
+<path d="M72.0,338.0 L96.0,338.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="338.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Preprocess - Reporting</text>
+<path d="M72.0,362.0 L96.0,362.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="362.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Spur</text>
+<text x="1141.0" y="498" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.3.0+dev</text>
 </svg>
