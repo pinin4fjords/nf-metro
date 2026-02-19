@@ -201,19 +201,86 @@ def place_labels(
                 min_x = sec.bbox_x + text_half_w + margin
                 max_x = sec.bbox_x + sec.bbox_w - text_half_w - margin
                 candidate.x = max(min_x, min(candidate.x, max_x))
-                # Vertical clamping
-                if candidate.above:
-                    min_y = sec.bbox_y + FONT_HEIGHT + margin
-                    if candidate.y < min_y:
-                        candidate.y = min_y
-                else:
-                    max_y = sec.bbox_y + sec.bbox_h - FONT_HEIGHT - margin
-                    if candidate.y > max_y:
-                        candidate.y = max_y
+                # Vertical clamping (with flip/expand on overlap)
+                candidate = _clamp_label_vertical(
+                    candidate, sec, station, label_offset, min_off, max_off, margin
+                )
 
         placements.append(candidate)
 
     return placements
+
+
+def _clamp_label_vertical(
+    candidate: LabelPlacement,
+    sec,
+    station,
+    label_offset: float,
+    min_off: float,
+    max_off: float,
+    margin: float,
+) -> LabelPlacement:
+    """Clamp label vertically within section bbox.
+
+    If clamping would push the label into the station pill, flip it to the
+    opposite side.  If both sides would overlap, expand the section bbox
+    so the label fits at its ideal position.
+    """
+    pill_top = station.y + min_off
+    pill_bottom = station.y + max_off
+    sec_top = sec.bbox_y
+    sec_bottom = sec.bbox_y + sec.bbox_h
+
+    if candidate.above:
+        # Label text occupies [candidate.y - FONT_HEIGHT, candidate.y].
+        min_y = sec_top + FONT_HEIGHT + margin
+        if candidate.y >= min_y:
+            return candidate  # fits without clamping
+
+        # Clamping needed - would the clamped position overlap the pill?
+        if min_y <= pill_top - label_offset:
+            # Still enough gap after clamping
+            candidate.y = min_y
+            return candidate
+
+        # Clamped position too close to pill - try flipping to below
+        below_y = pill_bottom + label_offset
+        max_y = sec_bottom - FONT_HEIGHT - margin
+        if below_y <= max_y:
+            candidate.y = below_y
+            candidate.above = False
+            return candidate
+
+        # Neither side fits - expand bbox upward
+        expand = min_y - candidate.y
+        sec.bbox_y -= expand
+        sec.bbox_h += expand
+        return candidate
+
+    else:
+        # Label text occupies [candidate.y, candidate.y + FONT_HEIGHT].
+        max_y = sec_bottom - FONT_HEIGHT - margin
+        if candidate.y <= max_y:
+            return candidate  # fits without clamping
+
+        # Clamping needed - would the clamped position overlap the pill?
+        if max_y >= pill_bottom + label_offset:
+            # Still enough gap after clamping
+            candidate.y = max_y
+            return candidate
+
+        # Clamped position too close to pill - try flipping to above
+        above_y = pill_top - label_offset
+        min_y = sec_top + FONT_HEIGHT + margin
+        if above_y >= min_y:
+            candidate.y = above_y
+            candidate.above = True
+            return candidate
+
+        # Neither side fits - expand bbox downward
+        expand = candidate.y - max_y
+        sec.bbox_h += expand
+        return candidate
 
 
 def _try_place(

@@ -430,3 +430,89 @@ def test_flat_layout_no_named_lines():
     )
     compute_layout(graph)
     assert graph.stations["a"].x < graph.stations["b"].x
+
+
+# --- Label clamping tests (issue #58) ---
+
+
+def test_label_clamp_flips_when_overlapping_pill():
+    """Label clamped into pill should flip to the opposite side (issue #58)."""
+    from nf_metro.layout.labels import place_labels
+    from nf_metro.layout.constants import LABEL_OFFSET
+    from nf_metro.layout.routing.offsets import compute_station_offsets
+
+    # Build a section with many tracks so the bottom station is near
+    # the section bbox bottom edge, triggering clamping for below labels.
+    graph = parse_metro_mermaid(
+        "%%metro line: L1 | Line1 | #ff0000\n"
+        "%%metro line: L2 | Line2 | #00ff00\n"
+        "%%metro line: L3 | Line3 | #0000ff\n"
+        "%%metro line: L4 | Line4 | #ff00ff\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        a -->|L1| b\n"
+        "        a -->|L2| c\n"
+        "        a -->|L3| d\n"
+        "        b -->|L1| d\n"
+        "        c -->|L2| d\n"
+        "    end\n"
+    )
+    compute_layout(graph, y_spacing=40)
+
+    station_offsets = compute_station_offsets(graph)
+    labels = place_labels(graph, station_offsets=station_offsets)
+
+    # For every label, verify it doesn't overlap its station pill
+    for lp in labels:
+        s = graph.stations[lp.station_id]
+        lines = graph.station_lines(lp.station_id)
+        offs = [station_offsets.get((lp.station_id, lid), 0.0) for lid in lines]
+        pill_top = s.y + (min(offs) if offs else 0.0)
+        pill_bottom = s.y + (max(offs) if offs else 0.0)
+
+        if lp.above:
+            gap = pill_top - lp.y
+        else:
+            gap = lp.y - pill_bottom
+
+        assert gap >= LABEL_OFFSET - 1.0, (
+            f"Label for {lp.station_id} too close to pill: "
+            f"gap={gap:.1f}, min={LABEL_OFFSET - 1.0}"
+        )
+
+
+def test_label_clamp_expands_bbox_when_both_sides_tight():
+    """When neither side fits, the section bbox should expand (issue #58)."""
+    from nf_metro.layout.labels import place_labels, _clamp_label_vertical, LabelPlacement
+    from nf_metro.layout.constants import FONT_HEIGHT, LABEL_OFFSET, LABEL_BBOX_MARGIN
+    from nf_metro.parser.model import Section, Station
+
+    # Create a tiny section where neither above nor below would fit
+    sec = Section(id="tiny", name="Tiny")
+    sec.bbox_x = 0
+    sec.bbox_y = 100
+    sec.bbox_w = 200
+    sec.bbox_h = 50  # Very tight
+
+    station = Station(id="s", label="Test")
+    station.x = 100
+    station.y = 125  # Center of the 50px-tall section
+    station.section_id = "tiny"
+
+    # Label below would be at y=141 (125+16), bottom at 155 > section bottom 150
+    candidate = LabelPlacement(
+        station_id="s", text="Test", x=100, y=141, above=False
+    )
+    original_bbox_h = sec.bbox_h
+    result = _clamp_label_vertical(
+        candidate, sec, station, LABEL_OFFSET, 0.0, 0.0, LABEL_BBOX_MARGIN
+    )
+    # The bbox should have expanded (either flipped to above and fit,
+    # or expanded to accommodate)
+    if not result.above:
+        # If it stayed below, bbox must have grown
+        assert sec.bbox_h > original_bbox_h
