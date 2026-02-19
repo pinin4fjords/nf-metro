@@ -265,15 +265,14 @@ def _parse_node(
             node_id = m.group(1)
             label = m.group(2).strip() if m.lastindex >= 2 else node_id
             if node_id not in graph.stations:
-                station = Station(
-                    id=node_id,
-                    label=label,
-                    section_id=section_id,
-                    is_hidden=node_id.startswith("_"),
+                graph.register_station(
+                    Station(
+                        id=node_id,
+                        label=label,
+                        section_id=section_id,
+                        is_hidden=node_id.startswith("_"),
+                    )
                 )
-                graph.add_station(station)
-                if section_id and section_id in graph.sections:
-                    graph.sections[section_id].station_ids.append(node_id)
             else:
                 # Update label if station was auto-created from an edge
                 graph.stations[node_id].label = label
@@ -305,15 +304,13 @@ def _parse_edge(
 
     # Ensure stations exist
     if source not in graph.stations:
-        station = Station(id=source, label=source, section_id=section_id)
-        graph.add_station(station)
-        if section_id and section_id in graph.sections:
-            graph.sections[section_id].station_ids.append(source)
+        graph.register_station(
+            Station(id=source, label=source, section_id=section_id)
+        )
     if target not in graph.stations:
-        station = Station(id=target, label=target, section_id=section_id)
-        graph.add_station(station)
-        if section_id and section_id in graph.sections:
-            graph.sections[section_id].station_ids.append(target)
+        graph.register_station(
+            Station(id=target, label=target, section_id=section_id)
+        )
 
     # Split comma-separated line IDs
     line_ids = [lid.strip() for lid in label.split(",")]

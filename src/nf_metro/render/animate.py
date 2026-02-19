@@ -15,6 +15,7 @@ from nf_metro.render.constants import (
     MIN_ANIMATION_DURATION,
 )
 from nf_metro.render.style import Theme
+from nf_metro.render.svg import apply_route_offsets
 
 
 def render_animation(
@@ -171,7 +172,7 @@ def _chain_edge_points(
         if not route:
             continue
 
-        pts = _apply_offsets(route, station_offsets)
+        pts = apply_route_offsets(route, station_offsets)
 
         if not all_points:
             all_points.extend(pts)
@@ -187,32 +188,6 @@ def _chain_edge_points(
                 all_points.extend(pts)
 
     return all_points
-
-
-def _apply_offsets(
-    route: RoutedPath,
-    station_offsets: dict[tuple[str, str], float],
-) -> list[tuple[float, float]]:
-    """Apply station offsets to route points, matching _render_edges logic."""
-    if route.offsets_applied:
-        return list(route.points)
-
-    src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
-    tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
-
-    orig_sy = route.points[0][1]
-    orig_ty = route.points[-1][1]
-    pts = []
-    for i, (x, y) in enumerate(route.points):
-        if i == 0:
-            pts.append((x, y + src_off))
-        elif i == len(route.points) - 1:
-            pts.append((x, y + tgt_off))
-        elif abs(y - orig_sy) <= abs(y - orig_ty):
-            pts.append((x, y + src_off))
-        else:
-            pts.append((x, y + tgt_off))
-    return pts
 
 
 def _points_to_svg_path(

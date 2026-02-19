@@ -45,6 +45,42 @@ from nf_metro.render.legend import compute_legend_dimensions, render_legend
 from nf_metro.render.style import Theme
 
 
+def apply_route_offsets(
+    route: RoutedPath,
+    station_offsets: dict[tuple[str, str], float],
+) -> list[tuple[float, float]]:
+    """Apply per-line Y offsets to a route's waypoints.
+
+    If the route already has offsets applied (e.g. TB section routes),
+    returns a copy of its points unchanged. Otherwise, shifts source-side
+    waypoints by the source offset and target-side waypoints by the target
+    offset, with intermediate points assigned to whichever end is closer.
+    """
+    if route.offsets_applied:
+        return list(route.points)
+
+    src_off = station_offsets.get(
+        (route.edge.source, route.line_id), 0.0
+    )
+    tgt_off = station_offsets.get(
+        (route.edge.target, route.line_id), 0.0
+    )
+
+    orig_sy = route.points[0][1]
+    orig_ty = route.points[-1][1]
+    pts: list[tuple[float, float]] = []
+    for i, (x, y) in enumerate(route.points):
+        if i == 0:
+            pts.append((x, y + src_off))
+        elif i == len(route.points) - 1:
+            pts.append((x, y + tgt_off))
+        elif abs(y - orig_sy) <= abs(y - orig_ty):
+            pts.append((x, y + src_off))
+        else:
+            pts.append((x, y + tgt_off))
+    return pts
+
+
 def render_svg(
     graph: MetroGraph,
     theme: Theme,
@@ -405,25 +441,7 @@ def _render_edges(
         line = graph.lines.get(route.line_id)
         color = line.color if line else FALLBACK_LINE_COLOR
 
-        if route.offsets_applied:
-            # TB section routes have offsets pre-applied in the routing code
-            pts = list(route.points)
-        else:
-            src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
-            tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
-
-            orig_sy = route.points[0][1]
-            orig_ty = route.points[-1][1]
-            pts = []
-            for i, (x, y) in enumerate(route.points):
-                if i == 0:
-                    pts.append((x, y + src_off))
-                elif i == len(route.points) - 1:
-                    pts.append((x, y + tgt_off))
-                elif abs(y - orig_sy) <= abs(y - orig_ty):
-                    pts.append((x, y + src_off))
-                else:
-                    pts.append((x, y + tgt_off))
+        pts = apply_route_offsets(route, station_offsets)
 
         if len(pts) == 2:
             d.append(
@@ -688,23 +706,7 @@ def _render_debug_overlay(
     for route in routes:
         if len(route.points) <= 2:
             continue
-        if route.offsets_applied:
-            pts = list(route.points)
-        else:
-            src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
-            tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
-            orig_sy = route.points[0][1]
-            orig_ty = route.points[-1][1]
-            pts = []
-            for i, (x, y) in enumerate(route.points):
-                if i == 0:
-                    pts.append((x, y + src_off))
-                elif i == len(route.points) - 1:
-                    pts.append((x, y + tgt_off))
-                elif abs(y - orig_sy) <= abs(y - orig_ty):
-                    pts.append((x, y + src_off))
-                else:
-                    pts.append((x, y + tgt_off))
+        pts = apply_route_offsets(route, station_offsets)
         # Draw intermediate waypoints (skip first/last which are at stations)
         for px, py in pts[1:-1]:
             d.append(
