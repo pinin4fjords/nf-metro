@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+__all__ = ["apply_route_offsets", "render_svg"]
+
 from pathlib import Path
 
 import drawsvg as draw
 
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
-from nf_metro.parser.model import MetroGraph
+from nf_metro.parser.model import MetroGraph, Section, Station
 from nf_metro.render.constants import (
     CANVAS_PADDING,
     DEBUG_DIAMOND_RADIUS,
+    DEBUG_ENTRY_PORT_COLOR,
+    DEBUG_EXIT_PORT_COLOR,
     DEBUG_FONT_SIZE,
+    DEBUG_HIDDEN_LABEL_OFFSET,
+    DEBUG_HIDDEN_STATION_COLOR,
+    DEBUG_LABEL_OFFSET,
     DEBUG_STROKE_WIDTH,
+    DEBUG_WAYPOINT_COLOR,
+    DEBUG_WAYPOINT_RADIUS,
+    FALLBACK_LINE_COLOR,
     ICON_BBOX_MARGIN,
     ICON_STATION_GAP,
     LEGEND_GAP,
@@ -22,9 +32,11 @@ from nf_metro.render.constants import (
     SECTION_BOX_RADIUS,
     SECTION_LABEL_TEXT_OFFSET,
     SECTION_NUM_CIRCLE_R_LARGE,
+    SECTION_NUM_FONT_SIZE,
     SECTION_NUM_Y_OFFSET,
     SECTION_STROKE_WIDTH,
     SVG_CURVE_RADIUS,
+    TERMINUS_FONT_COLOR,
     TITLE_Y_OFFSET,
     WATERMARK_FONT_SIZE,
     WATERMARK_PADDING_RATIO,
@@ -33,6 +45,139 @@ from nf_metro.render.constants import (
 from nf_metro.render.icons import render_file_icon
 from nf_metro.render.legend import compute_legend_dimensions, render_legend
 from nf_metro.render.style import Theme
+
+
+def apply_route_offsets(
+    route: RoutedPath,
+    station_offsets: dict[tuple[str, str], float],
+) -> list[tuple[float, float]]:
+    """Apply per-line Y offsets to a route's waypoints.
+
+    If the route already has offsets applied (e.g. TB section routes),
+    returns a copy of its points unchanged. Otherwise, shifts source-side
+    waypoints by the source offset and target-side waypoints by the target
+    offset, with intermediate points assigned to whichever end is closer.
+    """
+    if route.offsets_applied:
+        return list(route.points)
+
+    src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
+    tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
+
+    orig_sy = route.points[0][1]
+    orig_ty = route.points[-1][1]
+    pts: list[tuple[float, float]] = []
+    for i, (x, y) in enumerate(route.points):
+        if i == 0:
+            pts.append((x, y + src_off))
+        elif i == len(route.points) - 1:
+            pts.append((x, y + tgt_off))
+        elif abs(y - orig_sy) <= abs(y - orig_ty):
+            pts.append((x, y + src_off))
+        else:
+            pts.append((x, y + tgt_off))
+    return pts
+
+
+def _compute_canvas_bounds(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    debug: bool = False,
+) -> tuple[float, float]:
+    """Compute max X/Y from stations, section boxes, and route waypoints."""
+    if debug:
+        visible_stations = list(graph.stations.values())
+    else:
+        visible_stations = [
+            s for s in graph.stations.values() if not s.is_port and not s.is_hidden
+        ]
+    all_stations = (
+        visible_stations if visible_stations else list(graph.stations.values())
+    )
+
+    max_x = max(s.x for s in all_stations)
+    max_y = max(s.y for s in all_stations)
+
+    for section in graph.sections.values():
+        if section.bbox_w > 0:
+            max_x = max(max_x, section.bbox_x + section.bbox_w)
+            max_y = max(max_y, section.bbox_y + section.bbox_h)
+
+    for route in routes:
+        for px, py in route.points:
+            if px > max_x:
+                max_x = px
+            if py > max_y:
+                max_y = py
+
+    return max_x, max_y
+
+
+def _position_legend(
+    graph: MetroGraph,
+    theme: Theme,
+    max_x: float,
+    max_y: float,
+    padding: float,
+    logo_in_legend: bool,
+    logo_w: float,
+    logo_h: float,
+) -> tuple[float, float, float, float, bool]:
+    """Compute legend position and dimensions.
+
+    Returns (legend_x, legend_y, legend_w, legend_h, show_legend).
+    """
+    legend_logo_size = (logo_w, logo_h) if logo_in_legend else None
+    legend_w, legend_h = compute_legend_dimensions(
+        graph, theme, logo_size=legend_logo_size
+    )
+    show_legend = graph.legend_position != "none" and legend_w > 0
+    legend_x = 0.0
+    legend_y = 0.0
+
+    if not show_legend:
+        return legend_x, legend_y, legend_w, legend_h, show_legend
+
+    pos = graph.legend_position
+    gap = LEGEND_GAP
+    inset = LEGEND_INSET
+    content_left = min(
+        (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0),
+        default=padding,
+    )
+    content_right = max_x
+    content_top = min(
+        (s.bbox_y for s in graph.sections.values() if s.bbox_w > 0),
+        default=padding,
+    )
+    content_bottom = max_y
+
+    if pos == "bl":
+        legend_x = content_left
+        legend_y = content_bottom - legend_h
+    elif pos == "br":
+        legend_x = content_right - legend_w - inset
+        legend_y = content_bottom - legend_h - inset
+    elif pos == "tl":
+        legend_x = content_left + inset
+        legend_y = content_top + inset
+    elif pos == "tr":
+        legend_x = content_right - legend_w - inset
+        legend_y = content_top + inset
+    elif pos == "bottom":
+        legend_x = content_left
+        legend_y = content_bottom + gap
+    elif pos == "right":
+        legend_x = content_right + gap
+        legend_y = content_top
+
+    if pos not in ("bottom", "right") and _legend_overlaps_sections(
+        legend_x, legend_y, legend_w, legend_h, graph
+    ):
+        legend_x = content_left
+        legend_y = content_bottom + gap
+
+    return legend_x, legend_y, legend_w, legend_h, show_legend
 
 
 def render_svg(
@@ -48,38 +193,10 @@ def render_svg(
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
-    # Filter out port stations for dimension calculation
-    # In debug mode, include ports/hidden stations in bounds so they are visible
-    if debug:
-        visible_stations = list(graph.stations.values())
-    else:
-        visible_stations = [
-            s for s in graph.stations.values() if not s.is_port and not s.is_hidden
-        ]
-    all_stations_for_bounds = (
-        visible_stations if visible_stations else list(graph.stations.values())
-    )
-
-    # Route edges early so bypass routes below sections are included in bounds
     station_offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=station_offsets)
 
-    max_x = max(s.x for s in all_stations_for_bounds)
-    max_y = max(s.y for s in all_stations_for_bounds)
-
-    # Also consider section bounding boxes
-    for section in graph.sections.values():
-        if section.bbox_w > 0:
-            max_x = max(max_x, section.bbox_x + section.bbox_w)
-            max_y = max(max_y, section.bbox_y + section.bbox_h)
-
-    # Include route waypoints in canvas bounds (bypass routes go below sections)
-    for route in routes:
-        for px, py in route.points:
-            if px > max_x:
-                max_x = px
-            if py > max_y:
-                max_y = py
+    max_x, max_y = _compute_canvas_bounds(graph, routes, debug)
 
     # Compute legend and logo dimensions
     logo_w, logo_h = (0.0, 0.0)
@@ -87,57 +204,14 @@ def render_svg(
     if show_logo:
         logo_w, logo_h = compute_logo_dimensions(graph.logo_path)
 
-    # When both logo and legend are active, embed logo inside the legend box
     logo_in_legend = show_logo and graph.legend_position != "none"
     legend_logo_size = (logo_w, logo_h) if logo_in_legend else None
 
-    legend_x = 0.0
-    legend_y = 0.0
-    legend_w, legend_h = compute_legend_dimensions(
-        graph, theme, logo_size=legend_logo_size
+    legend_x, legend_y, legend_w, legend_h, show_legend = _position_legend(
+        graph, theme, max_x, max_y, padding, logo_in_legend, logo_w, logo_h
     )
-    show_legend = graph.legend_position != "none" and legend_w > 0
 
     if show_legend:
-        pos = graph.legend_position
-        gap = LEGEND_GAP
-        inset = LEGEND_INSET
-        # Section content bounds (or station bounds if no sections)
-        content_left = min(
-            (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0), default=padding
-        )
-        content_right = max_x
-        content_top = min(
-            (s.bbox_y for s in graph.sections.values() if s.bbox_w > 0), default=padding
-        )
-        content_bottom = max_y
-
-        if pos == "bl":
-            legend_x = content_left
-            legend_y = content_bottom - legend_h
-        elif pos == "br":
-            legend_x = content_right - legend_w - inset
-            legend_y = content_bottom - legend_h - inset
-        elif pos == "tl":
-            legend_x = content_left + inset
-            legend_y = content_top + inset
-        elif pos == "tr":
-            legend_x = content_right - legend_w - inset
-            legend_y = content_top + inset
-        elif pos == "bottom":
-            legend_x = content_left
-            legend_y = content_bottom + gap
-        elif pos == "right":
-            legend_x = content_right + gap
-            legend_y = content_top
-
-        # If the legend overlaps any section, push it below the canvas
-        if pos not in ("bottom", "right") and _legend_overlaps_sections(
-            legend_x, legend_y, legend_w, legend_h, graph
-        ):
-            legend_x = content_left
-            legend_y = content_bottom + gap
-
         max_x = max(max_x, legend_x + legend_w)
         max_y = max(max_y, legend_y + legend_h)
 
@@ -262,7 +336,11 @@ def _version_string() -> str:
             data = json.loads(direct_url)
             if data.get("dir_info", {}).get("editable"):
                 return f"v{__version__}+dev"
-    except Exception:
+    except (
+        FileNotFoundError,
+        json.JSONDecodeError,
+        importlib.metadata.PackageNotFoundError,
+    ):
         pass
     return f"v{__version__}"
 
@@ -340,7 +418,7 @@ def _render_first_class_sections(
         d.append(
             draw.Text(
                 str(section.number),
-                9,
+                SECTION_NUM_FONT_SIZE,
                 cx,
                 cy,
                 fill=theme.station_fill,
@@ -389,27 +467,9 @@ def _render_edges(
 
     for route in routes:
         line = graph.lines.get(route.line_id)
-        color = line.color if line else "#888888"
+        color = line.color if line else FALLBACK_LINE_COLOR
 
-        if route.offsets_applied:
-            # TB section routes have offsets pre-applied in the routing code
-            pts = list(route.points)
-        else:
-            src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
-            tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
-
-            orig_sy = route.points[0][1]
-            orig_ty = route.points[-1][1]
-            pts = []
-            for i, (x, y) in enumerate(route.points):
-                if i == 0:
-                    pts.append((x, y + src_off))
-                elif i == len(route.points) - 1:
-                    pts.append((x, y + tgt_off))
-                elif abs(y - orig_sy) <= abs(y - orig_ty):
-                    pts.append((x, y + src_off))
-                else:
-                    pts.append((x, y + tgt_off))
+        pts = apply_route_offsets(route, station_offsets)
 
         if len(pts) == 2:
             d.append(
@@ -569,57 +629,67 @@ def _render_stations(
                 )
             )
 
-        # Render file icon adjacent to terminus stations
         if station.is_terminus:
-            section = (
-                graph.sections.get(station.section_id) if station.section_id else None
-            )
-            # Detect if station is a source (no incoming internal edges) or sink
-            is_source = True
-            if section:
-                for edge in section.internal_edges:
-                    if edge.target == station.id:
-                        is_source = False
-                        break
-            # Place icon on the "outside" of the flow
-            icon_gap = r + ICON_STATION_GAP
-            icon_half_w = theme.terminus_width / 2
-            section_dir = section.direction if section else "LR"
-            if section_dir == "RL":
-                icon_cx_offset = (
-                    (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
-                )
-            else:
-                icon_cx_offset = (
-                    -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
-                )
-            icon_cx = station.x + icon_cx_offset
-            icon_cy = station.y + (min_off + max_off) / 2
-            # Clamp to stay within section bbox
-            if section and section.bbox_w > 0:
-                icon_right = (
-                    section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
-                )
-                icon_cx = max(
-                    section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
-                    min(icon_cx, icon_right),
-                )
-            render_file_icon(
-                d,
-                cx=icon_cx,
-                cy=icon_cy,
-                width=theme.terminus_width,
-                height=theme.terminus_height,
-                fold_size=theme.terminus_fold_size,
-                fill=theme.terminus_fill or theme.station_fill,
-                stroke=theme.terminus_stroke or theme.station_stroke,
-                stroke_width=theme.terminus_stroke_width,
-                corner_radius=theme.terminus_corner_radius,
-                label=station.terminus_label,
-                font_size=theme.terminus_font_size,
-                font_color="#000000",
-                font_family=theme.label_font_family,
-            )
+            _render_terminus_icon(d, station, graph, theme, r, min_off, max_off)
+
+
+def _render_terminus_icon(
+    d: draw.Drawing,
+    station: Station,
+    graph: MetroGraph,
+    theme: Theme,
+    r: float,
+    min_off: float,
+    max_off: float,
+) -> None:
+    """Render file icon adjacent to a terminus station."""
+    section: Section | None = (
+        graph.sections.get(station.section_id) if station.section_id else None
+    )
+    # Detect if station is a source (no incoming internal edges) or sink
+    is_source = True
+    if section:
+        for edge in section.internal_edges:
+            if edge.target == station.id:
+                is_source = False
+                break
+    # Place icon on the "outside" of the flow
+    icon_gap = r + ICON_STATION_GAP
+    icon_half_w = theme.terminus_width / 2
+    section_dir = section.direction if section else "LR"
+    if section_dir == "RL":
+        icon_cx_offset = (
+            (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
+        )
+    else:
+        icon_cx_offset = (
+            -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
+        )
+    icon_cx = station.x + icon_cx_offset
+    icon_cy = station.y + (min_off + max_off) / 2
+    # Clamp to stay within section bbox
+    if section and section.bbox_w > 0:
+        icon_right = section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
+        icon_cx = max(
+            section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
+            min(icon_cx, icon_right),
+        )
+    render_file_icon(
+        d,
+        cx=icon_cx,
+        cy=icon_cy,
+        width=theme.terminus_width,
+        height=theme.terminus_height,
+        fold_size=theme.terminus_fold_size,
+        fill=theme.terminus_fill or theme.station_fill,
+        stroke=theme.terminus_stroke or theme.station_stroke,
+        stroke_width=theme.terminus_stroke_width,
+        corner_radius=theme.terminus_corner_radius,
+        label=station.terminus_label,
+        font_size=theme.terminus_font_size,
+        font_color=TERMINUS_FONT_COLOR,
+        font_family=theme.label_font_family,
+    )
 
 
 def _render_labels(
@@ -674,26 +744,12 @@ def _render_debug_overlay(
     for route in routes:
         if len(route.points) <= 2:
             continue
-        if route.offsets_applied:
-            pts = list(route.points)
-        else:
-            src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
-            tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
-            orig_sy = route.points[0][1]
-            orig_ty = route.points[-1][1]
-            pts = []
-            for i, (x, y) in enumerate(route.points):
-                if i == 0:
-                    pts.append((x, y + src_off))
-                elif i == len(route.points) - 1:
-                    pts.append((x, y + tgt_off))
-                elif abs(y - orig_sy) <= abs(y - orig_ty):
-                    pts.append((x, y + src_off))
-                else:
-                    pts.append((x, y + tgt_off))
+        pts = apply_route_offsets(route, station_offsets)
         # Draw intermediate waypoints (skip first/last which are at stations)
         for px, py in pts[1:-1]:
-            d.append(draw.Circle(px, py, 3, fill="rgba(255, 200, 50, 0.6)"))
+            d.append(
+                draw.Circle(px, py, DEBUG_WAYPOINT_RADIUS, fill=DEBUG_WAYPOINT_COLOR)
+            )
 
     # Port stations: diamond markers with labels
     for station in graph.stations.values():
@@ -701,7 +757,7 @@ def _render_debug_overlay(
             continue
         port = graph.ports.get(station.id)
         is_entry = port.is_entry if port else True
-        color = "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
+        color = DEBUG_ENTRY_PORT_COLOR if is_entry else DEBUG_EXIT_PORT_COLOR
         # Diamond (rotated square)
         r = DEBUG_DIAMOND_RADIUS
         diamond = draw.Path(fill=color, stroke="none")
@@ -719,7 +775,7 @@ def _render_debug_overlay(
                 label_text,
                 debug_font_size,
                 station.x,
-                station.y - r - 3,
+                station.y - r - DEBUG_LABEL_OFFSET,
                 fill=color,
                 font_family=debug_font,
                 text_anchor="middle",
@@ -731,7 +787,7 @@ def _render_debug_overlay(
     for station in graph.stations.values():
         if not station.is_hidden or station.is_port:
             continue
-        color = "rgba(180, 80, 255, 0.7)"
+        color = DEBUG_HIDDEN_STATION_COLOR
         d.append(
             draw.Circle(
                 station.x,
@@ -748,7 +804,7 @@ def _render_debug_overlay(
                 station.id,
                 debug_font_size,
                 station.x,
-                station.y - 8,
+                station.y - DEBUG_HIDDEN_LABEL_OFFSET,
                 fill=color,
                 font_family=debug_font,
                 text_anchor="middle",

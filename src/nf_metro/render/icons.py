@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["render_file_icon"]
+
 import drawsvg as draw
 
 

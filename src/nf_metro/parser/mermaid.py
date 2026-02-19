@@ -124,6 +124,10 @@ def _parse_directive(
         graph.title = content[len("title:") :].strip()
     elif content.startswith("style:"):
         graph.style = content[len("style:") :].strip()
+    elif content.startswith("line_order:"):
+        order = content[len("line_order:") :].strip().lower()
+        if order in ("definition", "span"):
+            graph.line_order = order
     elif content.startswith("line:"):
         parts = content[len("line:") :].strip().split("|")
         if len(parts) >= 3:
@@ -148,10 +152,6 @@ def _parse_directive(
                 graph._explicit_directions.add(current_section_id)
     elif content.startswith("grid:"):
         _parse_grid_directive(content, graph)
-    elif content.startswith("line_order:"):
-        order = content[len("line_order:") :].strip().lower()
-        if order in ("definition", "span"):
-            graph.line_order = order
     elif content.startswith("logo:"):
         graph.logo_path = content[len("logo:") :].strip()
     elif content.startswith("legend:"):
@@ -265,15 +265,14 @@ def _parse_node(
             node_id = m.group(1)
             label = m.group(2).strip() if m.lastindex >= 2 else node_id
             if node_id not in graph.stations:
-                station = Station(
-                    id=node_id,
-                    label=label,
-                    section_id=section_id,
-                    is_hidden=node_id.startswith("_"),
+                graph.register_station(
+                    Station(
+                        id=node_id,
+                        label=label,
+                        section_id=section_id,
+                        is_hidden=node_id.startswith("_"),
+                    )
                 )
-                graph.add_station(station)
-                if section_id and section_id in graph.sections:
-                    graph.sections[section_id].station_ids.append(node_id)
             else:
                 # Update label if station was auto-created from an edge
                 graph.stations[node_id].label = label
@@ -305,15 +304,9 @@ def _parse_edge(
 
     # Ensure stations exist
     if source not in graph.stations:
-        station = Station(id=source, label=source, section_id=section_id)
-        graph.add_station(station)
-        if section_id and section_id in graph.sections:
-            graph.sections[section_id].station_ids.append(source)
+        graph.register_station(Station(id=source, label=source, section_id=section_id))
     if target not in graph.stations:
-        station = Station(id=target, label=target, section_id=section_id)
-        graph.add_station(station)
-        if section_id and section_id in graph.sections:
-            graph.sections[section_id].station_ids.append(target)
+        graph.register_station(Station(id=target, label=target, section_id=section_id))
 
     # Split comma-separated line IDs
     line_ids = [lid.strip() for lid in label.split(",")]
@@ -332,16 +325,16 @@ def _resolve_sections(graph: MetroGraph) -> None:
     entry_side_for_line = _build_entry_side_mapping(graph)
     internal_edges, inter_section_edges = _classify_edges(graph)
 
-    if not inter_section_edges:
-        for i, section in enumerate(graph.sections.values()):
-            if section.number == 0:
-                section.number = i + 1
-        return
+    if inter_section_edges:
+        _create_ports_and_junctions(
+            graph, internal_edges, inter_section_edges, entry_side_for_line
+        )
 
-    _create_ports_and_junctions(
-        graph, internal_edges, inter_section_edges, entry_side_for_line
-    )
+    _assign_section_numbers(graph)
 
+
+def _assign_section_numbers(graph: MetroGraph) -> None:
+    """Assign sequential numbers to sections that don't already have one."""
     for i, section in enumerate(graph.sections.values()):
         if section.number == 0:
             section.number = i + 1
@@ -391,19 +384,10 @@ def _classify_edges(
     return internal_edges, inter_section_edges
 
 
-def _create_ports_and_junctions(
+def _determine_exit_sides(
     graph: MetroGraph,
-    internal_edges: list[Edge],
-    inter_section_edges: list[Edge],
-    entry_side_for_line: dict[tuple[str, str], PortSide],
-) -> None:
-    """Create exit/entry ports and junctions, rewrite inter-section edges.
-
-    Creates one exit port per source section, one entry port per
-    (target_section, entry_side), and inserts junction stations where
-    an exit port fans out to multiple entry ports.
-    """
-    # Determine section-level exit side from hints
+) -> dict[str, PortSide]:
+    """Map each section to its exit side based on exit hints."""
     section_exit_side: dict[str, PortSide] = {}
     for sec_id, section in graph.sections.items():
         unique_sides = {side for side, _line_ids in section.exit_hints}
@@ -411,8 +395,15 @@ def _create_ports_and_junctions(
             section_exit_side[sec_id] = unique_sides.pop()
         else:
             section_exit_side[sec_id] = PortSide.RIGHT
+    return section_exit_side
 
-    # Group edges by exit and entry
+
+def _group_inter_section_edges(
+    graph: MetroGraph,
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+) -> tuple[dict[str, list[Edge]], dict[tuple[str, PortSide], list[Edge]]]:
+    """Group inter-section edges by exit section and (entry section, side)."""
     exit_group_edges: dict[str, list[Edge]] = {}
     entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
 
@@ -424,7 +415,19 @@ def _create_ports_and_junctions(
         exit_group_edges.setdefault(src_sec, []).append(edge)
         entry_group_edges.setdefault((tgt_sec, entry_side), []).append(edge)
 
-    # Create exit ports (one per source section)
+    return exit_group_edges, entry_group_edges
+
+
+def _create_port_stations(
+    graph: MetroGraph,
+    exit_group_edges: dict[str, list[Edge]],
+    entry_group_edges: dict[tuple[str, PortSide], list[Edge]],
+    section_exit_side: dict[str, PortSide],
+) -> tuple[dict[str, str], dict[tuple[str, PortSide], str], int]:
+    """Create exit and entry port stations on the graph.
+
+    Returns (exit_port_map, entry_port_map, next_port_counter).
+    """
     port_counter = 0
     exit_port_map: dict[str, str] = {}
 
@@ -443,7 +446,6 @@ def _create_ports_and_junctions(
         exit_port_map[sec_id] = port_id
         port_counter += 1
 
-    # Create entry ports (one per target section per side)
     entry_port_map: dict[tuple[str, PortSide], str] = {}
 
     for (sec_id, side), edges in entry_group_edges.items():
@@ -460,7 +462,19 @@ def _create_ports_and_junctions(
         entry_port_map[(sec_id, side)] = port_id
         port_counter += 1
 
-    # Rewrite inter-section edges into 3-part chains
+    return exit_port_map, entry_port_map, port_counter
+
+
+def _rewrite_edges_with_junctions(
+    graph: MetroGraph,
+    internal_edges: list[Edge],
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+    exit_port_map: dict[str, str],
+    entry_port_map: dict[tuple[str, PortSide], str],
+    port_counter: int,
+) -> None:
+    """Rewrite inter-section edges into 3-part chains with junctions."""
     new_edges: list[Edge] = list(internal_edges)
 
     # Group by exit port to detect fan-outs
@@ -483,7 +497,6 @@ def _create_ports_and_junctions(
 
         exit_fan.setdefault(exit_port_id, {}).setdefault(entry_port_id, []).append(edge)
 
-    # Insert junctions where an exit port fans out to multiple entry ports
     for exit_port_id, entry_targets in exit_fan.items():
         if len(entry_targets) <= 1:
             for entry_port_id, edges in entry_targets.items():
@@ -522,3 +535,33 @@ def _create_ports_and_junctions(
                     )
 
     graph.edges = new_edges
+
+
+def _create_ports_and_junctions(
+    graph: MetroGraph,
+    internal_edges: list[Edge],
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+) -> None:
+    """Create exit/entry ports and junctions, rewrite inter-section edges.
+
+    Creates one exit port per source section, one entry port per
+    (target_section, entry_side), and inserts junction stations where
+    an exit port fans out to multiple entry ports.
+    """
+    section_exit_side = _determine_exit_sides(graph)
+    exit_groups, entry_groups = _group_inter_section_edges(
+        graph, inter_section_edges, entry_side_for_line
+    )
+    exit_port_map, entry_port_map, port_counter = _create_port_stations(
+        graph, exit_groups, entry_groups, section_exit_side
+    )
+    _rewrite_edges_with_junctions(
+        graph,
+        internal_edges,
+        inter_section_edges,
+        entry_side_for_line,
+        exit_port_map,
+        entry_port_map,
+        port_counter,
+    )

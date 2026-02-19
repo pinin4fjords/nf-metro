@@ -6,6 +6,8 @@ monotonicity: every edge goes from a lower layer to a higher layer.
 
 from __future__ import annotations
 
+__all__ = ["assign_layers"]
+
 import networkx as nx
 
 from nf_metro.parser.model import MetroGraph
