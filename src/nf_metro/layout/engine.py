@@ -229,8 +229,8 @@ def _layout_single_section(
         track_rank[unique_tracks[0]] = 0.0
         for idx in range(1, len(unique_tracks)):
             gap = unique_tracks[idx] - unique_tracks[idx - 1]
-            track_rank[unique_tracks[idx]] = (
-                track_rank[unique_tracks[idx - 1]] + min(gap, LINE_GAP)
+            track_rank[unique_tracks[idx]] = track_rank[unique_tracks[idx - 1]] + min(
+                gap, LINE_GAP
             )
 
     # Detect fork/join layers and add extra spacing so stations
