@@ -96,6 +96,21 @@ def place_labels(
         key=lambda s: (s.layer, s.track),
     )
 
+    # Pre-compute per-section Y extremes for LR/RL sections so edge
+    # stations prefer outward-facing labels, centering visual content.
+    section_y_range: dict[str, tuple[float, float]] = {}
+    for s in sorted_stations:
+        if not s.section_id:
+            continue
+        sec = graph.sections.get(s.section_id)
+        if not sec or sec.direction not in ("LR", "RL"):
+            continue
+        if s.section_id not in section_y_range:
+            section_y_range[s.section_id] = (s.y, s.y)
+        else:
+            lo, hi = section_y_range[s.section_id]
+            section_y_range[s.section_id] = (min(lo, s.y), max(hi, s.y))
+
     placements: list[LabelPlacement] = []
 
     for i, station in enumerate(sorted_stations):
@@ -137,6 +152,17 @@ def place_labels(
 
         # Alternate by layer (column): even layers below, odd layers above
         start_above = station.layer % 2 == 1
+
+        # For edge stations in LR/RL sections, prefer labels extending
+        # outward (away from center) to keep visual content centered
+        # within the section bbox.
+        if station.section_id and station.section_id in section_y_range:
+            y_lo, y_hi = section_y_range[station.section_id]
+            if y_lo < y_hi:
+                if station.y == y_lo:
+                    start_above = True
+                elif station.y == y_hi:
+                    start_above = False
 
         candidate = _try_place(
             station, label_offset, start_above, placements, min_off, max_off
