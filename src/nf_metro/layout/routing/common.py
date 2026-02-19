@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from nf_metro.layout.constants import COORD_TOLERANCE, COORD_TOLERANCE_FINE
+from nf_metro.layout.constants import BYPASS_CLEARANCE, COORD_TOLERANCE, COORD_TOLERANCE_FINE
 from nf_metro.parser.model import Edge, MetroGraph
 
 
@@ -226,6 +226,63 @@ def line_source_y_at_port(
             if src and not src.is_port:
                 line_y[edge.line_id] = src.y
     return line_y
+
+
+def adjacent_column_gap_x(
+    graph: MetroGraph,
+    col_a: int,
+    col_b: int,
+) -> float:
+    """X midpoint between two adjacent columns.
+
+    Finds the right edge of col_a and left edge of col_b (assuming
+    col_a < col_b) and returns the midpoint.
+    """
+    lo, hi = min(col_a, col_b), max(col_a, col_b)
+    right_of_lo = max(
+        (
+            s.bbox_x + s.bbox_w
+            for s in graph.sections.values()
+            if s.grid_col == lo and s.bbox_w > 0
+        ),
+        default=0.0,
+    )
+    left_of_hi = min(
+        (
+            s.bbox_x
+            for s in graph.sections.values()
+            if s.grid_col == hi and s.bbox_w > 0
+        ),
+        default=right_of_lo,
+    )
+    return (right_of_lo + left_of_hi) / 2
+
+
+def bypass_bottom_y(
+    graph: MetroGraph,
+    src_col: int,
+    tgt_col: int,
+    clearance: float = BYPASS_CLEARANCE,
+) -> float:
+    """Max bottom Y of sections in columns strictly between src_col and tgt_col.
+
+    Returns the bottom Y + clearance, providing the baseline for a bypass
+    route that goes below the intervening sections.
+    """
+    lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
+    max_bottom = 0.0
+    for s in graph.sections.values():
+        if s.bbox_w > 0 and lo < s.grid_col < hi:
+            bottom = s.bbox_y + s.bbox_h
+            if bottom > max_bottom:
+                max_bottom = bottom
+    # Also include source and target columns - the route goes below everything
+    for s in graph.sections.values():
+        if s.bbox_w > 0 and s.grid_col in (lo, hi):
+            bottom = s.bbox_y + s.bbox_h
+            if bottom > max_bottom:
+                max_bottom = bottom
+    return max_bottom + clearance
 
 
 def line_incoming_y_at_entry_port(

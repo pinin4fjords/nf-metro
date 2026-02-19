@@ -46,6 +46,10 @@ def render_svg(
         visible_stations if visible_stations else list(graph.stations.values())
     )
 
+    # Route edges early so bypass routes below sections are included in bounds
+    station_offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=station_offsets)
+
     max_x = max(s.x for s in all_stations_for_bounds)
     max_y = max(s.y for s in all_stations_for_bounds)
 
@@ -54,6 +58,14 @@ def render_svg(
         if section.bbox_w > 0:
             max_x = max(max_x, section.bbox_x + section.bbox_w)
             max_y = max(max_y, section.bbox_y + section.bbox_h)
+
+    # Include route waypoints in canvas bounds (bypass routes go below sections)
+    for route in routes:
+        for px, py in route.points:
+            if px > max_x:
+                max_x = px
+            if py > max_y:
+                max_y = py
 
     # Compute legend and logo dimensions
     logo_w, logo_h = (0.0, 0.0)
@@ -156,10 +168,6 @@ def render_svg(
     # Sections
     if graph.sections:
         _render_first_class_sections(d, graph, theme)
-
-    # Route edges (compute offsets first so TB routes can pre-apply them)
-    station_offsets = compute_station_offsets(graph)
-    routes = route_edges(graph, station_offsets=station_offsets)
 
     # Draw edges (lines) behind stations
     _render_edges(d, graph, routes, station_offsets, theme)
