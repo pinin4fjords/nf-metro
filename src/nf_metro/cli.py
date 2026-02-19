@@ -71,6 +71,13 @@ def cli() -> None:
     help="Logo image path (overrides %%metro logo: directive)",
 )
 @click.option(
+    "--line-order",
+    type=click.Choice(["definition", "span"]),
+    default=None,
+    help="Line ordering strategy: 'definition' (default) preserves .mmd order, "
+    "'span' sorts by section span (longest first)",
+)
+@click.option(
     "--from-nextflow",
     is_flag=True,
     default=False,
@@ -94,6 +101,7 @@ def render(
     animate: bool,
     debug: bool,
     logo: Path | None,
+    line_order: str | None,
     from_nextflow: bool,
     title: str | None,
 ) -> None:
@@ -112,6 +120,9 @@ def render(
         )
     except ValueError as e:
         raise click.ClickException(str(e))
+
+    if line_order is not None:
+        graph.line_order = line_order
 
     if logo is not None:
         graph.logo_path = str(logo)

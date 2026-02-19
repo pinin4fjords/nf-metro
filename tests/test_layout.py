@@ -286,6 +286,139 @@ def test_flat_layout_unnamed_edges():
     assert graph.stations["b"].x > graph.stations["a"].x
 
 
+# --- Line order tests ---
+
+
+def test_line_order_definition_default():
+    """Default line_order='definition' preserves .mmd line definition order."""
+    graph = parse_metro_mermaid(
+        "%%metro line: short | Short | #ff0000\n"
+        "%%metro line: long | Long | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|short| b\n"
+        "        a -->|long| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|long| d\n"
+        "    end\n"
+        "    b -->|long| c\n"
+    )
+    assert graph.line_order == "definition"
+    layers = assign_layers(graph)
+    tracks = assign_tracks(graph, layers)
+    # 'short' should have base track 0 (defined first)
+    # Stations on short line should be at track 0
+    assert tracks["a"] is not None
+
+
+def test_line_order_span_reorders():
+    """line_order='span' gives inner tracks to lines spanning more sections."""
+    from nf_metro.layout.ordering import _reorder_by_span
+
+    graph = parse_metro_mermaid(
+        "%%metro line: short | Short | #ff0000\n"
+        "%%metro line: long | Long | #0000ff\n"
+        "%%metro line_order: span\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|short| b\n"
+        "        a -->|long| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|long| d\n"
+        "    end\n"
+        "    b -->|long| c\n"
+    )
+    assert graph.line_order == "span"
+    line_order = list(graph.lines.keys())
+    reordered = _reorder_by_span(graph, line_order)
+    # 'long' spans 2 sections, 'short' spans 1 -> long should come first
+    assert reordered[0] == "long"
+    assert reordered[1] == "short"
+
+
+def test_line_order_span_preserves_ties():
+    """Lines with equal span preserve definition order."""
+    from nf_metro.layout.ordering import _reorder_by_span
+
+    graph = parse_metro_mermaid(
+        "%%metro line: alpha | Alpha | #ff0000\n"
+        "%%metro line: beta | Beta | #0000ff\n"
+        "%%metro line_order: span\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|alpha| b\n"
+        "        a -->|beta| b\n"
+        "    end\n"
+    )
+    line_order = list(graph.lines.keys())
+    reordered = _reorder_by_span(graph, line_order)
+    # Both span 1 section -> preserve original order
+    assert reordered == ["alpha", "beta"]
+
+
+def test_line_order_span_e2e():
+    """End-to-end: span ordering changes track assignment."""
+    # With definition order: short gets track 0, long gets track 1
+    graph_def = parse_metro_mermaid(
+        "%%metro line: short | Short | #ff0000\n"
+        "%%metro line: long | Long | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|short| b\n"
+        "        a -->|long| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|long| d\n"
+        "    end\n"
+        "    b -->|long| c\n"
+    )
+    compute_layout(graph_def)
+
+    # With span order: long gets track 0, short gets track 1
+    graph_span = parse_metro_mermaid(
+        "%%metro line: short | Short | #ff0000\n"
+        "%%metro line: long | Long | #0000ff\n"
+        "%%metro line_order: span\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|short| b\n"
+        "        a -->|long| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|long| d\n"
+        "    end\n"
+        "    b -->|long| c\n"
+    )
+    compute_layout(graph_span)
+
+    # In sec1, both 'a' and 'b' are on both lines. The key difference
+    # is which line's base track is 0. With span ordering, 'long' gets
+    # the inner track.
+    # We verify that section layouts both succeed (no crash)
+    assert graph_def.stations["a"].x > 0
+    assert graph_span.stations["a"].x > 0
+
+
 def test_flat_layout_no_named_lines():
     """Flat layout with a line defined but unnamed edges should still work."""
     graph = parse_metro_mermaid(

@@ -46,6 +46,15 @@ def compute_layout(
     section_y_gap: float = SECTION_Y_GAP,
 ) -> None:
     """Compute layout positions for all stations in the graph."""
+    # Optionally reorder lines by section span before layout.
+    # Must happen here (on the full graph) before section subgraphs are
+    # built, since subgraphs share graph.lines via reference.
+    if graph.line_order == "span" and graph.lines:
+        from nf_metro.layout.ordering import _reorder_by_span
+
+        new_order = _reorder_by_span(graph, list(graph.lines.keys()))
+        graph.lines = {lid: graph.lines[lid] for lid in new_order}
+
     if not graph.sections:
         _compute_flat_layout(
             graph,
