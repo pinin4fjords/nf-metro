@@ -42,9 +42,10 @@ pip install -e "/tmp/nf-metro-fix-<NUMBER>[dev]" && pip install cairosvg
 
 Work inside the worktree. After making changes:
 
-1. Lint: `ruff check src/ tests/`
-2. Test: `pytest`
-3. Fix any failures before proceeding.
+1. Format: `ruff format src/ tests/`
+2. Lint: `ruff check src/ tests/`
+3. Test: `pytest`
+4. Fix any failures before proceeding.
 
 ## Phase 5: Render and Visual Review
 
