@@ -223,8 +223,11 @@ def render_svg(
         logo_y = LOGO_Y_STANDALONE
         max_x = max(max_x, logo_x + logo_w)
 
-    auto_width = max_x + padding * 2
-    auto_height = max_y + padding * 2
+    # Right margin: use one padding width (content origin already provides
+    # the left margin).  Bottom margin: just enough room for the watermark
+    # text below the last content element.
+    auto_width = max_x + padding
+    auto_height = max_y + WATERMARK_Y_INSET * 2 + WATERMARK_FONT_SIZE
 
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
