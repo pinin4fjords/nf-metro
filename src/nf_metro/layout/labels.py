@@ -203,7 +203,14 @@ def place_labels(
                 candidate.x = max(min_x, min(candidate.x, max_x))
                 # Vertical clamping (with flip/expand on overlap)
                 candidate = _clamp_label_vertical(
-                    candidate, sec, station, label_offset, min_off, max_off, margin
+                    candidate,
+                    sec,
+                    station,
+                    label_offset,
+                    min_off,
+                    max_off,
+                    margin,
+                    placements,
                 )
 
         placements.append(candidate)
@@ -219,11 +226,13 @@ def _clamp_label_vertical(
     min_off: float,
     max_off: float,
     margin: float,
+    existing: list[LabelPlacement] | None = None,
 ) -> LabelPlacement:
     """Clamp label vertically within section bbox.
 
     If clamping would push the label into the station pill, flip it to the
-    opposite side.  If both sides would overlap, expand the section bbox
+    opposite side (provided the flipped position doesn't collide with an
+    existing label).  If both sides would overlap, expand the section bbox
     so the label fits at its ideal position.
     """
     pill_top = station.y + min_off
@@ -247,12 +256,20 @@ def _clamp_label_vertical(
         below_y = pill_bottom + label_offset
         max_y = sec_bottom - FONT_HEIGHT - margin
         if below_y <= max_y:
-            candidate.y = below_y
-            candidate.above = False
-            return candidate
+            flipped = LabelPlacement(
+                station_id=candidate.station_id,
+                text=candidate.text,
+                x=candidate.x,
+                y=below_y,
+                above=False,
+            )
+            if existing is None or not _has_collision(flipped, existing):
+                candidate.y = below_y
+                candidate.above = False
+                return candidate
 
-        # Neither side fits - expand bbox upward
-        expand = min_y - candidate.y
+        # Neither side fits (or flip collides) - expand bbox upward
+        expand = min_y - candidate.y + margin
         sec.bbox_y -= expand
         sec.bbox_h += expand
         return candidate
@@ -273,12 +290,20 @@ def _clamp_label_vertical(
         above_y = pill_top - label_offset
         min_y = sec_top + FONT_HEIGHT + margin
         if above_y >= min_y:
-            candidate.y = above_y
-            candidate.above = True
-            return candidate
+            flipped = LabelPlacement(
+                station_id=candidate.station_id,
+                text=candidate.text,
+                x=candidate.x,
+                y=above_y,
+                above=True,
+            )
+            if existing is None or not _has_collision(flipped, existing):
+                candidate.y = above_y
+                candidate.above = True
+                return candidate
 
-        # Neither side fits - expand bbox downward
-        expand = candidate.y - max_y
+        # Neither side fits (or flip collides) - expand bbox downward
+        expand = candidate.y - max_y + margin
         sec.bbox_h += expand
         return candidate
 

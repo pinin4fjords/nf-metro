@@ -256,6 +256,10 @@ def render_svg(
             )
         )
 
+    # Compute labels early so bbox expansions are applied before
+    # section boxes are drawn.
+    labels = place_labels(graph, station_offsets=station_offsets)
+
     # Sections
     if graph.sections:
         _render_first_class_sections(d, graph, theme)
@@ -272,8 +276,7 @@ def render_svg(
     # Draw stations (all circles, skip ports)
     _render_stations(d, graph, theme, station_offsets)
 
-    # Draw labels (horizontal, skip ports)
-    labels = place_labels(graph, station_offsets=station_offsets)
+    # Draw labels
     _render_labels(d, labels, theme)
 
     # Debug overlay (ports, hidden stations, edge waypoints)
