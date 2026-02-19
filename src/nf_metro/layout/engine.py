@@ -5,6 +5,8 @@ Section-first layout: sections are laid out independently, then placed on a meta
 
 from __future__ import annotations
 
+__all__ = ["compute_layout"]
+
 from nf_metro.layout.constants import (
     CHAR_WIDTH,
     ENTRY_INSET_LR,

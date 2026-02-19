@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["compute_legend_dimensions", "render_legend"]
+
 import drawsvg as draw
 
 from nf_metro.parser.model import MetroGraph
@@ -69,7 +71,7 @@ def compute_legend_dimensions(
 
 
 def render_legend(
-    drawing: draw.Drawing,
+    d: draw.Drawing,
     graph: MetroGraph,
     theme: Theme,
     x: float,
@@ -79,7 +81,7 @@ def render_legend(
 ) -> None:
     """Render a legend showing all metro lines and their colors.
 
-    Positioned at (x, y), drawing downward. If logo_path and logo_size are
+    Positioned at (x, y), rendering downward. If logo_path and logo_size are
     provided, the logo is embedded inside the legend box to the left of the
     line entries.
     """
@@ -97,7 +99,7 @@ def render_legend(
     )
 
     # Background
-    drawing.append(
+    d.append(
         draw.Rectangle(
             x,
             y,
@@ -116,7 +118,7 @@ def render_legend(
         logo_gap = LOGO_GAP
         logo_x = x + padding
         logo_y = y + padding + (content_height - scaled_h) / 2
-        drawing.append(
+        d.append(
             draw.Image(
                 logo_x,
                 logo_y,
@@ -133,7 +135,7 @@ def render_legend(
         entry_y = y + padding + i * line_height + line_height / 2
 
         # Color swatch (line segment)
-        drawing.append(
+        d.append(
             draw.Line(
                 x + padding + logo_offset,
                 entry_y,
@@ -146,7 +148,7 @@ def render_legend(
         )
 
         # Label
-        drawing.append(
+        d.append(
             draw.Text(
                 metro_line.display_name,
                 theme.legend_font_size,

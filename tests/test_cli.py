@@ -1,0 +1,86 @@
+"""Tests for the CLI entry points."""
+
+from pathlib import Path
+
+from click.testing import CliRunner
+
+from nf_metro.cli import cli
+
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+RNASEQ_MMD = EXAMPLES_DIR / "rnaseq_sections.mmd"
+
+
+def test_render_produces_svg(tmp_path):
+    """render command produces an SVG file."""
+    out = tmp_path / "output.svg"
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", str(RNASEQ_MMD), "-o", str(out)])
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    content = out.read_text()
+    assert "<svg" in content
+
+
+def test_render_default_output(tmp_path):
+    """render command uses input stem + .svg when no -o given."""
+    mmd = tmp_path / "test.mmd"
+    mmd.write_text(RNASEQ_MMD.read_text())
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", str(mmd)])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "test.svg").exists()
+
+
+def test_validate_success():
+    """validate command succeeds on valid input."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", str(RNASEQ_MMD)])
+    assert result.exit_code == 0
+    assert "Valid:" in result.output
+
+
+def test_validate_bad_file(tmp_path):
+    """validate command reports parse errors."""
+    bad = tmp_path / "bad.mmd"
+    bad.write_text("not a valid mermaid file")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", str(bad)])
+    # Should still succeed (no crash), but output says 0 stations
+    assert result.exit_code == 0
+
+
+def test_info_output():
+    """info command prints graph metadata."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["info", str(RNASEQ_MMD)])
+    assert result.exit_code == 0
+    assert "Title:" in result.output
+    assert "Stations:" in result.output
+    assert "Lines:" in result.output
+    assert "Sections:" in result.output
+
+
+def test_version():
+    """--version flag prints version string."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "version" in result.output.lower()
+
+
+def test_render_with_theme(tmp_path):
+    """render command accepts --theme flag."""
+    out = tmp_path / "output.svg"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["render", str(RNASEQ_MMD), "-o", str(out), "--theme", "light"]
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_render_nonexistent_file():
+    """render command fails gracefully on missing input."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", "/nonexistent/file.mmd"])
+    assert result.exit_code != 0

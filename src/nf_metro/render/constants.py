@@ -61,6 +61,9 @@ SECTION_NUM_CIRCLE_R: int = 8
 SECTION_NUM_CIRCLE_R_LARGE: int = 9
 """Radius of section number circle background (large variant)."""
 
+SECTION_NUM_FONT_SIZE: int = 9
+"""Font size for section number text inside the circle."""
+
 SECTION_NUM_Y_OFFSET: int = 4
 """Y offset of section number circle from section top."""
 
@@ -126,3 +129,36 @@ WATERMARK_PADDING_RATIO: float = 0.5
 
 WATERMARK_Y_INSET: float = 8.0
 """Y distance from bottom edge for watermark text."""
+
+# ---------------------------------------------------------------------------
+# Fallback colors
+# ---------------------------------------------------------------------------
+FALLBACK_LINE_COLOR: str = "#888888"
+"""Color used when a line has no explicit color defined."""
+
+TERMINUS_FONT_COLOR: str = "#000000"
+"""Font color for terminus file icon labels."""
+
+# ---------------------------------------------------------------------------
+# Debug overlay colors
+# ---------------------------------------------------------------------------
+DEBUG_WAYPOINT_COLOR: str = "rgba(255, 200, 50, 0.6)"
+"""Color for edge waypoint markers in debug overlay."""
+
+DEBUG_ENTRY_PORT_COLOR: str = "rgba(255, 80, 80, 0.7)"
+"""Color for entry port diamond markers in debug overlay."""
+
+DEBUG_EXIT_PORT_COLOR: str = "rgba(80, 180, 255, 0.7)"
+"""Color for exit port diamond markers in debug overlay."""
+
+DEBUG_HIDDEN_STATION_COLOR: str = "rgba(180, 80, 255, 0.7)"
+"""Color for hidden station markers in debug overlay."""
+
+DEBUG_WAYPOINT_RADIUS: float = 3.0
+"""Radius of waypoint circle markers in debug overlay."""
+
+DEBUG_LABEL_OFFSET: float = 3.0
+"""Y offset from diamond to label text in debug overlay."""
+
+DEBUG_HIDDEN_LABEL_OFFSET: float = 8.0
+"""Y offset from hidden station circle to label text."""

@@ -6,6 +6,8 @@ above/below alternation and collision avoidance.
 
 from __future__ import annotations
 
+__all__ = ["LabelPlacement", "place_labels"]
+
 from dataclasses import dataclass
 
 from nf_metro.layout.constants import (

@@ -7,6 +7,8 @@ Grid overrides can pin sections to specific positions.
 
 from __future__ import annotations
 
+__all__ = ["place_sections", "position_ports"]
+
 from collections import defaultdict, deque
 
 from nf_metro.layout.constants import (
@@ -18,28 +20,14 @@ from nf_metro.layout.constants import (
 from nf_metro.parser.model import MetroGraph, PortSide, Section
 
 
-def place_sections(
+def _build_section_dag(
     graph: MetroGraph,
-    section_x_gap: float = PLACEMENT_X_GAP,
-    section_y_gap: float = PLACEMENT_Y_GAP,
-) -> None:
-    """Place sections on the canvas by computing offsets.
-
-    Builds a meta-graph of section dependencies, assigns columns
-    via topological layering, assigns rows within columns, then
-    computes pixel offsets for each section.
-    """
-    if not graph.sections:
-        return
-
-    # Build section dependency DAG (traverse through junctions)
+) -> set[tuple[str, str]]:
+    """Build section dependency edges from graph edges, traversing junctions."""
     section_edges: set[tuple[str, str]] = set()
 
-    # Build adjacency from junctions to find which sections they connect
     junction_ids = set(graph.junctions)
-    # junction -> set of sections reachable via outgoing edges
     junction_targets: dict[str, set[str]] = defaultdict(set)
-    # junction -> set of sections feeding into it
     junction_sources: dict[str, set[str]] = defaultdict(set)
 
     for edge in graph.edges:
@@ -53,13 +41,23 @@ def place_sections(
         elif src_sec and tgt_sec and src_sec != tgt_sec:
             section_edges.add((src_sec, tgt_sec))
 
-    # Add edges through junctions: each source section -> each target section
     for jid in junction_ids:
         for src_sec in junction_sources.get(jid, set()):
             for tgt_sec in junction_targets.get(jid, set()):
                 if src_sec != tgt_sec:
                     section_edges.add((src_sec, tgt_sec))
 
+    return section_edges
+
+
+def _assign_grid_layout(
+    graph: MetroGraph,
+    section_edges: set[tuple[str, str]],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Assign grid columns and rows to each section.
+
+    Returns (col_assign, row_assign) dicts mapping section IDs to positions.
+    """
     section_ids = list(graph.sections.keys())
 
     # Topological layering (columns)
@@ -109,7 +107,6 @@ def place_sections(
     # Assign rows within each column (order by section number, then by id)
     row_assign: dict[str, int] = {}
     for col, sids in sorted(col_groups.items()):
-        # Respect explicit grid_row if set
         explicit = [
             (sid, graph.sections[sid].grid_row)
             for sid in sids
@@ -117,10 +114,8 @@ def place_sections(
         ]
         auto = [sid for sid in sids if graph.sections[sid].grid_row < 0]
 
-        # Sort auto sections by their number (definition order)
         auto.sort(key=lambda s: graph.sections[s].number)
 
-        # Place explicit ones first, reserving all spanned rows
         used_rows: set[int] = set()
         for sid, row in explicit:
             row_assign[sid] = row
@@ -128,7 +123,6 @@ def place_sections(
             for r in range(row, row + span):
                 used_rows.add(r)
 
-        # Fill in auto sections
         next_row = 0
         for sid in auto:
             while next_row in used_rows:
@@ -137,10 +131,22 @@ def place_sections(
             used_rows.add(next_row)
             next_row += 1
 
-    # Compute pixel offsets
+    return col_assign, row_assign
+
+
+def _compute_section_offsets(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    row_assign: dict[str, int],
+    section_x_gap: float,
+    section_y_gap: float,
+) -> tuple[int, int]:
+    """Compute pixel offsets for each section from grid assignments.
+
+    Returns (min_col, max_col) for use by downstream gap enforcement.
+    """
     min_col = min(col_assign.values()) if col_assign else 0
     max_col = max(col_assign.values()) if col_assign else 0
-    # Account for columns occupied by spanning sections
     for sid in graph.sections:
         cspan = graph.sections[sid].grid_col_span
         col = col_assign.get(sid, 0)
@@ -154,13 +160,11 @@ def place_sections(
             col = col_assign.get(sid, 0)
             col_widths[col] = max(col_widths[col], section.bbox_w)
 
-    # Ensure all columns have an entry (handles negative grid columns)
     for c in range(min_col, max_col + 1):
         if c not in col_widths:
             col_widths[c] = 0.0
 
-    # Expand columns if a spanning section's intrinsic width exceeds the
-    # sum of its spanned columns. Distributes the extra to the last column.
+    # Expand columns if a spanning section exceeds spanned column widths
     for sid, section in graph.sections.items():
         cspan = section.grid_col_span
         if cspan <= 1:
@@ -172,17 +176,15 @@ def place_sections(
             deficit = section.bbox_w - spanned
             col_widths[start_col + cspan - 1] += deficit
 
-    # Cumulative x offsets (columns are shared, handles negative grid columns)
+    # Cumulative x offsets
     col_offsets: dict[int, float] = {}
     cumulative_x = 0.0
     for col in range(min_col, max_col + 1):
         col_offsets[col] = cumulative_x
         cumulative_x += col_widths.get(col, 0) + section_x_gap
 
-    # Global row heights: max bbox_h per row across ALL columns
-    # (only from single-row sections, since spanning sections derive height)
+    # Global row heights (only single-row non-TB sections)
     max_row = max(row_assign.values()) if row_assign else 0
-    # Account for rows occupied by spanning sections
     for sid in graph.sections:
         span = graph.sections[sid].grid_row_span
         row = row_assign.get(sid, 0)
@@ -194,12 +196,11 @@ def place_sections(
             row = row_assign.get(sid, 0)
             row_heights[row] = max(row_heights[row], section.bbox_h)
 
-    # Ensure all rows have an entry (even if only occupied by spanning sections)
     for r in range(max_row + 1):
         if r not in row_heights:
             row_heights[r] = 0.0
 
-    # Expand rows if a spanning section's intrinsic height exceeds spanned rows
+    # Expand rows if a spanning section exceeds spanned row heights
     for sid, section in graph.sections.items():
         rspan = section.grid_row_span
         if rspan <= 1:
@@ -218,10 +219,7 @@ def place_sections(
         row_offsets[r] = cumulative_y
         cumulative_y += row_heights[r] + section_y_gap
 
-    # TB fold sections (rowspan=1) visually span into the next row.
-    # Push the next row down so its non-TB sections' bottom aligns with
-    # the TB section's bottom, then extend the TB section's bbox to cover.
-    # Process top-to-bottom so cascading TB sections accumulate correctly.
+    # TB fold sections visually span into the next row
     tb_sections = sorted(
         [
             (sid, section)
@@ -235,8 +233,6 @@ def place_sections(
         next_row = row + 1
         if next_row not in row_offsets:
             continue
-        # Add exit routing margin so lines can flow down from the last
-        # station before curving out to the return row.
         section.bbox_h += section_y_gap
         tb_bottom = row_offsets[row] + section.bbox_h
         next_row_bottom = row_offsets[next_row] + row_heights[next_row]
@@ -245,27 +241,22 @@ def place_sections(
             for r in range(next_row, max_row + 1):
                 if r in row_offsets:
                     row_offsets[r] += delta
-        # Extend bbox to cover through the next row
         next_row_bottom = row_offsets[next_row] + row_heights[next_row]
         section.bbox_h = next_row_bottom - row_offsets[row]
 
-    # Columns containing RL or TB sections should right-align all their
-    # sections so stacked LR sections share a right edge with the RL/TB ones.
+    # Right-align columns containing RL or TB sections
     right_align_cols: set[int] = set()
     for sid, section in graph.sections.items():
         if section.direction in ("RL", "TB") and section.grid_col_span == 1:
             right_align_cols.add(col_assign.get(sid, 0))
 
-    # Set section offsets and adjust height for spanning sections
+    # Set section offsets and adjust for spanning
     for sid, section in graph.sections.items():
         section.grid_col = col_assign.get(sid, 0)
         section.grid_row = row_assign.get(sid, 0)
         section.offset_x = col_offsets.get(section.grid_col, 0)
         section.offset_y = row_offsets.get(section.grid_row, 0)
 
-        # Right-align sections within columns that contain RL or TB sections,
-        # so fold sections and post-fold RL sections share a right edge with
-        # any LR sections stacked above them in the same column.
         if section.grid_col_span == 1 and (
             section.direction in ("RL", "TB") or section.grid_col in right_align_cols
         ):
@@ -273,7 +264,6 @@ def place_sections(
             if col_w > section.bbox_w:
                 section.offset_x += col_w - section.bbox_w
 
-        # For row-spanning sections, set bbox_h to cover all spanned rows + gaps
         rspan = section.grid_row_span
         if rspan > 1:
             start_row = section.grid_row
@@ -283,7 +273,6 @@ def place_sections(
             spanned_height += (rspan - 1) * section_y_gap
             section.bbox_h = spanned_height
 
-        # For col-spanning sections, set bbox_w to cover all spanned cols + gaps
         cspan = section.grid_col_span
         if cspan > 1:
             start_col = section.grid_col
@@ -293,12 +282,28 @@ def place_sections(
             spanned_width += (cspan - 1) * section_x_gap
             section.bbox_w = spanned_width
 
-    # Top-align sections within their row. No vertical centering -- this
-    # keeps the top edges flush so horizontal lines between sections in
-    # the same row don't need unnecessary vertical jogs.
+    return min_col, max_col
 
-    # Enforce minimum physical gap between adjacent columns so bypass
-    # route corners have enough room for smooth curves.
+
+def place_sections(
+    graph: MetroGraph,
+    section_x_gap: float = PLACEMENT_X_GAP,
+    section_y_gap: float = PLACEMENT_Y_GAP,
+) -> None:
+    """Place sections on the canvas by computing offsets.
+
+    Builds a meta-graph of section dependencies, assigns columns
+    via topological layering, assigns rows within columns, then
+    computes pixel offsets for each section.
+    """
+    if not graph.sections:
+        return
+
+    section_edges = _build_section_dag(graph)
+    col_assign, row_assign = _assign_grid_layout(graph, section_edges)
+    min_col, max_col = _compute_section_offsets(
+        graph, col_assign, row_assign, section_x_gap, section_y_gap
+    )
     _enforce_min_column_gaps(graph, col_assign, min_col, max_col)
 
 
@@ -365,17 +370,23 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
 
     for side, port_ids in side_ports.items():
         if side == PortSide.LEFT:
-            x = section.bbox_x
-            _position_ports_vertical(port_ids, x, section, graph)
+            _position_ports_on_boundary(
+                port_ids, section.bbox_x, section, graph, fixed_axis="x"
+            )
         elif side == PortSide.RIGHT:
-            x = section.bbox_x + section.bbox_w
-            _position_ports_vertical(port_ids, x, section, graph)
+            right_x = section.bbox_x + section.bbox_w
+            _position_ports_on_boundary(
+                port_ids, right_x, section, graph, fixed_axis="x"
+            )
         elif side == PortSide.TOP:
-            y = section.bbox_y
-            _position_ports_horizontal(port_ids, y, section, graph)
+            _position_ports_on_boundary(
+                port_ids, section.bbox_y, section, graph, fixed_axis="y"
+            )
         elif side == PortSide.BOTTOM:
-            y = section.bbox_y + section.bbox_h
-            _position_ports_horizontal(port_ids, y, section, graph)
+            bottom_y = section.bbox_y + section.bbox_h
+            _position_ports_on_boundary(
+                port_ids, bottom_y, section, graph, fixed_axis="y"
+            )
 
     # TB sections: move LEFT/RIGHT exit ports to the section bottom
     # so lines flow down from the last station then curve out.
@@ -391,129 +402,82 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
                 port.y = target_y
 
 
-def _position_ports_vertical(
+def _position_ports_on_boundary(
     port_ids: list[str],
-    x: float,
+    fixed_coord: float,
     section: Section,
     graph: MetroGraph,
+    fixed_axis: str,
 ) -> None:
-    """Position ports along a vertical boundary (LEFT or RIGHT side)."""
+    """Position ports along a section boundary.
+
+    Args:
+        fixed_axis: "x" for vertical boundaries (LEFT/RIGHT),
+                    "y" for horizontal boundaries (TOP/BOTTOM).
+    """
     if not port_ids:
         return
 
-    # Try to align each port with its connected internal station
-    for pid in port_ids:
-        station = graph.stations.get(pid)
-        if not station:
-            continue
-
-        port = graph.ports.get(pid)
-
-        # Find connected internal station
-        connected_y = _find_connected_internal_y(pid, section, graph)
-        station.x = x
-        station.y = (
-            connected_y
-            if connected_y is not None
-            else (section.bbox_y + section.bbox_h / 2)
-        )
-
-        # Update port data too
-        if port:
-            port.x = station.x
-            port.y = station.y
-
-    # If multiple ports are at the same Y, space them out
-    _spread_overlapping_ports(
-        port_ids,
-        graph,
-        axis="y",
-        span_start=section.bbox_y,
-        span_end=section.bbox_y + section.bbox_h,
-    )
-
-
-def _position_ports_horizontal(
-    port_ids: list[str],
-    y: float,
-    section: Section,
-    graph: MetroGraph,
-) -> None:
-    """Position ports along a horizontal boundary (TOP or BOTTOM side)."""
-    if not port_ids:
-        return
+    # The "free" axis is the one ports can slide along
+    free_axis = "y" if fixed_axis == "x" else "x"
 
     for pid in port_ids:
         station = graph.stations.get(pid)
         if not station:
             continue
 
-        connected_x = _find_connected_internal_x(pid, section, graph)
-        station.x = (
-            connected_x
-            if connected_x is not None
-            else (section.bbox_x + section.bbox_w / 2)
-        )
-        station.y = y
+        connected = _find_connected_internal_coord(pid, section, graph, free_axis)
+        if free_axis == "y":
+            default = section.bbox_y + section.bbox_h / 2
+        else:
+            default = section.bbox_x + section.bbox_w / 2
+
+        setattr(station, fixed_axis, fixed_coord)
+        setattr(station, free_axis, connected if connected is not None else default)
 
         port = graph.ports.get(pid)
         if port:
             port.x = station.x
             port.y = station.y
 
+    if free_axis == "y":
+        span_start = section.bbox_y
+        span_end = section.bbox_y + section.bbox_h
+    else:
+        span_start = section.bbox_x
+        span_end = section.bbox_x + section.bbox_w
+
     _spread_overlapping_ports(
         port_ids,
         graph,
-        axis="x",
-        span_start=section.bbox_x,
-        span_end=section.bbox_x + section.bbox_w,
+        axis=free_axis,
+        span_start=span_start,
+        span_end=span_end,
     )
 
 
-def _find_connected_internal_y(
+def _find_connected_internal_coord(
     port_id: str,
     section: Section,
     graph: MetroGraph,
+    axis: str,
 ) -> float | None:
-    """Find the Y coordinate to align a port with its connected internal stations.
+    """Find the coordinate to align a port with its connected internal stations.
 
-    If the port connects to multiple stations (e.g. a shared entry port),
-    returns the average Y of all connected stations.
+    Returns the average X or Y (determined by *axis*) of all connected
+    internal stations, or None if no connections found.
     """
     internal_ids = (
         set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
     )
-    ys: list[float] = []
+    vals: list[float] = []
     for edge in graph.edges:
         if edge.source == port_id and edge.target in internal_ids:
-            ys.append(graph.stations[edge.target].y)
+            vals.append(getattr(graph.stations[edge.target], axis))
         if edge.target == port_id and edge.source in internal_ids:
-            ys.append(graph.stations[edge.source].y)
-    if ys:
-        return sum(ys) / len(ys)
-    return None
-
-
-def _find_connected_internal_x(
-    port_id: str,
-    section: Section,
-    graph: MetroGraph,
-) -> float | None:
-    """Find the X coordinate to align a port with its connected internal stations.
-
-    If the port connects to multiple stations, returns the average X.
-    """
-    internal_ids = (
-        set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
-    )
-    xs: list[float] = []
-    for edge in graph.edges:
-        if edge.source == port_id and edge.target in internal_ids:
-            xs.append(graph.stations[edge.target].x)
-        if edge.target == port_id and edge.source in internal_ids:
-            xs.append(graph.stations[edge.source].x)
-    if xs:
-        return sum(xs) / len(xs)
+            vals.append(getattr(graph.stations[edge.source], axis))
+    if vals:
+        return sum(vals) / len(vals)
     return None
 
 
@@ -569,82 +533,3 @@ def _spread_overlapping_ports(
                     port.y = new_pos
                 else:
                     port.x = new_pos
-
-
-def _expand_lone_rowspans(
-    graph: MetroGraph,
-    col_assign: dict[str, int],
-    row_assign: dict[str, int],
-) -> None:
-    """Expand rowspan for sections that inflate a row but have empty rows below.
-
-    When a section is the tallest in its row (among rowspan=1 sections) and
-    its column has consecutive empty rows below, expanding its rowspan
-    distributes its height across multiple rows. This reduces dead space
-    for shorter sections sharing the original row.
-    """
-    # Build occupancy grid (col, row) -> section_id
-    occupied: dict[tuple[int, int], str] = {}
-    for sid, section in graph.sections.items():
-        col = col_assign.get(sid, 0)
-        row = row_assign.get(sid, 0)
-        for c in range(col, col + section.grid_col_span):
-            for r in range(row, row + section.grid_row_span):
-                occupied[(c, r)] = sid
-
-    max_row = 0
-    for sid, section in graph.sections.items():
-        row = row_assign.get(sid, 0)
-        max_row = max(max_row, row + section.grid_row_span - 1)
-
-    # Process sections top to bottom to avoid conflicts.
-    # Skip TB sections: they are fold bridges whose vertical extent is
-    # determined by their content. Expanding them would make the row too
-    # short, placing the return-row sections above the fold exit.
-    candidates = sorted(
-        [
-            (sid, graph.sections[sid])
-            for sid in graph.sections
-            if graph.sections[sid].grid_row_span == 1
-            and graph.sections[sid].direction != "TB"
-        ],
-        key=lambda x: row_assign.get(x[0], 0),
-    )
-
-    for sid, section in candidates:
-        col = col_assign.get(sid, 0)
-        row = row_assign.get(sid, 0)
-
-        # Find consecutive empty rows below in all columns this section occupies
-        max_expand_row = row
-        for r in range(row + 1, max_row + 1):
-            all_empty = True
-            for c in range(col, col + section.grid_col_span):
-                if (c, r) in occupied:
-                    all_empty = False
-                    break
-            if not all_empty:
-                break
-            max_expand_row = r
-
-        potential_rowspan = max_expand_row - row + 1
-        if potential_rowspan <= 1:
-            continue
-
-        # Only expand if this section is inflating its row: its bbox_h
-        # exceeds the tallest other rowspan=1 section in the same row.
-        max_other_h = 0.0
-        for other_sid, other in graph.sections.items():
-            if other_sid == sid:
-                continue
-            if row_assign.get(other_sid, -1) == row and other.grid_row_span == 1:
-                max_other_h = max(max_other_h, other.bbox_h)
-
-        if section.bbox_h <= max_other_h:
-            continue
-
-        # Expand rowspan
-        section.grid_row_span = potential_rowspan
-        for c in range(col, col + section.grid_col_span):
-            for r in range(row, row + potential_rowspan):
-                occupied[(c, r)] = sid

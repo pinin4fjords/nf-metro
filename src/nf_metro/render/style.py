@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["Theme"]
+
 from dataclasses import dataclass
 
 
