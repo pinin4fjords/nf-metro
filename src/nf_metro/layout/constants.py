@@ -97,6 +97,12 @@ MIN_STRAIGHT_PORT: float = 5.0
 MIN_STRAIGHT_EDGE: float = 10.0
 """Minimum straight track for non-port edges."""
 
+BYPASS_CLEARANCE: float = 25.0
+"""Vertical clearance below the lowest intervening section for bypass routes."""
+
+BYPASS_NEST_STEP: float = 8.0
+"""Per-line vertical offset for stacking multiple bypass routes."""
+
 # ---------------------------------------------------------------------------
 # Engine: entry/exit alignment
 # ---------------------------------------------------------------------------
