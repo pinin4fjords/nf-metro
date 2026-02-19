@@ -387,6 +387,8 @@ def _render_first_class_sections(
     for section in graph.sections.values():
         if section.bbox_w <= 0 or section.bbox_h <= 0:
             continue
+        if section.is_implicit:
+            continue
 
         d.append(
             draw.Rectangle(
