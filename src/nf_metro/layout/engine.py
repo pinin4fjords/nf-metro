@@ -274,7 +274,7 @@ def _layout_single_section(
     # Apply direction-specific bbox adjustments
     _adjust_tb_labels(sub, section, graph)
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
-    _adjust_lr_entry_inset(section, graph, x_spacing)
+    _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
 
     return sub
@@ -406,11 +406,12 @@ def _adjust_tb_entry_shifts(
 
 
 def _adjust_lr_entry_inset(
+    sub: MetroGraph,
     section: Section,
     graph: MetroGraph,
     x_spacing: float,
 ) -> None:
-    """LR/RL sections with TOP/BOTTOM entry: add extra bbox width for curves."""
+    """LR/RL sections: add extra bbox width when entry has curves."""
     if section.direction not in ("LR", "RL"):
         return
 
@@ -422,6 +423,28 @@ def _adjust_lr_entry_inset(
     if has_perp_entry:
         entry_inset = x_spacing * ENTRY_INSET_LR
         section.bbox_w += entry_inset
+        return
+
+    # Flow-side entry that fans out to multiple internal stations at
+    # different Y positions needs extra room for the diagonal transitions.
+    for pid in section.entry_ports:
+        if pid not in graph.ports:
+            continue
+        flow_side = PortSide.LEFT if section.direction == "LR" else PortSide.RIGHT
+        if graph.ports[pid].side != flow_side:
+            continue
+        targets = {
+            e.target
+            for e in graph.edges
+            if e.source == pid and e.target in section.station_ids
+        }
+        if len(targets) > 1:
+            entry_inset = x_spacing * EXIT_GAP_MULTIPLIER
+            # Shift stations away from the entry edge to make room
+            for s in sub.stations.values():
+                s.x += entry_inset
+            section.bbox_w += entry_inset
+            return
 
 
 def _adjust_lr_exit_gap(

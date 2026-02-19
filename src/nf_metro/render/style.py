@@ -43,5 +43,5 @@ class Theme:
     terminus_stroke: str = ""  # empty = inherit station_stroke
     terminus_stroke_width: float = 1.5
     terminus_corner_radius: float = 2.0
-    terminus_font_size: float = 7.0
+    terminus_font_size: float = 9.0
     terminus_font_color: str = ""  # empty = inherit label_color
