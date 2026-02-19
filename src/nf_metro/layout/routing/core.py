@@ -245,18 +245,25 @@ def route_edges(
                     by = base_y + nest_offset
 
                     # Gap midpoints adjacent to source and target columns.
-                    # Offset gap2 slightly toward the bypass side so it
-                    # doesn't overlap with standard L-shape channels
-                    # sharing the same inter-column gap.
+                    # Offset both gap verticals so they don't overlap
+                    # with standard L-shape channels sharing the same
+                    # inter-column gaps.  gap1 shifts toward the target,
+                    # gap2 shifts toward the source.
                     bypass_x_offset = curve_radius + offset_step
                     if dx > 0:
-                        gap1_x = adjacent_column_gap_x(graph, src_col, src_col + 1)
+                        gap1_x = (
+                            adjacent_column_gap_x(graph, src_col, src_col + 1)
+                            + bypass_x_offset
+                        )
                         gap2_x = (
                             adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
                             - bypass_x_offset
                         )
                     else:
-                        gap1_x = adjacent_column_gap_x(graph, src_col - 1, src_col)
+                        gap1_x = (
+                            adjacent_column_gap_x(graph, src_col - 1, src_col)
+                            - bypass_x_offset
+                        )
                         gap2_x = (
                             adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
                             + bypass_x_offset
