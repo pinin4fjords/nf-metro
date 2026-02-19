@@ -12,8 +12,16 @@ from nf_metro.parser.model import MetroGraph
 from nf_metro.render.constants import (
     CANVAS_PADDING,
     DEBUG_DIAMOND_RADIUS,
+    DEBUG_ENTRY_PORT_COLOR,
+    DEBUG_EXIT_PORT_COLOR,
     DEBUG_FONT_SIZE,
+    DEBUG_HIDDEN_LABEL_OFFSET,
+    DEBUG_HIDDEN_STATION_COLOR,
+    DEBUG_LABEL_OFFSET,
     DEBUG_STROKE_WIDTH,
+    DEBUG_WAYPOINT_COLOR,
+    DEBUG_WAYPOINT_RADIUS,
+    FALLBACK_LINE_COLOR,
     ICON_BBOX_MARGIN,
     ICON_STATION_GAP,
     LEGEND_GAP,
@@ -22,9 +30,11 @@ from nf_metro.render.constants import (
     SECTION_BOX_RADIUS,
     SECTION_LABEL_TEXT_OFFSET,
     SECTION_NUM_CIRCLE_R_LARGE,
+    SECTION_NUM_FONT_SIZE,
     SECTION_NUM_Y_OFFSET,
     SECTION_STROKE_WIDTH,
     SVG_CURVE_RADIUS,
+    TERMINUS_FONT_COLOR,
     TITLE_Y_OFFSET,
     WATERMARK_FONT_SIZE,
     WATERMARK_PADDING_RATIO,
@@ -262,7 +272,11 @@ def _version_string() -> str:
             data = json.loads(direct_url)
             if data.get("dir_info", {}).get("editable"):
                 return f"v{__version__}+dev"
-    except Exception:
+    except (
+        FileNotFoundError,
+        json.JSONDecodeError,
+        importlib.metadata.PackageNotFoundError,
+    ):
         pass
     return f"v{__version__}"
 
@@ -340,7 +354,7 @@ def _render_first_class_sections(
         d.append(
             draw.Text(
                 str(section.number),
-                9,
+                SECTION_NUM_FONT_SIZE,
                 cx,
                 cy,
                 fill=theme.station_fill,
@@ -389,7 +403,7 @@ def _render_edges(
 
     for route in routes:
         line = graph.lines.get(route.line_id)
-        color = line.color if line else "#888888"
+        color = line.color if line else FALLBACK_LINE_COLOR
 
         if route.offsets_applied:
             # TB section routes have offsets pre-applied in the routing code
@@ -617,7 +631,7 @@ def _render_stations(
                 corner_radius=theme.terminus_corner_radius,
                 label=station.terminus_label,
                 font_size=theme.terminus_font_size,
-                font_color="#000000",
+                font_color=TERMINUS_FONT_COLOR,
                 font_family=theme.label_font_family,
             )
 
@@ -693,7 +707,9 @@ def _render_debug_overlay(
                     pts.append((x, y + tgt_off))
         # Draw intermediate waypoints (skip first/last which are at stations)
         for px, py in pts[1:-1]:
-            d.append(draw.Circle(px, py, 3, fill="rgba(255, 200, 50, 0.6)"))
+            d.append(
+                draw.Circle(px, py, DEBUG_WAYPOINT_RADIUS, fill=DEBUG_WAYPOINT_COLOR)
+            )
 
     # Port stations: diamond markers with labels
     for station in graph.stations.values():
@@ -701,7 +717,7 @@ def _render_debug_overlay(
             continue
         port = graph.ports.get(station.id)
         is_entry = port.is_entry if port else True
-        color = "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
+        color = DEBUG_ENTRY_PORT_COLOR if is_entry else DEBUG_EXIT_PORT_COLOR
         # Diamond (rotated square)
         r = DEBUG_DIAMOND_RADIUS
         diamond = draw.Path(fill=color, stroke="none")
@@ -719,7 +735,7 @@ def _render_debug_overlay(
                 label_text,
                 debug_font_size,
                 station.x,
-                station.y - r - 3,
+                station.y - r - DEBUG_LABEL_OFFSET,
                 fill=color,
                 font_family=debug_font,
                 text_anchor="middle",
@@ -731,7 +747,7 @@ def _render_debug_overlay(
     for station in graph.stations.values():
         if not station.is_hidden or station.is_port:
             continue
-        color = "rgba(180, 80, 255, 0.7)"
+        color = DEBUG_HIDDEN_STATION_COLOR
         d.append(
             draw.Circle(
                 station.x,
@@ -748,7 +764,7 @@ def _render_debug_overlay(
                 station.id,
                 debug_font_size,
                 station.x,
-                station.y - 8,
+                station.y - DEBUG_HIDDEN_LABEL_OFFSET,
                 fill=color,
                 font_family=debug_font,
                 text_anchor="middle",

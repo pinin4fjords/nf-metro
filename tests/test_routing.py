@@ -68,7 +68,7 @@ def test_station_offsets_multiple_lines():
 
 def test_inter_section_routing():
     """Inter-section edges should be routed through ports."""
-    from nf_metro.layout.routing import route_inter_section_edges
+    from tests.routing_inter_section import route_inter_section_edges
 
     graph = parse_metro_mermaid(
         "%%metro line: main | Main | #ff0000\n"

@@ -332,16 +332,16 @@ def _resolve_sections(graph: MetroGraph) -> None:
     entry_side_for_line = _build_entry_side_mapping(graph)
     internal_edges, inter_section_edges = _classify_edges(graph)
 
-    if not inter_section_edges:
-        for i, section in enumerate(graph.sections.values()):
-            if section.number == 0:
-                section.number = i + 1
-        return
+    if inter_section_edges:
+        _create_ports_and_junctions(
+            graph, internal_edges, inter_section_edges, entry_side_for_line
+        )
 
-    _create_ports_and_junctions(
-        graph, internal_edges, inter_section_edges, entry_side_for_line
-    )
+    _assign_section_numbers(graph)
 
+
+def _assign_section_numbers(graph: MetroGraph) -> None:
+    """Assign sequential numbers to sections that don't already have one."""
     for i, section in enumerate(graph.sections.values()):
         if section.number == 0:
             section.number = i + 1
