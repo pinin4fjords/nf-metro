@@ -104,6 +104,12 @@ def route_edges(
         graph, junction_ids, line_priority, bottom_exit_junctions
     )
 
+    # Pre-compute per-gap indices for bypass routes.  Bypass routes from
+    # different source columns can share the same physical gap (e.g.,
+    # two routes both rising through the gap between cols 3 and 4).
+    # Without per-gap offsets they overlap on the shared vertical.
+    bypass_gap_idx = _compute_bypass_gap_indices(graph, junction_ids)
+
     # Edges absorbed into a combined inter-section + entry route
     skip_edges: set[tuple[str, str, str]] = set()
 
@@ -240,7 +246,16 @@ def route_edges(
             else:
                 # src_col, tgt_col, and needs_bypass already resolved above.
                 if needs_bypass:
-                    nest_offset = i * BYPASS_NEST_STEP
+                    # Per-gap indices so bypass routes sharing the same
+                    # physical gap get unique X offsets and Y nesting.
+                    ekey = (edge.source, edge.target, edge.line_id)
+                    g1_j, _g1_n, g2_j, _g2_n = bypass_gap_idx.get(ekey, (0, 1, 0, 1))
+
+                    # Use the wider of per-bundle or per-gap nesting so
+                    # bypass routes from different bundles that share the
+                    # same column range are still separated vertically.
+                    nest_idx = max(i, g2_j)
+                    nest_offset = nest_idx * BYPASS_NEST_STEP
                     base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
                     by = base_y + nest_offset
 
@@ -249,27 +264,44 @@ def route_edges(
                     # with standard L-shape channels sharing the same
                     # inter-column gaps.  gap1 shifts toward the target,
                     # gap2 shifts toward the source.
-                    bypass_x_offset = curve_radius + offset_step
+                    #
+                    # When multiple bypass routes share the same physical
+                    # gap (e.g., routes from different source columns both
+                    # rising through gap between cols 3-4), each gets an
+                    # additional per-route offset to prevent overlap.
+                    base_bypass_offset = curve_radius + offset_step
+                    gap1_extra = g1_j * offset_step
+                    gap2_extra = g2_j * offset_step
                     if dx > 0:
                         gap1_x = (
                             adjacent_column_gap_x(graph, src_col, src_col + 1)
-                            + bypass_x_offset
+                            + base_bypass_offset
+                            + gap1_extra
                         )
                         gap2_x = (
                             adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
-                            - bypass_x_offset
+                            - base_bypass_offset
+                            - gap2_extra
                         )
                     else:
                         gap1_x = (
                             adjacent_column_gap_x(graph, src_col - 1, src_col)
-                            - bypass_x_offset
+                            - base_bypass_offset
+                            - gap1_extra
                         )
                         gap2_x = (
                             adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
-                            + bypass_x_offset
+                            + base_bypass_offset
+                            + gap2_extra
                         )
 
-                    r_val = curve_radius
+                    # Concentric radii: the outer line (larger gap index,
+                    # further from center) gets a larger radius at each
+                    # gap so the U-shape arcs nest visually.
+                    # NOTE: gap1 and gap2 radii may differ when a line
+                    # shares one gap but not the other (see issue #42).
+                    r_gap1 = curve_radius + gap1_extra
+                    r_gap2 = curve_radius + gap2_extra
                     routes.append(
                         RoutedPath(
                             edge=edge,
@@ -283,7 +315,7 @@ def route_edges(
                                 (tx, ty),
                             ],
                             is_inter_section=True,
-                            curve_radii=[r_val, r_val, r_val, r_val],
+                            curve_radii=[r_gap1, r_gap1, r_gap2, r_gap2],
                         )
                     )
                 else:
@@ -779,3 +811,92 @@ def _has_intervening_sections(
         if s.bbox_w > 0 and lo < s.grid_col < hi:
             return True
     return False
+
+
+def _compute_bypass_gap_indices(
+    graph: MetroGraph,
+    junction_ids: set[str],
+) -> dict[tuple[str, str, str], tuple[int, int, int, int]]:
+    """Assign per-gap indices for bypass routes sharing physical gaps.
+
+    Bypass routes from different source columns can share the same
+    physical gap (e.g., routes from cols 1->4 and 2->4 both use the
+    gap between cols 3 and 4 for their gap2 vertical).  This function
+    groups bypass routes by their gap1 and gap2 column pairs and
+    assigns per-gap indices so each route gets a unique X offset.
+
+    Returns
+    -------
+    dict mapping (source_id, target_id, line_id) to
+    (gap1_idx, gap1_count, gap2_idx, gap2_count).
+    """
+    # Collect all bypass edges with their gap column pairs
+    EdgeKey = tuple[str, str, str]
+    bypass_edges: list[tuple[EdgeKey, int, int, float]] = []
+
+    for edge in graph.edges:
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if not src or not tgt:
+            continue
+
+        is_inter = (src.is_port or edge.source in junction_ids) and (
+            tgt.is_port or edge.target in junction_ids
+        )
+        if not is_inter:
+            continue
+
+        src_col = _resolve_section_col(graph, src, junction_ids)
+        tgt_col = _resolve_section_col(graph, tgt, junction_ids)
+        if (
+            src_col is None
+            or tgt_col is None
+            or abs(tgt_col - src_col) <= 1
+            or not _has_intervening_sections(graph, src_col, tgt_col)
+        ):
+            continue
+
+        dx = tgt.x - src.x
+        ekey: EdgeKey = (edge.source, edge.target, edge.line_id)
+        bypass_edges.append((ekey, src_col, tgt_col, dx))
+
+    # Group by gap1 and gap2 column pairs
+    gap1_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
+    gap2_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
+
+    for ekey, src_col, tgt_col, dx in bypass_edges:
+        if dx > 0:
+            gap1_pair = (src_col, src_col + 1)
+            gap2_pair = (tgt_col - 1, tgt_col)
+        else:
+            gap1_pair = (src_col - 1, src_col)
+            gap2_pair = (tgt_col, tgt_col + 1)
+        gap1_groups[gap1_pair].append((ekey, src_col))
+        gap2_groups[gap2_pair].append((ekey, src_col))
+
+    # Assign per-gap indices, sorted by source column for consistent
+    # ordering (routes spanning more columns get outer positions).
+    gap1_idx: dict[EdgeKey, tuple[int, int]] = {}
+    gap2_idx: dict[EdgeKey, tuple[int, int]] = {}
+
+    for group in gap1_groups.values():
+        group.sort(key=lambda x: x[1])
+        n = len(group)
+        for j, (ek, _) in enumerate(group):
+            gap1_idx[ek] = (j, n)
+
+    for group in gap2_groups.values():
+        group.sort(key=lambda x: x[1])
+        n = len(group)
+        for j, (ek, _) in enumerate(group):
+            gap2_idx[ek] = (j, n)
+
+    # Merge into single result
+    result: dict[EdgeKey, tuple[int, int, int, int]] = {}
+    all_keys = set(gap1_idx) | set(gap2_idx)
+    for ek in all_keys:
+        g1_j, g1_n = gap1_idx.get(ek, (0, 1))
+        g2_j, g2_n = gap2_idx.get(ek, (0, 1))
+        result[ek] = (g1_j, g1_n, g2_j, g2_n)
+
+    return result
