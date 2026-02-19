@@ -140,8 +140,20 @@ def route_edges(
                 and src.section_id in tb_sections
             )
 
-            if abs(dy) < COORD_TOLERANCE_FINE:
-                # Same Y: straight horizontal
+            # Resolve section columns early for bypass detection.
+            # Must happen before the same-Y fast path, which would
+            # otherwise draw a straight line through intervening sections.
+            src_col = _resolve_section_col(graph, src, junction_ids)
+            tgt_col = _resolve_section_col(graph, tgt, junction_ids)
+            needs_bypass = (
+                src_col is not None
+                and tgt_col is not None
+                and abs(tgt_col - src_col) > 1
+                and _has_intervening_sections(graph, src_col, tgt_col)
+            )
+
+            if abs(dy) < COORD_TOLERANCE_FINE and not needs_bypass:
+                # Same Y: straight horizontal (no intervening sections)
                 routes.append(
                     RoutedPath(
                         edge=edge,
@@ -226,21 +238,8 @@ def route_edges(
                     )
                 )
             else:
-                # Resolve section columns for source and target.
-                # Ports have section_id directly; junctions need to
-                # trace through edges to find a connected port's section.
-                src_col = _resolve_section_col(graph, src, junction_ids)
-                tgt_col = _resolve_section_col(graph, tgt, junction_ids)
-
-                # Bypass routing: when edge spans 2+ columns and there
-                # are intervening sections, route below them with a
-                # 6-point U-shape instead of cutting through.
-                if (
-                    src_col is not None
-                    and tgt_col is not None
-                    and abs(tgt_col - src_col) > 1
-                    and _has_intervening_sections(graph, src_col, tgt_col)
-                ):
+                # src_col, tgt_col, and needs_bypass already resolved above.
+                if needs_bypass:
                     nest_offset = i * BYPASS_NEST_STEP
                     base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
                     by = base_y + nest_offset

@@ -256,7 +256,7 @@ def render_nextflow_examples() -> None:
         except Exception as e:
             print(f"  nf_{mmd_path.stem}: FAIL - {e}")
 
-    # Hand-tuned variant calling example
+    # Hand-tuned variant calling example (without file icons)
     tuned_path = EXAMPLES_DIR / "variant_calling.mmd"
     if tuned_path.exists():
         svg_path = RENDERS_DIR / "nf_variant_calling_tuned.svg"
@@ -265,6 +265,16 @@ def render_nextflow_examples() -> None:
             print(f"  nf_variant_calling_tuned: OK")
         except Exception as e:
             print(f"  nf_variant_calling_tuned: FAIL - {e}")
+
+    # Hand-tuned variant calling with file icons
+    tuned_icons_path = EXAMPLES_DIR / "variant_calling_tuned.mmd"
+    if tuned_icons_path.exists():
+        svg_path = RENDERS_DIR / "nf_variant_calling_tuned_icons.svg"
+        try:
+            render_mmd(tuned_icons_path, svg_path)
+            print(f"  nf_variant_calling_tuned_icons: OK")
+        except Exception as e:
+            print(f"  nf_variant_calling_tuned_icons: FAIL - {e}")
 
     print()
 
