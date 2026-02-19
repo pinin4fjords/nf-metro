@@ -274,6 +274,5 @@ def _reorder_by_span(graph: MetroGraph, line_order: list[str]) -> list[str]:
     # Stable sort: descending by section count, preserving original order for ties
     return sorted(
         line_order,
-        key=lambda lid: (-len(line_sections.get(lid, set())),
-                         line_order.index(lid)),
+        key=lambda lid: (-len(line_sections.get(lid, set())), line_order.index(lid)),
     )
