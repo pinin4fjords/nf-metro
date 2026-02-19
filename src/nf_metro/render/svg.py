@@ -597,9 +597,12 @@ def _render_stations(
             icon_cy = station.y + (min_off + max_off) / 2
             # Clamp to stay within section bbox
             if section and section.bbox_w > 0:
+                icon_right = (
+                    section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
+                )
                 icon_cx = max(
                     section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
-                    min(icon_cx, section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN),
+                    min(icon_cx, icon_right),
                 )
             render_file_icon(
                 d,

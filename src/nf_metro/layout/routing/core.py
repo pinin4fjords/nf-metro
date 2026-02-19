@@ -40,7 +40,6 @@ from nf_metro.layout.routing.corners import (
 )
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
 
-
 # ---------------------------------------------------------------------------
 # Routing context: pre-computed state shared by all handlers
 # ---------------------------------------------------------------------------
