@@ -126,7 +126,7 @@ ENTRY_SHIFT_TB_CROSS: float = 1.0
 ENTRY_INSET_LR: float = 0.3
 """Entry inset multiplier for LR/RL sections with perpendicular entry."""
 
-EXIT_GAP_MULTIPLIER: float = 0.4
+EXIT_GAP_MULTIPLIER: float = 0.6
 """Exit gap multiplier for flow-side exits."""
 
 JUNCTION_MARGIN: float = 10.0
