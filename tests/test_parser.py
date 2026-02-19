@@ -19,6 +19,24 @@ def test_parse_style():
     assert graph.style == "light"
 
 
+def test_parse_line_order():
+    text = "%%metro line_order: span\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.line_order == "span"
+
+
+def test_parse_line_order_default():
+    text = "graph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.line_order == "definition"
+
+
+def test_parse_line_order_invalid_ignored():
+    text = "%%metro line_order: invalid\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.line_order == "definition"
+
+
 def test_parse_lines():
     text = (
         "%%metro line: main | Main Line | #ff0000\n"
