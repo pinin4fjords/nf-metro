@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 
-from nf_metro.layout.constants import PLACEMENT_X_GAP, PLACEMENT_Y_GAP, PORT_MIN_GAP
+from nf_metro.layout.constants import (
+    MIN_INTER_SECTION_GAP,
+    PLACEMENT_X_GAP,
+    PLACEMENT_Y_GAP,
+    PORT_MIN_GAP,
+)
 from nf_metro.parser.model import MetroGraph, PortSide, Section
 
 
@@ -291,6 +296,57 @@ def place_sections(
     # Top-align sections within their row. No vertical centering -- this
     # keeps the top edges flush so horizontal lines between sections in
     # the same row don't need unnecessary vertical jogs.
+
+    # Enforce minimum physical gap between adjacent columns so bypass
+    # route corners have enough room for smooth curves.
+    _enforce_min_column_gaps(graph, col_assign, min_col, max_col)
+
+
+def _enforce_min_column_gaps(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    min_col: int,
+    max_col: int,
+    min_gap: float = MIN_INTER_SECTION_GAP,
+) -> None:
+    """Shift columns rightward so adjacent section bboxes are at least *min_gap* apart.
+
+    Scans column pairs left-to-right.  For each pair, computes the actual
+    physical gap between the rightmost bbox edge in the left column and the
+    leftmost bbox edge in the right column (using pre-global-transform
+    ``offset_x + bbox_x`` coordinates).  If the gap is too narrow, all
+    sections in the right column and beyond are shifted rightward by the
+    deficit.  Processing left-to-right makes shifts cumulative.
+    """
+    if max_col <= min_col:
+        return
+
+    # Group sections by their assigned column
+    col_sections: dict[int, list[Section]] = defaultdict(list)
+    for sid, section in graph.sections.items():
+        col = col_assign.get(sid, 0)
+        col_sections[col].append(section)
+
+    for col in range(min_col, max_col):
+        left_secs = col_sections.get(col, [])
+        right_secs = col_sections.get(col + 1, [])
+        if not left_secs or not right_secs:
+            continue
+
+        # Rightmost edge of any section in the left column
+        max_right_edge = max(s.offset_x + s.bbox_x + s.bbox_w for s in left_secs)
+        # Leftmost edge of any section in the right column
+        min_left_edge = min(s.offset_x + s.bbox_x for s in right_secs)
+
+        actual_gap = min_left_edge - max_right_edge
+        if actual_gap >= min_gap:
+            continue
+
+        deficit = min_gap - actual_gap
+        # Shift all sections in columns > col rightward
+        for shift_col in range(col + 1, max_col + 1):
+            for s in col_sections.get(shift_col, []):
+                s.offset_x += deficit
 
 
 def position_ports(section: Section, graph: MetroGraph) -> None:

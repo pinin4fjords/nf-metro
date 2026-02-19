@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections import defaultdict
 
 from nf_metro.layout.constants import (
+    BYPASS_CLEARANCE,
+    BYPASS_NEST_STEP,
     CHAR_WIDTH,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
@@ -24,6 +26,8 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.routing.common import (
     RoutedPath,
+    adjacent_column_gap_x,
+    bypass_bottom_y,
     compute_bundle_info,
     inter_column_channel_x,
 )
@@ -222,40 +226,96 @@ def route_edges(
                     )
                 )
             else:
-                # L-shape: vertical bundle between source and target,
-                # with per-line offsets for visual separation.
-                # See corners.l_shape_radii for the concentric arc
-                # geometry and direction-aware ordering.
-                delta, r_first, r_second = l_shape_radii(
-                    i,
-                    n,
-                    going_down=(dy > 0),
-                    offset_step=offset_step,
-                    base_radius=curve_radius,
-                )
+                # Resolve section columns for source and target.
+                # Ports have section_id directly; junctions need to
+                # trace through edges to find a connected port's section.
+                src_col = _resolve_section_col(graph, src, junction_ids)
+                tgt_col = _resolve_section_col(graph, tgt, junction_ids)
 
-                # Place vertical channel in the inter-column gap so it
-                # doesn't pass through sibling sections stacked in the
-                # source's column.
-                max_r = curve_radius + (n - 1) * offset_step
-                mid_x = inter_column_channel_x(
-                    graph, src, tgt, sx, tx, dx, max_r, offset_step
-                )
-                vx = mid_x + delta
-                routes.append(
-                    RoutedPath(
-                        edge=edge,
-                        line_id=edge.line_id,
-                        points=[
-                            (sx, sy),
-                            (vx, sy),
-                            (vx, ty),
-                            (tx, ty),
-                        ],
-                        is_inter_section=True,
-                        curve_radii=[r_first, r_second],
+                # Bypass routing: when edge spans 2+ columns and there
+                # are intervening sections, route below them with a
+                # 6-point U-shape instead of cutting through.
+                if (
+                    src_col is not None
+                    and tgt_col is not None
+                    and abs(tgt_col - src_col) > 1
+                    and _has_intervening_sections(graph, src_col, tgt_col)
+                ):
+                    nest_offset = i * BYPASS_NEST_STEP
+                    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
+                    by = base_y + nest_offset
+
+                    # Gap midpoints adjacent to source and target columns.
+                    # Offset gap2 slightly toward the bypass side so it
+                    # doesn't overlap with standard L-shape channels
+                    # sharing the same inter-column gap.
+                    bypass_x_offset = curve_radius + offset_step
+                    if dx > 0:
+                        gap1_x = adjacent_column_gap_x(graph, src_col, src_col + 1)
+                        gap2_x = (
+                            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
+                            - bypass_x_offset
+                        )
+                    else:
+                        gap1_x = adjacent_column_gap_x(graph, src_col - 1, src_col)
+                        gap2_x = (
+                            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
+                            + bypass_x_offset
+                        )
+
+                    r_val = curve_radius
+                    routes.append(
+                        RoutedPath(
+                            edge=edge,
+                            line_id=edge.line_id,
+                            points=[
+                                (sx, sy),
+                                (gap1_x, sy),
+                                (gap1_x, by),
+                                (gap2_x, by),
+                                (gap2_x, ty),
+                                (tx, ty),
+                            ],
+                            is_inter_section=True,
+                            curve_radii=[r_val, r_val, r_val, r_val],
+                        )
                     )
-                )
+                else:
+                    # Standard L-shape: vertical bundle between source
+                    # and target, with per-line offsets for visual
+                    # separation.
+                    # See corners.l_shape_radii for the concentric arc
+                    # geometry and direction-aware ordering.
+                    delta, r_first, r_second = l_shape_radii(
+                        i,
+                        n,
+                        going_down=(dy > 0),
+                        offset_step=offset_step,
+                        base_radius=curve_radius,
+                    )
+
+                    # Place vertical channel in the inter-column gap so
+                    # it doesn't pass through sibling sections stacked
+                    # in the source's column.
+                    max_r = curve_radius + (n - 1) * offset_step
+                    mid_x = inter_column_channel_x(
+                        graph, src, tgt, sx, tx, dx, max_r, offset_step
+                    )
+                    vx = mid_x + delta
+                    routes.append(
+                        RoutedPath(
+                            edge=edge,
+                            line_id=edge.line_id,
+                            points=[
+                                (sx, sy),
+                                (vx, sy),
+                                (vx, ty),
+                                (tx, ty),
+                            ],
+                            is_inter_section=True,
+                            curve_radii=[r_first, r_second],
+                        )
+                    )
             continue
 
         # TB section internal edges: L-shaped elbows and vertical runs
@@ -667,3 +727,49 @@ def route_edges(
             )
 
     return routes
+
+
+def _resolve_section_col(
+    graph: MetroGraph,
+    station,
+    junction_ids: set[str],
+) -> int | None:
+    """Resolve the grid column for a port or junction station.
+
+    Ports have a section_id directly.  Junctions need to trace through
+    edges to find a connected port's section.
+    """
+    if station.section_id:
+        sec = graph.sections.get(station.section_id)
+        if sec and sec.grid_col >= 0:
+            return sec.grid_col
+        return None
+
+    if station.id in junction_ids:
+        # Follow edges from/to this junction to find a connected port
+        for e in graph.edges:
+            other_id = None
+            if e.source == station.id:
+                other_id = e.target
+            elif e.target == station.id:
+                other_id = e.source
+            if other_id:
+                other = graph.stations.get(other_id)
+                if other and other.section_id:
+                    sec = graph.sections.get(other.section_id)
+                    if sec and sec.grid_col >= 0:
+                        return sec.grid_col
+    return None
+
+
+def _has_intervening_sections(
+    graph: MetroGraph,
+    src_col: int,
+    tgt_col: int,
+) -> bool:
+    """Check if any sections exist in columns strictly between src and tgt."""
+    lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
+    for s in graph.sections.values():
+        if s.bbox_w > 0 and lo < s.grid_col < hi:
+            return True
+    return False
