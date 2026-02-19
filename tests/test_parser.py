@@ -293,6 +293,85 @@ def test_subgraph_without_display_name():
     assert graph.sections["mysection"].name == "mysection"
 
 
+def test_empty_section_removed():
+    """Subgraphs with only edges (no node definitions) are removed.
+
+    Regression test for https://github.com/pinin4fjords/nf-metro/issues/51.
+    When nodes are defined outside a subgraph but edges referencing them
+    appear inside the subgraph, the section has no stations. The parser
+    should remove it and fall back to flat layout instead of crashing.
+    """
+    text = (
+        "%%metro line: dna | DNA | #004b86\n"
+        "graph LR\n"
+        "    cat[cat]\n"
+        "    kraken2[Kraken2]\n"
+        "    centrifuge[centrifuge]\n"
+        "    subgraph blah\n"
+        "        cat -->|dna| kraken2\n"
+        "        cat -->|dna| centrifuge\n"
+        "    end\n"
+    )
+    import warnings
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        graph = parse_metro_mermaid(text)
+        assert len(w) == 1
+        assert "blah" in str(w[0].message)
+        assert "no node definitions" in str(w[0].message)
+
+    # Empty section should be removed
+    assert "blah" not in graph.sections
+    assert len(graph.sections) == 0
+
+    # All stations should still exist and be unsectioned
+    assert "cat" in graph.stations
+    assert "kraken2" in graph.stations
+    assert "centrifuge" in graph.stations
+    assert all(s.section_id is None for s in graph.stations.values())
+
+    # Edges should still exist
+    assert len(graph.edges) == 2
+
+
+def test_empty_section_removed_render():
+    """An empty-section graph can be rendered without error.
+
+    End-to-end regression test for issue #51: ensure the full
+    parse -> layout -> render pipeline doesn't crash.
+    """
+    from nf_metro.layout.engine import compute_layout
+    from nf_metro.render.svg import render_svg
+    from nf_metro.themes import NFCORE_THEME
+
+    text = (
+        "%%metro line: dna | DNA | #004b86\n"
+        "%%metro line: aa | AA | #d9aa00\n"
+        "graph LR\n"
+        "    cat[cat]\n"
+        "    kraken2[Kraken2]\n"
+        "    seqkit[SeqKit]\n"
+        "    subgraph blah\n"
+        "        cat -->|dna| kraken2\n"
+        "    end\n"
+        "    cat -->|aa| seqkit\n"
+    )
+    import warnings
+
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        graph = parse_metro_mermaid(text)
+
+    compute_layout(graph)
+    svg_str = render_svg(graph, NFCORE_THEME)
+
+    # All station labels should appear in the SVG output
+    assert "cat" in svg_str
+    assert "Kraken2" in svg_str
+    assert "SeqKit" in svg_str
+
+
 # --- Hidden station tests ---
 
 

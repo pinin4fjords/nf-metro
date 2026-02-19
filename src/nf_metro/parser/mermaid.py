@@ -9,6 +9,7 @@ Sections are defined as Mermaid subgraphs with %%metro entry/exit directives.
 from __future__ import annotations
 
 import re
+import warnings
 
 from nf_metro.parser.model import (
     Edge,
@@ -91,8 +92,14 @@ def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
         # Try node definition
         _parse_node(stripped, graph, current_section_id)
 
-    # Post-parse: auto-infer layout parameters, then resolve sections
+    # Post-parse: remove empty sections, create implicit section for loose
+    # stations, auto-infer layout parameters, then resolve sections
     if graph.sections:
+        _remove_empty_sections(graph)
+
+    if graph.sections:
+        _create_implicit_section(graph)
+
         from nf_metro.layout.auto_layout import infer_section_layout
 
         infer_section_layout(graph, max_station_columns=max_station_columns)
@@ -327,6 +334,43 @@ def _parse_edge(
     line_ids = [lid.strip() for lid in label.split(",")]
     for line_id in line_ids:
         graph.add_edge(Edge(source=source, target=target, line_id=line_id))
+
+
+def _remove_empty_sections(graph: MetroGraph) -> None:
+    """Remove sections that have no stations.
+
+    Sections can end up empty when a subgraph contains only edges referencing
+    nodes defined elsewhere. Empty sections cause layout failures.
+    """
+    empty_ids = [sid for sid, sec in graph.sections.items() if not sec.station_ids]
+    for sid in empty_ids:
+        del graph.sections[sid]
+        warnings.warn(
+            f"Section '{sid}' has no node definitions and was ignored. "
+            f"Nodes must be defined inside a subgraph (not just referenced "
+            f"in edges) to become members of that section.",
+            stacklevel=2,
+        )
+
+
+def _create_implicit_section(graph: MetroGraph) -> None:
+    """Create an implicit section for stations not in any explicit section.
+
+    When some stations are in sections and others are not, the layout engine
+    only positions sectioned stations. This creates an invisible section for
+    the remaining 'loose' stations so they participate in layout.
+    """
+    loose = [
+        s for s in graph.stations.values() if s.section_id is None and not s.is_port
+    ]
+    if not loose:
+        return
+
+    implicit = Section(id="__implicit__", name="", is_implicit=True)
+    for s in loose:
+        s.section_id = "__implicit__"
+        implicit.station_ids.append(s.id)
+    graph.add_section(implicit)
 
 
 def _resolve_sections(graph: MetroGraph) -> None:

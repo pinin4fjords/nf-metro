@@ -102,6 +102,8 @@ class Section:
     # Global offset (set by section placement)
     offset_x: float = 0.0
     offset_y: float = 0.0
+    # Implicit sections are auto-created for loose stations; no visible box
+    is_implicit: bool = False
 
 
 @dataclass
