@@ -196,7 +196,62 @@ The available directions are:
 - **`TB`** -- top to bottom, useful for vertical connector sections
 - **`RL`** -- right to left, used automatically by the layout engine for serpentine folds in long pipelines
 
-## 5. Putting it all together
+## 5. File input and output icons
+
+Real pipeline diagrams benefit from showing where data enters and leaves. The `%%metro file:` directive marks a station as a file terminus, rendering it as a document icon instead of a regular station marker.
+
+Two things are needed:
+
+1. A **`%%metro file:`** directive at the top of the file, mapping a station ID to a label:
+
+    ```text
+    %%metro file: reads_in | FASTQ
+    %%metro file: report_out | HTML
+    ```
+
+2. A **blank terminus station** (`[ ]`) inside a section, whose ID matches the directive:
+
+    ```text
+    reads_in[ ]
+    ```
+
+The blank label tells nf-metro to render the document icon (with the label from the directive) instead of a pill-shaped station. Connect it to the pipeline with normal edges like any other station.
+
+```text
+%%metro title: File Icons
+%%metro style: dark
+%%metro file: reads_in | FASTQ
+%%metro file: report_out | HTML
+%%metro line: main | Main | #4CAF50
+%%metro line: qc | Quality Control | #2196F3
+
+graph LR
+    subgraph analysis [Analysis]
+        reads_in[ ]
+        trim[Trimming]
+        align[Alignment]
+        quant[Quantification]
+        reads_in -->|main,qc| trim
+        trim -->|main| align
+        align -->|main| quant
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report_out[ ]
+        trim -->|qc| multiqc
+        quant -->|qc| multiqc
+        multiqc -->|qc| report_out
+    end
+```
+
+![File icons example](assets/renders/05_file_icons.svg)
+
+The FASTQ icon at the start of the Analysis section shows the pipeline input. The HTML icon at the end of Reporting shows where the QC report is written. Common labels include FASTQ, BAM, VCF, HTML, and CSV, but you can use any short string.
+
+For a complex real-world example using file icons, see [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd).
+
+## 6. Putting it all together
 
 The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
 

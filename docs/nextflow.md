@@ -240,6 +240,101 @@ graph LR
 
 The changes are small but the diagram reads better: proper casing on labels (BWA-MEM, SAMtools, GATK HaplotypeCaller), a meaningful line name ("QC Reporting" instead of "Preprocess - Reporting"), and a cleaner title. See the [Guide](guide.md) for the full `.mmd` format reference.
 
+## Adding file icons
+
+One of the most useful features for Nextflow pipeline diagrams is marking input and output files with document icons. The `%%metro file:` directive pairs a station ID with a label, and when that station has a blank label (`[ ]`), it renders as a document icon instead of a pill-shaped station marker.
+
+Starting from the hand-tuned variant calling example above, here is what changes:
+
+1. Add `%%metro file:` directives at the top of the file, one per file terminus:
+
+    ```text
+    %%metro file: fastq_in | FASTQ
+    %%metro file: ref_in | FASTA
+    %%metro file: vcf_out | VCF
+    %%metro file: report_out | HTML
+    ```
+
+2. Add blank terminus stations (`[ ]`) at the input and output points of your pipeline. The station ID must match the `%%metro file:` directive:
+
+    ```text
+    fastq_in[ ]
+    ```
+
+3. Connect them to the pipeline with normal edges:
+
+    ```text
+    fastq_in -->|main,qc| fastp
+    ```
+
+Here is the full `.mmd` with file icons added:
+
+```text
+%%metro title: Variant Calling Pipeline
+%%metro style: dark
+%%metro file: fastq_in | FASTQ
+%%metro file: ref_in | FASTA
+%%metro file: vcf_out | VCF
+%%metro file: report_out | HTML
+%%metro line: main | Main | #2db572
+%%metro line: qc | QC Reporting | #0570b0
+
+graph LR
+    subgraph preprocess [Pre-processing]
+        fastq_in[ ]
+        fastqc[FastQC]
+        fastp[FastP]
+        fastq_in -->|main,qc| fastp
+        fastq_in -->|qc| fastqc
+    end
+
+    subgraph alignment [Alignment]
+        ref_in[ ]
+        bwa_index[BWA Index]
+        bwa_mem[BWA-MEM]
+        samtools_sort[SAMtools Sort]
+        samtools_index[SAMtools Index]
+
+        ref_in -->|main| bwa_index
+        bwa_index -->|main| bwa_mem
+        bwa_mem -->|main| samtools_sort
+        samtools_sort -->|main| samtools_index
+    end
+
+    subgraph variant_calling [Variant Calling]
+        gatk[GATK HaplotypeCaller]
+        deepvariant[DeepVariant]
+        bcftools[BCFtools Stats]
+        vcf_out[ ]
+
+        gatk -->|main| bcftools
+        deepvariant -->|main| bcftools
+        bcftools -->|main| vcf_out
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report_out[ ]
+        multiqc -->|qc| report_out
+    end
+
+    %% Inter-section edges
+    fastp -->|main| bwa_mem
+    samtools_sort -->|main| gatk
+    samtools_sort -->|main| deepvariant
+    samtools_index -->|main| gatk
+    samtools_index -->|main| deepvariant
+    bcftools -->|qc| multiqc
+    fastqc -->|qc| multiqc
+    fastp -->|qc| multiqc
+```
+
+![Variant calling - with file icons](assets/renders/nf_variant_calling_tuned_icons.svg)
+
+The FASTQ icon at the start of Pre-processing and the FASTA icon at the start of Alignment show where data enters the pipeline. The VCF icon at the end of Variant Calling and the HTML icon in Reporting show where results are written. This makes the diagram immediately readable to someone unfamiliar with the pipeline.
+
+For a more complex example with multiple file icons, see the nf-core/rnaseq diagram at [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd), which uses FASTQ input icons and HTML report output icons across several sections.
+
 ## How the converter works
 
 Nextflow's `-with-dag` output contains three types of nodes: processes (the actual pipeline steps), channels/values (data plumbing), and operators (Nextflow internals like `mix` and `collect`). Here is the raw DAG for the flat pipeline example:

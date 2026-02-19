@@ -114,3 +114,70 @@ def test_section_routes_have_valid_points():
             f"Route {route.edge.source}->{route.edge.target}"
             f" has {len(route.points)} points"
         )
+
+
+def test_bypass_routing_around_intervening_sections():
+    """Bypass edges spanning 2+ columns should route around intervening sections.
+
+    When a line goes from section A directly to section D (skipping B and C),
+    the routed path must be a U-shape that dips below the intervening sections,
+    not a straight horizontal line through them. This must work regardless of
+    edge declaration order in the .mmd file.
+    """
+    # 4-section linear pipeline: A -> B -> C -> D
+    # "main" goes through all sections, "bypass" skips B and C
+    mmd = (
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro line: bypass | Bypass | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec_a [A]\n"
+        "        a1[A1]\n"
+        "        a2[A2]\n"
+        "        a1 -->|main,bypass| a2\n"
+        "    end\n"
+        "    subgraph sec_b [B]\n"
+        "        b1[B1]\n"
+        "        b2[B2]\n"
+        "        b1 -->|main| b2\n"
+        "    end\n"
+        "    subgraph sec_c [C]\n"
+        "        c1[C1]\n"
+        "        c2[C2]\n"
+        "        c1 -->|main| c2\n"
+        "    end\n"
+        "    subgraph sec_d [D]\n"
+        "        d1[D1]\n"
+        "        d2[D2]\n"
+        "        d1 -->|main,bypass| d2\n"
+        "    end\n"
+        "    a2 -->|main| b1\n"
+        "    b2 -->|main| c1\n"
+        "    c2 -->|main| d1\n"
+        "    a2 -->|bypass| d1\n"
+    )
+    graph = parse_metro_mermaid(mmd)
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    # Find inter-section bypass routes
+    bypass_routes = [r for r in routes if r.line_id == "bypass" and r.is_inter_section]
+    assert bypass_routes, "Expected at least one inter-section bypass route"
+
+    # The bypass route spanning the most X distance is the actual bypass
+    bypass_route = max(
+        bypass_routes, key=lambda r: abs(r.points[-1][0] - r.points[0][0])
+    )
+    assert len(bypass_route.points) > 2, (
+        f"Bypass route should have >2 waypoints (U-shape), "
+        f"got {len(bypass_route.points)}: {bypass_route.points}"
+    )
+
+    # At least one waypoint should be below the bottom of intervening sections
+    intervening_secs = [graph.sections[sid] for sid in ("sec_b", "sec_c")]
+    max_section_bottom = max(s.bbox_y + s.bbox_h for s in intervening_secs)
+    waypoint_ys = [p[1] for p in bypass_route.points]
+    assert any(y > max_section_bottom for y in waypoint_ys), (
+        f"No waypoint below intervening sections (bottom={max_section_bottom}). "
+        f"Waypoint Ys: {waypoint_ys}"
+    )
