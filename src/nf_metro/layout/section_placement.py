@@ -307,6 +307,15 @@ def place_sections(
     _enforce_min_column_gaps(graph, col_assign, min_col, max_col)
 
 
+def _rows_overlap(a: Section, b: Section) -> bool:
+    """Return True if two sections occupy overlapping grid rows."""
+    a_start = a.grid_row
+    a_end = a_start + a.grid_row_span - 1
+    b_start = b.grid_row
+    b_end = b_start + b.grid_row_span - 1
+    return a_start <= b_end and b_start <= a_end
+
+
 def _enforce_min_column_gaps(
     graph: MetroGraph,
     col_assign: dict[str, int],
@@ -316,10 +325,10 @@ def _enforce_min_column_gaps(
 ) -> None:
     """Shift columns rightward so adjacent section bboxes are at least *min_gap* apart.
 
-    Scans column pairs left-to-right.  For each pair, computes the actual
-    physical gap between the rightmost bbox edge in the left column and the
-    leftmost bbox edge in the right column (using pre-global-transform
-    ``offset_x + bbox_x`` coordinates).  If the gap is too narrow, all
+    Scans column pairs left-to-right.  For each pair, finds the narrowest
+    physical gap between sections whose row ranges overlap.  Only row-
+    overlapping pairs can have bypass routes between them, so sections in
+    non-overlapping rows are ignored.  If the gap is too narrow, all
     sections in the right column and beyond are shifted rightward by the
     deficit.  Processing left-to-right makes shifts cumulative.
     """
@@ -338,16 +347,22 @@ def _enforce_min_column_gaps(
         if not left_secs or not right_secs:
             continue
 
-        # Rightmost edge of any section in the left column
-        max_right_edge = max(s.offset_x + s.bbox_x + s.bbox_w for s in left_secs)
-        # Leftmost edge of any section in the right column
-        min_left_edge = min(s.offset_x + s.bbox_x for s in right_secs)
+        # Find the tightest gap among row-overlapping section pairs
+        worst_gap: float | None = None
+        for ls in left_secs:
+            for rs in right_secs:
+                if not _rows_overlap(ls, rs):
+                    continue
+                left_edge = ls.offset_x + ls.bbox_x + ls.bbox_w
+                right_edge = rs.offset_x + rs.bbox_x
+                gap = right_edge - left_edge
+                if worst_gap is None or gap < worst_gap:
+                    worst_gap = gap
 
-        actual_gap = min_left_edge - max_right_edge
-        if actual_gap >= min_gap:
+        if worst_gap is None or worst_gap >= min_gap:
             continue
 
-        deficit = min_gap - actual_gap
+        deficit = min_gap - worst_gap
         # Shift all sections in columns > col rightward
         for shift_col in range(col + 1, max_col + 1):
             for s in col_sections.get(shift_col, []):
