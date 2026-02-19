@@ -13,7 +13,6 @@ import re
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Colour palette for auto-generated metro lines
 # ---------------------------------------------------------------------------
