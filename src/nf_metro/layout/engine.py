@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_PADDING,
     STATION_ELBOW_TOLERANCE,
     TB_LINE_Y_OFFSET,
+    TERMINUS_NUDGE,
     X_OFFSET,
     X_SPACING,
     Y_OFFSET,
@@ -209,6 +210,9 @@ def _layout_single_section(
 
     if not layers:
         return None
+
+    # Nudge terminus stations off lines that pass through their Y
+    _nudge_terminus_tracks(sub, graph, section, tracks)
 
     # Compact tracks to consecutive integers so widely-spaced
     # line priorities don't inflate the vertical spread.
@@ -864,6 +868,68 @@ def _clamp_tb_entry_port(
                         graph.ports[e2.source].y = target_y
 
     return target_y
+
+
+def _nudge_terminus_tracks(
+    sub: MetroGraph,
+    graph: MetroGraph,
+    section: Section,
+    tracks: dict[str, float],
+) -> None:
+    """Nudge terminus stations away from lines that pass through their Y.
+
+    When a terminus station's predecessor has lines continuing to exit ports,
+    those lines will route horizontally through the terminus's position.
+    Moving the terminus to a slightly different track avoids the visual overlap.
+    """
+    import networkx as nx
+
+    G = nx.DiGraph()
+    for edge in sub.edges:
+        G.add_edge(edge.source, edge.target)
+    for sid in sub.stations:
+        if sid not in G:
+            G.add_node(sid)
+
+    exit_port_ids = set(section.exit_ports)
+    line_order = list(graph.lines.keys())
+    line_base = {lid: i for i, lid in enumerate(line_order)}
+
+    for sid, station in sub.stations.items():
+        if not station.is_terminus:
+            continue
+
+        # Find predecessor(s) in the section subgraph
+        preds = list(G.predecessors(sid)) if sid in G else []
+        if not preds:
+            continue
+
+        # Lines that the terminus carries (in the full graph)
+        terminus_lines = set(graph.station_lines(sid))
+
+        # Check if any predecessor connects to exit ports on lines
+        # that the terminus doesn't carry (those lines will pass through)
+        passing_lines = set()
+        for pred_id in preds:
+            for edge in graph.edges:
+                if edge.source == pred_id and edge.target in exit_port_ids:
+                    if edge.line_id not in terminus_lines:
+                        passing_lines.add(edge.line_id)
+
+        if not passing_lines:
+            continue
+
+        # Determine nudge direction: away from the passing lines' base tracks
+        current_track = tracks[sid]
+        passing_bases = [line_base.get(lid, 0) for lid in passing_lines]
+        avg_passing = sum(passing_bases) / len(passing_bases)
+
+        if avg_passing >= current_track:
+            # Passing lines are at or below, nudge up
+            tracks[sid] = current_track - TERMINUS_NUDGE
+        else:
+            # Passing lines are above, nudge down
+            tracks[sid] = current_track + TERMINUS_NUDGE
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
