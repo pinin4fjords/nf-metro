@@ -1,0 +1,919 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Metro-map-style SVG diagrams from Mermaid definitions">
+      
+      
+      
+        <link rel="canonical" href="https://pinin4fjords.github.io/nf-metro/dev/nextflow/">
+      
+      
+        <link rel="prev" href="../guide/">
+      
+      
+        <link rel="next" href="../gallery/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+    
+    
+      
+        <title>Nextflow Import - nf-metro</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="light-green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#importing-from-nextflow" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="nf-metro" class="md-header__button md-logo" aria-label="nf-metro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            nf-metro
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Nextflow Import
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pinin4fjords/nf-metro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pinin4fjords/nf-metro
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="nf-metro" class="md-nav__button md-logo" aria-label="nf-metro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    nf-metro
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pinin4fjords/nf-metro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pinin4fjords/nf-metro
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Import
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#generating-a-nextflow-dag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generating a Nextflow DAG
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#direct-rendering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct rendering
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Direct rendering">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flat-pipeline-no-subworkflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flat pipeline (no subworkflows)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-with-subworkflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline with subworkflows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variant-calling-pipeline-diamond-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variant calling pipeline (diamond pattern)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hand-tuning-the-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hand-tuning the output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-converter-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the converter works
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#generating-a-nextflow-dag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generating a Nextflow DAG
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#direct-rendering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct rendering
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Direct rendering">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flat-pipeline-no-subworkflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flat pipeline (no subworkflows)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-with-subworkflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline with subworkflows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variant-calling-pipeline-diamond-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variant calling pipeline (diamond pattern)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hand-tuning-the-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hand-tuning the output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-converter-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the converter works
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="importing-from-nextflow">Importing from Nextflow<a class="headerlink" href="#importing-from-nextflow" title="Permanent link">&para;</a></h1>
+<p>nf-metro can convert Nextflow's built-in DAG output into a metro map. This works best for simple pipelines with a handful of subworkflows. For complex pipelines like those in nf-core, direct conversion is unlikely to produce a good diagram -- you will need to hand-write or heavily edit the <code>.mmd</code> file. Improving this is an active area of development.</p>
+<h2 id="generating-a-nextflow-dag">Generating a Nextflow DAG<a class="headerlink" href="#generating-a-nextflow-dag" title="Permanent link">&para;</a></h2>
+<p>Nextflow can export its pipeline DAG in mermaid format:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>nextflow<span class="w"> </span>run<span class="w"> </span>my_pipeline.nf<span class="w"> </span>-preview<span class="w"> </span>-with-dag<span class="w"> </span>dag.mmd
+</code></pre></div>
+<p>The <code>-preview</code> flag skips execution and just generates the DAG. The resulting file uses Nextflow's <code>flowchart TB</code> mermaid syntax, which nf-metro cannot render directly but can convert.</p>
+<h2 id="direct-rendering">Direct rendering<a class="headerlink" href="#direct-rendering" title="Permanent link">&para;</a></h2>
+<p>The quickest way to get a metro map is to convert and render in one step with the <code>--from-nextflow</code> flag. The following examples show what you get straight out of the box.</p>
+<h3 id="flat-pipeline-no-subworkflows">Flat pipeline (no subworkflows)<a class="headerlink" href="#flat-pipeline-no-subworkflows" title="Permanent link">&para;</a></h3>
+<p>A simple five-process pipeline with no subworkflows:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">workflow</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="n">reads_ch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Channel</span><span class="o">.</span><span class="na">of</span><span class="o">([</span><span class="s2">&quot;sample1&quot;</span><span class="o">,</span><span class="w"> </span><span class="o">[</span><span class="n">file</span><span class="o">(</span><span class="s2">&quot;reads/s1_1.fq.gz&quot;</span><span class="o">),</span><span class="w"> </span><span class="n">file</span><span class="o">(</span><span class="s2">&quot;reads/s1_2.fq.gz&quot;</span><span class="o">)]])</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="n">reference_ch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Channel</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="n">file</span><span class="o">(</span><span class="s2">&quot;genome.fa&quot;</span><span class="o">))</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="n">FASTQC</span><span class="o">(</span><span class="n">reads_ch</span><span class="o">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="n">TRIM_READS</span><span class="o">(</span><span class="n">reads_ch</span><span class="o">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="n">ALIGN</span><span class="o">(</span><span class="n">TRIM_READS</span><span class="o">.</span><span class="na">out</span><span class="o">,</span><span class="w"> </span><span class="n">reference_ch</span><span class="o">.</span><span class="na">collect</span><span class="o">())</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="n">SORT_BAM</span><span class="o">(</span><span class="n">ALIGN</span><span class="o">.</span><span class="na">out</span><span class="o">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="n">MULTIQC</span><span class="o">(</span><span class="n">FASTQC</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">zip</span><span class="o">.</span><span class="na">mix</span><span class="o">(</span><span class="n">SORT_BAM</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">map</span><span class="w"> </span><span class="o">{</span><span class="w"> </span><span class="n">it</span><span class="o">[</span><span class="mi">1</span><span class="o">]</span><span class="w"> </span><span class="o">}).</span><span class="na">collect</span><span class="o">())</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="o">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>nextflow<span class="w"> </span>run<span class="w"> </span>flat_pipeline.nf<span class="w"> </span>-preview<span class="w"> </span>-with-dag<span class="w"> </span>dag.mmd
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>nf-metro<span class="w"> </span>render<span class="w"> </span>dag.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.svg<span class="w"> </span>--from-nextflow
+</code></pre></div>
+<p><img alt="Flat pipeline - direct render" src="../assets/renders/nf_flat_pipeline.svg" /></p>
+<p>With no subworkflows everything lands in a single section. The converter assigns one "main" line following the longest path. This is about as clean as it gets.</p>
+<h3 id="pipeline-with-subworkflows">Pipeline with subworkflows<a class="headerlink" href="#pipeline-with-subworkflows" title="Permanent link">&para;</a></h3>
+<p>A pipeline with three subworkflows (Preprocess, Alignment, Quantification) plus a standalone MultiQC process:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">workflow</span><span class="w"> </span><span class="n">PREPROCESS</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nl">take:</span><span class="w"> </span><span class="n">reads</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nl">main:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="n">FASTQC</span><span class="o">(</span><span class="n">reads</span><span class="o">)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="n">TRIMGALORE</span><span class="o">(</span><span class="n">reads</span><span class="o">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nl">emit:</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="n">reads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TRIMGALORE</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">reads</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="n">fastqc_zip</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FASTQC</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">zip</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="n">trim_log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TRIMGALORE</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">log</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="o">}</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">workflow</span><span class="w"> </span><span class="n">ALIGNMENT</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">    </span><span class="nl">take:</span><span class="w"> </span><span class="n">reads</span><span class="o">;</span><span class="w"> </span><span class="n">genome</span><span class="o">;</span><span class="w"> </span><span class="n">gtf</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="nl">main:</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="n">STAR_GENOMEGENERATE</span><span class="o">(</span><span class="n">genome</span><span class="o">,</span><span class="w"> </span><span class="n">gtf</span><span class="o">)</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="n">STAR_ALIGN</span><span class="o">(</span><span class="n">reads</span><span class="o">,</span><span class="w"> </span><span class="n">STAR_GENOMEGENERATE</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">index</span><span class="o">.</span><span class="na">collect</span><span class="o">())</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="n">SAMTOOLS_SORT</span><span class="o">(</span><span class="n">STAR_ALIGN</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">bam</span><span class="o">)</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">    </span><span class="n">SAMTOOLS_INDEX</span><span class="o">(</span><span class="n">SAMTOOLS_SORT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">bam</span><span class="o">)</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">    </span><span class="nl">emit:</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">    </span><span class="n">bam</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SAMTOOLS_SORT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">bam</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span><span class="n">star_log</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">STAR_ALIGN</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">log</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="o">}</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="n">workflow</span><span class="w"> </span><span class="n">QUANTIFICATION</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="w">    </span><span class="nl">take:</span><span class="w"> </span><span class="n">bam</span><span class="o">;</span><span class="w"> </span><span class="n">gtf</span>
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="w">    </span><span class="nl">main:</span>
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="w">    </span><span class="n">SALMON_QUANT</span><span class="o">(</span><span class="n">bam</span><span class="o">,</span><span class="w"> </span><span class="n">gtf</span><span class="o">)</span>
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="w">    </span><span class="nl">emit:</span>
+<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a><span class="w">    </span><span class="n">results</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SALMON_QUANT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">results</span>
+<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a><span class="o">}</span>
+<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a>
+<a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a><span class="n">workflow</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a><span class="w">    </span><span class="n">PREPROCESS</span><span class="o">(</span><span class="n">reads_ch</span><span class="o">)</span>
+<a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a><span class="w">    </span><span class="n">ALIGNMENT</span><span class="o">(</span><span class="n">PREPROCESS</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">reads</span><span class="o">,</span><span class="w"> </span><span class="n">genome_ch</span><span class="o">,</span><span class="w"> </span><span class="n">gtf_ch</span><span class="o">)</span>
+<a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a><span class="w">    </span><span class="n">QUANTIFICATION</span><span class="o">(</span><span class="n">ALIGNMENT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">bam</span><span class="o">,</span><span class="w"> </span><span class="n">gtf_ch</span><span class="o">)</span>
+<a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a><span class="w">    </span><span class="n">MULTIQC</span><span class="o">(</span><span class="cm">/* all logs */</span><span class="o">)</span>
+<a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a><span class="o">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>nextflow<span class="w"> </span>run<span class="w"> </span>with_subworkflows.nf<span class="w"> </span>-preview<span class="w"> </span>-with-dag<span class="w"> </span>dag.mmd
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>nf-metro<span class="w"> </span>render<span class="w"> </span>dag.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.svg<span class="w"> </span>--from-nextflow
+</code></pre></div>
+<p><img alt="Pipeline with subworkflows - direct render" src="../assets/renders/nf_with_subworkflows.svg" /></p>
+<p>The converter maps each subworkflow to a section and auto-creates a "Reporting" section for the standalone MultiQC. It detects bypass lines (edges skipping sections, like QC metrics going from Preprocess directly to Reporting) and spur lines (dead-end processes like Samtools Index).</p>
+<h3 id="variant-calling-pipeline-diamond-pattern">Variant calling pipeline (diamond pattern)<a class="headerlink" href="#variant-calling-pipeline-diamond-pattern" title="Permanent link">&para;</a></h3>
+<p>A pipeline where two variant callers (GATK and DeepVariant) both receive input from the same alignment step and reconverge at BCFtools Stats:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">workflow</span><span class="w"> </span><span class="n">VARIANT_CALLING</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="nl">take:</span><span class="w"> </span><span class="n">bam</span><span class="o">;</span><span class="w"> </span><span class="n">bai</span><span class="o">;</span><span class="w"> </span><span class="n">genome</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nl">main:</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="n">bam_bai</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bam</span><span class="o">.</span><span class="na">join</span><span class="o">(</span><span class="n">bai</span><span class="o">)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="n">GATK_HAPLOTYPECALLER</span><span class="o">(</span><span class="n">bam_bai</span><span class="o">,</span><span class="w"> </span><span class="n">genome</span><span class="o">.</span><span class="na">collect</span><span class="o">())</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="n">DEEPVARIANT</span><span class="o">(</span><span class="n">bam_bai</span><span class="o">,</span><span class="w"> </span><span class="n">genome</span><span class="o">.</span><span class="na">collect</span><span class="o">())</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="n">BCFTOOLS_STATS</span><span class="o">(</span><span class="n">GATK_HAPLOTYPECALLER</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">vcf</span><span class="o">.</span><span class="na">mix</span><span class="o">(</span><span class="n">DEEPVARIANT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">vcf</span><span class="o">))</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nl">emit:</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="n">stats</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">BCFTOOLS_STATS</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">stats</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="o">}</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="n">workflow</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="n">PREPROCESS</span><span class="o">(</span><span class="n">reads_ch</span><span class="o">)</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">    </span><span class="n">ALIGNMENT</span><span class="o">(</span><span class="n">PREPROCESS</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">reads</span><span class="o">,</span><span class="w"> </span><span class="n">genome_ch</span><span class="o">)</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">    </span><span class="n">VARIANT_CALLING</span><span class="o">(</span><span class="n">ALIGNMENT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">bam</span><span class="o">,</span><span class="w"> </span><span class="n">ALIGNMENT</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">bai</span><span class="o">,</span><span class="w"> </span><span class="n">genome_ch</span><span class="o">)</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="n">MULTIQC</span><span class="o">(</span><span class="cm">/* all logs */</span><span class="o">)</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="o">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>nextflow<span class="w"> </span>run<span class="w"> </span>variant_calling.nf<span class="w"> </span>-preview<span class="w"> </span>-with-dag<span class="w"> </span>dag.mmd
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>nf-metro<span class="w"> </span>render<span class="w"> </span>dag.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.svg<span class="w"> </span>--from-nextflow
+</code></pre></div>
+<p><img alt="Variant calling - direct render" src="../assets/renders/nf_variant_calling.svg" /></p>
+<p>The diamond fan-out/fan-in in the Variant Calling section renders cleanly.</p>
+<h2 id="hand-tuning-the-output">Hand-tuning the output<a class="headerlink" href="#hand-tuning-the-output" title="Permanent link">&para;</a></h2>
+<p>For anything beyond a toy pipeline, the two-step workflow gives better results. Convert first, edit the <code>.mmd</code>, then render:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>nf-metro<span class="w"> </span>convert<span class="w"> </span>dag.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.mmd<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;My Pipeline&quot;</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="c1"># edit pipeline.mmd</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>nf-metro<span class="w"> </span>render<span class="w"> </span>pipeline.mmd<span class="w"> </span>-o<span class="w"> </span>pipeline.svg
+</code></pre></div>
+<p>Here is what the converter produces for the variant calling pipeline:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>%%metro title: Preprocess / Alignment / Variant Calling Pipeline
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>%%metro style: dark
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>%%metro line: main | Main | #2db572
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>%%metro line: preprocess_reporting | Preprocess - Reporting | #0570b0
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>graph LR
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    subgraph preprocess [Preprocess]
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>        fastqc([Fastqc])
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>        fastp([Fastp])
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>    end
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    subgraph alignment [Alignment]
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>        bwa_index([Bwa Index])
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>        bwa_mem([Bwa Mem])
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>        samtools_sort([Samtools Sort])
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>        samtools_index([Samtools Index])
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>        bwa_index --&gt;|main| bwa_mem
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>        bwa_mem --&gt;|main| samtools_sort
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>        samtools_sort --&gt;|main| samtools_index
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>    end
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>    subgraph variant_calling [Variant Calling]
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>        gatk_haplotypecaller([Gatk Haplotypeca])
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>        deepvariant([Deepvariant])
+<a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>        bcftools_stats([Bcftools Stats])
+<a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>
+<a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a>        gatk_haplotypecaller --&gt;|main| bcftools_stats
+<a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a>        deepvariant --&gt;|main| bcftools_stats
+<a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a>    end
+<a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a>
+<a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-8-33" name="__codelineno-8-33" href="#__codelineno-8-33"></a>        multiqc([Multiqc])
+<a id="__codelineno-8-34" name="__codelineno-8-34" href="#__codelineno-8-34"></a>    end
+<a id="__codelineno-8-35" name="__codelineno-8-35" href="#__codelineno-8-35"></a>
+<a id="__codelineno-8-36" name="__codelineno-8-36" href="#__codelineno-8-36"></a>    %% Inter-section edges
+<a id="__codelineno-8-37" name="__codelineno-8-37" href="#__codelineno-8-37"></a>    bcftools_stats --&gt;|main| multiqc
+<a id="__codelineno-8-38" name="__codelineno-8-38" href="#__codelineno-8-38"></a>    fastp --&gt;|main| bwa_mem
+<a id="__codelineno-8-39" name="__codelineno-8-39" href="#__codelineno-8-39"></a>    samtools_sort --&gt;|main| gatk_haplotypecaller
+<a id="__codelineno-8-40" name="__codelineno-8-40" href="#__codelineno-8-40"></a>    samtools_sort --&gt;|main| deepvariant
+<a id="__codelineno-8-41" name="__codelineno-8-41" href="#__codelineno-8-41"></a>    samtools_index --&gt;|main| gatk_haplotypecaller
+<a id="__codelineno-8-42" name="__codelineno-8-42" href="#__codelineno-8-42"></a>    samtools_index --&gt;|main| deepvariant
+<a id="__codelineno-8-43" name="__codelineno-8-43" href="#__codelineno-8-43"></a>    fastqc --&gt;|preprocess_reporting| multiqc
+<a id="__codelineno-8-44" name="__codelineno-8-44" href="#__codelineno-8-44"></a>    fastp --&gt;|preprocess_reporting| multiqc
+</code></pre></div>
+<p>After editing -- cleaning up labels, renaming the bypass line, and adding a proper title -- the <code>.mmd</code> becomes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>%%metro title: Variant Calling Pipeline
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>%%metro style: dark
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>%%metro line: main | Main | #2db572
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>%%metro line: qc | QC Reporting | #0570b0
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>graph LR
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    subgraph preprocess [Pre-processing]
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>        fastqc[FastQC]
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>        fastp[FastP]
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>    end
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    subgraph alignment [Alignment]
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>        bwa_index[BWA Index]
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>        bwa_mem[BWA-MEM]
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>        samtools_sort[SAMtools Sort]
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>        samtools_index[SAMtools Index]
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>        bwa_index --&gt;|main| bwa_mem
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>        bwa_mem --&gt;|main| samtools_sort
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>        samtools_sort --&gt;|main| samtools_index
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>    end
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>    subgraph variant_calling [Variant Calling]
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>        gatk[GATK HaplotypeCaller]
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>        deepvariant[DeepVariant]
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a>        bcftools[BCFtools Stats]
+<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>
+<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>        gatk --&gt;|main| bcftools
+<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>        deepvariant --&gt;|main| bcftools
+<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a>    end
+<a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a>
+<a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a>        multiqc[MultiQC]
+<a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a>    end
+<a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a>
+<a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a>    %% Inter-section edges
+<a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a>    fastp --&gt;|main| bwa_mem
+<a id="__codelineno-9-38" name="__codelineno-9-38" href="#__codelineno-9-38"></a>    samtools_sort --&gt;|main| gatk
+<a id="__codelineno-9-39" name="__codelineno-9-39" href="#__codelineno-9-39"></a>    samtools_sort --&gt;|main| deepvariant
+<a id="__codelineno-9-40" name="__codelineno-9-40" href="#__codelineno-9-40"></a>    samtools_index --&gt;|main| gatk
+<a id="__codelineno-9-41" name="__codelineno-9-41" href="#__codelineno-9-41"></a>    samtools_index --&gt;|main| deepvariant
+<a id="__codelineno-9-42" name="__codelineno-9-42" href="#__codelineno-9-42"></a>    bcftools --&gt;|main| multiqc
+<a id="__codelineno-9-43" name="__codelineno-9-43" href="#__codelineno-9-43"></a>    fastqc --&gt;|qc| multiqc
+<a id="__codelineno-9-44" name="__codelineno-9-44" href="#__codelineno-9-44"></a>    fastp --&gt;|qc| multiqc
+</code></pre></div>
+<p><img alt="Variant calling - hand-tuned" src="../assets/renders/nf_variant_calling_tuned.svg" /></p>
+<p>The changes are small but the diagram reads better: proper casing on labels (BWA-MEM, SAMtools, GATK HaplotypeCaller), a meaningful line name ("QC Reporting" instead of "Preprocess - Reporting"), and a cleaner title. See the <a href="../guide/">Guide</a> for the full <code>.mmd</code> format reference.</p>
+<h2 id="how-the-converter-works">How the converter works<a class="headerlink" href="#how-the-converter-works" title="Permanent link">&para;</a></h2>
+<p>Nextflow's <code>-with-dag</code> output contains three types of nodes: processes (the actual pipeline steps), channels/values (data plumbing), and operators (Nextflow internals like <code>mix</code> and <code>collect</code>). Here is the raw DAG for the flat pipeline example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>flowchart TB
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    subgraph &quot; &quot;
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    v0[&quot;Channel.of&quot;]
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    v1[&quot;Channel.of&quot;]
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    end
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>    v2([&quot;FASTQC&quot;])
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>    v4([&quot;TRIM_READS&quot;])
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>    v6([&quot;ALIGN&quot;])
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>    v7([&quot;SORT_BAM&quot;])
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>    v11([&quot;MULTIQC&quot;])
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>    v5(( ))
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>    v8(( ))
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>    v0 --&gt; v2
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>    v0 --&gt; v4
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    v1 --&gt; v5
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>    v4 --&gt; v6
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>    v5 --&gt; v6
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>    v6 --&gt; v7
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>    v7 --&gt; v8
+<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>    v2 --&gt; v8
+<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>    v8 --&gt; v11
+</code></pre></div>
+<p>The converter:</p>
+<ol>
+<li>
+<p><strong>Drops non-process nodes</strong> -- channel nodes (<code>v0["Channel.of"]</code>), value nodes (<code>v1["Channel.of"]</code>), and operator nodes (<code>v5(( ))</code>, <code>v8(( ))</code>) are removed. Only stadium-shaped process nodes like <code>v2(["FASTQC"])</code> are kept.</p>
+</li>
+<li>
+<p><strong>Reconnects edges</strong> -- edges that went through dropped nodes are stitched back together. For example, <code>SORT_BAM --&gt; v8 --&gt; MULTIQC</code> becomes <code>SORT_BAM --&gt; MULTIQC</code>, and <code>FASTQC --&gt; v8 --&gt; MULTIQC</code> becomes <code>FASTQC --&gt; MULTIQC</code>.</p>
+</li>
+<li>
+<p><strong>Maps subworkflows to sections</strong> -- Nextflow subworkflows become nf-metro <code>subgraph</code> sections. Processes not in any subworkflow are grouped into auto-generated sections.</p>
+</li>
+<li>
+<p><strong>Assigns metro lines</strong> -- the longest path gets the "main" line. Edges that skip sections get their own bypass lines. Dead-end processes get spur lines.</p>
+</li>
+<li>
+<p><strong>Cleans up labels</strong> -- <code>SCREAMING_SNAKE_CASE</code> becomes <code>Title Case</code>, and long names are abbreviated.</p>
+</li>
+</ol>
+<p>The result for this example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>%%metro title: Pipeline
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>%%metro style: dark
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>%%metro line: main | Main | #2db572
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>graph LR
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    subgraph pipeline [Pipeline]
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>        fastqc([Fastqc])
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>        trim_reads([Trim Reads])
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>        align([Align])
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>        sort_bam([Sort Bam])
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>        multiqc([Multiqc])
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>        fastqc --&gt;|main| multiqc
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>        trim_reads --&gt;|main| align
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>        align --&gt;|main| sort_bam
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>        sort_bam --&gt;|main| multiqc
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>    end
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "navigation.sections", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
