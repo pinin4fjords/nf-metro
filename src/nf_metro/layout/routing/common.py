@@ -133,9 +133,7 @@ def compute_bundle_info(
                 )
             else:
                 group.sort(
-                    key=lambda e: line_priority.get(
-                        e[0].line_id, DEFAULT_LINE_PRIORITY
-                    )
+                    key=lambda e: line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY)
                 )
         else:
             # Fan-in: edges from different source ports. Sort by

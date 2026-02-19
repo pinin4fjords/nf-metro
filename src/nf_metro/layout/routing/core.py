@@ -194,9 +194,7 @@ def _build_routing_context(
 # ---------------------------------------------------------------------------
 
 
-def _get_offset(
-    ctx: _RoutingCtx, station_id: str, line_id: str
-) -> float:
+def _get_offset(ctx: _RoutingCtx, station_id: str, line_id: str) -> float:
     """Get the station offset for a (station, line) pair, defaulting to 0."""
     if ctx.station_offsets:
         return ctx.station_offsets.get((station_id, line_id), 0.0)
@@ -376,10 +374,7 @@ def _route_bypass(
             - gap1_extra
         )
         gap1_x = max(gap1_x, sx + ctx.curve_radius)
-        gap2_x = (
-            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
-            - gap2_extra
-        )
+        gap2_x = adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) - gap2_extra
     else:
         gap1_x = (
             adjacent_column_gap_x(graph, src_col - 1, src_col)
@@ -387,10 +382,7 @@ def _route_bypass(
             + gap1_extra
         )
         gap1_x = min(gap1_x, sx - ctx.curve_radius)
-        gap2_x = (
-            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
-            + gap2_extra
-        )
+        gap2_x = adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) + gap2_extra
 
     r_bypass = ctx.curve_radius + max(gap1_extra, gap2_extra)
     return RoutedPath(
@@ -419,7 +411,8 @@ def _route_l_shape(
     dy = ty - sy
 
     delta, r_first, r_second = l_shape_radii(
-        i, n,
+        i,
+        n,
         going_down=(dy > 0),
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
