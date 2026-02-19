@@ -2,7 +2,7 @@
 
 nf-metro can convert Nextflow's built-in DAG output into a metro map. This works best for simple pipelines with a handful of subworkflows. For complex pipelines like those in nf-core, direct conversion is unlikely to produce a good diagram -- you will need to hand-write or heavily edit the `.mmd` file. Improving this is an active area of development.
 
-## Getting started
+## Generating a Nextflow DAG
 
 Nextflow can export its pipeline DAG in mermaid format:
 
@@ -12,32 +12,19 @@ nextflow run my_pipeline.nf -preview -with-dag dag.mmd
 
 The `-preview` flag skips execution and just generates the DAG. The resulting file uses Nextflow's `flowchart TB` mermaid syntax, which nf-metro cannot render directly but can convert.
 
-The recommended workflow is to convert first, then review and optionally edit before rendering:
+## Direct rendering
 
-```bash
-# Convert Nextflow DAG to nf-metro format
-nf-metro convert dag.mmd -o pipeline.mmd --title "My Pipeline"
+The quickest way to get a metro map is to convert and render in one step with the `--from-nextflow` flag. The following examples show what you get straight out of the box.
 
-# Review the .mmd file, then render
-nf-metro render pipeline.mmd -o pipeline.svg
-```
+### Flat pipeline (no subworkflows)
 
-For simple pipelines where hand-tuning is not needed, you can convert and render in one step:
-
-```bash
-nf-metro render dag.mmd -o pipeline.svg --from-nextflow --title "My Pipeline"
-```
-
-## Examples
-
-The following examples use simple Nextflow pipelines to show what the converter produces. Each starts from a real `nextflow -with-dag` output.
-
-### 1. Flat pipeline (no subworkflows)
-
-A linear pipeline with five processes and no subworkflows:
+A simple five-process pipeline with no subworkflows:
 
 ```groovy
 workflow {
+    reads_ch = Channel.of(["sample1", [file("reads/s1_1.fq.gz"), file("reads/s1_2.fq.gz")]])
+    reference_ch = Channel.of(file("genome.fa"))
+
     FASTQC(reads_ch)
     TRIM_READS(reads_ch)
     ALIGN(TRIM_READS.out, reference_ch.collect())
@@ -46,7 +33,216 @@ workflow {
 }
 ```
 
-Nextflow produces this DAG (`nextflow run flat_pipeline.nf -preview -with-dag dag.mmd`):
+```bash
+nextflow run flat_pipeline.nf -preview -with-dag dag.mmd
+nf-metro render dag.mmd -o pipeline.svg --from-nextflow
+```
+
+![Flat pipeline - direct render](assets/renders/nf_flat_pipeline.svg)
+
+With no subworkflows everything lands in a single section. The converter assigns one "main" line following the longest path. This is about as clean as it gets.
+
+### Pipeline with subworkflows
+
+A pipeline with three subworkflows (Preprocess, Alignment, Quantification) plus a standalone MultiQC process:
+
+```groovy
+workflow PREPROCESS {
+    take: reads
+    main:
+    FASTQC(reads)
+    TRIMGALORE(reads)
+    emit:
+    reads = TRIMGALORE.out.reads
+    fastqc_zip = FASTQC.out.zip
+    trim_log = TRIMGALORE.out.log
+}
+
+workflow ALIGNMENT {
+    take: reads; genome; gtf
+    main:
+    STAR_GENOMEGENERATE(genome, gtf)
+    STAR_ALIGN(reads, STAR_GENOMEGENERATE.out.index.collect())
+    SAMTOOLS_SORT(STAR_ALIGN.out.bam)
+    SAMTOOLS_INDEX(SAMTOOLS_SORT.out.bam)
+    emit:
+    bam = SAMTOOLS_SORT.out.bam
+    star_log = STAR_ALIGN.out.log
+}
+
+workflow QUANTIFICATION {
+    take: bam; gtf
+    main:
+    SALMON_QUANT(bam, gtf)
+    emit:
+    results = SALMON_QUANT.out.results
+}
+
+workflow {
+    PREPROCESS(reads_ch)
+    ALIGNMENT(PREPROCESS.out.reads, genome_ch, gtf_ch)
+    QUANTIFICATION(ALIGNMENT.out.bam, gtf_ch)
+    MULTIQC(/* all logs */)
+}
+```
+
+```bash
+nextflow run with_subworkflows.nf -preview -with-dag dag.mmd
+nf-metro render dag.mmd -o pipeline.svg --from-nextflow
+```
+
+![Pipeline with subworkflows - direct render](assets/renders/nf_with_subworkflows.svg)
+
+The converter maps each subworkflow to a section and auto-creates a "Reporting" section for the standalone MultiQC. It detects bypass lines (edges skipping sections, like QC metrics going from Preprocess directly to Reporting) and spur lines (dead-end processes like Samtools Index).
+
+### Variant calling pipeline (diamond pattern)
+
+A pipeline where two variant callers (GATK and DeepVariant) both receive input from the same alignment step and reconverge at BCFtools Stats:
+
+```groovy
+workflow VARIANT_CALLING {
+    take: bam; bai; genome
+    main:
+    bam_bai = bam.join(bai)
+    GATK_HAPLOTYPECALLER(bam_bai, genome.collect())
+    DEEPVARIANT(bam_bai, genome.collect())
+    BCFTOOLS_STATS(GATK_HAPLOTYPECALLER.out.vcf.mix(DEEPVARIANT.out.vcf))
+    emit:
+    stats = BCFTOOLS_STATS.out.stats
+}
+
+workflow {
+    PREPROCESS(reads_ch)
+    ALIGNMENT(PREPROCESS.out.reads, genome_ch)
+    VARIANT_CALLING(ALIGNMENT.out.bam, ALIGNMENT.out.bai, genome_ch)
+    MULTIQC(/* all logs */)
+}
+```
+
+```bash
+nextflow run variant_calling.nf -preview -with-dag dag.mmd
+nf-metro render dag.mmd -o pipeline.svg --from-nextflow
+```
+
+![Variant calling - direct render](assets/renders/nf_variant_calling.svg)
+
+The diamond fan-out/fan-in in the Variant Calling section renders cleanly.
+
+## Hand-tuning the output
+
+For anything beyond a toy pipeline, the two-step workflow gives better results. Convert first, edit the `.mmd`, then render:
+
+```bash
+nf-metro convert dag.mmd -o pipeline.mmd --title "My Pipeline"
+# edit pipeline.mmd
+nf-metro render pipeline.mmd -o pipeline.svg
+```
+
+Here is what the converter produces for the variant calling pipeline:
+
+```text
+%%metro title: Preprocess / Alignment / Variant Calling Pipeline
+%%metro style: dark
+%%metro line: main | Main | #2db572
+%%metro line: preprocess_reporting | Preprocess - Reporting | #0570b0
+
+graph LR
+    subgraph preprocess [Preprocess]
+        fastqc([Fastqc])
+        fastp([Fastp])
+    end
+
+    subgraph alignment [Alignment]
+        bwa_index([Bwa Index])
+        bwa_mem([Bwa Mem])
+        samtools_sort([Samtools Sort])
+        samtools_index([Samtools Index])
+
+        bwa_index -->|main| bwa_mem
+        bwa_mem -->|main| samtools_sort
+        samtools_sort -->|main| samtools_index
+    end
+
+    subgraph variant_calling [Variant Calling]
+        gatk_haplotypecaller([Gatk Haplotypeca])
+        deepvariant([Deepvariant])
+        bcftools_stats([Bcftools Stats])
+
+        gatk_haplotypecaller -->|main| bcftools_stats
+        deepvariant -->|main| bcftools_stats
+    end
+
+    subgraph reporting [Reporting]
+        multiqc([Multiqc])
+    end
+
+    %% Inter-section edges
+    bcftools_stats -->|main| multiqc
+    fastp -->|main| bwa_mem
+    samtools_sort -->|main| gatk_haplotypecaller
+    samtools_sort -->|main| deepvariant
+    samtools_index -->|main| gatk_haplotypecaller
+    samtools_index -->|main| deepvariant
+    fastqc -->|preprocess_reporting| multiqc
+    fastp -->|preprocess_reporting| multiqc
+```
+
+After editing -- cleaning up labels, renaming the bypass line, and adding a proper title -- the `.mmd` becomes:
+
+```text
+%%metro title: Variant Calling Pipeline
+%%metro style: dark
+%%metro line: main | Main | #2db572
+%%metro line: qc | QC Reporting | #0570b0
+
+graph LR
+    subgraph preprocess [Pre-processing]
+        fastqc[FastQC]
+        fastp[FastP]
+    end
+
+    subgraph alignment [Alignment]
+        bwa_index[BWA Index]
+        bwa_mem[BWA-MEM]
+        samtools_sort[SAMtools Sort]
+        samtools_index[SAMtools Index]
+
+        bwa_index -->|main| bwa_mem
+        bwa_mem -->|main| samtools_sort
+        samtools_sort -->|main| samtools_index
+    end
+
+    subgraph variant_calling [Variant Calling]
+        gatk[GATK HaplotypeCaller]
+        deepvariant[DeepVariant]
+        bcftools[BCFtools Stats]
+
+        gatk -->|main| bcftools
+        deepvariant -->|main| bcftools
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+    end
+
+    %% Inter-section edges
+    fastp -->|main| bwa_mem
+    samtools_sort -->|main| gatk
+    samtools_sort -->|main| deepvariant
+    samtools_index -->|main| gatk
+    samtools_index -->|main| deepvariant
+    bcftools -->|main| multiqc
+    fastqc -->|qc| multiqc
+    fastp -->|qc| multiqc
+```
+
+![Variant calling - hand-tuned](assets/renders/nf_variant_calling_tuned.svg)
+
+The changes are small but the diagram reads better: proper casing on labels (BWA-MEM, SAMtools, GATK HaplotypeCaller), a meaningful line name ("QC Reporting" instead of "Preprocess - Reporting"), and a cleaner title. See the [Guide](guide.md) for the full `.mmd` format reference.
+
+## How the converter works
+
+Nextflow's `-with-dag` output contains three types of nodes: processes (the actual pipeline steps), channels/values (data plumbing), and operators (Nextflow internals like `mix` and `collect`). Here is the raw DAG for the flat pipeline example:
 
 ```text
 flowchart TB
@@ -72,9 +268,19 @@ flowchart TB
     v8 --> v11
 ```
 
-The channel nodes (`v0`, `v1`), value nodes, and operator nodes (`v5`, `v8`) are Nextflow internals. The converter strips these and keeps only the process nodes, reconnecting edges through the removed nodes.
+The converter:
 
-Running `nf-metro convert dag.mmd -o pipeline.mmd` produces:
+1. **Drops non-process nodes** -- channel nodes (`v0["Channel.of"]`), value nodes (`v1["Channel.of"]`), and operator nodes (`v5(( ))`, `v8(( ))`) are removed. Only stadium-shaped process nodes like `v2(["FASTQC"])` are kept.
+
+2. **Reconnects edges** -- edges that went through dropped nodes are stitched back together. For example, `SORT_BAM --> v8 --> MULTIQC` becomes `SORT_BAM --> MULTIQC`, and `FASTQC --> v8 --> MULTIQC` becomes `FASTQC --> MULTIQC`.
+
+3. **Maps subworkflows to sections** -- Nextflow subworkflows become nf-metro `subgraph` sections. Processes not in any subworkflow are grouped into auto-generated sections.
+
+4. **Assigns metro lines** -- the longest path gets the "main" line. Edges that skip sections get their own bypass lines. Dead-end processes get spur lines.
+
+5. **Cleans up labels** -- `SCREAMING_SNAKE_CASE` becomes `Title Case`, and long names are abbreviated.
+
+The result for this example:
 
 ```text
 %%metro title: Pipeline
@@ -95,143 +301,3 @@ graph LR
         sort_bam -->|main| multiqc
     end
 ```
-
-![Flat pipeline](assets/renders/nf_flat_pipeline.svg)
-
-With no subworkflows, everything lands in a single section. The converter assigns a single "main" line following the longest path.
-
-### 2. Pipeline with subworkflows
-
-Adding subworkflows gives the converter structure to work with. This pipeline has three subworkflows (Preprocess, Alignment, Quantification) plus a standalone MultiQC process:
-
-```groovy
-workflow PREPROCESS {
-    FASTQC(reads)
-    TRIMGALORE(reads)
-}
-
-workflow ALIGNMENT {
-    STAR_GENOMEGENERATE(genome, gtf)
-    STAR_ALIGN(reads, STAR_GENOMEGENERATE.out.index.collect())
-    SAMTOOLS_SORT(STAR_ALIGN.out.bam)
-    SAMTOOLS_INDEX(SAMTOOLS_SORT.out.bam)
-}
-
-workflow QUANTIFICATION {
-    SALMON_QUANT(bam, gtf)
-}
-
-workflow {
-    PREPROCESS(reads_ch)
-    ALIGNMENT(PREPROCESS.out.reads, genome_ch, gtf_ch)
-    QUANTIFICATION(ALIGNMENT.out.bam, gtf_ch)
-    MULTIQC(/* all logs */)
-}
-```
-
-The converter maps each subworkflow to a section and auto-creates a "Reporting" section for the standalone MultiQC. It also detects bypass lines (edges that skip sections, like QC metrics going from Preprocess directly to Reporting) and spur lines (dead-end processes like Samtools Index that branch off the main flow):
-
-```text
-%%metro title: Preprocess / Alignment / Quantification Pipeline
-%%metro style: dark
-%%metro line: main | Main | #2db572
-%%metro line: spur | Spur | #e63946
-%%metro line: alignment_reporting | Alignment - Reporting | #f5c542
-%%metro line: preprocess_reporting | Preprocess - Reporting | #0570b0
-
-graph LR
-    subgraph preprocess [Preprocess]
-        fastqc([Fastqc])
-        trimgalore([Trimgalore])
-    end
-
-    subgraph alignment [Alignment]
-        star_genomegenerate([Star Genomegener])
-        star_align([Star Align])
-        samtools_sort([Samtools Sort])
-        samtools_index([Samtools Index])
-
-        star_genomegenerate -->|main| star_align
-        star_align -->|main| samtools_sort
-        samtools_sort -->|spur| samtools_index
-    end
-
-    subgraph quantification [Quantification]
-        salmon_quant([Salmon Quant])
-    end
-
-    subgraph reporting [Reporting]
-        multiqc([Multiqc])
-    end
-
-    %% Inter-section edges
-    trimgalore -->|main| star_align
-    samtools_sort -->|main| salmon_quant
-    salmon_quant -->|main| multiqc
-    fastqc -->|preprocess_reporting| multiqc
-    trimgalore -->|preprocess_reporting| multiqc
-    star_align -->|alignment_reporting| multiqc
-```
-
-![Pipeline with subworkflows](assets/renders/nf_with_subworkflows.svg)
-
-This is where the limits start to show. The bypass lines (blue and yellow) route through intermediate sections rather than around them, and the layout gets busy. For a pipeline this size, hand-editing the converted `.mmd` is recommended.
-
-### 3. Diamond pattern (two variant callers)
-
-This pipeline has a diamond pattern where two variant callers (GATK and DeepVariant) both receive input from the same alignment step and both feed into BCFtools Stats:
-
-```groovy
-workflow VARIANT_CALLING {
-    GATK_HAPLOTYPECALLER(bam_bai, genome_ch)
-    DEEPVARIANT(bam_bai, genome_ch)
-    BCFTOOLS_STATS(
-        GATK_HAPLOTYPECALLER.out.vcf.mix(DEEPVARIANT.out.vcf)
-    )
-}
-```
-
-The converter handles the diamond cleanly:
-
-```text
-%%metro title: Preprocess / Alignment / Variant Calling Pipeline
-%%metro style: dark
-%%metro line: main | Main | #2db572
-%%metro line: preprocess_reporting | Preprocess - Reporting | #0570b0
-
-graph LR
-    subgraph variant_calling [Variant Calling]
-        gatk_haplotypecaller([Gatk Haplotypeca])
-        deepvariant([Deepvariant])
-        bcftools_stats([Bcftools Stats])
-
-        gatk_haplotypecaller -->|main| bcftools_stats
-        deepvariant -->|main| bcftools_stats
-    end
-
-    %% Inter-section edges
-    samtools_sort -->|main| gatk_haplotypecaller
-    samtools_sort -->|main| deepvariant
-    samtools_index -->|main| gatk_haplotypecaller
-    samtools_index -->|main| deepvariant
-```
-
-![Variant calling pipeline](assets/renders/nf_variant_calling.svg)
-
-The fan-out from Alignment to the two callers and fan-in to BCFtools Stats renders well. The QC bypass line from Preprocess to Reporting is the same known limitation as example 2.
-
-## Hand-tuning the output
-
-The converted `.mmd` file is plain text. Common edits:
-
-- Rename lines or change their colors (`%%metro line:` directives)
-- Rename sections (the `subgraph` display names)
-- Add entry/exit port hints to control line routing at section boundaries
-- Remove or merge sections to simplify the layout
-- Add `%%metro grid:` directives to override section placement
-
-See the [Guide](guide.md) for the full `.mmd` format reference.
-
-## How the converter works
-
-The converter strips Nextflow's channel and operator nodes (keeping only processes), reconnects edges through the removed nodes, maps subworkflows to sections, and assigns colored metro lines based on the graph structure. Process names are cleaned up from `SCREAMING_SNAKE_CASE` to `Title Case` and long names are abbreviated.
