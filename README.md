@@ -80,6 +80,7 @@ nf-metro render [OPTIONS] INPUT_FILE
 | `--animate / --no-animate` | off | Add animated balls traveling along lines |
 | `--debug / --no-debug` | off | Show debug overlay (ports, hidden stations, edge waypoints) |
 | `--logo PATH` | none | Logo image path (overrides `%%metro logo:` directive) |
+| `--line-order [definition\|span]` | from file | Line ordering strategy: `definition` preserves `.mmd` order, `span` sorts by section span (longest first) |
 
 The `--logo` flag lets you use the same `.mmd` file with different logos for dark/light themes:
 
@@ -280,6 +281,7 @@ These are automatically rewritten into port-to-port connections with junction st
 | `%%metro line: <id> \| <name> \| <color>` | Global | Define a metro line |
 | `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Global | Pin section to grid position |
 | `%%metro legend: <position>` | Global | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, `none` |
+| `%%metro line_order: <strategy>` | Global | Line ordering for track assignment: `definition` (default) or `span` (longest-spanning lines get inner tracks) |
 | `%%metro file: <station> \| <label>` | Global | Mark a station as a file terminus with a document icon |
 | `%%metro entry: <side> \| <lines>` | Section | Entry port hint |
 | `%%metro exit: <side> \| <lines>` | Section | Exit port hint |

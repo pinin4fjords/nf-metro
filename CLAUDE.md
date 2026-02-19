@@ -71,6 +71,7 @@ The pipeline is: **Parse** -> **Layout** -> **Render**
 %%metro title: Pipeline Name
 %%metro style: dark
 %%metro line: line_id | Display Name | #hexcolor
+%%metro line_order: span
 %%metro grid: section_id | col,row
 
 graph LR
