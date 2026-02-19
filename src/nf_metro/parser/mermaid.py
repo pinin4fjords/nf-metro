@@ -23,6 +23,16 @@ from nf_metro.parser.model import (
 
 def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives."""
+    # Detect Nextflow DAG input and give a helpful error
+    stripped = text.strip()
+    if stripped.startswith("flowchart "):
+        raise ValueError(
+            "This looks like a Nextflow -with-dag mermaid file "
+            "(starts with 'flowchart'). Use 'nf-metro convert' to "
+            "convert it to nf-metro format first, or pass "
+            "'--from-nextflow' to 'nf-metro render'."
+        )
+
     graph = MetroGraph()
     lines = text.strip().split("\n")
 
