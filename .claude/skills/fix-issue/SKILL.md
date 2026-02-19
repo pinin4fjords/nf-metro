@@ -42,10 +42,16 @@ pip install -e "/tmp/nf-metro-fix-<NUMBER>[dev]" && pip install cairosvg
 
 Work inside the worktree. After making changes:
 
-1. Format: `ruff format src/ tests/`
-2. Lint: `ruff check src/ tests/`
-3. Test: `pytest`
-4. Fix any failures before proceeding.
+**IMPORTANT:** The shell cwd resets after each Bash tool call, so ruff/pytest
+MUST be run with an explicit `cd` into the worktree in the same command.
+Running `ruff check src/ tests/` without `cd` will silently check the main repo
+instead of the worktree, masking lint errors.
+
+```bash
+source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER> && cd /tmp/nf-metro-fix-<NUMBER> && ruff format src/ tests/ && ruff check src/ tests/ && pytest
+```
+
+Fix any failures before proceeding.
 
 ## Phase 5: Render and Visual Review
 
