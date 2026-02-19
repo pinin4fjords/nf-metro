@@ -334,13 +334,9 @@ def _enforce_min_column_gaps(
             continue
 
         # Rightmost edge of any section in the left column
-        max_right_edge = max(
-            s.offset_x + s.bbox_x + s.bbox_w for s in left_secs
-        )
+        max_right_edge = max(s.offset_x + s.bbox_x + s.bbox_w for s in left_secs)
         # Leftmost edge of any section in the right column
-        min_left_edge = min(
-            s.offset_x + s.bbox_x for s in right_secs
-        )
+        min_left_edge = min(s.offset_x + s.bbox_x for s in right_secs)
 
         actual_gap = min_left_edge - max_right_edge
         if actual_gap >= min_gap:

@@ -242,9 +242,7 @@ def route_edges(
                     and _has_intervening_sections(graph, src_col, tgt_col)
                 ):
                     nest_offset = i * BYPASS_NEST_STEP
-                    base_y = bypass_bottom_y(
-                        graph, src_col, tgt_col, BYPASS_CLEARANCE
-                    )
+                    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
                     by = base_y + nest_offset
 
                     # Gap midpoints adjacent to source and target columns.
@@ -253,19 +251,17 @@ def route_edges(
                     # sharing the same inter-column gap.
                     bypass_x_offset = curve_radius + offset_step
                     if dx > 0:
-                        gap1_x = adjacent_column_gap_x(
-                            graph, src_col, src_col + 1
+                        gap1_x = adjacent_column_gap_x(graph, src_col, src_col + 1)
+                        gap2_x = (
+                            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
+                            - bypass_x_offset
                         )
-                        gap2_x = adjacent_column_gap_x(
-                            graph, tgt_col - 1, tgt_col
-                        ) - bypass_x_offset
                     else:
-                        gap1_x = adjacent_column_gap_x(
-                            graph, src_col - 1, src_col
+                        gap1_x = adjacent_column_gap_x(graph, src_col - 1, src_col)
+                        gap2_x = (
+                            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
+                            + bypass_x_offset
                         )
-                        gap2_x = adjacent_column_gap_x(
-                            graph, tgt_col, tgt_col + 1
-                        ) + bypass_x_offset
 
                     r_val = curve_radius
                     routes.append(
