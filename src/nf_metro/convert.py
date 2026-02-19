@@ -544,6 +544,7 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     out: list[str] = []
     out.append(f"%%metro title: {title}")
     out.append("%%metro style: dark")
+    out.append("%%metro line_order: span")
     out.append(f"%%metro line: {main_line_id} | {main_line_name} | {main_color}")
     if spur_line_id:
         out.append(f"%%metro line: {spur_line_id} | {spur_line_name} | {spur_color}")

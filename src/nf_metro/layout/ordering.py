@@ -247,3 +247,33 @@ def _place_fan_out(
     for i, node in enumerate(nodes):
         offset = (i - (n - 1) / 2) * fan_spacing
         tracks[node] = anchor + offset
+
+
+def _reorder_by_span(graph: MetroGraph, line_order: list[str]) -> list[str]:
+    """Reorder lines by section span (descending).
+
+    Lines that span more sections get earlier (inner) tracks.
+    Ties are broken by preserving the original definition order.
+    """
+    if not graph.sections:
+        return line_order
+
+    # For each line, count how many distinct sections it touches
+    line_sections: dict[str, set[str]] = {lid: set() for lid in line_order}
+    for edge in graph.edges:
+        lid = edge.line_id
+        if lid not in line_sections:
+            continue
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if src and src.section_id:
+            line_sections[lid].add(src.section_id)
+        if tgt and tgt.section_id:
+            line_sections[lid].add(tgt.section_id)
+
+    # Stable sort: descending by section count, preserving original order for ties
+    return sorted(
+        line_order,
+        key=lambda lid: (-len(line_sections.get(lid, set())),
+                         line_order.index(lid)),
+    )

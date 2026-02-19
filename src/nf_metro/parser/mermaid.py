@@ -148,6 +148,10 @@ def _parse_directive(
                 graph._explicit_directions.add(current_section_id)
     elif content.startswith("grid:"):
         _parse_grid_directive(content, graph)
+    elif content.startswith("line_order:"):
+        order = content[len("line_order:") :].strip().lower()
+        if order in ("definition", "span"):
+            graph.line_order = order
     elif content.startswith("logo:"):
         graph.logo_path = content[len("logo:") :].strip()
     elif content.startswith("legend:"):

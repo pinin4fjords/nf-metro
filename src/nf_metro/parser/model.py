@@ -129,6 +129,7 @@ class MetroGraph:
     ports: dict[str, Port] = field(default_factory=dict)
     junctions: list[str] = field(default_factory=list)
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
+    line_order: str = "definition"  # "definition" or "span"
     legend_position: str = "bottom"
     logo_path: str = ""
     # Section IDs that had explicit %%metro direction: directives
