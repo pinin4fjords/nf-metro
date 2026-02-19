@@ -316,10 +316,7 @@ def test_hidden_station_auto_created_from_edge():
 def test_hidden_station_edge_before_definition():
     """Hidden flag is set correctly when edge precedes node definition."""
     text = (
-        "graph LR\n"
-        "    a -->|main| _split\n"
-        "    _split[Split]\n"
-        "    _split -->|main| b\n"
+        "graph LR\n    a -->|main| _split\n    _split[Split]\n    _split -->|main| b\n"
     )
     graph = parse_metro_mermaid(text)
     assert graph.stations["_split"].is_hidden is True
@@ -329,10 +326,7 @@ def test_hidden_station_edge_before_definition():
 def test_hidden_station_definition_before_edge():
     """Hidden flag is set correctly when node definition precedes edge."""
     text = (
-        "graph LR\n"
-        "    _split[Split]\n"
-        "    a -->|main| _split\n"
-        "    _split -->|main| b\n"
+        "graph LR\n    _split[Split]\n    a -->|main| _split\n    _split -->|main| b\n"
     )
     graph = parse_metro_mermaid(text)
     assert graph.stations["_split"].is_hidden is True
