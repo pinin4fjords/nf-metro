@@ -70,6 +70,23 @@ nf-metro render [OPTIONS] INPUT_FILE
 | `--animate / --no-animate` | off | Add animated balls traveling along lines |
 | `--debug / --no-debug` | off | Show debug overlay |
 | `--logo PATH` | none | Logo image path (overrides `%%metro logo:` directive) |
+| `--from-nextflow` | off | Convert Nextflow `-with-dag` input before rendering |
+| `--title TEXT` | none | Pipeline title (used with `--from-nextflow`) |
+
+### `nf-metro convert`
+
+Convert a Nextflow `-with-dag` mermaid file to nf-metro format.
+
+```
+nf-metro convert [OPTIONS] INPUT_FILE
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-o`, `--output PATH` | stdout | Output `.mmd` file path |
+| `--title TEXT` | auto | Pipeline title |
+
+See [Importing from Nextflow](nextflow.md) for details and examples.
 
 ### `nf-metro validate`
 

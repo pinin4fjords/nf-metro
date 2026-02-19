@@ -70,6 +70,18 @@ def cli() -> None:
     default=None,
     help="Logo image path (overrides %%metro logo: directive)",
 )
+@click.option(
+    "--from-nextflow",
+    is_flag=True,
+    default=False,
+    help="Convert Nextflow -with-dag mermaid input before rendering",
+)
+@click.option(
+    "--title",
+    type=str,
+    default=None,
+    help="Pipeline title (used with --from-nextflow)",
+)
 def render(
     input_file: Path,
     output: Path | None,
@@ -82,9 +94,17 @@ def render(
     animate: bool,
     debug: bool,
     logo: Path | None,
+    from_nextflow: bool,
+    title: str | None,
 ) -> None:
     """Render a Mermaid metro map definition to SVG."""
     text = input_file.read_text()
+
+    if from_nextflow:
+        from nf_metro.convert import convert_nextflow_dag
+
+        text = convert_nextflow_dag(text, title=title or "")
+
     try:
         graph = parse_metro_mermaid(
             text,
@@ -116,6 +136,55 @@ def render(
         f"{len(graph.edges)} edges, "
         f"{len(graph.lines)} lines -> {output}"
     )
+
+
+@cli.command()
+@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output .mmd file path. Defaults to stdout.",
+)
+@click.option(
+    "--title",
+    type=str,
+    default=None,
+    help="Pipeline title for the converted output",
+)
+def convert(
+    input_file: Path,
+    output: Path | None,
+    title: str | None,
+) -> None:
+    """Convert a Nextflow -with-dag mermaid file to nf-metro .mmd format.
+
+    Takes a .mmd file produced by `nextflow -with-dag file.mmd` and converts
+    it to nf-metro format. The output can then be rendered with `nf-metro render`
+    or hand-tuned before rendering.
+    """
+    from nf_metro.convert import convert_nextflow_dag, is_nextflow_dag
+
+    text = input_file.read_text()
+
+    if not is_nextflow_dag(text):
+        click.echo(
+            "Warning: input does not look like a Nextflow DAG "
+            "(expected 'flowchart TB' header)",
+            err=True,
+        )
+
+    result = convert_nextflow_dag(text, title=title or "")
+
+    if output is None:
+        click.echo(result, nl=False)
+    else:
+        output.write_text(result)
+        # Count sections and processes in the output
+        sections = result.count("subgraph ")
+        processes = result.count("([")
+        click.echo(f"Converted {processes} processes, {sections} sections -> {output}")
 
 
 @cli.command()

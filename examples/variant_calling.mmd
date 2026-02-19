@@ -1,0 +1,44 @@
+%%metro title: Variant Calling Pipeline
+%%metro style: dark
+%%metro line: main | Main | #2db572
+%%metro line: qc | QC Reporting | #0570b0
+
+graph LR
+    subgraph preprocess [Pre-processing]
+        fastqc[FastQC]
+        fastp[FastP]
+    end
+
+    subgraph alignment [Alignment]
+        bwa_index[BWA Index]
+        bwa_mem[BWA-MEM]
+        samtools_sort[SAMtools Sort]
+        samtools_index[SAMtools Index]
+
+        bwa_index -->|main| bwa_mem
+        bwa_mem -->|main| samtools_sort
+        samtools_sort -->|main| samtools_index
+    end
+
+    subgraph variant_calling [Variant Calling]
+        gatk[GATK HaplotypeCaller]
+        deepvariant[DeepVariant]
+        bcftools[BCFtools Stats]
+
+        gatk -->|main| bcftools
+        deepvariant -->|main| bcftools
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+    end
+
+    %% Inter-section edges
+    fastp -->|main| bwa_mem
+    samtools_sort -->|main| gatk
+    samtools_sort -->|main| deepvariant
+    samtools_index -->|main| gatk
+    samtools_index -->|main| deepvariant
+    bcftools -->|main| multiqc
+    fastqc -->|qc| multiqc
+    fastp -->|qc| multiqc
