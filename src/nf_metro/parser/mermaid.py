@@ -120,50 +120,91 @@ def _parse_directive(
     """Parse a %%metro directive line."""
     content = line[len("%%metro") :].strip()
 
-    if content.startswith("title:"):
-        graph.title = content[len("title:") :].strip()
-    elif content.startswith("style:"):
-        graph.style = content[len("style:") :].strip()
-    elif content.startswith("line:"):
-        parts = content[len("line:") :].strip().split("|")
-        if len(parts) >= 3:
-            graph.add_line(
-                MetroLine(
-                    id=parts[0].strip(),
-                    display_name=parts[1].strip(),
-                    color=parts[2].strip(),
-                )
+    for prefix, handler in _DIRECTIVE_HANDLERS:
+        if content.startswith(prefix):
+            handler(content[len(prefix) :].strip(), graph, current_section_id)
+            return
+
+
+def _handle_title(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    graph.title = value
+
+
+def _handle_style(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    graph.style = value
+
+
+def _handle_line(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    parts = value.split("|")
+    if len(parts) >= 3:
+        graph.add_line(
+            MetroLine(
+                id=parts[0].strip(),
+                display_name=parts[1].strip(),
+                color=parts[2].strip(),
             )
-    elif content.startswith("entry:"):
-        if current_section_id:
-            _parse_port_hint(content, graph, current_section_id, is_entry=True)
-    elif content.startswith("exit:"):
-        if current_section_id:
-            _parse_port_hint(content, graph, current_section_id, is_entry=False)
-    elif content.startswith("direction:"):
-        if current_section_id and current_section_id in graph.sections:
-            direction = content[len("direction:") :].strip().upper()
-            if direction in ("LR", "RL", "TB"):
-                graph.sections[current_section_id].direction = direction
-                graph._explicit_directions.add(current_section_id)
-    elif content.startswith("grid:"):
-        _parse_grid_directive(content, graph)
-    elif content.startswith("line_order:"):
-        order = content[len("line_order:") :].strip().lower()
-        if order in ("definition", "span"):
-            graph.line_order = order
-    elif content.startswith("logo:"):
-        graph.logo_path = content[len("logo:") :].strip()
-    elif content.startswith("legend:"):
-        pos = content[len("legend:") :].strip().lower()
-        if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
-            graph.legend_position = pos
-    elif content.startswith("file:"):
-        parts = content[len("file:") :].strip().split("|")
-        if len(parts) >= 2:
-            station_id = parts[0].strip()
-            ext_label = parts[1].strip()
-            graph._pending_terminus[station_id] = ext_label
+        )
+
+
+def _handle_entry(value: str, graph: MetroGraph, sid: str | None) -> None:
+    if sid:
+        _parse_port_hint("entry:" + value, graph, sid, is_entry=True)
+
+
+def _handle_exit(value: str, graph: MetroGraph, sid: str | None) -> None:
+    if sid:
+        _parse_port_hint("exit:" + value, graph, sid, is_entry=False)
+
+
+def _handle_direction(value: str, graph: MetroGraph, sid: str | None) -> None:
+    if sid and sid in graph.sections:
+        direction = value.upper()
+        if direction in ("LR", "RL", "TB"):
+            graph.sections[sid].direction = direction
+            graph._explicit_directions.add(sid)
+
+
+def _handle_grid(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    _parse_grid_directive("grid:" + value, graph)
+
+
+def _handle_line_order(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    order = value.lower()
+    if order in ("definition", "span"):
+        graph.line_order = order
+
+
+def _handle_logo(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    graph.logo_path = value
+
+
+def _handle_legend(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    pos = value.lower()
+    if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
+        graph.legend_position = pos
+
+
+def _handle_file(value: str, graph: MetroGraph, _sid: str | None) -> None:
+    parts = value.split("|")
+    if len(parts) >= 2:
+        station_id = parts[0].strip()
+        ext_label = parts[1].strip()
+        graph._pending_terminus[station_id] = ext_label
+
+
+_DIRECTIVE_HANDLERS: list[tuple[str, callable]] = [
+    ("title:", _handle_title),
+    ("style:", _handle_style),
+    ("line_order:", _handle_line_order),
+    ("line:", _handle_line),
+    ("entry:", _handle_entry),
+    ("exit:", _handle_exit),
+    ("direction:", _handle_direction),
+    ("grid:", _handle_grid),
+    ("logo:", _handle_logo),
+    ("legend:", _handle_legend),
+    ("file:", _handle_file),
+]
 
 
 def _parse_port_hint(
@@ -388,19 +429,10 @@ def _classify_edges(
     return internal_edges, inter_section_edges
 
 
-def _create_ports_and_junctions(
+def _determine_exit_sides(
     graph: MetroGraph,
-    internal_edges: list[Edge],
-    inter_section_edges: list[Edge],
-    entry_side_for_line: dict[tuple[str, str], PortSide],
-) -> None:
-    """Create exit/entry ports and junctions, rewrite inter-section edges.
-
-    Creates one exit port per source section, one entry port per
-    (target_section, entry_side), and inserts junction stations where
-    an exit port fans out to multiple entry ports.
-    """
-    # Determine section-level exit side from hints
+) -> dict[str, PortSide]:
+    """Map each section to its exit side based on exit hints."""
     section_exit_side: dict[str, PortSide] = {}
     for sec_id, section in graph.sections.items():
         unique_sides = {side for side, _line_ids in section.exit_hints}
@@ -408,20 +440,41 @@ def _create_ports_and_junctions(
             section_exit_side[sec_id] = unique_sides.pop()
         else:
             section_exit_side[sec_id] = PortSide.RIGHT
+    return section_exit_side
 
-    # Group edges by exit and entry
+
+def _group_inter_section_edges(
+    graph: MetroGraph,
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+) -> tuple[dict[str, list[Edge]], dict[tuple[str, PortSide], list[Edge]]]:
+    """Group inter-section edges by exit section and (entry section, side)."""
     exit_group_edges: dict[str, list[Edge]] = {}
     entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
 
     for edge in inter_section_edges:
         src_sec = graph.section_for_station(edge.source)
         tgt_sec = graph.section_for_station(edge.target)
-        entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
+        entry_side = entry_side_for_line.get(
+            (tgt_sec, edge.line_id), PortSide.LEFT
+        )
 
         exit_group_edges.setdefault(src_sec, []).append(edge)
         entry_group_edges.setdefault((tgt_sec, entry_side), []).append(edge)
 
-    # Create exit ports (one per source section)
+    return exit_group_edges, entry_group_edges
+
+
+def _create_port_stations(
+    graph: MetroGraph,
+    exit_group_edges: dict[str, list[Edge]],
+    entry_group_edges: dict[tuple[str, PortSide], list[Edge]],
+    section_exit_side: dict[str, PortSide],
+) -> tuple[dict[str, str], dict[tuple[str, PortSide], str], int]:
+    """Create exit and entry port stations on the graph.
+
+    Returns (exit_port_map, entry_port_map, next_port_counter).
+    """
     port_counter = 0
     exit_port_map: dict[str, str] = {}
 
@@ -440,7 +493,6 @@ def _create_ports_and_junctions(
         exit_port_map[sec_id] = port_id
         port_counter += 1
 
-    # Create entry ports (one per target section per side)
     entry_port_map: dict[tuple[str, PortSide], str] = {}
 
     for (sec_id, side), edges in entry_group_edges.items():
@@ -457,7 +509,19 @@ def _create_ports_and_junctions(
         entry_port_map[(sec_id, side)] = port_id
         port_counter += 1
 
-    # Rewrite inter-section edges into 3-part chains
+    return exit_port_map, entry_port_map, port_counter
+
+
+def _rewrite_edges_with_junctions(
+    graph: MetroGraph,
+    internal_edges: list[Edge],
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+    exit_port_map: dict[str, str],
+    entry_port_map: dict[tuple[str, PortSide], str],
+    port_counter: int,
+) -> None:
+    """Rewrite inter-section edges into 3-part chains with junctions."""
     new_edges: list[Edge] = list(internal_edges)
 
     # Group by exit port to detect fan-outs
@@ -466,7 +530,9 @@ def _create_ports_and_junctions(
     for edge in inter_section_edges:
         src_sec = graph.section_for_station(edge.source)
         tgt_sec = graph.section_for_station(edge.target)
-        entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
+        entry_side = entry_side_for_line.get(
+            (tgt_sec, edge.line_id), PortSide.LEFT
+        )
 
         exit_port_id = exit_port_map[src_sec]
         entry_port_id = entry_port_map[(tgt_sec, entry_side)]
@@ -478,9 +544,10 @@ def _create_ports_and_junctions(
             Edge(source=entry_port_id, target=edge.target, line_id=edge.line_id)
         )
 
-        exit_fan.setdefault(exit_port_id, {}).setdefault(entry_port_id, []).append(edge)
+        exit_fan.setdefault(exit_port_id, {}).setdefault(
+            entry_port_id, []
+        ).append(edge)
 
-    # Insert junctions where an exit port fans out to multiple entry ports
     for exit_port_id, entry_targets in exit_fan.items():
         if len(entry_targets) <= 1:
             for entry_port_id, edges in entry_targets.items():
@@ -495,7 +562,9 @@ def _create_ports_and_junctions(
         else:
             junction_id = f"__junction_{port_counter}"
             port_counter += 1
-            junction = Station(id=junction_id, label="", is_port=True, section_id=None)
+            junction = Station(
+                id=junction_id, label="", is_port=True, section_id=None
+            )
             graph.add_station(junction)
             graph.junctions.append(junction_id)
 
@@ -519,3 +588,33 @@ def _create_ports_and_junctions(
                     )
 
     graph.edges = new_edges
+
+
+def _create_ports_and_junctions(
+    graph: MetroGraph,
+    internal_edges: list[Edge],
+    inter_section_edges: list[Edge],
+    entry_side_for_line: dict[tuple[str, str], PortSide],
+) -> None:
+    """Create exit/entry ports and junctions, rewrite inter-section edges.
+
+    Creates one exit port per source section, one entry port per
+    (target_section, entry_side), and inserts junction stations where
+    an exit port fans out to multiple entry ports.
+    """
+    section_exit_side = _determine_exit_sides(graph)
+    exit_groups, entry_groups = _group_inter_section_edges(
+        graph, inter_section_edges, entry_side_for_line
+    )
+    exit_port_map, entry_port_map, port_counter = _create_port_stations(
+        graph, exit_groups, entry_groups, section_exit_side
+    )
+    _rewrite_edges_with_junctions(
+        graph,
+        internal_edges,
+        inter_section_edges,
+        entry_side_for_line,
+        exit_port_map,
+        entry_port_map,
+        port_counter,
+    )
