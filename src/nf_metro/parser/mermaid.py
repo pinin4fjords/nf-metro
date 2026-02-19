@@ -30,11 +30,10 @@ def _check_unsupported_input(text: str) -> None:
     if has_flowchart and not has_metro_directives:
         raise ValueError(
             "This looks like raw Nextflow DAG output (flowchart syntax "
-            "without %%metro directives). nf-metro requires its own input "
-            "format with %%metro directives to define lines, sections, and "
-            "layout.\n\n"
-            "See the guide: "
-            "https://pinin4fjords.github.io/nf-metro/latest/guide/"
+            "without %%metro directives). Use 'nf-metro convert' to "
+            "convert it to nf-metro format first, or pass "
+            "'--from-nextflow' to 'nf-metro render'.\n\n"
+            "See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/"
         )
 
     if has_flowchart:

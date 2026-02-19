@@ -14,12 +14,14 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
+from nf_metro.convert import convert_nextflow_dag  # noqa: E402
 from nf_metro.layout.engine import compute_layout  # noqa: E402
 from nf_metro.parser.mermaid import parse_metro_mermaid  # noqa: E402
 from nf_metro.render.svg import render_svg  # noqa: E402
 from nf_metro.themes import THEMES  # noqa: E402
 
 EXAMPLES_DIR = project_root / "examples"
+NEXTFLOW_FIXTURES_DIR = project_root / "tests" / "fixtures" / "nextflow"
 TOPOLOGIES_DIR = project_root / "examples" / "topologies"
 GUIDE_DIR = project_root / "examples" / "guide"
 GALLERY_DIR = project_root / "docs" / "gallery"
@@ -234,6 +236,40 @@ def build_gallery() -> None:
     print(f"SVG renders in {RENDERS_DIR}")
 
 
+def render_nextflow_examples() -> None:
+    """Render Nextflow DAG fixtures and hand-tuned example to docs/assets/renders/."""
+    RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+    print("Nextflow examples:")
+
+    # Auto-converted renders from Nextflow DAG fixtures
+    for mmd_path in sorted(NEXTFLOW_FIXTURES_DIR.glob("*.mmd")):
+        svg_path = RENDERS_DIR / f"nf_{mmd_path.stem}.svg"
+        try:
+            text = mmd_path.read_text()
+            converted = convert_nextflow_dag(text)
+            graph = parse_metro_mermaid(converted)
+            compute_layout(graph)
+            theme = THEMES[graph.style if graph.style in THEMES else "nfcore"]
+            svg_str = render_svg(graph, theme)
+            svg_path.write_text(svg_str)
+            print(f"  nf_{mmd_path.stem}: OK")
+        except Exception as e:
+            print(f"  nf_{mmd_path.stem}: FAIL - {e}")
+
+    # Hand-tuned variant calling example
+    tuned_path = EXAMPLES_DIR / "variant_calling.mmd"
+    if tuned_path.exists():
+        svg_path = RENDERS_DIR / "nf_variant_calling_tuned.svg"
+        try:
+            render_mmd(tuned_path, svg_path)
+            print(f"  nf_variant_calling_tuned: OK")
+        except Exception as e:
+            print(f"  nf_variant_calling_tuned: FAIL - {e}")
+
+    print()
+
+
 if __name__ == "__main__":
     render_guide_examples()
+    render_nextflow_examples()
     build_gallery()
