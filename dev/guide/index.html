@@ -367,10 +367,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-putting-it-all-together" class="md-nav__link">
+  <a href="#5-file-input-and-output-icons" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Putting it all together
+        5. File input and output icons
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-putting-it-all-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Putting it all together
       
     </span>
   </a>
@@ -560,10 +571,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-putting-it-all-together" class="md-nav__link">
+  <a href="#5-file-input-and-output-icons" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Putting it all together
+        5. File input and output icons
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-putting-it-all-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Putting it all together
       
     </span>
   </a>
@@ -809,7 +831,53 @@
 <li><strong><code>TB</code></strong> -- top to bottom, useful for vertical connector sections</li>
 <li><strong><code>RL</code></strong> -- right to left, used automatically by the layout engine for serpentine folds in long pipelines</li>
 </ul>
-<h2 id="5-putting-it-all-together">5. Putting it all together<a class="headerlink" href="#5-putting-it-all-together" title="Permanent link">&para;</a></h2>
+<h2 id="5-file-input-and-output-icons">5. File input and output icons<a class="headerlink" href="#5-file-input-and-output-icons" title="Permanent link">&para;</a></h2>
+<p>Real pipeline diagrams benefit from showing where data enters and leaves. The <code>%%metro file:</code> directive marks a station as a file terminus, rendering it as a document icon instead of a regular station marker.</p>
+<p>Two things are needed:</p>
+<ol>
+<li>
+<p>A <strong><code>%%metro file:</code></strong> directive at the top of the file, mapping a station ID to a label:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>%%metro file: reads_in | FASTQ
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>%%metro file: report_out | HTML
+</code></pre></div>
+</li>
+<li>
+<p>A <strong>blank terminus station</strong> (<code>[ ]</code>) inside a section, whose ID matches the directive:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>reads_in[ ]
+</code></pre></div>
+</li>
+</ol>
+<p>The blank label tells nf-metro to render the document icon (with the label from the directive) instead of a pill-shaped station. Connect it to the pipeline with normal edges like any other station.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>%%metro title: File Icons
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>%%metro style: dark
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>%%metro file: reads_in | FASTQ
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>%%metro file: report_out | HTML
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>%%metro line: main | Main | #4CAF50
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>%%metro line: qc | Quality Control | #2196F3
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>graph LR
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    subgraph analysis [Analysis]
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>        reads_in[ ]
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>        trim[Trimming]
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>        align[Alignment]
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>        quant[Quantification]
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>        reads_in --&gt;|main,qc| trim
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>        trim --&gt;|main| align
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>        align --&gt;|main| quant
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>    end
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>        multiqc[MultiQC]
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>        report_out[ ]
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>        trim --&gt;|qc| multiqc
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>        quant --&gt;|qc| multiqc
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>        multiqc --&gt;|qc| report_out
+<a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>    end
+</code></pre></div>
+<p><img alt="File icons example" src="../assets/renders/05_file_icons.svg" /></p>
+<p>The FASTQ icon at the start of the Analysis section shows the pipeline input. The HTML icon at the end of Reporting shows where the QC report is written. Common labels include FASTQ, BAM, VCF, HTML, and CSV, but you can use any short string.</p>
+<p>For a complex real-world example using file icons, see <a href="https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd"><code>examples/rnaseq_sections.mmd</code></a>.</p>
+<h2 id="6-putting-it-all-together">6. Putting it all together<a class="headerlink" href="#6-putting-it-all-together" title="Permanent link">&para;</a></h2>
 <p>The nf-core/rnaseq example at <a href="https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd"><code>examples/rnaseq_auto.mmd</code></a> combines all of these patterns in a real-world pipeline:</p>
 <p><img alt="nf-core/rnaseq" src="../assets/renders/rnaseq_auto.svg" /></p>
 <p>Five analysis routes share preprocessing, fan out to different aligners, reconverge at post-processing (a <code>TB</code> section), and fold back through QC (an <code>RL</code> section that creates a serpentine return path). The layout engine infers section directions, grid positions, and port sides automatically from the graph topology.</p>

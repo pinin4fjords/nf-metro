@@ -36,7 +36,7 @@
 <path d="M380.0,123.0 L679.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M951.5,123.0 L1001.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M679.5,123.0 L689.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<path d="M689.5,123.0 L951.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M689.5,123.0 L709.5,123.0 Q719.5,123.0,719.5,133.0 L719.5,213.0 Q719.5,223.0,729.5,223.0 L903.5,223.0 Q913.5,223.0,913.5,213.0 L913.5,133.0 Q913.5,123.0,923.5,123.0 L951.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M285.0,120.0 L380.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M380.0,120.0 L475.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M809.5,120.0 L901.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
