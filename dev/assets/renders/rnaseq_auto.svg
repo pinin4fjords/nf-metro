@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1662" height="615" viewBox="0 0 1662 615">
+     width="1440" height="615" viewBox="0 0 1440 615">
 <defs>
 </defs>
-<rect x="0" y="0" width="1662" height="615" fill="#2b2b2b" />
+<rect x="0" y="0" width="1440" height="615" fill="#2b2b2b" />
 <rect x="30.0" y="85.0" width="635.0" height="150.0" rx="8" ry="8" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.0" />
 <circle cx="39.0" cy="72.0" r="9" fill="#333333" />
 <text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
@@ -12,10 +12,10 @@
 <circle cx="724.0" cy="72.0" r="9" fill="#333333" />
 <text x="724.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
 <text x="738.0" y="72.0" font-size="10.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Genome alignment &amp; quantification</text>
-<rect x="1360.0" y="85.0" width="182.0" height="300.0" rx="8" ry="8" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.0" />
-<circle cx="1369.0" cy="72.0" r="9" fill="#333333" />
-<text x="1369.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="1383.0" y="72.0" font-size="10.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Post-processing</text>
+<rect x="1138.0" y="85.0" width="182.0" height="300.0" rx="8" ry="8" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.0" />
+<circle cx="1147.0" cy="72.0" r="9" fill="#333333" />
+<text x="1147.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
+<text x="1161.0" y="72.0" font-size="10.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Post-processing</text>
 <rect x="715.0" y="275.0" width="184.5" height="110.0" rx="8" ry="8" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.0" />
 <circle cx="724.0" cy="262.0" r="9" fill="#333333" />
 <text x="724.0" y="262.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">4</text>
@@ -42,34 +42,34 @@
 <path d="M945.0,466.0 L885.0,466.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M885.0,466.0 L825.0,466.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M825.0,466.0 L765.0,466.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1495.0,425.0 L1495.0,456.0 Q1495.0,469.0,1482.0,469.0 L1125.0,469.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1498.0,425.0 L1498.0,456.0 Q1498.0,472.0,1482.0,472.0 L1125.0,472.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1492.0,425.0 L1492.0,456.0 Q1492.0,466.0,1482.0,466.0 L1125.0,466.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1495.0,385.0 L1495.0,425.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1498.0,385.0 L1498.0,425.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1492.0,385.0 L1492.0,425.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1273.0,425.0 L1273.0,456.0 Q1273.0,469.0,1260.0,469.0 L1125.0,469.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1276.0,425.0 L1276.0,456.0 Q1276.0,472.0,1260.0,472.0 L1125.0,472.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1270.0,425.0 L1270.0,456.0 Q1270.0,466.0,1260.0,466.0 L1125.0,466.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1273.0,385.0 L1273.0,425.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1276.0,385.0 L1276.0,425.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1270.0,385.0 L1270.0,425.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M765.0,362.0 L782.25,362.0 Q792.25,362.0,798.25,354.0 L816.25,330.0 Q822.25,322.0,832.25,322.0 L849.5,322.0" stroke="#7b2d3b" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M715.0,342.0 L720.0,342.0 Q730.0,342.0,737.0710678118654,349.0710678118655 L742.9289321881346,354.9289321881345 Q750.0,362.0,760.0,362.0 L765.0,362.0" stroke="#7b2d3b" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M715.0,339.0 L720.0,339.0 Q730.0,339.0,737.0710678118654,331.9289321881345 L742.9289321881346,326.0710678118655 Q750.0,319.0,760.0,319.0 L765.0,319.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M765.0,319.0 L849.5,319.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1495.0,304.0 L1495.0,385.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1498.0,304.0 L1498.0,385.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1492.0,304.0 L1492.0,385.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1495.0,264.0 L1495.0,304.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1498.0,264.0 L1498.0,304.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1492.0,264.0 L1492.0,304.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1495.0,224.0 L1495.0,264.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1498.0,224.0 L1498.0,264.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1492.0,224.0 L1492.0,264.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1273.0,304.0 L1273.0,385.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1276.0,304.0 L1276.0,385.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1270.0,304.0 L1270.0,385.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1273.0,264.0 L1273.0,304.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1276.0,264.0 L1276.0,304.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1270.0,264.0 L1270.0,304.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1273.0,224.0 L1273.0,264.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1276.0,224.0 L1276.0,264.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1270.0,224.0 L1270.0,264.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M379.5,212.0 L396.5,212.0 Q406.5,212.0,412.5,204.0 L430.5,180.0 Q436.5,172.0,446.5,172.0 L463.5,172.0" stroke="#7b2d3b" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M379.5,209.0 L396.5,209.0 Q406.5,209.0,412.5,201.0 L430.5,177.0 Q436.5,169.0,446.5,169.0 L463.5,169.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M379.5,206.0 L396.5,206.0 Q406.5,206.0,412.5,198.0 L430.5,174.0 Q436.5,166.0,446.5,166.0 L463.5,166.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M765.0,206.0 L808.25,206.0 Q818.25,206.0,824.25,198.0 L842.25,174.0 Q848.25,166.0,858.25,166.0 L901.5,166.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M379.5,203.0 L396.5,203.0 Q406.5,203.0,412.5,195.0 L430.5,171.0 Q436.5,163.0,446.5,163.0 L463.5,163.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M379.5,200.0 L396.5,200.0 Q406.5,200.0,412.5,192.0 L430.5,168.0 Q436.5,160.0,446.5,160.0 L463.5,160.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1495.0,184.0 L1495.0,224.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1498.0,184.0 L1498.0,224.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1492.0,184.0 L1492.0,224.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1273.0,184.0 L1273.0,224.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1276.0,184.0 L1276.0,224.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1270.0,184.0 L1270.0,224.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M80.0,172.0 L140.0,172.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
 <path d="M140.0,172.0 L200.0,172.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
 <path d="M200.0,172.0 L260.0,172.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
@@ -126,23 +126,23 @@
 <path d="M715.0,160.0 L720.0,160.0 Q730.0,160.0,734.4721359549995,151.05572809000085 L745.5278640450005,128.94427190999915 Q750.0,120.0,760.0,120.0 L765.0,120.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M665.0,160.0 L675.0,160.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <path d="M675.0,160.0 L715.0,160.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1495.0,144.0 L1495.0,184.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1498.0,144.0 L1498.0,184.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1492.0,144.0 L1492.0,184.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1273.0,144.0 L1273.0,184.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1276.0,144.0 L1276.0,184.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1270.0,144.0 L1270.0,184.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M379.5,132.0 L396.5,132.0 Q406.5,132.0,412.5,140.0 L430.5,164.0 Q436.5,172.0,446.5,172.0 L463.5,172.0" stroke="#7b2d3b" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M379.5,129.0 L396.5,129.0 Q406.5,129.0,412.5,137.0 L430.5,161.0 Q436.5,169.0,446.5,169.0 L463.5,169.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M379.5,126.0 L396.5,126.0 Q406.5,126.0,412.5,134.0 L430.5,158.0 Q436.5,166.0,446.5,166.0 L463.5,166.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1360.0,126.0 L1482.0,126.0 Q1492.0,126.0,1492.0,136.0 L1492.0,144.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1088.0,126.0 L1360.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1138.0,126.0 L1260.0,126.0 Q1270.0,126.0,1270.0,136.0 L1270.0,144.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1088.0,126.0 L1138.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M379.5,123.0 L396.5,123.0 Q406.5,123.0,412.5,131.0 L430.5,155.0 Q436.5,163.0,446.5,163.0 L463.5,163.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M765.0,123.0 L769.0,123.0 Q779.0,123.0,785.0,131.0 L803.0,155.0 Q809.0,163.0,819.0,163.0 L901.5,163.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1360.0,123.0 L1482.0,123.0 Q1495.0,123.0,1495.0,136.0 L1495.0,144.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1088.0,123.0 L1360.0,123.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1138.0,123.0 L1260.0,123.0 Q1273.0,123.0,1273.0,136.0 L1273.0,144.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1088.0,123.0 L1138.0,123.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M379.5,120.0 L396.5,120.0 Q406.5,120.0,412.5,128.0 L430.5,152.0 Q436.5,160.0,446.5,160.0 L463.5,160.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M765.0,120.0 L901.5,120.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <path d="M901.5,120.0 L1088.0,120.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1360.0,120.0 L1482.0,120.0 Q1498.0,120.0,1498.0,136.0 L1498.0,144.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1088.0,120.0 L1360.0,120.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1138.0,120.0 L1260.0,120.0 Q1276.0,120.0,1276.0,136.0 L1276.0,144.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1088.0,120.0 L1138.0,120.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <rect x="75.0" y="155.0" width="10.0" height="22.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="135.0" y="155.0" width="10.0" height="22.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="195.0" y="155.0" width="10.0" height="22.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
@@ -157,11 +157,11 @@
 <rect x="896.5" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="1009.0" y="158.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="896.5" y="158.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="1487.0" y="139.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="1487.0" y="179.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="1487.0" y="219.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="1487.0" y="259.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="1487.0" y="299.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="1265.0" y="139.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="1265.0" y="179.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="1265.0" y="219.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="1265.0" y="259.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="1265.0" y="299.0" width="16.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="760.0" y="314.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="760.0" y="357.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="844.5" y="314.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
@@ -174,26 +174,26 @@
 <rect x="760.0" y="461.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <text x="80.0" y="188.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">cat fastq</text>
 <text x="765.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">STAR</text>
-<text x="1478.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">SAMtools</text>
+<text x="1256.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">SAMtools</text>
 <text x="1125.0" y="477.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">RSeQC</text>
 <text x="765.0" y="217.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">HISAT2</text>
 <text x="765.0" y="303.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Salmon</text>
 <text x="765.0" y="367.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Kallisto</text>
 <text x="140.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastQC</text>
 <text x="901.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">RSEM</text>
-<text x="1478.0" y="184.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">Picard</text>
+<text x="1256.0" y="184.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">Picard</text>
 <text x="1065.0" y="450.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Preseq</text>
 <text x="901.5" y="147.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">UMI-tools dedup</text>
 <text x="849.5" y="303.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">MultiQC</text>
 <text x="200.0" y="188.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">infer strandedness</text>
-<text x="1478.0" y="224.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">BEDTools</text>
+<text x="1256.0" y="224.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">BEDTools</text>
 <text x="1005.0" y="477.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Qualimap</text>
 <text x="1014.0" y="179.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Salmon</text>
 <text x="260.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">UMI-tools extract</text>
-<text x="1478.0" y="264.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">bedGraphToBigWig</text>
+<text x="1256.0" y="264.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">bedGraphToBigWig</text>
 <text x="945.0" y="450.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">dupRadar</text>
 <text x="379.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastP</text>
-<text x="1478.0" y="304.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">StringTie</text>
+<text x="1256.0" y="304.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">StringTie</text>
 <text x="885.0" y="477.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">DESeq2 PCA</text>
 <text x="379.5" y="217.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Trim Galore!</text>
 <text x="463.5" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastQC</text>
@@ -213,5 +213,5 @@
 <text x="256.15384615384613" y="447.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Pseudo-aligner: Salmon, Quantification: Salmon</text>
 <path d="M220.15384615384613,471.0 L244.15384615384613,471.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
 <text x="256.15384615384613" y="471.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Pseudo-aligner: Kallisto, Quantification: Kallisto</text>
-<text x="1632.0" y="607.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.0+dev</text>
+<text x="1410.0" y="607.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.0+dev</text>
 </svg>
