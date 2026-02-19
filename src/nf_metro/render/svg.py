@@ -648,13 +648,15 @@ def _render_terminus_icon(
     section: Section | None = (
         graph.sections.get(station.section_id) if station.section_id else None
     )
-    # Detect if station is a source (no incoming internal edges) or sink
+    # Detect if station is a source (no incoming edges) or sink.
+    # Check graph.edges (not section.internal_edges) because the latter
+    # is populated before inter-section edge rewriting and doesn't
+    # include port-to-station edges.
     is_source = True
-    if section:
-        for edge in section.internal_edges:
-            if edge.target == station.id:
-                is_source = False
-                break
+    for edge in graph.edges:
+        if edge.target == station.id:
+            is_source = False
+            break
     # Place icon on the "outside" of the flow
     icon_gap = r + ICON_STATION_GAP
     icon_half_w = theme.terminus_width / 2
