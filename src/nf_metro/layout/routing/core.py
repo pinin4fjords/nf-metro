@@ -227,8 +227,11 @@ def route_edges(
                 # See corners.l_shape_radii for the concentric arc
                 # geometry and direction-aware ordering.
                 delta, r_first, r_second = l_shape_radii(
-                    i, n, going_down=(dy > 0),
-                    offset_step=offset_step, base_radius=curve_radius,
+                    i,
+                    n,
+                    going_down=(dy > 0),
+                    offset_step=offset_step,
+                    base_radius=curve_radius,
                 )
 
                 # Place vertical channel in the inter-column gap so it
@@ -350,7 +353,8 @@ def route_edges(
             max_src_off = max(all_src_offs) if all_src_offs else 0.0
             # See corners.tb_exit_corner for concentric arc geometry.
             vert_x_off, horiz_y_off, r = tb_exit_corner(
-                src_off, max_src_off,
+                src_off,
+                max_src_off,
                 exit_right=(tgt_port_obj.side == PortSide.RIGHT),
                 base_radius=curve_radius,
             )
@@ -402,7 +406,8 @@ def route_edges(
             max_tgt_off = max(all_tgt_offs) if all_tgt_offs else 0.0
             # See corners.tb_entry_corner for concentric arc geometry.
             vert_x_off, r = tb_entry_corner(
-                tgt_off, max_tgt_off,
+                tgt_off,
+                max_tgt_off,
                 entry_right=(src_port_obj.side == PortSide.RIGHT),
                 base_radius=curve_radius,
             )
