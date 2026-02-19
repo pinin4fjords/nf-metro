@@ -182,7 +182,7 @@
 <text x="260.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Tag</text>
 <text x="906.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Quantify</text>
 <text x="1182.0" y="514.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Volcano Plot</text>
-<text x="344.0" y="142.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Filter A</text>
+<text x="344.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Filter A</text>
 <text x="966.0" y="136.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Check</text>
 <text x="344.0" y="217.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Filter B</text>
 <text x="428.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Merge</text>

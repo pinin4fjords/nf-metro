@@ -173,11 +173,11 @@
 <rect x="820.0" y="461.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="760.0" y="461.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <text x="80.0" y="188.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">cat fastq</text>
-<text x="765.0" y="139.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">STAR</text>
+<text x="765.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">STAR</text>
 <text x="1478.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">SAMtools</text>
 <text x="1125.0" y="477.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">RSeQC</text>
 <text x="765.0" y="217.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">HISAT2</text>
-<text x="765.0" y="335.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Salmon</text>
+<text x="765.0" y="303.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Salmon</text>
 <text x="765.0" y="367.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Kallisto</text>
 <text x="140.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastQC</text>
 <text x="901.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">RSEM</text>
@@ -192,7 +192,7 @@
 <text x="260.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">UMI-tools extract</text>
 <text x="1478.0" y="264.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">bedGraphToBigWig</text>
 <text x="945.0" y="450.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">dupRadar</text>
-<text x="379.5" y="148.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">FastP</text>
+<text x="379.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastP</text>
 <text x="1478.0" y="304.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">StringTie</text>
 <text x="885.0" y="477.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">DESeq2 PCA</text>
 <text x="379.5" y="217.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Trim Galore!</text>

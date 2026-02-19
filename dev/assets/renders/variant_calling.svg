@@ -153,8 +153,8 @@
 <rect x="1573.5" y="139.0" width="19.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="1573.5" y="179.0" width="19.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <text x="80.0" y="185.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Input</text>
-<text x="482.0" y="142.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">BWA-MEM2</text>
-<text x="888.0" y="136.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">HaplotypeCaller</text>
+<text x="482.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">BWA-MEM2</text>
+<text x="888.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">HaplotypeCaller</text>
 <text x="1200.5" y="137.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">VEP</text>
 <text x="1563.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">bcftools stats</text>
 <text x="881.5" y="179.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">DeepVariant</text>
@@ -163,11 +163,11 @@
 <text x="881.5" y="327.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">SplitNCigar</text>
 <text x="140.0" y="144.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastQC</text>
 <text x="587.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">SAMtools sort</text>
-<text x="976.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Merge VCFs</text>
+<text x="976.5" y="142.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Merge VCFs</text>
 <text x="1260.5" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">SnpSift</text>
 <text x="1563.0" y="184.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end" dominant-baseline="central">MultiQC</text>
 <text x="941.5" y="303.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">HaplotypeCaller</text>
-<text x="224.0" y="145.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">FastP</text>
+<text x="224.0" y="104.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">FastP</text>
 <text x="647.5" y="145.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">MarkDuplicates</text>
 <text x="1320.5" y="137.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Filter PASS</text>
 <text x="224.0" y="217.0" font-size="10.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Trim Galore!</text>
