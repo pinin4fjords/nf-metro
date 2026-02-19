@@ -27,6 +27,12 @@ from nf_metro.layout.routing.common import (
     compute_bundle_info,
     inter_column_channel_x,
 )
+from nf_metro.layout.routing.corners import (
+    l_shape_radii,
+    reversed_offset,
+    tb_entry_corner,
+    tb_exit_corner,
+)
 from nf_metro.parser.model import MetroGraph, PortSide
 
 
@@ -152,7 +158,7 @@ def route_edges(
                         for lid in graph.station_lines(edge.source)
                     ]
                     max_off = max(all_offs) if all_offs else 0.0
-                    x_off = max_off - src_off
+                    x_off = reversed_offset(src_off, max_off)
                 routes.append(
                     RoutedPath(
                         edge=edge,
@@ -189,7 +195,7 @@ def route_edges(
                             for lid in graph.station_lines(exit_pid)
                         ]
                         max_off = max(all_offs) if all_offs else 0.0
-                        x_off = max_off - src_off
+                        x_off = reversed_offset(src_off, max_off)
                 else:
                     x_off = ((n - 1) / 2 - i) * offset_step
                 # Manually apply target entry port Y offset (the
@@ -218,22 +224,15 @@ def route_edges(
             else:
                 # L-shape: vertical bundle between source and target,
                 # with per-line offsets for visual separation.
-                # Direction-aware: preserve top-to-bottom ordering as
-                # left-to-right when the bundle turns upward, and as
-                # right-to-left when it turns downward.
-                if dy < 0:
-                    # Going UP: top line (i=0) -> leftmost
-                    delta = (i - (n - 1) / 2) * offset_step
-                    # Bottom corner (right-to-up): concentric arcs
-                    r_first = curve_radius + i * offset_step
-                    # Top corner (up-to-right): concentric arcs,
-                    # leftmost (i=0) is outermost so gets largest radius
-                    r_second = curve_radius + (n - 1 - i) * offset_step
-                else:
-                    # Going DOWN: top line (i=0) -> rightmost
-                    delta = ((n - 1) / 2 - i) * offset_step
-                    r_first = curve_radius + (n - 1 - i) * offset_step
-                    r_second = curve_radius + i * offset_step
+                # See corners.l_shape_radii for the concentric arc
+                # geometry and direction-aware ordering.
+                delta, r_first, r_second = l_shape_radii(
+                    i,
+                    n,
+                    going_down=(dy > 0),
+                    offset_step=offset_step,
+                    base_radius=curve_radius,
+                )
 
                 # Place vertical channel in the inter-column gap so it
                 # doesn't pass through sibling sections stacked in the
@@ -296,7 +295,7 @@ def route_edges(
                 x_tgt = tgt_off
             else:
 
-                def _reverse_off(station_id: str, off: float) -> float:
+                def _max_off_at(station_id: str) -> float:
                     all_offs = (
                         [
                             station_offsets.get((station_id, lid), 0.0)
@@ -305,11 +304,10 @@ def route_edges(
                         if station_offsets
                         else []
                     )
-                    max_off = max(all_offs) if all_offs else 0.0
-                    return max_off - off
+                    return max(all_offs) if all_offs else 0.0
 
-                x_src = _reverse_off(edge.source, src_off)
-                x_tgt = _reverse_off(edge.target, tgt_off)
+                x_src = reversed_offset(src_off, _max_off_at(edge.source))
+                x_tgt = reversed_offset(tgt_off, _max_off_at(edge.target))
             routes.append(
                 RoutedPath(
                     edge=edge,
@@ -344,10 +342,6 @@ def route_edges(
                 if station_offsets
                 else 0.0
             )
-            # Reverse source offset for vertical segment (TB convention).
-            # Skip reversal for already-reversed sections: their internal
-            # offsets already account for the reversal, so applying it
-            # again would double-reverse and create line crossings.
             all_src_offs = (
                 [
                     station_offsets.get((edge.source, lid), 0.0)
@@ -357,22 +351,13 @@ def route_edges(
                 else []
             )
             max_src_off = max(all_src_offs) if all_src_offs else 0.0
-            rev_src_off = max_src_off - src_off
-            # Direction-aware X offset: LEFT port = DOWN-to-LEFT turn
-            # (use reversed), RIGHT port = DOWN-to-RIGHT turn (use
-            # non-reversed).  For reversed TB sections the station
-            # offsets are already flipped, so the standard formula
-            # produces the correct un-reversed exit ordering.
-            if tgt_port_obj.side == PortSide.RIGHT:
-                vert_x_off = src_off
-            else:
-                vert_x_off = rev_src_off
-            # Concentric corner: the outermost vertical line gets the
-            # largest curve radius, producing nested arcs.  horiz_y_off
-            # uses rev_src_off for both sides so the radius formula
-            # (curve_radius + rev_src_off) maps outer -> larger radius.
-            horiz_y_off = rev_src_off
-            # L-shape: vertical from station, curve, horizontal to port
+            # See corners.tb_exit_corner for concentric arc geometry.
+            vert_x_off, horiz_y_off, r = tb_exit_corner(
+                src_off,
+                max_src_off,
+                exit_right=(tgt_port_obj.side == PortSide.RIGHT),
+                base_radius=curve_radius,
+            )
             routes.append(
                 RoutedPath(
                     edge=edge,
@@ -383,7 +368,7 @@ def route_edges(
                         (tx, ty + horiz_y_off),
                     ],
                     offsets_applied=True,
-                    curve_radii=[curve_radius + rev_src_off],
+                    curve_radii=[r],
                 )
             )
             continue
@@ -410,7 +395,6 @@ def route_edges(
                 if station_offsets
                 else 0.0
             )
-            # Reverse target offset for vertical segment (TB convention)
             all_tgt_offs = (
                 [
                     station_offsets.get((edge.target, lid), 0.0)
@@ -420,14 +404,13 @@ def route_edges(
                 else []
             )
             max_tgt_off = max(all_tgt_offs) if all_tgt_offs else 0.0
-            rev_tgt_off = max_tgt_off - tgt_off
-            # Direction-aware X offset: LEFT port = RIGHT-to-DOWN turn
-            # (use reversed), RIGHT port = LEFT-to-DOWN turn (use
-            # non-reversed).
-            if src_port_obj.side == PortSide.RIGHT:
-                vert_x_off = tgt_off
-            else:
-                vert_x_off = rev_tgt_off
+            # See corners.tb_entry_corner for concentric arc geometry.
+            vert_x_off, r = tb_entry_corner(
+                tgt_off,
+                max_tgt_off,
+                entry_right=(src_port_obj.side == PortSide.RIGHT),
+                base_radius=curve_radius,
+            )
 
             routes.append(
                 RoutedPath(
@@ -439,7 +422,7 @@ def route_edges(
                         (tx + vert_x_off, ty),
                     ],
                     offsets_applied=True,
-                    curve_radii=[curve_radius + rev_tgt_off],
+                    curve_radii=[r],
                 )
             )
             continue
@@ -542,7 +525,7 @@ def route_edges(
                         else []
                     )
                     max_tgt_off = max(all_tgt_offs) if all_tgt_offs else 0.0
-                    rev_tgt_off = max_tgt_off - tgt_off
+                    rev_tgt_off = reversed_offset(tgt_off, max_tgt_off)
                     routes.append(
                         RoutedPath(
                             edge=edge,
