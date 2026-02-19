@@ -251,7 +251,71 @@ The FASTQ icon at the start of the Analysis section shows the pipeline input. Th
 
 For a complex real-world example using file icons, see [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd).
 
-## 6. Putting it all together
+## 6. Hidden stations
+
+Sometimes you need a branching or merging point in the graph that doesn't represent a real pipeline step. For example, lines might diverge at a point where no tool is actually run. Adding a visible station there clutters the diagram with a meaningless marker.
+
+**Any station whose ID starts with `_` (underscore) is hidden.** It participates in layout and routing (lines pass through it), but no marker or label is rendered.
+
+Here is a pipeline with a visible `branch` station that serves only as a fork point:
+
+```text
+%%metro title: Visible Branch Point
+%%metro style: dark
+%%metro line: dna | DNA | #e63946
+%%metro line: rna | RNA | #0570b0
+%%metro line: prot | Protein | #2db572
+
+graph LR
+    subgraph input [Input]
+        fetch[Fetch Data]
+        validate[Validate]
+        fetch -->|dna,rna,prot| validate
+    end
+
+    subgraph processing [Processing]
+        branch[Branch]
+        align[Alignment]
+        quant[Quantification]
+        search[Database Search]
+        branch -->|dna,rna| align
+        branch -->|prot| search
+        align -->|rna| quant
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+    end
+
+    validate -->|dna,rna,prot| branch
+    align -->|dna| multiqc
+    quant -->|rna| multiqc
+    search -->|prot| multiqc
+```
+
+![Visible branch point](assets/renders/06a_without_hidden.svg)
+
+The "Branch" station is real in the graph but meaningless in the pipeline. Renaming it to `_branch` hides it:
+
+```text
+    subgraph processing [Processing]
+        _branch
+        align[Alignment]
+        ...
+        _branch -->|dna,rna| align
+        _branch -->|prot| search
+    end
+
+    validate -->|dna,rna,prot| _branch
+```
+
+![Hidden branch point](assets/renders/06b_with_hidden.svg)
+
+The lines still fork at the same point, but there is no marker or label. This gives you fine control over where splits happen without adding a fake step to the diagram.
+
+Use `--debug` to see hidden stations as dashed circles: `nf-metro render --debug pipeline.mmd -o debug.svg`
+
+## 7. Putting it all together
 
 The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
 
