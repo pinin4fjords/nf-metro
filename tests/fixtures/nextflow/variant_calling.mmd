@@ -1,0 +1,52 @@
+flowchart TB
+    subgraph " "
+    v0["Channel.of"]
+    v1["Channel.of"]
+    end
+    subgraph "PREPROCESS [PREPROCESS]"
+    v2(["FASTQC"])
+    v3(["FASTP"])
+    end
+    subgraph "ALIGNMENT [ALIGNMENT]"
+    v4(["BWA_INDEX"])
+    v6(["BWA_MEM"])
+    v7(["SAMTOOLS_SORT"])
+    v8(["SAMTOOLS_INDEX"])
+    v5(( ))
+    end
+    subgraph "VARIANT_CALLING [VARIANT_CALLING]"
+    v11(["GATK_HAPLOTYPECALLER"])
+    v12(["DEEPVARIANT"])
+    v14(["BCFTOOLS_STATS"])
+    v9(( ))
+    v10(( ))
+    v13(( ))
+    end
+    v18(["MULTIQC"])
+    subgraph " "
+    v19[" "]
+    end
+    v15(( ))
+    v0 --> v2
+    v0 --> v3
+    v1 --> v4
+    v1 --> v10
+    v2 --> v15
+    v3 --> v6
+    v3 --> v15
+    v4 --> v5
+    v5 --> v6
+    v6 --> v7
+    v7 --> v8
+    v7 --> v9
+    v8 --> v9
+    v9 --> v11
+    v10 --> v11
+    v11 --> v13
+    v9 --> v12
+    v10 --> v12
+    v12 --> v13
+    v13 --> v14
+    v14 --> v15
+    v15 --> v18
+    v18 --> v19

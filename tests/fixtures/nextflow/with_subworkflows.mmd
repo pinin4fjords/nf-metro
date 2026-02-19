@@ -1,0 +1,44 @@
+flowchart TB
+    subgraph " "
+    v0["Channel.of"]
+    v1["Channel.of"]
+    v2["Channel.of"]
+    end
+    subgraph "PREPROCESS [PREPROCESS]"
+    v3(["FASTQC"])
+    v4(["TRIMGALORE"])
+    end
+    subgraph "ALIGNMENT [ALIGNMENT]"
+    v5(["STAR_GENOMEGENERATE"])
+    v7(["STAR_ALIGN"])
+    v8(["SAMTOOLS_SORT"])
+    v9(["SAMTOOLS_INDEX"])
+    v6(( ))
+    end
+    subgraph " "
+    v10["bai"]
+    v17[" "]
+    end
+    subgraph "QUANTIFICATION [QUANTIFICATION]"
+    v11(["SALMON_QUANT"])
+    end
+    v16(["MULTIQC"])
+    v12(( ))
+    v0 --> v3
+    v0 --> v4
+    v1 --> v5
+    v2 --> v5
+    v2 --> v11
+    v3 --> v12
+    v4 --> v7
+    v4 --> v12
+    v5 --> v6
+    v6 --> v7
+    v7 --> v8
+    v7 --> v12
+    v8 --> v9
+    v8 --> v11
+    v9 --> v10
+    v11 --> v12
+    v12 --> v16
+    v16 --> v17
