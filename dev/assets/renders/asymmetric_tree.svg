@@ -98,5 +98,5 @@
 <text x="78.0" y="453.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Medium Branch</text>
 <path d="M42.0,477.0 L66.0,477.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="477.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Long Branch</text>
-<text x="958.0" y="517.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.2+dev</text>
+<text x="958.0" y="517.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.3+dev</text>
 </svg>
