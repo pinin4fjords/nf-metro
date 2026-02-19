@@ -600,7 +600,12 @@ def _align_lr_entry_port(
             PortSide.RIGHT,
         ):
             target_y = _clamp_tb_entry_port(
-                graph, entry_section, target_y, edge, src, junction_ids,
+                graph,
+                entry_section,
+                target_y,
+                edge,
+                src,
+                junction_ids,
             )
 
         _set_port_y(graph, port_id, target_y)
