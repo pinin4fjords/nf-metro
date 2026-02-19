@@ -7,7 +7,7 @@ section_placement.py, and ordering.py.
 # ---------------------------------------------------------------------------
 # Font / text metrics
 # ---------------------------------------------------------------------------
-CHAR_WIDTH: float = 7.0
+CHAR_WIDTH: float = 9.0
 """Approximate pixel width of a single character at default font size."""
 
 FONT_HEIGHT: float = 14.0
