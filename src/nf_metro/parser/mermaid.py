@@ -120,91 +120,52 @@ def _parse_directive(
     """Parse a %%metro directive line."""
     content = line[len("%%metro") :].strip()
 
-    for prefix, handler in _DIRECTIVE_HANDLERS:
-        if content.startswith(prefix):
-            handler(content[len(prefix) :].strip(), graph, current_section_id)
-            return
-
-
-def _handle_title(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    graph.title = value
-
-
-def _handle_style(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    graph.style = value
-
-
-def _handle_line(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    parts = value.split("|")
-    if len(parts) >= 3:
-        graph.add_line(
-            MetroLine(
-                id=parts[0].strip(),
-                display_name=parts[1].strip(),
-                color=parts[2].strip(),
+    if content.startswith("title:"):
+        graph.title = content[len("title:") :].strip()
+    elif content.startswith("style:"):
+        graph.style = content[len("style:") :].strip()
+    elif content.startswith("line_order:"):
+        order = content[len("line_order:") :].strip().lower()
+        if order in ("definition", "span"):
+            graph.line_order = order
+    elif content.startswith("line:"):
+        parts = content[len("line:") :].strip().split("|")
+        if len(parts) >= 3:
+            graph.add_line(
+                MetroLine(
+                    id=parts[0].strip(),
+                    display_name=parts[1].strip(),
+                    color=parts[2].strip(),
+                )
             )
-        )
-
-
-def _handle_entry(value: str, graph: MetroGraph, sid: str | None) -> None:
-    if sid:
-        _parse_port_hint("entry:" + value, graph, sid, is_entry=True)
-
-
-def _handle_exit(value: str, graph: MetroGraph, sid: str | None) -> None:
-    if sid:
-        _parse_port_hint("exit:" + value, graph, sid, is_entry=False)
-
-
-def _handle_direction(value: str, graph: MetroGraph, sid: str | None) -> None:
-    if sid and sid in graph.sections:
-        direction = value.upper()
-        if direction in ("LR", "RL", "TB"):
-            graph.sections[sid].direction = direction
-            graph._explicit_directions.add(sid)
-
-
-def _handle_grid(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    _parse_grid_directive("grid:" + value, graph)
-
-
-def _handle_line_order(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    order = value.lower()
-    if order in ("definition", "span"):
-        graph.line_order = order
-
-
-def _handle_logo(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    graph.logo_path = value
-
-
-def _handle_legend(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    pos = value.lower()
-    if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
-        graph.legend_position = pos
-
-
-def _handle_file(value: str, graph: MetroGraph, _sid: str | None) -> None:
-    parts = value.split("|")
-    if len(parts) >= 2:
-        station_id = parts[0].strip()
-        ext_label = parts[1].strip()
-        graph._pending_terminus[station_id] = ext_label
-
-
-_DIRECTIVE_HANDLERS: list[tuple[str, callable]] = [
-    ("title:", _handle_title),
-    ("style:", _handle_style),
-    ("line_order:", _handle_line_order),
-    ("line:", _handle_line),
-    ("entry:", _handle_entry),
-    ("exit:", _handle_exit),
-    ("direction:", _handle_direction),
-    ("grid:", _handle_grid),
-    ("logo:", _handle_logo),
-    ("legend:", _handle_legend),
-    ("file:", _handle_file),
-]
+    elif content.startswith("entry:"):
+        if current_section_id:
+            _parse_port_hint(content, graph, current_section_id, is_entry=True)
+    elif content.startswith("exit:"):
+        if current_section_id:
+            _parse_port_hint(
+                content, graph, current_section_id, is_entry=False
+            )
+    elif content.startswith("direction:"):
+        if current_section_id and current_section_id in graph.sections:
+            direction = content[len("direction:") :].strip().upper()
+            if direction in ("LR", "RL", "TB"):
+                graph.sections[current_section_id].direction = direction
+                graph._explicit_directions.add(current_section_id)
+    elif content.startswith("grid:"):
+        _parse_grid_directive(content, graph)
+    elif content.startswith("logo:"):
+        graph.logo_path = content[len("logo:") :].strip()
+    elif content.startswith("legend:"):
+        pos = content[len("legend:") :].strip().lower()
+        if pos in ("bl", "br", "tl", "tr", "bottom", "right", "none"):
+            graph.legend_position = pos
+    elif content.startswith("file:"):
+        parts = content[len("file:") :].strip().split("|")
+        if len(parts) >= 2:
+            station_id = parts[0].strip()
+            ext_label = parts[1].strip()
+            graph._pending_terminus[station_id] = ext_label
 
 
 def _parse_port_hint(
