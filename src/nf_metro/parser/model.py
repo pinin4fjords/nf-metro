@@ -143,6 +143,12 @@ class MetroGraph:
     def add_station(self, station: Station) -> None:
         self.stations[station.id] = station
 
+    def register_station(self, station: Station) -> None:
+        """Add a station and register it with its section if applicable."""
+        self.add_station(station)
+        if station.section_id and station.section_id in self.sections:
+            self.sections[station.section_id].station_ids.append(station.id)
+
     def add_edge(self, edge: Edge) -> None:
         self.edges.append(edge)
 

@@ -365,17 +365,23 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
 
     for side, port_ids in side_ports.items():
         if side == PortSide.LEFT:
-            x = section.bbox_x
-            _position_ports_vertical(port_ids, x, section, graph)
+            _position_ports_on_boundary(
+                port_ids, section.bbox_x, section, graph, fixed_axis="x"
+            )
         elif side == PortSide.RIGHT:
-            x = section.bbox_x + section.bbox_w
-            _position_ports_vertical(port_ids, x, section, graph)
+            right_x = section.bbox_x + section.bbox_w
+            _position_ports_on_boundary(
+                port_ids, right_x, section, graph, fixed_axis="x"
+            )
         elif side == PortSide.TOP:
-            y = section.bbox_y
-            _position_ports_horizontal(port_ids, y, section, graph)
+            _position_ports_on_boundary(
+                port_ids, section.bbox_y, section, graph, fixed_axis="y"
+            )
         elif side == PortSide.BOTTOM:
-            y = section.bbox_y + section.bbox_h
-            _position_ports_horizontal(port_ids, y, section, graph)
+            bottom_y = section.bbox_y + section.bbox_h
+            _position_ports_on_boundary(
+                port_ids, bottom_y, section, graph, fixed_axis="y"
+            )
 
     # TB sections: move LEFT/RIGHT exit ports to the section bottom
     # so lines flow down from the last station then curve out.
@@ -391,129 +397,84 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
                 port.y = target_y
 
 
-def _position_ports_vertical(
+def _position_ports_on_boundary(
     port_ids: list[str],
-    x: float,
+    fixed_coord: float,
     section: Section,
     graph: MetroGraph,
+    fixed_axis: str,
 ) -> None:
-    """Position ports along a vertical boundary (LEFT or RIGHT side)."""
+    """Position ports along a section boundary.
+
+    Args:
+        fixed_axis: "x" for vertical boundaries (LEFT/RIGHT),
+                    "y" for horizontal boundaries (TOP/BOTTOM).
+    """
     if not port_ids:
         return
 
-    # Try to align each port with its connected internal station
-    for pid in port_ids:
-        station = graph.stations.get(pid)
-        if not station:
-            continue
-
-        port = graph.ports.get(pid)
-
-        # Find connected internal station
-        connected_y = _find_connected_internal_y(pid, section, graph)
-        station.x = x
-        station.y = (
-            connected_y
-            if connected_y is not None
-            else (section.bbox_y + section.bbox_h / 2)
-        )
-
-        # Update port data too
-        if port:
-            port.x = station.x
-            port.y = station.y
-
-    # If multiple ports are at the same Y, space them out
-    _spread_overlapping_ports(
-        port_ids,
-        graph,
-        axis="y",
-        span_start=section.bbox_y,
-        span_end=section.bbox_y + section.bbox_h,
-    )
-
-
-def _position_ports_horizontal(
-    port_ids: list[str],
-    y: float,
-    section: Section,
-    graph: MetroGraph,
-) -> None:
-    """Position ports along a horizontal boundary (TOP or BOTTOM side)."""
-    if not port_ids:
-        return
+    # The "free" axis is the one ports can slide along
+    free_axis = "y" if fixed_axis == "x" else "x"
 
     for pid in port_ids:
         station = graph.stations.get(pid)
         if not station:
             continue
 
-        connected_x = _find_connected_internal_x(pid, section, graph)
-        station.x = (
-            connected_x
-            if connected_x is not None
-            else (section.bbox_x + section.bbox_w / 2)
+        connected = _find_connected_internal_coord(
+            pid, section, graph, free_axis
         )
-        station.y = y
+        if free_axis == "y":
+            default = section.bbox_y + section.bbox_h / 2
+        else:
+            default = section.bbox_x + section.bbox_w / 2
+
+        setattr(station, fixed_axis, fixed_coord)
+        setattr(station, free_axis, connected if connected is not None else default)
 
         port = graph.ports.get(pid)
         if port:
             port.x = station.x
             port.y = station.y
 
+    if free_axis == "y":
+        span_start = section.bbox_y
+        span_end = section.bbox_y + section.bbox_h
+    else:
+        span_start = section.bbox_x
+        span_end = section.bbox_x + section.bbox_w
+
     _spread_overlapping_ports(
         port_ids,
         graph,
-        axis="x",
-        span_start=section.bbox_x,
-        span_end=section.bbox_x + section.bbox_w,
+        axis=free_axis,
+        span_start=span_start,
+        span_end=span_end,
     )
 
 
-def _find_connected_internal_y(
+def _find_connected_internal_coord(
     port_id: str,
     section: Section,
     graph: MetroGraph,
+    axis: str,
 ) -> float | None:
-    """Find the Y coordinate to align a port with its connected internal stations.
+    """Find the coordinate to align a port with its connected internal stations.
 
-    If the port connects to multiple stations (e.g. a shared entry port),
-    returns the average Y of all connected stations.
+    Returns the average X or Y (determined by *axis*) of all connected
+    internal stations, or None if no connections found.
     """
     internal_ids = (
         set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
     )
-    ys: list[float] = []
+    vals: list[float] = []
     for edge in graph.edges:
         if edge.source == port_id and edge.target in internal_ids:
-            ys.append(graph.stations[edge.target].y)
+            vals.append(getattr(graph.stations[edge.target], axis))
         if edge.target == port_id and edge.source in internal_ids:
-            ys.append(graph.stations[edge.source].y)
-    if ys:
-        return sum(ys) / len(ys)
-    return None
-
-
-def _find_connected_internal_x(
-    port_id: str,
-    section: Section,
-    graph: MetroGraph,
-) -> float | None:
-    """Find the X coordinate to align a port with its connected internal stations.
-
-    If the port connects to multiple stations, returns the average X.
-    """
-    internal_ids = (
-        set(section.station_ids) - set(section.entry_ports) - set(section.exit_ports)
-    )
-    xs: list[float] = []
-    for edge in graph.edges:
-        if edge.source == port_id and edge.target in internal_ids:
-            xs.append(graph.stations[edge.target].x)
-        if edge.target == port_id and edge.source in internal_ids:
-            xs.append(graph.stations[edge.source].x)
-    if xs:
-        return sum(xs) / len(xs)
+            vals.append(getattr(graph.stations[edge.source], axis))
+    if vals:
+        return sum(vals) / len(vals)
     return None
 
 
