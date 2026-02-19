@@ -378,10 +378,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-putting-it-all-together" class="md-nav__link">
+  <a href="#6-hidden-stations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Putting it all together
+        6. Hidden stations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-putting-it-all-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Putting it all together
       
     </span>
   </a>
@@ -582,10 +593,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-putting-it-all-together" class="md-nav__link">
+  <a href="#6-hidden-stations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Putting it all together
+        6. Hidden stations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-putting-it-all-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Putting it all together
       
     </span>
   </a>
@@ -877,7 +899,58 @@
 <p><img alt="File icons example" src="../assets/renders/05_file_icons.svg" /></p>
 <p>The FASTQ icon at the start of the Analysis section shows the pipeline input. The HTML icon at the end of Reporting shows where the QC report is written. Common labels include FASTQ, BAM, VCF, HTML, and CSV, but you can use any short string.</p>
 <p>For a complex real-world example using file icons, see <a href="https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd"><code>examples/rnaseq_sections.mmd</code></a>.</p>
-<h2 id="6-putting-it-all-together">6. Putting it all together<a class="headerlink" href="#6-putting-it-all-together" title="Permanent link">&para;</a></h2>
+<h2 id="6-hidden-stations">6. Hidden stations<a class="headerlink" href="#6-hidden-stations" title="Permanent link">&para;</a></h2>
+<p>Sometimes you need a branching or merging point in the graph that doesn't represent a real pipeline step. For example, lines might diverge at a point where no tool is actually run. Adding a visible station there clutters the diagram with a meaningless marker.</p>
+<p><strong>Any station whose ID starts with <code>_</code> (underscore) is hidden.</strong> It participates in layout and routing (lines pass through it), but no marker or label is rendered.</p>
+<p>Here is a pipeline with a visible <code>branch</code> station that serves only as a fork point:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>%%metro title: Visible Branch Point
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>%%metro style: dark
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>%%metro line: dna | DNA | #e63946
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>%%metro line: rna | RNA | #0570b0
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>%%metro line: prot | Protein | #2db572
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>graph LR
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    subgraph input [Input]
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>        fetch[Fetch Data]
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>        validate[Validate]
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>        fetch --&gt;|dna,rna,prot| validate
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    end
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>    subgraph processing [Processing]
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>        branch[Branch]
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>        align[Alignment]
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>        quant[Quantification]
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>        search[Database Search]
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>        branch --&gt;|dna,rna| align
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>        branch --&gt;|prot| search
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>        align --&gt;|rna| quant
+<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>    end
+<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>
+<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>        multiqc[MultiQC]
+<a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>    end
+<a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a>
+<a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a>    validate --&gt;|dna,rna,prot| branch
+<a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>    align --&gt;|dna| multiqc
+<a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a>    quant --&gt;|rna| multiqc
+<a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a>    search --&gt;|prot| multiqc
+</code></pre></div>
+<p><img alt="Visible branch point" src="../assets/renders/06a_without_hidden.svg" /></p>
+<p>The "Branch" station is real in the graph but meaningless in the pipeline. Renaming it to <code>_branch</code> hides it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>    subgraph processing [Processing]
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>        _branch
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>        align[Alignment]
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>        ...
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>        _branch --&gt;|dna,rna| align
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>        _branch --&gt;|prot| search
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    end
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    validate --&gt;|dna,rna,prot| _branch
+</code></pre></div>
+<p><img alt="Hidden branch point" src="../assets/renders/06b_with_hidden.svg" /></p>
+<p>The lines still fork at the same point, but there is no marker or label. This gives you fine control over where splits happen without adding a fake step to the diagram.</p>
+<p>Use <code>--debug</code> to see hidden stations as dashed circles: <code>nf-metro render --debug pipeline.mmd -o debug.svg</code></p>
+<h2 id="7-putting-it-all-together">7. Putting it all together<a class="headerlink" href="#7-putting-it-all-together" title="Permanent link">&para;</a></h2>
 <p>The nf-core/rnaseq example at <a href="https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd"><code>examples/rnaseq_auto.mmd</code></a> combines all of these patterns in a real-world pipeline:</p>
 <p><img alt="nf-core/rnaseq" src="../assets/renders/rnaseq_auto.svg" /></p>
 <p>Five analysis routes share preprocessing, fan out to different aligners, reconverge at post-processing (a <code>TB</code> section), and fold back through QC (an <code>RL</code> section that creates a serpentine return path). The layout engine infers section directions, grid positions, and port sides automatically from the graph topology.</p>
