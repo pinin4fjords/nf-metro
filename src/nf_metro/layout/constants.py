@@ -64,6 +64,14 @@ PLACEMENT_Y_GAP: float = 60.0
 PORT_MIN_GAP: float = 15.0
 """Minimum spacing between adjacent ports on a section boundary."""
 
+MIN_INTER_SECTION_GAP: float = 40.0
+"""Minimum physical gap between adjacent section bboxes.
+
+Ensures the gap midpoint is at least 2*CURVE_RADIUS from each section
+edge, giving enough horizontal run for smooth curves at bypass route
+corners.  Value: 40px (4 * 10px CURVE_RADIUS).
+"""
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
@@ -96,6 +104,12 @@ MIN_STRAIGHT_PORT: float = 5.0
 
 MIN_STRAIGHT_EDGE: float = 10.0
 """Minimum straight track for non-port edges."""
+
+BYPASS_CLEARANCE: float = 25.0
+"""Vertical clearance below the lowest intervening section for bypass routes."""
+
+BYPASS_NEST_STEP: float = 8.0
+"""Per-line vertical offset for stacking multiple bypass routes."""
 
 # ---------------------------------------------------------------------------
 # Engine: entry/exit alignment
