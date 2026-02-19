@@ -1,9 +1,6 @@
 # Importing from Nextflow
 
-nf-metro can convert Nextflow's built-in DAG output into a metro map. This works well for simple pipelines with a few subworkflows and a clear linear flow. For complex pipelines (like most nf-core pipelines), the automatic conversion is a useful starting point, but you will likely need to hand-tune the resulting `.mmd` file to get a clean diagram.
-
-!!! note "Work in progress"
-    Automatic layout of complex, real-world Nextflow pipelines is an active area of development. The converter handles the format translation well, but the layout engine does not yet route bypass lines (lines that skip over intermediate sections) cleanly. We are working on this separately. For now, the recommended workflow for complex pipelines is to convert, then hand-edit.
+nf-metro can convert Nextflow's built-in DAG output into a metro map. This works best for simple pipelines with a handful of subworkflows. For complex pipelines like those in nf-core, direct conversion is unlikely to produce a good diagram - you will need to hand-write or heavily edit the `.mmd` file. Improving this is an active area of development.
 
 ## Generating a Nextflow DAG
 
@@ -44,24 +41,6 @@ For simple pipelines where hand-tuning is not needed, you can convert and render
 ```bash
 nf-metro render dag.mmd -o pipeline.svg --from-nextflow --title "My Pipeline"
 ```
-
-## What works well
-
-The converter handles these patterns cleanly:
-
-- **Linear pipelines** with no subworkflows (all processes in a single section)
-- **Pipelines with a few subworkflows** that form a simple chain (preprocessing, alignment, variant calling, reporting)
-- **Diamond patterns** where two processes fan out from the same source and reconverge (e.g., GATK and DeepVariant both feeding BCFtools)
-
-## What needs hand-tuning
-
-Real-world Nextflow pipelines often have topologies that the automatic converter and layout engine cannot yet handle cleanly:
-
-- **Many cross-section connections** - QC processes that collect metrics from every stage create bypass lines that visually cross through intermediate sections. The layout engine does not yet route these lines around the sections they skip.
-- **Deeply nested subworkflows** - The converter flattens subworkflow nesting to a single level of sections. Complex nesting may lose meaningful groupings.
-- **Pipelines with many parallel branches** - Pipelines with more than 3-4 parallel analysis paths can produce cluttered diagrams that benefit from manual section placement via `%%metro grid:` directives.
-
-For these cases, use the two-step workflow: convert first, then edit the `.mmd` to simplify the topology before rendering.
 
 ## How the converter works
 
