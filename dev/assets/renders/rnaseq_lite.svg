@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1638" height="591" viewBox="0 0 1638 591">
+     width="1578" height="495" viewBox="0 0 1578 495">
 <defs>
 </defs>
-<rect x="0" y="0" width="1638" height="591" fill="#2b2b2b" />
+<rect x="0" y="0" width="1578" height="495" fill="#2b2b2b" />
 <text x="60.0" y="30.0" font-size="18.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold">RNA-seq Lite</text>
 <rect x="30.0" y="85.0" width="472.0" height="150.0" rx="8" ry="8" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.0" />
 <circle cx="39.0" cy="72.0" r="9" fill="#333333" />
@@ -141,5 +141,5 @@
 <text x="78.0" y="423.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">HISAT2</text>
 <path d="M42.0,447.0 L66.0,447.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="447.0" font-size="11.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Pseudo-alignment</text>
-<text x="1608.0" y="583.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.0+dev</text>
+<text x="1548.0" y="487.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.0+dev</text>
 </svg>
