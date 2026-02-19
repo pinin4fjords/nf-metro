@@ -1,6 +1,9 @@
 # Importing from Nextflow
 
-nf-metro can import pipeline diagrams directly from Nextflow's built-in DAG output. This lets you visualize any Nextflow pipeline as a metro map without writing the `.mmd` file by hand.
+nf-metro can convert Nextflow's built-in DAG output into a metro map. This works well for simple pipelines with a few subworkflows and a clear linear flow. For complex pipelines (like most nf-core pipelines), the automatic conversion is a useful starting point, but you will likely need to hand-tune the resulting `.mmd` file to get a clean diagram.
+
+!!! note "Work in progress"
+    Automatic layout of complex, real-world Nextflow pipelines is an active area of development. The converter handles the format translation well, but the layout engine does not yet route bypass lines (lines that skip over intermediate sections) cleanly. We are working on this separately. For now, the recommended workflow for complex pipelines is to convert, then hand-edit.
 
 ## Generating a Nextflow DAG
 
@@ -10,65 +13,56 @@ Nextflow can export its pipeline DAG in mermaid format:
 nextflow run my_pipeline.nf -preview -with-dag dag.mmd
 ```
 
-The `-preview` flag skips execution and just generates the DAG. The resulting `dag.mmd` file uses Nextflow's `flowchart TB` mermaid syntax, which is different from nf-metro's `graph LR` format.
+The `-preview` flag skips execution and just generates the DAG. The resulting file uses Nextflow's `flowchart TB` mermaid syntax, which nf-metro cannot render directly but can convert.
 
-## Quick render
+## Converting and rendering
 
-The fastest way to get a metro map from a Nextflow DAG is the `--from-nextflow` flag on `nf-metro render`:
+The recommended workflow is to convert first, review and optionally edit the `.mmd`, then render:
+
+```bash
+# Convert Nextflow DAG to nf-metro format
+nf-metro convert dag.mmd -o pipeline.mmd --title "My Pipeline"
+
+# Review the .mmd file, then render
+nf-metro render pipeline.mmd -o pipeline.svg
+```
+
+The converted `.mmd` file is plain text that you can edit in any text editor. Common hand-tuning steps:
+
+- Rename lines or change their colors (`%%metro line:` directives)
+- Rename sections (the `subgraph` display names)
+- Add entry/exit port hints to control line routing at section boundaries
+- Remove or merge sections to simplify the layout
+- Add `%%metro grid:` directives to override section placement
+
+See the [Guide](guide.md) for the full `.mmd` format reference.
+
+### Quick one-step render
+
+For simple pipelines where hand-tuning is not needed, you can convert and render in one step:
 
 ```bash
 nf-metro render dag.mmd -o pipeline.svg --from-nextflow --title "My Pipeline"
 ```
 
-This converts and renders in one step. The `--title` option sets the diagram title (otherwise it defaults to the Nextflow DAG's structure).
+## What works well
 
-## Two-step workflow
+The converter handles these patterns cleanly:
 
-For more control, convert first and then render separately:
+- **Linear pipelines** with no subworkflows (all processes in a single section)
+- **Pipelines with a few subworkflows** that form a simple chain (preprocessing, alignment, variant calling, reporting)
+- **Diamond patterns** where two processes fan out from the same source and reconverge (e.g., GATK and DeepVariant both feeding BCFtools)
 
-```bash
-# Step 1: Convert to nf-metro format
-nf-metro convert dag.mmd -o pipeline.mmd --title "My Pipeline"
+## What needs hand-tuning
 
-# Step 2: Render (or hand-tune first)
-nf-metro render pipeline.mmd -o pipeline.svg
-```
+Real-world Nextflow pipelines often have topologies that the automatic converter and layout engine cannot yet handle cleanly:
 
-The two-step workflow lets you edit the `.mmd` file before rendering. You can add custom line colors, adjust section names, add entry/exit port hints, or reorganize the layout.
+- **Many cross-section connections** - QC processes that collect metrics from every stage create bypass lines that visually cross through intermediate sections. The layout engine does not yet route these lines around the sections they skip.
+- **Deeply nested subworkflows** - The converter flattens subworkflow nesting to a single level of sections. Complex nesting may lose meaningful groupings.
+- **Pipelines with many parallel branches** - Pipelines with more than 3-4 parallel analysis paths can produce cluttered diagrams that benefit from manual section placement via `%%metro grid:` directives.
 
-## What the converter does
+For these cases, use the two-step workflow: convert first, then edit the `.mmd` to simplify the topology before rendering.
 
-The converter transforms Nextflow's DAG representation into nf-metro format through several steps:
+## How the converter works
 
-1. **Node classification** - Nextflow DAGs contain three types of nodes: processes (stadium-shaped), channels/values (square brackets), and operators (circles). The converter keeps processes and drops channel/operator nodes.
-
-2. **Edge reconnection** - After dropping channel and operator nodes, edges are reconnected through them. If process A connects to channel C, which connects to process B, the converter creates a direct A-to-B edge.
-
-3. **Section mapping** - Nextflow subworkflows become nf-metro sections. Processes not inside any subworkflow are grouped into auto-generated sections (typically "Reporting" for terminal processes like MultiQC).
-
-4. **Line detection** - The converter assigns metro lines based on the graph structure:
-      - A **main** line follows the longest path through the pipeline
-      - **Bypass lines** are created for edges that skip over intermediate sections (e.g., a QC line going from preprocessing directly to reporting)
-      - **Spur lines** mark dead-end processes that branch off the main flow (displayed as perpendicular branches)
-
-5. **Label cleanup** - Process names are converted from `SCREAMING_SNAKE_CASE` to `Title Case` and long names are abbreviated to fit the diagram.
-
-## Limitations
-
-- **Bypass routing** - Lines that skip over intermediate sections may visually pass through those sections. This is a known layout limitation. For best results, design pipelines where lines visit a section in every column.
-
-- **Cycle breaking** - Nextflow DAGs can contain cycles (e.g., retry loops). The converter breaks these by removing back-edges detected via DFS.
-
-- **Complex subworkflows** - Very deeply nested subworkflow structures may produce cluttered diagrams. Consider using the two-step workflow and simplifying the converted `.mmd` by hand.
-
-## Example
-
-Starting from a Nextflow pipeline with three subworkflows (Preprocess, Alignment, Variant Calling) plus a standalone MultiQC process:
-
-```bash
-nextflow run variant_calling.nf -preview -with-dag vc_dag.mmd
-nf-metro convert vc_dag.mmd -o vc.mmd --title "Variant Calling Pipeline"
-nf-metro render vc.mmd -o vc.svg
-```
-
-The converter maps subworkflows to sections, detects the main analysis flow, creates bypass lines for QC connections, and assigns spur lines for dead-end processes like index files that don't feed downstream.
+The converter strips Nextflow's channel and operator nodes (keeping only processes), reconnects edges through the removed nodes, maps subworkflows to sections, and assigns colored metro lines based on the graph structure. Process names are cleaned up from `SCREAMING_SNAKE_CASE` to `Title Case` and long names are abbreviated.
