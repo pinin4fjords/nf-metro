@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["apply_route_offsets", "render_svg"]
+
 from pathlib import Path
 
 import drawsvg as draw

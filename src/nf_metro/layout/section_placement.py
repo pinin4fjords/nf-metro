@@ -7,6 +7,8 @@ Grid overrides can pin sections to specific positions.
 
 from __future__ import annotations
 
+__all__ = ["place_sections", "position_ports"]
+
 from collections import defaultdict, deque
 
 from nf_metro.layout.constants import (

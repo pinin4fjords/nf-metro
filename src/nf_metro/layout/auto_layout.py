@@ -9,6 +9,8 @@ Preserves any values explicitly set by %%metro directives.
 
 from __future__ import annotations
 
+__all__ = ["infer_section_layout"]
+
 from collections import defaultdict, deque
 
 from nf_metro.parser.model import MetroGraph, PortSide

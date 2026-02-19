@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["compute_legend_dimensions", "render_legend"]
+
 import drawsvg as draw
 
 from nf_metro.parser.model import MetroGraph

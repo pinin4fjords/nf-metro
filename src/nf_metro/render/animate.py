@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["render_animation"]
+
 import math
 import re
 

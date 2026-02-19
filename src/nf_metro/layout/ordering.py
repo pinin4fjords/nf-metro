@@ -8,6 +8,8 @@ predecessors instead of jumping to a distant track.
 
 from __future__ import annotations
 
+__all__ = ["assign_tracks"]
+
 from collections import defaultdict
 
 import networkx as nx
