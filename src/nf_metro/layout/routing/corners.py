@@ -28,6 +28,7 @@ from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 # Primitive: reversed (inner/outer) offset
 # ---------------------------------------------------------------------------
 
+
 def reversed_offset(offset: float, max_offset: float) -> float:
     """Flip a line's offset within a bundle.
 
@@ -41,6 +42,7 @@ def reversed_offset(offset: float, max_offset: float) -> float:
 # ---------------------------------------------------------------------------
 # Standard inter-section L-shape (horizontal -> vertical -> horizontal)
 # ---------------------------------------------------------------------------
+
 
 def l_shape_radii(
     i: int,
@@ -115,6 +117,7 @@ def l_shape_radii(
 # TB section LEFT/RIGHT exit L-shape (vertical drop -> horizontal)
 # ---------------------------------------------------------------------------
 
+
 def tb_exit_corner(
     src_off: float,
     max_src_off: float,
@@ -175,6 +178,7 @@ def tb_exit_corner(
 # ---------------------------------------------------------------------------
 # TB section LEFT/RIGHT entry L-shape (horizontal -> vertical drop)
 # ---------------------------------------------------------------------------
+
 
 def tb_entry_corner(
     tgt_off: float,

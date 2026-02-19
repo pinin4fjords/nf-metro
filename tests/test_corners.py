@@ -25,6 +25,7 @@ from nf_metro.layout.routing.corners import (
 # reversed_offset
 # ---------------------------------------------------------------------------
 
+
 class TestReversedOffset:
     def test_zero_becomes_max(self):
         assert reversed_offset(0.0, 6.0) == 6.0
@@ -48,6 +49,7 @@ class TestReversedOffset:
 # ---------------------------------------------------------------------------
 # l_shape_radii: invariant tests
 # ---------------------------------------------------------------------------
+
 
 class TestLShapeRadii:
     """Test the standard inter-section L-shape (horiz -> vert -> horiz)."""
@@ -110,7 +112,7 @@ class TestLShapeRadii:
         for i in range(n):
             _, r1, r2 = l_shape_radii(i, n, going_down)
             assert r1 + r2 == pytest.approx(expected_sum), (
-                f"r1+r2={r1+r2} != {expected_sum} for i={i}, n={n}, down={going_down}"
+                f"r1+r2={r1 + r2} != {expected_sum} for i={i}, n={n}, down={going_down}"
             )
 
     @pytest.mark.parametrize("n", [2, 3, 5])
@@ -126,7 +128,7 @@ class TestLShapeRadii:
             d_down, r1_down, r2_down = l_shape_radii(i, n, going_down=True)
             d_up, r1_up, r2_up = l_shape_radii(n - 1 - i, n, going_down=False)
             assert d_down == pytest.approx(d_up), (
-                f"delta mismatch: down[{i}]={d_down}, up[{n-1-i}]={d_up}"
+                f"delta mismatch: down[{i}]={d_down}, up[{n - 1 - i}]={d_up}"
             )
             assert r1_down == pytest.approx(r1_up)
             assert r2_down == pytest.approx(r2_up)
@@ -181,6 +183,7 @@ class TestLShapeRadii:
 # ---------------------------------------------------------------------------
 # tb_exit_corner
 # ---------------------------------------------------------------------------
+
 
 class TestTbExitCorner:
     """Test the TB section LEFT/RIGHT exit L-shape."""
@@ -253,6 +256,7 @@ class TestTbExitCorner:
 # ---------------------------------------------------------------------------
 # tb_entry_corner
 # ---------------------------------------------------------------------------
+
 
 class TestTbEntryCorner:
     """Test the TB section LEFT/RIGHT entry L-shape."""
