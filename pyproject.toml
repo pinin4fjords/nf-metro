@@ -50,6 +50,10 @@ docs = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
 [tool.ruff]
 target-version = "py310"
 
