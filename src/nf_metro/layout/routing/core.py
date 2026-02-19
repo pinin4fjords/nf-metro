@@ -295,13 +295,11 @@ def route_edges(
                             + gap2_extra
                         )
 
-                    # Concentric radii: the outer line (larger gap index,
-                    # further from center) gets a larger radius at each
-                    # gap so the U-shape arcs nest visually.
-                    # NOTE: gap1 and gap2 radii may differ when a line
-                    # shares one gap but not the other (see issue #42).
-                    r_gap1 = curve_radius + gap1_extra
-                    r_gap2 = curve_radius + gap2_extra
+                    # Uniform corner radius: use the larger per-gap offset
+                    # so all 4 corners of the U-shape match visually.
+                    # The gap X positions still use per-gap offsets for
+                    # route separation; only the radius is unified.
+                    r_bypass = curve_radius + max(gap1_extra, gap2_extra)
                     routes.append(
                         RoutedPath(
                             edge=edge,
@@ -315,7 +313,7 @@ def route_edges(
                                 (tx, ty),
                             ],
                             is_inter_section=True,
-                            curve_radii=[r_gap1, r_gap1, r_gap2, r_gap2],
+                            curve_radii=[r_bypass, r_bypass, r_bypass, r_bypass],
                         )
                     )
                 else:
