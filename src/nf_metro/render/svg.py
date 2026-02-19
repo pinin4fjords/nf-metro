@@ -11,10 +11,24 @@ from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_e
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render.constants import (
     CANVAS_PADDING,
+    DEBUG_DIAMOND_RADIUS,
+    DEBUG_FONT_SIZE,
+    DEBUG_STROKE_WIDTH,
+    ICON_BBOX_MARGIN,
+    ICON_STATION_GAP,
     LEGEND_GAP,
     LEGEND_INSET,
     LOGO_Y_STANDALONE,
+    SECTION_BOX_RADIUS,
+    SECTION_LABEL_TEXT_OFFSET,
+    SECTION_NUM_CIRCLE_R_LARGE,
+    SECTION_NUM_Y_OFFSET,
+    SECTION_STROKE_WIDTH,
     SVG_CURVE_RADIUS,
+    TITLE_Y_OFFSET,
+    WATERMARK_FONT_SIZE,
+    WATERMARK_PADDING_RATIO,
+    WATERMARK_Y_INSET,
 )
 from nf_metro.render.icons import render_file_icon
 from nf_metro.render.legend import compute_legend_dimensions, render_legend
@@ -158,7 +172,7 @@ def render_svg(
                 graph.title,
                 theme.title_font_size,
                 padding,
-                30,
+                TITLE_Y_OFFSET,
                 fill=theme.title_color,
                 font_family=theme.label_font_family,
                 font_weight="bold",
@@ -205,9 +219,9 @@ def render_svg(
     d.append(
         draw.Text(
             f"created with nf-metro {_version_string()}",
-            8,
-            svg_width - padding * 0.5,
-            svg_height - 8,
+            WATERMARK_FONT_SIZE,
+            svg_width - padding * WATERMARK_PADDING_RATIO,
+            svg_height - WATERMARK_Y_INSET,
             fill="rgba(150, 150, 150, 0.6)",
             font_family=theme.label_font_family,
             text_anchor="end",
@@ -302,18 +316,18 @@ def _render_first_class_sections(
                 section.bbox_y,
                 section.bbox_w,
                 section.bbox_h,
-                rx=8,
-                ry=8,
+                rx=SECTION_BOX_RADIUS,
+                ry=SECTION_BOX_RADIUS,
                 fill=theme.section_fill,
                 stroke=theme.section_stroke,
-                stroke_width=1.0,
+                stroke_width=SECTION_STROKE_WIDTH,
             )
         )
 
         # Numbered circle above the box, left-aligned
-        circle_r = 9
+        circle_r = SECTION_NUM_CIRCLE_R_LARGE
         cx = section.bbox_x + circle_r
-        cy = section.bbox_y - circle_r - 4
+        cy = section.bbox_y - circle_r - SECTION_NUM_Y_OFFSET
 
         d.append(
             draw.Circle(
@@ -342,7 +356,7 @@ def _render_first_class_sections(
             draw.Text(
                 section.name,
                 theme.section_label_font_size,
-                cx + circle_r + 5,
+                cx + circle_r + SECTION_LABEL_TEXT_OFFSET,
                 cy,
                 fill=theme.section_label_color,
                 font_family=theme.label_font_family,
@@ -568,7 +582,7 @@ def _render_stations(
                         is_source = False
                         break
             # Place icon on the "outside" of the flow
-            icon_gap = r + 6
+            icon_gap = r + ICON_STATION_GAP
             icon_half_w = theme.terminus_width / 2
             section_dir = section.direction if section else "LR"
             if section_dir == "RL":
@@ -583,9 +597,12 @@ def _render_stations(
             icon_cy = station.y + (min_off + max_off) / 2
             # Clamp to stay within section bbox
             if section and section.bbox_w > 0:
+                icon_right = (
+                    section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
+                )
                 icon_cx = max(
-                    section.bbox_x + icon_half_w + 2,
-                    min(icon_cx, section.bbox_x + section.bbox_w - icon_half_w - 2),
+                    section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
+                    min(icon_cx, icon_right),
                 )
             render_file_icon(
                 d,
@@ -651,7 +668,7 @@ def _render_debug_overlay(
 ) -> None:
     """Render debug markers for ports, hidden stations, and edge waypoints."""
     debug_font = theme.label_font_family
-    debug_font_size = 7
+    debug_font_size = DEBUG_FONT_SIZE
 
     # Edge waypoints: small filled circles at intermediate points
     for route in routes:
@@ -686,7 +703,7 @@ def _render_debug_overlay(
         is_entry = port.is_entry if port else True
         color = "rgba(255, 80, 80, 0.7)" if is_entry else "rgba(80, 180, 255, 0.7)"
         # Diamond (rotated square)
-        r = 5
+        r = DEBUG_DIAMOND_RADIUS
         diamond = draw.Path(fill=color, stroke="none")
         diamond.M(station.x, station.y - r)
         diamond.L(station.x + r, station.y)
@@ -719,10 +736,10 @@ def _render_debug_overlay(
             draw.Circle(
                 station.x,
                 station.y,
-                5,
+                DEBUG_DIAMOND_RADIUS,
                 fill="none",
                 stroke=color,
-                stroke_width=1.5,
+                stroke_width=DEBUG_STROKE_WIDTH,
                 stroke_dasharray="3,2",
             )
         )

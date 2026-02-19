@@ -9,6 +9,7 @@ from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
+    DEFAULT_LINE_PRIORITY,
 )
 from nf_metro.parser.model import Edge, MetroGraph
 
@@ -119,7 +120,7 @@ def compute_bundle_info(
                 group.sort(
                     key=lambda e: (
                         -e[4],
-                        line_priority.get(e[0].line_id, 999),
+                        line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY),
                     )
                 )
             elif (port := graph.ports.get(exit_port_id)) and not port.is_entry:
@@ -127,16 +128,23 @@ def compute_bundle_info(
                 group.sort(
                     key=lambda e: (
                         source_y.get(e[0].line_id, 0),
-                        line_priority.get(e[0].line_id, 999),
+                        line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY),
                     )
                 )
             else:
-                group.sort(key=lambda e: line_priority.get(e[0].line_id, 999))
+                group.sort(
+                    key=lambda e: line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY)
+                )
         else:
             # Fan-in: edges from different source ports. Sort by
             # actual source Y position to preserve spatial ordering
             # around the L-shaped corner.
-            group.sort(key=lambda e: (e[2], line_priority.get(e[0].line_id, 999)))
+            group.sort(
+                key=lambda e: (
+                    e[2],
+                    line_priority.get(e[0].line_id, DEFAULT_LINE_PRIORITY),
+                )
+            )
 
         n = len(group)
         for i, (edge, *_rest) in enumerate(group):

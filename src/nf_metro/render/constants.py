@@ -102,3 +102,27 @@ DEBUG_DIAMOND_RADIUS: int = 5
 
 DEBUG_STROKE_WIDTH: float = 1.5
 """Stroke width for hidden station markers in debug mode."""
+
+# ---------------------------------------------------------------------------
+# Section box
+# ---------------------------------------------------------------------------
+SECTION_BOX_RADIUS: int = 8
+"""Corner radius for section bounding box rectangles."""
+
+SECTION_STROKE_WIDTH: float = 1.0
+"""Stroke width for section bounding box outlines."""
+
+# ---------------------------------------------------------------------------
+# Title / watermark
+# ---------------------------------------------------------------------------
+TITLE_Y_OFFSET: float = 30.0
+"""Y position for the title text."""
+
+WATERMARK_FONT_SIZE: int = 8
+"""Font size for the attribution watermark."""
+
+WATERMARK_PADDING_RATIO: float = 0.5
+"""Fraction of canvas padding used for watermark X inset from right edge."""
+
+WATERMARK_Y_INSET: float = 8.0
+"""Y distance from bottom edge for watermark text."""
