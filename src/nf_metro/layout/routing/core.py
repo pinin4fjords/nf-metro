@@ -260,10 +260,11 @@ def route_edges(
                     by = base_y + nest_offset
 
                     # Gap midpoints adjacent to source and target columns.
-                    # Offset both gap verticals so they don't overlap
-                    # with standard L-shape channels sharing the same
-                    # inter-column gaps.  gap1 shifts toward the target,
-                    # gap2 shifts toward the source.
+                    # gap1 shifts toward the SOURCE so the first vertical
+                    # doesn't hug the next section being bypassed.  gap2
+                    # stays at the gap midpoint (only per-route offsets
+                    # applied) so it sits centred between the last
+                    # bypassed section and the target.
                     #
                     # When multiple bypass routes share the same physical
                     # gap (e.g., routes from different source columns both
@@ -275,23 +276,25 @@ def route_edges(
                     if dx > 0:
                         gap1_x = (
                             adjacent_column_gap_x(graph, src_col, src_col + 1)
-                            + base_bypass_offset
-                            + gap1_extra
+                            - base_bypass_offset
+                            - gap1_extra
                         )
+                        # Clamp: gap1 must stay right of source for a
+                        # valid horizontal run.
+                        gap1_x = max(gap1_x, sx + curve_radius)
                         gap2_x = (
                             adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
-                            - base_bypass_offset
                             - gap2_extra
                         )
                     else:
                         gap1_x = (
                             adjacent_column_gap_x(graph, src_col - 1, src_col)
-                            - base_bypass_offset
-                            - gap1_extra
+                            + base_bypass_offset
+                            + gap1_extra
                         )
+                        gap1_x = min(gap1_x, sx - curve_radius)
                         gap2_x = (
                             adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
-                            + base_bypass_offset
                             + gap2_extra
                         )
 
