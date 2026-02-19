@@ -772,5 +772,3 @@ def _has_intervening_sections(
         if s.bbox_w > 0 and lo < s.grid_col < hi:
             return True
     return False
-
-

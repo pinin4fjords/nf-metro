@@ -161,9 +161,7 @@ def test_bypass_routing_around_intervening_sections():
     routes = route_edges(graph, station_offsets=offsets)
 
     # Find inter-section bypass routes
-    bypass_routes = [
-        r for r in routes if r.line_id == "bypass" and r.is_inter_section
-    ]
+    bypass_routes = [r for r in routes if r.line_id == "bypass" and r.is_inter_section]
     assert bypass_routes, "Expected at least one inter-section bypass route"
 
     # The bypass route spanning the most X distance is the actual bypass
