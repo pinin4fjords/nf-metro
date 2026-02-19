@@ -40,7 +40,7 @@ LEGEND_TEXT_GAP: float = 12.0
 LEGEND_CHAR_WIDTH_RATIO: float = 0.48
 """Character width as a fraction of font size for legend text sizing."""
 
-LOGO_SCALE_FACTOR: float = 0.6
+LOGO_SCALE_FACTOR: float = 0.95
 """Logo scale factor relative to content height."""
 
 LOGO_GAP: float = 12.0
