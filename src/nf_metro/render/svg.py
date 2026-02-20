@@ -702,6 +702,10 @@ def _render_terminus_icon(
     )
 
 
+_LABEL_LINE_HEIGHT = 1.2
+"""Line-height multiplier for multi-line station labels."""
+
+
 def _render_labels(
     d: draw.Drawing,
     labels: list[LabelPlacement],
@@ -709,34 +713,51 @@ def _render_labels(
 ) -> None:
     """Render station name labels."""
     for label in labels:
+        text = label.text
+        n_lines = text.count("\n") + 1
+
+        # For multi-line labels, adjust y so the text block stays on
+        # the correct side of the station.
+        y = label.y
+        if n_lines > 1:
+            line_spacing = theme.label_font_size * _LABEL_LINE_HEIGHT
+            if label.dominant_baseline == "central":
+                # Center the block vertically on y
+                y -= (n_lines - 1) * line_spacing / 2
+            elif label.above:
+                # Keep the bottom line near the station
+                y -= (n_lines - 1) * line_spacing
+
         if label.dominant_baseline:
             # Custom placement (e.g. TB vertical stations: right-side labels)
             d.append(
                 draw.Text(
-                    label.text,
+                    text,
                     theme.label_font_size,
                     label.x,
-                    label.y,
+                    y,
                     fill=theme.label_color,
                     font_family=theme.label_font_family,
                     font_weight=theme.label_font_weight,
                     text_anchor=label.text_anchor,
                     dominant_baseline=label.dominant_baseline,
+                    line_height=_LABEL_LINE_HEIGHT,
                 )
             )
         else:
             baseline = "auto" if label.above else "hanging"
             d.append(
                 draw.Text(
-                    label.text,
+                    text,
                     theme.label_font_size,
                     label.x,
-                    label.y,
+                    y,
                     fill=theme.label_color,
                     font_family=theme.label_font_family,
                     font_weight=theme.label_font_weight,
                     text_anchor="middle",
                     dominant_baseline=baseline,
+                    line_height=_LABEL_LINE_HEIGHT,
                 )
             )
 

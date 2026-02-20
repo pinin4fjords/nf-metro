@@ -142,6 +142,30 @@ def test_render_sections_no_port_labels():
         assert port_id not in svg, f"Port {port_id} should not appear in SVG"
 
 
+def test_render_multiline_labels():
+    """Multi-line labels (\\n) render as separate tspan elements."""
+    graph = parse_metro_mermaid(
+        "%%metro title: Test\n"
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    a[Line One \\n Line Two]\n"
+        "    b[Output]\n"
+        "    a -->|main| b\n"
+    )
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    # Both lines should appear in the SVG as separate tspan elements
+    assert "Line One" in svg
+    assert "Line Two" in svg
+    root = ET.fromstring(svg)
+    # Find tspan elements containing the label parts
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    tspans = root.findall(".//svg:text/svg:tspan", ns)
+    tspan_texts = [t.text for t in tspans if t.text]
+    assert "Line One" in tspan_texts
+    assert "Line Two" in tspan_texts
+
+
 def test_render_rnaseq_sections_example():
     """The rnaseq_sections.mmd example should render without errors."""
     from pathlib import Path
