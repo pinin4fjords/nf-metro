@@ -286,6 +286,7 @@ def _layout_single_section(
     # Apply direction-specific bbox adjustments
     _adjust_tb_labels(sub, section, graph)
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
+    _adjust_tb_exit_extend(section, graph, y_spacing)
     _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
     _adjust_terminus_icon_clearance(sub, section, graph)
@@ -451,6 +452,29 @@ def _adjust_tb_entry_shifts(
         for s in sub.stations.values():
             s.y += entry_shift
         section.bbox_h += entry_shift
+
+
+def _adjust_tb_exit_extend(
+    section: Section,
+    graph: MetroGraph,
+    y_spacing: float,
+) -> None:
+    """Extend TB section bbox bottom for perpendicular exit ports.
+
+    Mirrors _adjust_tb_entry_shifts: when a TB section has LEFT/RIGHT
+    exit ports, extend the bbox downward so the exit horizontal line
+    has the same padding from the box edge as the entry line does.
+    """
+    if section.direction != "TB":
+        return
+
+    has_perp_exit = any(
+        graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
+        for pid in section.exit_ports
+        if pid in graph.ports
+    )
+    if has_perp_exit:
+        section.bbox_h += y_spacing * ENTRY_SHIFT_TB
 
 
 def _adjust_lr_entry_inset(
@@ -905,8 +929,6 @@ def _align_lr_exit_port(
 
         if exit_section.direction == "TB":
             tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
-            if tgt_y is None:
-                break
         else:
             tgt_y = tgt.y
 
@@ -919,31 +941,35 @@ def _resolve_tb_exit_y(
     port,
     tgt: Station,
     exit_section: Section,
-) -> float | None:
+) -> float:
     """Resolve the Y coordinate for a TB section's exit port.
 
-    Ensures the exit port stays below the last internal station with a
-    minimum gap. If the target is too high, pushes the target section
-    down to maintain alignment. Returns None if alignment should be skipped.
+    Mirrors the entry-side gap: finds how far the perpendicular entry
+    port sits above the first internal station, and places the exit port
+    the same distance below the last internal station. Pushes the target
+    section down if needed so the inter-section line is straight.
     """
-    last_y = max(
-        (
-            graph.stations[sid].y
-            for sid in exit_section.station_ids
-            if sid in graph.stations and not graph.stations[sid].is_port
-        ),
-        default=port.y,
-    )
+    internal_ys = [
+        graph.stations[sid].y
+        for sid in exit_section.station_ids
+        if sid in graph.stations and not graph.stations[sid].is_port
+    ]
+    last_y = max(internal_ys) if internal_ys else port.y
+    first_y = min(internal_ys) if internal_ys else port.y
 
-    # Don't pull above the last internal station
-    if tgt.y < last_y:
-        return None
+    # Mirror the entry-side gap (distance from entry port to first station)
+    entry_gap = MIN_PORT_STATION_GAP
+    for pid in exit_section.entry_ports:
+        ep = graph.ports.get(pid)
+        if ep and ep.side in (PortSide.LEFT, PortSide.RIGHT):
+            entry_gap = max(entry_gap, first_y - graph.stations[pid].y)
+            break
 
-    min_exit_y = last_y + MIN_PORT_STATION_GAP
+    min_exit_y = last_y + entry_gap
     if tgt.y >= min_exit_y:
         return tgt.y
 
-    # Target is between last_y and min_exit_y: push target section down
+    # Push target section down to align with exit port
     tgt_y = min_exit_y
     delta = tgt_y - tgt.y
 
