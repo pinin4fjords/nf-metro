@@ -6,7 +6,7 @@ above/below alternation and collision avoidance.
 
 from __future__ import annotations
 
-__all__ = ["LabelPlacement", "place_labels"]
+__all__ = ["LabelPlacement", "label_text_width", "place_labels"]
 
 from dataclasses import dataclass
 
@@ -15,6 +15,7 @@ from nf_metro.layout.constants import (
     COLLISION_MULTIPLIER,
     FONT_HEIGHT,
     LABEL_BBOX_MARGIN,
+    LABEL_LINE_HEIGHT,
     LABEL_MARGIN,
     LABEL_OFFSET,
     TB_LABEL_H_SPACING,
@@ -22,6 +23,21 @@ from nf_metro.layout.constants import (
     TB_PILL_EDGE_OFFSET,
 )
 from nf_metro.parser.model import MetroGraph
+
+
+def label_text_width(label: str) -> float:
+    """Pixel width of the widest line in a (possibly multi-line) label."""
+    if "\n" not in label:
+        return len(label) * CHAR_WIDTH
+    return max(len(line) for line in label.split("\n")) * CHAR_WIDTH
+
+
+def _label_text_height(label: str) -> float:
+    """Pixel height of a (possibly multi-line) label."""
+    n = label.count("\n") + 1
+    if n == 1:
+        return FONT_HEIGHT
+    return FONT_HEIGHT + (n - 1) * FONT_HEIGHT * LABEL_LINE_HEIGHT
 
 
 @dataclass
@@ -40,17 +56,15 @@ class LabelPlacement:
 
 def _label_bbox(
     placement: LabelPlacement,
-    char_width: float = CHAR_WIDTH,
-    font_height: float = FONT_HEIGHT,
 ) -> tuple[float, float, float, float]:
     """Return (x_min, y_min, x_max, y_max) bounding box for a label."""
-    text_width = len(placement.text) * char_width
-    half_w = text_width / 2
+    half_w = label_text_width(placement.text) / 2
+    text_h = _label_text_height(placement.text)
 
     if placement.above:
         return (
             placement.x - half_w,
-            placement.y - font_height,
+            placement.y - text_h,
             placement.x + half_w,
             placement.y,
         )
@@ -59,7 +73,7 @@ def _label_bbox(
             placement.x - half_w,
             placement.y,
             placement.x + half_w,
-            placement.y + font_height,
+            placement.y + text_h,
         )
 
 
@@ -100,10 +114,15 @@ def place_labels(
 
     # Pre-compute per-section Y extremes for LR/RL sections so edge
     # stations prefer outward-facing labels, centering visual content.
+    # Skip sections that contain multi-line labels: consistent layer
+    # alternation avoids cascading collisions between the taller labels.
     section_y_range: dict[str, tuple[float, float]] = {}
+    sections_with_multiline: set[str] = set()
     for s in sorted_stations:
         if not s.section_id:
             continue
+        if "\n" in s.label:
+            sections_with_multiline.add(s.section_id)
         sec = graph.sections.get(s.section_id)
         if not sec or sec.direction not in ("LR", "RL"):
             continue
@@ -157,8 +176,14 @@ def place_labels(
 
         # For edge stations in LR/RL sections, prefer labels extending
         # outward (away from center) to keep visual content centered
-        # within the section bbox.
-        if station.section_id and station.section_id in section_y_range:
+        # within the section bbox.  Skip for sections that contain any
+        # multi-line labels so all stations use consistent alternation
+        # and avoid cascading collisions between the taller labels.
+        if (
+            station.section_id
+            and station.section_id not in sections_with_multiline
+            and station.section_id in section_y_range
+        ):
             y_lo, y_hi = section_y_range[station.section_id]
             if y_lo < y_hi:
                 if station.y == y_lo:
@@ -195,7 +220,7 @@ def place_labels(
         if station.section_id:
             sec = graph.sections.get(station.section_id)
             if sec and sec.bbox_w > 0:
-                text_half_w = len(candidate.text) * CHAR_WIDTH / 2
+                text_half_w = label_text_width(candidate.text) / 2
                 margin = LABEL_BBOX_MARGIN
                 # Horizontal clamping
                 min_x = sec.bbox_x + text_half_w + margin
@@ -240,9 +265,11 @@ def _clamp_label_vertical(
     sec_top = sec.bbox_y
     sec_bottom = sec.bbox_y + sec.bbox_h
 
+    text_h = _label_text_height(candidate.text)
+
     if candidate.above:
-        # Label text occupies [candidate.y - FONT_HEIGHT, candidate.y].
-        min_y = sec_top + FONT_HEIGHT + margin
+        # Label text occupies [candidate.y - text_h, candidate.y].
+        min_y = sec_top + text_h + margin
         if candidate.y >= min_y:
             return candidate  # fits without clamping
 
@@ -254,7 +281,7 @@ def _clamp_label_vertical(
 
         # Clamped position too close to pill - try flipping to below
         below_y = pill_bottom + label_offset
-        max_y = sec_bottom - FONT_HEIGHT - margin
+        max_y = sec_bottom - text_h - margin
         if below_y <= max_y:
             flipped = LabelPlacement(
                 station_id=candidate.station_id,
@@ -275,8 +302,8 @@ def _clamp_label_vertical(
         return candidate
 
     else:
-        # Label text occupies [candidate.y, candidate.y + FONT_HEIGHT].
-        max_y = sec_bottom - FONT_HEIGHT - margin
+        # Label text occupies [candidate.y, candidate.y + text_h].
+        max_y = sec_bottom - text_h - margin
         if candidate.y <= max_y:
             return candidate  # fits without clamping
 
@@ -288,7 +315,7 @@ def _clamp_label_vertical(
 
         # Clamped position too close to pill - try flipping to above
         above_y = pill_top - label_offset
-        min_y = sec_top + FONT_HEIGHT + margin
+        min_y = sec_top + text_h + margin
         if above_y >= min_y:
             flipped = LabelPlacement(
                 station_id=candidate.station_id,
@@ -320,6 +347,8 @@ def _try_place(
 
     Offsets are measured from the pill edge: above labels use min_off
     (top of the pill) and below labels use max_off (bottom of the pill).
+    For multi-line labels the extra text height is added so the nearest
+    line stays the same distance from the pill as a single-line label.
     """
     if above:
         return LabelPlacement(

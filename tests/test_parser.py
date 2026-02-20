@@ -66,6 +66,20 @@ def test_parse_nodes_bare():
     assert graph.stations["mynode"].label == "mynode"
 
 
+def test_parse_multiline_label():
+    """Literal \\n in a label becomes a real newline."""
+    text = r"graph LR" + "\n" + r"    clipper[Porechop ABI \n Porechop]" + "\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.stations["clipper"].label == "Porechop ABI\nPorechop"
+
+
+def test_parse_multiline_label_multiple_breaks():
+    r"""Multiple \\n sequences each produce a line break."""
+    text = r"graph LR" + "\n" + r"    node[A \n B \n C]" + "\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.stations["node"].label == "A\nB\nC"
+
+
 def test_parse_edges():
     text = "graph LR\n    a[Input]\n    b[Output]\n    a -->|main| b\n"
     graph = parse_metro_mermaid(text)

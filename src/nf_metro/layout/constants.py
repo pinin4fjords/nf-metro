@@ -13,6 +13,9 @@ CHAR_WIDTH: float = 9.0
 FONT_HEIGHT: float = 14.0
 """Approximate pixel height of default font."""
 
+LABEL_LINE_HEIGHT: float = 1.2
+"""Line-height multiplier for multi-line labels (em units)."""
+
 LABEL_PAD: float = 6.0
 """Padding added to label width when computing section bounds."""
 

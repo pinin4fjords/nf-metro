@@ -1,6 +1,8 @@
 """Tests for the layout engine."""
 
+from nf_metro.layout.constants import CHAR_WIDTH
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -514,3 +516,19 @@ def test_label_clamp_expands_bbox_when_both_sides_tight():
     if not result.above:
         # If it stayed below, bbox must have grown
         assert sec.bbox_h > original_bbox_h
+
+
+# ---- Multi-line label helpers ----
+
+
+def test_label_text_width_single_line():
+    assert label_text_width("Hello") == 5 * CHAR_WIDTH
+
+
+def test_label_text_width_multiline():
+    # Width should be based on the longest line
+    assert label_text_width("AB\nCDEF") == 4 * CHAR_WIDTH
+
+
+def test_label_text_width_empty():
+    assert label_text_width("") == 0

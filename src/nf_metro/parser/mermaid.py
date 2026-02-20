@@ -323,6 +323,9 @@ def _parse_node(
         if m:
             node_id = m.group(1)
             label = m.group(2).strip() if m.lastindex >= 2 else node_id
+            # Convert literal \n sequences to real newlines (multi-line labels)
+            if "\\n" in label:
+                label = "\n".join(part.strip() for part in label.split("\\n"))
             if node_id not in graph.stations:
                 graph.register_station(
                     Station(
