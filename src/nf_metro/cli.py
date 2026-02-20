@@ -141,7 +141,7 @@ def render(
     if output is None:
         output = input_file.with_suffix(".svg")
 
-    output.write_text(svg)
+    output.write_text(svg if svg.endswith("\n") else svg + "\n")
     click.echo(
         f"Rendered {len(graph.stations)} stations, "
         f"{len(graph.edges)} edges, "
@@ -191,7 +191,7 @@ def convert(
     if output is None:
         click.echo(result, nl=False)
     else:
-        output.write_text(result)
+        output.write_text(result if result.endswith("\n") else result + "\n")
         # Count sections and processes in the output
         sections = result.count("subgraph ")
         processes = result.count("([")
