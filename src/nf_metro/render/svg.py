@@ -8,6 +8,7 @@ from pathlib import Path
 
 import drawsvg as draw
 
+from nf_metro.layout.constants import LABEL_LINE_HEIGHT
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
 from nf_metro.parser.model import MetroGraph, Section, Station
@@ -702,8 +703,6 @@ def _render_terminus_icon(
     )
 
 
-_LABEL_LINE_HEIGHT = 1.2
-"""Line-height multiplier for multi-line station labels."""
 
 
 def _render_labels(
@@ -720,7 +719,7 @@ def _render_labels(
         # the correct side of the station.
         y = label.y
         if n_lines > 1:
-            line_spacing = theme.label_font_size * _LABEL_LINE_HEIGHT
+            line_spacing = theme.label_font_size * LABEL_LINE_HEIGHT
             if label.dominant_baseline == "central":
                 # Center the block vertically on y
                 y -= (n_lines - 1) * line_spacing / 2
@@ -741,7 +740,7 @@ def _render_labels(
                     font_weight=theme.label_font_weight,
                     text_anchor=label.text_anchor,
                     dominant_baseline=label.dominant_baseline,
-                    line_height=_LABEL_LINE_HEIGHT,
+                    line_height=LABEL_LINE_HEIGHT,
                 )
             )
         else:
@@ -757,7 +756,7 @@ def _render_labels(
                     font_weight=theme.label_font_weight,
                     text_anchor="middle",
                     dominant_baseline=baseline,
-                    line_height=_LABEL_LINE_HEIGHT,
+                    line_height=LABEL_LINE_HEIGHT,
                 )
             )
 

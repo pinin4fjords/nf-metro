@@ -12,7 +12,11 @@ from nf_metro.layout.constants import (
     ENTRY_SHIFT_TB,
     ENTRY_SHIFT_TB_CROSS,
     EXIT_GAP_MULTIPLIER,
+    FONT_HEIGHT,
     JUNCTION_MARGIN,
+    LABEL_LINE_HEIGHT,
+    LABEL_MARGIN,
+    LABEL_OFFSET,
     LABEL_PAD,
     MIN_PORT_STATION_GAP,
     ROW_GAP,
@@ -297,13 +301,6 @@ def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
     for both labels plus clearance.  Returns *y_spacing* unchanged when
     no multi-line labels are present.
     """
-    from nf_metro.layout.constants import (
-        FONT_HEIGHT,
-        LABEL_LINE_HEIGHT,
-        LABEL_MARGIN,
-        LABEL_OFFSET,
-    )
-
     max_text_h = FONT_HEIGHT
     for s in sub.stations.values():
         n = s.label.count("\n")
@@ -322,8 +319,6 @@ def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
 
 def _multiline_label_padding(sub: MetroGraph) -> float:
     """Return extra bbox Y padding for the tallest multi-line label."""
-    from nf_metro.layout.constants import FONT_HEIGHT, LABEL_LINE_HEIGHT
-
     max_extra = 0.0
     for s in sub.stations.values():
         n = s.label.count("\n")
