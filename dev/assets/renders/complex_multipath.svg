@@ -4,31 +4,31 @@
 <defs>
 </defs>
 <rect x="0" y="0" width="1121" height="464" fill="#2b2b2b" />
-<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold">Complex Multipath</text>
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Complex Multipath</text>
 <rect x="30.0" y="85.0" width="196.0" height="82.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="39.0" cy="72.0" r="9" fill="#333333" />
+<circle cx="39.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
-<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Input</text>
+<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Input</text>
 <rect x="276.0" y="85.0" width="209.5" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="285.0" cy="72.0" r="9" fill="#333333" />
+<circle cx="285.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="285.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
-<text x="299.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Fast Track</text>
+<text x="299.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Fast Track</text>
 <rect x="276.0" y="195.0" width="256.0" height="82.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="285.0" cy="182.0" r="9" fill="#333333" />
+<circle cx="285.0" cy="182.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="285.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="299.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Full Pre-process</text>
+<text x="299.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Full Pre-process</text>
 <rect x="582.0" y="85.0" width="196.0" height="82.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="591.0" cy="72.0" r="9" fill="#333333" />
+<circle cx="591.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="591.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">4</text>
-<text x="605.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Standard Analysis</text>
+<text x="605.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Standard Analysis</text>
 <rect x="582.0" y="195.0" width="269.5" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="591.0" cy="182.0" r="9" fill="#333333" />
+<circle cx="591.0" cy="182.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="591.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">5</text>
-<text x="605.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Deep Analysis</text>
+<text x="605.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Deep Analysis</text>
 <rect x="901.5" y="85.0" width="160.0" height="82.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="910.5" cy="72.0" r="9" fill="#333333" />
+<circle cx="910.5" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="910.5" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">6</text>
-<text x="924.5" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Output</text>
+<text x="924.5" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Output</text>
 <path d="M326.0,239.0 L386.0,239.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M386.0,239.0 L446.0,239.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M276.0,239.0 L326.0,239.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />

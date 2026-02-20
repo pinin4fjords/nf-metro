@@ -4,7 +4,7 @@
 <defs>
 </defs>
 <rect x="0" y="0" width="528" height="286" fill="#2b2b2b" />
-<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold">Simple Pipeline</text>
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Simple Pipeline</text>
 <path d="M312.5,163.0 L468.5,163.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
 <path d="M80.0,123.0 L171.25,123.0 Q181.25,123.0,187.25,131.0 L205.25,155.0 Q211.25,163.0,221.25,163.0 L312.5,163.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M176.0,123.0 L219.25,123.0 Q229.25,123.0,235.25,131.0 L253.25,155.0 Q259.25,163.0,269.25,163.0 L312.5,163.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
