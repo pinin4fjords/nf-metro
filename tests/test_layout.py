@@ -276,14 +276,13 @@ def test_rl_exit_clearance_preserves_bbox_x():
 
 
 def test_flat_layout_unnamed_edges():
-    """Flat layout with unnamed edges (no line IDs) should not crash."""
-    graph = parse_metro_mermaid(
-        "%%metro line: main | Main | #ff0000\ngraph LR\n    a --> b\n"
-    )
-    compute_layout(graph)
-    # Both stations should have coordinates assigned
-    assert graph.stations["a"].x >= 0
-    assert graph.stations["b"].x > graph.stations["a"].x
+    """Unnamed edges (no line IDs) raise a clear error (issue #75)."""
+    import pytest
+
+    with pytest.raises(ValueError, match="no metro line annotation"):
+        parse_metro_mermaid(
+            "%%metro line: main | Main | #ff0000\ngraph LR\n    a --> b\n"
+        )
 
 
 # --- Line order tests ---
@@ -420,16 +419,17 @@ def test_line_order_span_e2e():
 
 
 def test_flat_layout_no_named_lines():
-    """Flat layout with a line defined but unnamed edges should still work."""
-    graph = parse_metro_mermaid(
-        "%%metro line: main | Main | #ff0000\n"
-        "graph LR\n"
-        "    a[Start]\n"
-        "    b[End]\n"
-        "    a --> b\n"
-    )
-    compute_layout(graph)
-    assert graph.stations["a"].x < graph.stations["b"].x
+    """Unnamed edges with a declared line still raise an error (issue #75)."""
+    import pytest
+
+    with pytest.raises(ValueError, match="no metro line annotation"):
+        parse_metro_mermaid(
+            "%%metro line: main | Main | #ff0000\n"
+            "graph LR\n"
+            "    a[Start]\n"
+            "    b[End]\n"
+            "    a --> b\n"
+        )
 
 
 # --- Label clamping tests (issue #58) ---
