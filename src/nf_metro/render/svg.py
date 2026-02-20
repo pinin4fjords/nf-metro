@@ -4,6 +4,7 @@ from __future__ import annotations
 
 __all__ = ["apply_route_offsets", "render_svg"]
 
+import textwrap
 from pathlib import Path
 
 import drawsvg as draw
@@ -235,6 +236,12 @@ def render_svg(
 
     d = draw.Drawing(svg_width, svg_height)
 
+    # Dark-mode CSS for transparent-background themes so that elements
+    # rendered directly on the canvas (section labels, number badges,
+    # title) remain readable when the browser provides a dark background.
+    if not theme.background_color or theme.background_color == "none":
+        _inject_dark_mode_style(d)
+
     # Background (skip for transparent themes)
     if theme.background_color and theme.background_color != "none":
         d.append(
@@ -254,6 +261,7 @@ def render_svg(
                 fill=theme.title_color,
                 font_family=theme.label_font_family,
                 font_weight="bold",
+                **{"class": "nf-metro-title"},
             )
         )
 
@@ -385,6 +393,25 @@ def _render_logo(
     )
 
 
+def _inject_dark_mode_style(d: draw.Drawing) -> None:
+    """Inject CSS for dark-mode browsers viewing a transparent-background SVG.
+
+    When the SVG has no opaque background, elements rendered directly on the
+    canvas (section labels, numbered badges, title) can become invisible if the
+    browser supplies a dark page background.  A ``prefers-color-scheme: dark``
+    media query adjusts those elements so they remain readable.  CSS rules
+    override SVG presentation attributes, so we only need class selectors.
+    """
+    css = textwrap.dedent("""\
+        @media (prefers-color-scheme: dark) {
+            .nf-metro-section-label { fill: #d0d0d0; }
+            .nf-metro-section-num-circle { fill: #777777; }
+            .nf-metro-title { fill: #ffffff; }
+        }
+    """)
+    d.append(draw.Raw(f"<style>{css}</style>"))
+
+
 def _render_first_class_sections(
     d: draw.Drawing,
     graph: MetroGraph,
@@ -422,6 +449,7 @@ def _render_first_class_sections(
                 cy,
                 circle_r,
                 fill=theme.station_stroke,
+                **{"class": "nf-metro-section-num-circle"},
             )
         )
         d.append(
@@ -448,6 +476,7 @@ def _render_first_class_sections(
                 fill=theme.section_label_color,
                 font_family=theme.label_font_family,
                 dominant_baseline="central",
+                **{"class": "nf-metro-section-label"},
             )
         )
 
