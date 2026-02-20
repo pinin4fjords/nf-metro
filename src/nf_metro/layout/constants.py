@@ -117,7 +117,7 @@ BYPASS_NEST_STEP: float = 8.0
 TB_LINE_Y_OFFSET: float = 3.0
 """Per-line Y offset increment in TB sections."""
 
-ENTRY_SHIFT_TB: float = 0.6
+ENTRY_SHIFT_TB: float = 1.0
 """Entry shift multiplier for TB sections with perpendicular entry."""
 
 ENTRY_SHIFT_TB_CROSS: float = 1.0
