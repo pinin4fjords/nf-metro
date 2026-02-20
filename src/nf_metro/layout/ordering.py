@@ -103,6 +103,12 @@ def assign_tracks(
             tracks[node] = orphan_track
             orphan_track += 1
 
+        # Equalize cross-line fork groups at this layer so downstream
+        # placement sees corrected positions.
+        _equalize_fork_groups(
+            layer_idx, layers, tracks, G, graph, node_primary, line_gap
+        )
+
     return tracks
 
 
@@ -256,6 +262,73 @@ def _place_fan_out(
     for i, node in enumerate(nodes):
         offset = (i - (n - 1) / 2) * fan_spacing
         tracks[node] = anchor + offset
+
+
+def _equalize_fork_groups(
+    layer: int,
+    layers: dict[str, int],
+    tracks: dict[str, float],
+    G: nx.DiGraph,
+    graph: MetroGraph,
+    node_primary: dict[str, str | None],
+    line_gap: float,
+) -> None:
+    """Redistribute cross-line fork siblings to equidistant spacing.
+
+    When multiple stations at the same layer diverge from a common
+    predecessor (or are root nodes entering from the same port),
+    per-line base track assignment can create uneven spacing -- especially
+    when one station carries more lines than its siblings, pushing the
+    next sibling further away.
+
+    This function detects such groups and compacts them to consecutive
+    positions (one *line_gap* apart), preserving their track ordering.
+    Groups where all members share the same primary line (diamonds /
+    fan-outs already handled by ``_place_fan_out``) are skipped.
+    """
+    layer_nodes = [sid for sid, lyr in layers.items() if lyr == layer and sid in tracks]
+    if len(layer_nodes) < 2:
+        return
+
+    # Group stations by their predecessor set
+    pred_groups: dict[frozenset[str], list[str]] = defaultdict(list)
+    for sid in layer_nodes:
+        preds = frozenset(G.predecessors(sid))
+        pred_groups[preds].append(sid)
+
+    for _pred_set, group in pred_groups.items():
+        if len(group) < 2:
+            continue
+
+        # Skip groups where all members share the same primary line
+        # (these are diamond / fan-out groups already well-placed).
+        primaries = {node_primary.get(sid) for sid in group}
+        primaries.discard(None)
+        if len(primaries) < 2:
+            continue
+
+        # Sort by current track position to preserve ordering
+        group.sort(key=lambda sid: tracks[sid])
+
+        # Compute current spacings between consecutive members
+        spacings = [
+            tracks[group[i + 1]] - tracks[group[i]] for i in range(len(group) - 1)
+        ]
+
+        # Check whether equalization is needed:
+        #   2 stations  - gap exceeds line_gap (multi-line station padding)
+        #   3+ stations - spacing is uneven
+        if len(group) == 2:
+            if spacings[0] <= line_gap + 0.01:
+                continue
+        else:
+            if max(spacings) - min(spacings) < 0.01:
+                continue
+
+        # Compact to consecutive positions starting from the lowest track
+        base_track = tracks[group[0]]
+        for i, sid in enumerate(group):
+            tracks[sid] = base_track + i * line_gap
 
 
 def _reorder_by_span(graph: MetroGraph, line_order: list[str]) -> list[str]:
