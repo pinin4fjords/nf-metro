@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -74,10 +76,10 @@ def test_parse_edges():
 
 
 def test_parse_edges_no_label():
+    """Unannotated edges raise a clear error (issue #75)."""
     text = "graph LR\n    a --> b\n"
-    graph = parse_metro_mermaid(text)
-    assert len(graph.edges) == 1
-    assert graph.edges[0].line_id == "default"
+    with pytest.raises(ValueError, match="no metro line annotation"):
+        parse_metro_mermaid(text)
 
 
 def test_station_lines():
@@ -116,7 +118,13 @@ def test_parse_simple_fixture():
 
 
 def test_ignores_comments():
-    text = "%% This is a regular comment\n%%metro title: Test\ngraph LR\n    a --> b\n"
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "%% This is a regular comment\n"
+        "%%metro title: Test\n"
+        "graph LR\n"
+        "    a -->|main| b\n"
+    )
     graph = parse_metro_mermaid(text)
     assert graph.title == "Test"
     assert len(graph.edges) == 1
@@ -256,7 +264,13 @@ def test_port_directive_parsing():
 
 def test_grid_directive_parsing():
     """%%metro grid: directives set grid overrides."""
-    text = "%%metro grid: sec2 | 1,0\n%%metro grid: sec3 | 1,1\ngraph LR\n    a --> b\n"
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro grid: sec2 | 1,0\n"
+        "%%metro grid: sec3 | 1,1\n"
+        "graph LR\n"
+        "    a -->|main| b\n"
+    )
     graph = parse_metro_mermaid(text)
     assert graph.grid_overrides["sec2"] == (1, 0, 1, 1)
     assert graph.grid_overrides["sec3"] == (1, 1, 1, 1)
@@ -428,3 +442,74 @@ def test_hidden_station_in_section():
     graph = parse_metro_mermaid(text)
     assert graph.stations["_branch"].is_hidden is True
     assert graph.stations["_branch"].section_id == "sec1"
+
+
+# --- Edge validation tests (issue #75) ---
+
+
+def test_unannotated_edge_error_message_includes_stations():
+    """Error message lists the offending edge source and target."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section]\n"
+        "        fastp[fastp]\n"
+        "        falco[falco]\n"
+        "        fastp --> falco\n"
+        "    end\n"
+    )
+    with pytest.raises(ValueError, match="fastp --> falco"):
+        parse_metro_mermaid(text)
+
+
+def test_unannotated_edge_multiple():
+    """Multiple unannotated edges are all listed in the error."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        a --> b\n"
+        "        b --> c\n"
+        "    end\n"
+    )
+    with pytest.raises(ValueError, match="a --> b") as exc_info:
+        parse_metro_mermaid(text)
+    assert "b --> c" in str(exc_info.value)
+
+
+def test_undeclared_line_error():
+    """Edges referencing undeclared lines raise a clear error."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|oops| b\n"
+        "    end\n"
+    )
+    with pytest.raises(ValueError, match="undeclared metro lines.*oops"):
+        parse_metro_mermaid(text)
+
+
+def test_no_edges_no_error():
+    """Graph with no edges passes validation."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section]\n"
+        "        a[A]\n"
+        "    end\n"
+    )
+    graph = parse_metro_mermaid(text)
+    assert "a" in graph.stations
+
+
+def test_unannotated_edge_without_sections():
+    """Unannotated edges outside sections also raise error."""
+    text = "graph LR\n    a --> b\n    b --> c\n"
+    with pytest.raises(ValueError, match="no metro line annotation"):
+        parse_metro_mermaid(text)
