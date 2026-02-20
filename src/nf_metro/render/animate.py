@@ -57,10 +57,17 @@ def render_animation(
         n_balls = theme.animation_balls_per_line
         for i in range(n_balls):
             begin_offset = -i * dur / n_balls
+            stroke_attr = ""
+            if theme.animation_ball_stroke:
+                stroke_attr = (
+                    f' stroke="{theme.animation_ball_stroke}"'
+                    f' stroke-width="{theme.animation_ball_stroke_width}"'
+                )
             d.append(
                 draw.Raw(
                     f'<circle r="{theme.animation_ball_radius}" '
-                    f'fill="{theme.animation_ball_color}" opacity="0.9">'
+                    f'fill="{theme.animation_ball_color}" opacity="0.9"'
+                    f"{stroke_attr}>"
                     f'<animateMotion dur="{dur:.2f}s" '
                     f'repeatCount="indefinite" '
                     f'begin="{begin_offset:.2f}s">'
