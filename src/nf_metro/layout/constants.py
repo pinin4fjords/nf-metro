@@ -177,5 +177,12 @@ FANOUT_SPACING: float = 1.5
 TERMINUS_NUDGE: float = 0.5
 """Track offset for nudging terminus stations away from passing lines."""
 
+TERMINUS_ICON_CLEARANCE: float = 58.0
+"""Minimum clearance from terminus station center to section bbox edge.
+
+Accounts for station_radius (~5px) + icon gap (6px) + icon width (28px) = 39px
+extent, plus ~19px visual margin so icons don't crowd the section border.
+"""
+
 DEFAULT_LINE_PRIORITY: int = 999
 """Sentinel priority for lines not in the explicit line order."""
