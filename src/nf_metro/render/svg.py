@@ -703,8 +703,6 @@ def _render_terminus_icon(
     )
 
 
-
-
 def _render_labels(
     d: draw.Drawing,
     labels: list[LabelPlacement],
