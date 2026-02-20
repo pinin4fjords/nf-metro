@@ -79,6 +79,16 @@ def test_render_with_theme(tmp_path):
     assert out.exists()
 
 
+def test_render_svg_ends_with_newline(tmp_path):
+    """SVG output ends with a trailing newline (nf-core end-of-file-fixer)."""
+    out = tmp_path / "output.svg"
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", str(RNASEQ_MMD), "-o", str(out)])
+    assert result.exit_code == 0, result.output
+    content = out.read_text()
+    assert content.endswith("\n"), "SVG output must end with a trailing newline"
+
+
 def test_render_nonexistent_file():
     """render command fails gracefully on missing input."""
     runner = CliRunner()
