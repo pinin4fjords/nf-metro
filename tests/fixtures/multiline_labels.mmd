@@ -1,0 +1,30 @@
+%%metro title: Multi-line Label Test
+%%metro style: dark
+%%metro line: shortreads | Short reads  | #004b86
+%%metro line: longreads | Long reads | #d9aa00
+
+graph LR
+    subgraph input [Input Processing]
+        %%metro exit: right | shortreads, longreads
+        input_fastq[.fq]
+        input_fasta[.fa]
+        short_clipper[fastp \n AdapterRemoval]
+        long_clipper[Porechop ABI \n Porechop]
+
+        input_fastq -->|shortreads| short_clipper
+        input_fasta -->|longreads| long_clipper
+
+    end
+
+    subgraph qc [Quality Control]
+        %%metro entry: left | shortreads, longreads
+        %%metro exit: right | shortreads, longreads
+        fastqc[FastQC \n falco]
+        multiqc[MultiQC]
+
+        fastqc -->|shortreads| multiqc
+        fastqc -->|longreads| multiqc
+    end
+
+    short_clipper -->|shortreads| fastqc
+    long_clipper -->|longreads| fastqc
