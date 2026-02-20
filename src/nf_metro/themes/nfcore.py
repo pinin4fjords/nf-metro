@@ -13,6 +13,7 @@ NFCORE_THEME = Theme(
     label_color="#e0e0e0",
     label_font_family="'Helvetica Neue', Helvetica, Arial, sans-serif",
     label_font_size=13.0,
+    label_font_weight="bold",
     title_color="#ffffff",
     title_font_size=24.0,
     section_fill="rgba(255, 255, 255, 0.06)",

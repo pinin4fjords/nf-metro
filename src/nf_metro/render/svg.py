@@ -719,6 +719,7 @@ def _render_labels(
                     label.y,
                     fill=theme.label_color,
                     font_family=theme.label_font_family,
+                    font_weight=theme.label_font_weight,
                     text_anchor=label.text_anchor,
                     dominant_baseline=label.dominant_baseline,
                 )
@@ -733,6 +734,7 @@ def _render_labels(
                     label.y,
                     fill=theme.label_color,
                     font_family=theme.label_font_family,
+                    font_weight=theme.label_font_weight,
                     text_anchor="middle",
                     dominant_baseline=baseline,
                 )

@@ -21,6 +21,7 @@ class Theme:
     label_color: str
     label_font_family: str
     label_font_size: float
+    label_font_weight: str
     title_color: str
     title_font_size: float
     section_fill: str
