@@ -24,6 +24,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_PADDING,
     STATION_ELBOW_TOLERANCE,
     TB_LINE_Y_OFFSET,
+    TERMINUS_ICON_CLEARANCE,
     TERMINUS_NUDGE,
     X_OFFSET,
     X_SPACING,
@@ -276,6 +277,7 @@ def _layout_single_section(
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
     _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
+    _adjust_terminus_icon_clearance(sub, section, graph)
 
     return sub
 
@@ -484,6 +486,48 @@ def _adjust_lr_exit_gap(
         for s in sub.stations.values():
             s.x += exit_gap
         section.bbox_w += exit_gap
+
+
+def _adjust_terminus_icon_clearance(
+    sub: MetroGraph,
+    section: Section,
+    graph: MetroGraph,
+) -> None:
+    """Expand bbox when terminus file icons would be too close to the edge.
+
+    Terminus stations display a file icon on their "outside" (flow-entry for
+    sources, flow-exit for sinks).  The icon extends roughly 39px from the
+    station center.  If SECTION_X_PADDING doesn't provide enough room, we
+    grow the bbox on the affected side.
+    """
+    for station in sub.stations.values():
+        if not station.is_terminus:
+            continue
+
+        # Determine source vs sink from the full graph's edges
+        is_source = not any(e.target == station.id for e in graph.edges)
+
+        section_dir = section.direction or "LR"
+
+        # Icon is always placed horizontally (left or right of station),
+        # even for TB/BT sections.
+        if section_dir in ("LR", "TB"):
+            icon_on_left = is_source
+        else:  # RL, BT
+            icon_on_left = not is_source
+
+        if icon_on_left:
+            clearance = station.x - section.bbox_x
+            if clearance < TERMINUS_ICON_CLEARANCE:
+                expand = TERMINUS_ICON_CLEARANCE - clearance
+                section.bbox_x -= expand
+                section.bbox_w += expand
+        else:
+            bbox_right = section.bbox_x + section.bbox_w
+            clearance = bbox_right - station.x
+            if clearance < TERMINUS_ICON_CLEARANCE:
+                expand = TERMINUS_ICON_CLEARANCE - clearance
+                section.bbox_w += expand
 
 
 def _position_junctions(graph: MetroGraph) -> None:
