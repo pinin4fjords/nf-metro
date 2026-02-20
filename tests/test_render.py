@@ -54,7 +54,7 @@ def test_render_light_theme():
         "%%metro title: Light Test\n"
         "%%metro line: main | Main | #ff0000\n"
         "graph LR\n"
-        "    a --> b\n"
+        "    a -->|main| b\n"
     )
     compute_layout(graph)
     svg = render_svg(graph, LIGHT_THEME)
