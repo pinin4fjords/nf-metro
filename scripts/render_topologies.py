@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch render all topology fixtures and the rnaseq example to SVG and PNG.
+"""Batch render all .mmd files in the repository to SVG and PNG.
 
 Outputs go to /tmp/nf_metro_topology_renders/.
 
@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from pathlib import Path
 
@@ -19,16 +20,34 @@ sys.path.insert(0, str(project_root / "src"))
 
 from nf_metro.layout.engine import compute_layout  # noqa: E402
 from nf_metro.parser.mermaid import parse_metro_mermaid  # noqa: E402
+from nf_metro.convert import convert_nextflow_dag  # noqa: E402
 from nf_metro.render.svg import render_svg  # noqa: E402
 from nf_metro.themes import THEMES  # noqa: E402
 
 OUTPUT_DIR = Path("/tmp/nf_metro_topology_renders")
-TOPOLOGIES_DIR = project_root / "tests" / "fixtures" / "topologies"
-EXAMPLES_DIR = project_root / "examples"
+NEXTFLOW_DIR = project_root / "tests" / "fixtures" / "nextflow"
 
-# Files to render
-FIXTURE_FILES = sorted(TOPOLOGIES_DIR.glob("*.mmd"))
-EXTRA_FILES = [EXAMPLES_DIR / "rnaseq_sections.mmd"]
+
+def _collect_mmd_files() -> list[Path]:
+    """Collect all .mmd files in the repo, excluding .git.
+
+    When two files have identical content, only the first is kept
+    (sorted order means examples/ wins over tests/fixtures/).
+    """
+    all_paths = sorted(
+        p for p in project_root.rglob("*.mmd")
+        if ".git" not in p.parts
+    )
+    seen_hashes: dict[str, Path] = {}
+    result: list[Path] = []
+    for p in all_paths:
+        content = p.read_text()
+        h = hashlib.sha256(content.encode()).hexdigest()
+        if h in seen_hashes:
+            continue
+        seen_hashes[h] = p
+        result.append(p)
+    return result
 
 
 def render_file(
@@ -36,13 +55,19 @@ def render_file(
 ) -> tuple[str, list[str]]:
     """Parse, layout, and render a .mmd file to SVG (and optionally PNG).
 
-    Returns (name, list_of_issues).
+    Returns (name, list_of_issues).  The output filename is derived from
+    the path relative to the project root so files in different directories
+    don't collide.
     """
-    name = mmd_path.stem
+    rel = mmd_path.relative_to(project_root)
+    name = str(rel).replace("/", "_").removesuffix(".mmd")
+    is_nextflow = NEXTFLOW_DIR in mmd_path.parents or mmd_path.parent == NEXTFLOW_DIR
     issues: list[str] = []
 
     try:
         text = mmd_path.read_text()
+        if is_nextflow:
+            text = convert_nextflow_dag(text)
         graph = parse_metro_mermaid(text)
     except Exception as e:
         return name, [f"PARSE ERROR: {e}"]
@@ -78,7 +103,7 @@ def render_file(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch render topology fixtures")
+    parser = argparse.ArgumentParser(description="Batch render all .mmd files in the repo")
     parser.add_argument(
         "--debug", action="store_true", help="Enable debug overlay (ports, hidden stations, waypoints)"
     )
@@ -86,13 +111,17 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    all_files = list(FIXTURE_FILES) + EXTRA_FILES
+    all_files = _collect_mmd_files()
     print(f"Rendering {len(all_files)} files to {OUTPUT_DIR}/")
     if args.debug:
         print("Debug overlay: ON")
     print()
 
-    max_name_len = max(len(f.stem) for f in all_files)
+    # Dry-run to get output names for alignment
+    max_name_len = max(
+        len(str(f.relative_to(project_root)).replace("/", "_").removesuffix(".mmd"))
+        for f in all_files
+    )
     any_errors = False
 
     for mmd_path in all_files:
