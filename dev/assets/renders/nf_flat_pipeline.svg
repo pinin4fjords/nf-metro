@@ -12,7 +12,7 @@
 <path d="M80.0,180.0 L85.0,180.0 Q95.0,180.0,102.07106781186548,172.92893218813452 L117.92893218813452,157.07106781186548 Q125.0,150.0,135.0,150.0 L140.0,150.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M140.0,150.0 L200.0,150.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M200.0,150.0 L296.0,150.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M80.0,120.0 L163.0,120.0 Q173.0,120.0,180.07106781186548,127.07106781186548 L195.92893218813452,142.92893218813452 Q203.0,150.0,213.0,150.0 L296.0,150.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M80.0,120.0 L224.5,120.0 Q234.5,120.0,241.57106781186548,127.07106781186548 L257.4289321881345,142.92893218813452 Q264.5,150.0,274.5,150.0 L296.0,150.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <rect x="75.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="75.0" y="175.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="135.0" y="145.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
