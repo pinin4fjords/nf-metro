@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     BYPASS_NEST_STEP,
-    CHAR_WIDTH,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     CROSS_ROW_THRESHOLD,
@@ -25,6 +24,7 @@ from nf_metro.layout.constants import (
     MIN_STRAIGHT_PORT,
     OFFSET_STEP,
 )
+from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.routing.common import (
     RoutedPath,
     adjacent_column_gap_x,
@@ -769,9 +769,9 @@ def _route_diagonal(
     src_min = min_straight
     tgt_min = min_straight
     if edge.source in ctx.fork_stations and src.label.strip():
-        src_min = max(min_straight, len(src.label) * CHAR_WIDTH / 2)
+        src_min = max(min_straight, label_text_width(src.label) / 2)
     if edge.target in ctx.join_stations and tgt.label.strip():
-        tgt_min = max(min_straight, len(tgt.label) * CHAR_WIDTH / 2)
+        tgt_min = max(min_straight, label_text_width(tgt.label) / 2)
 
     # Bias diagonal toward the convergence/divergence station so that
     # slopes are visually symmetric on both sides of a shared station.

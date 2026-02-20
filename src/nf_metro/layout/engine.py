@@ -8,12 +8,15 @@ from __future__ import annotations
 __all__ = ["compute_layout"]
 
 from nf_metro.layout.constants import (
-    CHAR_WIDTH,
     ENTRY_INSET_LR,
     ENTRY_SHIFT_TB,
     ENTRY_SHIFT_TB_CROSS,
     EXIT_GAP_MULTIPLIER,
+    FONT_HEIGHT,
     JUNCTION_MARGIN,
+    LABEL_LINE_HEIGHT,
+    LABEL_MARGIN,
+    LABEL_OFFSET,
     LABEL_PAD,
     MIN_PORT_STATION_GAP,
     ROW_GAP,
@@ -31,6 +34,7 @@ from nf_metro.layout.constants import (
     Y_OFFSET,
     Y_SPACING,
 )
+from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
@@ -240,6 +244,9 @@ def _layout_single_section(
     section_sids = set(section.station_ids)
     layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing, graph, section_sids)
 
+    # Widen track spacing when multi-line labels need more vertical room
+    effective_y_spacing = _multiline_track_spacing(sub, y_spacing)
+
     # Assign local coordinates based on section direction
     for sid, station in sub.stations.items():
         station.layer = layers.get(sid, 0)
@@ -249,7 +256,7 @@ def _layout_single_section(
             station.y = station.layer * y_spacing + layer_extra.get(station.layer, 0)
         else:
             station.x = station.layer * x_spacing + layer_extra.get(station.layer, 0)
-            station.y = track_rank[station.track] * y_spacing
+            station.y = track_rank[station.track] * effective_y_spacing
 
     # Normalize Y so minimum is 0 (raw tracks can be negative)
     _normalize_min(sub, axis="y")
@@ -264,13 +271,17 @@ def _layout_single_section(
     # Ensure minimum inner extent so stations sit on visible track
     _enforce_min_extent(sub, section, x_spacing, y_spacing)
 
-    # Compute section bounding box from real stations only
+    # Compute section bounding box from real stations only.
+    # Extra Y padding for multi-line labels (outermost stations' labels
+    # extend beyond the normal padding).
     xs = [s.x for s in sub.stations.values()]
     ys = [s.y for s in sub.stations.values()]
+    extra_label_h = _multiline_label_padding(sub)
+    y_pad = section_y_padding + extra_label_h
     section.bbox_x = min(xs) - section_x_padding
-    section.bbox_y = min(ys) - section_y_padding
+    section.bbox_y = min(ys) - y_pad
     section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
-    section.bbox_h = (max(ys) - min(ys)) + section_y_padding * 2
+    section.bbox_h = (max(ys) - min(ys)) + y_pad * 2
 
     # Apply direction-specific bbox adjustments
     _adjust_tb_labels(sub, section, graph)
@@ -280,6 +291,41 @@ def _layout_single_section(
     _adjust_terminus_icon_clearance(sub, section, graph)
 
     return sub
+
+
+def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
+    """Return effective Y track spacing, widened for multi-line labels.
+
+    When labels from adjacent tracks face each other (one below, one
+    above due to layer alternation) the track gap must be large enough
+    for both labels plus clearance.  Returns *y_spacing* unchanged when
+    no multi-line labels are present.
+    """
+    max_text_h = FONT_HEIGHT
+    for s in sub.stations.values():
+        n = s.label.count("\n")
+        if n > 0:
+            h = FONT_HEIGHT + n * FONT_HEIGHT * LABEL_LINE_HEIGHT
+            max_text_h = max(max_text_h, h)
+
+    if max_text_h <= FONT_HEIGHT:
+        return y_spacing  # no multi-line labels
+
+    # Worst case: adjacent tracks with labels facing inward.
+    # Each side needs label_offset + its text height.
+    min_gap = LABEL_OFFSET + max_text_h + LABEL_OFFSET + FONT_HEIGHT + LABEL_MARGIN
+    return max(y_spacing, min_gap)
+
+
+def _multiline_label_padding(sub: MetroGraph) -> float:
+    """Return extra bbox Y padding for the tallest multi-line label."""
+    max_extra = 0.0
+    for s in sub.stations.values():
+        n = s.label.count("\n")
+        if n > 0:
+            extra = n * FONT_HEIGHT * LABEL_LINE_HEIGHT
+            max_extra = max(max_extra, extra)
+    return max_extra
 
 
 def _normalize_min(sub: MetroGraph, axis: str) -> None:
@@ -350,7 +396,7 @@ def _adjust_tb_labels(
         if s.label.strip():
             n_lines = len(sub.station_lines(sid))
             offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
-            extent = offset_span / 2 + 11 + len(s.label) * CHAR_WIDTH
+            extent = offset_span / 2 + 11 + label_text_width(s.label)
             max_label_extent = max(max_label_extent, extent)
     need_left = max_label_extent + LABEL_PAD
     have_left = min(xs) - section.bbox_x
@@ -475,7 +521,7 @@ def _adjust_lr_exit_gap(
         if layer_num == max_layer:
             station = sub.stations.get(sid_l)
             if station and station.label.strip():
-                label_half = len(station.label) * CHAR_WIDTH / 2
+                label_half = label_text_width(station.label) / 2
                 max_label_half = max(max_label_half, label_half)
     exit_gap = max(x_spacing * EXIT_GAP_MULTIPLIER, max_label_half)
     if section.direction == "LR":
@@ -1180,7 +1226,7 @@ def _compute_fork_join_gaps(
             if lyr == layer:
                 station = sub.stations.get(sid)
                 if station and station.label.strip():
-                    label_half = len(station.label) * CHAR_WIDTH / 2
+                    label_half = label_text_width(station.label) / 2
                     max_label_half = max(max_label_half, label_half)
         layer_gap[layer] = max(base_gap, max_label_half)
 
