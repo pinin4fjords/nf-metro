@@ -38,10 +38,10 @@
 <path d="M600.0,107.0 L600.0,115.0 L608.0,115.0 Z" fill="#333333" opacity="0.15" stroke="none" />
 <path d="M600.0,107.0 L600.0,115.0 L608.0,115.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
 <text x="594.0" y="124.2" font-size="9.0" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">HTML</text>
-<text x="509.0" y="107.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">MultiQC</text>
-<text x="140.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Trimming</text>
-<text x="236.0" y="136.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="hanging">Alignment</text>
-<text x="296.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">Quantification</text>
+<text x="509.0" y="107.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">MultiQC</text>
+<text x="140.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Trimming</text>
+<text x="236.0" y="136.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Alignment</text>
+<text x="296.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Quantification</text>
 <rect x="30.0" y="185.0" width="160.8" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,209.0 L66.0,209.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="209.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Main</text>
