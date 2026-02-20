@@ -8,6 +8,8 @@ from __future__ import annotations
 __all__ = ["compute_layout"]
 
 from nf_metro.layout.constants import (
+    DIAG_LABEL_MARGIN,
+    DIAGONAL_RUN,
     ENTRY_INSET_LR,
     ENTRY_SHIFT_TB,
     ENTRY_SHIFT_TB_CROSS,
@@ -111,7 +113,7 @@ def _compute_flat_layout(
     unique_tracks = sorted(set(tracks.values()))
     track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
-    layer_extra = _compute_fork_join_gaps(graph, layers, x_spacing)
+    layer_extra = _compute_fork_join_gaps(graph, layers, x_spacing, tracks=tracks)
 
     for sid, station in graph.stations.items():
         station.layer = layers.get(sid, 0)
@@ -242,7 +244,9 @@ def _layout_single_section(
     # aren't too close to divergence/convergence points.
     # Pass full graph so port-touching edges count as forks/joins.
     section_sids = set(section.station_ids)
-    layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing, graph, section_sids)
+    layer_extra = _compute_fork_join_gaps(
+        sub, layers, x_spacing, graph, section_sids, tracks=tracks
+    )
 
     # Widen track spacing when multi-line labels need more vertical room
     effective_y_spacing = _multiline_track_spacing(sub, y_spacing)
@@ -1167,6 +1171,7 @@ def _compute_fork_join_gaps(
     x_spacing: float,
     full_graph: MetroGraph | None = None,
     section_station_ids: set[str] | None = None,
+    tracks: dict[str, float] | None = None,
 ) -> dict[int, float]:
     """Compute extra X offset per layer at fork/join points.
 
@@ -1179,6 +1184,10 @@ def _compute_fork_join_gaps(
     edges). This catches divergences where a station connects to both
     internal stations and exit ports (e.g. umi_tools_dedup forking to
     salmon_quant and an exit port).
+
+    When tracks is provided, a second pass scans all cross-track edges
+    and adds gaps so diagonal transitions have room to clear labels at
+    both endpoints.
     """
     from collections import defaultdict
 
@@ -1210,9 +1219,6 @@ def _compute_fork_join_gaps(
         if len(sources) > 1 and sid in layers
     }
 
-    if not fork_layers and not join_layers:
-        return {}
-
     max_layer = max(layers.values()) if layers else 0
     base_gap = x_spacing * EXIT_GAP_MULTIPLIER
 
@@ -1230,6 +1236,49 @@ def _compute_fork_join_gaps(
                     max_label_half = max(max_label_half, label_half)
         layer_gap[layer] = max(base_gap, max_label_half)
 
+    # Second pass: scan ALL cross-track edges for diagonal label clearance.
+    # Any edge between different tracks needs enough horizontal room for
+    # src_label_half + diagonal_run + tgt_label_half + margin.
+    after_gap_layers: set[int] = set()
+    if tracks:
+        for edge in sub.edges:
+            s_layer = layers.get(edge.source)
+            t_layer = layers.get(edge.target)
+            if s_layer is None or t_layer is None:
+                continue
+            s_track = tracks.get(edge.source)
+            t_track = tracks.get(edge.target)
+            if s_track is None or t_track is None:
+                continue
+            if abs(s_track - t_track) < 0.01:
+                continue
+
+            src_st = sub.stations.get(edge.source)
+            tgt_st = sub.stations.get(edge.target)
+            if not src_st or not tgt_st:
+                continue
+
+            src_lh = label_text_width(src_st.label) / 2 if src_st.label.strip() else 0.0
+            tgt_lh = label_text_width(tgt_st.label) / 2 if tgt_st.label.strip() else 0.0
+            required = src_lh + DIAGONAL_RUN + tgt_lh + DIAG_LABEL_MARGIN
+
+            lo = min(s_layer, t_layer)
+            hi = max(s_layer, t_layer)
+            layer_diff = hi - lo
+            # Count existing gaps between the layers (exclusive of source layer)
+            existing_between = sum(
+                layer_gap.get(lyr, 0) for lyr in range(lo + 1, hi + 1)
+            )
+            available = layer_diff * x_spacing + existing_between
+
+            deficit = required - available
+            if deficit > 0:
+                layer_gap[lo] = max(layer_gap.get(lo, 0), deficit)
+                after_gap_layers.add(lo)
+
+    if not fork_layers and not join_layers and not after_gap_layers:
+        return {}
+
     cumulative = 0.0
     layer_extra: dict[int, float] = {}
     for layer in range(max_layer + 1):
@@ -1237,8 +1286,8 @@ def _compute_fork_join_gaps(
         if layer in join_layers:
             cumulative += layer_gap.get(layer, base_gap)
         layer_extra[layer] = cumulative
-        # Add gap after fork layers
-        if layer in fork_layers:
+        # Add gap after fork layers and cross-track source layers
+        if layer in fork_layers or layer in after_gap_layers:
             cumulative += layer_gap.get(layer, base_gap)
 
     return layer_extra

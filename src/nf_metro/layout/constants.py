@@ -144,6 +144,9 @@ STATION_ELBOW_TOLERANCE: float = 12.0
 # ---------------------------------------------------------------------------
 # Labels
 # ---------------------------------------------------------------------------
+DIAG_LABEL_MARGIN: float = 6.0
+"""Extra margin beyond label halves + diagonal run for cross-track clearance."""
+
 LABEL_MARGIN: float = 2.0
 """Overlap detection margin for labels."""
 

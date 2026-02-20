@@ -768,9 +768,9 @@ def _route_diagonal(
     # Extend straight run past labels at fork/join stations
     src_min = min_straight
     tgt_min = min_straight
-    if edge.source in ctx.fork_stations and src.label.strip():
+    if src.label.strip():
         src_min = max(min_straight, label_text_width(src.label) / 2)
-    if edge.target in ctx.join_stations and tgt.label.strip():
+    if tgt.label.strip():
         tgt_min = max(min_straight, label_text_width(tgt.label) / 2)
 
     # Bias diagonal toward the convergence/divergence station so that
@@ -782,7 +782,8 @@ def _route_diagonal(
     elif is_join and not is_fork:
         mid_x = tx - sign * (tgt_min + half_diag)
     elif is_fork and is_join:
-        mid_x = (sx + tx) / 2
+        # Bias toward the fork so divergence is visible early
+        mid_x = sx + sign * (src_min + half_diag)
     else:
         mid_x = (sx + tx) / 2
 
