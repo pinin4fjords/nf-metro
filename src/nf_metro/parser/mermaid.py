@@ -46,6 +46,55 @@ def _check_unsupported_input(text: str) -> None:
         )
 
 
+def _validate_edge_annotations(graph: MetroGraph) -> None:
+    """Validate that all edges have metro line annotations.
+
+    Raises ValueError with a helpful message if any edge uses the default
+    placeholder (meaning it had no |line_id| annotation in the source).
+    """
+    if not graph.edges:
+        return
+
+    bad_edges = []
+    undeclared_lines = set()
+    for edge in graph.edges:
+        if edge.line_id == "default":
+            bad_edges.append(edge)
+        elif graph.lines and edge.line_id not in graph.lines:
+            undeclared_lines.add(edge.line_id)
+
+    if bad_edges:
+        examples = []
+        seen = set()
+        for edge in bad_edges:
+            key = (edge.source, edge.target)
+            if key not in seen:
+                seen.add(key)
+                examples.append(f"  {edge.source} --> {edge.target}")
+        raise ValueError(
+            "Some edges have no metro line annotation. "
+            "Every edge must specify which line(s) it belongs to "
+            "using -->|line_id| syntax.\n\n"
+            "Edges missing annotations:\n" + "\n".join(examples) + "\n\n"
+            "Fix by adding line annotations, e.g.:\n"
+            "  fastp -->|qc| falco\n\n"
+            "Lines must also be declared with %%metro line: directives, e.g.:\n"
+            "  %%metro line: qc | Quality Control | #4CAF50"
+        )
+
+    if undeclared_lines:
+        raise ValueError(
+            "Some edges reference undeclared metro lines: "
+            + ", ".join(sorted(undeclared_lines))
+            + "\n\n"
+            "Declare each line with a %%metro line: directive, e.g.:\n"
+            + "\n".join(
+                f"  %%metro line: {lid} | {lid} | #hexcolor"
+                for lid in sorted(undeclared_lines)
+            )
+        )
+
+
 def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives."""
     _check_unsupported_input(text)
@@ -91,6 +140,9 @@ def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
 
         # Try node definition
         _parse_node(stripped, graph, current_section_id)
+
+    # Validate edges before layout
+    _validate_edge_annotations(graph)
 
     # Post-parse: remove empty sections, create implicit section for loose
     # stations, auto-infer layout parameters, then resolve sections
