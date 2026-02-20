@@ -13,6 +13,7 @@ LIGHT_THEME = Theme(
     label_color="#333333",
     label_font_family="'Helvetica Neue', Helvetica, Arial, sans-serif",
     label_font_size=14.0,
+    label_font_weight="bold",
     title_color="#111111",
     title_font_size=26.0,
     section_fill="rgba(0, 0, 0, 0.07)",
