@@ -36,7 +36,7 @@ class Theme:
     animation_ball_color: str = "#ffffff"
     animation_ball_stroke: str = ""
     animation_ball_stroke_width: float = 1.0
-    animation_balls_per_line: int = 3
+    animation_balls_per_line: int = 2
     animation_speed: float = 80.0  # pixels per second
     # Terminus (file icon) settings
     terminus_width: float = 28.0
