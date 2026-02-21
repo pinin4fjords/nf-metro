@@ -7,24 +7,24 @@
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Fan-out Pipeline</text>
 <rect x="30.0" y="85.0" width="196.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="39.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
-<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Pre-processing</text>
+<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Pre-processing</text>
 <rect x="276.0" y="85.0" width="250.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="285.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="285.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
-<text x="299.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">WGS Analysis</text>
+<text x="285.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="299.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">WGS Analysis</text>
 <rect x="276.0" y="195.0" width="214.0" height="76.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="285.0" cy="182.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="285.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="299.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">WES Analysis</text>
+<text x="285.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">3</text>
+<text x="299.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">WES Analysis</text>
 <rect x="276.0" y="305.0" width="200.5" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="285.0" cy="292.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="285.0" y="292.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">4</text>
-<text x="299.0" y="292.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Panel Analysis</text>
+<text x="285.0" y="292.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">4</text>
+<text x="299.0" y="292.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Panel Analysis</text>
 <rect x="576.0" y="85.0" width="160.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="585.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="585.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">5</text>
-<text x="599.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Annotation</text>
+<text x="585.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">5</text>
+<text x="599.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Annotation</text>
 <path d="M326.0,346.0 L386.0,346.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M276.0,346.0 L326.0,346.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M386.0,346.0 L476.5,346.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
@@ -77,10 +77,10 @@
 <text x="386.0" y="362.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">FreeBayes</text>
 <rect x="30.0" y="405.0" width="154.07999999999998" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,429.0 L66.0,429.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="429.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Whole Genome</text>
+<text x="78.0" y="429.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Whole Genome</text>
 <path d="M42.0,453.0 L66.0,453.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="453.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Whole Exome</text>
+<text x="78.0" y="453.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Whole Exome</text>
 <path d="M42.0,477.0 L66.0,477.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="477.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Targeted Panel</text>
+<text x="78.0" y="477.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Targeted Panel</text>
 <text x="766.0" y="517.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
 </svg>

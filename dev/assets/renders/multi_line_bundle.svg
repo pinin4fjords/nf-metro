@@ -7,16 +7,16 @@
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Multi-Line Bundle</text>
 <rect x="30.0" y="85.0" width="196.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="39.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
-<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Input</text>
+<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Input</text>
 <rect x="276.0" y="85.0" width="256.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="285.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="285.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
-<text x="299.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Processing</text>
+<text x="285.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="299.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Processing</text>
 <rect x="582.0" y="85.0" width="160.0" height="88.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="591.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="591.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="605.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Output</text>
+<text x="591.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">3</text>
+<text x="605.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Output</text>
 <path d="M80.0,135.0 L140.0,135.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
 <path d="M326.0,135.0 L386.0,135.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
 <path d="M386.0,135.0 L446.0,135.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
@@ -93,16 +93,16 @@
 <text x="446.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Dedup</text>
 <rect x="30.0" y="185.0" width="100.32" height="168.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,209.0 L66.0,209.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="209.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Line 1</text>
+<text x="78.0" y="209.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line 1</text>
 <path d="M42.0,233.0 L66.0,233.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="233.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Line 2</text>
+<text x="78.0" y="233.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line 2</text>
 <path d="M42.0,257.0 L66.0,257.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="257.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Line 3</text>
+<text x="78.0" y="257.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line 3</text>
 <path d="M42.0,281.0 L66.0,281.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="281.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Line 4</text>
+<text x="78.0" y="281.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line 4</text>
 <path d="M42.0,305.0 L66.0,305.0" stroke="#ff8c00" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="305.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Line 5</text>
+<text x="78.0" y="305.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line 5</text>
 <path d="M42.0,329.0 L66.0,329.0" stroke="#7b2d3b" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="329.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Line 6</text>
+<text x="78.0" y="329.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line 6</text>
 <text x="772.0" y="369.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
 </svg>

@@ -7,20 +7,20 @@
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Preprocess / Alignment / Variant Calling Pipeline</text>
 <rect x="60.0" y="85.0" width="136.0" height="110.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="69.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="69.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
-<text x="83.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Preprocess</text>
+<text x="69.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="83.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Preprocess</text>
 <rect x="236.0" y="85.0" width="437.5" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="245.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="245.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
-<text x="259.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Alignment</text>
+<text x="245.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="259.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Alignment</text>
 <rect x="723.5" y="85.0" width="322.0" height="130.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="732.5" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="732.5" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="746.5" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Variant Calling</text>
+<text x="732.5" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">3</text>
+<text x="746.5" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Variant Calling</text>
 <rect x="1125.5" y="85.0" width="100.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="1134.5" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="1134.5" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">4</text>
-<text x="1148.5" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Reporting</text>
+<text x="1134.5" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">4</text>
+<text x="1148.5" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Reporting</text>
 <path d="M809.5,180.0 L829.5,180.0 Q839.5,180.0,846.5710678118654,172.92893218813452 L862.4289321881346,157.07106781186548 Q869.5,150.0,879.5,150.0 L932.5,150.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M110.0,163.0 L141.0,163.0 Q151.0,163.0,160.13811548620257,158.9386153394655 L171.86188451379743,153.72805132720114 Q181.0,149.66666666666666,191.0,149.66666666666666 L196.0,149.66666666666666" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M110.0,160.0 L141.0,160.0 Q151.0,160.0,160.13811548620257,155.9386153394655 L171.86188451379743,150.72805132720114 Q181.0,146.66666666666666,191.0,146.66666666666666 L196.0,146.66666666666666" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
@@ -74,8 +74,8 @@
 <text x="560.5" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Samtools Index</text>
 <rect x="60.0" y="278.0" width="207.84" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M72.0,302.0 L96.0,302.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<text x="108.0" y="302.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Main</text>
+<text x="108.0" y="302.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
 <path d="M72.0,326.0 L96.0,326.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<text x="108.0" y="326.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Preprocess - Reporting</text>
+<text x="108.0" y="326.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Preprocess - Reporting</text>
 <text x="1255.0" y="366.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
 </svg>

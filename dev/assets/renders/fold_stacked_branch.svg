@@ -7,36 +7,36 @@
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Single-Cell Multi-Omics Pipeline</text>
 <rect x="30.0" y="85.0" width="556.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="39.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
-<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Preprocessing</text>
+<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Preprocessing</text>
 <rect x="636.0" y="85.0" width="376.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="645.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="645.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
-<text x="659.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">RNA Analysis</text>
+<text x="645.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="659.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">RNA Analysis</text>
 <rect x="696.0" y="195.0" width="316.0" height="76.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="705.0" cy="182.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="705.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="719.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">ATAC Analysis</text>
+<text x="705.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">3</text>
+<text x="719.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">ATAC Analysis</text>
 <rect x="751.5" y="305.0" width="260.5" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="760.5" cy="292.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="760.5" y="292.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">4</text>
-<text x="774.5" y="292.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Protein Analysis</text>
+<text x="760.5" y="292.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">4</text>
+<text x="774.5" y="292.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Protein Analysis</text>
 <rect x="1062.0" y="85.0" width="214.0" height="290.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="1071.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="1071.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">5</text>
-<text x="1085.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Multi-Modal Integration</text>
+<text x="1071.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">5</text>
+<text x="1085.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Multi-Modal Integration</text>
 <rect x="715.5" y="415.0" width="296.5" height="76.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="724.5" cy="402.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="724.5" y="402.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">6</text>
-<text x="738.5" y="402.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Biological Interpretation</text>
+<text x="724.5" y="402.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">6</text>
+<text x="738.5" y="402.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Biological Interpretation</text>
 <rect x="747.0" y="525.0" width="265.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="756.0" cy="512.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="756.0" y="512.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">7</text>
-<text x="770.0" y="512.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Technical QC</text>
+<text x="756.0" y="512.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">7</text>
+<text x="770.0" y="512.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Technical QC</text>
 <rect x="426.0" y="415.0" width="160.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="435.0" cy="402.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="435.0" y="402.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">8</text>
-<text x="449.0" y="402.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Final Report</text>
+<text x="435.0" y="402.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">8</text>
+<text x="449.0" y="402.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Final Report</text>
 <path d="M962.0,566.0 L902.0,566.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M902.0,566.0 L842.0,566.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1012.0,566.0 L962.0,566.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
@@ -188,10 +188,10 @@
 <text x="500.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Sort</text>
 <rect x="30.0" y="625.0" width="127.2" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,649.0 L66.0,649.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="649.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">scRNA-seq</text>
+<text x="78.0" y="649.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">scRNA-seq</text>
 <path d="M42.0,673.0 L66.0,673.0" stroke="#457b9d" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="673.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">scATAC-seq</text>
+<text x="78.0" y="673.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">scATAC-seq</text>
 <path d="M42.0,697.0 L66.0,697.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="697.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">CITE-seq</text>
+<text x="78.0" y="697.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">CITE-seq</text>
 <text x="1306.0" y="737.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
 </svg>

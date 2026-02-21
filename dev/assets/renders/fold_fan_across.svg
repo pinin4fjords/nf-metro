@@ -7,32 +7,32 @@
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Proteomics Quantification Pipeline</text>
 <rect x="30.0" y="85.0" width="628.0" height="110.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="39.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">1</text>
-<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Sample Preparation</text>
+<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Sample Preparation</text>
 <rect x="708.0" y="85.0" width="376.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="717.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="717.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">2</text>
-<text x="731.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">TMT Quantification</text>
+<text x="717.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="731.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">TMT Quantification</text>
 <rect x="823.5" y="235.0" width="260.5" height="76.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="832.5" cy="222.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="832.5" y="222.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">3</text>
-<text x="846.5" y="222.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Label-Free Quantification</text>
+<text x="832.5" y="222.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">3</text>
+<text x="846.5" y="222.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Label-Free Quantification</text>
 <rect x="828.0" y="345.0" width="256.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="837.0" cy="332.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="837.0" y="332.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">4</text>
-<text x="851.0" y="332.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">DIA Quantification</text>
+<text x="837.0" y="332.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">4</text>
+<text x="851.0" y="332.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">DIA Quantification</text>
 <rect x="1335.0" y="85.0" width="151.0" height="330.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="1344.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="1344.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">5</text>
-<text x="1358.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Normalization</text>
+<text x="1344.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">5</text>
+<text x="1358.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Normalization</text>
 <rect x="1134.0" y="455.0" width="352.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="1143.0" cy="442.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="1143.0" y="442.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">6</text>
-<text x="1157.0" y="442.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Statistical Analysis</text>
+<text x="1143.0" y="442.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">6</text>
+<text x="1157.0" y="442.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Statistical Analysis</text>
 <rect x="864.0" y="455.0" width="220.0" height="79.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
 <circle cx="873.0" cy="442.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="873.0" y="442.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="central">7</text>
-<text x="887.0" y="442.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central" class="nf-metro-section-label">Reporting</text>
+<text x="873.0" y="442.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">7</text>
+<text x="887.0" y="442.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Reporting</text>
 <path d="M1418.0,496.0 L1358.0,496.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1358.0,496.0 L1298.0,496.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1298.0,496.0 L1238.0,496.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
@@ -190,10 +190,10 @@
 <text x="572.0" y="104.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Final QC</text>
 <rect x="30.0" y="555.0" width="140.64" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,579.0 L66.0,579.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="579.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">TMT Labeling</text>
+<text x="78.0" y="579.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">TMT Labeling</text>
 <path d="M42.0,603.0 L66.0,603.0" stroke="#457b9d" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="603.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">Label-Free</text>
+<text x="78.0" y="603.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Label-Free</text>
 <path d="M42.0,627.0 L66.0,627.0" stroke="#2a9d8f" stroke-width="3.0" stroke-linecap="round" />
-<text x="78.0" y="627.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dominant-baseline="central">DIA</text>
+<text x="78.0" y="627.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">DIA</text>
 <text x="1516.0" y="667.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
 </svg>
