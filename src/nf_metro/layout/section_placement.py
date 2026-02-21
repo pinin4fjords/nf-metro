@@ -409,9 +409,7 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
     # to the bottom when the successor is at a similar Y level.
     if section.direction == "TB":
         exit_set = set(section.exit_ports)
-        internal_ids = (
-            set(section.station_ids) - set(section.entry_ports) - exit_set
-        )
+        internal_ids = set(section.station_ids) - set(section.entry_ports) - exit_set
         internal_ys = [
             graph.stations[sid].y
             for sid in internal_ids
