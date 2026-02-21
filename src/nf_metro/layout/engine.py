@@ -905,8 +905,6 @@ def _align_lr_exit_port(
 
         if exit_section.direction == "TB":
             tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
-            if tgt_y is None:
-                break
         else:
             tgt_y = tgt.y
 
@@ -919,60 +917,67 @@ def _resolve_tb_exit_y(
     port,
     tgt: Station,
     exit_section: Section,
-) -> float | None:
+) -> float:
     """Resolve the Y coordinate for a TB section's exit port.
 
-    Ensures the exit port stays below the last internal station with a
-    minimum gap. If the target is too high, pushes the target section
-    down to maintain alignment. Returns None if alignment should be skipped.
+    Mirrors the entry-side gap: finds how far the perpendicular entry
+    port sits above the first internal station, and places the exit port
+    the same distance below the last internal station. Pushes the target
+    section down if needed so the inter-section line is straight.
     """
-    last_y = max(
-        (
-            graph.stations[sid].y
-            for sid in exit_section.station_ids
-            if sid in graph.stations and not graph.stations[sid].is_port
-        ),
-        default=port.y,
-    )
+    internal_ys = [
+        graph.stations[sid].y
+        for sid in exit_section.station_ids
+        if sid in graph.stations and not graph.stations[sid].is_port
+    ]
+    last_y = max(internal_ys) if internal_ys else port.y
+    first_y = min(internal_ys) if internal_ys else port.y
 
-    # Don't pull above the last internal station
-    if tgt.y < last_y:
-        return None
+    # Mirror the entry-side gap (distance from entry port to first station)
+    entry_gap = MIN_PORT_STATION_GAP
+    for pid in exit_section.entry_ports:
+        ep = graph.ports.get(pid)
+        if ep and ep.side in (PortSide.LEFT, PortSide.RIGHT):
+            entry_gap = max(entry_gap, first_y - graph.stations[pid].y)
+            break
 
-    min_exit_y = last_y + MIN_PORT_STATION_GAP
+    min_exit_y = last_y + entry_gap
     if tgt.y >= min_exit_y:
-        return tgt.y
+        tgt_y = tgt.y
+    else:
+        # Push target section down to align with exit port
+        tgt_y = min_exit_y
+        delta = tgt_y - tgt.y
 
-    # Target is between last_y and min_exit_y: push target section down
-    tgt_y = min_exit_y
-    delta = tgt_y - tgt.y
+        tgt.y = tgt_y
+        tgt_port = graph.ports.get(tgt.id)
+        if tgt_port:
+            tgt_port.y = tgt_y
+            tgt_sec = graph.sections.get(tgt_port.section_id)
+            if tgt_sec:
+                for sid in tgt_sec.station_ids:
+                    s = graph.stations.get(sid)
+                    if s and s.id != tgt.id:
+                        s.y += delta
+                        p = graph.ports.get(sid)
+                        if p:
+                            p.y += delta
+                tgt_sec.bbox_y += delta
 
-    tgt.y = tgt_y
-    tgt_port = graph.ports.get(tgt.id)
-    if not tgt_port:
-        return tgt_y
-
-    tgt_port.y = tgt_y
-    tgt_sec = graph.sections.get(tgt_port.section_id)
-    if not tgt_sec:
-        return tgt_y
-
-    # Shift the target section's stations and ports down
-    for sid in tgt_sec.station_ids:
-        s = graph.stations.get(sid)
-        if s and s.id != tgt.id:
-            s.y += delta
-            p = graph.ports.get(sid)
-            if p:
-                p.y += delta
-
-    tgt_sec.bbox_y += delta
-
-    # Extend exit section bbox if target section now extends below it
-    new_bot = tgt_sec.bbox_y + tgt_sec.bbox_h
-    exit_bot = exit_section.bbox_y + exit_section.bbox_h
-    if new_bot > exit_bot:
-        exit_section.bbox_h = new_bot - exit_section.bbox_y
+    # Extend exit section bbox so padding below the exit port
+    # mirrors the padding above the entry port.
+    entry_port_y = None
+    for pid in exit_section.entry_ports:
+        ep = graph.ports.get(pid)
+        if ep and ep.side in (PortSide.LEFT, PortSide.RIGHT):
+            entry_port_y = graph.stations[pid].y
+            break
+    if entry_port_y is not None:
+        top_pad = entry_port_y - exit_section.bbox_y
+        desired_bot = tgt_y + top_pad
+        current_bot = exit_section.bbox_y + exit_section.bbox_h
+        if desired_bot > current_bot:
+            exit_section.bbox_h = desired_bot - exit_section.bbox_y
 
     return tgt_y
 
