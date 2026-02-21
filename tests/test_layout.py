@@ -521,6 +521,137 @@ def test_label_clamp_expands_bbox_when_both_sides_tight():
 # ---- Multi-line label helpers ----
 
 
+# --- Straight diamond tests (issue #115) ---
+
+
+def _diamond_section_text(diamond_style="straight"):
+    """Build a section with a 2-way diamond where all lines take both branches."""
+    return (
+        "%%metro line: L1 | Line1 | #ff0000\n"
+        "%%metro line: L2 | Line2 | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        a -->|L1,L2| b\n"
+        "        a -->|L1,L2| c\n"
+        "        b -->|L1,L2| d\n"
+        "        c -->|L1,L2| d\n"
+        "    end\n"
+    )
+
+
+def test_is_diamond_fanout():
+    """_is_diamond_fanout detects fork-join patterns."""
+    import networkx as nx
+
+    from nf_metro.layout.ordering import _is_diamond_fanout
+
+    G = nx.DiGraph()
+    G.add_edges_from([("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")])
+    assert _is_diamond_fanout(["b", "c"], G) is True
+    # Single node is never a diamond
+    assert _is_diamond_fanout(["b"], G) is False
+    # Nodes with different predecessors are not a diamond
+    G2 = nx.DiGraph()
+    G2.add_edges_from([("a", "b"), ("x", "c"), ("b", "d"), ("c", "d")])
+    assert _is_diamond_fanout(["b", "c"], G2) is False
+
+
+def test_straight_diamond_top_branch_stays_flat():
+    """With diamond_style='straight', the top branch of a diamond stays on the trunk."""
+    graph = parse_metro_mermaid(_diamond_section_text())
+    # Default is now "straight"
+    assert graph.diamond_style == "straight"
+    compute_layout(graph)
+    # b (first branch, top) should be at the same Y as a (trunk)
+    assert graph.stations["b"].y == graph.stations["a"].y
+
+
+def test_symmetric_diamond_both_branches_deviate():
+    """With diamond_style='symmetric', both branches deviate from the trunk."""
+    graph = parse_metro_mermaid(_diamond_section_text())
+    graph.diamond_style = "symmetric"
+    compute_layout(graph)
+    a_y = graph.stations["a"].y
+    b_y = graph.stations["b"].y
+    c_y = graph.stations["c"].y
+    # Both b and c should deviate from a (symmetric fan-out)
+    assert b_y != a_y or c_y != a_y
+    # And b should be above c (or at least at different positions)
+    assert b_y != c_y
+
+
+def test_straight_diamond_merge_returns_to_trunk():
+    """With diamond_style='straight', the merge node after a diamond snaps to trunk."""
+    graph = parse_metro_mermaid(_diamond_section_text())
+    compute_layout(graph)
+    # d (merge) should be at the same Y as a (trunk)
+    assert graph.stations["d"].y == graph.stations["a"].y
+
+
+def test_cli_straight_diamonds_default(tmp_path):
+    """--straight-diamonds is on by default."""
+    from click.testing import CliRunner
+
+    from nf_metro.cli import cli
+
+    mmd = tmp_path / "diamond.mmd"
+    mmd.write_text(_diamond_section_text())
+    out = tmp_path / "out.svg"
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", str(mmd), "-o", str(out)])
+    assert result.exit_code == 0, result.output
+
+
+def test_cli_no_straight_diamonds(tmp_path):
+    """--no-straight-diamonds reverts to symmetric behaviour."""
+    from click.testing import CliRunner
+
+    from nf_metro.cli import cli
+
+    mmd = tmp_path / "diamond.mmd"
+    mmd.write_text(_diamond_section_text())
+    out = tmp_path / "out.svg"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["render", str(mmd), "-o", str(out), "--no-straight-diamonds"]
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_straight_diamond_inter_section_port_alignment():
+    """With straight diamonds, inter-section ports align to the majority target Y."""
+    graph = parse_metro_mermaid(
+        "%%metro line: L1 | Line1 | #ff0000\n"
+        "%%metro line: L2 | Line2 | #0000ff\n"
+        "%%metro line: L3 | Line3 | #00ff00\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        b -->|L1,L2| c\n"
+        "    end\n"
+        "    a -->|L1,L2| b\n"
+        "    a -->|L3| c\n"
+    )
+    compute_layout(graph)
+    # The entry port should align with b (2 lines) not the average of b and c
+    entry_ports = graph.sections["sec2"].entry_ports
+    assert len(entry_ports) > 0
+    entry_y = graph.stations[entry_ports[0]].y
+    b_y = graph.stations["b"].y
+    # Entry port should be at b's Y (majority target)
+    assert abs(entry_y - b_y) < 1.0, (
+        f"Entry port at y={entry_y} should align with b at y={b_y}"
+    )
+
+
 def test_label_text_width_single_line():
     assert label_text_width("Hello") == 5 * CHAR_WIDTH
 

@@ -78,6 +78,12 @@ def cli() -> None:
     "'span' sorts by section span (longest first)",
 )
 @click.option(
+    "--straight-diamonds/--no-straight-diamonds",
+    default=True,
+    help="Keep top branch of diamond fork-joins on the main track (default: on). "
+    "Use --no-straight-diamonds for symmetric fan-out.",
+)
+@click.option(
     "--from-nextflow",
     is_flag=True,
     default=False,
@@ -102,6 +108,7 @@ def render(
     debug: bool,
     logo: Path | None,
     line_order: str | None,
+    straight_diamonds: bool,
     from_nextflow: bool,
     title: str | None,
 ) -> None:
@@ -123,6 +130,9 @@ def render(
 
     if line_order is not None:
         graph.line_order = line_order
+
+    if not straight_diamonds:
+        graph.diamond_style = "symmetric"
 
     if logo is not None:
         graph.logo_path = str(logo)
