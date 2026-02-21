@@ -51,7 +51,11 @@ def _collect_mmd_files() -> list[Path]:
 
 
 def render_file(
-    mmd_path: Path, output_dir: Path, *, debug: bool = False
+    mmd_path: Path,
+    output_dir: Path,
+    *,
+    debug: bool = False,
+    straight_diamonds: bool = False,
 ) -> tuple[str, list[str]]:
     """Parse, layout, and render a .mmd file to SVG (and optionally PNG).
 
@@ -71,6 +75,9 @@ def render_file(
         graph = parse_metro_mermaid(text)
     except Exception as e:
         return name, [f"PARSE ERROR: {e}"]
+
+    if straight_diamonds:
+        graph.diamond_style = "straight"
 
     try:
         compute_layout(graph)
@@ -107,6 +114,10 @@ def main():
     parser.add_argument(
         "--debug", action="store_true", help="Enable debug overlay (ports, hidden stations, waypoints)"
     )
+    parser.add_argument(
+        "--straight-diamonds", action="store_true",
+        help="Keep top branch of diamond fork-joins on the main track",
+    )
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -115,6 +126,8 @@ def main():
     print(f"Rendering {len(all_files)} files to {OUTPUT_DIR}/")
     if args.debug:
         print("Debug overlay: ON")
+    if args.straight_diamonds:
+        print("Straight diamonds: ON")
     print()
 
     # Dry-run to get output names for alignment
@@ -125,7 +138,10 @@ def main():
     any_errors = False
 
     for mmd_path in all_files:
-        name, issues = render_file(mmd_path, OUTPUT_DIR, debug=args.debug)
+        name, issues = render_file(
+            mmd_path, OUTPUT_DIR, debug=args.debug,
+            straight_diamonds=args.straight_diamonds,
+        )
         status = "OK" if not issues else "ISSUES"
         if any("ERROR" in i for i in issues):
             status = "FAIL"

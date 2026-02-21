@@ -7,6 +7,8 @@ from __future__ import annotations
 
 __all__ = ["compute_layout"]
 
+from collections import Counter
+
 from nf_metro.layout.constants import (
     ENTRY_INSET_LR,
     ENTRY_SHIFT_TB,
@@ -939,7 +941,13 @@ def _align_ports_to_downstream(graph: MetroGraph) -> None:
         if not downstream_ys:
             continue
 
-        target_y = sum(downstream_ys) / len(downstream_ys)
+        if graph.diamond_style == "straight":
+            # Snap to the Y that the most lines target, so the majority
+            # of lines flow straight.  Ties broken by topmost (smallest Y).
+            y_counts: Counter[float] = Counter(downstream_ys)
+            target_y = min(y_counts, key=lambda y: (-y_counts[y], y))
+        else:
+            target_y = sum(downstream_ys) / len(downstream_ys)
 
         # Only move if target_y fits within both section bboxes
         exit_top = exit_section.bbox_y
@@ -1237,6 +1245,7 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
     """
     sub = MetroGraph()
     sub.lines = graph.lines  # Share line definitions
+    sub.diamond_style = graph.diamond_style
 
     # Collect port IDs for this section
     port_ids = set(section.entry_ports) | set(section.exit_ports)
