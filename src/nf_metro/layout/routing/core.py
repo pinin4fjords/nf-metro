@@ -112,6 +112,8 @@ def route_edges(
         if result is not None:
             routes.append(result)
 
+    _center_bubble_stations(routes, graph)
+
     return routes
 
 
@@ -808,6 +810,112 @@ def _route_diagonal(
         line_id=edge.line_id,
         points=[(sx, sy), (diag_start_x, sy), (diag_end_x, ty), (tx, ty)],
     )
+
+
+# ---------------------------------------------------------------------------
+# Post-processing: centre bubble stations on their flat segments
+# ---------------------------------------------------------------------------
+
+
+def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None:
+    """Shift diagonals so bubble stations sit centred on their flat segments.
+
+    A "bubble station" branches off the trunk at a different Y, with a
+    diagonal on each side.  The fork/join bias in ``_route_diagonal``
+    keeps diagonals symmetric at the shared station but leaves the bubble
+    station off-centre.  This pass detects such stations and shifts both
+    adjacent diagonals by the same amount to equalise the flat runs.
+
+    Skips stations whose neighbouring diagonal endpoints are bundle
+    convergence/divergence points (multiple diagonal routes arriving or
+    departing), since shifting individual diagonals in a bundle would
+    break the visual alignment of parallel return paths.
+    """
+    # Identify fork/join stations from the full graph (all edge types, not
+    # just 4-point diagonals).  A fork has multiple targets, a join has
+    # multiple sources.  These must NOT be recentred as bubble stations.
+    all_sources: dict[str, set[str]] = defaultdict(set)
+    all_targets: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges:
+        all_targets[edge.source].add(edge.target)
+        all_sources[edge.target].add(edge.source)
+
+    # Index 4-point diagonal routes by their source and target station IDs.
+    # 4-point routes have the shape: [flat, diag_start, diag_end, flat].
+    incoming: dict[str, list[RoutedPath]] = defaultdict(list)
+    outgoing: dict[str, list[RoutedPath]] = defaultdict(list)
+
+    # Also count how many diagonal routes converge on / diverge from each
+    # station, to detect bundle convergence/divergence points.
+    diag_in_count: dict[str, int] = defaultdict(int)
+    diag_out_count: dict[str, int] = defaultdict(int)
+
+    for rp in routes:
+        if len(rp.points) != 4:
+            continue
+        # Verify it really has a diagonal (Y changes between points 1 and 2)
+        if abs(rp.points[1][1] - rp.points[2][1]) < COORD_TOLERANCE_FINE:
+            continue
+        incoming[rp.edge.target].append(rp)
+        outgoing[rp.edge.source].append(rp)
+        diag_in_count[rp.edge.target] += 1
+        diag_out_count[rp.edge.source] += 1
+
+    for sid, station in graph.stations.items():
+        if station.is_port:
+            continue
+
+        # Skip fork/join stations - they sit at the trunk, not on a bubble.
+        if len(all_targets.get(sid, set())) > 1 or len(all_sources.get(sid, set())) > 1:
+            continue
+
+        in_routes = incoming.get(sid, [])
+        out_routes = outgoing.get(sid, [])
+
+        # Only handle simple bubble stations: exactly one diagonal in,
+        # one diagonal out, both at the station's Y level.
+        if len(in_routes) != 1 or len(out_routes) != 1:
+            continue
+
+        in_rp = in_routes[0]
+        out_rp = out_routes[0]
+
+        # Skip if either neighbouring endpoint is a bundle convergence or
+        # divergence point.  Shifting one diagonal in a bundle of parallel
+        # return paths would misalign them visually.
+        if diag_in_count.get(out_rp.edge.target, 0) > 1:
+            continue
+        if diag_out_count.get(in_rp.edge.source, 0) > 1:
+            continue
+
+        # Incoming route: [..., (diag_end_x, stn_y), (stn_x, stn_y)]
+        # The flat at station Y runs from diag_end_x to station.x
+        in_diag_end_x = in_rp.points[2][0]
+
+        # Outgoing route: [(stn_x, stn_y), (diag_start_x, stn_y), ...]
+        # The flat at station Y runs from station.x to diag_start_x
+        out_diag_start_x = out_rp.points[1][0]
+
+        in_flat = station.x - in_diag_end_x
+        out_flat = out_diag_start_x - station.x
+
+        # Skip if flats are already balanced or negligible
+        if abs(in_flat) < 1 or abs(out_flat) < 1:
+            continue
+        if abs(in_flat - out_flat) < 1:
+            continue
+
+        # Shift both diagonals by the same amount to equalise the flats.
+        # Positive shift moves diagonals toward the station's right.
+        shift = (in_flat - out_flat) / 2
+
+        # Shift incoming diagonal
+        in_rp.points[1] = (in_rp.points[1][0] + shift, in_rp.points[1][1])
+        in_rp.points[2] = (in_rp.points[2][0] + shift, in_rp.points[2][1])
+
+        # Shift outgoing diagonal
+        out_rp.points[1] = (out_rp.points[1][0] + shift, out_rp.points[1][1])
+        out_rp.points[2] = (out_rp.points[2][0] + shift, out_rp.points[2][1])
 
 
 # ---------------------------------------------------------------------------
