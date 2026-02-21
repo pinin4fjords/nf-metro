@@ -286,7 +286,6 @@ def _layout_single_section(
     # Apply direction-specific bbox adjustments
     _adjust_tb_labels(sub, section, graph)
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
-    _adjust_tb_exit_extend(section, graph, y_spacing)
     _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
     _adjust_terminus_icon_clearance(sub, section, graph)
@@ -452,29 +451,6 @@ def _adjust_tb_entry_shifts(
         for s in sub.stations.values():
             s.y += entry_shift
         section.bbox_h += entry_shift
-
-
-def _adjust_tb_exit_extend(
-    section: Section,
-    graph: MetroGraph,
-    y_spacing: float,
-) -> None:
-    """Extend TB section bbox bottom for perpendicular exit ports.
-
-    Mirrors _adjust_tb_entry_shifts: when a TB section has LEFT/RIGHT
-    exit ports, extend the bbox downward so the exit horizontal line
-    has the same padding from the box edge as the entry line does.
-    """
-    if section.direction != "TB":
-        return
-
-    has_perp_exit = any(
-        graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
-        for pid in section.exit_ports
-        if pid in graph.ports
-    )
-    if has_perp_exit:
-        section.bbox_h += y_spacing * ENTRY_SHIFT_TB
 
 
 def _adjust_lr_entry_inset(
@@ -967,38 +943,41 @@ def _resolve_tb_exit_y(
 
     min_exit_y = last_y + entry_gap
     if tgt.y >= min_exit_y:
-        return tgt.y
+        tgt_y = tgt.y
+    else:
+        # Push target section down to align with exit port
+        tgt_y = min_exit_y
+        delta = tgt_y - tgt.y
 
-    # Push target section down to align with exit port
-    tgt_y = min_exit_y
-    delta = tgt_y - tgt.y
+        tgt.y = tgt_y
+        tgt_port = graph.ports.get(tgt.id)
+        if tgt_port:
+            tgt_port.y = tgt_y
+            tgt_sec = graph.sections.get(tgt_port.section_id)
+            if tgt_sec:
+                for sid in tgt_sec.station_ids:
+                    s = graph.stations.get(sid)
+                    if s and s.id != tgt.id:
+                        s.y += delta
+                        p = graph.ports.get(sid)
+                        if p:
+                            p.y += delta
+                tgt_sec.bbox_y += delta
 
-    tgt.y = tgt_y
-    tgt_port = graph.ports.get(tgt.id)
-    if not tgt_port:
-        return tgt_y
-
-    tgt_port.y = tgt_y
-    tgt_sec = graph.sections.get(tgt_port.section_id)
-    if not tgt_sec:
-        return tgt_y
-
-    # Shift the target section's stations and ports down
-    for sid in tgt_sec.station_ids:
-        s = graph.stations.get(sid)
-        if s and s.id != tgt.id:
-            s.y += delta
-            p = graph.ports.get(sid)
-            if p:
-                p.y += delta
-
-    tgt_sec.bbox_y += delta
-
-    # Extend exit section bbox if target section now extends below it
-    new_bot = tgt_sec.bbox_y + tgt_sec.bbox_h
-    exit_bot = exit_section.bbox_y + exit_section.bbox_h
-    if new_bot > exit_bot:
-        exit_section.bbox_h = new_bot - exit_section.bbox_y
+    # Extend exit section bbox so padding below the exit port
+    # mirrors the padding above the entry port.
+    entry_port_y = None
+    for pid in exit_section.entry_ports:
+        ep = graph.ports.get(pid)
+        if ep and ep.side in (PortSide.LEFT, PortSide.RIGHT):
+            entry_port_y = graph.stations[pid].y
+            break
+    if entry_port_y is not None:
+        top_pad = entry_port_y - exit_section.bbox_y
+        desired_bot = tgt_y + top_pad
+        current_bot = exit_section.bbox_y + exit_section.bbox_h
+        if desired_bot > current_bot:
+            exit_section.bbox_h = desired_bot - exit_section.bbox_y
 
     return tgt_y
 
