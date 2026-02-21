@@ -70,6 +70,13 @@ SECTION_NUM_Y_OFFSET: int = 4
 SECTION_LABEL_TEXT_OFFSET: int = 5
 """Text X offset from section number circle."""
 
+TEXT_VCENTER_DY: str = "0.3em"
+"""Downward dy shift applied to text that must be visually centered on
+a companion graphic (badge circles, legend swatches).  Using dy instead
+of ``dominant-baseline: central`` gives more consistent results across
+browsers and rasterisers (CairoSVG, resvg, etc.).  Value determined by
+pixel-level measurement across CairoSVG and Chromium renderers."""
+
 ICON_STATION_GAP: float = 6.0
 """Gap between terminus station pill and file icon."""
 

@@ -55,26 +55,16 @@ Fix any failures before proceeding.
 
 ## Phase 5: Render and Visual Review
 
-Render ALL topology fixtures (including nextflow ones) and examples to PNG, then open for user review.
+Render ALL .mmd files in the repo (examples, topology fixtures, nextflow fixtures, test fixtures) to PNG, then open for user review. The batch script creates a unique output directory each time so concurrent sessions don't collide.
 
 ```bash
 source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
 
-# Clean previous renders
-rm -rf /tmp/nf_metro_topology_renders/
+# Render everything (creates a unique /tmp/nf_metro_renders_XXXXX/ dir)
+cd /tmp/nf-metro-fix-<NUMBER> && python scripts/render_topologies.py
 
-# Render topologies + examples (via repo batch script)
-python /tmp/nf-metro-fix-<NUMBER>/scripts/render_topologies.py
-
-# Render nextflow fixtures (not in the batch script)
-for f in /tmp/nf-metro-fix-<NUMBER>/tests/fixtures/nextflow/*.mmd; do
-  name=$(basename "$f" .mmd)
-  python -m nf_metro render "$f" -o "/tmp/nf_metro_topology_renders/${name}.svg"
-  python -c "import cairosvg; cairosvg.svg2png(url='/tmp/nf_metro_topology_renders/${name}.svg', write_to='/tmp/nf_metro_topology_renders/${name}.png', scale=2)"
-done
-
-# Open all PNGs in one Preview session
-open /tmp/nf_metro_topology_renders/*.png
+# Open all PNGs in one Preview session (use the dir printed by the script)
+open /tmp/nf_metro_renders_*/*.png
 ```
 
 **STOP and ask the user to review the renders.** Do NOT proceed until the user confirms they look correct. If they spot problems, return to Phase 4 and iterate.
