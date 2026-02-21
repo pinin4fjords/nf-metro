@@ -36,7 +36,7 @@
 <path d="M236.0,183.0 L265.0,183.0 Q275.0,183.0,282.0710678118655,175.92893218813452 L297.9289321881345,160.07106781186548 Q305.0,153.0,315.0,153.0 L332.0,153.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M236.0,180.0 L265.0,180.0 Q275.0,180.0,282.0710678118655,172.92893218813452 L297.9289321881345,157.07106781186548 Q305.0,150.0,315.0,150.0 L332.0,150.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M674.0,163.0 L694.0,163.0 Q704.0,163.0,710.0,155.0 L728.0,131.0 Q734.0,123.0,744.0,123.0 L801.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M929.0,163.0 L982.5,163.0 Q992.5,163.0,1000.8205029433784,157.4529980377477 L1014.1794970566216,148.5470019622523 Q1022.5,143.0,1032.5,143.0 L1037.5,143.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M929.0,163.0 L982.5,163.0 Q992.5,163.0,998.5,155.0 L1016.5,131.0 Q1022.5,123.0,1032.5,123.0 L1037.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M1628.0,160.0 L1628.0,200.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1625.0,160.0 L1625.0,200.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M80.0,156.0 L140.0,156.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
@@ -65,18 +65,16 @@
 <path d="M588.0,150.0 L593.0,150.0 Q603.0,150.0,610.0710678118654,142.92893218813452 L625.9289321881346,127.07106781186548 Q633.0,120.0,643.0,120.0 L674.0,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M538.0,150.0 L548.0,150.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M548.0,150.0 L588.0,150.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1087.5,143.0 L1092.5,143.0 Q1102.5,143.0,1109.5710678118655,135.92893218813452 L1115.4289321881345,130.07106781186548 Q1122.5,123.0,1132.5,123.0 L1137.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1037.5,143.0 L1087.5,143.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
-<path d="M1087.5,140.0 L1092.5,140.0 Q1102.5,140.0,1109.5710678118655,132.92893218813452 L1115.4289321881345,127.07106781186548 Q1122.5,120.0,1132.5,120.0 L1137.5,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-<path d="M1037.5,140.0 L1087.5,140.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M236.0,126.0 L265.0,126.0 Q275.0,126.0,282.0710678118655,133.07106781186548 L297.9289321881345,148.92893218813452 Q305.0,156.0,315.0,156.0 L332.0,156.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M236.0,123.0 L265.0,123.0 Q275.0,123.0,282.0710678118655,130.07106781186548 L297.9289321881345,145.92893218813452 Q305.0,153.0,315.0,153.0 L332.0,153.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M801.5,123.0 L859.0,123.0 Q869.0,123.0,875.0,131.0 L893.0,155.0 Q899.0,163.0,909.0,163.0 L929.0,163.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M1137.5,123.0 L1197.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1197.5,123.0 L1257.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1257.5,123.0 L1317.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1087.5,123.0 L1137.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1317.5,123.0 L1439.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1489.5,123.0 L1615.0,123.0 Q1625.0,123.0,1625.0,133.0 L1625.0,160.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1037.5,123.0 L1087.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1439.5,123.0 L1489.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <path d="M236.0,120.0 L265.0,120.0 Q275.0,120.0,282.0710678118655,127.07106781186548 L297.9289321881345,142.92893218813452 Q305.0,150.0,315.0,150.0 L332.0,150.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
 <path d="M674.0,120.0 L801.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
@@ -84,9 +82,11 @@
 <path d="M1137.5,120.0 L1197.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1197.5,120.0 L1257.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1257.5,120.0 L1317.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
-<path d="M929.0,120.0 L982.5,120.0 Q992.5,120.0,1000.8205029433784,125.5470019622523 L1014.1794970566216,134.4529980377477 Q1022.5,140.0,1032.5,140.0 L1037.5,140.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M929.0,120.0 L1037.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<path d="M1087.5,120.0 L1137.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1317.5,120.0 L1439.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1489.5,120.0 L1615.0,120.0 Q1628.0,120.0,1628.0,133.0 L1628.0,160.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M1037.5,120.0 L1087.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <path d="M1439.5,120.0 L1489.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <rect x="75.0" y="145.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="135.0" y="145.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
