@@ -16,6 +16,7 @@ from nf_metro.render.constants import (
     LEGEND_TEXT_GAP,
     LOGO_GAP,
     LOGO_SCALE_FACTOR,
+    TEXT_VCENTER_DY,
 )
 from nf_metro.render.style import Theme
 
@@ -156,6 +157,6 @@ def render_legend(
                 entry_y,
                 fill=theme.legend_text_color,
                 font_family=theme.label_font_family,
-                dominant_baseline="central",
+                dy=TEXT_VCENTER_DY,
             )
         )
