@@ -183,6 +183,10 @@ def _compute_section_layout(
     # so inter-section horizontal runs are straight
     _align_entry_ports(graph)
 
+    # Phase 7b: For non-fold LR/RL sections, pull exit-entry port pairs toward
+    # the downstream section's stations so lines flow more directly across.
+    _align_ports_to_downstream(graph)
+
     # Phase 8: Align LEFT/RIGHT exit ports on row-spanning (fold) sections
     # with their target's Y so the exit is at the return row level
     _align_exit_ports(graph)
@@ -844,6 +848,112 @@ def _nudge_port_from_stations(
 
     station.x = new_x
     port.x = new_x
+
+
+def _align_ports_to_downstream(graph: MetroGraph) -> None:
+    """Pull exit-entry port pairs toward downstream station positions.
+
+    After Phase 7 aligns entry ports to their source (exit port), the
+    exit-entry pair may sit at a Y that is far from the downstream
+    section's internal stations, forcing lines to detour vertically
+    between sections.  This pass moves both ports toward the downstream
+    section's average station Y when that would reduce the detour.
+
+    Only applies to non-fold LR/RL sections without fan-out junctions
+    (fold/TB sections are handled by ``_align_exit_ports``).
+    """
+    junction_ids = set(graph.junctions)
+
+    for port_id, port in graph.ports.items():
+        if port.is_entry:
+            continue
+
+        exit_section = graph.sections.get(port.section_id)
+        if not exit_section:
+            continue
+
+        # Skip fold/TB sections (handled by Phase 8)
+        if exit_section.grid_row_span > 1 or exit_section.direction == "TB":
+            continue
+
+        if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+
+        # Find the single target entry port (skip fan-out via junctions)
+        target_entry_id: str | None = None
+        for edge in graph.edges:
+            if edge.source != port_id:
+                continue
+            if edge.target in junction_ids:
+                # Fan-out to junction -- don't override
+                target_entry_id = None
+                break
+            tgt = graph.stations.get(edge.target)
+            if tgt and tgt.is_port:
+                tgt_port = graph.ports.get(edge.target)
+                if tgt_port and tgt_port.is_entry:
+                    target_entry_id = edge.target
+                    # Keep scanning to detect junctions on later edges
+
+        if not target_entry_id:
+            continue
+
+        # Locate the downstream section and its internal stations
+        entry_port_obj = graph.ports.get(target_entry_id)
+        if not entry_port_obj:
+            continue
+        entry_section = graph.sections.get(entry_port_obj.section_id)
+        if not entry_section:
+            continue
+
+        # Skip cross-row connections (different grid rows)
+        if exit_section.grid_row != entry_section.grid_row:
+            continue
+
+        # Skip when entry port is perpendicular to its section's flow.
+        # A LEFT port on a TB section must bend, so aligning it with an
+        # internal station's Y would route the line through that station.
+        _perp = False
+        if entry_section.direction == "TB" and entry_port_obj.side in (
+            PortSide.LEFT,
+            PortSide.RIGHT,
+        ):
+            _perp = True
+        elif entry_section.direction in ("LR", "RL") and entry_port_obj.side in (
+            PortSide.TOP,
+            PortSide.BOTTOM,
+        ):
+            _perp = True
+        if _perp:
+            continue
+
+        internal_ids = (
+            set(entry_section.station_ids)
+            - set(entry_section.entry_ports)
+            - set(entry_section.exit_ports)
+        )
+        downstream_ys: list[float] = []
+        for edge in graph.edges:
+            if edge.source == target_entry_id and edge.target in internal_ids:
+                downstream_ys.append(graph.stations[edge.target].y)
+        if not downstream_ys:
+            continue
+
+        target_y = sum(downstream_ys) / len(downstream_ys)
+
+        # Only move if target_y fits within both section bboxes
+        exit_top = exit_section.bbox_y
+        exit_bot = exit_section.bbox_y + exit_section.bbox_h
+        if not (exit_top <= target_y <= exit_bot):
+            continue
+
+        entry_top = entry_section.bbox_y
+        entry_bot = entry_section.bbox_y + entry_section.bbox_h
+        if not (entry_top <= target_y <= entry_bot):
+            continue
+
+        _set_port_y(graph, port_id, target_y)
+        _set_port_y(graph, target_entry_id, target_y)
 
 
 def _align_exit_ports(graph: MetroGraph) -> None:
