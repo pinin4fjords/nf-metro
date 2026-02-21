@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Batch render all .mmd files in the repository to SVG and PNG.
 
-Outputs go to /tmp/nf_metro_topology_renders/.
-
 Usage:
     python scripts/render_topologies.py
+    python scripts/render_topologies.py --output-dir /tmp/my_renders
 """
 
 from __future__ import annotations
@@ -12,19 +11,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
+import tempfile
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
+from nf_metro.convert import convert_nextflow_dag  # noqa: E402
 from nf_metro.layout.engine import compute_layout  # noqa: E402
 from nf_metro.parser.mermaid import parse_metro_mermaid  # noqa: E402
-from nf_metro.convert import convert_nextflow_dag  # noqa: E402
 from nf_metro.render.svg import render_svg  # noqa: E402
 from nf_metro.themes import THEMES  # noqa: E402
 
-OUTPUT_DIR = Path("/tmp/nf_metro_topology_renders")
 NEXTFLOW_DIR = project_root / "tests" / "fixtures" / "nextflow"
 
 
@@ -110,9 +109,19 @@ def render_file(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch render all .mmd files in the repo")
+    parser = argparse.ArgumentParser(
+        description="Batch render all .mmd files in the repo",
+    )
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug overlay (ports, hidden stations, waypoints)"
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Output directory (default: unique temp dir)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug overlay",
     )
     parser.add_argument(
         "--straight-diamonds", action="store_true",
@@ -120,10 +129,14 @@ def main():
     )
     args = parser.parse_args()
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if args.output_dir is not None:
+        output_dir = args.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        output_dir = Path(tempfile.mkdtemp(prefix="nf_metro_renders_"))
 
     all_files = _collect_mmd_files()
-    print(f"Rendering {len(all_files)} files to {OUTPUT_DIR}/")
+    print(f"Rendering {len(all_files)} files to {output_dir}/")
     if args.debug:
         print("Debug overlay: ON")
     if args.straight_diamonds:
@@ -139,7 +152,7 @@ def main():
 
     for mmd_path in all_files:
         name, issues = render_file(
-            mmd_path, OUTPUT_DIR, debug=args.debug,
+            mmd_path, output_dir, debug=args.debug,
             straight_diamonds=args.straight_diamonds,
         )
         status = "OK" if not issues else "ISSUES"
@@ -151,7 +164,7 @@ def main():
         for issue in issues:
             print(f"    - {issue}")
 
-    print(f"\nOutputs in: {OUTPUT_DIR}/")
+    print(f"\nOutputs in: {output_dir}/")
 
     if any_errors:
         sys.exit(1)

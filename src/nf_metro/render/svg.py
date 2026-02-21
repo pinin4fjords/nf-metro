@@ -39,6 +39,7 @@ from nf_metro.render.constants import (
     SECTION_STROKE_WIDTH,
     SVG_CURVE_RADIUS,
     TERMINUS_FONT_COLOR,
+    TEXT_VCENTER_DY,
     TITLE_Y_OFFSET,
     WATERMARK_FONT_SIZE,
     WATERMARK_PADDING_RATIO,
@@ -462,7 +463,7 @@ def _render_first_class_sections(
                 font_family=theme.label_font_family,
                 font_weight="bold",
                 text_anchor="middle",
-                dominant_baseline="central",
+                dy=TEXT_VCENTER_DY,
             )
         )
 
@@ -475,7 +476,7 @@ def _render_first_class_sections(
                 cy,
                 fill=theme.section_label_color,
                 font_family=theme.label_font_family,
-                dominant_baseline="central",
+                dy=TEXT_VCENTER_DY,
                 **{"class": "nf-metro-section-label"},
             )
         )

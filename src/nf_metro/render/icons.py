@@ -6,6 +6,8 @@ __all__ = ["render_file_icon"]
 
 import drawsvg as draw
 
+from nf_metro.render.constants import TEXT_VCENTER_DY
+
 
 def train_icon_path(x: float, y: float, size: float = 12.0) -> str:
     """Generate an SVG path string for a small train icon. Placeholder for future."""
@@ -108,6 +110,6 @@ def render_file_icon(
             font_family=font_family,
             font_weight="bold",
             text_anchor="middle",
-            dominant_baseline="central",
+            dy=TEXT_VCENTER_DY,
         )
     )
