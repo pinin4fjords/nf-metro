@@ -95,7 +95,14 @@ def assign_tracks(
                     layers,
                 )
             else:
-                _place_fan_out(nodes, base, line_gap, G, tracks)
+                _place_fan_out(
+                    nodes,
+                    base,
+                    line_gap,
+                    G,
+                    tracks,
+                    straight_diamonds=graph.diamond_style == "straight",
+                )
 
         # Orphans (no line)
         orphans = layer_line_groups.get((layer_idx, None), [])
@@ -205,6 +212,19 @@ def _place_single_node(
             if len(node_lines) > max_pred_lines:
                 return base
 
+        # Diamond merge: when straight diamonds are active, snap the
+        # join node back to the base track so lines return to the trunk
+        # after an asymmetric fork-join.
+        if (
+            graph.diamond_style == "straight"
+            and layers
+            and len(preds) > 1
+            and any(
+                _is_diamond_node(p, layers.get(p, 0), G, layers, graph) for p in preds
+            )
+        ):
+            return base
+
     distance = abs(base - pred_avg)
     if distance <= line_gap:
         # Close enough - snap to base track
@@ -215,17 +235,43 @@ def _place_single_node(
         return pred_avg + direction * SIDE_BRANCH_NUDGE
 
 
+def _is_diamond_fanout(nodes: list[str], G: nx.DiGraph) -> bool:
+    """Check if fan-out nodes form a diamond (shared preds and common successors).
+
+    A diamond fan-out is a fork-join where all nodes share exactly the same
+    predecessors and converge to at least one common successor.
+    """
+    if len(nodes) < 2:
+        return False
+    first_preds = set(G.predecessors(nodes[0]))
+    if not first_preds:
+        return False
+    for node in nodes[1:]:
+        if set(G.predecessors(node)) != first_preds:
+            return False
+    common_succs = set(G.successors(nodes[0]))
+    for node in nodes[1:]:
+        common_succs &= set(G.successors(node))
+    return len(common_succs) > 0
+
+
 def _place_fan_out(
     nodes: list[str],
     base: float,
     line_gap: float,
     G: nx.DiGraph,
     tracks: dict[str, float],
+    *,
+    straight_diamonds: bool = False,
 ) -> None:
     """Place multiple nodes in the same layer+line, centered around an anchor.
 
     The anchor is the line's base track if predecessors are nearby,
     or the predecessor average if they're far away (fan-out from a branch).
+
+    When *straight_diamonds* is True, diamond (fork-join) patterns use
+    asymmetric placement: the first node stays at the anchor
+    (straight-through) and only the alternative branch(es) fan out below.
     """
     # Compute barycenters for ordering
     bary: dict[str, float] = {}
@@ -250,7 +296,6 @@ def _place_fan_out(
     else:
         anchor = base
 
-    # Center the fan-out around the anchor.
     # Use sub-linear scaling so larger fans don't grow proportionally:
     # per-item spacing = FANOUT_SPACING * (n-1)^(p-1) with p=0.8,
     # giving total spread = FANOUT_SPACING * (n-1)^0.8.
@@ -259,9 +304,18 @@ def _place_fan_out(
         fan_spacing = FANOUT_SPACING * (n - 1) ** (0.8 - 1)
     else:
         fan_spacing = FANOUT_SPACING
-    for i, node in enumerate(nodes):
-        offset = (i - (n - 1) / 2) * fan_spacing
-        tracks[node] = anchor + offset
+
+    if straight_diamonds and _is_diamond_fanout(nodes, G):
+        # Diamond: first node stays at anchor (straight-through),
+        # alternative branches fan out below.
+        tracks[nodes[0]] = anchor
+        for i, node in enumerate(nodes[1:], 1):
+            tracks[node] = anchor + i * fan_spacing
+    else:
+        # Symmetric fan-out centered around the anchor.
+        for i, node in enumerate(nodes):
+            offset = (i - (n - 1) / 2) * fan_spacing
+            tracks[node] = anchor + offset
 
 
 def _equalize_fork_groups(
