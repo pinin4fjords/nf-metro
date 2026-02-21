@@ -376,7 +376,12 @@ def _route_bypass(
             - gap1_extra
         )
         gap1_x = max(gap1_x, sx + ctx.curve_radius)
-        gap2_x = adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) - gap2_extra
+        gap2_x = (
+            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
+            + base_bypass_offset
+            + gap2_extra
+        )
+        gap2_x = min(gap2_x, tx - ctx.curve_radius)
     else:
         gap1_x = (
             adjacent_column_gap_x(graph, src_col - 1, src_col)
@@ -384,7 +389,12 @@ def _route_bypass(
             + gap1_extra
         )
         gap1_x = min(gap1_x, sx - ctx.curve_radius)
-        gap2_x = adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) + gap2_extra
+        gap2_x = (
+            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
+            - base_bypass_offset
+            - gap2_extra
+        )
+        gap2_x = max(gap2_x, tx + ctx.curve_radius)
 
     r_bypass = ctx.curve_radius + max(gap1_extra, gap2_extra)
     return RoutedPath(
