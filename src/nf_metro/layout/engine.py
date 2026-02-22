@@ -30,7 +30,6 @@ from nf_metro.layout.constants import (
     STATION_ELBOW_TOLERANCE,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
-    TERMINUS_NUDGE,
     X_OFFSET,
     X_SPACING,
     Y_OFFSET,
@@ -189,6 +188,10 @@ def _compute_section_layout(
     # the downstream section's stations so lines flow more directly across.
     _align_ports_to_downstream(graph)
 
+    # Phase 7c: Ensure ports maintain at least y_spacing from terminus
+    # stations in their section so file icons don't overlap routed lines.
+    _space_ports_from_termini(graph, y_spacing)
+
     # Phase 8: Align LEFT/RIGHT exit ports on row-spanning (fold) sections
     # with their target's Y so the exit is at the return row level
     _align_exit_ports(graph)
@@ -224,8 +227,6 @@ def _layout_single_section(
     if not layers:
         return None
 
-    # Nudge terminus stations off lines that pass through their Y
-    _nudge_terminus_tracks(sub, graph, section, tracks)
 
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread, while preserving relative spacing within
@@ -1175,66 +1176,109 @@ def _clamp_tb_entry_port(
     return target_y
 
 
-def _nudge_terminus_tracks(
-    sub: MetroGraph,
+def _space_ports_from_termini(
     graph: MetroGraph,
-    section: Section,
-    tracks: dict[str, float],
+    y_spacing: float,
 ) -> None:
-    """Nudge terminus stations away from lines that pass through their Y.
+    """Push ports away from terminus stations so there is a full row gap.
 
-    When a terminus station's predecessor has lines continuing to exit ports,
-    those lines will route horizontally through the terminus's position.
-    Moving the terminus to a slightly different track avoids the visual overlap.
+    After port alignment, an entry or exit port may sit very close to a
+    terminus station in the same section.  Lines routed from that port
+    then overlap the terminus file icon.
+
+    Only entry ports are checked against entry-side (source) termini, and
+    exit ports against exit-side (sink) termini, to avoid displacing
+    ports on the opposite side of the section.
     """
-    import networkx as nx
+    # Pre-compute direct port-station connections
+    port_connects_to: dict[str, set[str]] = {}
+    for edge in graph.edges:
+        port_connects_to.setdefault(edge.source, set()).add(edge.target)
+        port_connects_to.setdefault(edge.target, set()).add(edge.source)
 
-    G = nx.DiGraph()
-    for edge in sub.edges:
-        G.add_edge(edge.source, edge.target)
-    for sid in sub.stations:
-        if sid not in G:
-            G.add_node(sid)
+    # Pre-compute which real stations are internal sources/sinks
+    # (no predecessors/successors among real section stations)
+    real_targets: dict[str, set[str]] = {}
+    real_sources: dict[str, set[str]] = {}
+    for edge in graph.edges:
+        real_targets.setdefault(edge.source, set()).add(edge.target)
+        real_sources.setdefault(edge.target, set()).add(edge.source)
 
-    exit_port_ids = set(section.exit_ports)
-    line_order = list(graph.lines.keys())
-    line_base = {lid: i for i, lid in enumerate(line_order)}
+    for section in graph.sections.values():
+        entry_port_ids = set(section.entry_ports)
+        exit_port_ids = set(section.exit_ports)
+        all_port_ids = entry_port_ids | exit_port_ids
+        real_sids = {
+            s for s in section.station_ids if s not in all_port_ids
+        }
 
-    for sid, station in sub.stations.items():
-        if not station.is_terminus:
-            continue
+        # Classify termini by side
+        entry_termini: list[tuple[str, float]] = []
+        exit_termini: list[tuple[str, float]] = []
+        for sid in real_sids:
+            st = graph.stations.get(sid)
+            if not st or not st.is_terminus or st.is_port:
+                continue
+            # Source terminus: no real predecessors in this section
+            preds = real_sources.get(sid, set())
+            if not (preds & real_sids):
+                entry_termini.append((sid, st.y))
+            # Sink terminus: no real successors in this section
+            succs = real_targets.get(sid, set())
+            if not (succs & real_sids):
+                exit_termini.append((sid, st.y))
 
-        # Find predecessor(s) in the section subgraph
-        preds = list(G.predecessors(sid)) if sid in G else []
-        if not preds:
-            continue
+        def _push_ports(
+            port_ids: set[str],
+            termini: list[tuple[str, float]],
+        ) -> None:
+            for pid in port_ids:
+                port_st = graph.stations.get(pid)
+                if not port_st:
+                    continue
+                port_obj = graph.ports.get(pid)
+                neighbours = port_connects_to.get(pid, set())
 
-        # Lines that the terminus carries (in the full graph)
-        terminus_lines = set(graph.station_lines(sid))
+                for tid, ty in termini:
+                    if tid in neighbours:
+                        continue
+                    gap = abs(port_st.y - ty)
+                    if gap >= y_spacing:
+                        continue
 
-        # Check if any predecessor connects to exit ports on lines
-        # that the terminus doesn't carry (those lines will pass through)
-        passing_lines = set()
-        for pred_id in preds:
-            for edge in graph.edges:
-                if edge.source == pred_id and edge.target in exit_port_ids:
-                    if edge.line_id not in terminus_lines:
-                        passing_lines.add(edge.line_id)
+                    if port_st.y <= ty:
+                        new_y = ty - y_spacing
+                    else:
+                        new_y = ty + y_spacing
 
-        if not passing_lines:
-            continue
+                    port_st.y = new_y
+                    if port_obj:
+                        port_obj.y = new_y
 
-        # Determine nudge direction: away from the passing lines' base tracks
-        current_track = tracks[sid]
-        passing_bases = [line_base.get(lid, 0) for lid in passing_lines]
-        avg_passing = sum(passing_bases) / len(passing_bases)
+                    # Propagate to connected port across section
+                    # boundary so inter-section lines stay straight.
+                    for nb in neighbours:
+                        nb_st = graph.stations.get(nb)
+                        if nb_st and nb_st.is_port:
+                            nb_st.y = new_y
+                            nb_obj = graph.ports.get(nb)
+                            if nb_obj:
+                                nb_obj.y = new_y
 
-        if avg_passing >= current_track:
-            # Passing lines are at or below, nudge up
-            tracks[sid] = current_track - TERMINUS_NUDGE
-        else:
-            # Passing lines are above, nudge down
-            tracks[sid] = current_track + TERMINUS_NUDGE
+                    # Grow section bbox to contain the moved port
+                    # with padding so it sits on the side, not at a
+                    # corner.
+                    pad = SECTION_Y_PADDING
+                    top = section.bbox_y
+                    bot = section.bbox_y + section.bbox_h
+                    if new_y - pad < top:
+                        section.bbox_h += top - (new_y - pad)
+                        section.bbox_y = new_y - pad
+                    elif new_y + pad > bot:
+                        section.bbox_h = (new_y + pad) - section.bbox_y
+
+        _push_ports(entry_port_ids, entry_termini)
+        _push_ports(exit_port_ids, exit_termini)
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
