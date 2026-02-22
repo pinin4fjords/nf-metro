@@ -1229,11 +1229,23 @@ def _space_ports_from_termini(
                 exit_termini.append((sid, st.y))
 
         _push_ports_from_termini(
-            graph, entry_port_ids, entry_termini, section, adjacency, y_spacing
+            graph,
+            entry_port_ids,
+            entry_termini,
+            section,
+            adjacency,
+            predecessors,
+            y_spacing,
         )
         if not is_fold:
             _push_ports_from_termini(
-                graph, exit_port_ids, exit_termini, section, adjacency, y_spacing
+                graph,
+                exit_port_ids,
+                exit_termini,
+                section,
+                adjacency,
+                predecessors,
+                y_spacing,
             )
 
 
@@ -1243,18 +1255,21 @@ def _push_ports_from_termini(
     termini: list[tuple[str, float]],
     section: "Section",
     adjacency: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
     y_spacing: float,
 ) -> None:
-    """Push *port_ids* at least *y_spacing* away from *termini*.
+    """Ensure *y_spacing* between each port and non-connected termini.
 
-    For each port, all non-connected termini are considered at once and
-    the port is moved to the position farthest from any conflicting
-    terminus, guaranteeing convergence even when multiple termini are
-    present at different Y values.
+    The strategy depends on how the port connects across sections:
 
-    When the port connects through a fan-out junction, the move is
-    propagated through the junction to the upstream/downstream exit
-    port so the entire inter-section chain stays straight.
+    - **Junction link** (fan-out): move the port and propagate through
+      the junction to its *upstream* (predecessor) port only, keeping
+      the exit-junction-entry chain straight without disturbing other
+      fan-out targets.
+    - **Direct port-to-port link** (no junction): moving the port would
+      cascade to the other section and mis-align its internal stations.
+      Instead, push the conflicting *terminus* away from the port.
+    - **No cross-section link**: move the port freely.
     """
     junction_ids = set(graph.junctions)
 
@@ -1265,16 +1280,33 @@ def _push_ports_from_termini(
         port_obj = graph.ports.get(pid)
         neighbours = adjacency.get(pid, set())
 
+        # Classify cross-section connection type.
+        has_junction = bool(neighbours & junction_ids)
+        has_direct_port = False
+        if not has_junction:
+            for nb in neighbours:
+                if nb in graph.ports and nb not in port_ids:
+                    has_direct_port = True
+                    break
+
         # Collect all termini that are too close and not directly
         # connected to this port.
+        conflict_ids: list[str] = []
         conflict_ys: list[float] = []
         for tid, ty in termini:
             if tid in neighbours:
                 continue
             if abs(port_st.y - ty) < y_spacing:
+                conflict_ids.append(tid)
                 conflict_ys.append(ty)
 
         if not conflict_ys:
+            continue
+
+        if has_direct_port:
+            # Move the terminus instead of the port so the
+            # inter-section line stays straight.
+            _push_termini_from_port(graph, conflict_ids, port_st.y, section, y_spacing)
             continue
 
         # Compute the single best Y that satisfies all conflicts.
@@ -1292,8 +1324,8 @@ def _push_ports_from_termini(
         if port_obj:
             port_obj.y = new_y
 
-        # Propagate to connected ports and junctions across section
-        # boundaries so inter-section lines stay straight.
+        # Propagate to connected junctions across section boundaries
+        # so inter-section lines stay straight.
         # Check junctions FIRST: junction stations have is_port=True
         # but must be handled differently (traverse to the far side).
         for nb in neighbours:
@@ -1302,11 +1334,11 @@ def _push_ports_from_termini(
                 continue
 
             if nb in junction_ids:
-                # Propagate through the junction to the port on the
-                # other side (exit port -> junction -> entry port or
-                # vice-versa).
                 nb_st.y = new_y
-                for jnb in adjacency.get(nb, set()):
+                # Only propagate to the junction's upstream ports
+                # (predecessors), not to other fan-out targets.
+                upstream_ids = predecessors.get(nb, set())
+                for jnb in upstream_ids:
                     if jnb == pid:
                         continue
                     jnb_st = graph.stations.get(jnb)
@@ -1321,17 +1353,27 @@ def _push_ports_from_termini(
                             if jnb_sec:
                                 _expand_bbox_for_port(jnb_sec, new_y)
 
-            elif nb_st.is_port:
-                # Direct port-to-port link (no junction in between)
-                nb_st.y = new_y
-                nb_obj = graph.ports.get(nb)
-                if nb_obj:
-                    nb_obj.y = new_y
-                    nb_sec = graph.sections.get(nb_obj.section_id)
-                    if nb_sec:
-                        _expand_bbox_for_port(nb_sec, new_y)
-
         # Grow this section's bbox to contain the moved port.
+        _expand_bbox_for_port(section, new_y)
+
+
+def _push_termini_from_port(
+    graph: MetroGraph,
+    terminus_ids: list[str],
+    port_y: float,
+    section: "Section",
+    y_spacing: float,
+) -> None:
+    """Push terminus stations away from a fixed port position."""
+    for tid in terminus_ids:
+        t_st = graph.stations.get(tid)
+        if not t_st:
+            continue
+        if t_st.y <= port_y:
+            new_y = port_y - y_spacing
+        else:
+            new_y = port_y + y_spacing
+        t_st.y = new_y
         _expand_bbox_for_port(section, new_y)
 
 
