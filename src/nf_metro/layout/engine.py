@@ -1339,7 +1339,12 @@ def _push_ports_from_termini(
 
         # Propagate through junctions so inter-section lines stay straight.
         _propagate_through_junctions(
-            graph, pid, new_y, neighbours, junction_ids, predecessors,
+            graph,
+            pid,
+            new_y,
+            neighbours,
+            junction_ids,
+            predecessors,
         )
 
         # Grow this section's bbox to contain the moved port.
