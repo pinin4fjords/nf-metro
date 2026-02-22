@@ -30,7 +30,6 @@ from nf_metro.layout.constants import (
     STATION_ELBOW_TOLERANCE,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
-    TERMINUS_NUDGE,
     X_OFFSET,
     X_SPACING,
     Y_OFFSET,
@@ -189,6 +188,10 @@ def _compute_section_layout(
     # the downstream section's stations so lines flow more directly across.
     _align_ports_to_downstream(graph)
 
+    # Phase 7c: Ensure ports maintain at least y_spacing from terminus
+    # stations in their section so file icons don't overlap routed lines.
+    _space_ports_from_termini(graph, y_spacing)
+
     # Phase 8: Align LEFT/RIGHT exit ports on row-spanning (fold) sections
     # with their target's Y so the exit is at the return row level
     _align_exit_ports(graph)
@@ -223,9 +226,6 @@ def _layout_single_section(
 
     if not layers:
         return None
-
-    # Nudge terminus stations off lines that pass through their Y
-    _nudge_terminus_tracks(sub, graph, section, tracks)
 
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread, while preserving relative spacing within
@@ -1175,66 +1175,248 @@ def _clamp_tb_entry_port(
     return target_y
 
 
-def _nudge_terminus_tracks(
-    sub: MetroGraph,
+def _space_ports_from_termini(
     graph: MetroGraph,
-    section: Section,
-    tracks: dict[str, float],
+    y_spacing: float,
 ) -> None:
-    """Nudge terminus stations away from lines that pass through their Y.
+    """Push ports away from terminus stations so there is a full row gap.
 
-    When a terminus station's predecessor has lines continuing to exit ports,
-    those lines will route horizontally through the terminus's position.
-    Moving the terminus to a slightly different track avoids the visual overlap.
+    After port alignment, an entry or exit port may sit very close to a
+    terminus station in the same section.  Lines routed from that port
+    then overlap the terminus file icon.
+
+    Only entry ports are checked against entry-side (source) termini, and
+    exit ports against exit-side (sink) termini, to avoid displacing
+    ports on the opposite side of the section.
+
+    Exit ports on fold sections (grid_row_span > 1 or TB direction) are
+    skipped because Phase 8 (_align_exit_ports) will overwrite them.
     """
-    import networkx as nx
+    # Pre-compute edge adjacency (used to identify direct connections
+    # and to propagate port moves across section boundaries).
+    adjacency: dict[str, set[str]] = {}
+    successors: dict[str, set[str]] = {}
+    predecessors: dict[str, set[str]] = {}
+    for edge in graph.edges:
+        adjacency.setdefault(edge.source, set()).add(edge.target)
+        adjacency.setdefault(edge.target, set()).add(edge.source)
+        successors.setdefault(edge.source, set()).add(edge.target)
+        predecessors.setdefault(edge.target, set()).add(edge.source)
 
-    G = nx.DiGraph()
-    for edge in sub.edges:
-        G.add_edge(edge.source, edge.target)
-    for sid in sub.stations:
-        if sid not in G:
-            G.add_node(sid)
+    for section in graph.sections.values():
+        entry_port_ids = set(section.entry_ports)
+        exit_port_ids = set(section.exit_ports)
+        all_port_ids = entry_port_ids | exit_port_ids
+        real_sids = {s for s in section.station_ids if s not in all_port_ids}
 
-    exit_port_ids = set(section.exit_ports)
-    line_order = list(graph.lines.keys())
-    line_base = {lid: i for i, lid in enumerate(line_order)}
+        # Skip exit ports on fold sections -- Phase 8 will handle them.
+        is_fold = section.grid_row_span > 1 or section.direction == "TB"
 
-    for sid, station in sub.stations.items():
-        if not station.is_terminus:
+        # Classify termini by side.  A station with no in-section
+        # predecessors is an entry-side (source) terminus; one with no
+        # in-section successors is an exit-side (sink) terminus.  A
+        # station can be both (isolated within the section), but we only
+        # add it to entry_termini to avoid conflicting pushes from both
+        # the entry and exit port passes.
+        entry_termini: list[tuple[str, float]] = []
+        exit_termini: list[tuple[str, float]] = []
+        for sid in real_sids:
+            st = graph.stations.get(sid)
+            if not st or not st.is_terminus or st.is_port:
+                continue
+            preds = predecessors.get(sid, set())
+            succs = successors.get(sid, set())
+            is_source = not (preds & real_sids)
+            is_sink = not (succs & real_sids)
+            if is_source:
+                entry_termini.append((sid, st.y))
+            elif is_sink:
+                # Only classify as exit terminus if not already an
+                # entry terminus (avoids double-counting isolated nodes).
+                exit_termini.append((sid, st.y))
+
+        _push_ports_from_termini(
+            graph,
+            sorted(entry_port_ids),
+            entry_termini,
+            section,
+            adjacency,
+            predecessors,
+            y_spacing,
+        )
+        if not is_fold:
+            _push_ports_from_termini(
+                graph,
+                sorted(exit_port_ids),
+                exit_termini,
+                section,
+                adjacency,
+                predecessors,
+                y_spacing,
+            )
+
+
+def _push_ports_from_termini(
+    graph: MetroGraph,
+    port_ids: list[str],
+    termini: list[tuple[str, float]],
+    section: Section,
+    adjacency: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
+    y_spacing: float,
+) -> None:
+    """Ensure *y_spacing* between each port and non-connected termini.
+
+    The strategy depends on how the port connects across sections:
+
+    - **Junction link** (fan-out): move the port and propagate through
+      the junction to its *upstream* (predecessor) port only, keeping
+      the exit-junction-entry chain straight without disturbing other
+      fan-out targets.
+    - **Direct port-to-port link** (no junction): moving the port would
+      cascade to the other section and mis-align its internal stations.
+      Instead, push the conflicting *terminus* away from the port.
+    - **No cross-section link**: move the port freely.
+
+    *port_ids* must be a sorted list so that results are deterministic
+    when multiple ports in the same section conflict with the same
+    terminus.
+    """
+    junction_ids = set(graph.junctions)
+    section_port_set = set(port_ids)
+
+    for pid in port_ids:
+        port_st = graph.stations.get(pid)
+        if not port_st:
+            continue
+        port_obj = graph.ports.get(pid)
+        assert port_obj is not None, f"port {pid} missing from graph.ports"
+        neighbours = adjacency.get(pid, set())
+
+        # Classify cross-section connection type.
+        has_junction = bool(neighbours & junction_ids)
+        has_direct_port = False
+        if not has_junction:
+            for nb in neighbours:
+                if nb in graph.ports and nb not in section_port_set:
+                    has_direct_port = True
+                    break
+
+        # Collect all termini that are too close and not directly
+        # connected to this port.
+        conflict_ids: list[str] = []
+        conflict_ys: list[float] = []
+        for tid, ty in termini:
+            if tid in neighbours:
+                continue
+            if abs(port_st.y - ty) < y_spacing:
+                conflict_ids.append(tid)
+                conflict_ys.append(ty)
+
+        if not conflict_ys:
             continue
 
-        # Find predecessor(s) in the section subgraph
-        preds = list(G.predecessors(sid)) if sid in G else []
-        if not preds:
+        if has_direct_port:
+            # Move the terminus instead of the port so the
+            # inter-section line stays straight.
+            _push_termini_from_port(graph, conflict_ids, port_st.y, section, y_spacing)
             continue
 
-        # Lines that the terminus carries (in the full graph)
-        terminus_lines = set(graph.station_lines(sid))
+        # Compute the single best Y that satisfies all conflicts.
+        above_candidates = [ty - y_spacing for ty in conflict_ys]
+        below_candidates = [ty + y_spacing for ty in conflict_ys]
 
-        # Check if any predecessor connects to exit ports on lines
-        # that the terminus doesn't carry (those lines will pass through)
-        passing_lines = set()
-        for pred_id in preds:
-            for edge in graph.edges:
-                if edge.source == pred_id and edge.target in exit_port_ids:
-                    if edge.line_id not in terminus_lines:
-                        passing_lines.add(edge.line_id)
+        best_above = min(above_candidates)
+        best_below = max(below_candidates)
 
-        if not passing_lines:
+        dist_above = abs(port_st.y - best_above)
+        dist_below = abs(port_st.y - best_below)
+        # Ties go above (smaller Y) to keep ports near the top.
+        new_y = best_above if dist_above <= dist_below else best_below
+
+        port_st.y = new_y
+        port_obj.y = new_y
+
+        # Propagate through junctions so inter-section lines stay straight.
+        _propagate_through_junctions(
+            graph,
+            pid,
+            new_y,
+            neighbours,
+            junction_ids,
+            predecessors,
+        )
+
+        # Grow this section's bbox to contain the moved port.
+        _expand_bbox_for_y(section, new_y)
+
+
+def _propagate_through_junctions(
+    graph: MetroGraph,
+    origin_pid: str,
+    new_y: float,
+    neighbours: set[str],
+    junction_ids: set[str],
+    predecessors: dict[str, set[str]],
+) -> None:
+    """Move connected junctions and their upstream exit ports to *new_y*.
+
+    Only propagates to the junction's upstream (predecessor) ports, not
+    to other fan-out targets (entry ports to other sections).
+    """
+    for nb in neighbours:
+        if nb not in junction_ids:
+            continue
+        nb_st = graph.stations.get(nb)
+        if not nb_st:
             continue
 
-        # Determine nudge direction: away from the passing lines' base tracks
-        current_track = tracks[sid]
-        passing_bases = [line_base.get(lid, 0) for lid in passing_lines]
-        avg_passing = sum(passing_bases) / len(passing_bases)
+        nb_st.y = new_y
+        for jnb in predecessors.get(nb, set()):
+            if jnb == origin_pid:
+                continue
+            jnb_st = graph.stations.get(jnb)
+            if not jnb_st or not jnb_st.is_port:
+                continue
+            jnb_st.y = new_y
+            jnb_obj = graph.ports.get(jnb)
+            if jnb_obj:
+                jnb_obj.y = new_y
+                jnb_sec = graph.sections.get(jnb_obj.section_id)
+                if jnb_sec:
+                    _expand_bbox_for_y(jnb_sec, new_y)
 
-        if avg_passing >= current_track:
-            # Passing lines are at or below, nudge up
-            tracks[sid] = current_track - TERMINUS_NUDGE
+
+def _push_termini_from_port(
+    graph: MetroGraph,
+    terminus_ids: list[str],
+    port_y: float,
+    section: Section,
+    y_spacing: float,
+) -> None:
+    """Push terminus stations away from a fixed port position."""
+    for tid in terminus_ids:
+        t_st = graph.stations.get(tid)
+        if not t_st:
+            continue
+        if t_st.y <= port_y:
+            new_y = port_y - y_spacing
         else:
-            # Passing lines are above, nudge down
-            tracks[sid] = current_track + TERMINUS_NUDGE
+            new_y = port_y + y_spacing
+        t_st.y = new_y
+        _expand_bbox_for_y(section, new_y)
+
+
+def _expand_bbox_for_y(section: Section, y: float) -> None:
+    """Expand *section*'s bbox so *y* sits inside with padding."""
+    pad = SECTION_Y_PADDING
+    top = section.bbox_y
+    bot = section.bbox_y + section.bbox_h
+    if y - pad < top:
+        section.bbox_h += top - (y - pad)
+        section.bbox_y = y - pad
+    elif y + pad > bot:
+        section.bbox_h = (y + pad) - section.bbox_y
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
