@@ -227,7 +227,6 @@ def _layout_single_section(
     if not layers:
         return None
 
-
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread, while preserving relative spacing within
     # groups (e.g. sub-linear fan-out spacing).  Gaps larger than
@@ -1189,28 +1188,29 @@ def _space_ports_from_termini(
     Only entry ports are checked against entry-side (source) termini, and
     exit ports against exit-side (sink) termini, to avoid displacing
     ports on the opposite side of the section.
-    """
-    # Pre-compute direct port-station connections
-    port_connects_to: dict[str, set[str]] = {}
-    for edge in graph.edges:
-        port_connects_to.setdefault(edge.source, set()).add(edge.target)
-        port_connects_to.setdefault(edge.target, set()).add(edge.source)
 
-    # Pre-compute which real stations are internal sources/sinks
-    # (no predecessors/successors among real section stations)
-    real_targets: dict[str, set[str]] = {}
-    real_sources: dict[str, set[str]] = {}
+    Exit ports on fold sections (grid_row_span > 1 or TB direction) are
+    skipped because Phase 8 (_align_exit_ports) will overwrite them.
+    """
+    # Pre-compute edge adjacency (used to identify direct connections
+    # and to propagate port moves across section boundaries).
+    adjacency: dict[str, set[str]] = {}
+    successors: dict[str, set[str]] = {}
+    predecessors: dict[str, set[str]] = {}
     for edge in graph.edges:
-        real_targets.setdefault(edge.source, set()).add(edge.target)
-        real_sources.setdefault(edge.target, set()).add(edge.source)
+        adjacency.setdefault(edge.source, set()).add(edge.target)
+        adjacency.setdefault(edge.target, set()).add(edge.source)
+        successors.setdefault(edge.source, set()).add(edge.target)
+        predecessors.setdefault(edge.target, set()).add(edge.source)
 
     for section in graph.sections.values():
         entry_port_ids = set(section.entry_ports)
         exit_port_ids = set(section.exit_ports)
         all_port_ids = entry_port_ids | exit_port_ids
-        real_sids = {
-            s for s in section.station_ids if s not in all_port_ids
-        }
+        real_sids = {s for s in section.station_ids if s not in all_port_ids}
+
+        # Skip exit ports on fold sections -- Phase 8 will handle them.
+        is_fold = section.grid_row_span > 1 or section.direction == "TB"
 
         # Classify termini by side
         entry_termini: list[tuple[str, float]] = []
@@ -1220,65 +1220,131 @@ def _space_ports_from_termini(
             if not st or not st.is_terminus or st.is_port:
                 continue
             # Source terminus: no real predecessors in this section
-            preds = real_sources.get(sid, set())
+            preds = predecessors.get(sid, set())
             if not (preds & real_sids):
                 entry_termini.append((sid, st.y))
             # Sink terminus: no real successors in this section
-            succs = real_targets.get(sid, set())
+            succs = successors.get(sid, set())
             if not (succs & real_sids):
                 exit_termini.append((sid, st.y))
 
-        def _push_ports(
-            port_ids: set[str],
-            termini: list[tuple[str, float]],
-        ) -> None:
-            for pid in port_ids:
-                port_st = graph.stations.get(pid)
-                if not port_st:
-                    continue
-                port_obj = graph.ports.get(pid)
-                neighbours = port_connects_to.get(pid, set())
+        _push_ports_from_termini(
+            graph, entry_port_ids, entry_termini, section, adjacency, y_spacing
+        )
+        if not is_fold:
+            _push_ports_from_termini(
+                graph, exit_port_ids, exit_termini, section, adjacency, y_spacing
+            )
 
-                for tid, ty in termini:
-                    if tid in neighbours:
+
+def _push_ports_from_termini(
+    graph: MetroGraph,
+    port_ids: set[str],
+    termini: list[tuple[str, float]],
+    section: "Section",
+    adjacency: dict[str, set[str]],
+    y_spacing: float,
+) -> None:
+    """Push *port_ids* at least *y_spacing* away from *termini*.
+
+    For each port, all non-connected termini are considered at once and
+    the port is moved to the position farthest from any conflicting
+    terminus, guaranteeing convergence even when multiple termini are
+    present at different Y values.
+
+    When the port connects through a fan-out junction, the move is
+    propagated through the junction to the upstream/downstream exit
+    port so the entire inter-section chain stays straight.
+    """
+    junction_ids = set(graph.junctions)
+
+    for pid in port_ids:
+        port_st = graph.stations.get(pid)
+        if not port_st:
+            continue
+        port_obj = graph.ports.get(pid)
+        neighbours = adjacency.get(pid, set())
+
+        # Collect all termini that are too close and not directly
+        # connected to this port.
+        conflict_ys: list[float] = []
+        for tid, ty in termini:
+            if tid in neighbours:
+                continue
+            if abs(port_st.y - ty) < y_spacing:
+                conflict_ys.append(ty)
+
+        if not conflict_ys:
+            continue
+
+        # Compute the single best Y that satisfies all conflicts.
+        above_candidates = [ty - y_spacing for ty in conflict_ys]
+        below_candidates = [ty + y_spacing for ty in conflict_ys]
+
+        best_above = min(above_candidates)
+        best_below = max(below_candidates)
+
+        dist_above = abs(port_st.y - best_above)
+        dist_below = abs(port_st.y - best_below)
+        new_y = best_above if dist_above <= dist_below else best_below
+
+        port_st.y = new_y
+        if port_obj:
+            port_obj.y = new_y
+
+        # Propagate to connected ports and junctions across section
+        # boundaries so inter-section lines stay straight.
+        # Check junctions FIRST: junction stations have is_port=True
+        # but must be handled differently (traverse to the far side).
+        for nb in neighbours:
+            nb_st = graph.stations.get(nb)
+            if not nb_st:
+                continue
+
+            if nb in junction_ids:
+                # Propagate through the junction to the port on the
+                # other side (exit port -> junction -> entry port or
+                # vice-versa).
+                nb_st.y = new_y
+                for jnb in adjacency.get(nb, set()):
+                    if jnb == pid:
                         continue
-                    gap = abs(port_st.y - ty)
-                    if gap >= y_spacing:
+                    jnb_st = graph.stations.get(jnb)
+                    if not jnb_st:
                         continue
+                    if jnb_st.is_port:
+                        jnb_st.y = new_y
+                        jnb_obj = graph.ports.get(jnb)
+                        if jnb_obj:
+                            jnb_obj.y = new_y
+                            jnb_sec = graph.sections.get(jnb_obj.section_id)
+                            if jnb_sec:
+                                _expand_bbox_for_port(jnb_sec, new_y)
 
-                    if port_st.y <= ty:
-                        new_y = ty - y_spacing
-                    else:
-                        new_y = ty + y_spacing
+            elif nb_st.is_port:
+                # Direct port-to-port link (no junction in between)
+                nb_st.y = new_y
+                nb_obj = graph.ports.get(nb)
+                if nb_obj:
+                    nb_obj.y = new_y
+                    nb_sec = graph.sections.get(nb_obj.section_id)
+                    if nb_sec:
+                        _expand_bbox_for_port(nb_sec, new_y)
 
-                    port_st.y = new_y
-                    if port_obj:
-                        port_obj.y = new_y
+        # Grow this section's bbox to contain the moved port.
+        _expand_bbox_for_port(section, new_y)
 
-                    # Propagate to connected port across section
-                    # boundary so inter-section lines stay straight.
-                    for nb in neighbours:
-                        nb_st = graph.stations.get(nb)
-                        if nb_st and nb_st.is_port:
-                            nb_st.y = new_y
-                            nb_obj = graph.ports.get(nb)
-                            if nb_obj:
-                                nb_obj.y = new_y
 
-                    # Grow section bbox to contain the moved port
-                    # with padding so it sits on the side, not at a
-                    # corner.
-                    pad = SECTION_Y_PADDING
-                    top = section.bbox_y
-                    bot = section.bbox_y + section.bbox_h
-                    if new_y - pad < top:
-                        section.bbox_h += top - (new_y - pad)
-                        section.bbox_y = new_y - pad
-                    elif new_y + pad > bot:
-                        section.bbox_h = (new_y + pad) - section.bbox_y
-
-        _push_ports(entry_port_ids, entry_termini)
-        _push_ports(exit_port_ids, exit_termini)
+def _expand_bbox_for_port(section: "Section", port_y: float) -> None:
+    """Expand *section*'s bbox so *port_y* sits inside with padding."""
+    pad = SECTION_Y_PADDING
+    top = section.bbox_y
+    bot = section.bbox_y + section.bbox_h
+    if port_y - pad < top:
+        section.bbox_h += top - (port_y - pad)
+        section.bbox_y = port_y - pad
+    elif port_y + pad > bot:
+        section.bbox_h = (port_y + pad) - section.bbox_y
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
