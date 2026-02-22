@@ -1,5 +1,7 @@
 """Tests for the layout engine."""
 
+from layout_validator import Severity, check_station_as_elbow
+
 from nf_metro.layout.constants import CHAR_WIDTH
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.labels import label_text_width
@@ -663,3 +665,137 @@ def test_label_text_width_multiline():
 
 def test_label_text_width_empty():
     assert label_text_width("") == 0
+
+
+# --- Port-terminus spacing (Phase 7c) ---
+
+
+def test_port_terminus_spacing_basic():
+    """Entry port is pushed away from a source terminus it doesn't connect to.
+
+    Section 2 has a source terminus (ref_in) and an entry port carrying
+    a different line (main from sec1).  The entry port must maintain at
+    least y_spacing from ref_in so routed lines don't overlap the icon.
+    """
+    y_spacing = 40
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #2db572\n"
+        "%%metro line: alt | Alt | #0570b0\n"
+        "%%metro file: ref_in | FASTA\n"
+        "graph LR\n"
+        "    subgraph sec1 [Source]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+        "    subgraph sec2 [Target]\n"
+        "        ref_in[ ]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        ref_in -->|alt| c\n"
+        "        c -->|main,alt| d\n"
+        "    end\n"
+        "    b -->|main| c\n"
+    )
+    compute_layout(graph, y_spacing=y_spacing)
+
+    # Identify the entry port(s) on sec2
+    sec2 = graph.sections["sec2"]
+    ref_y = graph.stations["ref_in"].y
+
+    for pid in sec2.entry_ports:
+        port_st = graph.stations[pid]
+        # The entry port carries 'main' from sec1 and should NOT be
+        # directly connected to ref_in.  Verify spacing.
+        neighbours = set()
+        for edge in graph.edges:
+            if edge.source == pid:
+                neighbours.add(edge.target)
+            if edge.target == pid:
+                neighbours.add(edge.source)
+
+        if "ref_in" not in neighbours:
+            gap = abs(port_st.y - ref_y)
+            assert gap >= y_spacing - 1, (
+                f"Port {pid} at y={port_st.y:.1f} is only {gap:.1f}px "
+                f"from terminus ref_in at y={ref_y:.1f} "
+                f"(need >= {y_spacing})"
+            )
+
+
+def test_port_terminus_spacing_no_station_as_elbow():
+    """Phase 7c must not introduce station-as-elbow violations.
+
+    Uses the variant_calling_tuned example which triggered the original
+    icon overlap issue, and checks that the fix doesn't create new
+    station-as-elbow problems.
+    """
+    from pathlib import Path
+
+    example = Path(__file__).parent.parent / "examples" / "variant_calling_tuned.mmd"
+    if not example.exists():
+        return
+    graph = parse_metro_mermaid(example.read_text())
+    compute_layout(graph)
+
+    violations = check_station_as_elbow(graph)
+    errors = [v for v in violations if v.severity == Severity.ERROR]
+    assert not errors, "station-as-elbow violations after Phase 7c:\n" + "\n".join(
+        v.message for v in errors
+    )
+
+
+def test_port_terminus_spacing_multi_terminus():
+    """When two termini are near a port, the port clears both of them.
+
+    Tests the convergence guarantee: the port should not thrash between
+    two conflicting termini, but settle at a Y that satisfies both.
+    """
+    y_spacing = 40
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro line: alt1 | Alt1 | #00ff00\n"
+        "%%metro line: alt2 | Alt2 | #0000ff\n"
+        "%%metro file: src1 | FASTA\n"
+        "%%metro file: src2 | BED\n"
+        "graph LR\n"
+        "    subgraph sec1 [Source]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+        "    subgraph sec2 [Target]\n"
+        "        src1[ ]\n"
+        "        src2[ ]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        src1 -->|alt1| c\n"
+        "        src2 -->|alt2| d\n"
+        "        c -->|main,alt1| d\n"
+        "    end\n"
+        "    b -->|main| c\n"
+    )
+    compute_layout(graph, y_spacing=y_spacing)
+
+    sec2 = graph.sections["sec2"]
+    src1_y = graph.stations["src1"].y
+    src2_y = graph.stations["src2"].y
+
+    for pid in sec2.entry_ports:
+        port_st = graph.stations[pid]
+        neighbours = set()
+        for edge in graph.edges:
+            if edge.source == pid:
+                neighbours.add(edge.target)
+            if edge.target == pid:
+                neighbours.add(edge.source)
+
+        # Check distance from each non-connected terminus
+        for tid, ty in [("src1", src1_y), ("src2", src2_y)]:
+            if tid not in neighbours:
+                gap = abs(port_st.y - ty)
+                assert gap >= y_spacing - 1, (
+                    f"Port {pid} at y={port_st.y:.1f} is only "
+                    f"{gap:.1f}px from terminus {tid} at y={ty:.1f} "
+                    f"(need >= {y_spacing})"
+                )
