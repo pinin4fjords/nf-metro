@@ -1212,25 +1212,32 @@ def _space_ports_from_termini(
         # Skip exit ports on fold sections -- Phase 8 will handle them.
         is_fold = section.grid_row_span > 1 or section.direction == "TB"
 
-        # Classify termini by side
+        # Classify termini by side.  A station with no in-section
+        # predecessors is an entry-side (source) terminus; one with no
+        # in-section successors is an exit-side (sink) terminus.  A
+        # station can be both (isolated within the section), but we only
+        # add it to entry_termini to avoid conflicting pushes from both
+        # the entry and exit port passes.
         entry_termini: list[tuple[str, float]] = []
         exit_termini: list[tuple[str, float]] = []
         for sid in real_sids:
             st = graph.stations.get(sid)
             if not st or not st.is_terminus or st.is_port:
                 continue
-            # Source terminus: no real predecessors in this section
             preds = predecessors.get(sid, set())
-            if not (preds & real_sids):
-                entry_termini.append((sid, st.y))
-            # Sink terminus: no real successors in this section
             succs = successors.get(sid, set())
-            if not (succs & real_sids):
+            is_source = not (preds & real_sids)
+            is_sink = not (succs & real_sids)
+            if is_source:
+                entry_termini.append((sid, st.y))
+            elif is_sink:
+                # Only classify as exit terminus if not already an
+                # entry terminus (avoids double-counting isolated nodes).
                 exit_termini.append((sid, st.y))
 
         _push_ports_from_termini(
             graph,
-            entry_port_ids,
+            sorted(entry_port_ids),
             entry_termini,
             section,
             adjacency,
@@ -1240,7 +1247,7 @@ def _space_ports_from_termini(
         if not is_fold:
             _push_ports_from_termini(
                 graph,
-                exit_port_ids,
+                sorted(exit_port_ids),
                 exit_termini,
                 section,
                 adjacency,
@@ -1251,9 +1258,9 @@ def _space_ports_from_termini(
 
 def _push_ports_from_termini(
     graph: MetroGraph,
-    port_ids: set[str],
+    port_ids: list[str],
     termini: list[tuple[str, float]],
-    section: "Section",
+    section: Section,
     adjacency: dict[str, set[str]],
     predecessors: dict[str, set[str]],
     y_spacing: float,
@@ -1270,14 +1277,20 @@ def _push_ports_from_termini(
       cascade to the other section and mis-align its internal stations.
       Instead, push the conflicting *terminus* away from the port.
     - **No cross-section link**: move the port freely.
+
+    *port_ids* must be a sorted list so that results are deterministic
+    when multiple ports in the same section conflict with the same
+    terminus.
     """
     junction_ids = set(graph.junctions)
+    section_port_set = set(port_ids)
 
     for pid in port_ids:
         port_st = graph.stations.get(pid)
         if not port_st:
             continue
         port_obj = graph.ports.get(pid)
+        assert port_obj is not None, f"port {pid} missing from graph.ports"
         neighbours = adjacency.get(pid, set())
 
         # Classify cross-section connection type.
@@ -1285,7 +1298,7 @@ def _push_ports_from_termini(
         has_direct_port = False
         if not has_junction:
             for nb in neighbours:
-                if nb in graph.ports and nb not in port_ids:
+                if nb in graph.ports and nb not in section_port_set:
                     has_direct_port = True
                     break
 
@@ -1318,50 +1331,62 @@ def _push_ports_from_termini(
 
         dist_above = abs(port_st.y - best_above)
         dist_below = abs(port_st.y - best_below)
+        # Ties go above (smaller Y) to keep ports near the top.
         new_y = best_above if dist_above <= dist_below else best_below
 
         port_st.y = new_y
-        if port_obj:
-            port_obj.y = new_y
+        port_obj.y = new_y
 
-        # Propagate to connected junctions across section boundaries
-        # so inter-section lines stay straight.
-        # Check junctions FIRST: junction stations have is_port=True
-        # but must be handled differently (traverse to the far side).
-        for nb in neighbours:
-            nb_st = graph.stations.get(nb)
-            if not nb_st:
-                continue
-
-            if nb in junction_ids:
-                nb_st.y = new_y
-                # Only propagate to the junction's upstream ports
-                # (predecessors), not to other fan-out targets.
-                upstream_ids = predecessors.get(nb, set())
-                for jnb in upstream_ids:
-                    if jnb == pid:
-                        continue
-                    jnb_st = graph.stations.get(jnb)
-                    if not jnb_st:
-                        continue
-                    if jnb_st.is_port:
-                        jnb_st.y = new_y
-                        jnb_obj = graph.ports.get(jnb)
-                        if jnb_obj:
-                            jnb_obj.y = new_y
-                            jnb_sec = graph.sections.get(jnb_obj.section_id)
-                            if jnb_sec:
-                                _expand_bbox_for_port(jnb_sec, new_y)
+        # Propagate through junctions so inter-section lines stay straight.
+        _propagate_through_junctions(
+            graph, pid, new_y, neighbours, junction_ids, predecessors,
+        )
 
         # Grow this section's bbox to contain the moved port.
-        _expand_bbox_for_port(section, new_y)
+        _expand_bbox_for_y(section, new_y)
+
+
+def _propagate_through_junctions(
+    graph: MetroGraph,
+    origin_pid: str,
+    new_y: float,
+    neighbours: set[str],
+    junction_ids: set[str],
+    predecessors: dict[str, set[str]],
+) -> None:
+    """Move connected junctions and their upstream exit ports to *new_y*.
+
+    Only propagates to the junction's upstream (predecessor) ports, not
+    to other fan-out targets (entry ports to other sections).
+    """
+    for nb in neighbours:
+        if nb not in junction_ids:
+            continue
+        nb_st = graph.stations.get(nb)
+        if not nb_st:
+            continue
+
+        nb_st.y = new_y
+        for jnb in predecessors.get(nb, set()):
+            if jnb == origin_pid:
+                continue
+            jnb_st = graph.stations.get(jnb)
+            if not jnb_st or not jnb_st.is_port:
+                continue
+            jnb_st.y = new_y
+            jnb_obj = graph.ports.get(jnb)
+            if jnb_obj:
+                jnb_obj.y = new_y
+                jnb_sec = graph.sections.get(jnb_obj.section_id)
+                if jnb_sec:
+                    _expand_bbox_for_y(jnb_sec, new_y)
 
 
 def _push_termini_from_port(
     graph: MetroGraph,
     terminus_ids: list[str],
     port_y: float,
-    section: "Section",
+    section: Section,
     y_spacing: float,
 ) -> None:
     """Push terminus stations away from a fixed port position."""
@@ -1374,19 +1399,19 @@ def _push_termini_from_port(
         else:
             new_y = port_y + y_spacing
         t_st.y = new_y
-        _expand_bbox_for_port(section, new_y)
+        _expand_bbox_for_y(section, new_y)
 
 
-def _expand_bbox_for_port(section: "Section", port_y: float) -> None:
-    """Expand *section*'s bbox so *port_y* sits inside with padding."""
+def _expand_bbox_for_y(section: Section, y: float) -> None:
+    """Expand *section*'s bbox so *y* sits inside with padding."""
     pad = SECTION_Y_PADDING
     top = section.bbox_y
     bot = section.bbox_y + section.bbox_h
-    if port_y - pad < top:
-        section.bbox_h += top - (port_y - pad)
-        section.bbox_y = port_y - pad
-    elif port_y + pad > bot:
-        section.bbox_h = (port_y + pad) - section.bbox_y
+    if y - pad < top:
+        section.bbox_h += top - (y - pad)
+        section.bbox_y = y - pad
+    elif y + pad > bot:
+        section.bbox_h = (y + pad) - section.bbox_y
 
 
 def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
