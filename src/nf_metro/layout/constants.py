@@ -177,9 +177,6 @@ SIDE_BRANCH_NUDGE: float = 1.0
 FANOUT_SPACING: float = 1.5
 """Spacing multiplier for fan-out node layout."""
 
-TERMINUS_NUDGE: float = 0.5
-"""Track offset for nudging terminus stations away from passing lines."""
-
 TERMINUS_ICON_CLEARANCE: float = 58.0
 """Minimum clearance from terminus station center to section bbox edge.
 
