@@ -30,12 +30,24 @@ git worktree add /tmp/nf-metro-fix-<NUMBER> -b fix/<NUMBER>-<slug> origin/main
 
 All subsequent work happens inside `/tmp/nf-metro-fix-<NUMBER>`.
 
-## Phase 3: Create Micromamba Environment
+## Phase 3: Create Micromamba Environments
+
+Create two environments: one for the worktree (fix branch) and one for the main repo (before/after comparison).
 
 ```bash
+# Fix environment (worktree)
 ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-fix-<NUMBER> python=3.11 cairo -y
 source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
 pip install -e "/tmp/nf-metro-fix-<NUMBER>[dev]" && pip install cairosvg
+
+# Main environment (shared baseline for before/after comparison)
+# Create only if it doesn't already exist; always pull latest main and reinstall
+if [ ! -d "/Users/jonathan.manning/micromamba/envs/nf-metro-main" ]; then
+  ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-main python=3.11 cairo -y
+fi
+cd /Users/jonathan.manning/projects/nf-metro && git checkout main && git pull origin main
+source ~/.local/bin/mm-activate nf-metro-main
+pip install -e "/Users/jonathan.manning/projects/nf-metro[dev]" && pip install cairosvg
 ```
 
 ## Phase 4: Implement the Fix
@@ -53,9 +65,34 @@ source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER> && cd /tmp/nf-metro-fix-<N
 
 Fix any failures before proceeding.
 
-## Phase 5: Render and Visual Review
+## Phase 5: Before/After Comparison and Visual Review
 
-Render ALL .mmd files in the repo (examples, topology fixtures, nextflow fixtures, test fixtures) to PNG, then open for user review. The batch script creates a unique output directory each time so concurrent sessions don't collide.
+### 5a: Before/after for the motivating example
+
+If the issue references a specific `.mmd` file or reproduction command, render it from **both** environments to produce a before/after comparison. This uses the main env (pointing at the unmodified main repo) vs the fix env (pointing at the worktree with your changes).
+
+```bash
+# "Before" -- render from main env (unmodified code)
+source ~/.local/bin/mm-activate nf-metro-main
+python -m nf_metro render <path-to-example.mmd> -o /tmp/<name>_before.svg
+python -c "import cairosvg; cairosvg.svg2png(url='/tmp/<name>_before.svg', write_to='/tmp/<name>_before.png', scale=2)"
+
+# "After" -- render from fix env (worktree with changes)
+source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
+cd /tmp/nf-metro-fix-<NUMBER> && python -m nf_metro render <path-to-example.mmd> -o /tmp/<name>_after.svg
+python -c "import cairosvg; cairosvg.svg2png(url='/tmp/<name>_after.svg', write_to='/tmp/<name>_after.png', scale=2)"
+
+# Open both in one Preview session for side-by-side comparison
+open /tmp/<name>_before.png /tmp/<name>_after.png
+```
+
+**IMPORTANT:** Editable installs cache `.pyc` files. Each env must point at a **different source directory** (main repo vs worktree) -- do NOT use `git stash` to switch code within a single env, as Python's bytecode cache will serve stale code.
+
+**STOP and ask the user to review the before/after.** If they look identical or the issue doesn't reproduce, discuss with the user before proceeding.
+
+### 5b: Full render review
+
+Render ALL .mmd files in the repo from the fix env to check for regressions:
 
 ```bash
 source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
@@ -104,5 +141,7 @@ cd /Users/jonathan.manning/projects/nf-metro
 git worktree remove /tmp/nf-metro-fix-<NUMBER>
 /opt/homebrew/bin/micromamba env remove -n nf-metro-fix-<NUMBER> -y
 ```
+
+Note: the `nf-metro-main` env is shared across issues and should NOT be deleted.
 
 Only clean up if the user agrees.
