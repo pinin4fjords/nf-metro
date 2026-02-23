@@ -21,31 +21,31 @@
 <circle cx="285.0" cy="182.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
 <text x="285.0" y="182.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">4</text>
 <text x="299.0" y="182.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">RNA Process</text>
-<path d="M98.0,233.0 L158.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M80.0,233.0 L140.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <path d="M326.0,233.0 L386.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M158.0,233.0 L226.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<path d="M140.0,233.0 L226.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <path d="M276.0,233.0 L326.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <path d="M226.0,233.0 L276.0,233.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
-<path d="M98.0,120.0 L158.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
 <path d="M326.0,120.0 L386.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<path d="M158.0,120.0 L226.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
+<path d="M140.0,120.0 L226.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
 <path d="M276.0,120.0 L326.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
 <path d="M226.0,120.0 L276.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
-<rect x="93.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="153.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="75.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="135.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="321.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="381.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="93.0" y="228.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="153.0" y="228.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="75.0" y="228.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="135.0" y="228.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="321.0" y="228.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
 <rect x="381.0" y="228.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<text x="98.0" y="128.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Read DNA</text>
+<text x="80.0" y="128.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Read DNA</text>
 <text x="326.0" y="128.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Align DNA</text>
-<text x="98.0" y="241.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Read RNA</text>
+<text x="80.0" y="241.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Read RNA</text>
 <text x="326.0" y="241.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Align RNA</text>
-<text x="158.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">QC DNA</text>
+<text x="140.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">QC DNA</text>
 <text x="386.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Call Variants</text>
-<text x="158.0" y="222.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">QC RNA</text>
+<text x="140.0" y="222.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">QC RNA</text>
 <text x="386.0" y="222.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Quantify</text>
 <rect x="30.0" y="295.0" width="140.64" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,319.0 L66.0,319.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
