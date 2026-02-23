@@ -521,15 +521,23 @@ def _adjust_lr_exit_gap(
         return
 
     exit_gap = x_spacing * EXIT_GAP_MULTIPLIER
-    # Split the gap between both sides so stations stay visually centered.
-    half_gap = exit_gap / 2
+
+    # For single-layer sections the asymmetry is very visible, so split the
+    # gap between both sides to keep the station visually centered.  For
+    # multi-layer sections the gap belongs entirely on the exit side.
+    n_layers = len(set(layers.values()))
+    center = n_layers <= 1
+
     if section.direction == "LR":
-        for s in sub.stations.values():
-            s.x += half_gap
+        if center:
+            half_gap = exit_gap / 2
+            for s in sub.stations.values():
+                s.x += half_gap
         section.bbox_w += exit_gap
     else:
+        shift = exit_gap / 2 if center else exit_gap
         for s in sub.stations.values():
-            s.x += half_gap
+            s.x += shift
         section.bbox_w += exit_gap
 
 
