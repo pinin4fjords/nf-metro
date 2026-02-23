@@ -296,14 +296,13 @@ def _place_fan_out(
     else:
         anchor = base
 
-    # Use sub-linear scaling so larger fans don't grow proportionally:
-    # per-item spacing = FANOUT_SPACING * (n-1)^(p-1) with p=0.8,
-    # giving total spread = FANOUT_SPACING * (n-1)^0.8.
+    # Use sub-linear scaling so fan-outs don't grow proportionally:
+    # per-item spacing = FANOUT_SPACING * n^(p-1) with p=0.8,
+    # giving total spread ≈ FANOUT_SPACING * n^0.8.  Using n (not
+    # n-1) as the base ensures 2-node fan-outs also get reduced
+    # spacing, keeping per-option gaps consistent across fan sizes.
     n = len(nodes)
-    if n > 2:
-        fan_spacing = FANOUT_SPACING * (n - 1) ** (0.8 - 1)
-    else:
-        fan_spacing = FANOUT_SPACING
+    fan_spacing = FANOUT_SPACING * n ** (0.8 - 1) if n > 1 else FANOUT_SPACING
 
     if straight_diamonds and _is_diamond_fanout(nodes, G):
         # Diamond: first node stays at anchor (straight-through),

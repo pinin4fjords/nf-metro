@@ -20,6 +20,7 @@ from nf_metro.layout.constants import (
     LABEL_MARGIN,
     LABEL_OFFSET,
     LABEL_PAD,
+    LINE_GAP,
     MIN_PORT_STATION_GAP,
     ROW_GAP,
     SECTION_GAP,
@@ -112,7 +113,7 @@ def _compute_flat_layout(
     unique_tracks = sorted(set(tracks.values()))
     track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
-    layer_extra = _compute_fork_join_gaps(graph, layers, x_spacing)
+    layer_extra = _compute_fork_join_gaps(graph, layers, tracks, x_spacing)
 
     for sid, station in graph.stations.items():
         station.layer = layers.get(sid, 0)
@@ -228,12 +229,8 @@ def _layout_single_section(
         return None
 
     # Compact tracks so widely-spaced line priorities don't inflate
-    # the vertical spread, while preserving relative spacing within
-    # groups (e.g. sub-linear fan-out spacing).  Gaps larger than
-    # LINE_GAP get capped to LINE_GAP so distant line base tracks
-    # don't create excessive whitespace.
-    from nf_metro.layout.constants import LINE_GAP
-
+    # the vertical spread.  Gaps larger than LINE_GAP get capped so
+    # distant line base tracks don't create excessive whitespace.
     unique_tracks = sorted(set(tracks.values()))
     track_rank: dict[float, float] = {}
     if unique_tracks:
@@ -248,7 +245,9 @@ def _layout_single_section(
     # aren't too close to divergence/convergence points.
     # Pass full graph so port-touching edges count as forks/joins.
     section_sids = set(section.station_ids)
-    layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing, graph, section_sids)
+    layer_extra = _compute_fork_join_gaps(
+        sub, layers, tracks, x_spacing, graph, section_sids
+    )
 
     # Widen track spacing when multi-line labels need more vertical room
     effective_y_spacing = _multiline_track_spacing(sub, y_spacing)
@@ -521,15 +520,7 @@ def _adjust_lr_exit_gap(
     if not has_flow_exit or not layers:
         return
 
-    max_layer = max(layers.values())
-    max_label_half = 0.0
-    for sid_l, layer_num in layers.items():
-        if layer_num == max_layer:
-            station = sub.stations.get(sid_l)
-            if station and station.label.strip():
-                label_half = label_text_width(station.label) / 2
-                max_label_half = max(max_label_half, label_half)
-    exit_gap = max(x_spacing * EXIT_GAP_MULTIPLIER, max_label_half)
+    exit_gap = x_spacing * EXIT_GAP_MULTIPLIER
     if section.direction == "LR":
         section.bbox_w += exit_gap
     else:
@@ -1394,15 +1385,49 @@ def _push_termini_from_port(
     section: Section,
     y_spacing: float,
 ) -> None:
-    """Push terminus stations away from a fixed port position."""
+    """Push terminus stations to the nearest station row that clears the port.
+
+    Instead of placing the terminus at the arbitrary ``port_y ± y_spacing``,
+    snap it to an existing station Y in the section that satisfies the
+    minimum clearance.  This keeps the terminus aligned with an actual
+    track row rather than floating at an unrelated Y coordinate.
+    """
+    # Collect existing station Y values in the section (excluding ports
+    # and the termini being moved) as candidate snap targets.
+    port_ids = set(section.entry_ports) | set(section.exit_ports)
+    tid_set = set(terminus_ids)
+    section_ys: set[float] = set()
+    for sid in section.station_ids:
+        if sid in port_ids or sid in tid_set:
+            continue
+        st = graph.stations.get(sid)
+        if st and not st.is_port:
+            section_ys.add(st.y)
+
     for tid in terminus_ids:
         t_st = graph.stations.get(tid)
         if not t_st:
             continue
-        if t_st.y <= port_y:
-            new_y = port_y - y_spacing
+
+        # Determine push direction
+        going_down = t_st.y > port_y
+
+        # Find the nearest section row Y that satisfies clearance
+        candidates = sorted(
+            (y for y in section_ys if abs(y - port_y) >= y_spacing),
+            key=lambda y: abs(y - t_st.y),
+        )
+        if going_down:
+            candidates = [y for y in candidates if y >= port_y + y_spacing]
         else:
-            new_y = port_y + y_spacing
+            candidates = [y for y in candidates if y <= port_y - y_spacing]
+
+        if candidates:
+            new_y = candidates[0]
+        else:
+            # No existing row satisfies clearance; fall back to offset.
+            new_y = (port_y + y_spacing) if going_down else (port_y - y_spacing)
+
         t_st.y = new_y
         _expand_bbox_for_y(section, new_y)
 
@@ -1470,6 +1495,7 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
 def _compute_fork_join_gaps(
     sub: MetroGraph,
     layers: dict[str, int],
+    tracks: dict[str, float],
     x_spacing: float,
     full_graph: MetroGraph | None = None,
     section_station_ids: set[str] | None = None,
@@ -1505,16 +1531,34 @@ def _compute_fork_join_gaps(
             out_targets[edge.source].add(edge.target)
             in_sources[edge.target].add(edge.source)
 
-    fork_layers = {
-        layers[sid]
-        for sid, targets in out_targets.items()
-        if len(targets) > 1 and sid in layers
-    }
-    join_layers = {
-        layers[sid]
-        for sid, sources in in_sources.items()
-        if len(sources) > 1 and sid in layers
-    }
+    # Only count forks/joins that span multiple tracks (requiring a
+    # diagonal routing transition).  Same-track fan-outs (e.g. a station
+    # connecting to both an internal successor and an exit port on the
+    # same Y) don't need extra horizontal room.
+    #
+    # Port stations aren't in ``tracks`` (they're positioned later), so
+    # treat them conservatively: if any participant is missing from
+    # tracks, assume it may be on a different track and count the
+    # fork/join.
+    fork_layers: set[int] = set()
+    for sid, targets in out_targets.items():
+        if len(targets) > 1 and sid in layers:
+            if any(t not in tracks for t in targets):
+                fork_layers.add(layers[sid])
+            else:
+                target_tracks = {tracks[t] for t in targets}
+                if len(target_tracks) > 1:
+                    fork_layers.add(layers[sid])
+
+    join_layers: set[int] = set()
+    for sid, sources in in_sources.items():
+        if len(sources) > 1 and sid in layers:
+            if any(s not in tracks for s in sources):
+                join_layers.add(layers[sid])
+            else:
+                source_tracks = {tracks[s] for s in sources}
+                if len(source_tracks) > 1:
+                    join_layers.add(layers[sid])
 
     if not fork_layers and not join_layers:
         return {}

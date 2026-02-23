@@ -13,10 +13,12 @@ from dataclasses import dataclass
 from nf_metro.layout.constants import (
     CHAR_WIDTH,
     COLLISION_MULTIPLIER,
+    DESCENDER_CLEARANCE,
     FONT_HEIGHT,
     LABEL_BBOX_MARGIN,
     LABEL_LINE_HEIGHT,
     LABEL_MARGIN,
+    LABEL_NUDGE_MAX,
     LABEL_OFFSET,
     TB_LABEL_H_SPACING,
     TB_LINE_Y_OFFSET,
@@ -91,6 +93,218 @@ def _boxes_overlap(
     )
 
 
+def _nudge_to_clear(
+    candidate: LabelPlacement,
+    existing: list[LabelPlacement],
+    max_nudge: float = LABEL_NUDGE_MAX,
+) -> LabelPlacement | None:
+    """Try a small horizontal shift to clear collisions on the preferred side.
+
+    When a label collides with already-placed labels, a tiny X nudge can
+    often resolve it without flipping above/below (which breaks
+    alternation).  Returns a nudged copy if successful, None otherwise.
+    """
+    cbox = _label_bbox(candidate)
+
+    # Accumulate the minimum shift needed in each direction.
+    need_right = 0.0  # shift right to clear left-side collisions
+    need_left = 0.0  # shift left to clear right-side collisions
+
+    for placed in existing:
+        pbox = _label_bbox(placed)
+        if not _boxes_overlap(cbox, pbox):
+            continue
+        if placed.x <= candidate.x:
+            # Collider is to the left: need to shift our left edge rightward.
+            gap = pbox[2] + LABEL_MARGIN - cbox[0]
+            if gap > 0:
+                need_right = max(need_right, gap)
+        else:
+            # Collider is to the right: need to shift our right edge leftward.
+            gap = cbox[2] + LABEL_MARGIN - pbox[0]
+            if gap > 0:
+                need_left = max(need_left, gap)
+
+    # If squeezed from both sides, nudging can't help.
+    if need_right > 0 and need_left > 0:
+        return None
+
+    # Add a tiny epsilon so the shifted edge clears the strict-less-than
+    # overlap check rather than landing exactly on the boundary.
+    _EPS = 0.1
+    shift = need_right - need_left
+    if shift > 0:
+        shift += _EPS
+    elif shift < 0:
+        shift -= _EPS
+    if abs(shift) > max_nudge:
+        return None
+
+    nudged = LabelPlacement(
+        station_id=candidate.station_id,
+        text=candidate.text,
+        x=candidate.x + shift,
+        y=candidate.y,
+        above=candidate.above,
+    )
+    if _has_collision(nudged, existing):
+        return None
+    return nudged
+
+
+def _edge_solo(
+    stations: list,
+    section_y_range: dict[str, tuple[float, float]],
+) -> dict[str, tuple[bool, bool]]:
+    """Determine whether each section's Y extremes have a sole station.
+
+    Returns a dict mapping section_id -> (lo_solo, hi_solo).  The edge
+    station override (prefer outward labels) should only apply when the
+    extreme Y has a single station; otherwise it kills alternation on
+    crowded tracks.
+    """
+    from collections import Counter
+
+    result: dict[str, tuple[bool, bool]] = {}
+    sec_ys: dict[str, list[float]] = {}
+    for s in stations:
+        if s.section_id and s.section_id in section_y_range:
+            sec_ys.setdefault(s.section_id, []).append(s.y)
+
+    for sec_id, ys in sec_ys.items():
+        y_lo, y_hi = section_y_range[sec_id]
+        counts = Counter(ys)
+        result[sec_id] = (counts.get(y_lo, 0) == 1, counts.get(y_hi, 0) == 1)
+
+    return result
+
+
+def _apply_edge_override(
+    station,
+    start_above: bool,
+    section_y_range: dict[str, tuple[float, float]],
+    sections_with_multiline: set[str],
+    edge_solo: dict[str, tuple[bool, bool]],
+) -> bool:
+    """Apply the edge-station outward-label override when appropriate."""
+    if (
+        not station.section_id
+        or station.section_id in sections_with_multiline
+        or station.section_id not in section_y_range
+    ):
+        return start_above
+
+    y_lo, y_hi = section_y_range[station.section_id]
+    lo_solo, hi_solo = edge_solo.get(station.section_id, (True, True))
+    if y_lo < y_hi:
+        if station.y == y_lo and lo_solo:
+            return True
+        if station.y == y_hi and hi_solo:
+            return False
+    return start_above
+
+
+def _trial_cost(
+    stations: list,
+    graph: MetroGraph,
+    label_offset: float,
+    station_offsets: dict[tuple[str, str], float] | None,
+    section_y_range: dict[str, tuple[float, float]],
+    sections_with_multiline: set[str],
+    flip: bool,
+) -> float:
+    """Count label collision cost for a section using the given alternation.
+
+    Returns a score where lower is better: each collision-resolution flip
+    costs 1, each push (still colliding after flip) costs 2.  A small
+    fractional penalty is added for labels that face inward (toward the
+    section's Y center, i.e. into the route-line bundle), weighted by
+    label width so the longest labels dominate the tiebreaker.
+    """
+    solo = _edge_solo(stations, section_y_range)
+
+    # Compute section Y midpoint for inward-facing penalty
+    sec_id = stations[0].section_id if stations else None
+    if sec_id and sec_id in section_y_range:
+        y_lo, y_hi = section_y_range[sec_id]
+        y_mid = (y_lo + y_hi) / 2
+    else:
+        y_mid = None
+
+    placements: list[LabelPlacement] = []
+    cost: float = 0
+    for station in stations:
+        if station_offsets:
+            line_offs = [
+                station_offsets.get((station.id, lid), 0.0)
+                for lid in graph.station_lines(station.id)
+            ]
+            min_off = min(line_offs) if line_offs else 0.0
+            max_off = max(line_offs) if line_offs else 0.0
+        else:
+            min_off = max_off = 0.0
+
+        start_above = station.layer % 2 == 1
+        if flip:
+            start_above = not start_above
+
+        start_above = _apply_edge_override(
+            station,
+            start_above,
+            section_y_range,
+            sections_with_multiline,
+            solo,
+        )
+
+        candidate = _try_place(
+            station, label_offset, start_above, placements, min_off, max_off
+        )
+
+        if _has_collision(candidate, placements):
+            # Try a small horizontal nudge before flipping sides.
+            nudged = _nudge_to_clear(candidate, placements)
+            if nudged is not None:
+                cost += 0.1  # small penalty for nudge (better than flip)
+                candidate = nudged
+            else:
+                cost += 1
+                candidate = _try_place(
+                    station,
+                    label_offset,
+                    not start_above,
+                    placements,
+                    min_off,
+                    max_off,
+                )
+                if _has_collision(candidate, placements):
+                    cost += 2
+                    direction = -1 if not start_above else 1
+                    if direction < 0:
+                        y = station.y + min_off - label_offset * COLLISION_MULTIPLIER
+                    else:
+                        y = station.y + max_off + label_offset * COLLISION_MULTIPLIER
+                    candidate = LabelPlacement(
+                        station_id=station.id,
+                        text=station.label,
+                        x=station.x,
+                        y=y,
+                        above=(direction < 0),
+                    )
+
+        # Small tiebreaker: penalize labels that face inward (toward
+        # the section Y center, i.e. into the route-line bundle),
+        # weighted by label width so longer labels drive the decision.
+        if y_mid is not None and y_lo < y_hi:  # type: ignore[possibly-undefined]
+            if not candidate.above and station.y < y_mid:
+                cost += label_text_width(station.label) * 0.001
+            elif candidate.above and station.y > y_mid:
+                cost += label_text_width(station.label) * 0.001
+
+        placements.append(candidate)
+
+    return cost
+
+
 def place_labels(
     graph: MetroGraph,
     label_offset: float = LABEL_OFFSET,
@@ -102,6 +316,10 @@ def place_labels(
     1. Default: alternate above/below based on layer index.
     2. If it collides with an existing label, try the other side.
     3. If still colliding, push further away.
+
+    Per-section trial: for each LR/RL section with multiple stations,
+    both alternation patterns are tested and the one with fewer
+    collisions is used.
     """
     sorted_stations = sorted(
         (
@@ -114,6 +332,9 @@ def place_labels(
 
     # Pre-compute per-section Y extremes for LR/RL sections so edge
     # stations prefer outward-facing labels, centering visual content.
+    # Include port station Y positions so routes entering/exiting at a
+    # different Y than the station track inform the outward preference
+    # (prevents labels facing into an entry/exit route).
     # Skip sections that contain multi-line labels: consistent layer
     # alternation avoids cascading collisions between the taller labels.
     section_y_range: dict[str, tuple[float, float]] = {}
@@ -131,6 +352,48 @@ def place_labels(
         else:
             lo, hi = section_y_range[s.section_id]
             section_y_range[s.section_id] = (min(lo, s.y), max(hi, s.y))
+
+    # Extend section Y ranges with port station positions so single-track
+    # sections with off-track ports get outward-facing label preference.
+    for s in graph.stations.values():
+        if not s.is_port or not s.section_id:
+            continue
+        if s.section_id not in section_y_range:
+            continue
+        lo, hi = section_y_range[s.section_id]
+        section_y_range[s.section_id] = (min(lo, s.y), max(hi, s.y))
+
+    # Pre-compute which section edges have a sole station, so the
+    # outward-label override only fires when it won't kill alternation.
+    solo = _edge_solo(sorted_stations, section_y_range)
+
+    # Trial both alternation patterns per section, pick the better one.
+    section_flip: dict[str, bool] = {}
+    sec_groups: dict[str, list] = {}
+    for s in sorted_stations:
+        if s.section_id and s.section_id in section_y_range:
+            sec_groups.setdefault(s.section_id, []).append(s)
+    for sec_id, sec_stations in sec_groups.items():
+        if len(sec_stations) < 2:
+            continue
+        args = (
+            sec_stations,
+            graph,
+            label_offset,
+            station_offsets,
+            section_y_range,
+            sections_with_multiline,
+        )
+        cost_default = _trial_cost(*args, flip=False)
+        cost_flipped = _trial_cost(*args, flip=True)
+        if cost_flipped < cost_default:
+            section_flip[sec_id] = True
+
+    # Pre-compute per-station safe label offsets so labels between
+    # vertically stacked stations stay closer to their own pill.
+    safe_offsets = _compute_safe_offsets(
+        sorted_stations, label_offset, station_offsets, graph
+    )
 
     placements: list[LabelPlacement] = []
 
@@ -173,48 +436,61 @@ def place_labels(
 
         # Alternate by layer (column): even layers below, odd layers above
         start_above = station.layer % 2 == 1
+        if station.section_id and section_flip.get(station.section_id, False):
+            start_above = not start_above
 
-        # For edge stations in LR/RL sections, prefer labels extending
-        # outward (away from center) to keep visual content centered
-        # within the section bbox.  Skip for sections that contain any
-        # multi-line labels so all stations use consistent alternation
-        # and avoid cascading collisions between the taller labels.
-        if (
-            station.section_id
-            and station.section_id not in sections_with_multiline
-            and station.section_id in section_y_range
-        ):
-            y_lo, y_hi = section_y_range[station.section_id]
-            if y_lo < y_hi:
-                if station.y == y_lo:
-                    start_above = True
-                elif station.y == y_hi:
-                    start_above = False
+        # For isolated edge stations in LR/RL sections, prefer labels
+        # extending outward (away from center).  Only applies when the
+        # station is the sole occupant at the section's Y extreme;
+        # crowded edges keep alternation to avoid horizontal collisions.
+        start_above = _apply_edge_override(
+            station,
+            start_above,
+            section_y_range,
+            sections_with_multiline,
+            solo,
+        )
+
+        safe_above, safe_below = safe_offsets.get(
+            station.id, (label_offset, label_offset)
+        )
+        eff_offset = safe_above if start_above else safe_below
 
         candidate = _try_place(
-            station, label_offset, start_above, placements, min_off, max_off
+            station, eff_offset, start_above, placements, min_off, max_off
         )
 
         if _has_collision(candidate, placements):
-            # Try the other side
-            candidate = _try_place(
-                station, label_offset, not start_above, placements, min_off, max_off
-            )
-
-            if _has_collision(candidate, placements):
-                # Push further in the non-default direction
-                direction = -1 if not start_above else 1
-                if direction < 0:
-                    y = station.y + min_off - label_offset * COLLISION_MULTIPLIER
-                else:
-                    y = station.y + max_off + label_offset * COLLISION_MULTIPLIER
-                candidate = LabelPlacement(
-                    station_id=station.id,
-                    text=station.label,
-                    x=station.x,
-                    y=y,
-                    above=(direction < 0),
+            # Try a small horizontal nudge before flipping sides.
+            nudged = _nudge_to_clear(candidate, placements)
+            if nudged is not None:
+                candidate = nudged
+            else:
+                # Try the other side
+                alt_offset = safe_below if start_above else safe_above
+                candidate = _try_place(
+                    station,
+                    alt_offset,
+                    not start_above,
+                    placements,
+                    min_off,
+                    max_off,
                 )
+
+                if _has_collision(candidate, placements):
+                    # Push further in the non-default direction
+                    direction = -1 if not start_above else 1
+                    if direction < 0:
+                        y = station.y + min_off - safe_above * COLLISION_MULTIPLIER
+                    else:
+                        y = station.y + max_off + safe_below * COLLISION_MULTIPLIER
+                    candidate = LabelPlacement(
+                        station_id=station.id,
+                        text=station.label,
+                        x=station.x,
+                        y=y,
+                        above=(direction < 0),
+                    )
 
         # Clamp labels so they stay within section bbox
         if station.section_id:
@@ -222,10 +498,16 @@ def place_labels(
             if sec and sec.bbox_w > 0:
                 text_half_w = label_text_width(candidate.text) / 2
                 margin = LABEL_BBOX_MARGIN
-                # Horizontal clamping
-                min_x = sec.bbox_x + text_half_w + margin
-                max_x = sec.bbox_x + sec.bbox_w - text_half_w - margin
-                candidate.x = max(min_x, min(candidate.x, max_x))
+                # Horizontal: expand section bbox if needed, keeping
+                # the label centered on its station.
+                label_left = candidate.x - text_half_w - margin
+                label_right = candidate.x + text_half_w + margin
+                if label_left < sec.bbox_x:
+                    old_right = sec.bbox_x + sec.bbox_w
+                    sec.bbox_x = label_left
+                    sec.bbox_w = old_right - label_left
+                if label_right > sec.bbox_x + sec.bbox_w:
+                    sec.bbox_w = label_right - sec.bbox_x
                 # Vertical clamping (with flip/expand on overlap)
                 candidate = _clamp_label_vertical(
                     candidate,
@@ -273,10 +555,20 @@ def _clamp_label_vertical(
         if candidate.y >= min_y:
             return candidate  # fits without clamping
 
+        overshoot = min_y - candidate.y
+
         # Clamping needed - would the clamped position overlap the pill?
         if min_y <= pill_top - label_offset:
             # Still enough gap after clamping
             candidate.y = min_y
+            return candidate
+
+        # Small overshoot: prefer expanding the bbox over flipping, so
+        # the label keeps its intended above/below side (preserving
+        # alternation).
+        if overshoot <= margin:
+            sec.bbox_y -= overshoot + margin
+            sec.bbox_h += overshoot + margin
             return candidate
 
         # Clamped position too close to pill - try flipping to below
@@ -296,7 +588,7 @@ def _clamp_label_vertical(
                 return candidate
 
         # Neither side fits (or flip collides) - expand bbox upward
-        expand = min_y - candidate.y + margin
+        expand = overshoot + margin
         sec.bbox_y -= expand
         sec.bbox_h += expand
         return candidate
@@ -307,10 +599,19 @@ def _clamp_label_vertical(
         if candidate.y <= max_y:
             return candidate  # fits without clamping
 
+        overshoot = candidate.y - max_y
+
         # Clamping needed - would the clamped position overlap the pill?
         if max_y >= pill_bottom + label_offset:
             # Still enough gap after clamping
             candidate.y = max_y
+            return candidate
+
+        # Small overshoot: prefer expanding the bbox over flipping, so
+        # the label keeps its intended above/below side (preserving
+        # alternation).
+        if overshoot <= margin:
+            sec.bbox_h += overshoot + margin
             return candidate
 
         # Clamped position too close to pill - try flipping to above
@@ -330,9 +631,92 @@ def _clamp_label_vertical(
                 return candidate
 
         # Neither side fits (or flip collides) - expand bbox downward
-        expand = candidate.y - max_y + margin
+        expand = overshoot + margin
         sec.bbox_h += expand
         return candidate
+
+
+def _compute_safe_offsets(
+    sorted_stations: list,
+    label_offset: float,
+    station_offsets: dict[tuple[str, str], float] | None,
+    graph: MetroGraph,
+) -> dict[str, tuple[float, float]]:
+    """Compute per-station safe label offsets (above, below).
+
+    For vertically stacked stations at the same X, the label offset is
+    reduced so a label stays closer to its own pill than to the
+    neighboring pill.  We use 40% of the available gap (instead of 50%)
+    so the label is visibly biased toward its own station.
+
+    Returns a dict mapping station_id -> (safe_above, safe_below).
+    """
+    # Group stations by (section_id, rounded X) to find vertical neighbors.
+    col_groups: dict[tuple[str | None, float], list] = {}
+    for s in sorted_stations:
+        key = (s.section_id, round(s.x, 1))
+        col_groups.setdefault(key, []).append(s)
+
+    result: dict[str, tuple[float, float]] = {}
+
+    for _key, group in col_groups.items():
+        if len(group) < 2:
+            for s in group:
+                result[s.id] = (label_offset, label_offset)
+            continue
+
+        group.sort(key=lambda s: s.y)
+
+        for idx, s in enumerate(group):
+            if station_offsets:
+                offs = [
+                    station_offsets.get((s.id, lid), 0.0)
+                    for lid in graph.station_lines(s.id)
+                ]
+                s_min = min(offs) if offs else 0.0
+                s_max = max(offs) if offs else 0.0
+            else:
+                s_min = s_max = 0.0
+
+            text_h = _label_text_height(s.label)
+            safe_above = label_offset
+            safe_below = label_offset
+
+            # Check neighbor above
+            if idx > 0:
+                nb = group[idx - 1]
+                if station_offsets:
+                    nb_offs = [
+                        station_offsets.get((nb.id, lid), 0.0)
+                        for lid in graph.station_lines(nb.id)
+                    ]
+                    nb_max = max(nb_offs) if nb_offs else 0.0
+                else:
+                    nb_max = 0.0
+                pill_gap = (s.y + s_min) - (nb.y + nb_max)
+                if pill_gap > 0:
+                    safe_above = min(label_offset, (pill_gap - text_h) * 0.4)
+                    safe_above = max(safe_above, 2.0)  # floor
+
+            # Check neighbor below
+            if idx < len(group) - 1:
+                nb = group[idx + 1]
+                if station_offsets:
+                    nb_offs = [
+                        station_offsets.get((nb.id, lid), 0.0)
+                        for lid in graph.station_lines(nb.id)
+                    ]
+                    nb_min = min(nb_offs) if nb_offs else 0.0
+                else:
+                    nb_min = 0.0
+                pill_gap = (nb.y + nb_min) - (s.y + s_max)
+                if pill_gap > 0:
+                    safe_below = min(label_offset, (pill_gap - text_h) * 0.4)
+                    safe_below = max(safe_below, 2.0)  # floor
+
+            result[s.id] = (safe_above, safe_below)
+
+    return result
 
 
 def _try_place(
@@ -347,15 +731,18 @@ def _try_place(
 
     Offsets are measured from the pill edge: above labels use min_off
     (top of the pill) and below labels use max_off (bottom of the pill).
-    For multi-line labels the extra text height is added so the nearest
-    line stays the same distance from the pill as a single-line label.
+
+    Above labels include DESCENDER_CLEARANCE so that letter descenders
+    (g, p, y ...) don't visually touch the pill.  The SVG renderer
+    uses ``dominant-baseline: auto`` which places the alphabetic
+    baseline at label.y -- descenders extend below that point.
     """
     if above:
         return LabelPlacement(
             station_id=station.id,
             text=station.label,
             x=station.x,
-            y=station.y + min_off - label_offset,
+            y=station.y + min_off - label_offset - DESCENDER_CLEARANCE,
             above=True,
         )
     else:
