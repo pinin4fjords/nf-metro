@@ -20,6 +20,7 @@ from nf_metro.layout.constants import (
     LABEL_MARGIN,
     LABEL_OFFSET,
     LABEL_PAD,
+    LINE_GAP,
     MIN_PORT_STATION_GAP,
     ROW_GAP,
     SECTION_GAP,
@@ -228,14 +229,8 @@ def _layout_single_section(
         return None
 
     # Compact tracks so widely-spaced line priorities don't inflate
-    # the vertical spread, while preserving relative spacing within
-    # groups (e.g. sub-linear fan-out spacing).  Gaps larger than
-    # FANOUT_SPACING get capped so distant line base tracks don't
-    # create excessive whitespace.  We use FANOUT_SPACING (not the
-    # smaller LINE_GAP) as the cap so that diamond/fan-out branches
-    # keep their intended vertical room for labels.
-    from nf_metro.layout.constants import FANOUT_SPACING
-
+    # the vertical spread.  Gaps larger than LINE_GAP get capped so
+    # distant line base tracks don't create excessive whitespace.
     unique_tracks = sorted(set(tracks.values()))
     track_rank: dict[float, float] = {}
     if unique_tracks:
@@ -243,7 +238,7 @@ def _layout_single_section(
         for idx in range(1, len(unique_tracks)):
             gap = unique_tracks[idx] - unique_tracks[idx - 1]
             track_rank[unique_tracks[idx]] = track_rank[unique_tracks[idx - 1]] + min(
-                gap, FANOUT_SPACING
+                gap, LINE_GAP
             )
 
     # Detect fork/join layers and add extra spacing so stations
@@ -1390,15 +1385,49 @@ def _push_termini_from_port(
     section: Section,
     y_spacing: float,
 ) -> None:
-    """Push terminus stations away from a fixed port position."""
+    """Push terminus stations to the nearest station row that clears the port.
+
+    Instead of placing the terminus at the arbitrary ``port_y ± y_spacing``,
+    snap it to an existing station Y in the section that satisfies the
+    minimum clearance.  This keeps the terminus aligned with an actual
+    track row rather than floating at an unrelated Y coordinate.
+    """
+    # Collect existing station Y values in the section (excluding ports
+    # and the termini being moved) as candidate snap targets.
+    port_ids = set(section.entry_ports) | set(section.exit_ports)
+    tid_set = set(terminus_ids)
+    section_ys: set[float] = set()
+    for sid in section.station_ids:
+        if sid in port_ids or sid in tid_set:
+            continue
+        st = graph.stations.get(sid)
+        if st and not st.is_port:
+            section_ys.add(st.y)
+
     for tid in terminus_ids:
         t_st = graph.stations.get(tid)
         if not t_st:
             continue
-        if t_st.y <= port_y:
-            new_y = port_y - y_spacing
+
+        # Determine push direction
+        going_down = t_st.y > port_y
+
+        # Find the nearest section row Y that satisfies clearance
+        candidates = sorted(
+            (y for y in section_ys if abs(y - port_y) >= y_spacing),
+            key=lambda y: abs(y - t_st.y),
+        )
+        if going_down:
+            candidates = [y for y in candidates if y >= port_y + y_spacing]
         else:
-            new_y = port_y + y_spacing
+            candidates = [y for y in candidates if y <= port_y - y_spacing]
+
+        if candidates:
+            new_y = candidates[0]
+        else:
+            # No existing row satisfies clearance; fall back to offset.
+            new_y = (port_y + y_spacing) if going_down else (port_y - y_spacing)
+
         t_st.y = new_y
         _expand_bbox_for_y(section, new_y)
 
