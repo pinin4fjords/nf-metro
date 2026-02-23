@@ -521,13 +521,15 @@ def _adjust_lr_exit_gap(
         return
 
     exit_gap = x_spacing * EXIT_GAP_MULTIPLIER
+    # Split the gap between both sides so stations stay visually centered.
+    half_gap = exit_gap / 2
     if section.direction == "LR":
+        for s in sub.stations.values():
+            s.x += half_gap
         section.bbox_w += exit_gap
     else:
-        # Shift stations right to create clearance on the left
-        # (exit) side without moving the bbox boundary.
         for s in sub.stations.values():
-            s.x += exit_gap
+            s.x += half_gap
         section.bbox_w += exit_gap
 
 
