@@ -786,15 +786,13 @@ def _route_diagonal(
         tgt_min = max(min_straight, label_text_width(tgt.label) / 2)
 
     # Bias diagonal toward the convergence/divergence station so that
-    # slopes are visually symmetric on both sides of a shared station.
+    # the visual fork/join is close to the topological fork/join.
     is_fork = edge.source in ctx.fork_stations
     is_join = edge.target in ctx.join_stations
-    if is_fork and not is_join:
+    if is_fork:
         mid_x = sx + sign * (src_min + half_diag)
-    elif is_join and not is_fork:
+    elif is_join:
         mid_x = tx - sign * (tgt_min + half_diag)
-    elif is_fork and is_join:
-        mid_x = (sx + tx) / 2
     else:
         mid_x = (sx + tx) / 2
 
