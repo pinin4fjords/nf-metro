@@ -179,6 +179,7 @@ def place_labels(
         # within the section bbox.  Skip for sections that contain any
         # multi-line labels so all stations use consistent alternation
         # and avoid cascading collisions between the taller labels.
+        edge_preferred: bool | None = None
         if (
             station.section_id
             and station.section_id not in sections_with_multiline
@@ -188,33 +189,58 @@ def place_labels(
             if y_lo < y_hi:
                 if station.y == y_lo:
                     start_above = True
+                    edge_preferred = True
                 elif station.y == y_hi:
                     start_above = False
+                    edge_preferred = False
 
         candidate = _try_place(
             station, label_offset, start_above, placements, min_off, max_off
         )
 
         if _has_collision(candidate, placements):
-            # Try the other side
-            candidate = _try_place(
-                station, label_offset, not start_above, placements, min_off, max_off
-            )
+            resolved = False
 
-            if _has_collision(candidate, placements):
-                # Push further in the non-default direction
-                direction = -1 if not start_above else 1
+            # For edge stations, try pushing further outward (away from
+            # interior lines) before flipping to the interior side where
+            # metro lines run between tracks.
+            if edge_preferred is not None:
+                direction = -1 if edge_preferred else 1
                 if direction < 0:
                     y = station.y + min_off - label_offset * COLLISION_MULTIPLIER
                 else:
                     y = station.y + max_off + label_offset * COLLISION_MULTIPLIER
-                candidate = LabelPlacement(
+                pushed = LabelPlacement(
                     station_id=station.id,
                     text=station.label,
                     x=station.x,
                     y=y,
-                    above=(direction < 0),
+                    above=edge_preferred,
                 )
+                if not _has_collision(pushed, placements):
+                    candidate = pushed
+                    resolved = True
+
+            if not resolved:
+                # Try the other side
+                candidate = _try_place(
+                    station, label_offset, not start_above, placements, min_off, max_off
+                )
+
+                if _has_collision(candidate, placements):
+                    # Push further in the non-default direction
+                    direction = -1 if not start_above else 1
+                    if direction < 0:
+                        y = station.y + min_off - label_offset * COLLISION_MULTIPLIER
+                    else:
+                        y = station.y + max_off + label_offset * COLLISION_MULTIPLIER
+                    candidate = LabelPlacement(
+                        station_id=station.id,
+                        text=station.label,
+                        x=station.x,
+                        y=y,
+                        above=(direction < 0),
+                    )
 
         # Clamp labels so they stay within section bbox
         if station.section_id:
