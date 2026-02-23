@@ -358,7 +358,7 @@ def _route_bypass(
     graph = ctx.graph
 
     ekey = (edge.source, edge.target, edge.line_id)
-    g1_j, _g1_n, g2_j, _g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
+    g1_j, g1_n, g2_j, g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
 
     nest_idx = max(i, g2_j)
     nest_offset = nest_idx * BYPASS_NEST_STEP
@@ -370,31 +370,43 @@ def _route_bypass(
     gap2_extra = g2_j * ctx.offset_step
 
     if dx > 0:
-        gap1_x = (
-            adjacent_column_gap_x(graph, src_col, src_col + 1)
-            - base_bypass_offset
-            - gap1_extra
+        gap1_base = (
+            adjacent_column_gap_x(graph, src_col, src_col + 1) - base_bypass_offset
         )
-        gap1_x = max(gap1_x, sx + ctx.curve_radius)
-        gap2_x = (
-            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col)
-            + base_bypass_offset
-            + gap2_extra
+        gap1_limit = sx + ctx.curve_radius
+        # When gap is too narrow, fan out from the limit toward gap center
+        if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
+            gap1_x = gap1_limit + (g1_n - 1 - g1_j) * ctx.offset_step
+        else:
+            gap1_x = gap1_base - gap1_extra
+
+        gap2_base = (
+            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) + base_bypass_offset
         )
-        gap2_x = min(gap2_x, tx - ctx.curve_radius)
+        gap2_limit = tx - ctx.curve_radius
+        # When gap is too narrow, fan out from the limit toward gap center
+        if gap2_base + (g2_n - 1) * ctx.offset_step > gap2_limit:
+            gap2_x = gap2_limit - (g2_n - 1 - g2_j) * ctx.offset_step
+        else:
+            gap2_x = gap2_base + gap2_extra
     else:
-        gap1_x = (
-            adjacent_column_gap_x(graph, src_col - 1, src_col)
-            + base_bypass_offset
-            + gap1_extra
+        gap1_base = (
+            adjacent_column_gap_x(graph, src_col - 1, src_col) + base_bypass_offset
         )
-        gap1_x = min(gap1_x, sx - ctx.curve_radius)
-        gap2_x = (
-            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1)
-            - base_bypass_offset
-            - gap2_extra
+        gap1_limit = sx - ctx.curve_radius
+        if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
+            gap1_x = gap1_limit - (g1_n - 1 - g1_j) * ctx.offset_step
+        else:
+            gap1_x = gap1_base + gap1_extra
+
+        gap2_base = (
+            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) - base_bypass_offset
         )
-        gap2_x = max(gap2_x, tx + ctx.curve_radius)
+        gap2_limit = tx + ctx.curve_radius
+        if gap2_base - (g2_n - 1) * ctx.offset_step < gap2_limit:
+            gap2_x = gap2_limit + (g2_n - 1 - g2_j) * ctx.offset_step
+        else:
+            gap2_x = gap2_base - gap2_extra
 
     r_bypass = ctx.curve_radius + max(gap1_extra, gap2_extra)
     return RoutedPath(
