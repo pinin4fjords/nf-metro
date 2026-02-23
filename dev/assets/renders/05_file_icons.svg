@@ -1,51 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="668" height="281" viewBox="0 0 668 281">
+     width="660" height="281" viewBox="0 0 660 281">
 <defs>
 </defs>
-<rect x="0" y="0" width="668" height="281" fill="#2b2b2b" />
+<rect x="0" y="0" width="660" height="281" fill="#2b2b2b" />
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">File Icons</text>
-<rect x="22.0" y="85.0" width="360.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="31.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="31.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
-<text x="45.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Analysis</text>
-<rect x="440.0" y="85.0" width="168.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="449.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="449.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
-<text x="463.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Reporting</text>
-<path d="M80.0,123.0 L140.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M490.0,123.0 L550.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M140.0,123.0 L382.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M440.0,123.0 L490.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M296.0,123.0 L382.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M440.0,123.0 L490.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M382.0,123.0 L440.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M382.0,123.0 L440.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<path d="M80.0,120.0 L140.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
-<path d="M140.0,120.0 L236.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
-<path d="M236.0,120.0 L296.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
-<rect x="75.0" y="115.0" width="10.0" height="13.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<path d="M43.0,105.5 L61.0,105.5 L69.0,113.5 L69.0,135.5 Q69.0,137.5,67.0,137.5 L43.0,137.5 Q41.0,137.5,41.0,135.5 L41.0,107.5 Q41.0,105.5,43.0,105.5 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
-<path d="M61.0,105.5 L61.0,113.5 L69.0,113.5 Z" fill="#333333" opacity="0.15" stroke="none" />
-<path d="M61.0,105.5 L61.0,113.5 L69.0,113.5" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
-<text x="55.0" y="122.7" font-size="9.0" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">FASTQ</text>
-<rect x="135.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="231.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="291.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="485.0" y="118.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<rect x="545.0" y="118.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
-<path d="M563.0,107.0 L581.0,107.0 L589.0,115.0 L589.0,137.0 Q589.0,139.0,587.0,139.0 L563.0,139.0 Q561.0,139.0,561.0,137.0 L561.0,109.0 Q561.0,107.0,563.0,107.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
-<path d="M581.0,107.0 L581.0,115.0 L589.0,115.0 Z" fill="#333333" opacity="0.15" stroke="none" />
-<path d="M581.0,107.0 L581.0,115.0 L589.0,115.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
-<text x="575.0" y="124.2" font-size="9.0" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">HTML</text>
-<text x="490.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">MultiQC</text>
-<text x="140.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Trimming</text>
-<text x="236.0" y="128.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Alignment</text>
-<text x="296.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Quantification</text>
-<rect x="22.0" y="185.0" width="160.8" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
-<path d="M34.0,209.0 L58.0,209.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
-<text x="70.0" y="209.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
-<path d="M34.0,233.0 L58.0,233.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
-<text x="70.0" y="233.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Quality Control</text>
-<text x="638.0" y="273.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
+<rect x="30.0" y="85.0" width="352.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
+<circle cx="39.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
+<text x="39.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="53.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Analysis</text>
+<rect x="432.0" y="85.0" width="168.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
+<circle cx="441.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
+<text x="441.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="455.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Reporting</text>
+<path d="M98.0,123.0 L158.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M482.0,123.0 L542.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M158.0,123.0 L382.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M432.0,123.0 L482.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M314.0,123.0 L382.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M432.0,123.0 L482.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M382.0,123.0 L432.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M382.0,123.0 L432.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M98.0,120.0 L158.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<path d="M158.0,120.0 L254.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<path d="M254.0,120.0 L314.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<rect x="93.0" y="115.0" width="10.0" height="13.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<path d="M61.0,105.5 L79.0,105.5 L87.0,113.5 L87.0,135.5 Q87.0,137.5,85.0,137.5 L61.0,137.5 Q59.0,137.5,59.0,135.5 L59.0,107.5 Q59.0,105.5,61.0,105.5 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M79.0,105.5 L79.0,113.5 L87.0,113.5 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M79.0,105.5 L79.0,113.5 L87.0,113.5" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="73.0" y="122.7" font-size="9.0" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">FASTQ</text>
+<rect x="153.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="249.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="309.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="477.0" y="118.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="537.0" y="118.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<path d="M555.0,107.0 L573.0,107.0 L581.0,115.0 L581.0,137.0 Q581.0,139.0,579.0,139.0 L555.0,139.0 Q553.0,139.0,553.0,137.0 L553.0,109.0 Q553.0,107.0,555.0,107.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M573.0,107.0 L573.0,115.0 L581.0,115.0 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M573.0,107.0 L573.0,115.0 L581.0,115.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="567.0" y="124.2" font-size="9.0" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">HTML</text>
+<text x="482.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">MultiQC</text>
+<text x="158.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Trimming</text>
+<text x="254.0" y="128.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Alignment</text>
+<text x="314.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Quantification</text>
+<rect x="30.0" y="185.0" width="160.8" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M42.0,209.0 L66.0,209.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="209.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
+<path d="M42.0,233.0 L66.0,233.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="233.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Quality Control</text>
+<text x="630.0" y="273.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
 </svg>
