@@ -40,11 +40,13 @@ ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/microma
 source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
 pip install -e "/tmp/nf-metro-fix-<NUMBER>[dev]" && pip install cairosvg
 
-# Main environment (baseline for before/after comparison)
-# First ensure the main repo is on the latest main branch
-ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-main-<NUMBER> python=3.11 cairo -y
+# Main environment (shared baseline for before/after comparison)
+# Create only if it doesn't already exist; always pull latest main and reinstall
+if [ ! -d "/Users/jonathan.manning/micromamba/envs/nf-metro-main" ]; then
+  ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-main python=3.11 cairo -y
+fi
 cd /Users/jonathan.manning/projects/nf-metro && git checkout main && git pull origin main
-source ~/.local/bin/mm-activate nf-metro-main-<NUMBER>
+source ~/.local/bin/mm-activate nf-metro-main
 pip install -e "/Users/jonathan.manning/projects/nf-metro[dev]" && pip install cairosvg
 ```
 
@@ -71,7 +73,7 @@ If the issue references a specific `.mmd` file or reproduction command, render i
 
 ```bash
 # "Before" -- render from main env (unmodified code)
-source ~/.local/bin/mm-activate nf-metro-main-<NUMBER>
+source ~/.local/bin/mm-activate nf-metro-main
 python -m nf_metro render <path-to-example.mmd> -o /tmp/<name>_before.svg
 python -c "import cairosvg; cairosvg.svg2png(url='/tmp/<name>_before.svg', write_to='/tmp/<name>_before.png', scale=2)"
 
@@ -138,7 +140,8 @@ After the PR is created, offer to clean up:
 cd /Users/jonathan.manning/projects/nf-metro
 git worktree remove /tmp/nf-metro-fix-<NUMBER>
 /opt/homebrew/bin/micromamba env remove -n nf-metro-fix-<NUMBER> -y
-/opt/homebrew/bin/micromamba env remove -n nf-metro-main-<NUMBER> -y
 ```
+
+Note: the `nf-metro-main` env is shared across issues and should NOT be deleted.
 
 Only clean up if the user agrees.
