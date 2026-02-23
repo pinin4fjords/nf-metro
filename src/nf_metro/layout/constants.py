@@ -147,8 +147,15 @@ STATION_ELBOW_TOLERANCE: float = 12.0
 LABEL_MARGIN: float = 2.0
 """Overlap detection margin for labels."""
 
-LABEL_OFFSET: float = 16.0
-"""Vertical distance from station center to label."""
+LABEL_OFFSET: float = 8.0
+"""Vertical distance from pill edge to label."""
+
+DESCENDER_CLEARANCE: float = 3.0
+"""Extra upward shift for above labels so descenders (g, p, y) clear the pill.
+
+SVG ``dominant-baseline: auto`` places the alphabetic baseline at the
+label's Y coordinate; descenders extend below.  This constant accounts
+for that so the visual gap matches ``LABEL_OFFSET``."""
 
 TB_PILL_EDGE_OFFSET: float = 5.0
 """Pill edge offset for TB vertical station labels."""
@@ -158,6 +165,9 @@ TB_LABEL_H_SPACING: float = 6.0
 
 COLLISION_MULTIPLIER: float = 2.2
 """Label offset multiplier when resolving collisions."""
+
+LABEL_NUDGE_MAX: float = 20.0
+"""Maximum horizontal shift (px) to resolve a label collision before flipping."""
 
 LABEL_BBOX_MARGIN: float = 4.0
 """Margin for clamping labels within section bounding box."""
