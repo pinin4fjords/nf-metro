@@ -332,6 +332,9 @@ def place_labels(
 
     # Pre-compute per-section Y extremes for LR/RL sections so edge
     # stations prefer outward-facing labels, centering visual content.
+    # Include port station Y positions so routes entering/exiting at a
+    # different Y than the station track inform the outward preference
+    # (prevents labels facing into an entry/exit route).
     # Skip sections that contain multi-line labels: consistent layer
     # alternation avoids cascading collisions between the taller labels.
     section_y_range: dict[str, tuple[float, float]] = {}
@@ -349,6 +352,16 @@ def place_labels(
         else:
             lo, hi = section_y_range[s.section_id]
             section_y_range[s.section_id] = (min(lo, s.y), max(hi, s.y))
+
+    # Extend section Y ranges with port station positions so single-track
+    # sections with off-track ports get outward-facing label preference.
+    for s in graph.stations.values():
+        if not s.is_port or not s.section_id:
+            continue
+        if s.section_id not in section_y_range:
+            continue
+        lo, hi = section_y_range[s.section_id]
+        section_y_range[s.section_id] = (min(lo, s.y), max(hi, s.y))
 
     # Pre-compute which section edges have a sole station, so the
     # outward-label override only fires when it won't kill alternation.

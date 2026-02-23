@@ -777,13 +777,19 @@ def _route_diagonal(
     else:
         min_straight = MIN_STRAIGHT_EDGE
 
-    # Extend straight run past labels at fork/join stations
+    # Extend straight run past labels at fork/join stations, but only
+    # when there is enough horizontal room.  If label clearance would
+    # collapse the diagonal to a near-vertical line, fall back to the
+    # base min_straight so a proper diagonal can still be drawn.
     src_min = min_straight
     tgt_min = min_straight
     if edge.source in ctx.fork_stations and src.label.strip():
         src_min = max(min_straight, label_text_width(src.label) / 2)
     if edge.target in ctx.join_stations and tgt.label.strip():
         tgt_min = max(min_straight, label_text_width(tgt.label) / 2)
+    if src_min + tgt_min + ctx.diagonal_run > abs(dx):
+        src_min = min_straight
+        tgt_min = min_straight
 
     # Bias diagonal toward the convergence/divergence station so that
     # the visual fork/join is close to the topological fork/join.
