@@ -483,8 +483,8 @@ def test_label_clamp_flips_when_overlapping_pill():
             gap = lp.y - pill_bottom
 
         # The gap may be reduced by adaptive label offsets for tightly
-        # stacked stations, but must never be negative (label inside pill).
-        assert gap >= 1.0, f"Label for {lp.station_id} overlaps pill: gap={gap:.1f}"
+        # stacked stations, but must stay above the 2px floor.
+        assert gap >= 2.0, f"Label for {lp.station_id} too close to pill: gap={gap:.1f}"
 
 
 def test_label_clamp_expands_bbox_when_both_sides_tight():
