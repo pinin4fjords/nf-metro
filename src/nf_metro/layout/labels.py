@@ -503,8 +503,9 @@ def place_labels(
                 label_left = candidate.x - text_half_w - margin
                 label_right = candidate.x + text_half_w + margin
                 if label_left < sec.bbox_x:
+                    old_right = sec.bbox_x + sec.bbox_w
                     sec.bbox_x = label_left
-                    sec.bbox_w = (sec.bbox_x + sec.bbox_w) - label_left
+                    sec.bbox_w = old_right - label_left
                 if label_right > sec.bbox_x + sec.bbox_w:
                     sec.bbox_w = label_right - sec.bbox_x
                 # Vertical clamping (with flip/expand on overlap)
@@ -554,10 +555,20 @@ def _clamp_label_vertical(
         if candidate.y >= min_y:
             return candidate  # fits without clamping
 
+        overshoot = min_y - candidate.y
+
         # Clamping needed - would the clamped position overlap the pill?
         if min_y <= pill_top - label_offset:
             # Still enough gap after clamping
             candidate.y = min_y
+            return candidate
+
+        # Small overshoot: prefer expanding the bbox over flipping, so
+        # the label keeps its intended above/below side (preserving
+        # alternation).
+        if overshoot <= margin:
+            sec.bbox_y -= overshoot + margin
+            sec.bbox_h += overshoot + margin
             return candidate
 
         # Clamped position too close to pill - try flipping to below
@@ -577,7 +588,7 @@ def _clamp_label_vertical(
                 return candidate
 
         # Neither side fits (or flip collides) - expand bbox upward
-        expand = min_y - candidate.y + margin
+        expand = overshoot + margin
         sec.bbox_y -= expand
         sec.bbox_h += expand
         return candidate
@@ -588,10 +599,19 @@ def _clamp_label_vertical(
         if candidate.y <= max_y:
             return candidate  # fits without clamping
 
+        overshoot = candidate.y - max_y
+
         # Clamping needed - would the clamped position overlap the pill?
         if max_y >= pill_bottom + label_offset:
             # Still enough gap after clamping
             candidate.y = max_y
+            return candidate
+
+        # Small overshoot: prefer expanding the bbox over flipping, so
+        # the label keeps its intended above/below side (preserving
+        # alternation).
+        if overshoot <= margin:
+            sec.bbox_h += overshoot + margin
             return candidate
 
         # Clamped position too close to pill - try flipping to above
@@ -611,7 +631,7 @@ def _clamp_label_vertical(
                 return candidate
 
         # Neither side fits (or flip collides) - expand bbox downward
-        expand = candidate.y - max_y + margin
+        expand = overshoot + margin
         sec.bbox_h += expand
         return candidate
 

@@ -1535,20 +1535,30 @@ def _compute_fork_join_gaps(
     # diagonal routing transition).  Same-track fan-outs (e.g. a station
     # connecting to both an internal successor and an exit port on the
     # same Y) don't need extra horizontal room.
+    #
+    # Port stations aren't in ``tracks`` (they're positioned later), so
+    # treat them conservatively: if any participant is missing from
+    # tracks, assume it may be on a different track and count the
+    # fork/join.
     fork_layers: set[int] = set()
     for sid, targets in out_targets.items():
         if len(targets) > 1 and sid in layers:
-            # Default to track 0 for port stations not yet in tracks
-            target_tracks = {tracks.get(t, 0) for t in targets}
-            if len(target_tracks) > 1:
+            if any(t not in tracks for t in targets):
                 fork_layers.add(layers[sid])
+            else:
+                target_tracks = {tracks[t] for t in targets}
+                if len(target_tracks) > 1:
+                    fork_layers.add(layers[sid])
 
     join_layers: set[int] = set()
     for sid, sources in in_sources.items():
         if len(sources) > 1 and sid in layers:
-            source_tracks = {tracks.get(s, 0) for s in sources}
-            if len(source_tracks) > 1:
+            if any(s not in tracks for s in sources):
                 join_layers.add(layers[sid])
+            else:
+                source_tracks = {tracks[s] for s in sources}
+                if len(source_tracks) > 1:
+                    join_layers.add(layers[sid])
 
     if not fork_layers and not join_layers:
         return {}
