@@ -112,7 +112,7 @@ def _compute_flat_layout(
     unique_tracks = sorted(set(tracks.values()))
     track_rank = {t: i for i, t in enumerate(unique_tracks)}
 
-    layer_extra = _compute_fork_join_gaps(graph, layers, x_spacing)
+    layer_extra = _compute_fork_join_gaps(graph, layers, tracks, x_spacing)
 
     for sid, station in graph.stations.items():
         station.layer = layers.get(sid, 0)
@@ -230,9 +230,11 @@ def _layout_single_section(
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread, while preserving relative spacing within
     # groups (e.g. sub-linear fan-out spacing).  Gaps larger than
-    # LINE_GAP get capped to LINE_GAP so distant line base tracks
-    # don't create excessive whitespace.
-    from nf_metro.layout.constants import LINE_GAP
+    # FANOUT_SPACING get capped so distant line base tracks don't
+    # create excessive whitespace.  We use FANOUT_SPACING (not the
+    # smaller LINE_GAP) as the cap so that diamond/fan-out branches
+    # keep their intended vertical room for labels.
+    from nf_metro.layout.constants import FANOUT_SPACING
 
     unique_tracks = sorted(set(tracks.values()))
     track_rank: dict[float, float] = {}
@@ -241,14 +243,16 @@ def _layout_single_section(
         for idx in range(1, len(unique_tracks)):
             gap = unique_tracks[idx] - unique_tracks[idx - 1]
             track_rank[unique_tracks[idx]] = track_rank[unique_tracks[idx - 1]] + min(
-                gap, LINE_GAP
+                gap, FANOUT_SPACING
             )
 
     # Detect fork/join layers and add extra spacing so stations
     # aren't too close to divergence/convergence points.
     # Pass full graph so port-touching edges count as forks/joins.
     section_sids = set(section.station_ids)
-    layer_extra = _compute_fork_join_gaps(sub, layers, x_spacing, graph, section_sids)
+    layer_extra = _compute_fork_join_gaps(
+        sub, layers, tracks, x_spacing, graph, section_sids
+    )
 
     # Widen track spacing when multi-line labels need more vertical room
     effective_y_spacing = _multiline_track_spacing(sub, y_spacing)
@@ -521,15 +525,7 @@ def _adjust_lr_exit_gap(
     if not has_flow_exit or not layers:
         return
 
-    max_layer = max(layers.values())
-    max_label_half = 0.0
-    for sid_l, layer_num in layers.items():
-        if layer_num == max_layer:
-            station = sub.stations.get(sid_l)
-            if station and station.label.strip():
-                label_half = label_text_width(station.label) / 2
-                max_label_half = max(max_label_half, label_half)
-    exit_gap = max(x_spacing * EXIT_GAP_MULTIPLIER, max_label_half)
+    exit_gap = x_spacing * EXIT_GAP_MULTIPLIER
     if section.direction == "LR":
         section.bbox_w += exit_gap
     else:
@@ -1470,6 +1466,7 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
 def _compute_fork_join_gaps(
     sub: MetroGraph,
     layers: dict[str, int],
+    tracks: dict[str, float],
     x_spacing: float,
     full_graph: MetroGraph | None = None,
     section_station_ids: set[str] | None = None,
@@ -1505,16 +1502,24 @@ def _compute_fork_join_gaps(
             out_targets[edge.source].add(edge.target)
             in_sources[edge.target].add(edge.source)
 
-    fork_layers = {
-        layers[sid]
-        for sid, targets in out_targets.items()
-        if len(targets) > 1 and sid in layers
-    }
-    join_layers = {
-        layers[sid]
-        for sid, sources in in_sources.items()
-        if len(sources) > 1 and sid in layers
-    }
+    # Only count forks/joins that span multiple tracks (requiring a
+    # diagonal routing transition).  Same-track fan-outs (e.g. a station
+    # connecting to both an internal successor and an exit port on the
+    # same Y) don't need extra horizontal room.
+    fork_layers: set[int] = set()
+    for sid, targets in out_targets.items():
+        if len(targets) > 1 and sid in layers:
+            # Default to track 0 for port stations not yet in tracks
+            target_tracks = {tracks.get(t, 0) for t in targets}
+            if len(target_tracks) > 1:
+                fork_layers.add(layers[sid])
+
+    join_layers: set[int] = set()
+    for sid, sources in in_sources.items():
+        if len(sources) > 1 and sid in layers:
+            source_tracks = {tracks.get(s, 0) for s in sources}
+            if len(source_tracks) > 1:
+                join_layers.add(layers[sid])
 
     if not fork_layers and not join_layers:
         return {}

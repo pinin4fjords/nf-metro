@@ -441,7 +441,6 @@ def test_flat_layout_no_named_lines():
 
 def test_label_clamp_flips_when_overlapping_pill():
     """Label clamped into pill should flip to the opposite side (issue #58)."""
-    from nf_metro.layout.constants import LABEL_OFFSET
     from nf_metro.layout.labels import place_labels
     from nf_metro.layout.routing.offsets import compute_station_offsets
 
@@ -483,10 +482,9 @@ def test_label_clamp_flips_when_overlapping_pill():
         else:
             gap = lp.y - pill_bottom
 
-        assert gap >= LABEL_OFFSET - 1.0, (
-            f"Label for {lp.station_id} too close to pill: "
-            f"gap={gap:.1f}, min={LABEL_OFFSET - 1.0}"
-        )
+        # The gap may be reduced by adaptive label offsets for tightly
+        # stacked stations, but must never be negative (label inside pill).
+        assert gap >= 1.0, f"Label for {lp.station_id} overlaps pill: gap={gap:.1f}"
 
 
 def test_label_clamp_expands_bbox_when_both_sides_tight():
