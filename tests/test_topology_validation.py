@@ -29,8 +29,10 @@ EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 TOPOLOGY_FILES = sorted(TOPOLOGIES_DIR.glob("*.mmd"))
 TOPOLOGY_IDS = [f.stem for f in TOPOLOGY_FILES]
 
-# Include rnaseq as regression guard
+# Include examples as regression guards
 RNASEQ_FILE = EXAMPLES_DIR / "rnaseq_sections.mmd"
+EPITOPEPREDICTION_FILE = EXAMPLES_DIR / "epitopeprediction.mmd"
+HLATYPING_FILE = EXAMPLES_DIR / "hlatyping.mmd"
 
 
 def _load_and_layout(path: Path, max_station_columns: int = 15):
@@ -126,6 +128,76 @@ class TestRnaseqRegression:
         """All 5 rnaseq sections should have valid bounding boxes."""
         assert len(rnaseq_graph.sections) == 5
         for sid, section in rnaseq_graph.sections.items():
+            assert section.bbox_w > 0, f"Section '{sid}' has zero width"
+            assert section.bbox_h > 0, f"Section '{sid}' has zero height"
+
+
+class TestEpitopepredictionRegression:
+    """Ensure the epitopeprediction example passes all layout checks."""
+
+    @pytest.fixture
+    def epitopeprediction_graph(self):
+        return _load_and_layout(EPITOPEPREDICTION_FILE)
+
+    def test_no_section_overlap(self, epitopeprediction_graph):
+        violations = check_section_overlap(epitopeprediction_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_station_containment(self, epitopeprediction_graph):
+        violations = check_station_containment(epitopeprediction_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_coordinate_sanity(self, epitopeprediction_graph):
+        violations = check_coordinate_sanity(epitopeprediction_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_edge_waypoints(self, epitopeprediction_graph):
+        violations = check_edge_waypoints(epitopeprediction_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_all_sections_placed(self, epitopeprediction_graph):
+        """All 3 epitopeprediction sections should have valid bounding boxes."""
+        assert len(epitopeprediction_graph.sections) == 3
+        for sid, section in epitopeprediction_graph.sections.items():
+            assert section.bbox_w > 0, f"Section '{sid}' has zero width"
+            assert section.bbox_h > 0, f"Section '{sid}' has zero height"
+
+
+class TestHlatypingRegression:
+    """Ensure the hlatyping example passes all layout checks."""
+
+    @pytest.fixture
+    def hlatyping_graph(self):
+        return _load_and_layout(HLATYPING_FILE)
+
+    def test_no_section_overlap(self, hlatyping_graph):
+        violations = check_section_overlap(hlatyping_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_station_containment(self, hlatyping_graph):
+        violations = check_station_containment(hlatyping_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_coordinate_sanity(self, hlatyping_graph):
+        violations = check_coordinate_sanity(hlatyping_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_edge_waypoints(self, hlatyping_graph):
+        violations = check_edge_waypoints(hlatyping_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_all_sections_placed(self, hlatyping_graph):
+        """All 3 hlatyping sections should have valid bounding boxes."""
+        assert len(hlatyping_graph.sections) == 3
+        for sid, section in hlatyping_graph.sections.items():
             assert section.bbox_w > 0, f"Section '{sid}' has zero width"
             assert section.bbox_h > 0, f"Section '{sid}' has zero height"
 
