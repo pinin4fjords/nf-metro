@@ -1851,6 +1851,9 @@ def _compute_fork_join_gaps(
                             bubble_label_half, label_text_width(station.label) / 2
                         )
 
+        # The bubble label needs label_half from its center, plus the
+        # diagonal transition needs DIAGONAL_RUN.  The default x_spacing
+        # already provides some room, so only add the excess.
         bubble_extra = max(0.0, bubble_label_half + DIAGONAL_RUN - x_spacing)
         layer_gap[layer] = max(base_gap, fj_label_half + bubble_extra)
 

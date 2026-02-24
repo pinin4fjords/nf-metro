@@ -297,6 +297,7 @@ def _trial_cost(
     sections_with_multiline: set[str],
     flip: bool,
     icon_obstacles: list[tuple[float, float, float, float]] | None = None,
+    port_pref: dict[str, bool] | None = None,
 ) -> float:
     """Count label collision cost for a section using the given alternation.
 
@@ -340,6 +341,9 @@ def _trial_cost(
             sections_with_multiline,
             solo,
         )
+
+        if port_pref and station.id in port_pref:
+            start_above = port_pref[station.id]
 
         candidate = _try_place(
             station, label_offset, start_above, placements, min_off, max_off
@@ -453,6 +457,10 @@ def place_labels(
     # outward-label override only fires when it won't kill alternation.
     solo = _edge_solo(sorted_stations, section_y_range)
 
+    # Pre-compute label side preference for stations connected to
+    # off-Y ports, so labels avoid overlapping diagonal port routes.
+    port_pref = _compute_port_label_preference(graph, max_dx=PORT_LABEL_MAX_DX)
+
     # Trial both alternation patterns per section, pick the better one.
     section_flip: dict[str, bool] = {}
     sec_groups: dict[str, list] = {}
@@ -470,14 +478,14 @@ def place_labels(
             section_y_range,
             sections_with_multiline,
         )
-        cost_default = _trial_cost(*args, flip=False, icon_obstacles=icon_obstacles)
-        cost_flipped = _trial_cost(*args, flip=True, icon_obstacles=icon_obstacles)
+        cost_default = _trial_cost(
+            *args, flip=False, icon_obstacles=icon_obstacles, port_pref=port_pref
+        )
+        cost_flipped = _trial_cost(
+            *args, flip=True, icon_obstacles=icon_obstacles, port_pref=port_pref
+        )
         if cost_flipped < cost_default:
             section_flip[sec_id] = True
-
-    # Pre-compute label side preference for stations connected to
-    # off-Y ports, so labels avoid overlapping diagonal port routes.
-    port_pref = _compute_port_label_preference(graph, max_dx=PORT_LABEL_MAX_DX)
 
     # Pre-compute per-station safe label offsets so labels between
     # vertically stacked stations stay closer to their own pill.
