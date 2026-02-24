@@ -5,43 +5,30 @@ description: End-to-end workflow for fixing GitHub issues on the nf-metro repo. 
 
 # Fix Issue
 
-Structured workflow for fixing nf-metro GitHub issues in an isolated worktree with a dedicated environment.
+Structured workflow for fixing nf-metro GitHub issues in an isolated worktree. Delegates visual regression checking to the companion `/render-topologies` skill.
 
 ## Phase 1: Understand the Issue
 
-Fetch the issue details:
-
 ```bash
-gh issue view <NUMBER> --repo pinin4fjords/nf-metro
+gh issue view <N> --repo pinin4fjords/nf-metro
 ```
 
-Read the full issue description and comments. Summarize the problem and proposed approach to the user before proceeding.
+Summarize the problem and proposed approach. Wait for user confirmation before proceeding.
 
-## Phase 2: Set Up Isolated Worktree
-
-Create a branch and worktree so the main checkout stays clean:
+## Phase 2: Worktree + Environment Setup
 
 ```bash
+# Worktree
 cd /Users/jonathan.manning/projects/nf-metro
 git fetch origin main
-# Branch name: fix/<issue-number>-<short-slug>
-git worktree add /tmp/nf-metro-fix-<NUMBER> -b fix/<NUMBER>-<slug> origin/main
-```
+git worktree add /tmp/nf-metro-fix-<N> -b fix/<N>-<slug> origin/main
 
-All subsequent work happens inside `/tmp/nf-metro-fix-<NUMBER>`.
+# Fix environment
+ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-fix-<N> python=3.11 cairo -y
+source ~/.local/bin/mm-activate nf-metro-fix-<N>
+pip install -e "/tmp/nf-metro-fix-<N>[dev]" && pip install cairosvg
 
-## Phase 3: Create Micromamba Environments
-
-Create two environments: one for the worktree (fix branch) and one for the main repo (before/after comparison).
-
-```bash
-# Fix environment (worktree)
-ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-fix-<NUMBER> python=3.11 cairo -y
-source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
-pip install -e "/tmp/nf-metro-fix-<NUMBER>[dev]" && pip install cairosvg
-
-# Main environment (shared baseline for before/after comparison)
-# Create only if it doesn't already exist; always pull latest main and reinstall
+# Baseline environment (shared across issues, create only if missing)
 if [ ! -d "/Users/jonathan.manning/micromamba/envs/nf-metro-main" ]; then
   ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-main python=3.11 cairo -y
 fi
@@ -50,77 +37,59 @@ source ~/.local/bin/mm-activate nf-metro-main
 pip install -e "/Users/jonathan.manning/projects/nf-metro[dev]" && pip install cairosvg
 ```
 
-## Phase 4: Implement the Fix
+All subsequent work happens inside `/tmp/nf-metro-fix-<N>`.
 
-Work inside the worktree. After making changes:
+## Phase 3: Implement the Fix
 
-**IMPORTANT:** The shell cwd resets after each Bash tool call, so ruff/pytest
-MUST be run with an explicit `cd` into the worktree in the same command.
-Running `ruff check src/ tests/` without `cd` will silently check the main repo
-instead of the worktree, masking lint errors.
+The shell cwd resets after each Bash call. Always chain `cd` into the worktree:
 
 ```bash
-source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER> && cd /tmp/nf-metro-fix-<NUMBER> && ruff format src/ tests/ && ruff check src/ tests/ && pytest
+source ~/.local/bin/mm-activate nf-metro-fix-<N> && cd /tmp/nf-metro-fix-<N> && ruff format src/ tests/ && ruff check src/ tests/ && pytest
 ```
 
 Fix any failures before proceeding.
 
-## Phase 5: Before/After Comparison and Visual Review
+## Phase 4: Visual Review
 
-### 5a: Before/after for the motivating example
+### 4a: Motivating example before/after
 
-If the issue references a specific `.mmd` file or reproduction command, render it from **both** environments to produce a before/after comparison. This uses the main env (pointing at the unmodified main repo) vs the fix env (pointing at the worktree with your changes).
+If the issue references a specific `.mmd` file, render from both environments:
 
 ```bash
-# "Before" -- render from main env (unmodified code)
+# Before (main, unmodified)
 source ~/.local/bin/mm-activate nf-metro-main
-python -m nf_metro render <path-to-example.mmd> -o /tmp/<name>_before.svg
+python -m nf_metro render <file.mmd> -o /tmp/<name>_before.svg
 python -c "import cairosvg; cairosvg.svg2png(url='/tmp/<name>_before.svg', write_to='/tmp/<name>_before.png', scale=2)"
 
-# "After" -- render from fix env (worktree with changes)
-source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
-cd /tmp/nf-metro-fix-<NUMBER> && python -m nf_metro render <path-to-example.mmd> -o /tmp/<name>_after.svg
+# After (worktree with fix)
+source ~/.local/bin/mm-activate nf-metro-fix-<N>
+cd /tmp/nf-metro-fix-<N> && python -m nf_metro render <file.mmd> -o /tmp/<name>_after.svg
 python -c "import cairosvg; cairosvg.svg2png(url='/tmp/<name>_after.svg', write_to='/tmp/<name>_after.png', scale=2)"
 
-# Open both in one Preview session for side-by-side comparison
 open /tmp/<name>_before.png /tmp/<name>_after.png
 ```
 
-**IMPORTANT:** Editable installs cache `.pyc` files. Each env must point at a **different source directory** (main repo vs worktree) -- do NOT use `git stash` to switch code within a single env, as Python's bytecode cache will serve stale code.
+Each env must point at a **different source directory** (main repo vs worktree). Do NOT use `git stash` to switch within one env - Python's bytecode cache serves stale code.
 
-**STOP and ask the user to review the before/after.** If they look identical or the issue doesn't reproduce, discuss with the user before proceeding.
+**STOP and ask the user to review.** If identical or non-reproducing, discuss before proceeding.
 
-### 5b: Full render review
+### 4b: Full regression check
 
-Render ALL .mmd files in the repo from the fix env to check for regressions:
+Ask the user to run `/render-topologies` for a pixel-level diff of all `.mmd` renders against main. That skill handles baseline rendering, branch rendering, diffing, and opening only the changed BEFORE/AFTER pairs.
 
-```bash
-source ~/.local/bin/mm-activate nf-metro-fix-<NUMBER>
+**STOP and wait for the user to confirm no regressions.** If they spot problems, return to Phase 3.
 
-# Render everything (creates a unique /tmp/nf_metro_renders_XXXXX/ dir)
-cd /tmp/nf-metro-fix-<NUMBER> && python scripts/render_topologies.py
-
-# Open all PNGs in one Preview session (use the dir printed by the script)
-open /tmp/nf_metro_renders_*/*.png
-```
-
-**STOP and ask the user to review the renders.** Do NOT proceed until the user confirms they look correct. If they spot problems, return to Phase 4 and iterate.
-
-## Phase 6: Commit and PR
+## Phase 5: Commit and PR
 
 Once the user approves:
 
-1. Stage and commit changes in the worktree (follow repo commit style).
-2. Push the branch.
-3. Create a PR against `main`:
-
 ```bash
-cd /tmp/nf-metro-fix-<NUMBER>
+cd /tmp/nf-metro-fix-<N>
 gh pr create --repo pinin4fjords/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
 ## Summary
 <bullets>
 
-Fixes #<NUMBER>
+Fixes #<N>
 
 ## Test plan
 - [ ] pytest passes
@@ -132,16 +101,14 @@ EOF
 )"
 ```
 
-## Phase 7: Cleanup
+## Phase 6: Cleanup
 
-After the PR is created, offer to clean up:
+Offer to clean up (only if user agrees):
 
 ```bash
 cd /Users/jonathan.manning/projects/nf-metro
-git worktree remove /tmp/nf-metro-fix-<NUMBER>
-/opt/homebrew/bin/micromamba env remove -n nf-metro-fix-<NUMBER> -y
+git worktree remove /tmp/nf-metro-fix-<N>
+/opt/homebrew/bin/micromamba env remove -n nf-metro-fix-<N> -y
 ```
 
-Note: the `nf-metro-main` env is shared across issues and should NOT be deleted.
-
-Only clean up if the user agrees.
+The `nf-metro-main` env is shared across issues - do NOT delete it.
