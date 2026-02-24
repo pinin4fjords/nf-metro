@@ -207,9 +207,9 @@ def test_sections_top_aligned_in_same_row():
 # --- Exit-side clearance tests ---
 
 
-def test_lr_exit_clearance_widens_bbox():
-    """LR section with exit port gets wider bbox for label clearance."""
-    # Build two sections so an exit port is created on sec1's right side
+def test_lr_exit_clearance_skipped_for_single_track():
+    """LR section with single-track exit gets no extra gap (issue #142)."""
+    # Single line exits straight horizontally - no diagonal convergence
     graph_with_exit = parse_metro_mermaid(
         "%%metro line: main | Main | #ff0000\n"
         "graph LR\n"
@@ -223,7 +223,6 @@ def test_lr_exit_clearance_widens_bbox():
         "    end\n"
         "    b -->|main| c\n"
     )
-    # Build a standalone section (no exit port) with the same internal content
     graph_no_exit = parse_metro_mermaid(
         "%%metro line: main | Main | #ff0000\n"
         "graph LR\n"
@@ -235,10 +234,71 @@ def test_lr_exit_clearance_widens_bbox():
     )
     compute_layout(graph_with_exit)
     compute_layout(graph_no_exit)
-    # The section with exit should be wider
+    # Single-track exit should NOT add extra width
+    w_exit = graph_with_exit.sections["sec1"].bbox_w
+    w_no = graph_no_exit.sections["sec1"].bbox_w
+    assert w_exit == w_no
+
+
+def test_lr_exit_clearance_widens_bbox_for_multi_track():
+    """LR section with multi-track exit gets wider bbox for diagonal clearance."""
+    # Fork: a splits to b (red) and c (blue) on different tracks, both exit
+    graph_with_exit = parse_metro_mermaid(
+        "%%metro line: red | Red | #ff0000\n"
+        "%%metro line: blue | Blue | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        a -->|red| b\n"
+        "        a -->|blue| c\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        d[D]\n"
+        "    end\n"
+        "    b -->|red| d\n"
+        "    c -->|blue| d\n"
+    )
+    graph_no_exit = parse_metro_mermaid(
+        "%%metro line: red | Red | #ff0000\n"
+        "%%metro line: blue | Blue | #0000ff\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        c[C]\n"
+        "        a -->|red| b\n"
+        "        a -->|blue| c\n"
+        "    end\n"
+    )
+    compute_layout(graph_with_exit)
+    compute_layout(graph_no_exit)
+    # Multi-track exit should add extra width for diagonal clearance
     w_exit = graph_with_exit.sections["sec1"].bbox_w
     w_no = graph_no_exit.sections["sec1"].bbox_w
     assert w_exit > w_no
+
+
+def test_lr_label_clearance_expands_bbox():
+    """LR section bbox expands to contain wide station labels."""
+    from nf_metro.layout.labels import label_text_width
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[GATK HaplotypeCaller]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    sec = graph.sections["sec1"]
+    station_b = graph.stations["b"]
+    label_half = label_text_width("GATK HaplotypeCaller") / 2
+    # Label right edge should fit within section bbox
+    assert station_b.x + label_half < sec.bbox_x + sec.bbox_w
 
 
 def test_rl_exit_clearance_preserves_bbox_x():
