@@ -80,6 +80,9 @@ pixel-level measurement across CairoSVG and Chromium renderers."""
 ICON_STATION_GAP: float = 6.0
 """Gap between terminus station pill and file icon."""
 
+ICON_INTER_GAP: float = 4.0
+"""Gap between adjacent file icons when a station has multiple icons."""
+
 ICON_BBOX_MARGIN: float = 2.0
 """Margin around icon bounding box for clamping."""
 
