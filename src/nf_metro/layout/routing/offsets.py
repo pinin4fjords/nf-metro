@@ -59,7 +59,10 @@ def compute_station_offsets(
                     offsets[(sid, lid)] = 0.0
             else:
                 # Use the busier side to determine index ordering
-                ref = inbound[sid] if len(inbound[sid]) >= len(outbound[sid]) else outbound[sid]
+                if len(inbound[sid]) >= len(outbound[sid]):
+                    ref = inbound[sid]
+                else:
+                    ref = outbound[sid]
                 ref_sorted = sorted(ref, key=lambda lid: line_priority.get(lid, 0))
                 ref_idx = {lid: i for i, lid in enumerate(ref_sorted)}
                 local_max = max_side - 1
@@ -165,7 +168,7 @@ def compute_station_offsets(
             # Get primary feeder's local ordering (re-indexed if it had gaps)
             primary_order = section_local.get(primary_fid, line_priority)
             continuing = sorted(
-                primary_lines, key=lambda l: primary_order.get(l, 0)
+                primary_lines, key=lambda lid: primary_order.get(lid, 0)
             )
 
             # All lines present in this section
@@ -176,13 +179,13 @@ def compute_station_offsets(
 
             returning = sorted(
                 sec_present - primary_lines,
-                key=lambda l: line_priority.get(l, 0),
+                key=lambda lid: line_priority.get(lid, 0),
             )
             new_order = continuing + returning
 
             # Skip if ordering matches global (no change needed)
             global_ordered = sorted(
-                sec_present, key=lambda l: line_priority.get(l, 0)
+                sec_present, key=lambda lid: line_priority.get(lid, 0)
             )
             if new_order == global_ordered:
                 continue
@@ -214,7 +217,9 @@ def compute_station_offsets(
             # Deduplicate preserving priority order
             seen: set[str] = set()
             unique_entry: list[str] = []
-            for lid in sorted(set(sec_entry_lines), key=lambda l: line_priority.get(l, 0)):
+            for lid in sorted(
+                set(sec_entry_lines), key=lambda x: line_priority.get(x, 0)
+            ):
                 if lid not in seen:
                     seen.add(lid)
                     unique_entry.append(lid)

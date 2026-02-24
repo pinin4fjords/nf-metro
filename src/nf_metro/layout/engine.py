@@ -1803,8 +1803,12 @@ def _insert_entry_pass_throughs(
                     is_hidden=True,
                 )
             )
-            sub.add_edge(Edge(source=pass_id, target=earliest_target, line_id=line_id))
-            graph.add_edge(Edge(source=pass_id, target=earliest_target, line_id=line_id))
+            sub.add_edge(
+                Edge(source=pass_id, target=earliest_target, line_id=line_id)
+            )
+            graph.add_edge(
+                Edge(source=pass_id, target=earliest_target, line_id=line_id)
+            )
 
             # Rewire entry port edges: entry_port -> pass_through (instead of target)
             for i, edge in enumerate(graph.edges):
