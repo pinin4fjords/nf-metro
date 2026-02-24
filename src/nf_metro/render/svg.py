@@ -184,6 +184,74 @@ def _position_legend(
     return legend_x, legend_y, legend_w, legend_h, show_legend
 
 
+def _compute_icon_obstacles(
+    graph: MetroGraph,
+    theme: Theme,
+    station_offsets: dict[tuple[str, str], float],
+) -> list[tuple[float, float, float, float]]:
+    """Compute bounding boxes for terminus file icons.
+
+    These are passed to the label placer as obstacles so labels maintain
+    clearance from adjacent icons.
+    """
+    obstacles: list[tuple[float, float, float, float]] = []
+    margin = 4.0  # extra clearance around icons
+
+    for station in graph.stations.values():
+        if not station.is_terminus or not station.terminus_labels:
+            continue
+
+        r = theme.station_radius
+
+        # Determine if source (no incoming edges) or sink
+        is_source = True
+        for edge in graph.edges:
+            if edge.target == station.id:
+                is_source = False
+                break
+
+        section = graph.sections.get(station.section_id) if station.section_id else None
+        section_dir = section.direction if section else "LR"
+
+        if section_dir == "RL":
+            icons_go_right = is_source
+        else:
+            icons_go_right = not is_source
+
+        n = len(station.terminus_labels)
+        icon_gap = r + ICON_STATION_GAP
+        total_w = n * theme.terminus_width + (n - 1) * ICON_INTER_GAP
+
+        line_offs = [
+            station_offsets.get((station.id, lid), 0.0)
+            for lid in graph.station_lines(station.id)
+        ]
+        min_off = min(line_offs) if line_offs else 0.0
+        max_off = max(line_offs) if line_offs else 0.0
+        icon_cy = station.y + (min_off + max_off) / 2
+
+        if icons_go_right:
+            x_min = station.x + icon_gap
+            x_max = x_min + total_w
+        else:
+            x_max = station.x - icon_gap
+            x_min = x_max - total_w
+
+        y_min = icon_cy - theme.terminus_height / 2
+        y_max = icon_cy + theme.terminus_height / 2
+
+        obstacles.append(
+            (
+                x_min - margin,
+                y_min - margin,
+                x_max + margin,
+                y_max + margin,
+            )
+        )
+
+    return obstacles
+
+
 def render_svg(
     graph: MetroGraph,
     theme: Theme,
@@ -269,7 +337,10 @@ def render_svg(
 
     # Compute labels early so bbox expansions are applied before
     # section boxes are drawn.
-    labels = place_labels(graph, station_offsets=station_offsets)
+    icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
+    labels = place_labels(
+        graph, station_offsets=station_offsets, icon_obstacles=icon_obstacles
+    )
 
     # Sections
     if graph.sections:
