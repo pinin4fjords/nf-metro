@@ -26,5 +26,5 @@
 <rect x="30.0" y="237.23303379776746" width="86.88" height="48.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
 <path d="M42.0,261.23303379776746 L66.0,261.23303379776746" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="261.23303379776746" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
-<text x="376.0" y="301.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.4.7+dev</text>
+<text x="376.0" y="301.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.0+dev</text>
 </svg>
