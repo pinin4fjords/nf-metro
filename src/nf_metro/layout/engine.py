@@ -158,6 +158,39 @@ def _compute_section_layout(
     # Phase 3: Place sections on the canvas
     place_sections(graph, section_x_gap, section_y_gap)
 
+    # Phase 3b: Adapt x/y_offset for left/top overshoot.
+    # Section bboxes extend left of the local origin by at least
+    # section_x_padding; x_offset normally absorbs this with margin to
+    # spare (standard margin = x_offset - section_x_padding).  When
+    # terminus-icon clearance expands bbox_x far enough that
+    # offset_x + bbox_x + x_offset < 0, content clips off the canvas.
+    # Increase x_offset to restore the standard margin and let the canvas
+    # grow on the right (via auto_width = max_x + CANVAS_PADDING in
+    # render).  Same logic for y_offset.
+    local_lefts = [
+        section.offset_x + section.bbox_x
+        for section in graph.sections.values()
+        if section.bbox_w > 0
+    ]
+    if local_lefts:
+        min_local_left = min(local_lefts)
+        global_left = min_local_left + x_offset
+        if global_left < 0:
+            standard_margin = x_offset - section_x_padding
+            x_offset += standard_margin - global_left
+
+    local_tops = [
+        section.offset_y + section.bbox_y
+        for section in graph.sections.values()
+        if section.bbox_h > 0
+    ]
+    if local_tops:
+        min_local_top = min(local_tops)
+        global_top = min_local_top + y_offset
+        if global_top < 0:
+            standard_margin = y_offset - section_y_padding
+            y_offset += standard_margin - global_top
+
     # Phase 4: Translate local coords to global coords (real stations)
     for sec_id, section in graph.sections.items():
         sub = section_subgraphs.get(sec_id)
