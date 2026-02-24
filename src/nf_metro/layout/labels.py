@@ -20,6 +20,7 @@ from nf_metro.layout.constants import (
     LABEL_MARGIN,
     LABEL_NUDGE_MAX,
     LABEL_OFFSET,
+    PORT_LABEL_MAX_DX,
     TB_LABEL_H_SPACING,
     TB_LINE_Y_OFFSET,
     TB_PILL_EDGE_OFFSET,
@@ -182,6 +183,63 @@ def _edge_solo(
     return result
 
 
+def _compute_port_label_preference(
+    graph: MetroGraph,
+    max_dx: float = 0.0,
+) -> dict[str, bool]:
+    """Determine preferred label side for stations connected to nearby off-Y ports.
+
+    When a station connects to a port at a different Y **and** the port is
+    horizontally close, the diagonal route between them occupies the space
+    on that side.  The label should go on the opposite side to avoid
+    overlapping the route.
+
+    *max_dx* is the maximum horizontal distance between station and port
+    for the override to apply.  Stations far from their port have enough
+    horizontal room for the diagonal to clear the label.
+
+    Returns a dict mapping station_id -> preferred_above (True = above).
+    Only stations with a clear preference are included.
+    """
+    result: dict[str, bool] = {}
+    for edge in graph.edges:
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if not src or not tgt:
+            continue
+
+        # Only consider station -> exit port edges.  Exit routes depart
+        # from the station toward the section boundary and can pass
+        # through the label area.  Entry routes arrive via L-shaped
+        # inter-section routing and rarely conflict with labels.
+        if not (tgt.is_port and not src.is_port):
+            continue
+        port_info = graph.ports.get(tgt.id)
+        if not port_info or port_info.is_entry:
+            continue
+
+        station, port = src, tgt
+        dy = port.y - station.y
+        if abs(dy) < 1:
+            continue
+
+        # Only override when the port is close enough that the
+        # diagonal route would visually clash with the label.
+        if max_dx > 0 and abs(port.x - station.x) > max_dx:
+            continue
+
+        # Port is below station -> route goes down -> prefer label above
+        # Port is above station -> route goes up -> prefer label below
+        preferred_above = dy > 0
+        if station.id in result and result[station.id] != preferred_above:
+            # Conflicting ports on both sides; no preference
+            del result[station.id]
+        else:
+            result[station.id] = preferred_above
+
+    return result
+
+
 def _apply_edge_override(
     station,
     start_above: bool,
@@ -239,6 +297,7 @@ def _trial_cost(
     sections_with_multiline: set[str],
     flip: bool,
     icon_obstacles: list[tuple[float, float, float, float]] | None = None,
+    port_pref: dict[str, bool] | None = None,
 ) -> float:
     """Count label collision cost for a section using the given alternation.
 
@@ -282,6 +341,9 @@ def _trial_cost(
             sections_with_multiline,
             solo,
         )
+
+        if port_pref and station.id in port_pref:
+            start_above = port_pref[station.id]
 
         candidate = _try_place(
             station, label_offset, start_above, placements, min_off, max_off
@@ -395,6 +457,10 @@ def place_labels(
     # outward-label override only fires when it won't kill alternation.
     solo = _edge_solo(sorted_stations, section_y_range)
 
+    # Pre-compute label side preference for stations connected to
+    # off-Y ports, so labels avoid overlapping diagonal port routes.
+    port_pref = _compute_port_label_preference(graph, max_dx=PORT_LABEL_MAX_DX)
+
     # Trial both alternation patterns per section, pick the better one.
     section_flip: dict[str, bool] = {}
     sec_groups: dict[str, list] = {}
@@ -412,8 +478,12 @@ def place_labels(
             section_y_range,
             sections_with_multiline,
         )
-        cost_default = _trial_cost(*args, flip=False, icon_obstacles=icon_obstacles)
-        cost_flipped = _trial_cost(*args, flip=True, icon_obstacles=icon_obstacles)
+        cost_default = _trial_cost(
+            *args, flip=False, icon_obstacles=icon_obstacles, port_pref=port_pref
+        )
+        cost_flipped = _trial_cost(
+            *args, flip=True, icon_obstacles=icon_obstacles, port_pref=port_pref
+        )
         if cost_flipped < cost_default:
             section_flip[sec_id] = True
 
@@ -478,6 +548,10 @@ def place_labels(
             sections_with_multiline,
             solo,
         )
+
+        # Override when a port route would clash with the label.
+        if station.id in port_pref:
+            start_above = port_pref[station.id]
 
         safe_above, safe_below = safe_offsets.get(
             station.id, (label_offset, label_offset)
