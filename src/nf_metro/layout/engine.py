@@ -16,6 +16,7 @@ from nf_metro.layout.constants import (
     EXIT_GAP_MULTIPLIER,
     FONT_HEIGHT,
     JUNCTION_MARGIN,
+    LABEL_BBOX_MARGIN,
     LABEL_LINE_HEIGHT,
     LABEL_MARGIN,
     LABEL_OFFSET,
@@ -299,6 +300,7 @@ def _layout_single_section(
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
     _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
+    _adjust_lr_label_clearance(sub, section)
     _adjust_terminus_icon_clearance(sub, section, graph)
 
     return sub
@@ -516,17 +518,35 @@ def _adjust_lr_exit_gap(
     layers: dict[str, int],
     x_spacing: float,
 ) -> None:
-    """LR/RL sections with flow-side exit: add label clearance gap."""
+    """LR/RL sections with flow-side exit: add label clearance gap.
+
+    The gap is only added when lines converge from different Y tracks to
+    the exit port (requiring diagonal routing).  When all feeder stations
+    share the same Y, lines exit straight horizontally and no extra space
+    is needed.
+    """
     if section.direction not in ("LR", "RL"):
         return
 
     flow_exit_side = PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
-    has_flow_exit = any(
-        graph.ports[pid].side == flow_exit_side
+    flow_exit_port_ids = {
+        pid
         for pid in section.exit_ports
-        if pid in graph.ports
-    )
-    if not has_flow_exit or not layers:
+        if pid in graph.ports and graph.ports[pid].side == flow_exit_side
+    }
+    if not flow_exit_port_ids or not layers:
+        return
+
+    # Collect Y positions of internal stations that feed into flow-side
+    # exit ports.  If they all share the same Y, no diagonal convergence
+    # is needed and the gap can be skipped.
+    feeder_ys: set[float] = set()
+    real_ids = set(sub.stations)
+    for edge in graph.edges:
+        if edge.target in flow_exit_port_ids and edge.source in real_ids:
+            feeder_ys.add(sub.stations[edge.source].y)
+
+    if len(feeder_ys) <= 1:
         return
 
     exit_gap = x_spacing * EXIT_GAP_MULTIPLIER
@@ -548,6 +568,45 @@ def _adjust_lr_exit_gap(
         for s in sub.stations.values():
             s.x += shift
         section.bbox_w += exit_gap
+
+
+def _adjust_lr_label_clearance(
+    sub: MetroGraph,
+    section: Section,
+) -> None:
+    """LR/RL sections: expand bbox so station labels fit within the box.
+
+    Labels are centered on their station. If any label extends past the
+    section bbox edge, expand the bbox (and shift stations if needed) so
+    that section placement can equalize column widths correctly.
+    """
+    if section.direction not in ("LR", "RL"):
+        return
+
+    margin = LABEL_BBOX_MARGIN
+    for s in sub.stations.values():
+        if not s.label.strip():
+            continue
+        half_w = label_text_width(s.label) / 2
+        label_left = s.x - half_w - margin
+        label_right = s.x + half_w + margin
+
+        if label_left < section.bbox_x:
+            deficit = section.bbox_x - label_left
+            # Shift all stations right and expand bbox on the left.
+            # This moves the current station too, so we recompute
+            # label_right below.  Later stations get more left-side
+            # clearance, which is safe (they can only trigger further
+            # right-side expansion, not undo this shift).
+            for st in sub.stations.values():
+                st.x += deficit
+            section.bbox_w += deficit
+
+        # Recompute after possible left-side shift
+        label_right = s.x + half_w + margin
+        bbox_right = section.bbox_x + section.bbox_w
+        if label_right > bbox_right:
+            section.bbox_w = label_right - section.bbox_x
 
 
 def _terminus_icon_clearance(n_icons: int) -> float:
