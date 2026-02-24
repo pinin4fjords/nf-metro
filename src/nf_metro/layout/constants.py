@@ -129,6 +129,13 @@ ENTRY_SHIFT_TB_CROSS: float = 1.0
 ENTRY_INSET_LR: float = 0.3
 """Entry inset multiplier for LR/RL sections with perpendicular entry."""
 
+ENTRY_SHIFT_LR: float = 0.5
+"""Station shift multiplier for LR/RL sections with perpendicular entry.
+
+Applied after port positioning (Phase 9+) so that internal stations move
+inward while ports stay put, creating a gap between the perpendicular
+entry port and the first internal station.  Mirrors ENTRY_SHIFT_TB."""
+
 EXIT_GAP_MULTIPLIER: float = 0.6
 """Exit gap multiplier for flow-side exits."""
 

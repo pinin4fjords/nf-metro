@@ -10,7 +10,7 @@ __all__ = ["compute_layout"]
 from collections import Counter
 
 from nf_metro.layout.constants import (
-    ENTRY_INSET_LR,
+    ENTRY_SHIFT_LR,
     ENTRY_SHIFT_TB,
     ENTRY_SHIFT_TB_CROSS,
     EXIT_GAP_MULTIPLIER,
@@ -201,6 +201,13 @@ def _compute_section_layout(
     # Phase 8 may have moved exit ports on fold sections, so junctions
     # placed in Phase 6 need updating to match the new exit port Y.
     _position_junctions(graph)
+
+    # Phase 10: Shift internal stations in LR/RL sections with
+    # perpendicular (TOP/BOTTOM) entry away from the port.  Runs after
+    # all port positioning so ports stay put while stations move inward,
+    # preventing labels from overlapping the vertical entry descent.
+    # Mirrors Phase 2's _adjust_tb_entry_shifts for the horizontal case.
+    _shift_lr_perp_entry_stations(graph, x_spacing)
 
 
 def _layout_single_section(
@@ -473,7 +480,10 @@ def _adjust_lr_entry_inset(
         if pid in graph.ports
     )
     if has_perp_entry:
-        entry_inset = x_spacing * ENTRY_INSET_LR
+        # Reserve enough width for the Phase 10 station shift that creates
+        # a gap between the perpendicular entry port and the first station.
+        # This ensures the grid column is sized correctly before Phase 10.
+        entry_inset = x_spacing * ENTRY_SHIFT_LR
         section.bbox_w += entry_inset
         return
 
@@ -580,6 +590,82 @@ def _adjust_terminus_icon_clearance(
             if clearance < TERMINUS_ICON_CLEARANCE:
                 expand = TERMINUS_ICON_CLEARANCE - clearance
                 section.bbox_w += expand
+
+
+def _shift_lr_perp_entry_stations(
+    graph: MetroGraph,
+    x_spacing: float,
+) -> None:
+    """Shift internal stations in LR/RL sections with perpendicular entry.
+
+    Mirrors ``_adjust_tb_entry_shifts`` for horizontal-flow sections.
+    In TB sections the station shift is applied in Phase 2, and Phase 7's
+    ``_align_lr_entry_port`` later overrides the port Y with the upstream
+    source Y, creating a gap.  For LR/RL sections no such port-X override
+    exists, so we shift stations *after* all port positioning (Phase 9) so
+    that ports stay put while internal stations move inward.
+
+    The shift is only applied when the gap between the perpendicular entry
+    port and the nearest entry-side internal station is smaller than the
+    desired gap.  Sections where the gap is already sufficient are left
+    untouched.
+    """
+    desired_gap = x_spacing * ENTRY_SHIFT_LR
+
+    for section in graph.sections.values():
+        if section.direction not in ("LR", "RL"):
+            continue
+
+        # Collect perpendicular entry port positions
+        perp_port_xs: list[float] = []
+        for pid in section.entry_ports:
+            port = graph.ports.get(pid)
+            if port and port.side in (PortSide.TOP, PortSide.BOTTOM):
+                perp_port_xs.append(graph.stations[pid].x)
+        if not perp_port_xs:
+            continue
+
+        # Collect internal station X positions
+        port_ids = set(section.entry_ports) | set(section.exit_ports)
+        internal_xs: list[float] = []
+        for sid in section.station_ids:
+            if sid in port_ids:
+                continue
+            s = graph.stations.get(sid)
+            if s and not s.is_port:
+                internal_xs.append(s.x)
+        if not internal_xs:
+            continue
+
+        # Compute the current gap between port and nearest entry-side station
+        if section.direction == "LR":
+            # Entry is LEFT: port is left of stations
+            nearest_x = min(internal_xs)
+            port_x = min(perp_port_xs)
+            current_gap = nearest_x - port_x
+        else:
+            # RL: entry is RIGHT: port is right of stations
+            nearest_x = max(internal_xs)
+            port_x = max(perp_port_xs)
+            current_gap = port_x - nearest_x
+
+        shift = desired_gap - current_gap
+        if shift <= 0:
+            continue  # gap is already sufficient
+
+        # Shift internal stations away from the entry side.
+        # Phase 2 (_adjust_lr_entry_inset) already reserved bbox space
+        # for this shift, so no bbox expansion is needed here.
+        for sid in section.station_ids:
+            if sid in port_ids:
+                continue
+            s = graph.stations.get(sid)
+            if not s or s.is_port:
+                continue
+            if section.direction == "LR":
+                s.x += shift
+            else:
+                s.x -= shift
 
 
 def _position_junctions(graph: MetroGraph) -> None:
