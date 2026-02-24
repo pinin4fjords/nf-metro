@@ -243,7 +243,6 @@ def _layout_single_section(
 
     # Detect fork/join layers and add extra spacing so stations
     # aren't too close to divergence/convergence points.
-    # Pass full graph so port-touching edges count as forks/joins.
     section_sids = set(section.station_ids)
     layer_extra = _compute_fork_join_gaps(
         sub, layers, tracks, x_spacing, graph, section_sids
@@ -1519,8 +1518,11 @@ def _compute_fork_join_gaps(
     When full_graph and section_station_ids are provided, fork/join
     detection uses all edges within the section (including port-touching
     edges). This catches divergences where a station connects to both
-    internal stations and exit ports (e.g. umi_tools_dedup forking to
-    salmon_quant and an exit port).
+    internal stations and exit ports.
+
+    In single-track sections (all stations on the same Y), port-bound
+    divergences are suppressed because there are no diagonal transitions
+    and the extra spacing is purely wasteful.
     """
     from collections import defaultdict
 
@@ -1550,11 +1552,22 @@ def _compute_fork_join_gaps(
     # treat them conservatively: if any participant is missing from
     # tracks, assume it may be on a different track and count the
     # fork/join.
+    #
+    # Exception for **forks** in single-track sections: exit-side ports
+    # sit at the far section boundary, so the diagonal from the fork
+    # station has ample horizontal room without extra layer spacing.
+    # Join gaps are kept even in single-track sections because entry
+    # ports are close to the first internal station, and the diagonal
+    # from a different-Y entry needs the extra room.
+    all_section_tracks = set(tracks.values())
+    is_single_track = len(all_section_tracks) <= 1
+
     fork_layers: set[int] = set()
     for sid, targets in out_targets.items():
         if len(targets) > 1 and sid in layers:
             if any(t not in tracks for t in targets):
-                fork_layers.add(layers[sid])
+                if not is_single_track:
+                    fork_layers.add(layers[sid])
             else:
                 target_tracks = {tracks[t] for t in targets}
                 if len(target_tracks) > 1:
