@@ -10,6 +10,7 @@ __all__ = ["compute_layout"]
 from collections import Counter
 
 from nf_metro.layout.constants import (
+    DIAGONAL_RUN,
     ENTRY_SHIFT_LR,
     ENTRY_SHIFT_TB,
     ENTRY_SHIFT_TB_CROSS,
@@ -1789,16 +1790,72 @@ def _compute_fork_join_gaps(
     # Compute per-layer gap scaled by label width at fork/join stations.
     # The gap must be large enough that the diagonal transition starts
     # past the label text and still has room for the transition itself.
+    #
+    # For multi-target forks / multi-source joins, bubble station
+    # centering is skipped in routing, so the flat run at the bubble
+    # end can be very short.  When bubble stations sit on different
+    # tracks from the fork/join and have wide labels, add extra space
+    # so the flat run accommodates them.
     layer_gap: dict[int, float] = {}
     for layer in fork_layers | join_layers:
-        max_label_half = 0.0
+        fj_label_half = 0.0
+        fj_tracks: set[float] = set()
         for sid, lyr in layers.items():
             if lyr == layer:
                 station = sub.stations.get(sid)
                 if station and station.label.strip():
                     label_half = label_text_width(station.label) / 2
-                    max_label_half = max(max_label_half, label_half)
-        layer_gap[layer] = max(base_gap, max_label_half)
+                    fj_label_half = max(fj_label_half, label_half)
+                if sid in tracks:
+                    fj_tracks.add(tracks[sid])
+
+        # Check adjacent bubble layer for off-track stations with
+        # wide labels.  Only applies for wide fan-outs (3+ off-track
+        # targets/sources) where bubble station centering is skipped
+        # in routing and middle stations must have inside labels.
+        bubble_label_half = 0.0
+        is_wide_fork = False
+        is_wide_join = False
+        if layer in fork_layers:
+            for sid, tgts in out_targets.items():
+                if layers.get(sid) == layer and sid in tracks:
+                    off_track = sum(
+                        1 for t in tgts if t in tracks and tracks[t] != tracks[sid]
+                    )
+                    if off_track >= 3:
+                        is_wide_fork = True
+                        break
+        if layer in join_layers:
+            for sid, srcs in in_sources.items():
+                if layers.get(sid) == layer and sid in tracks:
+                    off_track = sum(
+                        1 for s in srcs if s in tracks and tracks[s] != tracks[sid]
+                    )
+                    if off_track >= 3:
+                        is_wide_join = True
+                        break
+        if is_wide_fork:
+            for sid, lyr in layers.items():
+                if lyr == layer + 1 and sid in tracks and tracks[sid] not in fj_tracks:
+                    station = sub.stations.get(sid)
+                    if station and station.label.strip():
+                        bubble_label_half = max(
+                            bubble_label_half, label_text_width(station.label) / 2
+                        )
+        if is_wide_join:
+            for sid, lyr in layers.items():
+                if lyr == layer - 1 and sid in tracks and tracks[sid] not in fj_tracks:
+                    station = sub.stations.get(sid)
+                    if station and station.label.strip():
+                        bubble_label_half = max(
+                            bubble_label_half, label_text_width(station.label) / 2
+                        )
+
+        # The bubble label needs label_half from its center, plus the
+        # diagonal transition needs DIAGONAL_RUN.  The default x_spacing
+        # already provides some room, so only add the excess.
+        bubble_extra = max(0.0, bubble_label_half + DIAGONAL_RUN - x_spacing)
+        layer_gap[layer] = max(base_gap, fj_label_half + bubble_extra)
 
     cumulative = 0.0
     layer_extra: dict[int, float] = {}

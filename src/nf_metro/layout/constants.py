@@ -216,5 +216,14 @@ Accounts for station_radius (~5px) + icon gap (6px) + icon width (28px) = 39px
 extent, plus ~19px visual margin so icons don't crowd the section border.
 """
 
+PORT_LABEL_MAX_DX: float = 120.0
+"""Max horizontal distance for port-route label override.
+
+Only stations within this distance of their connected port get their
+label flipped to avoid overlapping the diagonal route to the port.
+Stations further away have enough horizontal room for the route to
+clear the label without overriding alternation.
+"""
+
 DEFAULT_LINE_PRIORITY: int = 999
 """Sentinel priority for lines not in the explicit line order."""
