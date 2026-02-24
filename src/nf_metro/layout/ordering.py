@@ -256,8 +256,12 @@ def _place_single_node(
                     and layers is not None
                 ):
                     candidate = _find_free_nearby_track(
-                        tracks[preds[0]], base, node_layer,
-                        layers, tracks, node,
+                        tracks[preds[0]],
+                        base,
+                        node_layer,
+                        layers,
+                        tracks,
+                        node,
                     )
                     if candidate is not None:
                         return candidate
