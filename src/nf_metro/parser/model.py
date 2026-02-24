@@ -33,13 +33,17 @@ class Station:
     section_id: str | None = None
     is_port: bool = False
     is_hidden: bool = False
-    is_terminus: bool = False
-    terminus_label: str = ""
+    terminus_labels: list[str] = field(default_factory=list)
     # Populated by layout engine
     x: float = 0.0
     y: float = 0.0
     layer: int = 0
     track: float = 0.0
+
+    @property
+    def is_terminus(self) -> bool:
+        """Station has one or more file icons."""
+        return len(self.terminus_labels) > 0
 
 
 @dataclass
@@ -137,8 +141,8 @@ class MetroGraph:
     logo_path: str = ""
     # Section IDs that had explicit %%metro direction: directives
     _explicit_directions: set[str] = field(default_factory=set)
-    # Pending terminus designations: station_id -> extension label
-    _pending_terminus: dict[str, str] = field(default_factory=dict)
+    # Pending terminus designations: station_id -> list of extension labels
+    _pending_terminus: dict[str, list[str]] = field(default_factory=dict)
 
     def add_line(self, line: MetroLine) -> None:
         self.lines[line.id] = line

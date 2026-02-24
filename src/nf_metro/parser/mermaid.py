@@ -158,11 +158,10 @@ def parse_metro_mermaid(text: str, max_station_columns: int = 15) -> MetroGraph:
         _resolve_sections(graph)
 
     # Apply pending terminus designations
-    for station_id, ext_label in graph._pending_terminus.items():
+    for station_id, ext_labels in graph._pending_terminus.items():
         station = graph.stations.get(station_id)
         if station:
-            station.is_terminus = True
-            station.terminus_label = ext_label
+            station.terminus_labels = ext_labels
 
     return graph
 
@@ -221,8 +220,9 @@ def _parse_directive(
         parts = content[len("file:") :].strip().split("|")
         if len(parts) >= 2:
             station_id = parts[0].strip()
-            ext_label = parts[1].strip()
-            graph._pending_terminus[station_id] = ext_label
+            raw_labels = parts[1].strip()
+            labels = [s.strip() for s in raw_labels.split(",") if s.strip()]
+            graph._pending_terminus.setdefault(station_id, []).extend(labels)
 
 
 def _parse_port_hint(
