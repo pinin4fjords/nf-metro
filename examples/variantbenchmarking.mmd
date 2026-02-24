@@ -2,13 +2,17 @@
 %%metro style: dark
 %%metro line_order: span
 %%metro legend: bl
+%%metro compact_offsets: true
 %%metro file: ref_genome_file | FASTA
 %%metro file: truth_vcf_file | VCF
 %%metro file: regions_bed_file | BED
 %%metro file: targets_bed_file | BED
 %%metro file: samplesheet_file | TSV
+%%metro file: snv_stats_out | TSV
+%%metro file: sv_stats_out | TSV
 %%metro line: truth | Truth Preprocessing | #4CAF50
 %%metro line: test | Test Preprocessing | #ff9800
+%%metro line: output | Output Processing | #03A9F4
 
 graph LR
     subgraph inputs [Inputs]
@@ -36,3 +40,59 @@ graph LR
         targets_bed -->|truth| _inputs_hub
         samplesheet -->|test| _inputs_hub
     end
+
+    subgraph preprocess [Preprocessing (Optional)]
+        %%metro entry: left | truth, test
+        %%metro exit: right | truth, test
+        subsample[Subsample]
+        liftover[Liftover (Picard, UCSC)]
+        subsample -->|test| liftover
+    end
+
+    subgraph normalization [Variant Normalization (Optional)]
+        %%metro entry: left | truth, test
+        %%metro exit: right | truth, test
+        sv_processing[SV Processing]
+        var_norm[Variant Normalization]
+        sv_processing -->|test| var_norm
+    end
+
+    subgraph filtering [Variant Filtering (Optional)]
+        %%metro entry: left | test
+        %%metro exit: right | test
+        filter_contigs[Filter Contigs]
+        bcftools_filter[bcftools filter]
+        survivor_filter[SURVIVOR filter]
+        filter_contigs -->|test| bcftools_filter
+        filter_contigs -->|test| survivor_filter
+    end
+
+    subgraph stats [Variant Statistics]
+        %%metro entry: left | test
+        %%metro exit: right | test, output
+        bcftools_stats[bcftools stats]
+        survivor_stats[SURVIVOR\nstats]
+        snv_stats[SNV stats]
+        sv_stats[SV stats]
+        snv_stats_out[ ]
+        sv_stats_out[ ]
+        bcftools_stats -->|output| snv_stats
+        survivor_stats -->|output| sv_stats
+        snv_stats -->|output| snv_stats_out
+        sv_stats -->|output| sv_stats_out
+    end
+
+    %% Section 1 -> 2: test through Subsample, truth to Liftover
+    _inputs_hub -->|test| subsample
+    _inputs_hub -->|truth| liftover
+    %% Section 2 -> 3: test to SV Processing, truth to Var Norm
+    liftover -->|test| sv_processing
+    liftover -->|truth| var_norm
+    %% Section 1 -> 3 (bypass section 2)
+    _inputs_hub -->|test| sv_processing
+    _inputs_hub -->|truth| var_norm
+    %% Section 3 -> 4
+    var_norm -->|test| filter_contigs
+    %% Section 4 -> 5: each filter to its corresponding stats
+    bcftools_filter -->|test| bcftools_stats
+    survivor_filter -->|test| survivor_stats
