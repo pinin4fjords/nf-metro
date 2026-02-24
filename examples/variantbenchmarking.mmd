@@ -1,0 +1,38 @@
+%%metro title: nf-core/variantbenchmarking
+%%metro style: dark
+%%metro line_order: span
+%%metro legend: bl
+%%metro file: ref_genome_file | FASTA
+%%metro file: truth_vcf_file | VCF
+%%metro file: regions_bed_file | BED
+%%metro file: targets_bed_file | BED
+%%metro file: samplesheet_file | TSV
+%%metro line: truth | Truth Preprocessing | #4CAF50
+%%metro line: test | Test Preprocessing | #ff9800
+
+graph LR
+    subgraph inputs [Inputs]
+        %%metro exit: right | truth, test
+        ref_genome_file[ ]
+        ref_genome[Reference Genome]
+        truth_vcf_file[ ]
+        truth_vcf[Truth VCF]
+        regions_bed_file[ ]
+        regions_bed[Regions BED]
+        targets_bed_file[ ]
+        targets_bed[Targets BED]
+        samplesheet_file[ ]
+        samplesheet[Samplesheet]
+        _inputs_hub[hidden]
+
+        ref_genome_file -->|truth| ref_genome
+        truth_vcf_file -->|truth| truth_vcf
+        regions_bed_file -->|truth| regions_bed
+        targets_bed_file -->|truth| targets_bed
+        samplesheet_file -->|test| samplesheet
+        ref_genome -->|truth| _inputs_hub
+        truth_vcf -->|truth| _inputs_hub
+        regions_bed -->|truth| _inputs_hub
+        targets_bed -->|truth| _inputs_hub
+        samplesheet -->|test| _inputs_hub
+    end
