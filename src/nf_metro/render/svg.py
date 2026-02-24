@@ -210,9 +210,7 @@ def _compute_icon_obstacles(
                 is_source = False
                 break
 
-        section = (
-            graph.sections.get(station.section_id) if station.section_id else None
-        )
+        section = graph.sections.get(station.section_id) if station.section_id else None
         section_dir = section.direction if section else "LR"
 
         if section_dir == "RL":
@@ -242,12 +240,14 @@ def _compute_icon_obstacles(
         y_min = icon_cy - theme.terminus_height / 2
         y_max = icon_cy + theme.terminus_height / 2
 
-        obstacles.append((
-            x_min - margin,
-            y_min - margin,
-            x_max + margin,
-            y_max + margin,
-        ))
+        obstacles.append(
+            (
+                x_min - margin,
+                y_min - margin,
+                x_max + margin,
+                y_max + margin,
+            )
+        )
 
     return obstacles
 
