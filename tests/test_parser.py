@@ -527,3 +527,77 @@ def test_unannotated_edge_without_sections():
     text = "graph LR\n    a --> b\n    b --> c\n"
     with pytest.raises(ValueError, match="no metro line annotation"):
         parse_metro_mermaid(text)
+
+
+# --- File icon (terminus) parsing ---
+
+
+def test_parse_single_file_icon():
+    """A single %%metro file: directive produces one terminus label."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: reads_in | FASTQ\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        reads_in[ ]\n"
+        "        trim[Trim]\n"
+        "        reads_in -->|main| trim\n"
+        "    end\n"
+    )
+    graph = parse_metro_mermaid(text)
+    st = graph.stations["reads_in"]
+    assert st.is_terminus
+    assert st.terminus_labels == ["FASTQ"]
+
+
+def test_parse_multiple_file_icons_comma():
+    """Comma-separated labels in one directive produce multiple terminus labels."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: reads_in | FASTQ, BAM\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        reads_in[ ]\n"
+        "        trim[Trim]\n"
+        "        reads_in -->|main| trim\n"
+        "    end\n"
+    )
+    graph = parse_metro_mermaid(text)
+    st = graph.stations["reads_in"]
+    assert st.is_terminus
+    assert st.terminus_labels == ["FASTQ", "BAM"]
+
+
+def test_parse_multiple_file_directives_same_station():
+    """Multiple %%metro file: directives for the same station accumulate."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: reads_in | FASTQ\n"
+        "%%metro file: reads_in | BAM\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        reads_in[ ]\n"
+        "        trim[Trim]\n"
+        "        reads_in -->|main| trim\n"
+        "    end\n"
+    )
+    graph = parse_metro_mermaid(text)
+    st = graph.stations["reads_in"]
+    assert st.is_terminus
+    assert st.terminus_labels == ["FASTQ", "BAM"]
+
+
+def test_parse_no_file_icon_not_terminus():
+    """Station without a %%metro file: directive is not a terminus."""
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+    )
+    graph = parse_metro_mermaid(text)
+    assert not graph.stations["a"].is_terminus
+    assert graph.stations["a"].terminus_labels == []

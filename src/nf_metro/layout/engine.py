@@ -540,6 +540,23 @@ def _adjust_lr_exit_gap(
         section.bbox_w += exit_gap
 
 
+def _terminus_icon_clearance(n_icons: int) -> float:
+    """Compute clearance needed for *n_icons* file icons side-by-side.
+
+    The base ``TERMINUS_ICON_CLEARANCE`` covers one icon (station_radius +
+    gap + icon_width + margin).  Each additional icon adds icon_width + inter-
+    icon gap.  We import render constants here to avoid a circular dependency
+    at module level.
+    """
+    if n_icons <= 1:
+        return TERMINUS_ICON_CLEARANCE
+    from nf_metro.render.constants import ICON_INTER_GAP
+    from nf_metro.render.style import Theme
+
+    extra = (n_icons - 1) * (Theme.terminus_width + ICON_INTER_GAP)
+    return TERMINUS_ICON_CLEARANCE + extra
+
+
 def _adjust_terminus_icon_clearance(
     sub: MetroGraph,
     section: Section,
@@ -547,14 +564,17 @@ def _adjust_terminus_icon_clearance(
 ) -> None:
     """Expand bbox when terminus file icons would be too close to the edge.
 
-    Terminus stations display a file icon on their "outside" (flow-entry for
-    sources, flow-exit for sinks).  The icon extends roughly 39px from the
+    Terminus stations display file icon(s) on their "outside" (flow-entry for
+    sources, flow-exit for sinks).  The icon(s) extend horizontally from the
     station center.  If SECTION_X_PADDING doesn't provide enough room, we
     grow the bbox on the affected side.
     """
     for station in sub.stations.values():
         if not station.is_terminus:
             continue
+
+        n_icons = len(station.terminus_labels)
+        needed = _terminus_icon_clearance(n_icons)
 
         # Determine source vs sink from the full graph's edges
         is_source = not any(e.target == station.id for e in graph.edges)
@@ -570,15 +590,15 @@ def _adjust_terminus_icon_clearance(
 
         if icon_on_left:
             clearance = station.x - section.bbox_x
-            if clearance < TERMINUS_ICON_CLEARANCE:
-                expand = TERMINUS_ICON_CLEARANCE - clearance
+            if clearance < needed:
+                expand = needed - clearance
                 section.bbox_x -= expand
                 section.bbox_w += expand
         else:
             bbox_right = section.bbox_x + section.bbox_w
             clearance = bbox_right - station.x
-            if clearance < TERMINUS_ICON_CLEARANCE:
-                expand = TERMINUS_ICON_CLEARANCE - clearance
+            if clearance < needed:
+                expand = needed - clearance
                 section.bbox_w += expand
 
 
@@ -1481,8 +1501,7 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
                     label=station.label,
                     section_id=station.section_id,
                     is_port=False,
-                    is_terminus=station.is_terminus,
-                    terminus_label=station.terminus_label,
+                    terminus_labels=list(station.terminus_labels),
                 )
             )
             real_station_ids.add(sid)
