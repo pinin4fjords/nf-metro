@@ -803,6 +803,119 @@ def test_port_terminus_spacing_no_station_as_elbow():
     )
 
 
+def test_section_gap_increases_distance():
+    """Larger section_x_gap produces wider gaps between section bboxes."""
+    mmd_text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|main| d\n"
+        "    end\n"
+        "    b -->|main| c\n"
+    )
+
+    graph_narrow = parse_metro_mermaid(mmd_text)
+    compute_layout(graph_narrow, section_x_gap=50)
+    gap_narrow = (
+        graph_narrow.sections["sec2"].bbox_x
+        - graph_narrow.sections["sec1"].bbox_x
+        - graph_narrow.sections["sec1"].bbox_w
+    )
+
+    graph_wide = parse_metro_mermaid(mmd_text)
+    compute_layout(graph_wide, section_x_gap=150)
+    gap_wide = (
+        graph_wide.sections["sec2"].bbox_x
+        - graph_wide.sections["sec1"].bbox_x
+        - graph_wide.sections["sec1"].bbox_w
+    )
+
+    assert gap_wide > gap_narrow, (
+        f"Wide gap ({gap_wide:.1f}) should be larger than narrow gap ({gap_narrow:.1f})"
+    )
+
+
+def test_section_gap_bundle_aware_minimum():
+    """Bundle-aware enforcement widens the gap for multi-line bundles."""
+    import warnings
+
+    from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
+
+    # 5 lines routing between two sections
+    mmd_text = (
+        "%%metro line: L1 | Line1 | #ff0000\n"
+        "%%metro line: L2 | Line2 | #00ff00\n"
+        "%%metro line: L3 | Line3 | #0000ff\n"
+        "%%metro line: L4 | Line4 | #ff00ff\n"
+        "%%metro line: L5 | Line5 | #ffff00\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|L1,L2,L3,L4,L5| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|L1,L2,L3,L4,L5| d\n"
+        "    end\n"
+        "    b -->|L1,L2,L3,L4,L5| c\n"
+    )
+    # Request a very small gap that should be overridden
+    graph = parse_metro_mermaid(mmd_text)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        compute_layout(graph, section_x_gap=10)
+        # Should have warned about widening
+        gap_warnings = [x for x in w if "widened" in str(x.message)]
+        assert len(gap_warnings) >= 1, "Expected a warning about gap widening"
+
+    # Physical gap should be at least the bundle minimum
+    min_needed = 2 * (CURVE_RADIUS + 4 * OFFSET_STEP)
+    physical_gap = (
+        graph.sections["sec2"].bbox_x
+        - graph.sections["sec1"].bbox_x
+        - graph.sections["sec1"].bbox_w
+    )
+    assert physical_gap >= min_needed - 1, (
+        f"Physical gap {physical_gap:.1f}px is below bundle minimum {min_needed:.1f}px"
+    )
+
+
+def test_section_gap_no_warning_when_sufficient():
+    """No warning when the requested gap is large enough for the bundle."""
+    import warnings
+
+    mmd_text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[B]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+        "    subgraph sec2 [Section Two]\n"
+        "        c[C]\n"
+        "        d[D]\n"
+        "        c -->|main| d\n"
+        "    end\n"
+        "    b -->|main| c\n"
+    )
+    graph = parse_metro_mermaid(mmd_text)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        compute_layout(graph, section_x_gap=100)
+        gap_warnings = [x for x in w if "widened" in str(x.message)]
+        assert len(gap_warnings) == 0, "No warning expected for large gap"
+
+
 def test_port_terminus_spacing_multi_terminus():
     """When two termini are near a port, the port clears both of them.
 
