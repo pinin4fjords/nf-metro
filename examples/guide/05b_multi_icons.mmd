@@ -1,0 +1,28 @@
+%%metro title: Multiple File Icons
+%%metro style: dark
+%%metro file: reads_in | FASTQ, BAM
+%%metro file: report_out | HTML
+%%metro file: counts_out | TSV, H5AD
+%%metro line: main | Main | #4CAF50
+%%metro line: qc | Quality Control | #2196F3
+
+graph LR
+    subgraph analysis [Analysis]
+        reads_in[ ]
+        trim[Trimming]
+        align[Alignment]
+        quant[Quantification]
+        reads_in -->|main,qc| trim
+        trim -->|main| align
+        align -->|main| quant
+    end
+
+    subgraph reporting [Reporting]
+        multiqc[MultiQC]
+        report_out[ ]
+        counts_out[ ]
+        trim -->|qc| multiqc
+        quant -->|main| counts_out
+        quant -->|qc| multiqc
+        multiqc -->|qc| report_out
+    end

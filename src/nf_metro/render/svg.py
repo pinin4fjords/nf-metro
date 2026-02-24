@@ -27,6 +27,7 @@ from nf_metro.render.constants import (
     DEBUG_WAYPOINT_RADIUS,
     FALLBACK_LINE_COLOR,
     ICON_BBOX_MARGIN,
+    ICON_INTER_GAP,
     ICON_STATION_GAP,
     LEGEND_GAP,
     LEGEND_INSET,
@@ -669,10 +670,10 @@ def _render_stations(
             )
 
         if station.is_terminus:
-            _render_terminus_icon(d, station, graph, theme, r, min_off, max_off)
+            _render_terminus_icons(d, station, graph, theme, r, min_off, max_off)
 
 
-def _render_terminus_icon(
+def _render_terminus_icons(
     d: draw.Drawing,
     station: Station,
     graph: MetroGraph,
@@ -681,7 +682,11 @@ def _render_terminus_icon(
     min_off: float,
     max_off: float,
 ) -> None:
-    """Render file icon adjacent to a terminus station."""
+    """Render file icon(s) adjacent to a terminus station.
+
+    Multiple icons are arranged in a horizontal row, extending away from
+    the station (i.e. the first icon is closest to the station pill).
+    """
     section: Section | None = (
         graph.sections.get(station.section_id) if station.section_id else None
     )
@@ -694,43 +699,58 @@ def _render_terminus_icon(
         if edge.target == station.id:
             is_source = False
             break
-    # Place icon on the "outside" of the flow
+    # Place icons on the "outside" of the flow
     icon_gap = r + ICON_STATION_GAP
     icon_half_w = theme.terminus_width / 2
+    icon_step = theme.terminus_width + ICON_INTER_GAP
     section_dir = section.direction if section else "LR"
+
+    # Determine direction: icons extend leftward for sources (LR/TB)
+    # or rightward for sinks, inverted for RL.
     if section_dir == "RL":
-        icon_cx_offset = (
-            (icon_gap + icon_half_w) if is_source else -(icon_gap + icon_half_w)
-        )
+        icons_go_right = is_source
     else:
-        icon_cx_offset = (
-            -(icon_gap + icon_half_w) if is_source else (icon_gap + icon_half_w)
-        )
-    icon_cx = station.x + icon_cx_offset
+        icons_go_right = not is_source
+
+    # Base X for the first (nearest) icon center
+    if icons_go_right:
+        base_cx = station.x + icon_gap + icon_half_w
+    else:
+        base_cx = station.x - icon_gap - icon_half_w
+
     icon_cy = station.y + (min_off + max_off) / 2
-    # Clamp to stay within section bbox
-    if section and section.bbox_w > 0:
-        icon_right = section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
-        icon_cx = max(
-            section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
-            min(icon_cx, icon_right),
+
+    for i, label in enumerate(station.terminus_labels):
+        if icons_go_right:
+            icon_cx = base_cx + i * icon_step
+        else:
+            icon_cx = base_cx - i * icon_step
+
+        # Clamp to stay within section bbox
+        if section and section.bbox_w > 0:
+            icon_right = (
+                section.bbox_x + section.bbox_w - icon_half_w - ICON_BBOX_MARGIN
+            )
+            icon_cx = max(
+                section.bbox_x + icon_half_w + ICON_BBOX_MARGIN,
+                min(icon_cx, icon_right),
+            )
+        render_file_icon(
+            d,
+            cx=icon_cx,
+            cy=icon_cy,
+            width=theme.terminus_width,
+            height=theme.terminus_height,
+            fold_size=theme.terminus_fold_size,
+            fill=theme.terminus_fill or theme.station_fill,
+            stroke=theme.terminus_stroke or theme.station_stroke,
+            stroke_width=theme.terminus_stroke_width,
+            corner_radius=theme.terminus_corner_radius,
+            label=label,
+            font_size=theme.terminus_font_size,
+            font_color=TERMINUS_FONT_COLOR,
+            font_family=theme.label_font_family,
         )
-    render_file_icon(
-        d,
-        cx=icon_cx,
-        cy=icon_cy,
-        width=theme.terminus_width,
-        height=theme.terminus_height,
-        fold_size=theme.terminus_fold_size,
-        fill=theme.terminus_fill or theme.station_fill,
-        stroke=theme.terminus_stroke or theme.station_stroke,
-        stroke_width=theme.terminus_stroke_width,
-        corner_radius=theme.terminus_corner_radius,
-        label=station.terminus_label,
-        font_size=theme.terminus_font_size,
-        font_color=TERMINUS_FONT_COLOR,
-        font_family=theme.label_font_family,
-    )
 
 
 def _render_labels(

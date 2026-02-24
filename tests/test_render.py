@@ -179,3 +179,64 @@ def test_render_rnaseq_sections_example():
     assert "Pre-processing" in svg
     root = ET.fromstring(svg)
     assert root.tag.endswith("svg") or "svg" in root.tag
+
+
+# --- Multi-icon terminus rendering ---
+
+
+def test_render_single_file_icon():
+    """Single %%metro file: directive renders one file icon."""
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: reads_in | FASTQ\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        reads_in[ ]\n"
+        "        trim[Trim]\n"
+        "        reads_in -->|main| trim\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    assert "FASTQ" in svg
+    root = ET.fromstring(svg)
+    assert root.tag.endswith("svg") or "svg" in root.tag
+
+
+def test_render_multiple_file_icons():
+    """Comma-separated %%metro file: directive renders multiple file icons."""
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: reads_in | FASTQ, BAM\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        "        reads_in[ ]\n"
+        "        trim[Trim]\n"
+        "        reads_in -->|main| trim\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    assert "FASTQ" in svg
+    assert "BAM" in svg
+    root = ET.fromstring(svg)
+    assert root.tag.endswith("svg") or "svg" in root.tag
+
+
+def test_render_multi_icon_fixture():
+    """The 05b_multi_icons.mmd example renders without errors."""
+    from pathlib import Path
+
+    examples = Path(__file__).parent.parent / "examples" / "guide"
+    text = (examples / "05b_multi_icons.mmd").read_text()
+    graph = parse_metro_mermaid(text)
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    # All icon labels should be present
+    assert "FASTQ" in svg
+    assert "BAM" in svg
+    assert "HTML" in svg
+    assert "TSV" in svg
+    assert "H5AD" in svg
+    root = ET.fromstring(svg)
+    assert root.tag.endswith("svg") or "svg" in root.tag
