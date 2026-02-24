@@ -343,6 +343,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro legend: <position>` | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` |
 | `%%metro line_order: <strategy>` | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks) |
 | `%%metro file: <station> \| <label>` | Mark a station as a file terminus with a document icon |
+| `%%metro compact_offsets: true` | Use compact per-station offsets instead of global line-priority slots. Better for dense maps with few lines where global slot reservation wastes space. |
 
 ### Section directives
 
