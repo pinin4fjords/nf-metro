@@ -999,8 +999,14 @@
 <td><code>%%metro file: &lt;station&gt; \| &lt;label&gt;</code></td>
 <td>Mark a station as a file terminus with a document icon</td>
 </tr>
+<tr>
+<td><code>%%metro compact_offsets: true</code></td>
+<td>Compact line offsets within stations (see below)</td>
+</tr>
 </tbody>
 </table>
+<p><strong>Compact offsets.</strong> By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.</p>
+<p>With <code>%%metro compact_offsets: true</code>, stations are only as wide as the lines actually passing through them. A station where one line enters and a different line exits renders as a dot (zero offset) rather than a pill. This works well for maps with few lines but many stations, like the <a href="https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking.mmd">variantbenchmarking</a> example.</p>
 <h3 id="section-directives">Section directives<a class="headerlink" href="#section-directives" title="Permanent link">&para;</a></h3>
 <p>These go inside <code>subgraph</code> blocks.</p>
 <table>
