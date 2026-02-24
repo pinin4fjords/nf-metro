@@ -54,12 +54,15 @@ class LabelPlacement:
     angle: float = 0.0  # Horizontal by default
     text_anchor: str = "middle"
     dominant_baseline: str = ""  # Empty means use above/below logic
+    obstacle_bbox: tuple[float, float, float, float] | None = None
 
 
 def _label_bbox(
     placement: LabelPlacement,
 ) -> tuple[float, float, float, float]:
     """Return (x_min, y_min, x_max, y_max) bounding box for a label."""
+    if placement.obstacle_bbox is not None:
+        return placement.obstacle_bbox
     half_w = label_text_width(placement.text) / 2
     text_h = _label_text_height(placement.text)
 
@@ -204,6 +207,29 @@ def _apply_edge_override(
     return start_above
 
 
+def _make_obstacle_placements(
+    obstacles: list[tuple[float, float, float, float]] | None,
+) -> list[LabelPlacement]:
+    """Create phantom LabelPlacement entries for obstacle bounding boxes.
+
+    These participate in collision detection but are filtered out before
+    the final placement list is returned.
+    """
+    if not obstacles:
+        return []
+    return [
+        LabelPlacement(
+            station_id=f"__obstacle_{i}",
+            text="",
+            x=(bbox[0] + bbox[2]) / 2,
+            y=bbox[1],
+            above=False,
+            obstacle_bbox=bbox,
+        )
+        for i, bbox in enumerate(obstacles)
+    ]
+
+
 def _trial_cost(
     stations: list,
     graph: MetroGraph,
@@ -212,6 +238,7 @@ def _trial_cost(
     section_y_range: dict[str, tuple[float, float]],
     sections_with_multiline: set[str],
     flip: bool,
+    icon_obstacles: list[tuple[float, float, float, float]] | None = None,
 ) -> float:
     """Count label collision cost for a section using the given alternation.
 
@@ -231,7 +258,7 @@ def _trial_cost(
     else:
         y_mid = None
 
-    placements: list[LabelPlacement] = []
+    placements: list[LabelPlacement] = _make_obstacle_placements(icon_obstacles)
     cost: float = 0
     for station in stations:
         if station_offsets:
@@ -309,6 +336,7 @@ def place_labels(
     graph: MetroGraph,
     label_offset: float = LABEL_OFFSET,
     station_offsets: dict[tuple[str, str], float] | None = None,
+    icon_obstacles: list[tuple[float, float, float, float]] | None = None,
 ) -> list[LabelPlacement]:
     """Place horizontal labels alternating above/below stations.
 
@@ -384,8 +412,8 @@ def place_labels(
             section_y_range,
             sections_with_multiline,
         )
-        cost_default = _trial_cost(*args, flip=False)
-        cost_flipped = _trial_cost(*args, flip=True)
+        cost_default = _trial_cost(*args, flip=False, icon_obstacles=icon_obstacles)
+        cost_flipped = _trial_cost(*args, flip=True, icon_obstacles=icon_obstacles)
         if cost_flipped < cost_default:
             section_flip[sec_id] = True
 
@@ -395,7 +423,7 @@ def place_labels(
         sorted_stations, label_offset, station_offsets, graph
     )
 
-    placements: list[LabelPlacement] = []
+    placements: list[LabelPlacement] = _make_obstacle_placements(icon_obstacles)
 
     for i, station in enumerate(sorted_stations):
         # Compute the vertical extent of the station pill so labels
@@ -522,7 +550,7 @@ def place_labels(
 
         placements.append(candidate)
 
-    return placements
+    return [p for p in placements if p.obstacle_bbox is None]
 
 
 def _clamp_label_vertical(
