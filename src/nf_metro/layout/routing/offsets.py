@@ -77,6 +77,130 @@ def compute_station_offsets(
                 else:
                     offsets[(sid, lid)] = p * offset_step
 
+    # Section-local priority re-indexing for non-compact mode.
+    # Lines absent from a section should not reserve offset slots within
+    # it.  Re-index priorities per-section so only present lines get
+    # slots, closing gaps while preserving relative ordering.
+    # Only re-index when there are actual gaps in the global priorities
+    # of the present lines; otherwise the global offsets are already
+    # compact and re-indexing would break cross-section continuity.
+    if not compact:
+        section_local: dict[str, dict[str, int]] = {}
+        for sec_id in graph.sections:
+            present: set[str] = set()
+            for sid_s, station in graph.stations.items():
+                if station.section_id == sec_id:
+                    present |= set(graph.station_lines(sid_s))
+            ordered = sorted(present, key=lambda lid: line_priority.get(lid, 0))
+            # Check for gaps: if global priorities are already consecutive
+            # (e.g. [0,1,2]), re-indexing is a no-op and we skip to
+            # preserve cross-section offset continuity.
+            global_pris = [line_priority.get(lid, 0) for lid in ordered]
+            has_gap = any(
+                global_pris[i + 1] - global_pris[i] > 1
+                for i in range(len(global_pris) - 1)
+            )
+            if has_gap:
+                section_local[sec_id] = {lid: i for i, lid in enumerate(ordered)}
+        for sid_s, station in graph.stations.items():
+            sec_id = station.section_id
+            if sec_id not in section_local:
+                continue
+            local_pri = section_local[sec_id]
+            local_max = max(local_pri.values()) if local_pri else 0
+            reverse = sec_id in reversed_sections
+            for lid in graph.station_lines(sid_s):
+                p = local_pri.get(lid, 0)
+                if reverse:
+                    offsets[(sid_s, lid)] = (local_max - p) * offset_step
+                else:
+                    offsets[(sid_s, lid)] = p * offset_step
+
+        # Reconvergence ordering: when multiple upstream sections feed
+        # into one section, lines from the "primary" feeder (the one
+        # contributing the most lines) keep their relative offsets at
+        # the top.  Lines returning from diversions are appended below,
+        # so the continuing bundle transitions without slanting.
+        for sec_id, section in graph.sections.items():
+            if not section.entry_ports:
+                continue
+            # Determine which feeder section each line comes from
+            line_feeder: dict[str, str] = {}
+            for pid in section.entry_ports:
+                for edge in graph.edges:
+                    if edge.target != pid:
+                        continue
+                    src = graph.stations.get(edge.source)
+                    if not src:
+                        continue
+                    feeder_sec = None
+                    if src.is_port:
+                        feeder_sec = src.section_id
+                    elif edge.source in graph.junctions:
+                        # Trace through junction to find exit port
+                        for je in graph.edges:
+                            if je.target == edge.source and je.line_id == edge.line_id:
+                                js = graph.stations.get(je.source)
+                                if js and js.is_port:
+                                    feeder_sec = js.section_id
+                                    break
+                    if feeder_sec is not None:
+                        line_feeder[edge.line_id] = feeder_sec
+            if not line_feeder:
+                continue
+
+            # Group lines by feeder section
+            lines_by_feeder: dict[str, list[str]] = {}
+            for lid, fid in line_feeder.items():
+                lines_by_feeder.setdefault(fid, []).append(lid)
+            if len(lines_by_feeder) < 2:
+                continue  # Single feeder, no reconvergence
+
+            # Find primary feeder (most lines)
+            primary_fid = max(lines_by_feeder, key=lambda f: len(lines_by_feeder[f]))
+            primary_lines = set(lines_by_feeder[primary_fid])
+            if len(primary_lines) < 2:
+                continue  # Single continuing line, no ordering to preserve
+
+            # Get primary feeder's local ordering (re-indexed if it had gaps)
+            primary_order = section_local.get(primary_fid, line_priority)
+            continuing = sorted(
+                primary_lines, key=lambda l: primary_order.get(l, 0)
+            )
+
+            # All lines present in this section
+            sec_present: set[str] = set()
+            for sid_s, station in graph.stations.items():
+                if station.section_id == sec_id:
+                    sec_present |= set(graph.station_lines(sid_s))
+
+            returning = sorted(
+                sec_present - primary_lines,
+                key=lambda l: line_priority.get(l, 0),
+            )
+            new_order = continuing + returning
+
+            # Skip if ordering matches global (no change needed)
+            global_ordered = sorted(
+                sec_present, key=lambda l: line_priority.get(l, 0)
+            )
+            if new_order == global_ordered:
+                continue
+
+            # Apply reconvergence ordering
+            new_local = {lid: i for i, lid in enumerate(new_order)}
+            local_max = len(new_order) - 1
+            reverse = sec_id in reversed_sections
+            for sid_s, station in graph.stations.items():
+                if station.section_id != sec_id:
+                    continue
+                for lid in graph.station_lines(sid_s):
+                    p = new_local.get(lid, 0)
+                    if reverse:
+                        offsets[(sid_s, lid)] = (local_max - p) * offset_step
+                    else:
+                        offsets[(sid_s, lid)] = p * offset_step
+
     # Section-wide consistency for entry lines in compact mode.
     # All lines entering a section should maintain consistent relative
     # offsets at every multi-line station, including hidden pass-throughs.

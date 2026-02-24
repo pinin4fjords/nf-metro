@@ -154,6 +154,50 @@ def _is_diamond_node(
     return False
 
 
+def _is_track_occupied_at_layer(
+    track: float,
+    layer: int,
+    layers: dict[str, int],
+    tracks: dict[str, float],
+    exclude_node: str,
+    tolerance: float = 0.5,
+) -> bool:
+    """Check if any already-placed station at this layer occupies the given track."""
+    for sid, sid_layer in layers.items():
+        if sid_layer == layer and sid != exclude_node and sid in tracks:
+            if abs(tracks[sid] - track) < tolerance:
+                return True
+    return False
+
+
+def _find_free_nearby_track(
+    pred_track: float,
+    base: float,
+    layer: int,
+    layers: dict[str, int],
+    tracks: dict[str, float],
+    exclude_node: str,
+) -> float | None:
+    """Find the nearest existing track between *pred_track* and *base* that is
+    free at *layer*.
+
+    Returns ``None`` when no suitable candidate exists (all occupied, or no
+    existing tracks lie between pred and base).
+    """
+    lo, hi = min(pred_track, base), max(pred_track, base)
+    # Collect all track values already assigned to any station
+    existing = sorted({t for t in tracks.values() if lo <= t <= hi})
+    # Rank by distance from pred_track (prefer closer to predecessor)
+    existing.sort(key=lambda t: abs(t - pred_track))
+    for t in existing:
+        if abs(t - pred_track) < 0.01:
+            # Skip the predecessor's own track (would be a flat line)
+            continue
+        if not _is_track_occupied_at_layer(t, layer, layers, tracks, exclude_node):
+            return t
+    return None
+
+
 def _predecessor_avg(
     node: str, G: nx.DiGraph, tracks: dict[str, float]
 ) -> float | None:
@@ -200,6 +244,23 @@ def _place_single_node(
                 # Diamond: compress toward trunk for compact visual
                 return pred_avg + (base - pred_avg) * DIAMOND_COMPRESSION
             else:
+                # Dead-end spur: if this node has no successors, one
+                # predecessor, and the base track is far away, reuse
+                # a nearby existing track instead of jumping to a
+                # distant base track.  Pick the closest existing track
+                # between pred and base that is free at this layer.
+                if (
+                    len(preds) == 1
+                    and not list(G.successors(node))
+                    and abs(base - pred_avg) > line_gap
+                    and layers is not None
+                ):
+                    candidate = _find_free_nearby_track(
+                        tracks[preds[0]], base, node_layer,
+                        layers, tracks, node,
+                    )
+                    if candidate is not None:
+                        return candidate
                 # Permanent divergence: snap to base track
                 return base
 
