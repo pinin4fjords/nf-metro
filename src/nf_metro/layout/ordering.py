@@ -225,6 +225,18 @@ def _place_single_node(
         ):
             return base
 
+    # Direct single-predecessor alignment: when a node has exactly one
+    # predecessor on the same line(s), snap to the predecessor's track
+    # so the edge runs horizontally (important for terminus -> station).
+    preds_list = list(G.predecessors(node))
+    if len(preds_list) == 1 and preds_list[0] in tracks:
+        pred = preds_list[0]
+        if graph is not None:
+            pred_line_set = set(graph.station_lines(pred))
+            node_line_set = set(graph.station_lines(node))
+            if pred_line_set and pred_line_set == node_line_set:
+                return tracks[pred]
+
     distance = abs(base - pred_avg)
     if distance <= line_gap:
         # Close enough - snap to base track
@@ -343,13 +355,28 @@ def _equalize_fork_groups(
     if len(layer_nodes) < 2:
         return
 
-    # Group stations by their predecessor set
+    # Group stations by their predecessor set (fork siblings)
     pred_groups: dict[frozenset[str], list[str]] = defaultdict(list)
     for sid in layer_nodes:
         preds = frozenset(G.predecessors(sid))
         pred_groups[preds].append(sid)
 
-    for _pred_set, group in pred_groups.items():
+    # Also group stations by their successor set (convergent siblings
+    # fanning in to the same target, e.g. multiple inputs -> hidden hub)
+    succ_groups: dict[frozenset[str], list[str]] = defaultdict(list)
+    for sid in layer_nodes:
+        succs = frozenset(G.successors(sid))
+        if succs:
+            succ_groups[succs].append(sid)
+
+    # Merge both groupings, deduplicating by sorted member tuple
+    all_groups: dict[tuple[str, ...], list[str]] = {}
+    for group in list(pred_groups.values()) + list(succ_groups.values()):
+        key = tuple(sorted(group))
+        if key not in all_groups:
+            all_groups[key] = group
+
+    for group in all_groups.values():
         if len(group) < 2:
             continue
 
@@ -360,8 +387,15 @@ def _equalize_fork_groups(
         if len(primaries) < 2:
             continue
 
-        # Sort by current track position to preserve ordering
-        group.sort(key=lambda sid: tracks[sid])
+        # Sort by primary line order first, then by current track position
+        # within each line.  This keeps same-line siblings together.
+        line_order_map = {lid: i for i, lid in enumerate(graph.lines)}
+        group.sort(
+            key=lambda sid: (
+                line_order_map.get(node_primary.get(sid, ""), len(line_order_map)),
+                tracks[sid],
+            )
+        )
 
         # Compute current spacings between consecutive members
         spacings = [
