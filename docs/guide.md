@@ -343,7 +343,11 @@ These go at the top of the file, before `graph LR`.
 | `%%metro legend: <position>` | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` |
 | `%%metro line_order: <strategy>` | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks) |
 | `%%metro file: <station> \| <label>` | Mark a station as a file terminus with a document icon |
-| `%%metro compact_offsets: true` | Use compact per-station offsets instead of global line-priority slots. Better for dense maps with few lines where global slot reservation wastes space. |
+| `%%metro compact_offsets: true` | Compact line offsets within stations (see below) |
+
+**Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.
+
+With `%%metro compact_offsets: true`, stations are only as wide as the lines actually passing through them. A station where one line enters and a different line exits renders as a dot (zero offset) rather than a pill. This works well for maps with few lines but many stations, like the [variantbenchmarking](https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking.mmd) example.
 
 ### Section directives
 
