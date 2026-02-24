@@ -276,25 +276,36 @@ def bypass_bottom_y(
     tgt_col: int,
     clearance: float = BYPASS_CLEARANCE,
 ) -> float:
-    """Max bottom Y of sections in columns strictly between src_col and tgt_col.
+    """Bottom Y for a bypass route around intervening sections.
 
-    Returns the bottom Y + clearance, providing the baseline for a bypass
-    route that goes below the intervening sections.
+    Uses the tallest section in the bypassed columns (strictly between
+    src and tgt) as the baseline.  When there are no intervening
+    sections (adjacent-column bypass), falls back to the shorter of
+    the source/target endpoint sections so the route hugs the smaller
+    box rather than being pushed down by a tall neighbour.
     """
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
-    max_bottom = 0.0
+
+    # Intervening sections (columns strictly between endpoints)
+    max_intervening = 0.0
     for s in graph.sections.values():
         if s.bbox_w > 0 and lo < s.grid_col < hi:
             bottom = s.bbox_y + s.bbox_h
-            if bottom > max_bottom:
-                max_bottom = bottom
-    # Also include source and target columns - the route goes below everything
+            if bottom > max_intervening:
+                max_intervening = bottom
+
+    if max_intervening > 0:
+        return max_intervening + clearance
+
+    # No intervening sections: use the shorter endpoint section so
+    # the bypass hugs tight instead of being pushed by the tall one.
+    endpoint_bottoms: list[float] = []
     for s in graph.sections.values():
         if s.bbox_w > 0 and s.grid_col in (lo, hi):
-            bottom = s.bbox_y + s.bbox_h
-            if bottom > max_bottom:
-                max_bottom = bottom
-    return max_bottom + clearance
+            endpoint_bottoms.append(s.bbox_y + s.bbox_h)
+    if endpoint_bottoms:
+        return min(endpoint_bottoms) + clearance
+    return clearance
 
 
 def line_incoming_y_at_entry_port(
