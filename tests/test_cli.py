@@ -89,6 +89,27 @@ def test_render_svg_ends_with_newline(tmp_path):
     assert content.endswith("\n"), "SVG output must end with a trailing newline"
 
 
+def test_render_section_gap_options(tmp_path):
+    """render command accepts --section-x-gap and --section-y-gap flags."""
+    out = tmp_path / "output.svg"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "render",
+            str(RNASEQ_MMD),
+            "-o",
+            str(out),
+            "--section-x-gap",
+            "80",
+            "--section-y-gap",
+            "60",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
 def test_render_nonexistent_file():
     """render command fails gracefully on missing input."""
     runner = CliRunner()

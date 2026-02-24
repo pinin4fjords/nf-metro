@@ -9,14 +9,19 @@ from __future__ import annotations
 
 __all__ = ["place_sections", "position_ports"]
 
+import warnings
 from collections import defaultdict, deque
 
 from nf_metro.layout.constants import (
+    CURVE_RADIUS,
     MIN_INTER_SECTION_GAP,
+    MIN_INTER_SECTION_ROW_GAP,
     MIN_PORT_STATION_GAP,
+    OFFSET_STEP,
     PLACEMENT_X_GAP,
     PLACEMENT_Y_GAP,
     PORT_MIN_GAP,
+    SECTION_HEADER_PROTRUSION,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Section
 
@@ -305,7 +310,10 @@ def place_sections(
     min_col, max_col = _compute_section_offsets(
         graph, col_assign, row_assign, section_x_gap, section_y_gap
     )
-    _enforce_min_column_gaps(graph, col_assign, min_col, max_col)
+    _enforce_min_column_gaps(
+        graph, col_assign, min_col, max_col, requested_gap=section_x_gap
+    )
+    _enforce_min_row_gaps(graph, row_assign, requested_gap=section_y_gap)
 
 
 def _rows_overlap(a: Section, b: Section) -> bool:
@@ -317,21 +325,99 @@ def _rows_overlap(a: Section, b: Section) -> bool:
     return a_start <= b_end and b_start <= a_end
 
 
+def _count_lines_between_columns(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    col_a: int,
+    col_b: int,
+) -> int:
+    """Count distinct lines routing between two adjacent columns.
+
+    Examines inter-section edges (those crossing section boundaries via
+    ports and junctions) to find how many lines will need to route through
+    the gap between *col_a* and *col_b*.
+    """
+    junction_ids = set(graph.junctions)
+    lines: set[str] = set()
+
+    for edge in graph.edges:
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if not src or not tgt:
+            continue
+
+        # Only inter-section edges (port-to-port or via junctions)
+        is_inter = (src.is_port or edge.source in junction_ids) and (
+            tgt.is_port or edge.target in junction_ids
+        )
+        if not is_inter:
+            continue
+
+        # Resolve source/target section columns
+        src_col = _station_column(graph, src, col_assign, junction_ids)
+        tgt_col = _station_column(graph, tgt, col_assign, junction_ids)
+        if src_col is None or tgt_col is None:
+            continue
+
+        # Check if this edge crosses between col_a and col_b
+        lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
+        if lo <= col_a and hi >= col_b:
+            lines.add(edge.line_id)
+
+    return len(lines)
+
+
+def _station_column(
+    graph: MetroGraph,
+    station,
+    col_assign: dict[str, int],
+    junction_ids: set[str],
+) -> int | None:
+    """Resolve a station's grid column via its section or junction chain."""
+    if station.section_id and station.section_id in col_assign:
+        return col_assign[station.section_id]
+    # Junction: trace back to its source port's section
+    if station.id in junction_ids:
+        for edge in graph.edges:
+            if edge.target == station.id:
+                src = graph.stations.get(edge.source)
+                if src and src.section_id and src.section_id in col_assign:
+                    return col_assign[src.section_id]
+    return None
+
+
+def _min_gap_for_bundle(
+    n_lines: int,
+    curve_radius: float = CURVE_RADIUS,
+    offset_step: float = OFFSET_STEP,
+) -> float:
+    """Compute the minimum inter-section gap needed for *n_lines* in a bundle.
+
+    The outermost line in an L-shape bundle has a curve radius of
+    ``curve_radius + (n-1) * offset_step``.  The gap must accommodate
+    the outermost arc from both sides of the channel midpoint.
+    """
+    if n_lines <= 0:
+        return MIN_INTER_SECTION_GAP
+    max_radius = curve_radius + max(n_lines - 1, 0) * offset_step
+    return max(2 * max_radius, MIN_INTER_SECTION_GAP)
+
+
 def _enforce_min_column_gaps(
     graph: MetroGraph,
     col_assign: dict[str, int],
     min_col: int,
     max_col: int,
     min_gap: float = MIN_INTER_SECTION_GAP,
+    requested_gap: float | None = None,
 ) -> None:
-    """Shift columns rightward so adjacent section bboxes are at least *min_gap* apart.
+    """Shift columns rightward so adjacent section bboxes have enough room.
 
-    Scans column pairs left-to-right.  For each pair, finds the narrowest
-    physical gap between sections whose row ranges overlap.  Only row-
-    overlapping pairs can have bypass routes between them, so sections in
-    non-overlapping rows are ignored.  If the gap is too narrow, all
-    sections in the right column and beyond are shifted rightward by the
-    deficit.  Processing left-to-right makes shifts cumulative.
+    For each adjacent column pair, computes the minimum gap needed to
+    accommodate the routing bundle (based on line count) and the static
+    floor (MIN_INTER_SECTION_GAP).  If the physical gap is too narrow,
+    columns are shifted rightward.  Warns when the gap had to be widened
+    beyond the user's requested value.
     """
     if max_col <= min_col:
         return
@@ -348,6 +434,11 @@ def _enforce_min_column_gaps(
         if not left_secs or not right_secs:
             continue
 
+        # Compute bundle-aware minimum for this column pair
+        n_lines = _count_lines_between_columns(graph, col_assign, col, col + 1)
+        bundle_min = _min_gap_for_bundle(n_lines)
+        effective_min = max(min_gap, bundle_min)
+
         # Find the tightest gap among row-overlapping section pairs
         worst_gap: float | None = None
         for ls in left_secs:
@@ -360,14 +451,105 @@ def _enforce_min_column_gaps(
                 if worst_gap is None or gap < worst_gap:
                     worst_gap = gap
 
-        if worst_gap is None or worst_gap >= min_gap:
+        if worst_gap is None or worst_gap >= effective_min:
             continue
 
-        deficit = min_gap - worst_gap
+        # Warn if we're overriding the user's requested gap
+        if requested_gap is not None and effective_min > requested_gap:
+            warnings.warn(
+                f"Section gap between columns {col} and {col + 1} "
+                f"widened from {requested_gap:.0f}px to {effective_min:.0f}px "
+                f"to accommodate {n_lines} routing line(s)",
+                stacklevel=2,
+            )
+
+        deficit = effective_min - worst_gap
         # Shift all sections in columns > col rightward
         for shift_col in range(col + 1, max_col + 1):
             for s in col_sections.get(shift_col, []):
                 s.offset_x += deficit
+
+
+def _cols_overlap(a: Section, b: Section) -> bool:
+    """Return True if two sections overlap horizontally (bbox extent)."""
+    a_left = a.offset_x + a.bbox_x
+    a_right = a_left + a.bbox_w
+    b_left = b.offset_x + b.bbox_x
+    b_right = b_left + b.bbox_w
+    return a_left < b_right and b_left < a_right
+
+
+def _enforce_min_row_gaps(
+    graph: MetroGraph,
+    row_assign: dict[str, int],
+    min_gap: float = MIN_INTER_SECTION_ROW_GAP,
+    header_protrusion: float = SECTION_HEADER_PROTRUSION,
+    requested_gap: float | None = None,
+) -> None:
+    """Shift rows downward so section headers don't overlap the section above.
+
+    Section headers (number circle + label) protrude above the section
+    bbox.  The visual gap is measured from the upper section's bbox
+    bottom to the lower section's header top (bbox_y - protrusion).
+    Only checks section pairs that share horizontal extent.
+    """
+    if not row_assign:
+        return
+
+    min_row = min(row_assign.values())
+    max_row = max(
+        row + graph.sections[sid].grid_row_span - 1
+        for sid, row in row_assign.items()
+        if sid in graph.sections
+    )
+    if max_row <= min_row:
+        return
+
+    # Group sections by their assigned row
+    row_sections: dict[int, list[Section]] = defaultdict(list)
+    for sid, section in graph.sections.items():
+        row = row_assign.get(sid, 0)
+        row_sections[row].append(section)
+
+    for row in range(min_row, max_row):
+        upper_secs = row_sections.get(row, [])
+        lower_secs = row_sections.get(row + 1, [])
+        if not upper_secs or not lower_secs:
+            continue
+
+        # Find the tightest visual gap among horizontally overlapping pairs.
+        # Visual gap = upper bbox bottom to lower section's header top.
+        worst_gap: float | None = None
+        for us in upper_secs:
+            for ls in lower_secs:
+                if not _cols_overlap(us, ls):
+                    continue
+                upper_bottom = us.offset_y + us.bbox_y + us.bbox_h
+                lower_header_top = ls.offset_y + ls.bbox_y - header_protrusion
+                gap = lower_header_top - upper_bottom
+                if worst_gap is None or gap < worst_gap:
+                    worst_gap = gap
+
+        if worst_gap is None or worst_gap >= min_gap:
+            continue
+
+        # The required bbox-to-bbox distance for the warning message
+        required_bbox_gap = min_gap + header_protrusion
+
+        # Warn if we're overriding the user's requested gap
+        if requested_gap is not None and required_bbox_gap > requested_gap:
+            warnings.warn(
+                f"Section gap between rows {row} and {row + 1} "
+                f"widened to {required_bbox_gap:.0f}px "
+                f"to clear section headers "
+                f"(requested {requested_gap:.0f}px)",
+                stacklevel=2,
+            )
+
+        deficit = min_gap - worst_gap
+        for shift_row in range(row + 1, max_row + 1):
+            for s in row_sections.get(shift_row, []):
+                s.offset_y += deficit
 
 
 def position_ports(section: Section, graph: MetroGraph) -> None:
