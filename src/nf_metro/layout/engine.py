@@ -593,11 +593,16 @@ def _adjust_lr_label_clearance(
 
         if label_left < section.bbox_x:
             deficit = section.bbox_x - label_left
-            # Shift all stations right and expand bbox on the left
+            # Shift all stations right and expand bbox on the left.
+            # This moves the current station too, so we recompute
+            # label_right below.  Later stations get more left-side
+            # clearance, which is safe (they can only trigger further
+            # right-side expansion, not undo this shift).
             for st in sub.stations.values():
                 st.x += deficit
             section.bbox_w += deficit
 
+        # Recompute after possible left-side shift
         label_right = s.x + half_w + margin
         bbox_right = section.bbox_x + section.bbox_w
         if label_right > bbox_right:

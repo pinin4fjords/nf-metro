@@ -280,6 +280,27 @@ def test_lr_exit_clearance_widens_bbox_for_multi_track():
     assert w_exit > w_no
 
 
+def test_lr_label_clearance_expands_bbox():
+    """LR section bbox expands to contain wide station labels."""
+    from nf_metro.layout.labels import label_text_width
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    subgraph sec1 [Section One]\n"
+        "        a[A]\n"
+        "        b[GATK HaplotypeCaller]\n"
+        "        a -->|main| b\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    sec = graph.sections["sec1"]
+    station_b = graph.stations["b"]
+    label_half = label_text_width("GATK HaplotypeCaller") / 2
+    # Label right edge should fit within section bbox
+    assert station_b.x + label_half < sec.bbox_x + sec.bbox_w
+
+
 def test_rl_exit_clearance_preserves_bbox_x():
     """RL section exit clearance should shift stations right, not move bbox_x left."""
     graph = parse_metro_mermaid(
