@@ -75,6 +75,21 @@ edge, giving enough horizontal run for smooth curves at bypass route
 corners.  Value: 40px (4 * 10px CURVE_RADIUS).
 """
 
+SECTION_HEADER_PROTRUSION: float = 22.0
+"""Distance the section header protrudes above bbox_y.
+
+The numbered circle center sits at bbox_y - circle_r - Y_OFFSET
+(bbox_y - 9 - 4 = bbox_y - 13), and the circle top is another
+9px above that, totaling 22px above bbox_y.
+"""
+
+MIN_INTER_SECTION_ROW_GAP: float = 12.0
+"""Minimum visual gap between section bottom and the next section's header.
+
+Applied after accounting for SECTION_HEADER_PROTRUSION, so the actual
+bbox-to-bbox distance will be MIN_INTER_SECTION_ROW_GAP + protrusion.
+"""
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------

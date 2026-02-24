@@ -84,6 +84,18 @@ def cli() -> None:
     "Use --no-straight-diamonds for symmetric fan-out.",
 )
 @click.option(
+    "--section-x-gap",
+    type=float,
+    default=None,
+    help="Horizontal gap between sections (default: 50)",
+)
+@click.option(
+    "--section-y-gap",
+    type=float,
+    default=None,
+    help="Vertical gap between sections (default: 40)",
+)
+@click.option(
     "--from-nextflow",
     is_flag=True,
     default=False,
@@ -109,6 +121,8 @@ def render(
     logo: Path | None,
     line_order: str | None,
     straight_diamonds: bool,
+    section_x_gap: float | None,
+    section_y_gap: float | None,
     from_nextflow: bool,
     title: str | None,
 ) -> None:
@@ -137,11 +151,15 @@ def render(
     if logo is not None:
         graph.logo_path = str(logo)
 
-    compute_layout(
-        graph,
+    layout_kwargs: dict = dict(
         x_spacing=x_spacing,
         y_spacing=y_spacing,
     )
+    if section_x_gap is not None:
+        layout_kwargs["section_x_gap"] = section_x_gap
+    if section_y_gap is not None:
+        layout_kwargs["section_y_gap"] = section_y_gap
+    compute_layout(graph, **layout_kwargs)
 
     theme_obj = THEMES[theme]
     svg = render_svg(
