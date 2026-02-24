@@ -137,6 +137,7 @@ class MetroGraph:
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
     line_order: str = "definition"  # "definition" or "span"
     diamond_style: str = "straight"  # "straight" or "symmetric"
+    compact_offsets: bool = False
     legend_position: str = "bottom"
     logo_path: str = ""
     # Section IDs that had explicit %%metro direction: directives
