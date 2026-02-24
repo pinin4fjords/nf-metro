@@ -170,7 +170,7 @@ def _build_routing_context(
     bundle_info = compute_bundle_info(
         graph, junction_ids, line_priority, bottom_exit_junctions
     )
-    bypass_gap_idx = _compute_bypass_gap_indices(graph, junction_ids)
+    bypass_gap_idx = _compute_bypass_gap_indices(graph, junction_ids, line_priority)
 
     return _RoutingCtx(
         graph=graph,
@@ -409,19 +409,28 @@ def _route_bypass(
             gap2_x = gap2_base - gap2_extra
 
     r_bypass = ctx.curve_radius + max(gap1_extra, gap2_extra)
+
+    # Apply per-line offsets directly so the renderer doesn't have to
+    # guess which waypoints belong to the source vs target side.
+    # (When source and target share the same base Y, the midpoint
+    # heuristic in the renderer breaks.)
+    src_off = _get_offset(ctx, edge.source, edge.line_id)
+    tgt_off = _get_offset(ctx, edge.target, edge.line_id)
+
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
         points=[
-            (sx, sy),
-            (gap1_x, sy),
+            (sx, sy + src_off),
+            (gap1_x, sy + src_off),
             (gap1_x, by),
             (gap2_x, by),
-            (gap2_x, ty),
-            (tx, ty),
+            (gap2_x, ty + tgt_off),
+            (tx, ty + tgt_off),
         ],
         is_inter_section=True,
         curve_radii=[r_bypass, r_bypass, r_bypass, r_bypass],
+        offsets_applied=True,
     )
 
 
@@ -997,6 +1006,7 @@ def _has_intervening_sections(
 def _compute_bypass_gap_indices(
     graph: MetroGraph,
     junction_ids: set[str],
+    line_priority: dict[str, int] | None = None,
 ) -> dict[tuple[str, str, str], tuple[int, int, int, int]]:
     """Assign per-gap indices for bypass routes sharing physical gaps.
 
@@ -1041,9 +1051,12 @@ def _compute_bypass_gap_indices(
         bypass_edges.append((ekey, src_col, tgt_col, dx))
 
     gap1_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
-    gap2_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
+    gap2_groups: dict[tuple[int, int], list[tuple[EdgeKey, int, str]]] = defaultdict(
+        list
+    )
 
     for ekey, src_col, tgt_col, dx in bypass_edges:
+        line_id = ekey[2]
         if dx > 0:
             gap1_pair = (src_col, src_col + 1)
             gap2_pair = (tgt_col - 1, tgt_col)
@@ -1051,7 +1064,7 @@ def _compute_bypass_gap_indices(
             gap1_pair = (src_col - 1, src_col)
             gap2_pair = (tgt_col, tgt_col + 1)
         gap1_groups[gap1_pair].append((ekey, src_col))
-        gap2_groups[gap2_pair].append((ekey, src_col))
+        gap2_groups[gap2_pair].append((ekey, src_col, line_id))
 
     gap1_idx: dict[EdgeKey, tuple[int, int]] = {}
     gap2_idx: dict[EdgeKey, tuple[int, int]] = {}
@@ -1062,10 +1075,15 @@ def _compute_bypass_gap_indices(
         for j, (ek, _) in enumerate(group):
             gap1_idx[ek] = (j, n)
 
+    lp = line_priority or {}
     for group in gap2_groups.values():
-        group.sort(key=lambda x: x[1])
+        # Sort by line priority so the lowest-offset line (highest
+        # priority) gets the outermost vertical channel.  This
+        # prevents crossings when lines converge at an entry port
+        # from different source columns.
+        group.sort(key=lambda x: lp.get(x[2], 0))
         n = len(group)
-        for j, (ek, _) in enumerate(group):
+        for j, (ek, _sc, _lid) in enumerate(group):
             gap2_idx[ek] = (j, n)
 
     result: dict[EdgeKey, tuple[int, int, int, int]] = {}
