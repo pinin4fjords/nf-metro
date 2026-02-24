@@ -285,6 +285,7 @@ These are automatically rewritten into port-to-port connections with junction st
 | `%%metro legend: <position>` | Global | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, `none` |
 | `%%metro line_order: <strategy>` | Global | Line ordering for track assignment: `definition` (default) or `span` (longest-spanning lines get inner tracks) |
 | `%%metro file: <station> \| <label>` | Global | Mark a station as a file terminus with a document icon |
+| `%%metro compact_offsets: true` | Global | Use compact per-station offsets instead of global line-priority slots (better for dense maps with few lines) |
 | `%%metro entry: <side> \| <lines>` | Section | Entry port hint |
 | `%%metro exit: <side> \| <lines>` | Section | Exit port hint |
 | `%%metro direction: <dir>` | Section | Flow direction: `LR`, `RL`, `TB` |
