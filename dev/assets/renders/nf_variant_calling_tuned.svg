@@ -78,5 +78,5 @@
 <text x="108.0" y="294.23303379776746" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
 <path d="M72.0,318.23303379776746 L96.0,318.23303379776746" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <text x="108.0" y="318.23303379776746" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">QC Reporting</text>
-<text x="1171.0" y="358.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.1+dev</text>
+<text x="1171.0" y="358.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.2+dev</text>
 </svg>
