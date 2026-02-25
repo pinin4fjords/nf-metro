@@ -270,6 +270,28 @@ def _compute_section_offsets(
             if col_w > section.bbox_w:
                 section.offset_x += col_w - section.bbox_w
 
+    # Align left edges of spanning sections with their starting column.
+    # A section that spans multiple columns may have a different local
+    # bbox_x from internal layout, causing its left edge to be offset
+    # from single-span sections in the same starting column.
+    for section in graph.sections.values():
+        if section.grid_col_span <= 1:
+            continue
+        col = section.grid_col
+        # Find the representative left edge from single-span sections
+        # in the same column.
+        peers = [
+            s
+            for s in graph.sections.values()
+            if s.grid_col == col and s.grid_col_span == 1
+        ]
+        if not peers:
+            continue
+        target_left = min(s.offset_x + s.bbox_x for s in peers)
+        current_left = section.offset_x + section.bbox_x
+        if abs(current_left - target_left) > 0.5:
+            section.offset_x -= current_left - target_left
+
         rspan = section.grid_row_span
         if rspan > 1:
             start_row = section.grid_row
