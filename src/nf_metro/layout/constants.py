@@ -169,7 +169,7 @@ STATION_ELBOW_TOLERANCE: float = 12.0
 LABEL_MARGIN: float = 2.0
 """Overlap detection margin for labels."""
 
-LABEL_OFFSET: float = 8.0
+LABEL_OFFSET: float = 11.0
 """Vertical distance from pill edge to label."""
 
 DESCENDER_CLEARANCE: float = 3.0
