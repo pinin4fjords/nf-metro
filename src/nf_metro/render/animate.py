@@ -77,9 +77,7 @@ def render_animation(
             key_times = f"0;{move_frac:.4f};1"
             key_points = "0;1;1"
             kp_attrs = (
-                f'keyPoints="{key_points}" '
-                f'keyTimes="{key_times}" '
-                f'calcMode="linear" '
+                f'keyPoints="{key_points}" keyTimes="{key_times}" calcMode="linear" '
             )
         else:
             kp_attrs = ""
@@ -99,7 +97,7 @@ def render_animation(
                     f'fill="{theme.animation_ball_color}" opacity="0.9"'
                     f"{stroke_attr}>"
                     f'<animateMotion dur="{max_dur:.2f}s" '
-                    f'{kp_attrs}'
+                    f"{kp_attrs}"
                     f'repeatCount="indefinite" '
                     f'begin="{begin_offset:.2f}s">'
                     f'<mpath href="#{path_id}"/>'
