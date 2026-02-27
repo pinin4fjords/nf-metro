@@ -58,10 +58,10 @@ SVG_CURVE_RADIUS: float = 10.0
 SECTION_NUM_CIRCLE_R: int = 8
 """Radius of section number circle background (small variant)."""
 
-SECTION_NUM_CIRCLE_R_LARGE: int = 9
+SECTION_NUM_CIRCLE_R_LARGE: int = 11
 """Radius of section number circle background (large variant)."""
 
-SECTION_NUM_FONT_SIZE: int = 9
+SECTION_NUM_FONT_SIZE: int = 12
 """Font size for section number text inside the circle."""
 
 SECTION_NUM_Y_OFFSET: int = 4
