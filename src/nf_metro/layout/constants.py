@@ -52,7 +52,7 @@ SECTION_Y_PADDING: float = 35.0
 SECTION_X_GAP: float = 50.0
 """Horizontal gap between section columns (engine-level)."""
 
-SECTION_Y_GAP: float = 40.0
+SECTION_Y_GAP: float = 50.0
 """Vertical gap between section rows (engine-level)."""
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ SECTION_Y_GAP: float = 40.0
 PLACEMENT_X_GAP: float = 80.0
 """Horizontal gap between section columns in meta-graph placement."""
 
-PLACEMENT_Y_GAP: float = 60.0
+PLACEMENT_Y_GAP: float = 70.0
 """Vertical gap between section rows in meta-graph placement."""
 
 PORT_MIN_GAP: float = 15.0
@@ -75,12 +75,12 @@ edge, giving enough horizontal run for smooth curves at bypass route
 corners.  Value: 40px (4 * 10px CURVE_RADIUS).
 """
 
-SECTION_HEADER_PROTRUSION: float = 22.0
+SECTION_HEADER_PROTRUSION: float = 26.0
 """Distance the section header protrudes above bbox_y.
 
 The numbered circle center sits at bbox_y - circle_r - Y_OFFSET
-(bbox_y - 9 - 4 = bbox_y - 13), and the circle top is another
-9px above that, totaling 22px above bbox_y.
+(bbox_y - 11 - 4 = bbox_y - 15), and the circle top is another
+11px above that, totaling 26px above bbox_y.
 """
 
 MIN_INTER_SECTION_ROW_GAP: float = 12.0
