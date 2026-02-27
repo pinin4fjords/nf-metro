@@ -6,13 +6,13 @@
 <rect x="0" y="0" width="613" height="281" fill="#2b2b2b" />
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">File Icons</text>
 <rect x="22.0" y="85.0" width="305.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="31.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="31.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
-<text x="45.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Analysis</text>
+<circle cx="33.0" cy="70.0" r="11" fill="#333333" class="nf-metro-section-num-circle" />
+<text x="33.0" y="70.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">1</text>
+<text x="49.0" y="70.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label">Analysis</text>
 <rect x="385.0" y="85.0" width="168.0" height="70.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" />
-<circle cx="394.0" cy="72.0" r="9" fill="#333333" class="nf-metro-section-num-circle" />
-<text x="394.0" y="72.0" font-size="9" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
-<text x="408.0" y="72.0" font-size="13.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-section-label">Reporting</text>
+<circle cx="396.0" cy="70.0" r="11" fill="#333333" class="nf-metro-section-num-circle" />
+<text x="396.0" y="70.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">2</text>
+<text x="412.0" y="70.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label">Reporting</text>
 <path d="M80.0,123.0 L140.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
 <path d="M435.0,123.0 L495.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
 <path d="M140.0,123.0 L327.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
@@ -47,5 +47,5 @@
 <text x="70.0" y="209.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
 <path d="M34.0,233.0 L58.0,233.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
 <text x="70.0" y="233.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Quality Control</text>
-<text x="583.0" y="273.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.2+dev</text>
+<text x="583.0" y="273.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.3+dev</text>
 </svg>
