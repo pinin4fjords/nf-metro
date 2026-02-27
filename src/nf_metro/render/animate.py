@@ -75,7 +75,7 @@ def render_animation(
         # keyTimes: timestamps matching the keyPoints
         if move_frac < 0.999:
             key_times = f"0;{move_frac:.4f};1"
-            key_points = f"0;1;1"
+            key_points = "0;1;1"
             kp_attrs = (
                 f'keyPoints="{key_points}" '
                 f'keyTimes="{key_times}" '
