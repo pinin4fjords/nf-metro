@@ -548,6 +548,7 @@ def _render_first_class_sections(
                 cy,
                 fill=theme.section_label_color,
                 font_family=theme.label_font_family,
+                font_weight="bold",
                 dy=TEXT_VCENTER_DY,
                 **{"class": "nf-metro-section-label"},
             )
