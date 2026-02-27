@@ -46,5 +46,5 @@
 <text x="78.0" y="329.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Horizontal Flow</text>
 <path d="M42.0,353.0 L66.0,353.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="353.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Vertical Flow</text>
-<text x="430.0" y="393.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.3+dev</text>
+<text x="430.0" y="393.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.4+dev</text>
 </svg>

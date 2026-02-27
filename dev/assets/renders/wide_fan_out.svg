@@ -78,5 +78,5 @@
 <text x="78.0" y="617.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Gamma</text>
 <path d="M42.0,641.0 L66.0,641.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="641.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Delta</text>
-<text x="430.0" y="681.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.3+dev</text>
+<text x="430.0" y="681.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.4+dev</text>
 </svg>
