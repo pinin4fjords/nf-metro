@@ -42,6 +42,19 @@ def render_animation(
         curve_radius,
     )
 
+    # Compute a global animation cycle duration so all balls loop in
+    # sync.  Without this, short lines restart while long lines are
+    # still mid-track, making it look like some lines lose their balls
+    # on alternating cycles.  Each ball travels at the same speed
+    # (theme.animation_speed px/s) and then holds at the endpoint
+    # until the cycle restarts, using keyTimes/keyPoints.
+    max_dur = MIN_ANIMATION_DURATION
+    for _, d_attr in line_paths:
+        path_length = _compute_path_length(d_attr)
+        dur = max(path_length / theme.animation_speed, MIN_ANIMATION_DURATION)
+        if dur > max_dur:
+            max_dur = dur
+
     for idx, (line_id, d_attr) in enumerate(line_paths):
         path_id = f"motion-path-{line_id}-{idx}"
 
@@ -50,13 +63,28 @@ def render_animation(
             draw.Raw(f'<path id="{path_id}" d="{d_attr}" fill="none" stroke="none"/>')
         )
 
-        # Compute duration from approximate path length
+        # Natural duration at constant speed
         path_length = _compute_path_length(d_attr)
-        dur = max(path_length / theme.animation_speed, MIN_ANIMATION_DURATION)
+        natural_dur = max(path_length / theme.animation_speed, MIN_ANIMATION_DURATION)
+
+        # Fraction of the global cycle spent moving vs holding at end
+        move_frac = natural_dur / max_dur if max_dur > 0 else 1.0
+        move_frac = min(move_frac, 1.0)
+
+        # keyPoints: travel 0->1 during move phase, hold at 1 for rest
+        # keyTimes: timestamps matching the keyPoints
+        if move_frac < 0.999:
+            key_times = f"0;{move_frac:.4f};1"
+            key_points = "0;1;1"
+            kp_attrs = (
+                f'keyPoints="{key_points}" keyTimes="{key_times}" calcMode="linear" '
+            )
+        else:
+            kp_attrs = ""
 
         n_balls = theme.animation_balls_per_line
         for i in range(n_balls):
-            begin_offset = -i * dur / n_balls
+            begin_offset = -i * max_dur / n_balls
             stroke_attr = ""
             if theme.animation_ball_stroke:
                 stroke_attr = (
@@ -68,7 +96,8 @@ def render_animation(
                     f'<circle r="{theme.animation_ball_radius}" '
                     f'fill="{theme.animation_ball_color}" opacity="0.9"'
                     f"{stroke_attr}>"
-                    f'<animateMotion dur="{dur:.2f}s" '
+                    f'<animateMotion dur="{max_dur:.2f}s" '
+                    f"{kp_attrs}"
                     f'repeatCount="indefinite" '
                     f'begin="{begin_offset:.2f}s">'
                     f'<mpath href="#{path_id}"/>'
@@ -122,11 +151,11 @@ def _build_line_motion_paths(
         if not roots:
             continue
 
-        # Find all distinct root-to-sink paths (covers both branches
-        # of diamonds/bubbles)
-        all_paths: list[list] = []
-        for root in sorted(roots):
-            _find_all_paths(root, adj, [], all_paths)
+        # Build edge-disjoint paths: one greedy root-to-sink path
+        # first, then short paths for remaining diamond branches.
+        # This avoids combinatorial explosion (N diamonds -> 2^N paths)
+        # and ensures each edge is traversed by exactly one ball.
+        all_paths = _find_edge_disjoint_paths(roots, adj)
 
         if not all_paths:
             continue
@@ -147,23 +176,95 @@ def _build_line_motion_paths(
     return result
 
 
-def _find_all_paths(
-    current: str,
+def _find_edge_disjoint_paths(
+    roots: set[str],
     adj: dict[str, list],
-    path_so_far: list,
-    results: list[list],
-) -> None:
-    """DFS to find all root-to-sink paths through the adjacency map."""
-    if current not in adj:
-        # Sink node: save the accumulated path
-        if path_so_far:
-            results.append(list(path_so_far))
-        return
+) -> list[list]:
+    """Build one full root-to-sink path per unique branch.
 
-    for target, edge in adj[current]:
-        path_so_far.append(edge)
-        _find_all_paths(target, adj, path_so_far, results)
-        path_so_far.pop()
+    Instead of the cartesian product of all diamonds (which explodes
+    combinatorially), this produces:
+
+    1. One canonical path following the first branch at every fork.
+    2. For each alternative branch at each fork, one full root-to-sink
+       path that diverges only at that specific fork and follows the
+       canonical (first) branch everywhere else.
+
+    Result: for N forks with B_i branches each, produces
+    1 + sum(B_i - 1) paths instead of product(B_i).
+    E.g. 2 binary + 1 ternary fork -> 1+1+1+2 = 5 instead of 12.
+    """
+    # First find the canonical path (first branch at every fork)
+    canonical = _first_path(sorted(roots)[0] if roots else "", adj)
+    if not canonical:
+        return []
+
+    paths: list[list] = [canonical]
+
+    # Build a set of canonical edge choices at each fork for quick lookup
+    canonical_set: set[int] = {id(e) for e in canonical}
+
+    # Find fork points: nodes in adj with >1 outgoing edge
+    for node, targets in adj.items():
+        if len(targets) <= 1:
+            continue
+        # The canonical path takes targets[0] (first branch).
+        # Create a variant path for each alternative branch.
+        for alt_target, alt_edge in targets:
+            if id(alt_edge) in canonical_set:
+                continue
+            # Build a full root-to-sink path that follows canonical
+            # everywhere except at this fork, where it takes alt_edge.
+            variant = _variant_path(
+                sorted(roots)[0] if roots else "",
+                adj,
+                fork_node=node,
+                forced_edge=alt_edge,
+                forced_target=alt_target,
+            )
+            if variant:
+                paths.append(variant)
+
+    return paths
+
+
+def _first_path(start: str, adj: dict[str, list]) -> list:
+    """Follow the first outgoing edge at every node from start to sink."""
+    path: list = []
+    current = start
+    visited: set[str] = set()
+    while current in adj and current not in visited:
+        visited.add(current)
+        target, edge = adj[current][0]
+        path.append(edge)
+        current = target
+    return path
+
+
+def _variant_path(
+    start: str,
+    adj: dict[str, list],
+    fork_node: str,
+    forced_edge: object,
+    forced_target: str,
+) -> list:
+    """Build a root-to-sink path that takes forced_edge at fork_node.
+
+    At every other fork, follows the first (canonical) branch.
+    """
+    path: list = []
+    current = start
+    visited: set[str] = set()
+    while current in adj and current not in visited:
+        visited.add(current)
+        if current == fork_node:
+            path.append(forced_edge)
+            current = forced_target
+        else:
+            target, edge = adj[current][0]
+            path.append(edge)
+            current = target
+    return path
 
 
 def _chain_edge_points(
