@@ -20,6 +20,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
     FOLD_MARGIN,
+    JUNCTION_MARGIN,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     OFFSET_STEP,
@@ -302,6 +303,37 @@ def _route_inter_section(
     if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.TOP:
         return _route_top_entry_l_shape(edge, src, tgt, i, n, ctx)
 
+    # Near-vertical: junction to same-column entry with tiny horizontal
+    # offset (just the junction margin).  The standard L-shape would
+    # place the vertical channel on the wrong side (toward the target,
+    # which is back inside the section).  Instead, route the channel
+    # further into the inter-column gap (away from the target) so the
+    # line continues in the junction's natural direction before dropping.
+    if (
+        edge.source in ctx.junction_ids
+        and abs(dx) <= JUNCTION_MARGIN + COORD_TOLERANCE
+        and abs(dy) > abs(dx) * 3
+    ):
+        delta, r_first, r_second = l_shape_radii(
+            i,
+            n,
+            going_down=(dy > 0),
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
+        )
+        # Push channel away from target into the inter-column gap.
+        if dx < 0:
+            vx = sx + ctx.curve_radius + ctx.offset_step + delta
+        else:
+            vx = sx - ctx.curve_radius - ctx.offset_step + delta
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (vx, sy), (vx, ty), (tx, ty)],
+            is_inter_section=True,
+            curve_radii=[r_first, r_second],
+        )
+
     # Standard L-shape
     return _route_l_shape(edge, src, tgt, i, n, ctx)
 
@@ -475,7 +507,11 @@ def _route_top_entry_l_shape(
 ) -> RoutedPath:
     """Vertical-first L-shape for TOP entry ports.
 
-    Routes: (sx,sy) -> (sx, hy) -> (tx, hy) -> (tx, ty)
+    Routes via a short horizontal lead-in so the transition from any
+    preceding horizontal edge (e.g. exit -> junction) curves smoothly
+    into the vertical drop::
+
+        (sx,sy) -> (lx, sy) -> (lx, hy) -> (tx, hy) -> (tx, ty)
 
     The horizontal run sits in the inter-row gap just above the target
     section so the line drops cleanly into the TOP port, mirroring how
@@ -483,6 +519,7 @@ def _route_top_entry_l_shape(
     """
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
+    dx = tx - sx
     dy = ty - sy
 
     delta, r_first, r_second = l_shape_radii(
@@ -496,6 +533,21 @@ def _route_top_entry_l_shape(
     # Compute Y for the horizontal channel in the inter-row gap.
     mid_y = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
     hy = mid_y + delta
+
+    # Horizontal lead-in: a short run in the target's direction so the
+    # corner from horizontal to vertical gets a proper curve instead of
+    # a sharp right angle at the junction point.
+    r_lead = ctx.curve_radius
+    if abs(dx) > r_lead:
+        lead_sign = 1.0 if dx > 0 else -1.0
+        lx = sx + lead_sign * r_lead
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (lx, sy), (lx, hy), (tx, hy), (tx, ty)],
+            is_inter_section=True,
+            curve_radii=[r_lead, r_first, r_second],
+        )
 
     return RoutedPath(
         edge=edge,

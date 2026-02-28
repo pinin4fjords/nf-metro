@@ -866,11 +866,24 @@ def _position_junctions(graph: MetroGraph) -> None:
                 # so lines continue their vertical drop.
                 junction.x = exit_port_x
                 junction.y = exit_port_y + margin
+            elif exit_port_obj and exit_port_obj.side in (
+                PortSide.RIGHT,
+                PortSide.LEFT,
+            ):
+                # LEFT/RIGHT exit: direction follows the port side so the
+                # junction always sits outside the source section, even
+                # when a downstream entry port shares the same X (e.g.
+                # same-column section below).
+                direction = (
+                    1.0 if exit_port_obj.side == PortSide.RIGHT else -1.0
+                )
+                junction.x = exit_port_x + direction * margin
+                junction.y = exit_port_y
             else:
-                # Position close to the exit port with a small margin,
-                # rather than at the midpoint. This keeps the divergence
-                # point near the source section so lines turn sooner.
-                nearest_entry_x = min(entry_port_xs, key=lambda x: abs(x - exit_port_x))
+                # TOP exit or unknown: infer direction from nearest entry.
+                nearest_entry_x = min(
+                    entry_port_xs, key=lambda x: abs(x - exit_port_x)
+                )
                 direction = 1.0 if nearest_entry_x > exit_port_x else -1.0
                 junction.x = exit_port_x + direction * margin
                 junction.y = exit_port_y
