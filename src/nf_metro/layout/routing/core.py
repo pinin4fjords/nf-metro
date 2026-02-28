@@ -296,6 +296,12 @@ def _route_inter_section(
     if needs_bypass:
         return _route_bypass(edge, src, tgt, i, src_col, tgt_col, ctx)
 
+    # TOP entry port: vertical-first L-shape so line drops into the
+    # section rather than routing along its top edge.
+    tgt_port = graph.ports.get(edge.target)
+    if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.TOP:
+        return _route_top_entry_l_shape(edge, src, tgt, i, n, ctx)
+
     # Standard L-shape
     return _route_l_shape(edge, src, tgt, i, n, ctx)
 
@@ -462,6 +468,149 @@ def _route_l_shape(
         is_inter_section=True,
         curve_radii=[r_first, r_second],
     )
+
+
+def _route_top_entry_l_shape(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Vertical-first L-shape for TOP entry ports.
+
+    Routes: (sx,sy) -> (sx, hy) -> (tx, hy) -> (tx, ty)
+
+    The horizontal run sits in the inter-row gap just above the target
+    section so the line drops cleanly into the TOP port, mirroring how
+    LEFT entry ports receive a vertical run in the inter-column gap.
+    """
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dy = ty - sy
+
+    delta, r_first, r_second = l_shape_radii(
+        i,
+        n,
+        going_down=(dy > 0),
+        offset_step=ctx.offset_step,
+        base_radius=ctx.curve_radius,
+    )
+
+    # Compute Y for the horizontal channel in the inter-row gap.
+    mid_y = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+    hy = mid_y + delta
+
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (sx, hy), (tx, hy), (tx, ty)],
+        is_inter_section=True,
+        curve_radii=[r_first, r_second],
+    )
+
+
+def _inter_row_channel_y(
+    graph: MetroGraph,
+    src: Station,
+    tgt: Station,
+    sy: float,
+    ty: float,
+    dy: float,
+    max_r: float,
+) -> float:
+    """Compute Y for a horizontal channel in an inter-row gap.
+
+    Vertical equivalent of ``inter_column_channel_x``: places the
+    channel in the inter-row gap, above the target section's header
+    (number badge + label rendered above bbox_y).
+    """
+    # Section headers are rendered above bbox_y by approximately
+    # 2 * circle_radius + y_offset (~26px).  Keep the channel above
+    # this zone with a small margin.
+    HEADER_CLEARANCE = 30.0
+
+    # Resolve sections for junction stations (section_id is None for
+    # junctions; trace through edges to find a connected port's section).
+    src_sec = _resolve_section(graph, src)
+    tgt_sec = _resolve_section(graph, tgt)
+
+    if src_sec and tgt_sec and src_sec.grid_row != tgt_sec.grid_row:
+        src_row = src_sec.grid_row
+        tgt_row = tgt_sec.grid_row
+
+        if dy > 0:
+            # Going down: gap between bottom of source row and top of target row
+            row_bottom = max(
+                (
+                    s.bbox_y + s.bbox_h
+                    for s in graph.sections.values()
+                    if s.grid_row == src_row and s.bbox_h > 0
+                ),
+                default=sy,
+            )
+            row_top = min(
+                (
+                    s.bbox_y
+                    for s in graph.sections.values()
+                    if s.grid_row == tgt_row and s.bbox_h > 0
+                ),
+                default=ty,
+            )
+            # Place above the header zone
+            header_top = row_top - HEADER_CLEARANCE
+            return (row_bottom + header_top) / 2
+        else:
+            # Going up: gap between top of source row and bottom of target row
+            row_top = min(
+                (
+                    s.bbox_y
+                    for s in graph.sections.values()
+                    if s.grid_row == src_row and s.bbox_h > 0
+                ),
+                default=sy,
+            )
+            row_bottom = max(
+                (
+                    s.bbox_y + s.bbox_h
+                    for s in graph.sections.values()
+                    if s.grid_row == tgt_row and s.bbox_h > 0
+                ),
+                default=ty,
+            )
+            header_bottom = row_bottom + HEADER_CLEARANCE
+            return (row_top + header_bottom) / 2
+
+    # Fallback: place near target, clearing the header zone
+    if dy > 0:
+        return ty - HEADER_CLEARANCE - max_r
+    else:
+        return ty + HEADER_CLEARANCE + max_r
+
+
+def _resolve_section(graph: MetroGraph, station: Station):
+    """Resolve a station's section, tracing through junctions if needed.
+
+    For junctions (section_id is None), traces edges to find a connected
+    port's section.  Prefers exit-port connections (incoming edges) so
+    the junction resolves to the *upstream* section.
+    """
+    if station.section_id:
+        return graph.sections.get(station.section_id)
+    # Junction: prefer the section connected via an incoming edge
+    # (exit_port -> junction), i.e. the upstream section.
+    for e in graph.edges:
+        if e.target == station.id:
+            other = graph.stations.get(e.source)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+    # Fall back to outgoing edges
+    for e in graph.edges:
+        if e.source == station.id:
+            other = graph.stations.get(e.target)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -752,8 +901,9 @@ def _route_intra_section(
     dx = tx - sx
     dy = ty - sy
 
-    # Cross-row fold edge
-    if dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD:
+    # Cross-row fold edge (skip for intra-section RL edges)
+    same_section = src.section_id and src.section_id == tgt.section_id
+    if dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD and not same_section:
         fold_right = ctx.fold_x + FOLD_MARGIN
         return RoutedPath(
             edge=edge,

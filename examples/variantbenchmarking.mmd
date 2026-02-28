@@ -3,6 +3,13 @@
 %%metro line_order: span
 %%metro legend: bl
 %%metro compact_offsets: true
+%%metro grid: inputs | 0,0
+%%metro grid: preprocess | 1,0
+%%metro grid: normalization | 2,0
+%%metro grid: filtering | 3,0
+%%metro grid: stats | 4,0
+%%metro grid: benchmarking | 3,1
+%%metro grid: ensembl_truth | 4,1
 %%metro file: ref_genome_file | FASTA
 %%metro file: truth_vcf_file | VCF
 %%metro file: regions_bed_file | BED
@@ -12,6 +19,10 @@
 %%metro file: sv_stats_out | TSV
 %%metro line: truth | Truth Preprocessing | #4CAF50
 %%metro line: test | Test Preprocessing | #ff9800
+%%metro line: sv_cnv | SV/CNV Benchmarking | #F44336
+%%metro line: snv_indel | SNV/INDEL Benchmarking | #f321cd
+%%metro line: concordance | Concordance | #da630e
+%%metro line: intersection | Intersection | #da930e
 %%metro line: output | Output Processing | #03A9F4
 
 graph LR
@@ -67,6 +78,45 @@ graph LR
         filter_contigs -->|test| survivor_filter
     end
 
+    subgraph ensembl_truth [Ensembl Truth]
+        %%metro direction: TB
+        %%metro entry: top | test
+        %%metro exit: left | truth
+        _ensembl_hub[hidden]
+        survivor_merge[SURVIVOR merge]
+        bcftools_merge[bcftools merge]
+        consensus_filter[Consensus Filter]
+        _ensembl_hub -->|test| survivor_merge
+        _ensembl_hub -->|test| bcftools_merge
+        survivor_merge -->|test| consensus_filter
+        bcftools_merge -->|test| consensus_filter
+    end
+
+    subgraph benchmarking [Benchmarking]
+        %%metro direction: RL
+        %%metro entry: top | test, truth
+        %%metro entry: right | test, truth
+        _bench_hub[hidden]
+        truvari[Truvari]
+        rtg_vcfeval[RTGtools vcfeval]
+        svanalyzer[SVanalyzer]
+        rtg_bndeval[RTGtools bndeval]
+        happy[hap.py]
+        wittyer[wittyer]
+        sompy[som.py]
+        intersection_tool[Intersection]
+        gatk4_conc[GATK4 Concordance]
+        _bench_hub -->|sv_cnv| truvari
+        _bench_hub -->|snv_indel| rtg_vcfeval
+        _bench_hub -->|sv_cnv| svanalyzer
+        _bench_hub -->|sv_cnv| rtg_bndeval
+        _bench_hub -->|snv_indel| happy
+        _bench_hub -->|sv_cnv| wittyer
+        _bench_hub -->|snv_indel| sompy
+        _bench_hub -->|intersection| intersection_tool
+        _bench_hub -->|concordance| gatk4_conc
+    end
+
     subgraph stats [Variant Statistics]
         %%metro entry: left | test
         %%metro exit: right | test, output
@@ -96,3 +146,10 @@ graph LR
     %% Section 4 -> 5: each filter to its corresponding stats
     bcftools_filter -->|test| bcftools_stats
     survivor_filter -->|test| survivor_stats
+    %% Section 4 -> Ensembl Truth
+    bcftools_filter -->|test| _ensembl_hub
+    survivor_filter -->|test| _ensembl_hub
+    %% Multiple sections -> Benchmarking
+    filter_contigs -->|test| _bench_hub
+    var_norm -->|truth| _bench_hub
+    consensus_filter -->|truth| _bench_hub

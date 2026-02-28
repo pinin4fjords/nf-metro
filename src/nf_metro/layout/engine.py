@@ -244,6 +244,43 @@ def _compute_section_layout(
     # Mirrors Phase 2's _adjust_tb_entry_shifts for the horizontal case.
     _shift_lr_perp_entry_stations(graph, x_spacing)
 
+    # Phase 11: Top-align sections within each grid row.
+    # Port positioning (phases 5-10) can shift bbox_y unevenly for
+    # sections in the same row.  Normalise so the topmost bbox edge
+    # is consistent across each row.
+    _top_align_row_sections(graph)
+
+    # Phase 12: Re-position junctions after top-alignment.
+    # Phase 11 shifts section stations (including ports) but junctions
+    # live between sections and aren't in any section.station_ids,
+    # so they need recalculating to match the moved ports.
+    _position_junctions(graph)
+
+
+def _top_align_row_sections(graph: MetroGraph) -> None:
+    """Shift sections up so bbox tops align within each grid row."""
+    from collections import defaultdict
+
+    row_sections: dict[int, list[Section]] = defaultdict(list)
+    for section in graph.sections.values():
+        if section.bbox_h > 0 and section.grid_row >= 0:
+            row_sections[section.grid_row].append(section)
+
+    for row, sections in row_sections.items():
+        if len(sections) < 2:
+            continue
+        min_top = min(s.bbox_y for s in sections)
+        for section in sections:
+            delta = section.bbox_y - min_top
+            if delta <= 0:
+                continue
+            # Shift all stations in this section up
+            for sid in section.station_ids:
+                station = graph.stations.get(sid)
+                if station:
+                    station.y -= delta
+            section.bbox_y -= delta
+
 
 def _layout_single_section(
     graph: MetroGraph,
