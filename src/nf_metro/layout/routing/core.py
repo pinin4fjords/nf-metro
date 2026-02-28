@@ -334,6 +334,20 @@ def _route_inter_section(
             curve_radii=[r_first, r_second],
         )
 
+    # RIGHT entry port with source to the LEFT: wrap the vertical
+    # channel around the right side of the target section so the route
+    # goes over the top and in from the right, rather than cutting
+    # horizontally through the section interior.
+    if not tgt_port:
+        tgt_port = graph.ports.get(edge.target)
+    if (
+        tgt_port
+        and tgt_port.is_entry
+        and tgt_port.side == PortSide.RIGHT
+        and dx > 0
+    ):
+        return _route_right_entry_wrap(edge, src, tgt, i, n, ctx)
+
     # Standard L-shape
     return _route_l_shape(edge, src, tgt, i, n, ctx)
 
@@ -558,6 +572,54 @@ def _route_top_entry_l_shape(
     )
 
 
+def _route_right_entry_wrap(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Route to a RIGHT entry port by wrapping around the right side.
+
+    When the source is to the LEFT of a RIGHT entry port, the standard
+    L-shape would cut horizontally through the target section.  Instead,
+    drop into the inter-row gap, run horizontally past the target
+    section's right edge, then drop into the RIGHT entry port::
+
+        (sx,sy) -> (sx, hy) -> (vx, hy) -> (vx, ty) -> (tx, ty)
+
+    This avoids crossing through intervening sections.
+    """
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dy = ty - sy
+
+    delta, r_first, r_second = l_shape_radii(
+        i,
+        n,
+        going_down=(dy > 0),
+        offset_step=ctx.offset_step,
+        base_radius=ctx.curve_radius,
+    )
+
+    # Horizontal channel Y: in the inter-row gap above the target section.
+    hy = _inter_row_channel_y(
+        ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius
+    )
+    hy += delta
+
+    # Vertical channel X: just past the entry port in the inter-section gap.
+    vx = tx + ctx.curve_radius + ctx.offset_step + delta
+
+    # Short horizontal lead-in so the first corner (horizontal-to-vertical)
+    # gets a smooth curve instead of a sharp right angle at the junction.
+    r_lead = ctx.curve_radius
+    lx = sx + r_lead
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (lx, sy), (lx, hy), (vx, hy), (vx, ty), (tx, ty)],
+        is_inter_section=True,
+        curve_radii=[r_lead, r_first, r_first, r_second],
+    )
+
+
 def _inter_row_channel_y(
     graph: MetroGraph,
     src: Station,
@@ -695,10 +757,76 @@ def _route_tb_internal(
 
     x_src = _tb_x_offset(ctx, edge.source, edge.line_id, src_sec)
     x_tgt = _tb_x_offset(ctx, edge.target, edge.line_id, src_sec)
+
+    sx = src.x + x_src
+    sy = src.y
+    tx = tgt.x + x_tgt
+    ty = tgt.y
+    dx = tx - sx
+
+    # Different X tracks: route with vertical runs + 45-degree diagonal
+    if abs(dx) >= COORD_TOLERANCE:
+        return _route_tb_diagonal(edge, sx, sy, tx, ty, ctx)
+
+    # Same track: straight vertical drop
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
-        points=[(src.x + x_src, src.y), (tgt.x + x_tgt, tgt.y)],
+        points=[(sx, sy), (tx, ty)],
+        offsets_applied=True,
+    )
+
+
+def _route_tb_diagonal(
+    edge: Edge,
+    sx: float,
+    sy: float,
+    tx: float,
+    ty: float,
+    ctx: _RoutingCtx,
+) -> RoutedPath:
+    """Route TB edges with vertical runs and a 45-degree diagonal transition.
+
+    Mirrors ``_route_diagonal()`` but with axes swapped: vertical runs at
+    source and target connected by a 45-degree diagonal that shifts between
+    X tracks.
+    """
+    dy = ty - sy
+    sign = 1.0 if dy > 0 else -1.0
+    half_diag = ctx.diagonal_run / 2
+    min_straight = MIN_STRAIGHT_EDGE
+
+    # Bias diagonal toward fork/join stations
+    is_fork = edge.source in ctx.fork_stations
+    is_join = edge.target in ctx.join_stations
+    if is_fork:
+        mid_y = sy + sign * (min_straight + half_diag)
+    elif is_join:
+        mid_y = ty - sign * (min_straight + half_diag)
+    else:
+        mid_y = (sy + ty) / 2
+
+    diag_start_y = mid_y - sign * half_diag
+    diag_end_y = mid_y + sign * half_diag
+
+    # Clamp to ensure minimum straight vertical runs at endpoints
+    if sign > 0:
+        diag_start_y = max(diag_start_y, sy + min_straight)
+        diag_end_y = min(diag_end_y, ty - min_straight)
+        if diag_end_y < diag_start_y:
+            midpoint = (diag_start_y + diag_end_y) / 2
+            diag_start_y = diag_end_y = midpoint
+    else:
+        diag_start_y = min(diag_start_y, sy - min_straight)
+        diag_end_y = max(diag_end_y, ty + min_straight)
+        if diag_end_y > diag_start_y:
+            midpoint = (diag_start_y + diag_end_y) / 2
+            diag_start_y = diag_end_y = midpoint
+
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (sx, diag_start_y), (tx, diag_end_y), (tx, ty)],
         offsets_applied=True,
     )
 

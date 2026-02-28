@@ -96,7 +96,7 @@ graph LR
         %%metro direction: RL
         %%metro entry: top | test, truth
         %%metro entry: right | test, truth
-        _bench_hub[hidden]
+        bench_hub[ ]
         truvari[Truvari]
         rtg_vcfeval[RTGtools vcfeval]
         svanalyzer[SVanalyzer]
@@ -106,15 +106,15 @@ graph LR
         sompy[som.py]
         intersection_tool[Intersection]
         gatk4_conc[GATK4 Concordance]
-        _bench_hub -->|sv_cnv| truvari
-        _bench_hub -->|snv_indel| rtg_vcfeval
-        _bench_hub -->|sv_cnv| svanalyzer
-        _bench_hub -->|sv_cnv| rtg_bndeval
-        _bench_hub -->|snv_indel| happy
-        _bench_hub -->|sv_cnv| wittyer
-        _bench_hub -->|snv_indel| sompy
-        _bench_hub -->|intersection| intersection_tool
-        _bench_hub -->|concordance| gatk4_conc
+        bench_hub -->|sv_cnv| truvari
+        bench_hub -->|snv_indel| rtg_vcfeval
+        bench_hub -->|sv_cnv| svanalyzer
+        bench_hub -->|sv_cnv| rtg_bndeval
+        bench_hub -->|snv_indel| happy
+        bench_hub -->|sv_cnv| wittyer
+        bench_hub -->|snv_indel| sompy
+        bench_hub -->|intersection| intersection_tool
+        bench_hub -->|concordance| gatk4_conc
     end
 
     subgraph stats [Variant Statistics]
@@ -150,6 +150,6 @@ graph LR
     bcftools_filter -->|test| _ensembl_hub
     survivor_filter -->|test| _ensembl_hub
     %% Multiple sections -> Benchmarking
-    filter_contigs -->|test| _bench_hub
-    var_norm -->|truth| _bench_hub
-    consensus_filter -->|truth| _bench_hub
+    filter_contigs -->|test| bench_hub
+    var_norm -->|truth| bench_hub
+    consensus_filter -->|truth| bench_hub

@@ -10,6 +10,7 @@ __all__ = ["compute_layout"]
 from collections import Counter
 
 from nf_metro.layout.constants import (
+    CURVE_RADIUS,
     DIAGONAL_RUN,
     ENTRY_SHIFT_LR,
     ENTRY_SHIFT_TB,
@@ -1318,7 +1319,11 @@ def _resolve_tb_exit_y(
             entry_gap = max(entry_gap, first_y - graph.stations[pid].y)
             break
 
-    min_exit_y = last_y + entry_gap
+    # Ensure the gap below the last station is large enough for the
+    # exit corner curve (CURVE_RADIUS) plus a straight run so the
+    # curve doesn't crowd the station pill.
+    min_exit_gap = max(entry_gap, CURVE_RADIUS + MIN_PORT_STATION_GAP)
+    min_exit_y = last_y + min_exit_gap
     if tgt.y >= min_exit_y:
         tgt_y = tgt.y
     else:

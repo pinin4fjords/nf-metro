@@ -268,6 +268,13 @@ def render_svg(
     station_offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=station_offsets)
 
+    # Compute labels early so section bbox expansions are applied
+    # before section boxes are drawn and canvas bounds are computed.
+    icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
+    labels = place_labels(
+        graph, station_offsets=station_offsets, icon_obstacles=icon_obstacles
+    )
+
     max_x, max_y = _compute_canvas_bounds(graph, routes, debug)
 
     # Compute legend and logo dimensions
@@ -334,13 +341,6 @@ def render_svg(
                 **{"class": "nf-metro-title"},
             )
         )
-
-    # Compute labels early so bbox expansions are applied before
-    # section boxes are drawn.
-    icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
-    labels = place_labels(
-        graph, station_offsets=station_offsets, icon_obstacles=icon_obstacles
-    )
 
     # Sections
     if graph.sections:
