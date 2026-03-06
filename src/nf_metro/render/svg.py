@@ -1003,12 +1003,16 @@ def _render_debug_overlay(
                 if c not in col_bounds:
                     col_bounds[c] = (x0, x1)
                 else:
-                    col_bounds[c] = (min(col_bounds[c][0], x0), max(col_bounds[c][1], x1))
+                    col_bounds[c] = (
+                        min(col_bounds[c][0], x0), max(col_bounds[c][1], x1)
+                    )
             if sec.grid_row_span == 1:
                 if r not in row_bounds:
                     row_bounds[r] = (y0, y1)
                 else:
-                    row_bounds[r] = (min(row_bounds[r][0], y0), max(row_bounds[r][1], y1))
+                    row_bounds[r] = (
+                        min(row_bounds[r][0], y0), max(row_bounds[r][1], y1)
+                    )
 
         # Global extents
         all_x0 = min(b[0] for b in col_bounds.values()) - 20

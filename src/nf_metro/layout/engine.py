@@ -1938,7 +1938,9 @@ def _insert_exit_bypass_stations(
 
     def _primary_line(sid: str) -> str | None:
         slines = graph.station_lines(sid)
-        return min(slines, key=lambda l: line_pri.get(l, 999)) if slines else None
+        if not slines:
+            return None
+        return min(slines, key=lambda lid: line_pri.get(lid, 999))
 
     # Pre-build layer -> station list index for O(1) lookup
     layer_to_sids: dict[int, list[str]] = {}
@@ -2183,7 +2185,9 @@ def _compute_fork_join_gaps(
         # space needed is 2 * label_half + DIAGONAL_RUN, but the gap
         # is added on BOTH sides (after fork, before join), so each
         # side contributes half the total requirement.
-        bubble_extra = max(0.0, (bubble_label_half * 2 + DIAGONAL_RUN - x_spacing) / 1.5)
+        bubble_extra = max(
+            0.0, (bubble_label_half * 2 + DIAGONAL_RUN - x_spacing) / 1.5
+        )
         layer_gap[layer] = max(base_gap, fj_label_half + bubble_extra)
 
     cumulative = 0.0
