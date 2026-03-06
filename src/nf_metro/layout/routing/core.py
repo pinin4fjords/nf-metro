@@ -20,6 +20,8 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
     FOLD_MARGIN,
+    HEADER_CLEARANCE,
+    JUNCTION_MARGIN,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     OFFSET_STEP,
@@ -65,6 +67,9 @@ class _RoutingCtx:
     diagonal_run: float
     curve_radius: float
     skip_edges: set[tuple[str, str, str]] = field(default_factory=set)
+    junction_fan_info: dict[tuple[str, str, str], tuple[int, int]] = field(
+        default_factory=dict
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +176,7 @@ def _build_routing_context(
         graph, junction_ids, line_priority, bottom_exit_junctions
     )
     bypass_gap_idx = _compute_bypass_gap_indices(graph, junction_ids, line_priority)
+    junction_fan_info = _compute_junction_fan_info(graph, junction_ids, line_priority)
 
     return _RoutingCtx(
         graph=graph,
@@ -188,6 +194,7 @@ def _build_routing_context(
         station_offsets=station_offsets,
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
+        junction_fan_info=junction_fan_info,
     )
 
 
@@ -259,14 +266,15 @@ def _route_inter_section(
         and src.section_id in ctx.tb_sections
     )
 
-    # Resolve section columns for bypass detection
+    # Resolve section columns and row for bypass detection
     src_col = _resolve_section_col(graph, src, ctx.junction_ids)
     tgt_col = _resolve_section_col(graph, tgt, ctx.junction_ids)
+    src_row = _resolve_section_row(graph, src, ctx.junction_ids)
     needs_bypass = (
         src_col is not None
         and tgt_col is not None
         and abs(tgt_col - src_col) > 1
-        and _has_intervening_sections(graph, src_col, tgt_col)
+        and _has_intervening_sections(graph, src_col, tgt_col, src_row)
     )
 
     if abs(dy) < COORD_TOLERANCE_FINE and not needs_bypass:
@@ -281,6 +289,13 @@ def _route_inter_section(
     if src_is_tb_bottom and ctx.station_offsets:
         return _route_tb_bottom_exit(edge, src, tgt, ctx)
 
+    # TOP entry port: L-shape so the line gets a proper curve into the
+    # section.  Must be checked before the same-X shortcut, which would
+    # produce a straight vertical drop with no horizontal lead-in.
+    tgt_port = graph.ports.get(edge.target)
+    if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.TOP:
+        return _route_top_entry_l_shape(edge, src, tgt, i, n, ctx)
+
     if abs(dx) < COORD_TOLERANCE:
         # Same X: straight vertical drop
         return RoutedPath(
@@ -294,7 +309,45 @@ def _route_inter_section(
         return _route_bottom_exit_junction(edge, src, tgt, i, n, ctx)
 
     if needs_bypass:
-        return _route_bypass(edge, src, tgt, i, src_col, tgt_col, ctx)
+        return _route_bypass(edge, src, tgt, i, src_col, tgt_col, ctx, src_row)
+
+    # Near-vertical: junction to same-column entry with tiny horizontal
+    # offset (just the junction margin).  The standard L-shape would
+    # place the vertical channel on the wrong side (toward the target,
+    # which is back inside the section).  Instead, route the channel
+    # further into the inter-column gap (away from the target) so the
+    # line continues in the junction's natural direction before dropping.
+    if (
+        edge.source in ctx.junction_ids
+        and abs(dx) <= JUNCTION_MARGIN + COORD_TOLERANCE
+        and abs(dy) > abs(dx) * 3
+    ):
+        delta, r_first, r_second = l_shape_radii(
+            i,
+            n,
+            going_down=(dy > 0),
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
+        )
+        # Push channel away from target into the inter-column gap.
+        if dx < 0:
+            vx = sx + ctx.curve_radius + ctx.offset_step + delta
+        else:
+            vx = sx - ctx.curve_radius - ctx.offset_step + delta
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (vx, sy), (vx, ty), (tx, ty)],
+            is_inter_section=True,
+            curve_radii=[r_first, r_second],
+        )
+
+    # RIGHT entry port with source to the LEFT: wrap the vertical
+    # channel around the right side of the target section so the route
+    # goes over the top and in from the right, rather than cutting
+    # horizontally through the section interior.
+    if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.RIGHT and dx > 0:
+        return _route_right_entry_wrap(edge, src, tgt, i, n, ctx)
 
     # Standard L-shape
     return _route_l_shape(edge, src, tgt, i, n, ctx)
@@ -350,6 +403,7 @@ def _route_bypass(
     src_col: int,
     tgt_col: int,
     ctx: _RoutingCtx,
+    src_row: int | None = None,
 ) -> RoutedPath:
     """U-shaped bypass route around intervening sections."""
     sx, sy = src.x, src.y
@@ -360,9 +414,16 @@ def _route_bypass(
     ekey = (edge.source, edge.target, edge.line_id)
     g1_j, g1_n, g2_j, g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
 
-    nest_idx = max(i, g2_j)
-    nest_offset = nest_idx * BYPASS_NEST_STEP
-    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE)
+    # Nest vertically only when bypass routes from DIFFERENT source
+    # columns share the same gap (prevents overlap).  Same-source
+    # bypasses are already separated by gap offsets.
+    fan = ctx.junction_fan_info.get(ekey)
+    if fan is not None:
+        nest_offset = g2_j * ctx.offset_step
+    else:
+        nest_idx = max(i, g2_j)
+        nest_offset = nest_idx * BYPASS_NEST_STEP
+    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
     by = base_y + nest_offset
 
     base_bypass_offset = ctx.curve_radius + ctx.offset_step
@@ -370,15 +431,28 @@ def _route_bypass(
     gap2_extra = g2_j * ctx.offset_step
 
     if dx > 0:
-        gap1_base = (
-            adjacent_column_gap_x(graph, src_col, src_col + 1) - base_bypass_offset
-        )
-        gap1_limit = sx + ctx.curve_radius
-        # When gap is too narrow, fan out from the limit toward gap center
-        if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
-            gap1_x = gap1_limit + (g1_n - 1 - g1_j) * ctx.offset_step
+        if fan is not None:
+            # Use unified fan position for gap1 (shared first corner)
+            ui, un = fan
+            going_down = True  # bypass always goes down first
+            delta, r_fan_first, _ = l_shape_radii(
+                ui,
+                un,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=ctx.curve_radius,
+            )
+            fan_mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
+            gap1_x = fan_mid_x + delta
         else:
-            gap1_x = gap1_base - gap1_extra
+            gap1_base = (
+                adjacent_column_gap_x(graph, src_col, src_col + 1) - base_bypass_offset
+            )
+            gap1_limit = sx + ctx.curve_radius
+            if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
+                gap1_x = gap1_limit + (g1_n - 1 - g1_j) * ctx.offset_step
+            else:
+                gap1_x = gap1_base - gap1_extra
 
         gap2_base = (
             adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) + base_bypass_offset
@@ -390,14 +464,27 @@ def _route_bypass(
         else:
             gap2_x = gap2_base + gap2_extra
     else:
-        gap1_base = (
-            adjacent_column_gap_x(graph, src_col - 1, src_col) + base_bypass_offset
-        )
-        gap1_limit = sx - ctx.curve_radius
-        if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
-            gap1_x = gap1_limit - (g1_n - 1 - g1_j) * ctx.offset_step
+        if fan is not None:
+            ui, un = fan
+            going_down = True
+            delta, r_fan_first, _ = l_shape_radii(
+                ui,
+                un,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=ctx.curve_radius,
+            )
+            fan_mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
+            gap1_x = fan_mid_x + delta
         else:
-            gap1_x = gap1_base + gap1_extra
+            gap1_base = (
+                adjacent_column_gap_x(graph, src_col - 1, src_col) + base_bypass_offset
+            )
+            gap1_limit = sx - ctx.curve_radius
+            if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
+                gap1_x = gap1_limit - (g1_n - 1 - g1_j) * ctx.offset_step
+            else:
+                gap1_x = gap1_base + gap1_extra
 
         gap2_base = (
             adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) - base_bypass_offset
@@ -408,7 +495,21 @@ def _route_bypass(
         else:
             gap2_x = gap2_base - gap2_extra
 
-    r_bypass = ctx.curve_radius + max(gap1_extra, gap2_extra)
+    # Per-corner radii for concentricity.  The bypass has 4 corners:
+    #   1: horiz->vert-down (CW)  -- concentric needs gap1+r = const
+    #   2: vert-down->horiz (CCW) -- concentric needs gap1+r = const
+    #   3: horiz->vert-up (CCW)   -- concentric needs gap2-r = const
+    #   4: vert-up->horiz (CW)    -- concentric needs gap2+r = const
+    # Corners 2 & 3 use the same radius (gap_extra based), but corner 4
+    # needs the REVERSED gap2 offset so the leftmost line gets the
+    # largest radius.
+    r_mid = ctx.curve_radius + max(gap1_extra, gap2_extra)
+    r_last = ctx.curve_radius + (g2_n - 1 - g2_j) * ctx.offset_step
+
+    if fan is not None:
+        r_first = r_fan_first
+    else:
+        r_first = r_mid
 
     # Apply per-line offsets directly so the renderer doesn't have to
     # guess which waypoints belong to the source vs target side.
@@ -429,7 +530,7 @@ def _route_bypass(
             (tx, ty + tgt_off),
         ],
         is_inter_section=True,
-        curve_radii=[r_bypass, r_bypass, r_bypass, r_bypass],
+        curve_radii=[r_first, r_mid, r_mid, r_last],
         offsets_applied=True,
     )
 
@@ -442,6 +543,112 @@ def _route_l_shape(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
     dy = ty - sy
+    going_down = dy > 0
+
+    # When the junction has both L-shape and bypass siblings, use
+    # unified fan-out positions so all lines share one concentric
+    # first corner.
+    ekey = (edge.source, edge.target, edge.line_id)
+    fan = ctx.junction_fan_info.get(ekey)
+    if fan is not None:
+        ui, un = fan
+        # First corner: unified position within the combined fan-out
+        delta, r_first, _ = l_shape_radii(
+            ui,
+            un,
+            going_down=going_down,
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
+        )
+        # mid_x places all lines so they diverge at sx
+        if dx > 0:
+            mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
+        else:
+            mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
+        # Second corner: from sub-bundle (only L-shape siblings turn here)
+        _, _, r_second = l_shape_radii(
+            i,
+            n,
+            going_down=going_down,
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
+        )
+    else:
+        delta, r_first, r_second = l_shape_radii(
+            i,
+            n,
+            going_down=going_down,
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
+        )
+        max_r = ctx.curve_radius + (n - 1) * ctx.offset_step
+        mid_x = inter_column_channel_x(
+            ctx.graph, src, tgt, sx, tx, dx, max_r, ctx.offset_step
+        )
+
+    vx = mid_x + delta
+
+    # When the vertical segment is too short for both corners at full
+    # radius, reduce the base radius so r_first + r_second fits while
+    # preserving the offset_step difference (concentricity invariant).
+    seg = abs(dy)
+    if r_first + r_second > seg and seg > 0:
+        # r_first + r_second = 2*base + (n-1)*step  (for any i)
+        # Solve: 2*new_base + (n-1)*step = seg
+        effective_n = max(n, fan[1] if fan else n)
+        new_base = max(0.0, (seg - (effective_n - 1) * ctx.offset_step) / 2)
+        if fan is not None:
+            _, r_first, _ = l_shape_radii(
+                fan[0],
+                fan[1],
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=new_base,
+            )
+            _, _, r_second = l_shape_radii(
+                i,
+                n,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=new_base,
+            )
+        else:
+            _, r_first, r_second = l_shape_radii(
+                i,
+                n,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=new_base,
+            )
+
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (vx, sy), (vx, ty), (tx, ty)],
+        is_inter_section=True,
+        curve_radii=[r_first, r_second],
+    )
+
+
+def _route_top_entry_l_shape(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Vertical-first L-shape for TOP entry ports.
+
+    Routes via a short horizontal lead-in so the transition from any
+    preceding horizontal edge (e.g. exit -> junction) curves smoothly
+    into the vertical drop::
+
+        (sx,sy) -> (lx, sy) -> (lx, hy) -> (tx, hy) -> (tx, ty)
+
+    The horizontal run sits in the inter-row gap just above the target
+    section so the line drops cleanly into the TOP port, mirroring how
+    LEFT entry ports receive a vertical run in the inter-column gap.
+    """
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dx = tx - sx
+    dy = ty - sy
 
     delta, r_first, r_second = l_shape_radii(
         i,
@@ -450,18 +657,225 @@ def _route_l_shape(
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
     )
-    max_r = ctx.curve_radius + (n - 1) * ctx.offset_step
-    mid_x = inter_column_channel_x(
-        ctx.graph, src, tgt, sx, tx, dx, max_r, ctx.offset_step
-    )
-    vx = mid_x + delta
+
+    # Compute Y for the horizontal channel in the inter-row gap.
+    mid_y = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+    hy = mid_y + delta
+
+    # Horizontal lead-in: a short run so the corner from horizontal to
+    # vertical gets a proper curve.  When dx is large, the lead-in
+    # direction matches dx.  When dx is near-zero (source directly
+    # above target), infer direction from the upstream exit port so the
+    # line continues with the bundle flow before curving down.
+    r_lead = ctx.curve_radius
+    if abs(dx) > r_lead:
+        lead_sign = 1.0 if dx > 0 else -1.0
+    else:
+        lead_sign = 1.0  # default rightward
+        if src.id in ctx.graph.junctions:
+            for je in ctx.graph.edges:
+                if je.target == src.id:
+                    js = ctx.graph.stations.get(je.source)
+                    if js and js.is_port:
+                        lead_sign = 1.0 if js.x < src.x else -1.0
+                        break
+    lx = sx + lead_sign * r_lead
+    # When the lead-in point is close to the target X, skip the
+    # intermediate horizontal channel and drop straight down from the
+    # lead-in, curving into the target at the end.  This avoids a
+    # tiny leftward jink mid-route.
+    if abs(lx - tx) <= r_lead:
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[(sx, sy), (lx, sy), (lx, ty), (tx, ty)],
+            is_inter_section=True,
+            curve_radii=[r_lead, r_second],
+        )
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
-        points=[(sx, sy), (vx, sy), (vx, ty), (tx, ty)],
+        points=[(sx, sy), (lx, sy), (lx, hy), (tx, hy), (tx, ty)],
         is_inter_section=True,
-        curve_radii=[r_first, r_second],
+        curve_radii=[r_lead, r_first, r_second],
     )
+
+
+def _route_right_entry_wrap(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Route to a RIGHT entry port by wrapping around the right side.
+
+    When the source is to the LEFT of a RIGHT entry port, the standard
+    L-shape would cut horizontally through the target section.  Instead,
+    drop into the inter-row gap, run horizontally past the target
+    section's right edge, then drop into the RIGHT entry port::
+
+        (sx,sy) -> (sx, hy) -> (vx, hy) -> (vx, ty) -> (tx, ty)
+
+    For cross-row cases, the horizontal channel runs just below the
+    source row's sections (bypass style) so the line stays high and
+    only drops down when it reaches the target column.
+
+    This avoids crossing through intervening sections.
+    """
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    dy = ty - sy
+
+    delta, r_first, r_second = l_shape_radii(
+        i,
+        n,
+        going_down=(dy > 0),
+        offset_step=ctx.offset_step,
+        base_radius=ctx.curve_radius,
+    )
+
+    # Detect cross-row case: use bypass-style Y just below the source
+    # row's sections so the line runs horizontally under the adjacent
+    # section before dropping to the target row.
+    src_row = _resolve_section_row(ctx.graph, src, ctx.junction_ids)
+    tgt_row = _resolve_section_row(ctx.graph, tgt, ctx.junction_ids)
+    src_col = _resolve_section_col(ctx.graph, src, ctx.junction_ids)
+    tgt_col = _resolve_section_col(ctx.graph, tgt, ctx.junction_ids)
+
+    cross_row = (
+        src_row is not None
+        and tgt_row is not None
+        and src_row != tgt_row
+        and src_col is not None
+        and tgt_col is not None
+    )
+
+    if cross_row:
+        hy = bypass_bottom_y(
+            ctx.graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row
+        )
+        hy += delta
+    else:
+        # Same-row: use inter-row gap above the target section.
+        hy = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+        hy += delta
+
+    # Vertical channel X: just past the entry port in the inter-section gap.
+    vx = tx + ctx.curve_radius + ctx.offset_step + delta
+
+    # Short horizontal lead-in so the first corner (horizontal-to-vertical)
+    # gets a smooth curve instead of a sharp right angle at the junction.
+    r_lead = ctx.curve_radius
+    lx = sx + r_lead
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (lx, sy), (lx, hy), (vx, hy), (vx, ty), (tx, ty)],
+        is_inter_section=True,
+        curve_radii=[r_lead, r_first, r_first, r_second],
+    )
+
+
+def _inter_row_channel_y(
+    graph: MetroGraph,
+    src: Station,
+    tgt: Station,
+    sy: float,
+    ty: float,
+    dy: float,
+    max_r: float,
+) -> float:
+    """Compute Y for a horizontal channel in an inter-row gap.
+
+    Vertical equivalent of ``inter_column_channel_x``: places the
+    channel in the inter-row gap, above the target section's header
+    (number badge + label rendered above bbox_y).
+    """
+    # Keep the channel clear of section headers (numbered circle + label)
+    # that protrude above/below bbox_y.
+
+    # Resolve sections for junction stations (section_id is None for
+    # junctions; trace through edges to find a connected port's section).
+    src_sec = _resolve_section(graph, src)
+    tgt_sec = _resolve_section(graph, tgt)
+
+    if src_sec and tgt_sec and src_sec.grid_row != tgt_sec.grid_row:
+        src_row = src_sec.grid_row
+        tgt_row = tgt_sec.grid_row
+
+        if dy > 0:
+            # Going down: gap between bottom of source row and top of target row
+            row_bottom = max(
+                (
+                    s.bbox_y + s.bbox_h
+                    for s in graph.sections.values()
+                    if s.grid_row == src_row and s.bbox_h > 0
+                ),
+                default=sy,
+            )
+            row_top = min(
+                (
+                    s.bbox_y
+                    for s in graph.sections.values()
+                    if s.grid_row == tgt_row and s.bbox_h > 0
+                ),
+                default=ty,
+            )
+            # Place above the header zone
+            header_top = row_top - HEADER_CLEARANCE
+            return (row_bottom + header_top) / 2
+        else:
+            # Going up: gap between top of source row and bottom of target row
+            row_top = min(
+                (
+                    s.bbox_y
+                    for s in graph.sections.values()
+                    if s.grid_row == src_row and s.bbox_h > 0
+                ),
+                default=sy,
+            )
+            row_bottom = max(
+                (
+                    s.bbox_y + s.bbox_h
+                    for s in graph.sections.values()
+                    if s.grid_row == tgt_row and s.bbox_h > 0
+                ),
+                default=ty,
+            )
+            header_bottom = row_bottom + HEADER_CLEARANCE
+            return (row_top + header_bottom) / 2
+
+    # Fallback: place near target, clearing the header zone
+    if dy > 0:
+        return ty - HEADER_CLEARANCE - max_r
+    else:
+        return ty + HEADER_CLEARANCE + max_r
+
+
+def _resolve_section(graph: MetroGraph, station: Station):
+    """Resolve a station's section, tracing through junctions if needed.
+
+    For junctions (section_id is None), traces edges to find a connected
+    port's section.  Prefers exit-port connections (incoming edges) so
+    the junction resolves to the *upstream* section.
+    """
+    if station.section_id:
+        return graph.sections.get(station.section_id)
+    # Junction: prefer the section connected via an incoming edge
+    # (exit_port -> junction), i.e. the upstream section.
+    for e in graph.edges:
+        if e.target == station.id:
+            other = graph.stations.get(e.source)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+    # Fall back to outgoing edges
+    for e in graph.edges:
+        if e.source == station.id:
+            other = graph.stations.get(e.target)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -494,10 +908,76 @@ def _route_tb_internal(
 
     x_src = _tb_x_offset(ctx, edge.source, edge.line_id, src_sec)
     x_tgt = _tb_x_offset(ctx, edge.target, edge.line_id, src_sec)
+
+    sx = src.x + x_src
+    sy = src.y
+    tx = tgt.x + x_tgt
+    ty = tgt.y
+    dx = tx - sx
+
+    # Different X tracks: route with vertical runs + 45-degree diagonal
+    if abs(dx) >= COORD_TOLERANCE:
+        return _route_tb_diagonal(edge, sx, sy, tx, ty, ctx)
+
+    # Same track: straight vertical drop
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
-        points=[(src.x + x_src, src.y), (tgt.x + x_tgt, tgt.y)],
+        points=[(sx, sy), (tx, ty)],
+        offsets_applied=True,
+    )
+
+
+def _route_tb_diagonal(
+    edge: Edge,
+    sx: float,
+    sy: float,
+    tx: float,
+    ty: float,
+    ctx: _RoutingCtx,
+) -> RoutedPath:
+    """Route TB edges with vertical runs and a 45-degree diagonal transition.
+
+    Mirrors ``_route_diagonal()`` but with axes swapped: vertical runs at
+    source and target connected by a 45-degree diagonal that shifts between
+    X tracks.
+    """
+    dy = ty - sy
+    sign = 1.0 if dy > 0 else -1.0
+    half_diag = ctx.diagonal_run / 2
+    min_straight = MIN_STRAIGHT_EDGE
+
+    # Bias diagonal toward fork/join stations
+    is_fork = edge.source in ctx.fork_stations
+    is_join = edge.target in ctx.join_stations
+    if is_fork:
+        mid_y = sy + sign * (min_straight + half_diag)
+    elif is_join:
+        mid_y = ty - sign * (min_straight + half_diag)
+    else:
+        mid_y = (sy + ty) / 2
+
+    diag_start_y = mid_y - sign * half_diag
+    diag_end_y = mid_y + sign * half_diag
+
+    # Clamp to ensure minimum straight vertical runs at endpoints
+    if sign > 0:
+        diag_start_y = max(diag_start_y, sy + min_straight)
+        diag_end_y = min(diag_end_y, ty - min_straight)
+        if diag_end_y < diag_start_y:
+            midpoint = (diag_start_y + diag_end_y) / 2
+            diag_start_y = diag_end_y = midpoint
+    else:
+        diag_start_y = min(diag_start_y, sy - min_straight)
+        diag_end_y = max(diag_end_y, ty + min_straight)
+        if diag_end_y > diag_start_y:
+            midpoint = (diag_start_y + diag_end_y) / 2
+            diag_start_y = diag_end_y = midpoint
+
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (sx, diag_start_y), (tx, diag_end_y), (tx, ty)],
         offsets_applied=True,
     )
 
@@ -752,8 +1232,9 @@ def _route_intra_section(
     dx = tx - sx
     dy = ty - sy
 
-    # Cross-row fold edge
-    if dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD:
+    # Cross-row fold edge (skip for intra-section RL edges)
+    same_section = src.section_id and src.section_id == tgt.section_id
+    if dx <= 0 and abs(dy) > CROSS_ROW_THRESHOLD and not same_section:
         fold_right = ctx.fold_x + FOLD_MARGIN
         return RoutedPath(
             edge=edge,
@@ -880,12 +1361,22 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
     incoming: dict[str, list[RoutedPath]] = defaultdict(list)
     outgoing: dict[str, list[RoutedPath]] = defaultdict(list)
 
-    # Also count how many diagonal routes converge on / diverge from each
-    # station, to detect bundle convergence/divergence points.
-    diag_in_count: dict[str, int] = defaultdict(int)
-    diag_out_count: dict[str, int] = defaultdict(int)
+    # Index 2-point flat routes (simple horizontal connections).
+    flat_incoming: dict[str, list[RoutedPath]] = defaultdict(list)
+    flat_outgoing: dict[str, list[RoutedPath]] = defaultdict(list)
+
+    # Count how many *physically distinct* diagonal routes converge on /
+    # diverge from each station.  Multiple lines sharing the same edge
+    # (same source+target) produce duplicate RoutedPaths with identical
+    # geometry; count those as one to avoid over-triggering bundle guards.
+    diag_in_sources: dict[str, set[str]] = defaultdict(set)
+    diag_out_targets: dict[str, set[str]] = defaultdict(set)
 
     for rp in routes:
+        if len(rp.points) == 2:
+            flat_incoming[rp.edge.target].append(rp)
+            flat_outgoing[rp.edge.source].append(rp)
+            continue
         if len(rp.points) != 4:
             continue
         # Verify it really has a diagonal (Y changes between points 1 and 2)
@@ -893,43 +1384,124 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
             continue
         incoming[rp.edge.target].append(rp)
         outgoing[rp.edge.source].append(rp)
-        diag_in_count[rp.edge.target] += 1
-        diag_out_count[rp.edge.source] += 1
+        diag_in_sources[rp.edge.target].add(rp.edge.source)
+        diag_out_targets[rp.edge.source].add(rp.edge.target)
+
+    # Record original X for each station so we can detect which ones moved.
+    original_x: dict[str, float] = {
+        sid: s.x for sid, s in graph.stations.items() if not s.is_port
+    }
+
+    # First pass collects station-move candidates; second pass applies
+    # them only when all column companions agree on the shift.
+    station_move_candidates: dict[str, tuple] = {}
 
     for sid, station in graph.stations.items():
-        if station.is_port:
-            continue
-
-        # Skip fork/join stations - they sit at the trunk, not on a bubble.
-        if len(all_targets.get(sid, set())) > 1 or len(all_sources.get(sid, set())) > 1:
+        if station.is_port or station.is_hidden:
             continue
 
         in_routes = incoming.get(sid, [])
         out_routes = outgoing.get(sid, [])
+        flat_in = flat_incoming.get(sid, [])
+        flat_out = flat_outgoing.get(sid, [])
 
-        # Only handle simple bubble stations: exactly one diagonal in,
-        # one diagonal out, both at the station's Y level.
-        if len(in_routes) != 1 or len(out_routes) != 1:
+        is_fork_join = (
+            len(all_targets.get(sid, set())) > 1 or len(all_sources.get(sid, set())) > 1
+        )
+
+        # Determine which routes bound the station's flat segment.
+        # Case 1: diagonal in + diagonal out (classic bubble)
+        # Case 2: flat in + diagonal out (e.g., file icon -> station -> hub)
+        # Case 3: diagonal in + flat out
+        in_rp = None
+        out_rp = None
+        flat_in_rp = None
+        flat_out_rp = None
+
+        # Count physically distinct edges (unique source-target pairs).
+        # Multiple lines on the same edge create duplicate RoutedPaths
+        # with identical geometry; treat those as one for centering logic.
+        n_unique_in = len(set((rp.edge.source, rp.edge.target) for rp in in_routes))
+        n_unique_out = len(set((rp.edge.source, rp.edge.target) for rp in out_routes))
+        n_unique_flat_in = len(set((rp.edge.source, rp.edge.target) for rp in flat_in))
+        n_unique_flat_out = len(
+            set((rp.edge.source, rp.edge.target) for rp in flat_out)
+        )
+
+        multi_diag = False
+        if not is_fork_join and (
+            (n_unique_in + n_unique_flat_in) >= 1
+            and n_unique_out >= 1
+            and (
+                n_unique_in > 1
+                or n_unique_out > 1
+                or (n_unique_in >= 1 and n_unique_flat_in >= 1)
+            )
+        ):
+            # Multiple physically distinct routes on one or both sides
+            # (e.g. multi-line station near an exit port).  Force
+            # station-move path by setting multi_diag flag.
+            in_rp = in_routes[0] if in_routes else None
+            flat_in_rp = flat_in[0] if (not in_routes and flat_in) else None
+            out_rp = out_routes[0]
+            multi_diag = True
+        elif is_fork_join:
+            # Skip fork/join stations for single-diagonal centering -
+            # they sit at the trunk, not on a bubble.
+            continue
+        elif n_unique_in == 1 and n_unique_out == 1:
+            in_rp = in_routes[0]
+            out_rp = out_routes[0]
+        elif n_unique_in == 0 and n_unique_flat_in == 1 and n_unique_out == 1:
+            flat_in_rp = flat_in[0]
+            out_rp = out_routes[0]
+        elif n_unique_in == 1 and n_unique_out == 0 and n_unique_flat_out == 1:
+            in_rp = in_routes[0]
+            flat_out_rp = flat_out[0]
+        else:
             continue
 
-        in_rp = in_routes[0]
-        out_rp = out_routes[0]
-
-        # Skip if either neighbouring endpoint is a bundle convergence or
+        # Check if either neighbouring endpoint is a bundle convergence or
         # divergence point.  Shifting one diagonal in a bundle of parallel
         # return paths would misalign them visually.
-        if diag_in_count.get(out_rp.edge.target, 0) > 1:
-            continue
-        if diag_out_count.get(in_rp.edge.source, 0) > 1:
-            continue
+        # Exception: port stations are invisible, so convergence/divergence
+        # at a port doesn't affect visual alignment.
+        shared_source = False
+        shared_target = False
+        if out_rp:
+            out_tgt = graph.stations.get(out_rp.edge.target)
+            if len(diag_in_sources.get(out_rp.edge.target, set())) > 1 and not (
+                out_tgt and out_tgt.is_port
+            ):
+                shared_target = True
+        if in_rp:
+            in_src = graph.stations.get(in_rp.edge.source)
+            if len(diag_out_targets.get(in_rp.edge.source, set())) > 1 and not (
+                in_src and in_src.is_port
+            ):
+                shared_source = True
 
-        # Incoming route: [..., (diag_end_x, stn_y), (stn_x, stn_y)]
-        # The flat at station Y runs from diag_end_x to station.x
-        in_diag_end_x = in_rp.points[2][0]
+        # Determine the X extent of the flat segment at station Y.
+        # For diagonal routes: incoming ends at points[2], outgoing starts at points[1].
+        # For flat routes: incoming ends at points[-1], outgoing starts at points[0].
+        # For multi-diagonal: use the closest endpoint (max of incoming,
+        # min of outgoing) to get the narrowest flat segment.
+        if multi_diag:
+            in_xs = [r.points[2][0] for r in in_routes]
+            in_xs += [r.points[0][0] for r in flat_in]
+            out_xs = [r.points[1][0] for r in out_routes]
+            in_diag_end_x = max(in_xs) if in_xs else station.x
+            out_diag_start_x = min(out_xs) if out_xs else station.x
+        elif in_rp:
+            in_diag_end_x = in_rp.points[2][0]
+        else:
+            in_diag_end_x = flat_in_rp.points[0][0]
 
-        # Outgoing route: [(stn_x, stn_y), (diag_start_x, stn_y), ...]
-        # The flat at station Y runs from station.x to diag_start_x
-        out_diag_start_x = out_rp.points[1][0]
+        if not multi_diag:
+            if out_rp:
+                out_diag_start_x = out_rp.points[1][0]
+            else:
+                out_diag_start_x = flat_out_rp.points[-1][0]
 
         in_flat = station.x - in_diag_end_x
         out_flat = out_diag_start_x - station.x
@@ -940,17 +1512,172 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
         if abs(in_flat - out_flat) < 1:
             continue
 
+        has_flat_side = flat_in_rp is not None or flat_out_rp is not None
+
+        # Guard: skip centering entirely when a flat connection goes
+        # to/from an internal (non-port, non-hidden) station.  That
+        # means the station sits on a horizontal trunk run and moving
+        # it would misalign it from its grid position.
+        def _is_internal(sid: str) -> bool:
+            st = graph.stations.get(sid)
+            return st is not None and not st.is_port and not st.is_hidden
+
+        if has_flat_side or multi_diag:
+            flat_to_internal = False
+            if flat_in_rp and _is_internal(flat_in_rp.edge.source):
+                flat_to_internal = True
+            if flat_out_rp and _is_internal(flat_out_rp.edge.target):
+                flat_to_internal = True
+            if multi_diag:
+                for r in flat_in:
+                    if _is_internal(r.edge.source):
+                        flat_to_internal = True
+                for r in flat_out:
+                    if _is_internal(r.edge.target):
+                        flat_to_internal = True
+            if flat_to_internal:
+                continue
+
+        if shared_source or shared_target or has_flat_side or multi_diag:
+            # Move the station itself to the centre of its flat
+            # segment rather than shifting individual diagonals.
+            new_x = (in_diag_end_x + out_diag_start_x) / 2
+            station_move_candidates[sid] = (
+                new_x,
+                in_routes,
+                flat_in,
+                out_routes,
+                flat_out,
+            )
+            continue
+
         # Shift both diagonals by the same amount to equalise the flats.
         # Positive shift moves diagonals toward the station's right.
         shift = (in_flat - out_flat) / 2
 
-        # Shift incoming diagonal
-        in_rp.points[1] = (in_rp.points[1][0] + shift, in_rp.points[1][1])
-        in_rp.points[2] = (in_rp.points[2][0] + shift, in_rp.points[2][1])
+        # Guard: if the shift exceeds the shorter flat, the diagonal
+        # would be pushed backward past the source or target station.
+        if abs(shift) > min(abs(in_flat), abs(out_flat)):
+            continue
 
-        # Shift outgoing diagonal
-        out_rp.points[1] = (out_rp.points[1][0] + shift, out_rp.points[1][1])
-        out_rp.points[2] = (out_rp.points[2][0] + shift, out_rp.points[2][1])
+        # Guard: don't shift when the outgoing diagonal converges at a
+        # bundle point or the incoming diverges from one.  Shifting one
+        # diagonal in a convergence/divergence bundle desynchronizes it
+        # with the others, even when the convergence point is an
+        # invisible port.
+        if out_rp and len(diag_in_sources.get(out_rp.edge.target, set())) > 1:
+            continue
+        if in_rp and len(diag_out_targets.get(in_rp.edge.source, set())) > 1:
+            continue
+
+        # Shift all incoming diagonals (multiple routes may share the
+        # same physical edge across different metro lines).
+        for rp in in_routes:
+            rp.points[1] = (rp.points[1][0] + shift, rp.points[1][1])
+            rp.points[2] = (rp.points[2][0] + shift, rp.points[2][1])
+
+        # Shift all outgoing diagonals.
+        for rp in out_routes:
+            rp.points[1] = (rp.points[1][0] + shift, rp.points[1][1])
+            rp.points[2] = (rp.points[2][0] + shift, rp.points[2][1])
+
+    # ------------------------------------------------------------------
+    # Second pass: apply station-move candidates, but only when all
+    # column companions (visible stations at the same original X in
+    # the same section) also want to move.  If any companion is absent
+    # from the candidate list (e.g. fastp doesn't want centering while
+    # trimgalore does), skip the move to preserve column alignment.
+    # When all companions are candidates (e.g. VB 9-tool fan), all
+    # move together.
+    # ------------------------------------------------------------------
+    for sid, (
+        new_x,
+        in_routes,
+        flat_in,
+        out_routes,
+        flat_out,
+    ) in station_move_candidates.items():
+        station = graph.stations[sid]
+        if abs(new_x - station.x) > 0.5:
+            ox = original_x.get(sid, station.x)
+            companions = []
+            for other_sid, other_ox in original_x.items():
+                if other_sid == sid:
+                    continue
+                if abs(other_ox - ox) > 1:
+                    continue
+                other = graph.stations.get(other_sid)
+                if not other or other.is_port or other.is_hidden:
+                    continue
+                if other.section_id != station.section_id:
+                    continue
+                if abs(other.y - station.y) > 1:
+                    companions.append(other_sid)
+            if companions:
+                # Block if any companion is NOT also a move candidate.
+                # That companion won't shift, so moving this station
+                # would break column alignment.
+                any_non_candidate = any(
+                    c not in station_move_candidates for c in companions
+                )
+                if any_non_candidate:
+                    continue
+
+        station.x = new_x
+        for r in in_routes:
+            r.points[-1] = (new_x, r.points[-1][1])
+        for r in flat_in:
+            r.points[-1] = (new_x, r.points[-1][1])
+        for r in out_routes:
+            r.points[0] = (new_x, r.points[0][1])
+        for r in flat_out:
+            r.points[0] = (new_x, r.points[0][1])
+
+    # Post-pass: align uncentered stations to their centered siblings.
+    # Group stations by (section, original_x).  Only drag unmoved stations
+    # when a clear majority (>50%) of the group already moved to the same X,
+    # avoiding false alignment of independent tracks that happen to share X.
+    col_groups: dict[tuple[str | None, float], list[str]] = defaultdict(list)
+    for sid, s in graph.stations.items():
+        if s.is_port or s.is_hidden:
+            continue
+        ox = original_x.get(sid)
+        if ox is None:
+            continue
+        col_groups[(s.section_id, round(ox, 1))].append(sid)
+
+    routes_by_src: dict[str, list[RoutedPath]] = defaultdict(list)
+    routes_by_tgt: dict[str, list[RoutedPath]] = defaultdict(list)
+    for rp in routes:
+        routes_by_src[rp.edge.source].append(rp)
+        routes_by_tgt[rp.edge.target].append(rp)
+
+    for group in col_groups.values():
+        if len(group) < 3:
+            continue
+        moved = [
+            sid for sid in group if abs(graph.stations[sid].x - original_x[sid]) > 0.5
+        ]
+        unmoved = [
+            sid for sid in group if abs(graph.stations[sid].x - original_x[sid]) <= 0.5
+        ]
+        if not moved or not unmoved:
+            continue
+        if len(moved) <= len(unmoved):
+            continue
+        moved_xs = [graph.stations[sid].x for sid in moved]
+        if max(moved_xs) - min(moved_xs) > 1.0:
+            continue
+        target_x = sum(moved_xs) / len(moved_xs)
+        for sid in unmoved:
+            old_x = graph.stations[sid].x
+            graph.stations[sid].x = target_x
+            for rp in routes_by_src.get(sid, []):
+                if abs(rp.points[0][0] - old_x) < 0.5:
+                    rp.points[0] = (target_x, rp.points[0][1])
+            for rp in routes_by_tgt.get(sid, []):
+                if abs(rp.points[-1][0] - old_x) < 0.5:
+                    rp.points[-1] = (target_x, rp.points[-1][1])
 
 
 # ---------------------------------------------------------------------------
@@ -958,21 +1685,19 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
 # ---------------------------------------------------------------------------
 
 
-def _resolve_section_col(
+def _resolve_junction_section(
     graph: MetroGraph,
     station: Station,
     junction_ids: set[str],
-) -> int | None:
-    """Resolve the grid column for a port or junction station.
+):
+    """Find the section associated with a station, tracing through junctions.
 
-    Ports have a section_id directly.  Junctions need to trace through
-    edges to find a connected port's section.
+    Ports have a section_id directly.  Junctions trace through edges to
+    find a connected port's section.  Shared by col/row resolution and
+    ``_resolve_section``.
     """
     if station.section_id:
-        sec = graph.sections.get(station.section_id)
-        if sec and sec.grid_col >= 0:
-            return sec.grid_col
-        return None
+        return graph.sections.get(station.section_id)
 
     if station.id in junction_ids:
         for e in graph.edges:
@@ -985,8 +1710,32 @@ def _resolve_section_col(
                 other = graph.stations.get(other_id)
                 if other and other.section_id:
                     sec = graph.sections.get(other.section_id)
-                    if sec and sec.grid_col >= 0:
-                        return sec.grid_col
+                    if sec:
+                        return sec
+    return None
+
+
+def _resolve_section_col(
+    graph: MetroGraph,
+    station: Station,
+    junction_ids: set[str],
+) -> int | None:
+    """Resolve the grid column for a port or junction station."""
+    sec = _resolve_junction_section(graph, station, junction_ids)
+    if sec and sec.grid_col >= 0:
+        return sec.grid_col
+    return None
+
+
+def _resolve_section_row(
+    graph: MetroGraph,
+    station: Station,
+    junction_ids: set[str],
+) -> int | None:
+    """Resolve the grid row for a port or junction station."""
+    sec = _resolve_junction_section(graph, station, junction_ids)
+    if sec and sec.grid_row >= 0:
+        return sec.grid_row
     return None
 
 
@@ -994,12 +1743,14 @@ def _has_intervening_sections(
     graph: MetroGraph,
     src_col: int,
     tgt_col: int,
+    src_row: int | None = None,
 ) -> bool:
-    """Check if any sections exist in columns strictly between src and tgt."""
+    """Check if any same-row sections exist in columns strictly between src and tgt."""
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
     for s in graph.sections.values():
         if s.bbox_w > 0 and lo < s.grid_col < hi:
-            return True
+            if src_row is None or s.grid_row == src_row:
+                return True
     return False
 
 
@@ -1038,11 +1789,12 @@ def _compute_bypass_gap_indices(
 
         src_col = _resolve_section_col(graph, src, junction_ids)
         tgt_col = _resolve_section_col(graph, tgt, junction_ids)
+        src_row = _resolve_section_row(graph, src, junction_ids)
         if (
             src_col is None
             or tgt_col is None
             or abs(tgt_col - src_col) <= 1
-            or not _has_intervening_sections(graph, src_col, tgt_col)
+            or not _has_intervening_sections(graph, src_col, tgt_col, src_row)
         ):
             continue
 
@@ -1092,5 +1844,75 @@ def _compute_bypass_gap_indices(
         g1_j, g1_n = gap1_idx.get(ek, (0, 1))
         g2_j, g2_n = gap2_idx.get(ek, (0, 1))
         result[ek] = (g1_j, g1_n, g2_j, g2_n)
+
+    return result
+
+
+def _compute_junction_fan_info(
+    graph: MetroGraph,
+    junction_ids: set[str],
+    line_priority: dict[str, int],
+) -> dict[tuple[str, str, str], tuple[int, int]]:
+    """Unified fan-out positions for junctions with mixed L-shape/bypass edges.
+
+    When a junction fans out to both adjacent-column targets (routed as
+    L-shapes) and distant targets (routed as bypasses), all edges of
+    the SAME line share a single vertical channel so they travel
+    together through the first corner and only diverge afterward.
+
+    Assigns per-LINE positions (not per-edge), so test->preprocess and
+    test->normalization share the same (i, n) and thus the same
+    vertical channel X.
+    """
+    result: dict[tuple[str, str, str], tuple[int, int]] = {}
+
+    for jid in junction_ids:
+        jst = graph.stations.get(jid)
+        if not jst:
+            continue
+        src_col = _resolve_section_col(graph, jst, junction_ids)
+        if src_col is None:
+            continue
+        src_row = _resolve_section_row(graph, jst, junction_ids)
+
+        # Collect all outgoing inter-section edges
+        outgoing: list[Edge] = []
+        has_lshape = False
+        has_bypass = False
+        for edge in graph.edges:
+            if edge.source != jid:
+                continue
+            tgt = graph.stations.get(edge.target)
+            if not tgt or not (tgt.is_port or edge.target in junction_ids):
+                continue
+            tgt_col = _resolve_section_col(graph, tgt, junction_ids)
+            if tgt_col is None:
+                continue
+            is_bypass = abs(tgt_col - src_col) > 1 and _has_intervening_sections(
+                graph, src_col, tgt_col, src_row
+            )
+            if is_bypass:
+                has_bypass = True
+            else:
+                has_lshape = True
+            outgoing.append(edge)
+
+        if not outgoing or not has_lshape or not has_bypass:
+            continue
+
+        # Assign one position per unique line_id (sorted by priority).
+        # All edges of the same line share that position.
+        line_ids = sorted(
+            {e.line_id for e in outgoing},
+            key=lambda lid: line_priority.get(lid, 0),
+        )
+        line_pos = {lid: i for i, lid in enumerate(line_ids)}
+        n = len(line_ids)
+
+        for edge in outgoing:
+            result[(edge.source, edge.target, edge.line_id)] = (
+                line_pos[edge.line_id],
+                n,
+            )
 
     return result

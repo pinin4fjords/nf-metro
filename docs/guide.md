@@ -323,6 +323,10 @@ The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/pi
 
 Five analysis routes share preprocessing, fan out to different aligners, reconverge at post-processing (a `TB` section), and fold back through QC (an `RL` section that creates a serpentine return path). The layout engine infers section directions, grid positions, and port sides automatically from the graph topology.
 
+The nf-core/variantbenchmarking example at [`examples/variantbenchmarking_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking_auto.mmd) shows a different topology pattern - seven lines converging at a benchmarking section, with the layout engine automatically splitting into two rows:
+
+![nf-core/variantbenchmarking](assets/renders/variantbenchmarking_auto.svg)
+
 See the [Gallery](gallery/index.md) for more rendered examples.
 
 ---
@@ -365,6 +369,28 @@ Entry/exit hints tell the layout engine which side of the section box lines shou
 
 - **Start without sections.** Get your stations and line routing right first, then wrap groups in `subgraph` blocks.
 - **Omit entry/exit hints.** The auto-layout engine infers them correctly in most cases. Only add hints when you need multi-side exits or want to override the default.
-- **Use `--debug`** to see ports, hidden stations, and edge waypoints: `nf-metro render --debug pipeline.mmd -o debug.svg`
+- **Use `--debug`** to see the layout internals (see below).
 - **Use `nf-metro validate`** to catch errors before rendering.
 - **Use `nf-metro info`** to inspect the parsed structure (sections, lines, stations, edges).
+
+## Debug mode
+
+Add `--debug` to any render command to overlay layout internals on the diagram:
+
+```bash
+nf-metro render --debug pipeline.mmd -o debug.svg
+```
+
+![Debug overlay](assets/renders/rnaseq_auto_debug.svg)
+
+The overlay shows:
+
+| Element | Appearance | What it tells you |
+|---------|-----------|-------------------|
+| **Entry ports** | Green diamonds | Where lines enter a section, with port ID and side |
+| **Exit ports** | Red diamonds | Where lines leave a section, with port ID and side |
+| **Hidden stations** | Dashed circles | Branch points created with `[hidden]` - invisible in normal rendering |
+| **Edge waypoints** | Small filled circles | Intermediate routing points along each edge path |
+| **Grid lines** | Yellow dashed lines | Boundaries between grid columns and rows, labeled with column/row indices |
+
+This is useful for diagnosing routing issues, understanding why lines take a particular path, or verifying that port sides and grid positions are what you expect.

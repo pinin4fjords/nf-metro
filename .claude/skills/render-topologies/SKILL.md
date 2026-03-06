@@ -29,9 +29,18 @@ cd /Users/jonathan.manning/projects/nf-metro && python scripts/render_topologies
 
 ## Step 3: Render from the current branch
 
+Switch back to the branch first (standalone mode) or use the worktree path:
+
 ```bash
-source ~/.local/bin/mm-activate <env> && pip install -e "<repo-path>[dev]" -q
-cd <repo-path> && python scripts/render_topologies.py
+# Standalone: switch back to the branch
+cd /Users/jonathan.manning/projects/nf-metro && git checkout <branch-name>
+source ~/.local/bin/mm-activate nf-metro && pip install -e ".[dev]" -q
+python scripts/render_topologies.py
+# Note the output directory → BRANCH_DIR
+
+# Worktree: use worktree path and env
+source ~/.local/bin/mm-activate nf-metro-fix-<N> && pip install -e "/tmp/nf-metro-fix-<N>[dev]" -q
+cd /tmp/nf-metro-fix-<N> && python scripts/render_topologies.py
 # Note the output directory → BRANCH_DIR
 ```
 
@@ -73,10 +82,14 @@ for i, name in enumerate(changed):
     print(f"  {name}")
 ```
 
+**IMPORTANT**: Write the diff script to a file (`/tmp/diff_renders.py`) and run it with `python3`, rather than inlining Python in the shell. Inline Python with `!=` gets mangled by shell escaping.
+
 ```bash
-# Open all pairs (skip if zero changed)
-open /tmp/*_BEFORE.png /tmp/*_AFTER.png
+# Open all pairs sorted so BEFORE/AFTER interleave correctly (skip if zero changed)
+ls /tmp/[0-9][0-9]_*_BEFORE.png /tmp/[0-9][0-9]_*_AFTER.png | sort | xargs open -a Preview
 ```
+
+The numbered prefixes (`01_`, `02_`, ...) ensure Preview orders them correctly when using arrow keys: `01_foo_BEFORE.png`, `02_foo_AFTER.png`, `03_bar_BEFORE.png`, `04_bar_AFTER.png`, etc.
 
 ## Step 5: Report
 

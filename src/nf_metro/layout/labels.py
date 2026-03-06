@@ -64,23 +64,32 @@ def _label_bbox(
     """Return (x_min, y_min, x_max, y_max) bounding box for a label."""
     if placement.obstacle_bbox is not None:
         return placement.obstacle_bbox
-    half_w = label_text_width(placement.text) / 2
+    w = label_text_width(placement.text)
     text_h = _label_text_height(placement.text)
 
-    if placement.above:
-        return (
-            placement.x - half_w,
-            placement.y - text_h,
-            placement.x + half_w,
-            placement.y,
-        )
+    # Horizontal bounds depend on text_anchor
+    if placement.text_anchor == "end":
+        x_min = placement.x - w
+        x_max = placement.x
+    elif placement.text_anchor == "start":
+        x_min = placement.x
+        x_max = placement.x + w
+    else:  # "middle" (default)
+        x_min = placement.x - w / 2
+        x_max = placement.x + w / 2
+
+    # Vertical bounds: "central" baseline centers text at y
+    if placement.dominant_baseline == "central":
+        y_min = placement.y - text_h / 2
+        y_max = placement.y + text_h / 2
+    elif placement.above:
+        y_min = placement.y - text_h
+        y_max = placement.y
     else:
-        return (
-            placement.x - half_w,
-            placement.y,
-            placement.x + half_w,
-            placement.y + text_h,
-        )
+        y_min = placement.y
+        y_max = placement.y + text_h
+
+    return (x_min, y_min, x_max, y_max)
 
 
 def _boxes_overlap(
@@ -520,6 +529,7 @@ def place_labels(
             n_lines = len(graph.station_lines(station.id))
             offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
             pill_left = station.x - offset_span / 2 - TB_PILL_EDGE_OFFSET
+            pill_right = station.x + offset_span / 2 + TB_PILL_EDGE_OFFSET
             candidate = LabelPlacement(
                 station_id=station.id,
                 text=station.label,
@@ -529,6 +539,31 @@ def place_labels(
                 text_anchor="end",
                 dominant_baseline="central",
             )
+            if _has_collision(candidate, placements):
+                # Try right side of the pill
+                candidate = LabelPlacement(
+                    station_id=station.id,
+                    text=station.label,
+                    x=pill_right + TB_LABEL_H_SPACING,
+                    y=station.y,
+                    above=True,
+                    text_anchor="start",
+                    dominant_baseline="central",
+                )
+            # Expand section bbox to contain the label
+            if station.section_id:
+                tb_sec = graph.sections.get(station.section_id)
+                if tb_sec and tb_sec.bbox_w > 0:
+                    margin = LABEL_BBOX_MARGIN
+                    lx_min, _, lx_max, _ = _label_bbox(candidate)
+                    lx_min -= margin
+                    lx_max += margin
+                    if lx_min < tb_sec.bbox_x:
+                        old_right = tb_sec.bbox_x + tb_sec.bbox_w
+                        tb_sec.bbox_x = lx_min
+                        tb_sec.bbox_w = old_right - lx_min
+                    if lx_max > tb_sec.bbox_x + tb_sec.bbox_w:
+                        tb_sec.bbox_w = lx_max - tb_sec.bbox_x
             placements.append(candidate)
             continue
 

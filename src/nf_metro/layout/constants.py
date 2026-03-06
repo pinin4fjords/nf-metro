@@ -129,6 +129,13 @@ BYPASS_CLEARANCE: float = 25.0
 BYPASS_NEST_STEP: float = 8.0
 """Per-line vertical offset for stacking multiple bypass routes."""
 
+HEADER_CLEARANCE: float = 30.0
+"""Clearance above/below section headers for inter-row routing channels.
+
+Section headers (numbered circle + label) are rendered above bbox_y by
+approximately SECTION_HEADER_PROTRUSION (~26px).  This constant adds a
+small margin so routing channels don't overlap the header zone."""
+
 # ---------------------------------------------------------------------------
 # Engine: entry/exit alignment
 # ---------------------------------------------------------------------------

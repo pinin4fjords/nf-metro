@@ -67,8 +67,12 @@ def compute_station_offsets(
                 ref_idx = {lid: i for i, lid in enumerate(ref_sorted)}
                 local_max = max_side - 1
                 for lid in lines:
-                    idx = ref_idx.get(lid, 0)
-                    if reverse:
+                    idx = ref_idx.get(lid, None)
+                    if idx is None:
+                        # Line not on the reference (busier) side;
+                        # no spreading needed.
+                        offsets[(sid, lid)] = 0.0
+                    elif reverse:
                         offsets[(sid, lid)] = (local_max - idx) * offset_step
                     else:
                         offsets[(sid, lid)] = idx * offset_step
@@ -271,6 +275,71 @@ def compute_station_offsets(
             for lid, ioff in internal_offs.items():
                 offsets[(port_id, lid)] = max_int - ioff
 
+    # Set exit port offsets on LR/RL sections with LEFT/RIGHT exits
+    # based on the spatial Y ordering of the feeding stations.  Lines
+    # arriving from above the exit port should appear at the top of
+    # the bundle and lines from below at the bottom, preventing visual
+    # crossings from diagonal merges.
+    lr_rl_sections = {
+        sid for sid, s in graph.sections.items() if s.direction in ("LR", "RL")
+    }
+    for port_id, port_obj in graph.ports.items():
+        if port_obj.is_entry or port_obj.section_id not in lr_rl_sections:
+            continue
+        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        # Compute average Y of internal stations feeding each line
+        line_ys: dict[str, list[float]] = {}
+        for edge in graph.edges:
+            if edge.target == port_id:
+                src_st = graph.stations.get(edge.source)
+                if src_st and not src_st.is_port:
+                    line_ys.setdefault(edge.line_id, []).append(src_st.y)
+        if len(line_ys) < 2:
+            continue
+        line_avg_y = {lid: sum(ys) / len(ys) for lid, ys in line_ys.items()}
+        # Only apply spatial ordering when lines arrive at genuinely
+        # different Ys.  When all feeders share the same Y, the global
+        # priority ordering is already correct and re-indexing would
+        # shift the bundle base offset, misaligning with neighbours.
+        unique_ys = set(line_avg_y.values())
+        if len(unique_ys) < 2:
+            continue
+        # Sort lines by average Y (top to bottom), breaking ties with
+        # line priority so equal-Y lines don't get arbitrarily reordered.
+        sorted_lines = sorted(
+            line_avg_y,
+            key=lambda lid: (line_avg_y[lid], line_priority.get(lid, 0)),
+        )
+        spatial_offs = {lid: i * offset_step for i, lid in enumerate(sorted_lines)}
+        for lid, off in spatial_offs.items():
+            offsets[(port_id, lid)] = off
+
+        # Propagate spatial ordering to internal hub stations that
+        # fan out to the exit-bound stations.  Trace back: exit port
+        # ← single-line stations ← hub station.
+        feeder_ids: set[str] = set()
+        for edge in graph.edges:
+            if edge.target == port_id:
+                src_st = graph.stations.get(edge.source)
+                if src_st and not src_st.is_port:
+                    feeder_ids.add(edge.source)
+        # Only propagate when there are multiple feeders (actual fan-out).
+        # A single feeder means the hub is just a pass-through, and
+        # overwriting its offsets would misalign it with neighbours.
+        if len(feeder_ids) >= 2:
+            # Find common predecessors of the feeders (the hub)
+            hub_candidates: set[str] = set()
+            for edge in graph.edges:
+                if edge.target in feeder_ids:
+                    hub_candidates.add(edge.source)
+            for hub_id in hub_candidates:
+                hub_lines = graph.station_lines(hub_id)
+                overlap = [lid for lid in hub_lines if lid in spatial_offs]
+                if len(overlap) >= 2:
+                    for lid in overlap:
+                        offsets[(hub_id, lid)] = spatial_offs[lid]
+
     # Junctions have section_id=None so they get default line-priority
     # ordering above, which may not match the exit port feeding them.
     # Inherit offsets from the upstream exit port instead.
@@ -335,5 +404,94 @@ def compute_station_offsets(
                     exit_off = offsets.get((exit_port_id, lid), 0.0)
                     offsets[(port_id, lid)] = max_exit_off - exit_off
             break
+
+    # Propagate LR/RL exit port spatial ordering to downstream entry
+    # ports so the inter-section bundle doesn't cross between sections.
+    # Only propagate when a single exit port carries ALL lines at the
+    # entry (direct continuation).  When multiple exit ports converge
+    # at one entry, their offsets are inconsistent and the global
+    # priority ordering should be preserved.
+    for port_id, port_obj in graph.ports.items():
+        if not port_obj.is_entry:
+            continue
+        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        # Count distinct exit ports feeding this entry
+        feeding_exit_ports: set[str] = set()
+        for edge in graph.edges:
+            if edge.target != port_id:
+                continue
+            src = graph.stations.get(edge.source)
+            if not src or not src.is_port:
+                continue
+            src_port = graph.ports.get(edge.source)
+            if src_port and not src_port.is_entry:
+                feeding_exit_ports.add(edge.source)
+        if len(feeding_exit_ports) != 1:
+            continue  # Multiple sources converge; keep global offsets
+        exit_port_id = next(iter(feeding_exit_ports))
+        src_port = graph.ports.get(exit_port_id)
+        if not (src_port and src_port.section_id in lr_rl_sections):
+            continue
+        # Only propagate when the exit port carries the same lines
+        exit_lines = set(graph.station_lines(exit_port_id))
+        entry_lines = set(graph.station_lines(port_id))
+        if exit_lines != entry_lines:
+            continue
+        # Copy exit port offsets directly to entry port
+        entry_offs: dict[str, float] = {}
+        for lid in graph.station_lines(port_id):
+            exit_off = offsets.get((exit_port_id, lid))
+            if exit_off is not None:
+                offsets[(port_id, lid)] = exit_off
+                entry_offs[lid] = exit_off
+        # Propagate to the first internal station(s) connected
+        # to this entry port so offsets don't cross immediately.
+        if len(entry_offs) >= 2:
+            for e2 in graph.edges:
+                if e2.source == port_id:
+                    tgt_st = graph.stations.get(e2.target)
+                    if tgt_st and not tgt_st.is_port:
+                        tgt_lines = graph.station_lines(e2.target)
+                        overlap = [lid for lid in tgt_lines if lid in entry_offs]
+                        if len(overlap) >= 2:
+                            for lid in overlap:
+                                offsets[(e2.target, lid)] = entry_offs[lid]
+
+    # Ensure multi-line entry ports have separated offsets and propagate
+    # those offsets to directly-connected upstream exit ports so the
+    # inter-section segment stays flat.  Skip ports that already have
+    # distinct offsets (set by the exit-port propagation above).
+    if compact:
+        for sec_id, section in graph.sections.items():
+            entry_lines: list[str] = []
+            for pid in section.entry_ports:
+                entry_lines.extend(graph.station_lines(pid))
+            unique = sorted(set(entry_lines), key=lambda x: line_priority.get(x, 0))
+            if len(unique) < 2:
+                continue
+            # Check if offsets are already separated (non-zero spread)
+            existing = [
+                offsets.get((pid, lid), 0.0)
+                for pid in section.entry_ports
+                for lid in unique
+                if lid in graph.station_lines(pid)
+            ]
+            if len(set(existing)) >= 2:
+                continue
+            sec_reverse = sec_id in reversed_sections
+            for i, lid in enumerate(unique):
+                if sec_reverse:
+                    off = (len(unique) - 1 - i) * offset_step
+                else:
+                    off = i * offset_step
+                for pid in section.entry_ports:
+                    if lid in graph.station_lines(pid):
+                        offsets[(pid, lid)] = off
+                        for edge in graph.edges:
+                            if edge.target == pid and edge.line_id == lid:
+                                src_port = graph.ports.get(edge.source)
+                                if src_port and not src_port.is_entry:
+                                    offsets[(edge.source, lid)] = off
 
     return offsets

@@ -1,16 +1,8 @@
-%%metro title: nf-core/variantbenchmarking
+%%metro title: nf-core/variantbenchmarking (auto layout)
 %%metro style: dark
 %%metro line_order: span
 %%metro legend: bl
 %%metro compact_offsets: true
-%%metro grid: inputs | 0,0
-%%metro grid: preprocess | 1,0
-%%metro grid: normalization | 2,0
-%%metro grid: filtering | 3,0
-%%metro grid: stats | 4,0
-%%metro grid: benchmarking | 3,1
-%%metro grid: ensembl_truth | 4,1
-%%metro grid: output_processing | 1,1,1,2
 %%metro file: ref_genome_file | FASTA
 %%metro file: truth_vcf_file | VCF
 %%metro file: regions_bed_file | BED
@@ -31,7 +23,6 @@
 
 graph LR
     subgraph inputs [Inputs]
-        %%metro exit: right | truth, test
         ref_genome_file[ ]
         ref_genome[Reference Genome]
         truth_vcf_file[ ]
@@ -57,24 +48,18 @@ graph LR
     end
 
     subgraph preprocess [Preprocessing (Optional)]
-        %%metro entry: left | truth, test
-        %%metro exit: right | truth, test
         subsample[Subsample]
         liftover[Liftover\n(Picard, UCSC)]
         subsample -->|test| liftover
     end
 
     subgraph normalization [Variant Normalization (Optional)]
-        %%metro entry: left | truth, test
-        %%metro exit: right | truth, test
         sv_processing[SV\nProcessing]
         var_norm[Variant\nNormalization]
         sv_processing -->|test| var_norm
     end
 
     subgraph filtering [Variant Filtering (Optional)]
-        %%metro entry: left | test
-        %%metro exit: right | test
         filter_contigs[Filter\nContigs]
         bcftools_filter[bcftools\nfilter]
         survivor_filter[SURVIVOR\nfilter]
@@ -83,9 +68,6 @@ graph LR
     end
 
     subgraph ensembl_truth [Ensembl Truth]
-        %%metro direction: TB
-        %%metro entry: top | test
-        %%metro exit: left | truth
         _ensembl_hub[hidden]
         survivor_merge[SURVIVOR\nmerge]
         bcftools_merge[bcftools\nmerge]
@@ -97,9 +79,6 @@ graph LR
     end
 
     subgraph benchmarking [Benchmarking]
-        %%metro direction: RL
-        %%metro entry: top | test, truth
-        %%metro entry: right | test, truth
         bench_hub[ ]
         truvari[Truvari]
         rtg_vcfeval[RTGtools vcfeval]
@@ -119,12 +98,9 @@ graph LR
         bench_hub -->|snv_indel| sompy
         bench_hub -->|intersection| intersection_tool
         bench_hub -->|concordance| gatk4_conc
-        %%metro exit: left | sv_cnv, snv_indel, concordance, intersection
     end
 
     subgraph output_processing [Output Processing]
-        %%metro direction: RL
-        %%metro entry: right | sv_cnv, snv_indel, concordance, intersection
         results_hub[ ]
         merge_res[Merge\nTP/FP/FN]
         vcf2csv[VCF to\nCSV]
@@ -157,8 +133,6 @@ graph LR
     end
 
     subgraph stats [Variant Statistics]
-        %%metro entry: left | test
-        %%metro exit: right | test, output
         bcftools_stats[bcftools\nstats]
         survivor_stats[SURVIVOR\nstats]
         snv_stats[SNV stats]
