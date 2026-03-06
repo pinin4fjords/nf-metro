@@ -1004,14 +1004,16 @@ def _render_debug_overlay(
                     col_bounds[c] = (x0, x1)
                 else:
                     col_bounds[c] = (
-                        min(col_bounds[c][0], x0), max(col_bounds[c][1], x1)
+                        min(col_bounds[c][0], x0),
+                        max(col_bounds[c][1], x1),
                     )
             if sec.grid_row_span == 1:
                 if r not in row_bounds:
                     row_bounds[r] = (y0, y1)
                 else:
                     row_bounds[r] = (
-                        min(row_bounds[r][0], y0), max(row_bounds[r][1], y1)
+                        min(row_bounds[r][0], y0),
+                        max(row_bounds[r][1], y1),
                     )
 
         # Global extents
@@ -1029,15 +1031,24 @@ def _render_debug_overlay(
             mid_x = (right + left) / 2
             d.append(
                 draw.Line(
-                    mid_x, all_y0, mid_x, all_y1,
-                    stroke=grid_color, stroke_width=1, stroke_dasharray="6,4",
+                    mid_x,
+                    all_y0,
+                    mid_x,
+                    all_y1,
+                    stroke=grid_color,
+                    stroke_width=1,
+                    stroke_dasharray="6,4",
                 )
             )
             d.append(
                 draw.Text(
                     f"col {sorted_cols[i]}|{sorted_cols[i + 1]}",
-                    debug_font_size, mid_x, all_y0 - 4,
-                    fill=grid_color, font_family=debug_font, text_anchor="middle",
+                    debug_font_size,
+                    mid_x,
+                    all_y0 - 4,
+                    fill=grid_color,
+                    font_family=debug_font,
+                    text_anchor="middle",
                 )
             )
 
@@ -1049,15 +1060,24 @@ def _render_debug_overlay(
             mid_y = (bottom + top) / 2
             d.append(
                 draw.Line(
-                    all_x0, mid_y, all_x1, mid_y,
-                    stroke=grid_color, stroke_width=1, stroke_dasharray="6,4",
+                    all_x0,
+                    mid_y,
+                    all_x1,
+                    mid_y,
+                    stroke=grid_color,
+                    stroke_width=1,
+                    stroke_dasharray="6,4",
                 )
             )
             d.append(
                 draw.Text(
                     f"row {sorted_rows[i]}|{sorted_rows[i + 1]}",
-                    debug_font_size, all_x0 - 4, mid_y,
-                    fill=grid_color, font_family=debug_font, text_anchor="end",
+                    debug_font_size,
+                    all_x0 - 4,
+                    mid_y,
+                    fill=grid_color,
+                    font_family=debug_font,
+                    text_anchor="end",
                 )
             )
 

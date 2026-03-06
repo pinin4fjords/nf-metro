@@ -901,16 +901,12 @@ def _position_junctions(graph: MetroGraph) -> None:
                 # junction always sits outside the source section, even
                 # when a downstream entry port shares the same X (e.g.
                 # same-column section below).
-                direction = (
-                    1.0 if exit_port_obj.side == PortSide.RIGHT else -1.0
-                )
+                direction = 1.0 if exit_port_obj.side == PortSide.RIGHT else -1.0
                 junction.x = exit_port_x + direction * margin
                 junction.y = exit_port_y
             else:
                 # TOP exit or unknown: infer direction from nearest entry.
-                nearest_entry_x = min(
-                    entry_port_xs, key=lambda x: abs(x - exit_port_x)
-                )
+                nearest_entry_x = min(entry_port_xs, key=lambda x: abs(x - exit_port_x))
                 direction = 1.0 if nearest_entry_x > exit_port_x else -1.0
                 junction.x = exit_port_x + direction * margin
                 junction.y = exit_port_y

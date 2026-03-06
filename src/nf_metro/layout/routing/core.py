@@ -346,12 +346,7 @@ def _route_inter_section(
     # channel around the right side of the target section so the route
     # goes over the top and in from the right, rather than cutting
     # horizontally through the section interior.
-    if (
-        tgt_port
-        and tgt_port.is_entry
-        and tgt_port.side == PortSide.RIGHT
-        and dx > 0
-    ):
+    if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.RIGHT and dx > 0:
         return _route_right_entry_wrap(edge, src, tgt, i, n, ctx)
 
     # Standard L-shape
@@ -441,15 +436,17 @@ def _route_bypass(
             ui, un = fan
             going_down = True  # bypass always goes down first
             delta, r_fan_first, _ = l_shape_radii(
-                ui, un, going_down=going_down,
-                offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+                ui,
+                un,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=ctx.curve_radius,
             )
             fan_mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
             gap1_x = fan_mid_x + delta
         else:
             gap1_base = (
-                adjacent_column_gap_x(graph, src_col, src_col + 1)
-                - base_bypass_offset
+                adjacent_column_gap_x(graph, src_col, src_col + 1) - base_bypass_offset
             )
             gap1_limit = sx + ctx.curve_radius
             if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
@@ -471,15 +468,17 @@ def _route_bypass(
             ui, un = fan
             going_down = True
             delta, r_fan_first, _ = l_shape_radii(
-                ui, un, going_down=going_down,
-                offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+                ui,
+                un,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=ctx.curve_radius,
             )
             fan_mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
             gap1_x = fan_mid_x + delta
         else:
             gap1_base = (
-                adjacent_column_gap_x(graph, src_col - 1, src_col)
-                + base_bypass_offset
+                adjacent_column_gap_x(graph, src_col - 1, src_col) + base_bypass_offset
             )
             gap1_limit = sx - ctx.curve_radius
             if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
@@ -555,8 +554,11 @@ def _route_l_shape(
         ui, un = fan
         # First corner: unified position within the combined fan-out
         delta, r_first, _ = l_shape_radii(
-            ui, un, going_down=going_down,
-            offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+            ui,
+            un,
+            going_down=going_down,
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
         )
         # mid_x places all lines so they diverge at sx
         if dx > 0:
@@ -565,13 +567,19 @@ def _route_l_shape(
             mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
         # Second corner: from sub-bundle (only L-shape siblings turn here)
         _, _, r_second = l_shape_radii(
-            i, n, going_down=going_down,
-            offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+            i,
+            n,
+            going_down=going_down,
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
         )
     else:
         delta, r_first, r_second = l_shape_radii(
-            i, n, going_down=going_down,
-            offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+            i,
+            n,
+            going_down=going_down,
+            offset_step=ctx.offset_step,
+            base_radius=ctx.curve_radius,
         )
         max_r = ctx.curve_radius + (n - 1) * ctx.offset_step
         mid_x = inter_column_channel_x(
@@ -591,17 +599,26 @@ def _route_l_shape(
         new_base = max(0.0, (seg - (effective_n - 1) * ctx.offset_step) / 2)
         if fan is not None:
             _, r_first, _ = l_shape_radii(
-                fan[0], fan[1], going_down=going_down,
-                offset_step=ctx.offset_step, base_radius=new_base,
+                fan[0],
+                fan[1],
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=new_base,
             )
             _, _, r_second = l_shape_radii(
-                i, n, going_down=going_down,
-                offset_step=ctx.offset_step, base_radius=new_base,
+                i,
+                n,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=new_base,
             )
         else:
             _, r_first, r_second = l_shape_radii(
-                i, n, going_down=going_down,
-                offset_step=ctx.offset_step, base_radius=new_base,
+                i,
+                n,
+                going_down=going_down,
+                offset_step=ctx.offset_step,
+                base_radius=new_base,
             )
 
     return RoutedPath(
@@ -737,9 +754,7 @@ def _route_right_entry_wrap(
         hy += delta
     else:
         # Same-row: use inter-row gap above the target section.
-        hy = _inter_row_channel_y(
-            ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius
-        )
+        hy = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
         hy += delta
 
     # Vertical channel X: just past the entry port in the inter-section gap.
@@ -1391,8 +1406,7 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
         flat_out = flat_outgoing.get(sid, [])
 
         is_fork_join = (
-            len(all_targets.get(sid, set())) > 1
-            or len(all_sources.get(sid, set())) > 1
+            len(all_targets.get(sid, set())) > 1 or len(all_sources.get(sid, set())) > 1
         )
 
         # Determine which routes bound the station's flat segment.
@@ -1407,23 +1421,20 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
         # Count physically distinct edges (unique source-target pairs).
         # Multiple lines on the same edge create duplicate RoutedPaths
         # with identical geometry; treat those as one for centering logic.
-        n_unique_in = len(set(
-            (rp.edge.source, rp.edge.target) for rp in in_routes
-        ))
-        n_unique_out = len(set(
-            (rp.edge.source, rp.edge.target) for rp in out_routes
-        ))
-        n_unique_flat_in = len(set(
-            (rp.edge.source, rp.edge.target) for rp in flat_in
-        ))
-        n_unique_flat_out = len(set(
-            (rp.edge.source, rp.edge.target) for rp in flat_out
-        ))
+        n_unique_in = len(set((rp.edge.source, rp.edge.target) for rp in in_routes))
+        n_unique_out = len(set((rp.edge.source, rp.edge.target) for rp in out_routes))
+        n_unique_flat_in = len(set((rp.edge.source, rp.edge.target) for rp in flat_in))
+        n_unique_flat_out = len(
+            set((rp.edge.source, rp.edge.target) for rp in flat_out)
+        )
 
         multi_diag = False
         if not is_fork_join and (
-            (n_unique_in + n_unique_flat_in) >= 1 and n_unique_out >= 1 and (
-                n_unique_in > 1 or n_unique_out > 1
+            (n_unique_in + n_unique_flat_in) >= 1
+            and n_unique_out >= 1
+            and (
+                n_unique_in > 1
+                or n_unique_out > 1
                 or (n_unique_in >= 1 and n_unique_flat_in >= 1)
             )
         ):
@@ -1532,7 +1543,11 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
             # segment rather than shifting individual diagonals.
             new_x = (in_diag_end_x + out_diag_start_x) / 2
             station_move_candidates[sid] = (
-                new_x, in_routes, flat_in, out_routes, flat_out
+                new_x,
+                in_routes,
+                flat_in,
+                out_routes,
+                flat_out,
             )
             continue
 
@@ -1575,9 +1590,13 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
     # When all companions are candidates (e.g. VB 9-tool fan), all
     # move together.
     # ------------------------------------------------------------------
-    for sid, (new_x, in_routes, flat_in, out_routes, flat_out) in (
-        station_move_candidates.items()
-    ):
+    for sid, (
+        new_x,
+        in_routes,
+        flat_in,
+        out_routes,
+        flat_out,
+    ) in station_move_candidates.items():
         station = graph.stations[sid]
         if abs(new_x - station.x) > 0.5:
             ox = original_x.get(sid, station.x)
@@ -1599,8 +1618,7 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
                 # That companion won't shift, so moving this station
                 # would break column alignment.
                 any_non_candidate = any(
-                    c not in station_move_candidates
-                    for c in companions
+                    c not in station_move_candidates for c in companions
                 )
                 if any_non_candidate:
                     continue
@@ -1638,12 +1656,10 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
         if len(group) < 3:
             continue
         moved = [
-            sid for sid in group
-            if abs(graph.stations[sid].x - original_x[sid]) > 0.5
+            sid for sid in group if abs(graph.stations[sid].x - original_x[sid]) > 0.5
         ]
         unmoved = [
-            sid for sid in group
-            if abs(graph.stations[sid].x - original_x[sid]) <= 0.5
+            sid for sid in group if abs(graph.stations[sid].x - original_x[sid]) <= 0.5
         ]
         if not moved or not unmoved:
             continue
@@ -1872,9 +1888,8 @@ def _compute_junction_fan_info(
             tgt_col = _resolve_section_col(graph, tgt, junction_ids)
             if tgt_col is None:
                 continue
-            is_bypass = (
-                abs(tgt_col - src_col) > 1
-                and _has_intervening_sections(graph, src_col, tgt_col, src_row)
+            is_bypass = abs(tgt_col - src_col) > 1 and _has_intervening_sections(
+                graph, src_col, tgt_col, src_row
             )
             if is_bypass:
                 has_bypass = True

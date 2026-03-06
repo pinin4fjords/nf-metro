@@ -471,10 +471,12 @@ def compute_station_offsets(
             if len(unique) < 2:
                 continue
             # Check if offsets are already separated (non-zero spread)
-            existing = [offsets.get((pid, lid), 0.0)
-                        for pid in section.entry_ports
-                        for lid in unique
-                        if lid in graph.station_lines(pid)]
+            existing = [
+                offsets.get((pid, lid), 0.0)
+                for pid in section.entry_ports
+                for lid in unique
+                if lid in graph.station_lines(pid)
+            ]
             if len(set(existing)) >= 2:
                 continue
             sec_reverse = sec_id in reversed_sections

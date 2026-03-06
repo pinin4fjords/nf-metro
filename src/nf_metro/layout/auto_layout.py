@@ -35,13 +35,11 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     if not successors and not predecessors:
         return
 
-    fold_sections, below_fold_sections, convergence_sections = (
-        _assign_grid_positions(
-            graph,
-            successors,
-            predecessors,
-            max_station_columns,
-        )
+    fold_sections, below_fold_sections, convergence_sections = _assign_grid_positions(
+        graph,
+        successors,
+        predecessors,
+        max_station_columns,
     )
     _optimize_rowspans(graph, fold_sections, successors)
     _adjust_explicit_tb_sections(graph, successors, fold_sections)
@@ -50,7 +48,11 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     )
     _optimize_colspans(graph, fold_sections, below_fold_sections, successors)
     _infer_port_sides(
-        graph, successors, predecessors, edge_lines, fold_sections,
+        graph,
+        successors,
+        predecessors,
+        edge_lines,
+        fold_sections,
         convergence_sections,
     )
 
@@ -206,12 +208,20 @@ def _assign_grid_positions(
     # These are natural "convergence points" that should drop to a return row
     # along with their downstream sections, instead of extending the top row.
     convergence_result = _detect_convergence_split(
-        col_assign, col_groups, successors, predecessors,
+        col_assign,
+        col_groups,
+        successors,
+        predecessors,
     )
     if convergence_result is not None:
         return _place_with_convergence(
-            graph, col_groups, topo_col_width, col_assign,
-            successors, predecessors, convergence_result,
+            graph,
+            col_groups,
+            topo_col_width,
+            col_assign,
+            successors,
+            predecessors,
+            convergence_result,
         )
 
     # Greedily pack topo columns into row bands.
@@ -328,9 +338,7 @@ def _detect_convergence_split(
         return None
 
     # Return set: convergence + transitive successors
-    return_set = {convergence_sid} | _transitive_successors(
-        convergence_sid, successors
-    )
+    return_set = {convergence_sid} | _transitive_successors(convergence_sid, successors)
 
     # Companion migration: sections that feed ONLY into the return set
     # AND share a direct predecessor with the convergence section.
