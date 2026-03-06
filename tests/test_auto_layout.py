@@ -144,7 +144,7 @@ def test_grid_assignment_fold():
         edges.append((f"sec{i}_s1", f"sec{i}", f"sec{i + 1}_s1", f"sec{i + 1}", "main"))
     graph = _make_graph_with_sections(sections, edges)
     successors, predecessors, _ = _build_section_dag(graph)
-    fold_sections, _below = _assign_grid_positions(
+    fold_sections, _below, _conv = _assign_grid_positions(
         graph,
         successors,
         predecessors,
@@ -442,7 +442,7 @@ def test_below_fold_sections_share_rows_with_return():
         ],
     )
     successors, predecessors, edge_lines = _build_section_dag(graph)
-    fold_sections, below_fold = _assign_grid_positions(
+    fold_sections, below_fold, _conv = _assign_grid_positions(
         graph, successors, predecessors, max_station_columns=2
     )
 

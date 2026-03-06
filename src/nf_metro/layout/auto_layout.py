@@ -35,11 +35,13 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     if not successors and not predecessors:
         return
 
-    fold_sections, below_fold_sections = _assign_grid_positions(
-        graph,
-        successors,
-        predecessors,
-        max_station_columns,
+    fold_sections, below_fold_sections, convergence_sections = (
+        _assign_grid_positions(
+            graph,
+            successors,
+            predecessors,
+            max_station_columns,
+        )
     )
     _optimize_rowspans(graph, fold_sections, successors)
     _adjust_explicit_tb_sections(graph, successors, fold_sections)
@@ -47,7 +49,10 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         graph, successors, predecessors, fold_sections, below_fold_sections
     )
     _optimize_colspans(graph, fold_sections, below_fold_sections, successors)
-    _infer_port_sides(graph, successors, predecessors, edge_lines, fold_sections)
+    _infer_port_sides(
+        graph, successors, predecessors, edge_lines, fold_sections,
+        convergence_sections,
+    )
 
 
 def _build_section_dag(
@@ -126,7 +131,7 @@ def _assign_grid_positions(
     successors: dict[str, set[str]],
     predecessors: dict[str, set[str]],
     max_station_columns: int,
-) -> tuple[set[str], set[str]]:
+) -> tuple[set[str], set[str], set[str]]:
     """Assign grid (col, row) positions to sections without explicit grid overrides.
 
     When cumulative station columns in a row exceed the threshold, the
@@ -189,12 +194,25 @@ def _assign_grid_positions(
         col_groups[col].sort(key=lambda s: section_order.index(s))
 
     if not col_groups:
-        return set(), set()
+        return set(), set(), set()
 
     # Estimate station-layer width per topo column (max across stacked sections)
     topo_col_width: dict[int, int] = {}
     for col, sids in col_groups.items():
         topo_col_width[col] = max(_estimate_section_layers(graph, sid) for sid in sids)
+
+    # --- Convergence-based row split ---
+    # Detect sections with predecessors spanning 2+ non-adjacent topo columns.
+    # These are natural "convergence points" that should drop to a return row
+    # along with their downstream sections, instead of extending the top row.
+    convergence_result = _detect_convergence_split(
+        col_assign, col_groups, successors, predecessors,
+    )
+    if convergence_result is not None:
+        return _place_with_convergence(
+            graph, col_groups, topo_col_width, col_assign,
+            successors, predecessors, convergence_result,
+        )
 
     # Greedily pack topo columns into row bands.
     # When overflow is detected, the overflowing column becomes the fold
@@ -276,7 +294,120 @@ def _assign_grid_positions(
         graph.sections[sid].grid_col = col
         graph.sections[sid].grid_row = row
 
-    return fold_sections, below_fold_sections
+    return fold_sections, below_fold_sections, set()
+
+
+def _detect_convergence_split(
+    col_assign: dict[str, int],
+    col_groups: dict[int, list[str]],
+    successors: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
+) -> set[str] | None:
+    """Detect a convergence section and return the set of sections for a return row.
+
+    A convergence section has predecessors from 2+ non-adjacent topo columns
+    (spread >= 2). Returns the set of sections that should drop to row 1,
+    or None if no convergence is detected.
+    """
+    # Find earliest convergence section (by topo col).
+    # Skip terminal sections (no successors) - they are sinks that collect
+    # from many upstream sections and don't benefit from a return row.
+    convergence_sid = None
+    for sid in sorted(col_assign, key=lambda s: col_assign[s]):
+        if not successors.get(sid):
+            continue
+        pred_cols = set()
+        for p in predecessors.get(sid, set()):
+            if p in col_assign:
+                pred_cols.add(col_assign[p])
+        if len(pred_cols) >= 2 and max(pred_cols) - min(pred_cols) >= 2:
+            convergence_sid = sid
+            break
+
+    if not convergence_sid:
+        return None
+
+    # Return set: convergence + transitive successors
+    return_set = {convergence_sid} | _transitive_successors(
+        convergence_sid, successors
+    )
+
+    # Companion migration: sections that feed ONLY into the return set
+    # AND share a direct predecessor with the convergence section.
+    # This catches "satellite" branches (e.g. ensembl_truth, which feeds
+    # only into benchmarking, and shares predecessor "filtering" with it).
+    # It avoids pulling in main-spine sections (e.g. in A->B->C->D with
+    # bypass A->D, sec_c feeds sec_d but sec_c's predecessor sec_b does
+    # NOT directly feed sec_d).
+    convergence_preds = predecessors.get(convergence_sid, set())
+    for sid in list(col_assign.keys()):
+        if sid in return_set:
+            continue
+        sid_succs = successors.get(sid, set())
+        if not sid_succs or not sid_succs.issubset(return_set):
+            continue
+        # Check: does this section share a predecessor with the convergence?
+        sid_preds = predecessors.get(sid, set())
+        if sid_preds & convergence_preds:
+            return_set.add(sid)
+
+    # Only split if the return set has enough sections to justify a second row.
+    # A single section (e.g. a bypass target) doesn't warrant a row split.
+    if len(return_set) < 2:
+        return None
+
+    return return_set
+
+
+def _place_with_convergence(
+    graph: MetroGraph,
+    col_groups: dict[int, list[str]],
+    topo_col_width: dict[int, int],
+    col_assign: dict[str, int],
+    successors: dict[str, set[str]],
+    predecessors: dict[str, set[str]],
+    return_set: set[str],
+) -> tuple[set[str], set[str], set[str]]:
+    """Place sections using convergence-based row split.
+
+    Row 0 gets spine sections (LR, left to right).
+    Row 1 gets return-set sections (RL, right to left), aligned below row 0.
+    No TB bridge section is created.
+    """
+    sorted_cols = sorted(col_groups.keys())
+    folded: dict[str, tuple[int, int]] = {}
+
+    # Place row-0 sections (non-return) left to right
+    grid_col = 0
+    max_row0_col = 0
+    for topo_col in sorted_cols:
+        row0_sids = [s for s in col_groups[topo_col] if s not in return_set]
+        if not row0_sids:
+            continue
+        for i, sid in enumerate(row0_sids):
+            folded[sid] = (grid_col, i)
+        max_row0_col = grid_col
+        grid_col += 1
+
+    # Place row-1 sections (return set) right to left
+    # Sort by topo col ascending: lowest topo col = rightmost on return row
+    return_sids = sorted(return_set, key=lambda s: col_assign[s])
+    grid_col = max_row0_col
+    for sid in return_sids:
+        folded[sid] = (grid_col, 1)
+        grid_col -= 1
+
+    # Write results
+    for sid, (col, row) in folded.items():
+        graph.grid_overrides[sid] = (col, row, 1, 1)
+        graph.sections[sid].grid_col = col
+        graph.sections[sid].grid_row = row
+
+    # Only the entry-point section of the return row (rightmost) needs
+    # TOP entry override. Other RL sections use normal port inference
+    # (defaulting to RIGHT entry for RL flow).
+    entry_section = {return_sids[0]} if return_sids else set()
+    return set(), set(), entry_section
 
 
 def _transitive_successors(
@@ -511,8 +642,12 @@ def _optimize_colspans(
                 continue
             sec_rows = range(section.grid_row, section.grid_row + section.grid_row_span)
 
-            # Span leftward until accumulated width >= this section's layers
+            # Span leftward until accumulated width reaches ~2/3 of this
+            # section's layers.  The remaining deficit is distributed by
+            # section_placement, so we don't need full coverage - just
+            # enough to prevent the home column from being grossly inflated.
             target = section_layers[sid]
+            threshold = max(target * 2 // 3, other_max + 1)
             accumulated = other_max  # column's width from other sections
             start_col = col
             colspan = 1
@@ -532,7 +667,7 @@ def _optimize_colspans(
                 accumulated += col_max_layers[left_col]
                 start_col = left_col
                 colspan += 1
-                if accumulated >= target:
+                if accumulated >= threshold:
                     break
 
             if colspan > 1:
@@ -627,12 +762,16 @@ def _infer_port_sides(
     predecessors: dict[str, set[str]],
     edge_lines: dict[tuple[str, str], set[str]],
     fold_sections: set[str],
+    convergence_sections: set[str] | None = None,
 ) -> None:
     """Infer entry/exit port sides from relative section grid positions.
 
     Fold sections (TB bridges) get entry LEFT, exit BOTTOM.
     Other sections use _relative_side to determine sides from grid positions.
+    Convergence return-row sections get TOP entry for above-row predecessors.
     """
+    if convergence_sections is None:
+        convergence_sections = set()
     for sec_id, section in graph.sections.items():
         my_col = section.grid_col
         my_row = section.grid_row
@@ -665,14 +804,20 @@ def _infer_port_sides(
                     continue
 
                 lines = edge_lines.get((src, sec_id), set())
-                side = _relative_side(
-                    my_col,
-                    my_row,
-                    src_sec.grid_col,
-                    src_sec.grid_row,
-                    section.grid_col_span,
-                    src_sec.grid_col_span,
-                )
+                # Convergence return-row sections: predecessors on a row
+                # above should use TOP entry for clean vertical connections.
+                src_bottom_row = src_sec.grid_row + src_sec.grid_row_span - 1
+                if sec_id in convergence_sections and src_bottom_row < my_row:
+                    side = PortSide.TOP
+                else:
+                    side = _relative_side(
+                        my_col,
+                        my_row,
+                        src_sec.grid_col,
+                        src_sec.grid_row,
+                        section.grid_col_span,
+                        src_sec.grid_col_span,
+                    )
                 side_lines[side].update(lines)
 
             for side, lines in sorted(side_lines.items(), key=lambda x: x[0].value):
