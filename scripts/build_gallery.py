@@ -168,6 +168,35 @@ def render_guide_examples() -> None:
             print(f"  {mmd_path.stem}: OK")
         except Exception as e:
             print(f"  {mmd_path.stem}: FAIL - {e}")
+
+    # Top-level examples referenced directly from the guide
+    for stem in ("rnaseq_auto", "variantbenchmarking", "variantbenchmarking_auto"):
+        mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
+        if not mmd_path.exists():
+            continue
+        svg_path = RENDERS_DIR / f"{stem}.svg"
+        try:
+            render_mmd(mmd_path, svg_path)
+            print(f"  {stem}: OK")
+        except Exception as e:
+            print(f"  {stem}: FAIL - {e}")
+
+    # Debug overlay render for the guide
+    debug_src = EXAMPLES_DIR / "rnaseq_auto.mmd"
+    debug_svg = RENDERS_DIR / "rnaseq_auto_debug.svg"
+    if debug_src.exists():
+        try:
+            text = debug_src.read_text()
+            graph = parse_metro_mermaid(text)
+            compute_layout(graph)
+            theme_name = graph.style if graph.style in THEMES else "nfcore"
+            theme = THEMES[theme_name]
+            svg_str = render_svg(graph, theme, debug=True)
+            debug_svg.write_text(svg_str)
+            print(f"  rnaseq_auto_debug: OK")
+        except Exception as e:
+            print(f"  rnaseq_auto_debug: FAIL - {e}")
+
     print()
 
 
