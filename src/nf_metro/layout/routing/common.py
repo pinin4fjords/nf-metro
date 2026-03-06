@@ -10,6 +10,7 @@ from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     DEFAULT_LINE_PRIORITY,
+    SECTION_HEADER_PROTRUSION,
 )
 from nf_metro.parser.model import Edge, MetroGraph
 
@@ -99,6 +100,10 @@ def compute_bundle_info(
             )
             if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
                 col_key = (src_sec.grid_col, tgt_sec.grid_col)
+            elif tgt_sec:
+                # Source is a junction: include target column so edges
+                # to different columns get separate bundles.
+                col_key = (round(sx), tgt_sec.grid_col)
             else:
                 col_key = round(sx)
             key = ("L", col_key, v_dir, h_dir)
@@ -275,37 +280,61 @@ def bypass_bottom_y(
     src_col: int,
     tgt_col: int,
     clearance: float = BYPASS_CLEARANCE,
+    src_row: int | None = None,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
     Uses the tallest section in the bypassed columns (strictly between
-    src and tgt) as the baseline.  When there are no intervening
-    sections (adjacent-column bypass), falls back to the shorter of
-    the source/target endpoint sections so the route hugs the smaller
-    box rather than being pushed down by a tall neighbour.
+    src and tgt) as the baseline.  When *src_row* is provided, only
+    sections in the same row are considered so that bypass routes stay
+    within their row instead of looping around sections in other rows.
+
+    When there are no intervening sections (adjacent-column bypass),
+    falls back to the shorter of the source/target endpoint sections
+    so the route hugs the smaller box rather than being pushed down
+    by a tall neighbour.
     """
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
+
+    def _in_row(s) -> bool:
+        return src_row is None or s.grid_row == src_row
 
     # Intervening sections (columns strictly between endpoints)
     max_intervening = 0.0
     for s in graph.sections.values():
-        if s.bbox_w > 0 and lo < s.grid_col < hi:
+        if s.bbox_w > 0 and lo < s.grid_col < hi and _in_row(s):
             bottom = s.bbox_y + s.bbox_h
             if bottom > max_intervening:
                 max_intervening = bottom
 
     if max_intervening > 0:
-        return max_intervening + clearance
+        candidate = max_intervening + clearance
+    else:
+        # No intervening sections: use the shorter endpoint section so
+        # the bypass hugs tight instead of being pushed by the tall one.
+        endpoint_bottoms: list[float] = []
+        for s in graph.sections.values():
+            if s.bbox_w > 0 and s.grid_col in (lo, hi) and _in_row(s):
+                endpoint_bottoms.append(s.bbox_y + s.bbox_h)
+        if endpoint_bottoms:
+            candidate = max(endpoint_bottoms) + clearance
+        else:
+            return clearance
 
-    # No intervening sections: use the shorter endpoint section so
-    # the bypass hugs tight instead of being pushed by the tall one.
-    endpoint_bottoms: list[float] = []
-    for s in graph.sections.values():
-        if s.bbox_w > 0 and s.grid_col in (lo, hi):
-            endpoint_bottoms.append(s.bbox_y + s.bbox_h)
-    if endpoint_bottoms:
-        return min(endpoint_bottoms) + clearance
-    return clearance
+    # When row-filtering is active, the candidate may land in the
+    # inter-row gap too close to a section header in another row.
+    # The header (number badge + label) extends ~26px above bbox_y.
+    # Cap the bypass at the midpoint of the gap to keep equal spacing.
+    if src_row is not None:
+        for s in graph.sections.values():
+            if s.bbox_w > 0 and lo <= s.grid_col <= hi and s.grid_row != src_row:
+                header_top = s.bbox_y - SECTION_HEADER_PROTRUSION
+                if candidate > header_top:
+                    # Place bypass at midpoint between row bottom and header top
+                    row_bottom = candidate - clearance
+                    candidate = (row_bottom + header_top) / 2
+
+    return candidate
 
 
 def line_incoming_y_at_entry_port(
