@@ -457,18 +457,42 @@ def _assign_section_numbers(graph: MetroGraph) -> None:
             section.number = i + 1
 
 
+def _natural_entry_side(direction: str) -> PortSide:
+    """Return the natural entry side for a section's flow direction."""
+    if direction == "RL":
+        return PortSide.RIGHT
+    if direction == "TB":
+        return PortSide.TOP
+    return PortSide.LEFT  # LR default
+
+
 def _build_entry_side_mapping(
     graph: MetroGraph,
 ) -> dict[tuple[str, str], PortSide]:
     """Build per-line entry side lookup from explicit entry hints.
 
+    Each section gets a single entry side.  When all hints agree on one
+    side, that side is used.  When hints specify multiple sides, they
+    are collapsed to the natural entry for the section's flow direction
+    (LEFT for LR, RIGHT for RL, TOP for TB) so all lines share one
+    entry port.
+
     Returns dict mapping (section_id, line_id) -> PortSide.
     """
     entry_side_for_line: dict[tuple[str, str], PortSide] = {}
     for sec_id, section in graph.sections.items():
-        for side, line_ids in section.entry_hints:
-            for lid in line_ids:
-                entry_side_for_line[(sec_id, lid)] = side
+        if not section.entry_hints:
+            continue
+        unique_sides = {s for s, _ in section.entry_hints}
+        if len(unique_sides) == 1:
+            side = unique_sides.pop()
+        else:
+            side = _natural_entry_side(section.direction)
+        all_lines: set[str] = set()
+        for _hint_side, line_ids in section.entry_hints:
+            all_lines.update(line_ids)
+        for lid in all_lines:
+            entry_side_for_line[(sec_id, lid)] = side
     return entry_side_for_line
 
 

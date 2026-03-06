@@ -12,7 +12,7 @@ import drawsvg as draw
 from nf_metro.layout.constants import LABEL_LINE_HEIGHT
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
-from nf_metro.parser.model import MetroGraph, Section, Station
+from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
 from nf_metro.render.constants import (
     CANVAS_PADDING,
     DEBUG_DIAMOND_RADIUS,
@@ -268,6 +268,13 @@ def render_svg(
     station_offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=station_offsets)
 
+    # Compute labels early so section bbox expansions are applied
+    # before section boxes are drawn and canvas bounds are computed.
+    icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
+    labels = place_labels(
+        graph, station_offsets=station_offsets, icon_obstacles=icon_obstacles
+    )
+
     max_x, max_y = _compute_canvas_bounds(graph, routes, debug)
 
     # Compute legend and logo dimensions
@@ -334,13 +341,6 @@ def render_svg(
                 **{"class": "nf-metro-title"},
             )
         )
-
-    # Compute labels early so bbox expansions are applied before
-    # section boxes are drawn.
-    icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
-    labels = place_labels(
-        graph, station_offsets=station_offsets, icon_obstacles=icon_obstacles
-    )
 
     # Sections
     if graph.sections:
@@ -511,10 +511,31 @@ def _render_first_class_sections(
             )
         )
 
-        # Numbered circle above the box, left-aligned
+        # Determine whether the label should go below the section box.
+        # When a section has a TOP entry port near the left edge (where the
+        # label sits) but no BOTTOM exit, placing the label above would
+        # overlap with incoming lines.  Only flip when the nearest top port
+        # is close enough to actually conflict with the label.
+        label_region_max_x = section.bbox_x + section.bbox_w * 0.5
+        has_nearby_top_entry = any(
+            graph.ports.get(pid)
+            and graph.ports[pid].side == PortSide.TOP
+            and graph.ports[pid].x <= label_region_max_x
+            for pid in section.entry_ports
+        )
+        has_bottom_exit = any(
+            graph.ports.get(pid) and graph.ports[pid].side == PortSide.BOTTOM
+            for pid in section.exit_ports
+        )
+        label_below = has_nearby_top_entry and not has_bottom_exit
+
+        # Numbered circle, left-aligned
         circle_r = SECTION_NUM_CIRCLE_R_LARGE
         cx = section.bbox_x + circle_r
-        cy = section.bbox_y - circle_r - SECTION_NUM_Y_OFFSET
+        if label_below:
+            cy = section.bbox_y + section.bbox_h + circle_r + SECTION_NUM_Y_OFFSET
+        else:
+            cy = section.bbox_y - circle_r - SECTION_NUM_Y_OFFSET
 
         d.append(
             draw.Circle(
@@ -618,15 +639,45 @@ def _render_edges(
                 dy2 = nxt[1] - curr[1]
                 len2 = (dx2**2 + dy2**2) ** 0.5
 
-                # Only halve segment length when the adjacent point also
-                # has a curve; endpoints (first/last points) never do.
-                max_len1 = len1 / 2 if i > 1 else len1
-                max_len2 = len2 / 2 if i < len(pts) - 2 else len2
                 corner_idx = i - 1
                 if route.curve_radii and corner_idx < len(route.curve_radii):
                     effective_r = route.curve_radii[corner_idx]
                 else:
                     effective_r = curve_radius
+
+                # Allocate shared segments proportionally based on the
+                # desired radii of adjacent corners.  This preserves
+                # concentric curve geometry instead of a fixed 50/50
+                # split which collapses different radii to the same
+                # clamped value.
+                if i > 1 and route.curve_radii:
+                    prev_ci = i - 2
+                    prev_r = (
+                        route.curve_radii[prev_ci]
+                        if prev_ci < len(route.curve_radii)
+                        else curve_radius
+                    )
+                    total = prev_r + effective_r
+                    max_len1 = len1 * effective_r / total if total > 0 else len1 / 2
+                elif i > 1:
+                    max_len1 = len1 / 2
+                else:
+                    max_len1 = len1
+
+                if i < len(pts) - 2 and route.curve_radii:
+                    next_ci = i
+                    next_r = (
+                        route.curve_radii[next_ci]
+                        if next_ci < len(route.curve_radii)
+                        else curve_radius
+                    )
+                    total = effective_r + next_r
+                    max_len2 = len2 * effective_r / total if total > 0 else len2 / 2
+                elif i < len(pts) - 2:
+                    max_len2 = len2 / 2
+                else:
+                    max_len2 = len2
+
                 r = min(effective_r, max_len1, max_len2)
 
                 if len1 > 0 and len2 > 0:
@@ -934,6 +985,77 @@ def _render_debug_overlay(
                 dominant_baseline="auto",
             )
         )
+
+    # Grid lines: dashed lines at boundaries between grid rows/columns
+    sections = list(graph.sections.values())
+    if sections:
+        # Collect column and row boundaries from section bboxes
+        col_bounds: dict[int, tuple[float, float]] = {}
+        row_bounds: dict[int, tuple[float, float]] = {}
+        for sec in sections:
+            c, r = sec.grid_col, sec.grid_row
+            x0, x1 = sec.bbox_x, sec.bbox_x + sec.bbox_w
+            y0, y1 = sec.bbox_y, sec.bbox_y + sec.bbox_h
+            # Skip spanning sections for column/row bounds - they distort
+            # single-column measurements by assigning their full width to
+            # one column.
+            if sec.grid_col_span == 1:
+                if c not in col_bounds:
+                    col_bounds[c] = (x0, x1)
+                else:
+                    col_bounds[c] = (min(col_bounds[c][0], x0), max(col_bounds[c][1], x1))
+            if sec.grid_row_span == 1:
+                if r not in row_bounds:
+                    row_bounds[r] = (y0, y1)
+                else:
+                    row_bounds[r] = (min(row_bounds[r][0], y0), max(row_bounds[r][1], y1))
+
+        # Global extents
+        all_x0 = min(b[0] for b in col_bounds.values()) - 20
+        all_x1 = max(b[1] for b in col_bounds.values()) + 20
+        all_y0 = min(b[0] for b in row_bounds.values()) - 20
+        all_y1 = max(b[1] for b in row_bounds.values()) + 20
+        grid_color = "rgba(255, 255, 0, 0.5)"
+
+        # Vertical lines between columns
+        sorted_cols = sorted(col_bounds.keys())
+        for i in range(len(sorted_cols) - 1):
+            right = col_bounds[sorted_cols[i]][1]
+            left = col_bounds[sorted_cols[i + 1]][0]
+            mid_x = (right + left) / 2
+            d.append(
+                draw.Line(
+                    mid_x, all_y0, mid_x, all_y1,
+                    stroke=grid_color, stroke_width=1, stroke_dasharray="6,4",
+                )
+            )
+            d.append(
+                draw.Text(
+                    f"col {sorted_cols[i]}|{sorted_cols[i + 1]}",
+                    debug_font_size, mid_x, all_y0 - 4,
+                    fill=grid_color, font_family=debug_font, text_anchor="middle",
+                )
+            )
+
+        # Horizontal lines between rows
+        sorted_rows = sorted(row_bounds.keys())
+        for i in range(len(sorted_rows) - 1):
+            bottom = row_bounds[sorted_rows[i]][1]
+            top = row_bounds[sorted_rows[i + 1]][0]
+            mid_y = (bottom + top) / 2
+            d.append(
+                draw.Line(
+                    all_x0, mid_y, all_x1, mid_y,
+                    stroke=grid_color, stroke_width=1, stroke_dasharray="6,4",
+                )
+            )
+            d.append(
+                draw.Text(
+                    f"row {sorted_rows[i]}|{sorted_rows[i + 1]}",
+                    debug_font_size, all_x0 - 4, mid_y,
+                    fill=grid_color, font_family=debug_font, text_anchor="end",
+                )
+            )
 
     # Hidden stations: dashed-outline circles with labels
     for station in graph.stations.values():
