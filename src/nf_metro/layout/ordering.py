@@ -381,6 +381,19 @@ def _place_fan_out(
     n = len(nodes)
     fan_spacing = FANOUT_SPACING * n ** (0.8 - 1) if n > 1 else FANOUT_SPACING
 
+    # Predecessor-snapping: when each node has exactly one predecessor
+    # at a distinct track, snap to the predecessor's track so single-line
+    # connections stay horizontal instead of slanting.
+    pred_snap: dict[str, float] = {}
+    for node in nodes:
+        preds = list(G.predecessors(node))
+        if len(preds) == 1 and preds[0] in tracks:
+            pred_snap[node] = tracks[preds[0]]
+    if len(pred_snap) == n and len(set(pred_snap.values())) == n:
+        for node in nodes:
+            tracks[node] = pred_snap[node]
+        return
+
     if straight_diamonds and _is_diamond_fanout(nodes, G):
         # Diamond: first node stays at anchor (straight-through),
         # alternative branches fan out below.

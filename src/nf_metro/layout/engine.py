@@ -7,9 +7,10 @@ from __future__ import annotations
 
 __all__ = ["compute_layout"]
 
-from collections import Counter
+from collections import Counter, defaultdict
 
 from nf_metro.layout.constants import (
+    CURVE_RADIUS,
     DIAGONAL_RUN,
     ENTRY_SHIFT_LR,
     ENTRY_SHIFT_TB,
@@ -244,6 +245,63 @@ def _compute_section_layout(
     # Mirrors Phase 2's _adjust_tb_entry_shifts for the horizontal case.
     _shift_lr_perp_entry_stations(graph, x_spacing)
 
+    # Phase 11: Top-align sections within each grid row.
+    # Port positioning (phases 5-10) can shift bbox_y unevenly for
+    # sections in the same row.  Normalise so the topmost bbox edge
+    # is consistent across each row.
+    _top_align_row_sections(graph)
+
+    # Phase 12: Re-align same-row exit-entry port pairs after top-alignment.
+    # Phase 11 shifts sections by different deltas (since Phase 8 may have
+    # pushed one section down), breaking the Y alignment set in Phase 7b.
+    _align_ports_to_downstream(graph)
+
+    # Phase 13: Re-position junctions after top-alignment and port re-alignment.
+    # Phase 11 shifts section stations (including ports) but junctions
+    # live between sections and aren't in any section.station_ids,
+    # so they need recalculating to match the moved ports.
+    _position_junctions(graph)
+
+
+def _top_align_row_sections(graph: MetroGraph) -> None:
+    """Shift sections up so bbox tops align within each grid row.
+
+    Only aligns sections that form contiguous column groups within the
+    row.  Sections separated by a column gap (e.g. reporting at col 3
+    vs dna_analysis at col 1 with no row-mate at col 2) are aligned
+    independently so structurally-determined positions aren't disturbed.
+    """
+    row_sections: dict[int, list[Section]] = defaultdict(list)
+    for section in graph.sections.values():
+        if section.bbox_h > 0 and section.grid_row >= 0:
+            row_sections[section.grid_row].append(section)
+
+    for row, sections in row_sections.items():
+        if len(sections) < 2:
+            continue
+        # Group into contiguous column runs
+        sections_by_col = sorted(sections, key=lambda s: s.grid_col)
+        groups: list[list[Section]] = [[sections_by_col[0]]]
+        for s in sections_by_col[1:]:
+            if s.grid_col - groups[-1][-1].grid_col <= 1:
+                groups[-1].append(s)
+            else:
+                groups.append([s])
+
+        for group in groups:
+            if len(group) < 2:
+                continue
+            min_top = min(s.bbox_y for s in group)
+            for section in group:
+                delta = section.bbox_y - min_top
+                if delta <= 0:
+                    continue
+                for sid in section.station_ids:
+                    station = graph.stations.get(sid)
+                    if station:
+                        station.y -= delta
+                section.bbox_y -= delta
+
 
 def _layout_single_section(
     graph: MetroGraph,
@@ -270,7 +328,13 @@ def _layout_single_section(
     # port through intermediate stations' columns.
     _insert_entry_pass_throughs(graph, section, sub)
 
-    layers = assign_layers(sub)
+    # Auto-insert hidden bypass stations when a line exits the section
+    # from an early-layer station, skipping intermediate stations that
+    # aren't on this line. Without these, the routing draws a straight
+    # line through unrelated stations' positions.
+    cached_layers = _insert_exit_bypass_stations(graph, section, sub)
+
+    layers = assign_layers(sub) if cached_layers is None else cached_layers
     tracks = assign_tracks(sub, layers)
 
     if not layers:
@@ -829,11 +893,24 @@ def _position_junctions(graph: MetroGraph) -> None:
                 # so lines continue their vertical drop.
                 junction.x = exit_port_x
                 junction.y = exit_port_y + margin
+            elif exit_port_obj and exit_port_obj.side in (
+                PortSide.RIGHT,
+                PortSide.LEFT,
+            ):
+                # LEFT/RIGHT exit: direction follows the port side so the
+                # junction always sits outside the source section, even
+                # when a downstream entry port shares the same X (e.g.
+                # same-column section below).
+                direction = (
+                    1.0 if exit_port_obj.side == PortSide.RIGHT else -1.0
+                )
+                junction.x = exit_port_x + direction * margin
+                junction.y = exit_port_y
             else:
-                # Position close to the exit port with a small margin,
-                # rather than at the midpoint. This keeps the divergence
-                # point near the source section so lines turn sooner.
-                nearest_entry_x = min(entry_port_xs, key=lambda x: abs(x - exit_port_x))
+                # TOP exit or unknown: infer direction from nearest entry.
+                nearest_entry_x = min(
+                    entry_port_xs, key=lambda x: abs(x - exit_port_x)
+                )
                 direction = 1.0 if nearest_entry_x > exit_port_x else -1.0
                 junction.x = exit_port_x + direction * margin
                 junction.y = exit_port_y
@@ -1268,7 +1345,11 @@ def _resolve_tb_exit_y(
             entry_gap = max(entry_gap, first_y - graph.stations[pid].y)
             break
 
-    min_exit_y = last_y + entry_gap
+    # Ensure the gap below the last station is large enough for the
+    # exit corner curve (CURVE_RADIUS) plus a straight run so the
+    # curve doesn't crowd the station pill.
+    min_exit_gap = max(entry_gap, CURVE_RADIUS + MIN_PORT_STATION_GAP)
+    min_exit_y = last_y + min_exit_gap
     if tgt.y >= min_exit_y:
         tgt_y = tgt.y
     else:
@@ -1822,6 +1903,130 @@ def _insert_entry_pass_throughs(
                     )
 
 
+def _insert_exit_bypass_stations(
+    graph: MetroGraph,
+    section: Section,
+    sub: MetroGraph,
+) -> dict[str, int] | None:
+    """Insert hidden bypass stations for lines that skip intermediate layers
+    on their way to an exit port.
+
+    When a line connects from an early-layer station to an exit port but
+    doesn't pass through stations at intermediate layers, the routed edge
+    would visually cross those stations. This inserts hidden stations at
+    intermediate layers so the line gets its own track and routes around
+    the bypassed stations naturally.
+
+    Returns the computed layers dict if no mutations were made (caller can
+    reuse it), or None if stations were inserted (caller must recompute).
+    """
+    if not sub.stations:
+        return assign_layers(sub)
+
+    layers = assign_layers(sub)
+    if not layers:
+        return layers
+    max_layer = max(layers.values())
+
+    exit_port_ids = set(section.exit_ports)
+    if not exit_port_ids:
+        return layers
+
+    # Determine primary line for each station (lowest priority index)
+    line_order = list(graph.lines.keys())
+    line_pri = {lid: i for i, lid in enumerate(line_order)}
+
+    def _primary_line(sid: str) -> str | None:
+        slines = graph.station_lines(sid)
+        return min(slines, key=lambda l: line_pri.get(l, 999)) if slines else None
+
+    # Pre-build layer -> station list index for O(1) lookup
+    layer_to_sids: dict[int, list[str]] = {}
+    for sid, ly in layers.items():
+        layer_to_sids.setdefault(ly, []).append(sid)
+
+    # Find lines with exit-port edges from internal stations
+    exit_edges: list[Edge] = []
+    for edge in graph.edges:
+        if edge.source in sub.stations and edge.target in exit_port_ids:
+            exit_edges.append(edge)
+
+    inserted_any = False
+    for edge in exit_edges:
+        src_layer = layers.get(edge.source, 0)
+        line_id = edge.line_id
+
+        if src_layer >= max_layer:
+            continue
+
+        src_primary = _primary_line(edge.source)
+
+        # If this line is not the primary at the source station, the
+        # source is a multi-line hub and this line forks onto its own
+        # track.  It won't visually cross through same-primary-line
+        # stations at later layers, so no bypass is needed.
+        if src_primary != line_id:
+            continue
+
+        # Check if there are stations at intermediate layers that are
+        # on the same track (same primary line) but not on this line.
+        # Stations on a different track won't overlap visually.
+        bypass_layers: list[int] = []
+        for layer_idx in range(src_layer + 1, max_layer + 1):
+            for sid in layer_to_sids.get(layer_idx, ()):
+                st = sub.stations.get(sid)
+                if not st or st.is_hidden:
+                    continue
+                st_lines = graph.station_lines(sid)
+                if line_id not in st_lines and _primary_line(sid) == src_primary:
+                    bypass_layers.append(layer_idx)
+                    break
+
+        if not bypass_layers:
+            continue
+
+        # Insert a single hidden station at the last bypass layer.
+        # Using the last layer (rather than every layer) gives the
+        # diagonal enough horizontal room so the fork happens between
+        # stations, not at the source station marker.
+        target_layer = bypass_layers[-1]
+        hidden_id = f"_{section.id}_exitbypass_{line_id}_{target_layer}"
+        counter = 0
+        while hidden_id in graph.stations:
+            counter += 1
+            hidden_id = f"_{section.id}_exitbypass_{line_id}_{target_layer}_{counter}"
+
+        hidden = Station(
+            id=hidden_id,
+            label="",
+            section_id=section.id,
+            is_hidden=True,
+        )
+        graph.register_station(hidden)
+        sub.add_station(hidden)
+        inserted_any = True
+
+        # Edge from source to hidden station within the section
+        sub.add_edge(Edge(source=edge.source, target=hidden_id, line_id=line_id))
+        graph.add_edge(Edge(source=edge.source, target=hidden_id, line_id=line_id))
+
+        # Rewire the graph-level exit port edge from the hidden station
+        for i, e in enumerate(graph.edges):
+            if (
+                e.source == edge.source
+                and e.target == edge.target
+                and e.line_id == line_id
+            ):
+                graph.edges[i] = Edge(
+                    source=hidden_id,
+                    target=edge.target,
+                    line_id=line_id,
+                )
+                break
+
+    return None if inserted_any else layers
+
+
 def _compute_fork_join_gaps(
     sub: MetroGraph,
     layers: dict[str, int],
@@ -1974,10 +2179,11 @@ def _compute_fork_join_gaps(
                             bubble_label_half, label_text_width(station.label) / 2
                         )
 
-        # The bubble label needs label_half from its center, plus the
-        # diagonal transition needs DIAGONAL_RUN.  The default x_spacing
-        # already provides some room, so only add the excess.
-        bubble_extra = max(0.0, bubble_label_half + DIAGONAL_RUN - x_spacing)
+        # The bubble station is centered on its flat run.  The total
+        # space needed is 2 * label_half + DIAGONAL_RUN, but the gap
+        # is added on BOTH sides (after fork, before join), so each
+        # side contributes half the total requirement.
+        bubble_extra = max(0.0, (bubble_label_half * 2 + DIAGONAL_RUN - x_spacing) / 1.5)
         layer_gap[layer] = max(base_gap, fj_label_half + bubble_extra)
 
     cumulative = 0.0
