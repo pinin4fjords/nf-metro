@@ -745,6 +745,10 @@ def _route_bypass(
     base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
     by = base_y + nest_offset
 
+    # Override r2 so corner 2 concentricity matches the trunk Y ordering:
+    # by - r2 = base_y - base_radius (constant across all lines).
+    r2 = ctx.curve_radius + nest_offset
+
     # Gap channel centers and per-line positions.
     base_bypass_offset = ctx.curve_radius + ctx.offset_step
     half_g1 = (g1_n - 1) * ctx.offset_step / 2
