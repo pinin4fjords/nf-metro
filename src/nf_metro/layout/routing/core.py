@@ -928,6 +928,55 @@ def _route_tb_internal(
     )
 
 
+def _compute_diagonal_placement(
+    run_src: float,
+    run_tgt: float,
+    diagonal_run: float,
+    src_min_straight: float,
+    tgt_min_straight: float,
+    is_fork: bool,
+    is_join: bool,
+) -> tuple[float, float]:
+    """Compute diagonal start/end on the run axis.
+
+    Shared by ``_route_diagonal`` (horizontal run axis) and
+    ``_route_tb_diagonal`` (vertical run axis).  The caller maps the
+    result back to (x, y) coordinates.
+
+    Returns (diag_start, diag_end) in run-axis coordinates.
+    """
+    delta = run_tgt - run_src
+    sign = 1.0 if delta > 0 else -1.0
+    half_diag = diagonal_run / 2
+
+    # Bias diagonal toward fork/join stations
+    if is_fork:
+        mid = run_src + sign * (src_min_straight + half_diag)
+    elif is_join:
+        mid = run_tgt - sign * (tgt_min_straight + half_diag)
+    else:
+        mid = (run_src + run_tgt) / 2
+
+    diag_start = mid - sign * half_diag
+    diag_end = mid + sign * half_diag
+
+    # Clamp to ensure minimum straight runs at endpoints
+    if sign > 0:
+        diag_start = max(diag_start, run_src + src_min_straight)
+        diag_end = min(diag_end, run_tgt - tgt_min_straight)
+        if diag_end < diag_start:
+            midpoint = (diag_start + diag_end) / 2
+            diag_start = diag_end = midpoint
+    else:
+        diag_start = min(diag_start, run_src - src_min_straight)
+        diag_end = max(diag_end, run_tgt + tgt_min_straight)
+        if diag_end > diag_start:
+            midpoint = (diag_start + diag_end) / 2
+            diag_start = diag_end = midpoint
+
+    return diag_start, diag_end
+
+
 def _route_tb_diagonal(
     edge: Edge,
     sx: float,
@@ -936,43 +985,16 @@ def _route_tb_diagonal(
     ty: float,
     ctx: _RoutingCtx,
 ) -> RoutedPath:
-    """Route TB edges with vertical runs and a 45-degree diagonal transition.
-
-    Mirrors ``_route_diagonal()`` but with axes swapped: vertical runs at
-    source and target connected by a 45-degree diagonal that shifts between
-    X tracks.
-    """
-    dy = ty - sy
-    sign = 1.0 if dy > 0 else -1.0
-    half_diag = ctx.diagonal_run / 2
-    min_straight = MIN_STRAIGHT_EDGE
-
-    # Bias diagonal toward fork/join stations
-    is_fork = edge.source in ctx.fork_stations
-    is_join = edge.target in ctx.join_stations
-    if is_fork:
-        mid_y = sy + sign * (min_straight + half_diag)
-    elif is_join:
-        mid_y = ty - sign * (min_straight + half_diag)
-    else:
-        mid_y = (sy + ty) / 2
-
-    diag_start_y = mid_y - sign * half_diag
-    diag_end_y = mid_y + sign * half_diag
-
-    # Clamp to ensure minimum straight vertical runs at endpoints
-    if sign > 0:
-        diag_start_y = max(diag_start_y, sy + min_straight)
-        diag_end_y = min(diag_end_y, ty - min_straight)
-        if diag_end_y < diag_start_y:
-            midpoint = (diag_start_y + diag_end_y) / 2
-            diag_start_y = diag_end_y = midpoint
-    else:
-        diag_start_y = min(diag_start_y, sy - min_straight)
-        diag_end_y = max(diag_end_y, ty + min_straight)
-        if diag_end_y > diag_start_y:
-            midpoint = (diag_start_y + diag_end_y) / 2
-            diag_start_y = diag_end_y = midpoint
+    """Route TB edges with vertical runs and a 45-degree diagonal transition."""
+    diag_start_y, diag_end_y = _compute_diagonal_placement(
+        sy,
+        ty,
+        ctx.diagonal_run,
+        MIN_STRAIGHT_EDGE,
+        MIN_STRAIGHT_EDGE,
+        edge.source in ctx.fork_stations,
+        edge.target in ctx.join_stations,
+    )
 
     return RoutedPath(
         edge=edge,
@@ -1270,9 +1292,6 @@ def _route_diagonal(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
 
-    sign = 1.0 if dx > 0 else -1.0
-    half_diag = ctx.diagonal_run / 2
-
     # Minimum straight track at endpoints
     if src.is_port or tgt.is_port:
         min_straight = ctx.curve_radius + MIN_STRAIGHT_PORT
@@ -1293,33 +1312,15 @@ def _route_diagonal(
         src_min = min_straight
         tgt_min = min_straight
 
-    # Bias diagonal toward the convergence/divergence station so that
-    # the visual fork/join is close to the topological fork/join.
-    is_fork = edge.source in ctx.fork_stations
-    is_join = edge.target in ctx.join_stations
-    if is_fork:
-        mid_x = sx + sign * (src_min + half_diag)
-    elif is_join:
-        mid_x = tx - sign * (tgt_min + half_diag)
-    else:
-        mid_x = (sx + tx) / 2
-
-    diag_start_x = mid_x - sign * half_diag
-    diag_end_x = mid_x + sign * half_diag
-
-    # Clamp to ensure label clearance
-    if sign > 0:
-        diag_start_x = max(diag_start_x, sx + src_min)
-        diag_end_x = min(diag_end_x, tx - tgt_min)
-        if diag_end_x < diag_start_x:
-            midpoint = (diag_start_x + diag_end_x) / 2
-            diag_start_x = diag_end_x = midpoint
-    else:
-        diag_start_x = min(diag_start_x, sx - src_min)
-        diag_end_x = max(diag_end_x, tx + tgt_min)
-        if diag_end_x > diag_start_x:
-            midpoint = (diag_start_x + diag_end_x) / 2
-            diag_start_x = diag_end_x = midpoint
+    diag_start_x, diag_end_x = _compute_diagonal_placement(
+        sx,
+        tx,
+        ctx.diagonal_run,
+        src_min,
+        tgt_min,
+        edge.source in ctx.fork_stations,
+        edge.target in ctx.join_stations,
+    )
 
     return RoutedPath(
         edge=edge,
