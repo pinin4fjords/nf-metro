@@ -76,6 +76,9 @@ def assign_tracks(
     max_layer = max(layers.values()) if layers else 0
     orphan_track = len(line_order) * line_gap
 
+    diamond_members = _build_diamond_index(G, layers, graph)
+    layer_occupancy: dict[int, dict[str, float]] = defaultdict(dict)
+
     for layer_idx in range(max_layer + 1):
         for lid in line_order:
             nodes = layer_line_groups.get((layer_idx, lid), [])
@@ -93,7 +96,10 @@ def assign_tracks(
                     tracks,
                     graph,
                     layers,
+                    diamond_members=diamond_members,
+                    layer_occupancy=layer_occupancy,
                 )
+                layer_occupancy[layer_idx][nodes[0]] = tracks[nodes[0]]
             else:
                 _place_fan_out(
                     nodes,
@@ -103,11 +109,14 @@ def assign_tracks(
                     tracks,
                     straight_diamonds=graph.diamond_style == "straight",
                 )
+                for n in nodes:
+                    layer_occupancy[layer_idx][n] = tracks[n]
 
         # Orphans (no line)
         orphans = layer_line_groups.get((layer_idx, None), [])
         for node in orphans:
             tracks[node] = orphan_track
+            layer_occupancy[layer_idx][node] = orphan_track
             orphan_track += 1
 
         # Equalize cross-line fork groups at this layer so downstream
@@ -119,54 +128,76 @@ def assign_tracks(
     return tracks
 
 
-def _is_diamond_node(
-    node: str,
-    layer: int,
+def _build_diamond_index(
     G: nx.DiGraph,
     layers: dict[str, int],
     graph: MetroGraph | None = None,
-) -> bool:
-    """Check if node is part of a diamond (fork-join) pattern.
+) -> set[str]:
+    """Pre-compute the set of nodes belonging to diamond (fork-join) patterns.
 
-    A diamond node shares the same predecessors with another node at
-    the same layer, both converge to at least one common successor,
-    AND both nodes carry the same set of metro lines (i.e. they are
-    alternative paths for the same lines, like FastP/TrimGalore).
-    Nodes on different lines that happen to share predecessors/successors
-    (like salmon_pseudo/kallisto) are NOT diamonds.
+    A diamond exists when two or more nodes at the same layer share the
+    same predecessors, have at least one common successor, and (when
+    *graph* is provided) carry the same set of metro lines.
+
+    Returns a set of station IDs that are diamond members, enabling O(1)
+    membership checks instead of per-call layer scans.
     """
-    preds = set(G.predecessors(node))
-    succs = set(G.successors(node))
-    if not preds or not succs:
-        return False
+    diamond_members: set[str] = set()
 
-    node_lines = set(graph.station_lines(node)) if graph else set()
+    # Group nodes by layer
+    layer_nodes: dict[int, list[str]] = defaultdict(list)
+    for node, layer in layers.items():
+        layer_nodes[layer].append(node)
 
-    same_layer = [n for n, ly in layers.items() if ly == layer and n != node]
-    for other in same_layer:
-        if set(G.predecessors(other)) == preds and succs & set(G.successors(other)):
-            if graph:
-                other_lines = set(graph.station_lines(other))
-                if node_lines == other_lines:
-                    return True
+    for nodes in layer_nodes.values():
+        # Group by predecessor set (only nodes with both preds and succs)
+        pred_groups: dict[frozenset[str], list[str]] = defaultdict(list)
+        for node in nodes:
+            preds = frozenset(G.predecessors(node))
+            if preds and any(True for _ in G.successors(node)):
+                pred_groups[preds].append(node)
+
+        for group in pred_groups.values():
+            if len(group) < 2:
+                continue
+
+            if graph is not None:
+                # Sub-group by line set
+                line_groups: dict[frozenset[str], list[str]] = defaultdict(list)
+                for node in group:
+                    lines = frozenset(graph.station_lines(node))
+                    line_groups[lines].append(node)
+
+                for line_group in line_groups.values():
+                    if len(line_group) < 2:
+                        continue
+                    common_succs = set(G.successors(line_group[0]))
+                    for node in line_group[1:]:
+                        common_succs &= set(G.successors(node))
+                    if common_succs:
+                        diamond_members.update(line_group)
             else:
-                return True
-    return False
+                common_succs = set(G.successors(group[0]))
+                for node in group[1:]:
+                    common_succs &= set(G.successors(node))
+                if common_succs:
+                    diamond_members.update(group)
+
+    return diamond_members
 
 
 def _is_track_occupied_at_layer(
     track: float,
     layer: int,
-    layers: dict[str, int],
-    tracks: dict[str, float],
+    layer_occupancy: dict[int, dict[str, float]],
     exclude_node: str,
     tolerance: float = 0.5,
 ) -> bool:
     """Check if any already-placed station at this layer occupies the given track."""
-    for sid, sid_layer in layers.items():
-        if sid_layer == layer and sid != exclude_node and sid in tracks:
-            if abs(tracks[sid] - track) < tolerance:
-                return True
+    placed = layer_occupancy.get(layer, {})
+    for sid, sid_track in placed.items():
+        if sid != exclude_node and abs(sid_track - track) < tolerance:
+            return True
     return False
 
 
@@ -174,7 +205,7 @@ def _find_free_nearby_track(
     pred_track: float,
     base: float,
     layer: int,
-    layers: dict[str, int],
+    layer_occupancy: dict[int, dict[str, float]],
     tracks: dict[str, float],
     exclude_node: str,
 ) -> float | None:
@@ -193,7 +224,7 @@ def _find_free_nearby_track(
         if abs(t - pred_track) < 0.01:
             # Skip the predecessor's own track (would be a flat line)
             continue
-        if not _is_track_occupied_at_layer(t, layer, layers, tracks, exclude_node):
+        if not _is_track_occupied_at_layer(t, layer, layer_occupancy, exclude_node):
             return t
     return None
 
@@ -216,6 +247,9 @@ def _place_single_node(
     tracks: dict[str, float],
     graph: MetroGraph | None = None,
     layers: dict[str, int] | None = None,
+    *,
+    diamond_members: set[str] | None = None,
+    layer_occupancy: dict[int, dict[str, float]] | None = None,
 ) -> float:
     """Place a single node, choosing between line base track and predecessor proximity.
 
@@ -240,7 +274,7 @@ def _place_single_node(
         if len(pred_lines) > len(node_lines):
             # Check if this is a diamond (temporary fork-join)
             node_layer = layers.get(node, 0) if layers else 0
-            if layers and _is_diamond_node(node, node_layer, G, layers, graph):
+            if diamond_members is not None and node in diamond_members:
                 # Diamond: compress toward trunk for compact visual
                 return pred_avg + (base - pred_avg) * DIAMOND_COMPRESSION
             else:
@@ -259,7 +293,7 @@ def _place_single_node(
                         tracks[preds[0]],
                         base,
                         node_layer,
-                        layers,
+                        layer_occupancy if layer_occupancy is not None else {},
                         tracks,
                         node,
                     )
@@ -282,11 +316,9 @@ def _place_single_node(
         # after an asymmetric fork-join.
         if (
             graph.diamond_style == "straight"
-            and layers
+            and diamond_members is not None
             and len(preds) > 1
-            and any(
-                _is_diamond_node(p, layers.get(p, 0), G, layers, graph) for p in preds
-            )
+            and any(p in diamond_members for p in preds)
         ):
             return base
 
