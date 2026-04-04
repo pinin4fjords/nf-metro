@@ -44,6 +44,9 @@ jobs:
           cp docs/assets/renders/*.svg docs/assets/renders/manifest.json /tmp/pr_renders/
 
       # --- Render with base branch code ---
+      - name: Clean renders before base render
+        run: rm -f docs/assets/renders/*.svg
+
       - name: Checkout base branch
         run: git checkout ${{ github.event.pull_request.base.sha }}
 

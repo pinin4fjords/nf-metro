@@ -377,6 +377,10 @@ def write_manifest() -> None:
 
 
 if __name__ == "__main__":
+    # Clean stale renders so removed gallery entries don't persist
+    if RENDERS_DIR.exists():
+        for old_svg in RENDERS_DIR.glob("*.svg"):
+            old_svg.unlink()
     render_guide_examples()
     render_nextflow_examples()
     render_pipeline_examples()
