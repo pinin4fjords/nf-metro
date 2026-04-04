@@ -537,3 +537,179 @@ class TestReflowStructure:
             1 for s in graph_narrow.sections.values() if s.direction == "TB"
         )
         assert narrow_folds >= default_folds
+
+
+GENOMEASSEMBLY_FILE = EXAMPLES_DIR / "genomeassembly.mmd"
+
+
+class TestMergeJunctions:
+    """Tests for merge junction insertion and positioning (#207)."""
+
+    def test_merge_junctions_created(self):
+        """genomeassembly should have merge junctions for convergent assembly lines."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        merge_ids = [j for j in graph.junctions if j.startswith("__merge_")]
+        assert len(merge_ids) > 0, "Expected merge junctions for convergent edges"
+
+    def test_merge_junction_count(self):
+        """Convergent assembly lines create merge junctions."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        merge_ids = [j for j in graph.junctions if j.startswith("__merge_")]
+        # scaffolding + genome_stats each get convergent assemblies
+        assert len(merge_ids) >= 2, (
+            f"Expected >= 2 merge junctions, got {len(merge_ids)}"
+        )
+
+    def test_merge_junction_has_correct_section(self):
+        """Merge junctions should have section_id set to the target section."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        for jid in graph.junctions:
+            if not jid.startswith("__merge_"):
+                continue
+            junction = graph.stations[jid]
+            assert junction.section_id is not None, (
+                f"Merge junction {jid} should have a section_id"
+            )
+            # Verify it matches the successor entry port's section
+            for edge in graph.edges:
+                if edge.source == jid:
+                    tgt_port = graph.ports.get(edge.target)
+                    if tgt_port and tgt_port.is_entry:
+                        assert junction.section_id == tgt_port.section_id, (
+                            f"Merge junction {jid} section_id {junction.section_id} "
+                            f"doesn't match entry port section {tgt_port.section_id}"
+                        )
+
+    def test_merge_junction_connectivity(self):
+        """Merge junctions have N>1 preds and 1 entry port succ."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        for jid in graph.junctions:
+            if not jid.startswith("__merge_"):
+                continue
+            preds = [e.source for e in graph.edges if e.target == jid]
+            succs = [e.target for e in graph.edges if e.source == jid]
+            assert len(preds) > 1, (
+                f"Merge junction {jid} should have >1 predecessors, got {len(preds)}"
+            )
+            assert len(succs) == 1, (
+                f"Merge junction {jid} should have 1 successor, got {len(succs)}"
+            )
+            succ_port = graph.ports.get(succs[0])
+            assert succ_port is not None and succ_port.is_entry, (
+                f"Merge junction {jid} successor should be an entry port"
+            )
+
+    def test_merge_junction_positioned_near_entry(self):
+        """Merge junctions should be positioned near their entry port."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        for jid in graph.junctions:
+            if not jid.startswith("__merge_"):
+                continue
+            junction = graph.stations[jid]
+            # Find entry port successor
+            for edge in graph.edges:
+                if edge.source == jid:
+                    tgt = graph.stations.get(edge.target)
+                    if tgt and graph.ports.get(edge.target):
+                        # Y should match entry port
+                        assert abs(junction.y - tgt.y) < 1.0, (
+                            f"Merge junction {jid} Y={junction.y} should match "
+                            f"entry port Y={tgt.y}"
+                        )
+                        # X should be to the left of entry port (for LEFT entry)
+                        assert junction.x < tgt.x, (
+                            f"Merge junction {jid} X={junction.x} should be left "
+                            f"of entry port X={tgt.x}"
+                        )
+
+    def test_genomeassembly_passes_validation(self):
+        """genomeassembly example should pass all layout validation checks."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        violations = validate_layout(graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+
+class TestMergeRouting:
+    """Tests for merge trunk/branch routing patterns (#207)."""
+
+    @staticmethod
+    def _routes(graph):
+        from nf_metro.layout.routing import (
+            compute_station_offsets,
+            route_edges,
+        )
+
+        offsets = compute_station_offsets(graph)
+        return route_edges(graph, station_offsets=offsets)
+
+    def test_trunk_reaches_entry_port(self):
+        """Trunk route's last point should match the entry port."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        routes = self._routes(graph)
+        merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
+        for r in routes:
+            if r.edge.target in merge_ids and len(r.points) == 6:
+                # Find entry port for this merge junction
+                for e in graph.edges:
+                    if e.source == r.edge.target:
+                        ep = graph.ports.get(e.target)
+                        if ep and ep.is_entry:
+                            ep_st = graph.stations[e.target]
+                            last = r.points[-1]
+                            assert abs(last[0] - ep_st.x) < 1, (
+                                f"Trunk to {r.edge.target} ends at "
+                                f"x={last[0]:.0f}, entry at "
+                                f"x={ep_st.x:.0f}"
+                            )
+
+    def test_branch_is_4_point_descent(self):
+        """Branch routes should be 4-point L-shape descents."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        routes = self._routes(graph)
+        merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
+        for r in routes:
+            if r.edge.target in merge_ids and len(r.points) != 6 and len(r.points) != 2:
+                assert len(r.points) == 4, (
+                    f"Branch {r.edge.source}->{r.edge.target} "
+                    f"has {len(r.points)} points, expected 4"
+                )
+
+    def test_no_backward_segments(self):
+        """No merge route should have backward (decreasing X) segments."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        routes = self._routes(graph)
+        merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
+        for r in routes:
+            if r.edge.target not in merge_ids:
+                continue
+            for k in range(len(r.points) - 1):
+                x1 = r.points[k][0]
+                x2 = r.points[k + 1][0]
+                assert x2 >= x1 - 1, (
+                    f"Backward segment in "
+                    f"{r.edge.source}->{r.edge.target} "
+                    f"seg {k}: x {x1:.0f}->{x2:.0f}"
+                )
+
+    def test_bypass_bundle_uses_offset_step(self):
+        """Bundled bypass routes should be OFFSET_STEP apart."""
+        from nf_metro.layout.constants import OFFSET_STEP
+
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        routes = self._routes(graph)
+        bypass_y: dict[str, float] = {}
+        for r in routes:
+            if not r.is_inter_section:
+                continue
+            for k in range(len(r.points) - 1):
+                y = r.points[k][1]
+                if y > 200 and abs(r.points[k][1] - r.points[k + 1][1]) < 1:
+                    if r.line_id not in bypass_y or y < bypass_y[r.line_id]:
+                        bypass_y[r.line_id] = y
+                    break
+        if "assemblies" in bypass_y and "hic_reads" in bypass_y:
+            gap = abs(bypass_y["assemblies"] - bypass_y["hic_reads"])
+            assert gap == OFFSET_STEP, (
+                f"Bypass bundle gap {gap}px, expected {OFFSET_STEP}px"
+            )

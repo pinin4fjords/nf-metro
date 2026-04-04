@@ -15,6 +15,7 @@ from collections import defaultdict, deque
 
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
+    MERGE_GAP_MIN,
     MIN_INTER_SECTION_GAP,
     MIN_INTER_SECTION_ROW_GAP,
     MIN_PORT_STATION_GAP,
@@ -396,6 +397,49 @@ def _min_gap_for_bundle(
     return max(2 * max_radius, MIN_INTER_SECTION_GAP)
 
 
+def _has_merge_routing_in_gap(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    col_a: int,
+    col_b: int,
+) -> bool:
+    """Check if any merge junction has bypass routes crossing this gap.
+
+    Returns True when both a branch descent AND a trunk ascent will
+    route through the gap between *col_a* and *col_b*, requiring
+    extra width for symmetric spacing.
+    """
+    merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
+    if not merge_ids:
+        return False
+
+    junction_ids = set(graph.junctions)
+    lo, hi = min(col_a, col_b), max(col_a, col_b)
+
+    for mjid in merge_ids:
+        mst = graph.stations.get(mjid)
+        if not mst:
+            continue
+        tgt_col = col_assign.get(mst.section_id, -1) if mst.section_id else -1
+        # Check if any bypass predecessor crosses this gap
+        for edge in graph.edges:
+            if edge.target != mjid:
+                continue
+            src_col = _station_column(
+                graph,
+                graph.stations.get(edge.source),
+                col_assign,
+                junction_ids,
+            )
+            if src_col is not None and tgt_col >= 0:
+                edge_lo = min(src_col, tgt_col)
+                edge_hi = max(src_col, tgt_col)
+                if edge_lo <= lo and edge_hi >= hi and edge_hi - edge_lo > 1:
+                    return True
+
+    return False
+
+
 def _enforce_min_column_gaps(
     graph: MetroGraph,
     col_assign: dict[str, int],
@@ -431,6 +475,10 @@ def _enforce_min_column_gaps(
         n_lines = _count_lines_between_columns(graph, col_assign, col, col + 1)
         bundle_min = _min_gap_for_bundle(n_lines)
         effective_min = max(min_gap, bundle_min)
+
+        # Widen further for gaps with merge junction routing
+        if _has_merge_routing_in_gap(graph, col_assign, col, col + 1):
+            effective_min = max(effective_min, MERGE_GAP_MIN)
 
         # Find the tightest gap among row-overlapping section pairs
         worst_gap: float | None = None

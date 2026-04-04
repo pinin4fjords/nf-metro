@@ -91,13 +91,24 @@ DIAGONAL_RUN: float = 30.0
 CURVE_RADIUS: float = 10.0
 """Default corner radius for routed paths."""
 
+MERGE_ROUTE_MARGIN: float = 2 * CURVE_RADIUS
+"""Distance between a section bbox edge and any merge branch/trunk
+vertical line in the inter-section gap."""
+
+MERGE_LINE_GAP: float = CURVE_RADIUS
+"""Minimum gap between a merge branch descent and trunk ascent."""
+
+MERGE_GAP_MIN: float = 2 * MERGE_ROUTE_MARGIN + MERGE_LINE_GAP
+"""Minimum inter-section gap for column pairs that have merge routing.
+
+Only applied to gaps where merge branches and trunks coexist."""
+
 MIN_INTER_SECTION_GAP: float = 4 * CURVE_RADIUS
 """Minimum physical gap between adjacent section bboxes.
 
 Ensures the gap midpoint is at least 2*CURVE_RADIUS from each section
 edge, giving enough horizontal run for smooth curves at bypass route
-corners.  Derived as 4 * CURVE_RADIUS.
-"""
+corners.  Derived as 4 * CURVE_RADIUS."""
 
 OFFSET_STEP: float = 3.0
 """Per-line offset increment for parallel lines in bundles."""

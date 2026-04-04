@@ -46,6 +46,12 @@ Four source sections converging into one target section. The inverse of fan-out:
 
 ![Wide Fan-In](wide_fan_in.png)
 
+### Fan-In Merge
+
+Same-line convergence: one line fans out from the source to all downstream sections, then reconverges at the sink. Each intermediate section also forwards to all subsequent sections, creating multiple bypass routes of the same line targeting one entry port. Tests merge junction insertion and trunk/branch routing, where the farthest bypass carries the full route and closer sources drop down to join it.
+
+![Fan-In Merge](fan_in_merge.png)
+
 ### Section Diamond
 
 A section-level fork-join: one source fans out to two parallel sections, which then reconverge into a single sink. Tests both fan-out junction creation and fan-in routing in the same topology.
