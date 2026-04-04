@@ -452,27 +452,19 @@ def _layout_single_section(
     if not sub.stations:
         return None
 
-    # Auto-insert hidden pass-through stations when a line entering
-    # the section connects to a station at a deeper layer than layer 0.
-    # Without these, the routing draws a straight line from the entry
-    # port through intermediate stations' columns.
-    _insert_entry_pass_throughs(graph, section, sub)
+    # Insert phantom pass-throughs into the subgraph (not the main graph)
+    # so that lines entering at a deep layer get their own track.
+    _insert_phantom_pass_throughs(graph, section, sub)
 
-    # Auto-insert hidden bypass stations when a line exits the section
-    # from an early-layer station, skipping intermediate stations that
-    # aren't on this line. Without these, the routing draws a straight
-    # line through unrelated stations' positions.
-    cached_layers = _insert_exit_bypass_stations(graph, section, sub)
-
-    layers = assign_layers(sub) if cached_layers is None else cached_layers
+    layers = assign_layers(sub)
     tracks = assign_tracks(sub, layers)
 
     if not layers:
         return None
 
-    # Snap auto-inserted pass-throughs to their successor's track so the
-    # straight-through line stays horizontal (diversions dip, not the trunk).
-    _align_pass_throughs(sub, tracks)
+    # Snap phantom pass-throughs' successors to the pass-through track
+    # so the trunk line stays horizontal past bypassed stations.
+    _align_phantom_pass_throughs(sub, tracks)
 
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread.  Gaps larger than LINE_GAP get capped so
@@ -1962,17 +1954,67 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
     return sub
 
 
-def _align_pass_throughs(
+def _insert_phantom_pass_throughs(
+    graph: MetroGraph,
+    section: Section,
+    sub: MetroGraph,
+) -> None:
+    """Insert phantom stations into *sub* so deep-entry lines get own tracks.
+
+    When a line enters a section via an entry port but its first internal
+    station is deeper than layer 0, the line would share a track with
+    unrelated stations at the early layers.  Adding a hidden phantom at
+    layer 0 gives the line a dedicated track for a clear horizontal runway.
+
+    Only modifies the temporary subgraph -- the main graph stays immutable.
+    """
+    if not sub.stations:
+        return
+
+    from nf_metro.layout.layers import assign_layers
+
+    layers = assign_layers(sub)
+    if not layers:
+        return
+    min_layer = min(layers.values())
+
+    entry_port_ids = set(section.entry_ports)
+
+    # Find lines entering from entry ports to deep-layer internal stations.
+    entry_targets: dict[str, set[str]] = {}
+    for edge in graph.edges:
+        if edge.source in entry_port_ids and edge.target in sub.stations:
+            entry_targets.setdefault(edge.line_id, set()).add(edge.target)
+
+    for line_id, targets in entry_targets.items():
+        target_layers = [layers.get(t, min_layer) for t in targets]
+        if all(ly > min_layer for ly in target_layers):
+            earliest_target = min(targets, key=lambda t: layers.get(t, 0))
+            phantom_id = f"_phantom_{section.id}_{line_id}"
+
+            sub.add_station(
+                Station(
+                    id=phantom_id,
+                    label="",
+                    section_id=section.id,
+                    is_hidden=True,
+                )
+            )
+            sub.add_edge(
+                Edge(source=phantom_id, target=earliest_target, line_id=line_id)
+            )
+
+
+def _align_phantom_pass_throughs(
     sub: MetroGraph,
     tracks: dict[str, float],
 ) -> None:
-    """Pull the convergence node to the pass-through's track (the trunk).
+    """Snap convergence nodes to their phantom pass-through's track.
 
-    Auto-inserted pass-throughs represent the straight-through path for
-    a line that skips an optional station.  The convergence node (where
-    the optional branch rejoins) should be at the same track as the
-    pass-through so the trunk line stays horizontal.  The optional
-    station then visually "bubbles" away from the trunk and returns.
+    The phantom ensures a dedicated track for the bypassing line.
+    Moving the convergence node (the phantom's sole successor) to that
+    track keeps the trunk horizontal so the optional branch visually
+    "bubbles" away from it.
     """
     import networkx as nx
 
@@ -1985,222 +2027,7 @@ def _align_pass_throughs(
             continue
         succs = list(G.successors(sid))
         if len(succs) == 1 and succs[0] in tracks:
-            # Move the convergence node to the pass-through's track
             tracks[succs[0]] = tracks[sid]
-
-
-def _insert_entry_pass_throughs(
-    graph: MetroGraph,
-    section: Section,
-    sub: MetroGraph,
-) -> None:
-    """Insert hidden pass-through stations for lines that skip internal layers.
-
-    When a line enters a section via an entry port but its first internal
-    station is at a deeper layer than layer 0, routing draws a straight line
-    from the entry port through intermediate stations' columns.  This function
-    detects such gaps and inserts hidden stations at layer 0 so the line has
-    its own dedicated path that doesn't visually cross unrelated stations.
-
-    Modifies *sub* (and *graph*) in place by adding hidden stations and edges.
-    """
-    if not sub.stations:
-        return
-
-    # Compute layers on the current subgraph to find layer 0 stations
-    from nf_metro.layout.layers import assign_layers
-
-    layers = assign_layers(sub)
-    if not layers:
-        return
-    min_layer = min(layers.values())
-
-    # Collect entry port IDs for this section
-    entry_port_ids = set(section.entry_ports)
-
-    # Find edges from entry ports to internal stations, grouped by line
-    entry_targets: dict[str, set[str]] = {}  # line_id -> set of target sids
-    for edge in graph.edges:
-        if edge.source in entry_port_ids and edge.target in sub.stations:
-            entry_targets.setdefault(edge.line_id, set()).add(edge.target)
-
-    # For each line, check if all its entry targets are at layer > min_layer
-    for line_id, targets in entry_targets.items():
-        target_layers = [layers.get(t, min_layer) for t in targets]
-        if all(ly > min_layer for ly in target_layers):
-            # This line skips layer 0 - needs a pass-through
-            earliest_target = min(targets, key=lambda t: layers.get(t, 0))
-
-            # Find a station at min_layer to chain before
-            # (any station at the earliest layer will do for ordering)
-            pass_id = f"_{section.id}_pass_{line_id}"
-            counter = 0
-            while pass_id in graph.stations:
-                counter += 1
-                pass_id = f"_{section.id}_pass_{line_id}_{counter}"
-
-            hidden = Station(
-                id=pass_id,
-                label="",
-                section_id=section.id,
-                is_hidden=True,
-            )
-
-            # Add to the section, graph, and subgraph
-            graph.register_station(hidden)
-            sub.add_station(
-                Station(
-                    id=pass_id,
-                    label="",
-                    section_id=section.id,
-                    is_hidden=True,
-                )
-            )
-            sub.add_edge(Edge(source=pass_id, target=earliest_target, line_id=line_id))
-            graph.add_edge(
-                Edge(source=pass_id, target=earliest_target, line_id=line_id)
-            )
-
-            # Rewire entry port edges: entry_port -> pass_through (instead of target)
-            for i, edge in enumerate(graph.edges):
-                if (
-                    edge.source in entry_port_ids
-                    and edge.target == earliest_target
-                    and edge.line_id == line_id
-                ):
-                    graph.edges[i] = Edge(
-                        source=edge.source,
-                        target=pass_id,
-                        line_id=line_id,
-                    )
-            graph._invalidate_edge_caches()
-
-
-def _insert_exit_bypass_stations(
-    graph: MetroGraph,
-    section: Section,
-    sub: MetroGraph,
-) -> dict[str, int] | None:
-    """Insert hidden bypass stations for lines that skip intermediate layers
-    on their way to an exit port.
-
-    When a line connects from an early-layer station to an exit port but
-    doesn't pass through stations at intermediate layers, the routed edge
-    would visually cross those stations. This inserts hidden stations at
-    intermediate layers so the line gets its own track and routes around
-    the bypassed stations naturally.
-
-    Returns the computed layers dict if no mutations were made (caller can
-    reuse it), or None if stations were inserted (caller must recompute).
-    """
-    if not sub.stations:
-        return assign_layers(sub)
-
-    layers = assign_layers(sub)
-    if not layers:
-        return layers
-    max_layer = max(layers.values())
-
-    exit_port_ids = set(section.exit_ports)
-    if not exit_port_ids:
-        return layers
-
-    # Determine primary line for each station (lowest priority index)
-    line_order = list(graph.lines.keys())
-    line_pri = {lid: i for i, lid in enumerate(line_order)}
-
-    def _primary_line(sid: str) -> str | None:
-        slines = graph.station_lines(sid)
-        if not slines:
-            return None
-        return min(slines, key=lambda lid: line_pri.get(lid, 999))
-
-    # Pre-build layer -> station list index for O(1) lookup
-    layer_to_sids: dict[int, list[str]] = {}
-    for sid, ly in layers.items():
-        layer_to_sids.setdefault(ly, []).append(sid)
-
-    # Find lines with exit-port edges from internal stations
-    exit_edges: list[Edge] = []
-    for edge in graph.edges:
-        if edge.source in sub.stations and edge.target in exit_port_ids:
-            exit_edges.append(edge)
-
-    inserted_any = False
-    for edge in exit_edges:
-        src_layer = layers.get(edge.source, 0)
-        line_id = edge.line_id
-
-        if src_layer >= max_layer:
-            continue
-
-        src_primary = _primary_line(edge.source)
-
-        # If this line is not the primary at the source station, the
-        # source is a multi-line hub and this line forks onto its own
-        # track.  It won't visually cross through same-primary-line
-        # stations at later layers, so no bypass is needed.
-        if src_primary != line_id:
-            continue
-
-        # Check if there are stations at intermediate layers that are
-        # on the same track (same primary line) but not on this line.
-        # Stations on a different track won't overlap visually.
-        bypass_layers: list[int] = []
-        for layer_idx in range(src_layer + 1, max_layer + 1):
-            for sid in layer_to_sids.get(layer_idx, ()):
-                st = sub.stations.get(sid)
-                if not st or st.is_hidden:
-                    continue
-                st_lines = graph.station_lines(sid)
-                if line_id not in st_lines and _primary_line(sid) == src_primary:
-                    bypass_layers.append(layer_idx)
-                    break
-
-        if not bypass_layers:
-            continue
-
-        # Insert a single hidden station at the last bypass layer.
-        # Using the last layer (rather than every layer) gives the
-        # diagonal enough horizontal room so the fork happens between
-        # stations, not at the source station marker.
-        target_layer = bypass_layers[-1]
-        hidden_id = f"_{section.id}_exitbypass_{line_id}_{target_layer}"
-        counter = 0
-        while hidden_id in graph.stations:
-            counter += 1
-            hidden_id = f"_{section.id}_exitbypass_{line_id}_{target_layer}_{counter}"
-
-        hidden = Station(
-            id=hidden_id,
-            label="",
-            section_id=section.id,
-            is_hidden=True,
-        )
-        graph.register_station(hidden)
-        sub.add_station(hidden)
-        inserted_any = True
-
-        # Edge from source to hidden station within the section
-        sub.add_edge(Edge(source=edge.source, target=hidden_id, line_id=line_id))
-        graph.add_edge(Edge(source=edge.source, target=hidden_id, line_id=line_id))
-
-        # Rewire the graph-level exit port edge from the hidden station
-        for i, e in enumerate(graph.edges):
-            if (
-                e.source == edge.source
-                and e.target == edge.target
-                and e.line_id == line_id
-            ):
-                graph.edges[i] = Edge(
-                    source=hidden_id,
-                    target=edge.target,
-                    line_id=line_id,
-                )
-                break
-
-    graph._invalidate_edge_caches()
-    return None if inserted_any else layers
 
 
 def _compute_fork_join_gaps(
