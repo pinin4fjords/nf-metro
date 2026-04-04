@@ -29,6 +29,87 @@ from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 # ---------------------------------------------------------------------------
 
 
+def resolve_curve_radii(
+    points: list[tuple[float, float]],
+    desired_radii: list[float] | None,
+    default_radius: float = CURVE_RADIUS,
+) -> list[float]:
+    """Compute effective curve radii after segment-budget clamping.
+
+    For each corner (intermediate waypoint), the desired radius is clamped
+    to the available segment length on each side.  When adjacent corners
+    share a segment, space is allocated proportionally based on their
+    desired radii so concentric geometry is preserved.
+
+    This is the single source of truth for radius resolution, used by both
+    the routing layer (for validation) and the rendering layer (for SVG
+    path construction).
+
+    Parameters
+    ----------
+    points : list of (x, y) tuples
+        The waypoints of the routed path.
+    desired_radii : list of float or None
+        Desired radius at each corner (length must equal ``len(points) - 2``
+        when not None).  Falls back to *default_radius* for missing entries.
+    default_radius : float
+        Fallback radius when *desired_radii* is None or too short.
+
+    Returns
+    -------
+    list of float
+        Effective (clamped) radius for each corner.
+    """
+    n_corners = len(points) - 2
+    if n_corners <= 0:
+        return []
+
+    effective: list[float] = []
+    for i in range(1, len(points) - 1):
+        corner_idx = i - 1
+        desired_r = (
+            desired_radii[corner_idx]
+            if desired_radii and corner_idx < len(desired_radii)
+            else default_radius
+        )
+
+        prev, curr, nxt = points[i - 1], points[i], points[i + 1]
+        dx1 = curr[0] - prev[0]
+        dy1 = curr[1] - prev[1]
+        len1 = (dx1**2 + dy1**2) ** 0.5
+
+        dx2 = nxt[0] - curr[0]
+        dy2 = nxt[1] - curr[1]
+        len2 = (dx2**2 + dy2**2) ** 0.5
+
+        # Proportional allocation for segments shared between adjacent corners.
+        if i > 1:
+            prev_r = (
+                desired_radii[i - 2]
+                if desired_radii and (i - 2) < len(desired_radii)
+                else default_radius
+            )
+            total = prev_r + desired_r
+            max_len1 = len1 * desired_r / total if total > 0 else len1 / 2
+        else:
+            max_len1 = len1
+
+        if i < len(points) - 2:
+            next_r = (
+                desired_radii[i]
+                if desired_radii and i < len(desired_radii)
+                else default_radius
+            )
+            total = desired_r + next_r
+            max_len2 = len2 * desired_r / total if total > 0 else len2 / 2
+        else:
+            max_len2 = len2
+
+        effective.append(min(desired_r, max_len1, max_len2))
+
+    return effective
+
+
 def reversed_offset(offset: float, max_offset: float) -> float:
     """Flip a line's offset within a bundle.
 

@@ -16,6 +16,7 @@ import pytest
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.routing.corners import (
     l_shape_radii,
+    resolve_curve_radii,
     reversed_offset,
     tb_entry_corner,
     tb_exit_corner,
@@ -304,3 +305,81 @@ class TestTbEntryCorner:
             vx_entry, r_entry = tb_entry_corner(off, max_off, entry_right=entry_right)
             assert r_exit == pytest.approx(r_entry)
             assert vx_exit == pytest.approx(vx_entry)
+
+
+# ---------------------------------------------------------------------------
+# resolve_curve_radii
+# ---------------------------------------------------------------------------
+
+
+class TestResolveCurveRadii:
+    """Tests for the shared radius resolution function."""
+
+    def test_no_corners(self):
+        """Two-point path has no corners."""
+        assert resolve_curve_radii([(0, 0), (100, 0)], None) == []
+
+    def test_single_corner_no_clamping(self):
+        """Single corner with plenty of segment length uses desired radius."""
+        pts = [(0, 0), (100, 0), (100, 100)]
+        result = resolve_curve_radii(pts, [15.0])
+        assert result == [15.0]
+
+    def test_single_corner_clamped_by_segment(self):
+        """Desired radius exceeding segment length is clamped."""
+        pts = [(0, 0), (5, 0), (5, 100)]
+        result = resolve_curve_radii(pts, [15.0])
+        assert result == [5.0]
+
+    def test_none_radii_uses_default(self):
+        """None desired_radii falls back to default_radius."""
+        pts = [(0, 0), (100, 0), (100, 100)]
+        result = resolve_curve_radii(pts, None, default_radius=8.0)
+        assert result == [8.0]
+
+    def test_adjacent_corners_proportional_allocation(self):
+        """Two corners sharing a short segment allocate proportionally."""
+        # Shared segment is 20px, desired radii are 10 and 10
+        # Each gets half = 10, which fits (equal split)
+        pts = [(0, 0), (100, 0), (120, 0), (120, 100)]
+        result = resolve_curve_radii(pts, [10.0, 10.0])
+        assert result[0] == pytest.approx(10.0)
+        assert result[1] == pytest.approx(10.0)
+
+    def test_adjacent_corners_unequal_radii(self):
+        """Unequal desired radii get proportional shares of shared segment."""
+        # Shared segment = 20px, desired r1=5, r2=15
+        # r1 gets 20 * 5/(5+15) = 5 -> min(5, 5) = 5
+        # r2 gets 20 * 15/(5+15) = 15 -> min(15, 15) = 15
+        pts = [(0, 0), (100, 0), (120, 0), (120, 100)]
+        result = resolve_curve_radii(pts, [5.0, 15.0])
+        assert result[0] == pytest.approx(5.0)
+        assert result[1] == pytest.approx(15.0)
+
+    def test_adjacent_corners_tight_segment(self):
+        """Very short shared segment clamps both adjacent radii."""
+        # Shared segment = 6px, desired r1=10, r2=10
+        # r1 budget from shared = 6 * 10/20 = 3 -> clamped to 3
+        # r2 budget from shared = 6 * 10/20 = 3 -> clamped to 3
+        pts = [(0, 0), (100, 0), (106, 0), (106, 100)]
+        result = resolve_curve_radii(pts, [10.0, 10.0])
+        assert result[0] == pytest.approx(3.0)
+        assert result[1] == pytest.approx(3.0)
+
+    def test_concentric_radii_stay_distinct(self):
+        """Bundle lines with different radii remain distinct after resolution."""
+        pts = [(0, 0), (100, 0), (100, 100)]
+        r1 = resolve_curve_radii(pts, [CURVE_RADIUS])
+        r2 = resolve_curve_radii(pts, [CURVE_RADIUS + OFFSET_STEP])
+        r3 = resolve_curve_radii(pts, [CURVE_RADIUS + 2 * OFFSET_STEP])
+        assert r1[0] < r2[0] < r3[0]
+
+    def test_four_corner_bypass(self):
+        """Six-point bypass path resolves 4 corners."""
+        pts = [(0, 0), (50, 0), (50, 200), (250, 200), (250, 0), (300, 0)]
+        radii = [10.0, 12.0, 12.0, 10.0]
+        result = resolve_curve_radii(pts, radii)
+        assert len(result) == 4
+        # All should be achievable given 50+ px segments
+        for r_eff, r_des in zip(result, radii):
+            assert r_eff == pytest.approx(r_des)

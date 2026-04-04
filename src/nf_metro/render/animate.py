@@ -10,6 +10,7 @@ import re
 import drawsvg as draw
 
 from nf_metro.layout.routing import RoutedPath
+from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render.constants import (
     ANIMATION_CURVE_RADIUS,
@@ -307,8 +308,7 @@ def _points_to_svg_path(
 ) -> str:
     """Convert a list of waypoints to an SVG path 'd' attribute.
 
-    Replicates the curve logic from _render_edges in svg.py:
-    straight lines with quadratic Bezier curves at direction changes.
+    Uses resolve_curve_radii for consistent radius clamping with svg.py.
     """
     if len(pts) < 2:
         return ""
@@ -317,6 +317,7 @@ def _points_to_svg_path(
         return f"M {pts[0][0]:.2f} {pts[0][1]:.2f} L {pts[1][0]:.2f} {pts[1][1]:.2f}"
 
     parts = [f"M {pts[0][0]:.2f} {pts[0][1]:.2f}"]
+    resolved = resolve_curve_radii(pts, route_curve_radii, default_radius=curve_radius)
 
     for i in range(1, len(pts) - 1):
         prev = pts[i - 1]
@@ -331,11 +332,7 @@ def _points_to_svg_path(
         dy2 = nxt[1] - curr[1]
         len2 = math.hypot(dx2, dy2)
 
-        max_len1 = len1 / 2 if i > 1 else len1
-        max_len2 = len2 / 2 if i < len(pts) - 2 else len2
-
-        effective_r = curve_radius
-        r = min(effective_r, max_len1, max_len2)
+        r = resolved[i - 1]
 
         if len1 > 0 and len2 > 0:
             before_x = curr[0] - (dx1 / len1) * r

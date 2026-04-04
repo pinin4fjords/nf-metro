@@ -12,6 +12,7 @@ import drawsvg as draw
 from nf_metro.layout.constants import LABEL_LINE_HEIGHT
 from nf_metro.layout.labels import LabelPlacement, place_labels
 from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
+from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
 from nf_metro.render.constants import (
     CANVAS_PADDING,
@@ -626,6 +627,10 @@ def _render_edges(
             )
             path.M(*pts[0])
 
+            resolved = resolve_curve_radii(
+                pts, route.curve_radii, default_radius=curve_radius
+            )
+
             for i in range(1, len(pts) - 1):
                 prev = pts[i - 1]
                 curr = pts[i]
@@ -639,46 +644,7 @@ def _render_edges(
                 dy2 = nxt[1] - curr[1]
                 len2 = (dx2**2 + dy2**2) ** 0.5
 
-                corner_idx = i - 1
-                if route.curve_radii and corner_idx < len(route.curve_radii):
-                    effective_r = route.curve_radii[corner_idx]
-                else:
-                    effective_r = curve_radius
-
-                # Allocate shared segments proportionally based on the
-                # desired radii of adjacent corners.  This preserves
-                # concentric curve geometry instead of a fixed 50/50
-                # split which collapses different radii to the same
-                # clamped value.
-                if i > 1 and route.curve_radii:
-                    prev_ci = i - 2
-                    prev_r = (
-                        route.curve_radii[prev_ci]
-                        if prev_ci < len(route.curve_radii)
-                        else curve_radius
-                    )
-                    total = prev_r + effective_r
-                    max_len1 = len1 * effective_r / total if total > 0 else len1 / 2
-                elif i > 1:
-                    max_len1 = len1 / 2
-                else:
-                    max_len1 = len1
-
-                if i < len(pts) - 2 and route.curve_radii:
-                    next_ci = i
-                    next_r = (
-                        route.curve_radii[next_ci]
-                        if next_ci < len(route.curve_radii)
-                        else curve_radius
-                    )
-                    total = effective_r + next_r
-                    max_len2 = len2 * effective_r / total if total > 0 else len2 / 2
-                elif i < len(pts) - 2:
-                    max_len2 = len2 / 2
-                else:
-                    max_len2 = len2
-
-                r = min(effective_r, max_len1, max_len2)
+                r = resolved[i - 1]
 
                 if len1 > 0 and len2 > 0:
                     before_x = curr[0] - (dx1 / len1) * r
