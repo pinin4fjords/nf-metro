@@ -26,7 +26,7 @@ git worktree add /tmp/nf-metro-fix-<N> -b fix/<N>-<slug> origin/main
 # Fix environment
 ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-fix-<N> python=3.11 cairo -y
 source ~/.local/bin/mm-activate nf-metro-fix-<N>
-pip install -e "/tmp/nf-metro-fix-<N>[dev]" && pip install cairosvg
+pip install -e "/tmp/nf-metro-fix-<N>[docs]"
 
 # Baseline environment (shared across issues, create only if missing)
 if [ ! -d "/Users/jonathan.manning/micromamba/envs/nf-metro-main" ]; then
@@ -34,7 +34,7 @@ if [ ! -d "/Users/jonathan.manning/micromamba/envs/nf-metro-main" ]; then
 fi
 cd /Users/jonathan.manning/projects/nf-metro && git checkout main && git pull origin main
 source ~/.local/bin/mm-activate nf-metro-main
-pip install -e "/Users/jonathan.manning/projects/nf-metro[dev]" && pip install cairosvg
+pip install -e "/Users/jonathan.manning/projects/nf-metro[docs]"
 ```
 
 All subsequent work happens inside `/tmp/nf-metro-fix-<N>`.
@@ -73,11 +73,17 @@ Each env must point at a **different source directory** (main repo vs worktree).
 
 **STOP and ask the user to review.** If identical or non-reproducing, discuss before proceeding.
 
-### 4b: Full regression check
+### 4b: Full regression check (handled by CI)
 
-Ask the user to run `/render-topologies` for a pixel-level diff of all `.mmd` renders against main. That skill handles baseline rendering, branch rendering, diffing, and opening only the changed BEFORE/AFTER pairs.
+The PR render preview workflow (`.github/workflows/pr-renders.yml`) automatically renders all gallery examples on both the PR branch and base, generates a visual diff page, and posts a sticky comment on the PR with the preview link:
 
-**STOP and wait for the user to confirm no regressions.** If they spot problems, return to Phase 3.
+```
+https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/
+```
+
+This replaces the local `/render-topologies` step for most cases. After creating the PR in Phase 5, wait for the CI to post the preview link, then ask the user to review it.
+
+For **pre-push confidence** (before the PR exists), you can still run `/render-topologies` locally. This is optional but useful when the change is risky or the user wants early feedback.
 
 ## Phase 5: Commit and PR
 
@@ -94,7 +100,7 @@ Fixes #<N>
 ## Test plan
 - [ ] pytest passes
 - [ ] ruff check clean
-- [ ] Visual review of all topology renders
+- [ ] Visual review of [render preview](https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

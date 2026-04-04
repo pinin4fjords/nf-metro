@@ -1,13 +1,13 @@
 ---
 name: render-topologies
-description: Render all .mmd files to PNG, pixel-diff against main, and open only changed renders as BEFORE/AFTER pairs in Preview. Use after layout or rendering changes to check for visual regressions. Works in worktree mode (fix branch vs main) or standalone mode (current working tree vs main). Companion to the fix-issue skill, which delegates full regression checks here.
+description: Render all gallery examples to PNG, pixel-diff against main, and open only changed renders as BEFORE/AFTER pairs in Preview. Uses the same build_gallery.py script as the CI PR render preview, so local and CI results match. Use after layout or rendering changes to check for visual regressions before pushing. Companion to the fix-issue skill.
 disable-model-invocation: true
 allowed-tools: Bash(rm -rf *), Bash(python *), Bash(open *), Bash(cd *), Bash(git *), Bash(source *), Bash(pip *), Bash(cp *)
 ---
 
 # Render Topologies
 
-Pixel-diff all `.mmd` renders between the current branch and `origin/main`. Opens only changed renders as numbered BEFORE/AFTER pairs in Preview.
+Pixel-diff all gallery renders between the current branch and `origin/main`. Uses `scripts/build_gallery.py` (the same script CI runs), so local results match the PR render preview. Opens only changed renders as numbered BEFORE/AFTER pairs in Preview.
 
 ## Step 1: Detect context
 
@@ -18,13 +18,27 @@ Determine the working mode:
 
 ## Step 2: Render baseline from main
 
-Update the main repo checkout and render using the shared `nf-metro-main` baseline environment:
+Update the main repo checkout and render using the shared `nf-metro-main` baseline environment. Install with `[docs]` extras (same as CI).
 
 ```bash
 cd /Users/jonathan.manning/projects/nf-metro && git fetch origin main && git checkout main && git pull origin main
-source ~/.local/bin/mm-activate nf-metro-main && pip install -e "/Users/jonathan.manning/projects/nf-metro[dev]" -q
-cd /Users/jonathan.manning/projects/nf-metro && python scripts/render_topologies.py
-# Note the output directory → MAIN_DIR
+source ~/.local/bin/mm-activate nf-metro-main && pip install -e "/Users/jonathan.manning/projects/nf-metro[docs]" -q
+cd /Users/jonathan.manning/projects/nf-metro && python scripts/build_gallery.py
+# SVGs are in docs/assets/renders/ → copy to a baseline dir
+rm -rf /tmp/nf_metro_renders_main && mkdir -p /tmp/nf_metro_renders_main
+cp docs/assets/renders/*.svg /tmp/nf_metro_renders_main/
+```
+
+Convert SVGs to PNGs for pixel diffing:
+
+```bash
+source ~/.local/bin/mm-activate nf-metro-main
+python -c "
+import cairosvg
+from pathlib import Path
+for svg in sorted(Path('/tmp/nf_metro_renders_main').glob('*.svg')):
+    cairosvg.svg2png(url=str(svg), write_to=str(svg.with_suffix('.png')), scale=2)
+"
 ```
 
 ## Step 3: Render from the current branch
@@ -34,14 +48,27 @@ Switch back to the branch first (standalone mode) or use the worktree path:
 ```bash
 # Standalone: switch back to the branch
 cd /Users/jonathan.manning/projects/nf-metro && git checkout <branch-name>
-source ~/.local/bin/mm-activate nf-metro && pip install -e ".[dev]" -q
-python scripts/render_topologies.py
-# Note the output directory → BRANCH_DIR
+source ~/.local/bin/mm-activate nf-metro && pip install -e ".[docs]" -q
+python scripts/build_gallery.py
+rm -rf /tmp/nf_metro_renders_branch && mkdir -p /tmp/nf_metro_renders_branch
+cp docs/assets/renders/*.svg /tmp/nf_metro_renders_branch/
 
 # Worktree: use worktree path and env
-source ~/.local/bin/mm-activate nf-metro-fix-<N> && pip install -e "/tmp/nf-metro-fix-<N>[dev]" -q
-cd /tmp/nf-metro-fix-<N> && python scripts/render_topologies.py
-# Note the output directory → BRANCH_DIR
+source ~/.local/bin/mm-activate nf-metro-fix-<N> && pip install -e "/tmp/nf-metro-fix-<N>[docs]" -q
+cd /tmp/nf-metro-fix-<N> && python scripts/build_gallery.py
+rm -rf /tmp/nf_metro_renders_branch && mkdir -p /tmp/nf_metro_renders_branch
+cp /tmp/nf-metro-fix-<N>/docs/assets/renders/*.svg /tmp/nf_metro_renders_branch/
+```
+
+Convert SVGs to PNGs:
+
+```bash
+python -c "
+import cairosvg
+from pathlib import Path
+for svg in sorted(Path('/tmp/nf_metro_renders_branch').glob('*.svg')):
+    cairosvg.svg2png(url=str(svg), write_to=str(svg.with_suffix('.png')), scale=2)
+"
 ```
 
 ## Step 4: Diff and open changed renders
@@ -56,8 +83,8 @@ import os, glob, shutil
 for f in glob.glob("/tmp/*_BEFORE.png") + glob.glob("/tmp/*_AFTER.png"):
     os.remove(f)
 
-main_dir = "<MAIN_DIR>"
-branch_dir = "<BRANCH_DIR>"
+main_dir = "/tmp/nf_metro_renders_main"
+branch_dir = "/tmp/nf_metro_renders_branch"
 
 pngs = sorted(f for f in os.listdir(branch_dir) if f.endswith('.png'))
 changed = []
@@ -99,7 +126,9 @@ The numbered prefixes (`01_`, `02_`, ...) ensure Preview orders them correctly w
 
 ## Notes
 
-- Render script: `scripts/render_topologies.py` (discovers all `.mmd` files under project root).
-- Nextflow fixtures (`tests/fixtures/nextflow/*.mmd`) are auto-detected and converted before rendering.
+- Render script: `scripts/build_gallery.py` (same as CI PR render preview workflow).
+- Nextflow fixtures (`tests/fixtures/nextflow/*.mmd`) are included in the gallery.
 - Baseline always uses `nf-metro-main` env + main repo updated to `origin/main`.
+- Install with `[docs]` extras (not `[dev]`) to match CI dependencies.
+- After a PR is created, CI renders the authoritative diff at `https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/`.
 - To render a single file: `python -m nf_metro render <file.mmd> -o /tmp/output.svg`
