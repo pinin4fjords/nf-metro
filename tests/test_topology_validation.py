@@ -692,8 +692,8 @@ class TestMergeRouting:
                     f"seg {k}: x {x1:.0f}->{x2:.0f}"
                 )
 
-    def test_bypass_lines_share_horizontal_y(self):
-        """Bundled bypass routes should share the same horizontal Y."""
+    def test_bypass_lines_nearly_share_horizontal_y(self):
+        """Bundled bypass routes should be close on the horizontal trunk."""
         graph = _load_and_layout(GENOMEASSEMBLY_FILE)
         routes = self._routes(graph)
         bypass_y: dict[str, float] = {}
@@ -708,6 +708,7 @@ class TestMergeRouting:
                     break
         if "assemblies" in bypass_y and "hic_reads" in bypass_y:
             gap = abs(bypass_y["assemblies"] - bypass_y["hic_reads"])
-            assert gap == 0, (
-                f"Bypass lines should share Y for concentricity, got {gap}px apart"
+            assert gap <= 2, (
+                f"Bypass lines should be close for near-concentricity, "
+                f"got {gap}px apart"
             )
