@@ -5,7 +5,7 @@ Section-first layout: sections are laid out independently, then placed on a meta
 
 from __future__ import annotations
 
-__all__ = ["compute_layout"]
+__all__ = ["PhaseInvariantError", "compute_layout"]
 
 from collections import Counter, defaultdict
 
@@ -46,6 +46,92 @@ from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
 
+# ---------------------------------------------------------------------------
+# Phase-boundary guards
+# ---------------------------------------------------------------------------
+
+_VALIDATE_DEFAULT = False
+"""Set to True to enable phase-boundary invariant checks.
+
+Controlled by the ``validate`` parameter on ``compute_layout``.
+Tests pass ``validate=True`` to catch cross-phase corruption that would
+otherwise only surface as subtle visual defects.
+"""
+
+
+class PhaseInvariantError(Exception):
+    """Raised when a layout phase produces invalid intermediate state."""
+
+
+def _guard_coordinates_finite(graph: MetroGraph, phase: str) -> None:
+    """After Phase 4+: all laid-out stations must have finite coordinates."""
+    import math
+
+    junction_ids = set(graph.junctions)
+    for sid, st in graph.stations.items():
+        if st.section_id and not st.is_port and sid not in junction_ids:
+            if math.isnan(st.x) or math.isnan(st.y):
+                raise PhaseInvariantError(
+                    f"{phase}: station {sid!r} has NaN coordinates (x={st.x}, y={st.y})"
+                )
+            if math.isinf(st.x) or math.isinf(st.y):
+                raise PhaseInvariantError(
+                    f"{phase}: station {sid!r} has infinite coordinates "
+                    f"(x={st.x}, y={st.y})"
+                )
+
+
+def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
+    """After Phase 4+: internal stations must be within their section bbox."""
+    junction_ids = set(graph.junctions)
+    for sid, st in graph.stations.items():
+        sec = graph.sections.get(st.section_id or "")
+        if not sec or st.is_port or sid in junction_ids or sec.bbox_w == 0:
+            continue
+        if not (
+            sec.bbox_x <= st.x <= sec.bbox_x + sec.bbox_w
+            and sec.bbox_y <= st.y <= sec.bbox_y + sec.bbox_h
+        ):
+            raise PhaseInvariantError(
+                f"{phase}: station {sid!r} at ({st.x:.1f}, {st.y:.1f}) "
+                f"outside section {st.section_id!r} bbox "
+                f"({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
+                f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f})"
+            )
+
+
+def _guard_ports_on_boundaries(graph: MetroGraph, phase: str) -> None:
+    """After Phase 5+: ports must sit on their section's bounding box edge."""
+    tolerance = 5.0
+    for pid, port in graph.ports.items():
+        st = graph.stations.get(pid)
+        sec = graph.sections.get(st.section_id or "") if st else None
+        if not st or not sec or sec.bbox_w == 0:
+            continue
+        on_left = abs(st.x - sec.bbox_x) <= tolerance
+        on_right = abs(st.x - (sec.bbox_x + sec.bbox_w)) <= tolerance
+        on_top = abs(st.y - sec.bbox_y) <= tolerance
+        on_bottom = abs(st.y - (sec.bbox_y + sec.bbox_h)) <= tolerance
+        if not (on_left or on_right or on_top or on_bottom):
+            raise PhaseInvariantError(
+                f"{phase}: port {pid!r} at ({st.x:.1f}, {st.y:.1f}) "
+                f"not on any edge of section {st.section_id!r} bbox "
+                f"({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
+                f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f})"
+            )
+
+
+def _guard_section_bboxes_positive(graph: MetroGraph, phase: str) -> None:
+    """After Phase 2+: non-empty sections must have positive-size bboxes."""
+    for sid, sec in graph.sections.items():
+        if not sec.station_ids:
+            continue
+        if sec.bbox_w < 0 or sec.bbox_h < 0:
+            raise PhaseInvariantError(
+                f"{phase}: section {sid!r} has negative bbox "
+                f"(w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f})"
+            )
+
 
 def compute_layout(
     graph: MetroGraph,
@@ -59,8 +145,14 @@ def compute_layout(
     section_y_padding: float = SECTION_Y_PADDING,
     section_x_gap: float = SECTION_X_GAP,
     section_y_gap: float = SECTION_Y_GAP,
+    validate: bool = _VALIDATE_DEFAULT,
 ) -> None:
-    """Compute layout positions for all stations in the graph."""
+    """Compute layout positions for all stations in the graph.
+
+    When *validate* is True, phase-boundary invariant checks run after
+    key phases.  Violations raise ``PhaseInvariantError`` instead of
+    silently producing broken layouts.
+    """
     # Optionally reorder lines by section span before layout.
     # Must happen here (on the full graph) before section subgraphs are
     # built, since subgraphs share graph.lines via reference.
@@ -90,6 +182,7 @@ def compute_layout(
         section_y_padding=section_y_padding,
         section_x_gap=section_x_gap,
         section_y_gap=section_y_gap,
+        validate=validate,
     )
 
 
@@ -139,6 +232,7 @@ def _compute_section_layout(
     section_y_padding: float = SECTION_Y_PADDING,
     section_x_gap: float = SECTION_X_GAP,
     section_y_gap: float = SECTION_Y_GAP,
+    validate: bool = False,
 ) -> None:
     """Section-first layout pipeline.
 
@@ -158,6 +252,9 @@ def _compute_section_layout(
         )
         if sub is not None:
             section_subgraphs[sec_id] = sub
+
+    if validate:
+        _guard_section_bboxes_positive(graph, "after Phase 2")
 
     # Phase 3: Place sections on the canvas
     place_sections(graph, section_x_gap, section_y_gap)
@@ -212,9 +309,17 @@ def _compute_section_layout(
         section.bbox_x += section.offset_x + x_offset
         section.bbox_y += section.offset_y + y_offset
 
+    if validate:
+        _guard_coordinates_finite(graph, "after Phase 4")
+        _guard_stations_in_sections(graph, "after Phase 4")
+        _guard_section_bboxes_positive(graph, "after Phase 4")
+
     # Phase 5: Position ports on section boundaries (after bbox is in global coords)
     for sec_id, section in graph.sections.items():
         position_ports(section, graph)
+
+    if validate:
+        _guard_ports_on_boundaries(graph, "after Phase 5")
 
     # Phase 6: Position junction stations in the inter-section gap
     _position_junctions(graph)
@@ -263,6 +368,12 @@ def _compute_section_layout(
     # live between sections and aren't in any section.station_ids,
     # so they need recalculating to match the moved ports.
     _position_junctions(graph)
+
+    if validate:
+        _guard_coordinates_finite(graph, "after Phase 13 (final)")
+        _guard_section_bboxes_positive(graph, "after Phase 13 (final)")
+        _guard_stations_in_sections(graph, "after Phase 13 (final)")
+        _guard_ports_on_boundaries(graph, "after Phase 13 (final)")
 
 
 def _top_align_row_sections(graph: MetroGraph) -> None:
