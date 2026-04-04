@@ -58,6 +58,7 @@ All use auto-layout (no `%%metro grid:` directives). These are intended to event
   - Coordinate sanity (no NaN/Inf/extreme values)
   - Minimum section spacing (>= 5px gap)
   - Edge waypoints (>= 2 valid points per route, no NaN)
+  - Edge-section crossing (no routed segment passes through a non-home section bbox)
 
 - **`tests/test_topology_validation.py`** - Parametrized pytest module:
   - `TestTopologyValidation` - runs all validator checks against every fixture
@@ -68,7 +69,6 @@ All use auto-layout (no `%%metro grid:` directives). These are intended to event
 
 ## Known Visual Issues to Address
 
-- **complex_multipath**: The fast (red) line exits Fast Track at col 1 and enters Output at col 3, spanning a 2-column gap over Standard Analysis/Deep Analysis. The line goes straight through visually. This is a fundamental limitation: the engine doesn't route around intervening sections for long-range edges. Workaround: design topologies so every line goes through a section in every column.
 - **variant_calling**: The RNA Variants (red) line has a long-range route from Alignment to RNA Variant Calling that curves dramatically. Works but could be tighter.
 - **deep_linear**: Section 7 (Report) is laid out differently (narrower, stations stacked) because the fold threshold wasn't triggered but it's the last section. Works but worth reviewing if this is the desired behavior.
 
