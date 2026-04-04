@@ -35,6 +35,7 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
     violations.extend(check_coordinate_sanity(graph))
     violations.extend(check_minimum_section_spacing(graph))
     violations.extend(check_edge_waypoints(graph))
+    violations.extend(check_edge_section_crossing(graph))
     violations.extend(check_station_as_elbow(graph))
     return violations
 
@@ -310,6 +311,172 @@ def check_edge_waypoints(graph: MetroGraph) -> list[Violation]:
                         },
                     )
                 )
+
+    return violations
+
+
+def _segment_crosses_bbox(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    bx: float,
+    by: float,
+    bw: float,
+    bh: float,
+    margin: float = 2.0,
+) -> bool:
+    """Test if a line segment passes through (not just touches) an AABB.
+
+    Uses an inset margin so segments running along a bbox edge don't
+    trigger false positives.  Handles axis-aligned segments (common in
+    metro routing) as simple range overlaps.
+    """
+    # Inset the bbox by margin so edge-touching doesn't count
+    bx1 = bx + margin
+    by1 = by + margin
+    bx2 = bx + bw - margin
+    by2 = by + bh - margin
+
+    if bx1 >= bx2 or by1 >= by2:
+        return False  # Section too small after inset
+
+    # Normalise segment endpoints
+    seg_x_min, seg_x_max = min(x1, x2), max(x1, x2)
+    seg_y_min, seg_y_max = min(y1, y2), max(y1, y2)
+
+    # Quick reject: no overlap on either axis
+    if seg_x_max <= bx1 or seg_x_min >= bx2:
+        return False
+    if seg_y_max <= by1 or seg_y_min >= by2:
+        return False
+
+    # Horizontal segment
+    if abs(y1 - y2) < 0.5:
+        return by1 < y1 < by2
+
+    # Vertical segment
+    if abs(x1 - x2) < 0.5:
+        return bx1 < x1 < bx2
+
+    # Diagonal / general segment: use parametric clipping (Liang-Barsky)
+    dx = x2 - x1
+    dy = y2 - y1
+    t_min, t_max = 0.0, 1.0
+
+    for p, q in [
+        (-dx, x1 - bx1),
+        (dx, bx2 - x1),
+        (-dy, y1 - by1),
+        (dy, by2 - y1),
+    ]:
+        if abs(p) < 1e-9:
+            if q < 0:
+                return False
+        else:
+            t = q / p
+            if p < 0:
+                t_min = max(t_min, t)
+            else:
+                t_max = min(t_max, t)
+            if t_min > t_max:
+                return False
+
+    return t_min < t_max
+
+
+def _edge_home_sections(graph: MetroGraph, source_id: str, target_id: str) -> set[str]:
+    """Return section IDs that own the source and target of an edge."""
+    home: set[str] = set()
+    for station_id in (source_id, target_id):
+        station = graph.stations.get(station_id)
+        if not station:
+            continue
+        if station.section_id:
+            home.add(station.section_id)
+        elif station_id in graph.ports:
+            home.add(graph.ports[station_id].section_id)
+        else:
+            # Junction: trace through edges to find connected port sections
+            for e in graph.edges:
+                other_id = None
+                if e.source == station_id:
+                    other_id = e.target
+                elif e.target == station_id:
+                    other_id = e.source
+                if other_id:
+                    other = graph.stations.get(other_id)
+                    if other and other.section_id:
+                        home.add(other.section_id)
+                    elif other_id in graph.ports:
+                        home.add(graph.ports[other_id].section_id)
+    return home
+
+
+def check_edge_section_crossing(
+    graph: MetroGraph, margin: float = 2.0
+) -> list[Violation]:
+    """Check no routed edge segment passes through a non-home section."""
+    violations: list[Violation] = []
+
+    try:
+        offsets = compute_station_offsets(graph)
+        routes = route_edges(graph, station_offsets=offsets)
+    except Exception:
+        return violations  # Edge routing failures are caught by check_edge_waypoints
+
+    # Pre-collect sections with valid bboxes
+    sections = [
+        (sid, s) for sid, s in graph.sections.items() if s.bbox_w > 0 and s.bbox_h > 0
+    ]
+
+    for route in routes:
+        if not route.is_inter_section:
+            continue
+
+        home = _edge_home_sections(graph, route.edge.source, route.edge.target)
+
+        for k in range(len(route.points) - 1):
+            x1, y1 = route.points[k]
+            x2, y2 = route.points[k + 1]
+
+            for sid, sec in sections:
+                if sid in home:
+                    continue
+
+                if _segment_crosses_bbox(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    sec.bbox_x,
+                    sec.bbox_y,
+                    sec.bbox_w,
+                    sec.bbox_h,
+                    margin=margin,
+                ):
+                    violations.append(
+                        Violation(
+                            check="edge_section_crossing",
+                            severity=Severity.ERROR,
+                            message=(
+                                f"Edge {route.edge.source}->{route.edge.target} "
+                                f"(line={route.line_id}) segment {k} "
+                                f"({x1:.0f},{y1:.0f})->({x2:.0f},{y2:.0f}) "
+                                f"crosses section '{sid}' "
+                                f"bbox ({sec.bbox_x:.0f},{sec.bbox_y:.0f},"
+                                f"{sec.bbox_x + sec.bbox_w:.0f},"
+                                f"{sec.bbox_y + sec.bbox_h:.0f})"
+                            ),
+                            context={
+                                "source": route.edge.source,
+                                "target": route.edge.target,
+                                "line": route.line_id,
+                                "segment": k,
+                                "crossed_section": sid,
+                            },
+                        )
+                    )
 
     return violations
 

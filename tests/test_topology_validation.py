@@ -12,6 +12,7 @@ import pytest
 from layout_validator import (
     Severity,
     check_coordinate_sanity,
+    check_edge_section_crossing,
     check_edge_waypoints,
     check_port_boundary,
     check_section_overlap,
@@ -78,6 +79,11 @@ class TestTopologyValidation:
 
     def test_edge_waypoints(self, topology_graph):
         violations = check_edge_waypoints(topology_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_no_edge_section_crossing(self, topology_graph):
+        violations = check_edge_section_crossing(topology_graph)
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
 
