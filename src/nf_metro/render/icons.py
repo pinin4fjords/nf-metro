@@ -6,7 +6,12 @@ __all__ = ["render_file_icon"]
 
 import drawsvg as draw
 
-from nf_metro.render.constants import TEXT_VCENTER_DY
+from nf_metro.render.constants import (
+    ICON_FOLD_CREASE_RATIO,
+    ICON_FOLD_OVERLAY_OPACITY,
+    ICON_TEXT_OFFSET_RATIO,
+    TEXT_VCENTER_DY,
+)
 
 
 def train_icon_path(x: float, y: float, size: float = 12.0) -> str:
@@ -77,7 +82,7 @@ def render_file_icon(
     # Fold triangle (slightly darker overlay)
     fold_path = draw.Path(
         fill=stroke,
-        opacity=0.15,
+        opacity=ICON_FOLD_OVERLAY_OPACITY,
         stroke="none",
     )
     fold_path.M(x1 - f, y0)
@@ -90,7 +95,7 @@ def render_file_icon(
     crease = draw.Path(
         fill="none",
         stroke=stroke,
-        stroke_width=stroke_width * 0.6,
+        stroke_width=stroke_width * ICON_FOLD_CREASE_RATIO,
     )
     crease.M(x1 - f, y0)
     crease.L(x1 - f, y0 + f)
@@ -99,7 +104,7 @@ def render_file_icon(
 
     # Extension label centered in the body (shifted down slightly to
     # account for fold taking up top-right space)
-    text_y = cy + f * 0.15
+    text_y = cy + f * ICON_TEXT_OFFSET_RATIO
     d.append(
         draw.Text(
             label,

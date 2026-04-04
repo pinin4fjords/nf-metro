@@ -179,3 +179,30 @@ DEBUG_LABEL_OFFSET: float = 3.0
 
 DEBUG_HIDDEN_LABEL_OFFSET: float = 8.0
 """Y offset from hidden station circle to label text."""
+
+# ---------------------------------------------------------------------------
+# Icon styling
+# ---------------------------------------------------------------------------
+ICON_FOLD_OVERLAY_OPACITY: float = 0.15
+"""Opacity of the dog-ear fold overlay triangle."""
+
+ICON_FOLD_CREASE_RATIO: float = 0.6
+"""Stroke width ratio for the fold crease line relative to main stroke."""
+
+ICON_TEXT_OFFSET_RATIO: float = 0.15
+"""Vertical text offset as a fraction of icon height."""
+
+# ---------------------------------------------------------------------------
+# Animation styling
+# ---------------------------------------------------------------------------
+ANIMATION_BALL_OPACITY: str = "0.9"
+"""Opacity of animated balls traveling along lines."""
+
+# ---------------------------------------------------------------------------
+# Section labels
+# ---------------------------------------------------------------------------
+SECTION_LABEL_REGION_RATIO: float = 0.5
+"""Fraction of section width used as the label region."""
+
+ICON_CLEARANCE_MARGIN: float = 4.0
+"""Extra clearance around terminus icons when computing section bounds."""
