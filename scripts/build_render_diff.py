@@ -184,11 +184,69 @@ HTML_TEMPLATE = """\
     background: var(--accent);
     color: var(--bg);
   }}
+  .intro {{
+    margin-bottom: 2rem;
+    padding: 1rem 1.5rem;
+    background: var(--surface);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }}
+  .intro summary {{
+    cursor: pointer;
+    color: var(--accent);
+    font-weight: 600;
+  }}
+  .intro p {{
+    margin-top: 0.75rem;
+  }}
+  .intro ul {{
+    margin-top: 0.5rem;
+    padding-left: 1.5rem;
+  }}
+  .intro li {{
+    margin-bottom: 0.25rem;
+  }}
+  .intro code {{
+    background: var(--border);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.85em;
+  }}
+  .intro a {{
+    color: var(--accent);
+  }}
 </style>
 </head>
 <body>
 <h1>Render diff{title_suffix}</h1>
 <p class="summary">{summary}</p>
+<details class="intro">
+<summary>What is this page?</summary>
+<p>
+<a href="https://github.com/pinin4fjords/nf-metro">nf-metro</a>
+generates metro-map-style SVG diagrams from Mermaid graph definitions.
+This page is automatically generated for every pull request and shows
+<strong>only the renders that changed</strong> compared to the
+<code>main</code> branch.
+</p>
+<p>
+Use it to check that code changes produce the intended visual result
+without unexpected side-effects on other diagrams. Each entry shows
+the <strong>base</strong> (main) render on the left and the
+<strong>PR</strong> render on the right. Use the toggle buttons to
+switch between side-by-side, base-only, and PR-only views.
+</p>
+<p><strong>What to look for:</strong></p>
+<ul>
+<li>Intended improvements in the PR column</li>
+<li>Unintended regressions (overlapping lines, shifted labels,
+    broken routing) in diagrams you did not mean to change</li>
+<li>New renders (green <em>added</em> badge) or removed renders
+    (red <em>removed</em> badge)</li>
+</ul>
+</details>
 {toc}
 {entries}
 <script>
