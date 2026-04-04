@@ -6,7 +6,7 @@ Usage:
 
 Compares SVG files in BASE_DIR (main branch renders) against PR_DIR (PR branch
 renders). Generates a self-contained HTML page showing side-by-side before/after
-for changed outputs only. Copies changed SVGs into OUTPUT_DIR for deployment.
+for changed outputs only, grouped by section (read from manifest.json).
 
 Exit codes:
     0 - changes detected, diff page written
@@ -17,8 +17,10 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 HTML_TEMPLATE = """\
@@ -69,6 +71,14 @@ HTML_TEMPLATE = """\
     margin-bottom: 0.5rem;
     color: var(--accent);
   }}
+  .toc h3 {{
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }}
   .toc ul {{
     list-style: none;
     columns: 2;
@@ -96,13 +106,21 @@ HTML_TEMPLATE = """\
   .badge-changed {{ background: var(--border); }}
   .badge-added {{ background: var(--added); }}
   .badge-removed {{ background: var(--removed); }}
+  .section-header {{
+    font-size: 1.3rem;
+    color: var(--accent);
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border);
+  }}
   .diff-entry {{
     margin-bottom: 3rem;
     border: 1px solid var(--border);
     border-radius: 8px;
     overflow: hidden;
   }}
-  .diff-entry h2 {{
+  .diff-entry h3 {{
     font-size: 1.1rem;
     padding: 0.75rem 1rem;
     background: var(--surface);
@@ -120,7 +138,7 @@ HTML_TEMPLATE = """\
   .side:first-child {{
     border-right: 1px solid var(--border);
   }}
-  .side h3 {{
+  .side h4 {{
     font-size: 0.85rem;
     color: var(--muted);
     margin-bottom: 0.5rem;
@@ -205,6 +223,14 @@ document.querySelectorAll('.toggle-bar button').forEach(btn => {{
 """
 
 
+def _load_manifest(render_dir: Path) -> dict[str, str]:
+    """Load manifest.json from a render directory, or return empty dict."""
+    manifest_path = render_dir / "manifest.json"
+    if manifest_path.exists():
+        return json.loads(manifest_path.read_text())
+    return {}
+
+
 def build_diff(
     base_dir: Path, pr_dir: Path, output_dir: Path, pr_number: str | None = None
 ) -> bool:
@@ -227,6 +253,22 @@ def build_diff(
 
     if not changed:
         return False
+
+    # Load manifest from PR renders (preferred) with base as fallback
+    manifest = _load_manifest(pr_dir)
+    base_manifest = _load_manifest(base_dir)
+    for name, _ in changed:
+        if name not in manifest and name in base_manifest:
+            manifest[name] = base_manifest[name]
+
+    # Group changed files by section
+    section_order: list[str] = []
+    by_section: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for name, kind in changed:
+        section = manifest.get(name, "Other")
+        if section not in by_section:
+            section_order.append(section)
+        by_section[section].append((name, kind))
 
     # Set up output directory
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -256,63 +298,76 @@ def build_diff(
         parts.append(f"{n_removed} removed")
     summary = f"{', '.join(parts)} out of {len(all_names)} total renders."
 
-    # Table of contents
-    toc_items = []
-    for name, kind in changed:
-        stem = name.removesuffix(".svg")
-        badge_class = f"badge-{kind}"
-        toc_items.append(
-            f'<li><a href="#{stem}">{stem}</a>'
-            f'<span class="badge {badge_class}">{kind}</span></li>'
-        )
-    toc = (
-        '<div class="toc">\n'
-        "<h2>Changed renders</h2>\n"
-        f"<ul>{''.join(toc_items)}</ul>\n"
-        "</div>"
-    )
+    # Table of contents (grouped by section)
+    toc_parts = ['<div class="toc">\n<h2>Changed renders</h2>']
+    for section in section_order:
+        items = by_section[section]
+        toc_parts.append(f"<h3>{section}</h3>\n<ul>")
+        for name, kind in items:
+            stem = name.removesuffix(".svg")
+            badge_class = f"badge-{kind}"
+            toc_parts.append(
+                f'<li><a href="#{stem}">{stem}</a>'
+                f'<span class="badge {badge_class}">{kind}</span></li>'
+            )
+        toc_parts.append("</ul>")
+    toc_parts.append("</div>")
+    toc = "\n".join(toc_parts)
 
-    # Diff entries
+    # Diff entries (grouped by section)
     entries_html = []
-    for name, kind in changed:
-        stem = name.removesuffix(".svg")
-        heading = stem.replace("_", " ").title()
-        badge_class = f"badge-{kind}"
+    for section in section_order:
+        entries_html.append(f'<h2 class="section-header">{section}</h2>')
+        for name, kind in by_section[section]:
+            stem = name.removesuffix(".svg")
+            heading = stem.replace("_", " ").title()
+            badge = f"badge-{kind}"
+            h3 = f'<h3>{heading} <span class="badge {badge}">{kind}</span></h3>'
+            div_open = f'<div class="diff-entry" id="{stem}">'
 
-        if kind == "changed":
-            entry = (
-                f'<div class="diff-entry" id="{stem}">\n'
-                f'<h2>{heading} <span class="badge {badge_class}">{kind}</span></h2>\n'
-                f'<div class="toggle-bar">'
-                f'<button class="active" data-mode="side-by-side">Side by side</button>'
-                f'<button data-mode="base">Base only</button>'
-                f'<button data-mode="pr">PR only</button>'
-                f"</div>\n"
-                f'<div class="comparison">\n'
-                f'<div class="side side-base"><h3>Base (main)</h3>'
-                f'<img src="base/{name}" alt="Base: {stem}"></div>\n'
-                f'<div class="side side-pr"><h3>PR</h3>'
-                f'<img src="pr/{name}" alt="PR: {stem}"></div>\n'
-                f"</div>\n"
-                f"</div>"
-            )
-        elif kind == "added":
-            entry = (
-                f'<div class="diff-entry" id="{stem}">\n'
-                f'<h2>{heading} <span class="badge {badge_class}">{kind}</span></h2>\n'
-                f'<div class="side-only"><h3>New in PR</h3>'
-                f'<img src="pr/{name}" alt="PR: {stem}"></div>\n'
-                f"</div>"
-            )
-        else:  # removed
-            entry = (
-                f'<div class="diff-entry" id="{stem}">\n'
-                f'<h2>{heading} <span class="badge {badge_class}">{kind}</span></h2>\n'
-                f'<div class="side-only"><h3>Removed (was in base)</h3>'
-                f'<img src="base/{name}" alt="Base: {stem}"></div>\n'
-                f"</div>"
-            )
-        entries_html.append(entry)
+            if kind == "changed":
+                toggle = (
+                    '<div class="toggle-bar">'
+                    '<button class="active" '
+                    'data-mode="side-by-side">'
+                    "Side by side</button>"
+                    '<button data-mode="base">'
+                    "Base only</button>"
+                    '<button data-mode="pr">'
+                    "PR only</button></div>"
+                )
+                entry = (
+                    f"{div_open}\n{h3}\n{toggle}\n"
+                    f'<div class="comparison">\n'
+                    f'<div class="side side-base">'
+                    f"<h4>Base (main)</h4>"
+                    f'<img src="base/{name}" '
+                    f'alt="Base: {stem}"></div>\n'
+                    f'<div class="side side-pr">'
+                    f"<h4>PR</h4>"
+                    f'<img src="pr/{name}" '
+                    f'alt="PR: {stem}"></div>\n'
+                    f"</div>\n</div>"
+                )
+            elif kind == "added":
+                entry = (
+                    f"{div_open}\n{h3}\n"
+                    f'<div class="side-only">'
+                    f"<h4>New in PR</h4>"
+                    f'<img src="pr/{name}" '
+                    f'alt="PR: {stem}"></div>\n'
+                    f"</div>"
+                )
+            else:  # removed
+                entry = (
+                    f"{div_open}\n{h3}\n"
+                    f'<div class="side-only">'
+                    f"<h4>Removed (was in base)</h4>"
+                    f'<img src="base/{name}" '
+                    f'alt="Base: {stem}"></div>\n'
+                    f"</div>"
+                )
+            entries_html.append(entry)
 
     html = HTML_TEMPLATE.format(
         title_suffix=title_suffix,

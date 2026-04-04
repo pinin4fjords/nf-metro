@@ -7,6 +7,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from nf_metro.themes import THEMES  # noqa: E402
 
 EXAMPLES_DIR = project_root / "examples"
 NEXTFLOW_FIXTURES_DIR = project_root / "tests" / "fixtures" / "nextflow"
+TEST_FIXTURES_DIR = project_root / "tests" / "fixtures"
 TOPOLOGIES_DIR = project_root / "examples" / "topologies"
 GUIDE_DIR = project_root / "examples" / "guide"
 GALLERY_DIR = project_root / "docs" / "gallery"
@@ -141,6 +143,11 @@ CATEGORY_HEADERS: dict[str, str] = {
 }
 
 
+# Manifest mapping SVG filename -> section for the render diff page.
+# Populated by each render function, written to RENDERS_DIR/manifest.json.
+_manifest: dict[str, str] = {}
+
+
 def render_mmd(mmd_path: Path, svg_path: Path) -> None:
     """Parse, layout, and render a .mmd file to SVG."""
     text = mmd_path.read_text()
@@ -160,11 +167,13 @@ def clean_name(stem: str) -> str:
 def render_guide_examples() -> None:
     """Render all guide examples to docs/assets/renders/."""
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+    section = "Guide Examples"
     print("Guide examples:")
     for mmd_path in sorted(GUIDE_DIR.glob("*.mmd")):
         svg_path = RENDERS_DIR / f"{mmd_path.stem}.svg"
         try:
             render_mmd(mmd_path, svg_path)
+            _manifest[svg_path.name] = section
             print(f"  {mmd_path.stem}: OK")
         except Exception as e:
             print(f"  {mmd_path.stem}: FAIL - {e}")
@@ -177,6 +186,7 @@ def render_guide_examples() -> None:
         svg_path = RENDERS_DIR / f"{stem}.svg"
         try:
             render_mmd(mmd_path, svg_path)
+            _manifest[svg_path.name] = section
             print(f"  {stem}: OK")
         except Exception as e:
             print(f"  {stem}: FAIL - {e}")
@@ -193,7 +203,8 @@ def render_guide_examples() -> None:
             theme = THEMES[theme_name]
             svg_str = render_svg(graph, theme, debug=True)
             debug_svg.write_text(svg_str)
-            print(f"  rnaseq_auto_debug: OK")
+            _manifest[debug_svg.name] = section
+            print("  rnaseq_auto_debug: OK")
         except Exception as e:
             print(f"  rnaseq_auto_debug: FAIL - {e}")
 
@@ -213,6 +224,7 @@ def build_gallery() -> None:
         "",
     ]
 
+    current_category = "Gallery"
     for stem, source_dir, description in GALLERY_ENTRIES:
         mmd_path = source_dir / f"{stem}.mmd"
         svg_path = RENDERS_DIR / f"{stem}.svg"
@@ -223,8 +235,9 @@ def build_gallery() -> None:
 
         # Category header
         if stem in CATEGORY_HEADERS:
+            current_category = CATEGORY_HEADERS[stem]
             lines.append("---\n")
-            lines.append(f"## {CATEGORY_HEADERS[stem]}\n")
+            lines.append(f"## {current_category}\n")
 
         # Render SVG
         try:
@@ -235,6 +248,7 @@ def build_gallery() -> None:
             print(f"  {stem}: {status}")
             continue
 
+        _manifest[svg_path.name] = current_category
         print(f"  {stem}: {status}")
 
         # Determine the CLI command path
@@ -268,6 +282,7 @@ def build_gallery() -> None:
 def render_nextflow_examples() -> None:
     """Render Nextflow DAG fixtures and hand-tuned example to docs/assets/renders/."""
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+    section = "Nextflow Conversions"
     print("Nextflow examples:")
 
     # Auto-converted renders from Nextflow DAG fixtures
@@ -281,6 +296,7 @@ def render_nextflow_examples() -> None:
             theme = THEMES[graph.style if graph.style in THEMES else "nfcore"]
             svg_str = render_svg(graph, theme)
             svg_path.write_text(svg_str)
+            _manifest[svg_path.name] = section
             print(f"  nf_{mmd_path.stem}: OK")
         except Exception as e:
             print(f"  nf_{mmd_path.stem}: FAIL - {e}")
@@ -291,7 +307,8 @@ def render_nextflow_examples() -> None:
         svg_path = RENDERS_DIR / "nf_variant_calling_tuned.svg"
         try:
             render_mmd(tuned_path, svg_path)
-            print(f"  nf_variant_calling_tuned: OK")
+            _manifest[svg_path.name] = section
+            print("  nf_variant_calling_tuned: OK")
         except Exception as e:
             print(f"  nf_variant_calling_tuned: FAIL - {e}")
 
@@ -301,14 +318,63 @@ def render_nextflow_examples() -> None:
         svg_path = RENDERS_DIR / "nf_variant_calling_tuned_icons.svg"
         try:
             render_mmd(tuned_icons_path, svg_path)
-            print(f"  nf_variant_calling_tuned_icons: OK")
+            _manifest[svg_path.name] = section
+            print("  nf_variant_calling_tuned_icons: OK")
         except Exception as e:
             print(f"  nf_variant_calling_tuned_icons: FAIL - {e}")
 
     print()
 
 
+def render_pipeline_examples() -> None:
+    """Render pipeline examples not covered by the gallery or guide."""
+    RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+    section = "Pipeline Examples"
+    print("Pipeline examples:")
+    for stem in ("epitopeprediction", "hlatyping", "rnaseq_sections_manual"):
+        mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
+        if not mmd_path.exists():
+            continue
+        svg_path = RENDERS_DIR / f"{stem}.svg"
+        try:
+            render_mmd(mmd_path, svg_path)
+            _manifest[svg_path.name] = section
+            print(f"  {stem}: OK")
+        except Exception as e:
+            print(f"  {stem}: FAIL - {e}")
+    print()
+
+
+def render_test_fixtures() -> None:
+    """Render test-only fixtures not duplicated in examples/."""
+    RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+    section = "Test Fixtures"
+    print("Test fixtures:")
+    for stem in ("multiline_labels", "rnaseq_simple"):
+        mmd_path = TEST_FIXTURES_DIR / f"{stem}.mmd"
+        if not mmd_path.exists():
+            continue
+        svg_path = RENDERS_DIR / f"{stem}.svg"
+        try:
+            render_mmd(mmd_path, svg_path)
+            _manifest[svg_path.name] = section
+            print(f"  {stem}: OK")
+        except Exception as e:
+            print(f"  {stem}: FAIL - {e}")
+    print()
+
+
+def write_manifest() -> None:
+    """Write render manifest mapping SVG filenames to sections."""
+    manifest_path = RENDERS_DIR / "manifest.json"
+    manifest_path.write_text(json.dumps(_manifest, indent=2, sort_keys=True) + "\n")
+    print(f"Manifest written to {manifest_path} ({len(_manifest)} entries)")
+
+
 if __name__ == "__main__":
     render_guide_examples()
     render_nextflow_examples()
+    render_pipeline_examples()
+    render_test_fixtures()
     build_gallery()
+    write_manifest()
