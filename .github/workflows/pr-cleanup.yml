@@ -1,0 +1,29 @@
+name: Clean up PR render preview
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Remove preview directory
+        run: |
+          if [ -d "_pr/${{ github.event.number }}" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm -rf "_pr/${{ github.event.number }}"
+            git commit -m "Clean up render preview for PR #${{ github.event.number }}"
+            git push
+          else
+            echo "No preview directory found for PR #${{ github.event.number }}, nothing to clean up."
+          fi

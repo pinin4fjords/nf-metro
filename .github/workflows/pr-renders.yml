@@ -1,0 +1,113 @@
+name: PR render preview
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pr-renders-${{ github.event.number }}
+  cancel-in-progress: false
+
+jobs:
+  render-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark previous preview as stale
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: render-preview
+          message: |
+            **Render preview**: :hourglass_flowing_sand: rendering in progress...
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # --- Render with PR branch code ---
+      - name: Install (PR branch)
+        run: pip install -e ".[docs]"
+
+      - name: Render gallery (PR branch)
+        run: python scripts/build_gallery.py
+
+      - name: Save PR renders
+        run: |
+          mkdir -p /tmp/pr_renders
+          cp docs/assets/renders/*.svg docs/assets/renders/manifest.json /tmp/pr_renders/
+
+      # --- Render with base branch code ---
+      - name: Checkout base branch
+        run: git checkout ${{ github.event.pull_request.base.sha }}
+
+      - name: Install (base branch)
+        run: pip install -e ".[docs]"
+
+      - name: Render gallery (base branch)
+        run: python scripts/build_gallery.py
+
+      - name: Save base renders
+        run: |
+          mkdir -p /tmp/base_renders
+          cp docs/assets/renders/*.svg /tmp/base_renders/
+          cp docs/assets/renders/manifest.json /tmp/base_renders/ 2>/dev/null || true
+
+      # --- Generate diff ---
+      - name: Checkout PR branch (for diff script)
+        run: git checkout ${{ github.event.pull_request.head.sha }}
+
+      - name: Install (PR branch, for diff script)
+        run: pip install -e ".[docs]"
+
+      - name: Generate render diff
+        id: diff
+        run: |
+          set +e
+          python scripts/build_render_diff.py \
+            /tmp/base_renders /tmp/pr_renders /tmp/diff_site \
+            --pr ${{ github.event.number }}
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          elif [ $EXIT_CODE -eq 2 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            exit $EXIT_CODE
+          fi
+
+      # --- Deploy preview ---
+      - name: Deploy to GitHub Pages
+        if: steps.diff.outputs.has_changes == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: /tmp/diff_site
+          destination_dir: _pr/${{ github.event.number }}
+          keep_files: true
+
+      - name: Comment on PR (changes found)
+        if: steps.diff.outputs.has_changes == 'true'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: render-preview
+          message: |
+            **Render preview** is ready for review:
+            :framed_picture: https://pinin4fjords.github.io/nf-metro/_pr/${{ github.event.number }}/
+
+            This preview shows only the renders that changed compared to `main`.
+
+      - name: Comment on PR (no changes)
+        if: steps.diff.outputs.has_changes == 'false'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: render-preview
+          message: |
+            **Render preview**: no visual changes detected. All renders match `main`.
