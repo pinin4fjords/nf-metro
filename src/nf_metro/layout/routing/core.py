@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
-    BYPASS_NEST_STEP,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     CROSS_ROW_THRESHOLD,
@@ -311,32 +310,6 @@ def _classify_merge_edges(
     )
 
 
-def _refine_merge_trunk_by(
-    merge: _MergeRouting,
-    bypass_gap_idx: dict[_EdgeKey, tuple[int, int, int, int]],
-    junction_fan_info: dict[_EdgeKey, tuple[int, int]],
-) -> None:
-    """Adjust trunk_by with the actual nest offset from gap indices.
-
-    Must be called after bypass_gap_idx and junction_fan_info are
-    computed, since the trunk's nest offset depends on its gap2 index.
-    Mutates *merge.trunk_by* in place.
-    """
-    for mjid, trunk_src in merge.trunk_source.items():
-        # Find the trunk edge's line_id to build the edge key
-        # (trunk_source stores only the source station, not the line)
-        for ek, idx in bypass_gap_idx.items():
-            if ek[0] == trunk_src and ek[1] == mjid:
-                g2_j = idx[2]
-                fan = junction_fan_info.get(ek)
-                if fan is not None:
-                    nest = g2_j * OFFSET_STEP
-                else:
-                    nest = max(0, g2_j) * BYPASS_NEST_STEP
-                merge.trunk_by[mjid] += nest
-                break
-
-
 # ---------------------------------------------------------------------------
 # Context builder
 # ---------------------------------------------------------------------------
@@ -400,9 +373,6 @@ def _build_routing_context(
     junction_fan_info = _compute_junction_fan_info(
         graph, junction_ids, line_priority, skip_edges=all_exclude
     )
-
-    # Refine merge trunk_by with actual nest offset from gap indices
-    _refine_merge_trunk_by(merge, bypass_gap_idx, junction_fan_info)
 
     return _RoutingCtx(
         graph=graph,
@@ -754,17 +724,13 @@ def _route_bypass(
     ekey = (edge.source, edge.target, edge.line_id)
     g1_j, g1_n, g2_j, g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
 
-    # Nest vertically only when bypass routes from DIFFERENT source
-    # columns share the same gap (prevents overlap).  Same-source
-    # bypasses are already separated by gap offsets.
+    # All bypass routes sharing a gap use the same horizontal Y level.
+    # Per-line separation comes from gap1_extra / gap2_extra which
+    # shift corner X positions while maintaining concentric curve radii
+    # (gap1_x + r = const, gap2_x - r = const).
     fan = ctx.junction_fan_info.get(ekey)
-    if fan is not None:
-        nest_offset = g2_j * ctx.offset_step
-    else:
-        nest_idx = max(i, g2_j)
-        nest_offset = nest_idx * BYPASS_NEST_STEP
     base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
-    by = base_y + nest_offset
+    by = base_y
 
     base_bypass_offset = ctx.curve_radius + ctx.offset_step
     gap1_extra = g1_j * ctx.offset_step

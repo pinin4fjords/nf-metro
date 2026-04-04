@@ -692,14 +692,10 @@ class TestMergeRouting:
                     f"seg {k}: x {x1:.0f}->{x2:.0f}"
                 )
 
-    def test_bundle_spacing_preserved(self):
-        """Assemblies trunk and hic_reads bypass should be OFFSET_STEP apart."""
-        from nf_metro.layout.constants import OFFSET_STEP
-
+    def test_bypass_lines_share_horizontal_y(self):
+        """Bundled bypass routes should share the same horizontal Y."""
         graph = _load_and_layout(GENOMEASSEMBLY_FILE)
         routes = self._routes(graph)
-        # Find horizontal bypass Y for assemblies and hic_reads
-        # going toward scaffolding
         bypass_y: dict[str, float] = {}
         for r in routes:
             if not r.is_inter_section:
@@ -712,4 +708,6 @@ class TestMergeRouting:
                     break
         if "assemblies" in bypass_y and "hic_reads" in bypass_y:
             gap = abs(bypass_y["assemblies"] - bypass_y["hic_reads"])
-            assert gap == OFFSET_STEP, f"Bundle gap {gap}px, expected {OFFSET_STEP}px"
+            assert gap == 0, (
+                f"Bypass lines should share Y for concentricity, got {gap}px apart"
+            )
