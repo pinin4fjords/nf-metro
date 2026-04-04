@@ -12,7 +12,59 @@ from nf_metro.layout.constants import (
     DEFAULT_LINE_PRIORITY,
     SECTION_HEADER_PROTRUSION,
 )
-from nf_metro.parser.model import Edge, MetroGraph
+from nf_metro.parser.model import Edge, MetroGraph, Section
+
+# ---------------------------------------------------------------------------
+# Grid-position helpers
+# ---------------------------------------------------------------------------
+# These replace repeated ``for s in graph.sections.values() if s.grid_col == X``
+# patterns scattered across routing and layout modules.
+
+
+def _sections_in_col(graph: MetroGraph, col: int) -> list[Section]:
+    """Sections in a specific grid column with non-zero width."""
+    return [s for s in graph.sections.values() if s.grid_col == col and s.bbox_w > 0]
+
+
+def _sections_in_row(graph: MetroGraph, row: int) -> list[Section]:
+    """Sections in a specific grid row with non-zero height."""
+    return [s for s in graph.sections.values() if s.grid_row == row and s.bbox_h > 0]
+
+
+def col_right_edge(graph: MetroGraph, col: int, default: float = 0.0) -> float:
+    """Rightmost X extent of sections in *col*."""
+    secs = _sections_in_col(graph, col)
+    if not secs:
+        return default
+    return max((s.bbox_x + s.bbox_w for s in secs), default=default)
+
+
+def col_left_edge(graph: MetroGraph, col: int, default: float = 0.0) -> float:
+    """Leftmost X extent of sections in *col*."""
+    secs = _sections_in_col(graph, col)
+    return min((s.bbox_x for s in secs), default=default) if secs else default
+
+
+def row_bottom_edge(graph: MetroGraph, row: int, default: float = 0.0) -> float:
+    """Bottommost Y extent of sections in *row*."""
+    secs = _sections_in_row(graph, row)
+    if not secs:
+        return default
+    return max((s.bbox_y + s.bbox_h for s in secs), default=default)
+
+
+def row_top_edge(graph: MetroGraph, row: int, default: float = 0.0) -> float:
+    """Topmost Y extent of sections in *row*."""
+    secs = _sections_in_row(graph, row)
+    return min((s.bbox_y for s in secs), default=default) if secs else default
+
+
+def column_gap_midpoint(graph: MetroGraph, col_a: int, col_b: int) -> float:
+    """X midpoint of the gap between two columns."""
+    lo, hi = min(col_a, col_b), max(col_a, col_b)
+    right = col_right_edge(graph, lo)
+    left = col_left_edge(graph, hi, default=right)
+    return (right + left) / 2
 
 
 @dataclass
@@ -184,41 +236,13 @@ def inter_column_channel_x(
         tgt_col = tgt_sec.grid_col
 
         if dx > 0:
-            col_right = max(
-                (
-                    s.bbox_x + s.bbox_w
-                    for s in graph.sections.values()
-                    if s.grid_col == src_col and s.bbox_w > 0
-                ),
-                default=sx,
-            )
-            col_left = min(
-                (
-                    s.bbox_x
-                    for s in graph.sections.values()
-                    if s.grid_col == tgt_col and s.bbox_w > 0
-                ),
-                default=tx,
-            )
-            return (col_right + col_left) / 2
+            right = col_right_edge(graph, src_col, default=sx)
+            left = col_left_edge(graph, tgt_col, default=tx)
+            return (right + left) / 2
         else:
-            col_left = min(
-                (
-                    s.bbox_x
-                    for s in graph.sections.values()
-                    if s.grid_col == src_col and s.bbox_w > 0
-                ),
-                default=sx,
-            )
-            col_right = max(
-                (
-                    s.bbox_x + s.bbox_w
-                    for s in graph.sections.values()
-                    if s.grid_col == tgt_col and s.bbox_w > 0
-                ),
-                default=tx,
-            )
-            return (col_left + col_right) / 2
+            left = col_left_edge(graph, src_col, default=sx)
+            right = col_right_edge(graph, tgt_col, default=tx)
+            return (left + right) / 2
 
     # Fallback: place near source
     if dx > 0:
@@ -255,24 +279,7 @@ def adjacent_column_gap_x(
     Finds the right edge of col_a and left edge of col_b (assuming
     col_a < col_b) and returns the midpoint.
     """
-    lo, hi = min(col_a, col_b), max(col_a, col_b)
-    right_of_lo = max(
-        (
-            s.bbox_x + s.bbox_w
-            for s in graph.sections.values()
-            if s.grid_col == lo and s.bbox_w > 0
-        ),
-        default=0.0,
-    )
-    left_of_hi = min(
-        (
-            s.bbox_x
-            for s in graph.sections.values()
-            if s.grid_col == hi and s.bbox_w > 0
-        ),
-        default=right_of_lo,
-    )
-    return (right_of_lo + left_of_hi) / 2
+    return column_gap_midpoint(graph, col_a, col_b)
 
 
 def bypass_bottom_y(
@@ -296,28 +303,33 @@ def bypass_bottom_y(
     """
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
 
-    def _in_row(s) -> bool:
+    def _in_row(s: Section) -> bool:
         return src_row is None or s.grid_row == src_row
 
     # Intervening sections (columns strictly between endpoints)
-    max_intervening = 0.0
-    for s in graph.sections.values():
-        if s.bbox_w > 0 and lo < s.grid_col < hi and _in_row(s):
-            bottom = s.bbox_y + s.bbox_h
-            if bottom > max_intervening:
-                max_intervening = bottom
+    intervening = [
+        s
+        for s in graph.sections.values()
+        if s.bbox_w > 0 and lo < s.grid_col < hi and _in_row(s)
+    ]
+    max_intervening = (
+        max((s.bbox_y + s.bbox_h for s in intervening), default=0.0)
+        if intervening
+        else 0.0
+    )
 
     if max_intervening > 0:
         candidate = max_intervening + clearance
     else:
         # No intervening sections: use the shorter endpoint section so
         # the bypass hugs tight instead of being pushed by the tall one.
-        endpoint_bottoms: list[float] = []
-        for s in graph.sections.values():
-            if s.bbox_w > 0 and s.grid_col in (lo, hi) and _in_row(s):
-                endpoint_bottoms.append(s.bbox_y + s.bbox_h)
-        if endpoint_bottoms:
-            candidate = max(endpoint_bottoms) + clearance
+        endpoints = [
+            s
+            for s in graph.sections.values()
+            if s.bbox_w > 0 and s.grid_col in (lo, hi) and _in_row(s)
+        ]
+        if endpoints:
+            candidate = max(s.bbox_y + s.bbox_h for s in endpoints) + clearance
         else:
             return clearance
 
