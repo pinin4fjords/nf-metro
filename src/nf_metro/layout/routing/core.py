@@ -731,7 +731,7 @@ def _route_bypass(
 
     # Radii and per-line deltas via the same l_shape_radii logic used
     # for all other concentric corners.
-    delta1, delta2, r1, r2, r3, r4 = bypass_radii(
+    delta1, delta2, r1, _, r3, r4 = bypass_radii(
         g1_j,
         g1_n,
         g2_j,
@@ -751,10 +751,9 @@ def _route_bypass(
 
     # Override r2 so corner 2 concentricity matches the trunk Y ordering:
     # by - r2 = base_y - base_radius (constant across all lines).
-    # The line at nest_offset is on the outside of the down-to-right turn.
     r2 = corner_radius(
         nest_offset,
-        (max(g1_n, g2_n) - 1) * ctx.offset_step,
+        0,
         outside=True,
         base_radius=ctx.curve_radius,
     )
