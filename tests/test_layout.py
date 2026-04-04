@@ -1,5 +1,8 @@
 """Tests for the layout engine."""
 
+from pathlib import Path
+
+import pytest
 from layout_validator import Severity, check_station_as_elbow
 
 from nf_metro.layout.constants import CHAR_WIDTH
@@ -970,3 +973,56 @@ def test_port_terminus_spacing_multi_terminus():
                     f"{gap:.1f}px from terminus {tid} at y={ty:.1f} "
                     f"(need >= {y_spacing})"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Phase-boundary guard tests
+# ---------------------------------------------------------------------------
+
+TOPOLOGIES_DIR = Path(__file__).parent / "fixtures" / "topologies"
+EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
+
+
+class TestPhaseGuards:
+    """Verify that phase-boundary invariants hold across all fixtures."""
+
+    def _layout_validated(self, mmd_text: str) -> None:
+        graph = parse_metro_mermaid(mmd_text)
+        compute_layout(graph, validate=True)
+
+    @pytest.mark.parametrize(
+        "fixture",
+        sorted(TOPOLOGIES_DIR.glob("*.mmd")),
+        ids=lambda p: p.stem,
+    )
+    def test_topology_fixtures(self, fixture):
+        self._layout_validated(fixture.read_text())
+
+    def test_rnaseq_sections(self):
+        self._layout_validated((EXAMPLES_DIR / "rnaseq_sections.mmd").read_text())
+
+    def test_rnaseq_auto(self):
+        path = EXAMPLES_DIR / "rnaseq_auto.mmd"
+        if path.exists():
+            self._layout_validated(path.read_text())
+
+    def test_simple_two_sections(self):
+        self._layout_validated(
+            "%%metro line: main | Main | #ff0000\n"
+            "graph LR\n"
+            "    subgraph s1 [S1]\n"
+            "        a[A]\n"
+            "    end\n"
+            "    subgraph s2 [S2]\n"
+            "        b[B]\n"
+            "    end\n"
+            "    a -->|main| b\n"
+        )
+
+    def test_flat_graph(self):
+        """Flat (sectionless) graphs skip section layout but should not crash."""
+        graph = parse_metro_mermaid(
+            "%%metro line: main | Main | #ff0000\ngraph LR\n    a -->|main| b\n"
+        )
+        # validate=True should be harmless for flat layout
+        compute_layout(graph, validate=True)
