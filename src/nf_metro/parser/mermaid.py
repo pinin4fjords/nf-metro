@@ -446,6 +446,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
         _create_ports_and_junctions(
             graph, internal_edges, inter_section_edges, entry_side_for_line
         )
+        _insert_merge_junctions(graph)
 
     _assign_section_numbers(graph)
 
@@ -717,3 +718,70 @@ def _create_ports_and_junctions(
         entry_port_map,
         port_counter,
     )
+
+
+def _insert_merge_junctions(graph: MetroGraph) -> None:
+    """Insert merge junctions where multiple same-line edges converge on one entry port.
+
+    After _create_ports_and_junctions, multiple inter-section edges of the same
+    line can target the same entry port from different sources (e.g. raw_asm,
+    purging, polishing all sending 'assemblies' to scaffolding's entry port).
+
+    For each such group (N>1 same-line edges to one entry port), this inserts a
+    merge junction and rewrites edges: all N sources -> merge junction, then one
+    edge merge junction -> entry port.
+
+    The merge junction's section_id is set to the TARGET section so that
+    _resolve_section_col() in routing correctly resolves its column for bypass
+    detection.
+    """
+    # Find inter-section edges targeting entry ports, grouped by
+    # (entry_port_id, line_id).
+    convergent: dict[tuple[str, str], list[Edge]] = {}
+    for edge in graph.edges:
+        tgt_port = graph.ports.get(edge.target)
+        if not tgt_port or not tgt_port.is_entry:
+            continue
+        # Source must be a port or junction (inter-section edge)
+        src = graph.stations.get(edge.source)
+        if not src or not (src.is_port or edge.source in graph.junctions):
+            continue
+        key = (edge.target, edge.line_id)
+        convergent.setdefault(key, []).append(edge)
+
+    # Only process groups with N>1 convergent edges
+    merge_groups = {k: v for k, v in convergent.items() if len(v) > 1}
+    if not merge_groups:
+        return
+
+    counter = len(graph.junctions)
+    edges_to_remove: set[tuple[str, str, str]] = set()
+    new_edges: list[Edge] = []
+
+    for (entry_port_id, line_id), edges in merge_groups.items():
+        entry_port = graph.ports[entry_port_id]
+        merge_id = f"__merge_{counter}"
+        counter += 1
+
+        merge_station = Station(
+            id=merge_id,
+            label="",
+            is_port=True,
+            section_id=entry_port.section_id,
+        )
+        graph.add_station(merge_station)
+        graph.junctions.append(merge_id)
+
+        # Rewrite: each source -> merge junction
+        for edge in edges:
+            edges_to_remove.add((edge.source, edge.target, edge.line_id))
+            new_edges.append(Edge(source=edge.source, target=merge_id, line_id=line_id))
+
+        # One edge: merge junction -> entry port
+        new_edges.append(Edge(source=merge_id, target=entry_port_id, line_id=line_id))
+
+    # Apply edge rewrites
+    graph.edges = [
+        e for e in graph.edges if (e.source, e.target, e.line_id) not in edges_to_remove
+    ] + new_edges
+    graph._invalidate_edge_caches()

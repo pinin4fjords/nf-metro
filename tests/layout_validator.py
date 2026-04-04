@@ -36,6 +36,7 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
     violations.extend(check_minimum_section_spacing(graph))
     violations.extend(check_edge_waypoints(graph))
     violations.extend(check_edge_section_crossing(graph))
+    violations.extend(check_bypass_section_clearance(graph))
     violations.extend(check_station_as_elbow(graph))
     return violations
 
@@ -474,6 +475,91 @@ def check_edge_section_crossing(
                                 "line": route.line_id,
                                 "segment": k,
                                 "crossed_section": sid,
+                            },
+                        )
+                    )
+
+    return violations
+
+
+def check_bypass_section_clearance(
+    graph: MetroGraph, min_clearance: float = 5.0
+) -> list[Violation]:
+    """Check that vertical bypass segments maintain clearance from section edges.
+
+    Bypass routes should not run right along a section bbox boundary.
+    Vertical segments of inter-section routes must be at least
+    *min_clearance* pixels away from the left/right edge of any
+    non-home section they pass alongside.
+    """
+    violations: list[Violation] = []
+
+    try:
+        offsets = compute_station_offsets(graph)
+        routes = route_edges(graph, station_offsets=offsets)
+    except Exception:
+        return violations
+
+    sections = [
+        (sid, s) for sid, s in graph.sections.items() if s.bbox_w > 0 and s.bbox_h > 0
+    ]
+
+    for route in routes:
+        if not route.is_inter_section:
+            continue
+
+        home = _edge_home_sections(graph, route.edge.source, route.edge.target)
+
+        for k in range(len(route.points) - 1):
+            x1, y1 = route.points[k]
+            x2, y2 = route.points[k + 1]
+
+            # Only check vertical segments (same X, different Y)
+            if abs(x1 - x2) > 0.5:
+                continue
+
+            seg_x = (x1 + x2) / 2
+            seg_y_min = min(y1, y2)
+            seg_y_max = max(y1, y2)
+
+            for sid, sec in sections:
+                if sid in home:
+                    continue
+
+                # Check Y overlap: segment must span some vertical
+                # range that overlaps the section's Y extent
+                sec_y_top = sec.bbox_y
+                sec_y_bot = sec.bbox_y + sec.bbox_h
+                if seg_y_max <= sec_y_top or seg_y_min >= sec_y_bot:
+                    continue
+
+                # Check X proximity to left/right bbox edges
+                left_dist = abs(seg_x - sec.bbox_x)
+                right_dist = abs(seg_x - (sec.bbox_x + sec.bbox_w))
+
+                near_dist = min(left_dist, right_dist)
+                if near_dist < min_clearance:
+                    violations.append(
+                        Violation(
+                            check="bypass_section_clearance",
+                            severity=Severity.ERROR,
+                            message=(
+                                f"Edge {route.edge.source}->"
+                                f"{route.edge.target} "
+                                f"(line={route.line_id}) "
+                                f"vertical segment {k} at "
+                                f"x={seg_x:.0f} is only "
+                                f"{near_dist:.1f}px from "
+                                f"section '{sid}' edge "
+                                f"(min {min_clearance}px)"
+                            ),
+                            context={
+                                "source": route.edge.source,
+                                "target": route.edge.target,
+                                "line": route.line_id,
+                                "segment": k,
+                                "near_section": sid,
+                                "clearance": near_dist,
                             },
                         )
                     )

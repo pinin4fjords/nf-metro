@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
     FOLD_MARGIN,
     HEADER_CLEARANCE,
     JUNCTION_MARGIN,
+    MERGE_ROUTE_MARGIN,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     OFFSET_STEP,
@@ -32,6 +33,8 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     adjacent_column_gap_x,
     bypass_bottom_y,
+    col_left_edge,
+    col_right_edge,
     compute_bundle_info,
     inter_column_channel_x,
     row_bottom_edge,
@@ -73,6 +76,9 @@ class _RoutingCtx:
     junction_fan_info: dict[tuple[str, str, str], tuple[int, int]] = field(
         default_factory=dict
     )
+    merge_junctions: set[str] = field(default_factory=set)
+    merge_trunk_source: dict[str, str] = field(default_factory=dict)
+    merge_trunk_by: dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -175,13 +181,148 @@ def _build_routing_context(
         ):
             tb_right_entry.add(port.section_id)
 
+    # Merge junctions: junctions with N>1 predecessors and 1 entry port successor
+    merge_junctions: set[str] = set()
+    for jid in junction_ids:
+        preds = join_sources.get(jid, set())
+        succs = fork_targets.get(jid, set())
+        if len(preds) > 1 and len(succs) == 1:
+            succ_id = next(iter(succs))
+            succ_port = graph.ports.get(succ_id)
+            if succ_port and succ_port.is_entry:
+                merge_junctions.add(jid)
+
+    # Pre-compute trunk routing info for each merge junction.
+    # The farthest bypass source becomes the "trunk" carrier that
+    # routes a full U-shape.  Other bypass sources route an L-shape
+    # descent to join the trunk, then stop.
+    merge_trunk_source: dict[str, str] = {}
+    merge_trunk_by: dict[str, float] = {}
+    for mjid in merge_junctions:
+        mst = graph.stations.get(mjid)
+        if not mst:
+            continue
+        tgt_col = _resolve_section_col(graph, mst, junction_ids)
+        if tgt_col is None:
+            continue
+        # Find all bypass predecessors and pick the farthest
+        farthest_source: str | None = None
+        farthest_span = 0
+        deepest_by = 0.0
+        for edge in graph.edges:
+            if edge.target != mjid:
+                continue
+            pred = graph.stations.get(edge.source)
+            if not pred:
+                continue
+            pred_col = _resolve_section_col(graph, pred, junction_ids)
+            pred_row = _resolve_section_row(graph, pred, junction_ids)
+            if (
+                pred_col is not None
+                and abs(tgt_col - pred_col) > 1
+                and _has_intervening_sections(graph, pred_col, tgt_col, pred_row)
+            ):
+                span = abs(tgt_col - pred_col)
+                by = bypass_bottom_y(
+                    graph,
+                    pred_col,
+                    tgt_col,
+                    BYPASS_CLEARANCE,
+                    src_row=pred_row,
+                )
+                if by > deepest_by:
+                    deepest_by = by
+                if span > farthest_span:
+                    farthest_span = span
+                    farthest_source = edge.source
+        if farthest_source and deepest_by > 0:
+            merge_trunk_source[mjid] = farthest_source
+            merge_trunk_by[mjid] = deepest_by
+
+    # skip_edges: edges not routed at all (trunk covers them)
+    # index_exclude: edges excluded from gap/fan indexing (truncated
+    #   branches still routed but shouldn't occupy bundle slots)
+    skip_edges: set[tuple[str, str, str]] = set()
+    index_exclude: set[tuple[str, str, str]] = set()
+    for mjid, trunk_src in merge_trunk_source.items():
+        # Check if this merge has any adjacent (non-bypass) predecessors.
+        # If so, keep the merge -> entry edge so adjacent connections
+        # visually cross the full gap.
+        mst = graph.stations.get(mjid)
+        m_col = _resolve_section_col(graph, mst, junction_ids) if mst else None
+        # Only keep merge -> entry when an adjacent JUNCTION
+        # predecessor exists (its stub doesn't reach the entry port).
+        # Adjacent PORT predecessors get redirected to the entry port,
+        # making merge -> entry redundant.
+        has_adjacent_junction_pred = False
+        if m_col is not None:
+            for e2 in graph.edges:
+                if e2.target != mjid or e2.source == trunk_src:
+                    continue
+                p = graph.stations.get(e2.source)
+                if not p or e2.source not in junction_ids:
+                    continue
+                p_col = _resolve_section_col(graph, p, junction_ids)
+                if p_col is not None and abs(m_col - p_col) <= 1:
+                    has_adjacent_junction_pred = True
+                    break
+
+        for edge in graph.edges:
+            # 1. merge -> entry_port: skip unless an adjacent junction
+            #    predecessor needs the connection across the gap
+            if edge.source == mjid and not has_adjacent_junction_pred:
+                ep = graph.ports.get(edge.target)
+                if ep and ep.is_entry:
+                    skip_edges.add((edge.source, edge.target, edge.line_id))
+            # 2. Non-trunk bypass JUNCTION edges to merge junctions:
+            #    excluded from gap indexing (truncated descents don't
+            #    occupy bundle slots).  Adjacent edges are kept as-is.
+            if (
+                edge.target == mjid
+                and edge.source != trunk_src
+                and edge.source in junction_ids
+            ):
+                src_st = graph.stations.get(edge.source)
+                mst = graph.stations.get(mjid)
+                if src_st and mst:
+                    src_col = _resolve_section_col(graph, src_st, junction_ids)
+                    tgt_col = _resolve_section_col(graph, mst, junction_ids)
+                    if (
+                        src_col is not None
+                        and tgt_col is not None
+                        and abs(tgt_col - src_col) > 1
+                    ):
+                        index_exclude.add((edge.source, edge.target, edge.line_id))
+
     # Bundle assignments and bypass gap indices
     line_priority = {lid: i for i, lid in enumerate(graph.lines.keys())}
     bundle_info = compute_bundle_info(
         graph, junction_ids, line_priority, bottom_exit_junctions
     )
-    bypass_gap_idx = _compute_bypass_gap_indices(graph, junction_ids, line_priority)
-    junction_fan_info = _compute_junction_fan_info(graph, junction_ids, line_priority)
+    all_exclude = skip_edges | index_exclude
+    bypass_gap_idx = _compute_bypass_gap_indices(
+        graph, junction_ids, line_priority, skip_edges=all_exclude
+    )
+    junction_fan_info = _compute_junction_fan_info(
+        graph, junction_ids, line_priority, skip_edges=all_exclude
+    )
+
+    # Now that bypass_gap_idx is available, refine merge_trunk_by to
+    # include the trunk's actual nest offset (so branches drop to the
+    # correct Y and the trunk bundles with sibling bypasses).
+    for mjid, trunk_src in merge_trunk_source.items():
+        # Find the trunk edge to get its gap idx
+        for edge in graph.edges:
+            if edge.source == trunk_src and edge.target == mjid:
+                ekey = (edge.source, edge.target, edge.line_id)
+                g1_j, g1_n, g2_j, g2_n = bypass_gap_idx.get(ekey, (0, 1, 0, 1))
+                fan = junction_fan_info.get(ekey)
+                if fan is not None:
+                    nest = g2_j * OFFSET_STEP
+                else:
+                    nest = max(0, g2_j) * BYPASS_NEST_STEP
+                merge_trunk_by[mjid] = merge_trunk_by[mjid] + nest
+                break
 
     return _RoutingCtx(
         graph=graph,
@@ -200,6 +341,10 @@ def _build_routing_context(
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
         junction_fan_info=junction_fan_info,
+        skip_edges=skip_edges,
+        merge_junctions=merge_junctions,
+        merge_trunk_source=merge_trunk_source,
+        merge_trunk_by=merge_trunk_by,
     )
 
 
@@ -354,6 +499,24 @@ def _route_inter_section(
     if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.RIGHT and dx > 0:
         return _route_right_entry_wrap(edge, src, tgt, i, n, ctx)
 
+    # Merge junction: route to the entry port.  When dy is tiny
+    # (less than curve_radius), use a straight line instead of an
+    # L-shape to avoid cramped curves.
+    if edge.target in ctx.merge_junctions and edge.target in ctx.merge_trunk_source:
+        for me in graph.edges:
+            if me.source == edge.target:
+                ep = graph.stations.get(me.target)
+                if ep and ep.is_port and graph.ports.get(me.target):
+                    ep_dy = abs(ep.y - sy)
+                    if ep_dy < ctx.curve_radius:
+                        return RoutedPath(
+                            edge=edge,
+                            line_id=edge.line_id,
+                            points=[(sx, sy), (ep.x, ep.y)],
+                            is_inter_section=True,
+                        )
+                    return _route_l_shape(edge, src, ep, i, n, ctx)
+
     # Standard L-shape
     return _route_l_shape(edge, src, tgt, i, n, ctx)
 
@@ -419,11 +582,22 @@ def _route_bypass(
     ekey = (edge.source, edge.target, edge.line_id)
     g1_j, g1_n, g2_j, g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
 
+    is_merge_target = edge.target in ctx.merge_junctions
+    is_trunk = (
+        is_merge_target and ctx.merge_trunk_source.get(edge.target) == edge.source
+    )
+
+    # Note: trunk does NOT collapse gap2 indices so it bundles
+    # properly with sibling bypasses (e.g. hic_reads) in the same gap.
+
     # Nest vertically only when bypass routes from DIFFERENT source
     # columns share the same gap (prevents overlap).  Same-source
     # bypasses are already separated by gap offsets.
     fan = ctx.junction_fan_info.get(ekey)
-    if fan is not None:
+    if is_merge_target and not is_trunk:
+        # Branches are truncated; use the trunk's Y
+        nest_offset = 0.0
+    elif fan is not None:
         nest_offset = g2_j * ctx.offset_step
     else:
         nest_idx = max(i, g2_j)
@@ -431,9 +605,62 @@ def _route_bypass(
     base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
     by = base_y + nest_offset
 
+    # Non-trunk merge branches: use the trunk's computed bypass Y
+    # so they drop to the correct level.
+    if is_merge_target and not is_trunk:
+        trunk_by = ctx.merge_trunk_by.get(edge.target)
+        if trunk_by is not None:
+            by = trunk_by
+
     base_bypass_offset = ctx.curve_radius + ctx.offset_step
     gap1_extra = g1_j * ctx.offset_step
     gap2_extra = g2_j * ctx.offset_step
+
+    # Non-trunk merge branches: horizontal lead-in from the junction,
+    # then curve down to the trunk's horizontal level, then curve into
+    # the trunk direction.  The lead-in avoids a T-junction where the
+    # branch meets other edges leaving the same junction.
+    if is_merge_target and not is_trunk:
+        src_off = _get_offset(ctx, edge.source, edge.line_id)
+        trunk_dir = 1.0 if dx > 0 else -1.0
+        # Position at MERGE_ROUTE_MARGIN from the source section edge,
+        # symmetric with the trunk ascent on the other side.
+        if dx > 0:
+            lead_x = col_right_edge(graph, src_col) + MERGE_ROUTE_MARGIN
+        else:
+            lead_x = col_left_edge(graph, src_col) - MERGE_ROUTE_MARGIN
+        # Clamp to at least curve_radius from the source junction
+        min_lead = sx + trunk_dir * ctx.curve_radius
+        if trunk_dir > 0:
+            lead_x = max(lead_x, min_lead)
+        else:
+            lead_x = min(lead_x, min_lead)
+        tail_x = lead_x + trunk_dir * ctx.curve_radius * 2
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[
+                (sx, sy + src_off),
+                (lead_x, sy + src_off),
+                (lead_x, by),
+                (tail_x, by),
+            ],
+            is_inter_section=True,
+            curve_radii=[ctx.curve_radius, ctx.curve_radius],
+            offsets_applied=True,
+        )
+
+    # For merge trunk carrier, use entry port X for gap2_limit (not
+    # the merge junction X, which sits near the farthest predecessor
+    # and would place gap2 on the preceding section's bbox edge).
+    effective_tx = tx
+    if is_trunk:
+        for e in graph.edges:
+            if e.source == edge.target:
+                ep = graph.stations.get(e.target)
+                if ep and ep.is_port:
+                    effective_tx = ep.x
+                    break
 
     if dx > 0:
         if fan is not None:
@@ -462,7 +689,7 @@ def _route_bypass(
         gap2_base = (
             adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) + base_bypass_offset
         )
-        gap2_limit = tx - ctx.curve_radius
+        gap2_limit = effective_tx - ctx.curve_radius
         # When gap is too narrow, fan out from the limit toward gap center
         if gap2_base + (g2_n - 1) * ctx.offset_step > gap2_limit:
             gap2_x = gap2_limit - (g2_n - 1 - g2_j) * ctx.offset_step
@@ -494,7 +721,7 @@ def _route_bypass(
         gap2_base = (
             adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) - base_bypass_offset
         )
-        gap2_limit = tx + ctx.curve_radius
+        gap2_limit = effective_tx + ctx.curve_radius
         if gap2_base - (g2_n - 1) * ctx.offset_step < gap2_limit:
             gap2_x = gap2_limit + (g2_n - 1 - g2_j) * ctx.offset_step
         else:
@@ -523,6 +750,9 @@ def _route_bypass(
     src_off = _get_offset(ctx, edge.source, edge.line_id)
     tgt_off = _get_offset(ctx, edge.target, edge.line_id)
 
+    # Trunk routes end at the entry port, not the merge junction.
+    final_x = effective_tx if is_trunk else tx
+
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
@@ -532,7 +762,7 @@ def _route_bypass(
             (gap1_x, by),
             (gap2_x, by),
             (gap2_x, ty + tgt_off),
-            (tx, ty + tgt_off),
+            (final_x, ty + tgt_off),
         ],
         is_inter_section=True,
         curve_radii=[r_first, r_mid, r_mid, r_last],
@@ -1830,6 +2060,7 @@ def _compute_bypass_gap_indices(
     graph: MetroGraph,
     junction_ids: set[str],
     line_priority: dict[str, int] | None = None,
+    skip_edges: set[tuple[str, str, str]] | None = None,
 ) -> dict[tuple[str, str, str], tuple[int, int, int, int]]:
     """Assign per-gap indices for bypass routes sharing physical gaps.
 
@@ -1839,15 +2070,23 @@ def _compute_bypass_gap_indices(
     groups bypass routes by their gap1 and gap2 column pairs and
     assigns per-gap indices so each route gets a unique X offset.
 
+    Edges in *skip_edges* are excluded so truncated merge branches
+    don't create gaps in the bundle.
+
     Returns
     -------
     dict mapping (source_id, target_id, line_id) to
     (gap1_idx, gap1_count, gap2_idx, gap2_count).
     """
+    _skip = skip_edges or set()
     EdgeKey = tuple[str, str, str]
     bypass_edges: list[tuple[EdgeKey, int, int, float]] = []
 
     for edge in graph.edges:
+        ekey: EdgeKey = (edge.source, edge.target, edge.line_id)
+        if ekey in _skip:
+            continue
+
         src = graph.stations.get(edge.source)
         tgt = graph.stations.get(edge.target)
         if not src or not tgt:
@@ -1924,6 +2163,7 @@ def _compute_junction_fan_info(
     graph: MetroGraph,
     junction_ids: set[str],
     line_priority: dict[str, int],
+    skip_edges: set[tuple[str, str, str]] | None = None,
 ) -> dict[tuple[str, str, str], tuple[int, int]]:
     """Unified fan-out positions for junctions with mixed L-shape/bypass edges.
 
@@ -1935,7 +2175,11 @@ def _compute_junction_fan_info(
     Assigns per-LINE positions (not per-edge), so test->preprocess and
     test->normalization share the same (i, n) and thus the same
     vertical channel X.
+
+    Edges in *skip_edges* are excluded so that truncated merge branches
+    don't create gaps in the bundle.
     """
+    _skip = skip_edges or set()
     result: dict[tuple[str, str, str], tuple[int, int]] = {}
 
     for jid in junction_ids:
@@ -1947,12 +2191,14 @@ def _compute_junction_fan_info(
             continue
         src_row = _resolve_section_row(graph, jst, junction_ids)
 
-        # Collect all outgoing inter-section edges
+        # Collect all outgoing inter-section edges (excluding skipped)
         outgoing: list[Edge] = []
         has_lshape = False
         has_bypass = False
         for edge in graph.edges:
             if edge.source != jid:
+                continue
+            if (edge.source, edge.target, edge.line_id) in _skip:
                 continue
             tgt = graph.stations.get(edge.target)
             if not tgt or not (tgt.is_port or edge.target in junction_ids):
