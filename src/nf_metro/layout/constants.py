@@ -244,3 +244,18 @@ clear the label without overriding alternation.
 
 DEFAULT_LINE_PRIORITY: int = 999
 """Sentinel priority for lines not in the explicit line order."""
+
+# ---------------------------------------------------------------------------
+# Bubble centering
+# ---------------------------------------------------------------------------
+STATION_MOVE_TOLERANCE: float = 0.5
+"""Minimum absolute shift to consider a station as having moved.
+
+Used by bubble-centering post-processing to distinguish moved stations
+from untouched ones when checking column-companion consensus."""
+
+# ---------------------------------------------------------------------------
+# Phase-boundary guards
+# ---------------------------------------------------------------------------
+GUARD_TOLERANCE: float = 5.0
+"""Tolerance for phase-boundary invariant checks (port-on-boundary, etc.)."""

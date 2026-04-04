@@ -25,6 +25,7 @@ from nf_metro.layout.constants import (
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     OFFSET_STEP,
+    STATION_MOVE_TOLERANCE,
 )
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.routing.common import (
@@ -1580,7 +1581,7 @@ def _apply_station_moves(
         flat_out,
     ) in candidates.items():
         station = graph.stations[sid]
-        if abs(new_x - station.x) > 0.5:
+        if abs(new_x - station.x) > STATION_MOVE_TOLERANCE:
             ox = original_x.get(sid, station.x)
             companions = []
             for other_sid, other_ox in original_x.items():
@@ -1639,10 +1640,14 @@ def _align_uncentered_siblings(
         if len(group) < 3:
             continue
         moved = [
-            sid for sid in group if abs(graph.stations[sid].x - original_x[sid]) > 0.5
+            sid
+            for sid in group
+            if abs(graph.stations[sid].x - original_x[sid]) > STATION_MOVE_TOLERANCE
         ]
         unmoved = [
-            sid for sid in group if abs(graph.stations[sid].x - original_x[sid]) <= 0.5
+            sid
+            for sid in group
+            if abs(graph.stations[sid].x - original_x[sid]) <= STATION_MOVE_TOLERANCE
         ]
         if not moved or not unmoved:
             continue
@@ -1656,10 +1661,10 @@ def _align_uncentered_siblings(
             old_x = graph.stations[sid].x
             graph.stations[sid].x = target_x
             for rp in routes_by_src.get(sid, []):
-                if abs(rp.points[0][0] - old_x) < 0.5:
+                if abs(rp.points[0][0] - old_x) < STATION_MOVE_TOLERANCE:
                     rp.points[0] = (target_x, rp.points[0][1])
             for rp in routes_by_tgt.get(sid, []):
-                if abs(rp.points[-1][0] - old_x) < 0.5:
+                if abs(rp.points[-1][0] - old_x) < STATION_MOVE_TOLERANCE:
                     rp.points[-1] = (target_x, rp.points[-1][1])
 
 

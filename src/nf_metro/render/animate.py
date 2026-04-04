@@ -13,6 +13,7 @@ from nf_metro.layout.routing import RoutedPath
 from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render.constants import (
+    ANIMATION_BALL_OPACITY,
     ANIMATION_CURVE_RADIUS,
     EDGE_CONNECT_TOLERANCE,
     MIN_ANIMATION_DURATION,
@@ -95,7 +96,8 @@ def render_animation(
             d.append(
                 draw.Raw(
                     f'<circle r="{theme.animation_ball_radius}" '
-                    f'fill="{theme.animation_ball_color}" opacity="0.9"'
+                    f'fill="{theme.animation_ball_color}" '
+                    f'opacity="{ANIMATION_BALL_OPACITY}"'
                     f"{stroke_attr}>"
                     f'<animateMotion dur="{max_dur:.2f}s" '
                     f"{kp_attrs}"

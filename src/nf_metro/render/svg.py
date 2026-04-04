@@ -28,12 +28,14 @@ from nf_metro.render.constants import (
     DEBUG_WAYPOINT_RADIUS,
     FALLBACK_LINE_COLOR,
     ICON_BBOX_MARGIN,
+    ICON_CLEARANCE_MARGIN,
     ICON_INTER_GAP,
     ICON_STATION_GAP,
     LEGEND_GAP,
     LEGEND_INSET,
     LOGO_Y_STANDALONE,
     SECTION_BOX_RADIUS,
+    SECTION_LABEL_REGION_RATIO,
     SECTION_LABEL_TEXT_OFFSET,
     SECTION_NUM_CIRCLE_R_LARGE,
     SECTION_NUM_FONT_SIZE,
@@ -196,7 +198,7 @@ def _compute_icon_obstacles(
     clearance from adjacent icons.
     """
     obstacles: list[tuple[float, float, float, float]] = []
-    margin = 4.0  # extra clearance around icons
+    margin = ICON_CLEARANCE_MARGIN
 
     for station in graph.stations.values():
         if not station.is_terminus or not station.terminus_labels:
@@ -517,7 +519,9 @@ def _render_first_class_sections(
         # label sits) but no BOTTOM exit, placing the label above would
         # overlap with incoming lines.  Only flip when the nearest top port
         # is close enough to actually conflict with the label.
-        label_region_max_x = section.bbox_x + section.bbox_w * 0.5
+        label_region_max_x = (
+            section.bbox_x + section.bbox_w * SECTION_LABEL_REGION_RATIO
+        )
         has_nearby_top_entry = any(
             graph.ports.get(pid)
             and graph.ports[pid].side == PortSide.TOP

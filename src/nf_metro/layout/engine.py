@@ -17,6 +17,7 @@ from nf_metro.layout.constants import (
     ENTRY_SHIFT_TB_CROSS,
     EXIT_GAP_MULTIPLIER,
     FONT_HEIGHT,
+    GUARD_TOLERANCE,
     ICON_INTER_GAP,
     JUNCTION_MARGIN,
     LABEL_BBOX_MARGIN,
@@ -102,7 +103,7 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
 
 def _guard_ports_on_boundaries(graph: MetroGraph, phase: str) -> None:
     """After Phase 5+: ports must sit on their section's bounding box edge."""
-    tolerance = 5.0
+    tolerance = GUARD_TOLERANCE
     for pid, port in graph.ports.items():
         st = graph.stations.get(pid)
         sec = graph.sections.get(st.section_id or "") if st else None
