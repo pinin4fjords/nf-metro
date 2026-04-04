@@ -216,6 +216,16 @@ SIDE_BRANCH_NUDGE: float = 1.0
 FANOUT_SPACING: float = 1.5
 """Spacing multiplier for fan-out node layout."""
 
+TERMINUS_WIDTH: float = 28.0
+"""Default width of terminus (file) icons.
+
+Used by both layout (for clearance calculations) and render (as the
+Theme.terminus_width default).
+"""
+
+ICON_INTER_GAP: float = 4.0
+"""Gap between adjacent file icons when a station has multiple icons."""
+
 TERMINUS_ICON_CLEARANCE: float = 58.0
 """Minimum clearance from terminus station center to section bbox edge.
 

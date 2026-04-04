@@ -6,6 +6,8 @@ __all__ = ["Theme"]
 
 from dataclasses import dataclass
 
+from nf_metro.layout.constants import TERMINUS_WIDTH
+
 
 @dataclass
 class Theme:
@@ -39,7 +41,7 @@ class Theme:
     animation_balls_per_line: int = 1
     animation_speed: float = 80.0  # pixels per second
     # Terminus (file icon) settings
-    terminus_width: float = 28.0
+    terminus_width: float = TERMINUS_WIDTH
     terminus_height: float = 32.0
     terminus_fold_size: float = 8.0
     terminus_fill: str = ""  # empty = inherit station_fill
