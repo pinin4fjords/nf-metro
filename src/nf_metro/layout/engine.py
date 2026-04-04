@@ -241,7 +241,20 @@ def _compute_section_layout(
     Phase 2: Internal section layout (per section, real stations only)
     Phase 3: Section placement (meta-graph)
     Phase 4: Global coordinate mapping
-    Phase 5: Port positioning on section boundaries
+
+    Pass A - Port initialisation & section geometry:
+      Phase 5:  Port positioning on section boundaries
+      Phase 6:  Shift LR/RL perp-entry internal stations (X only)
+      Phase 7:  Align entry ports to incoming source Y/X
+      Phase 8:  Align fold-section exit ports (may push target sections)
+      Phase 9:  Top-align sections within each grid row
+
+    Pass B - Downstream alignment (single pass):
+      Phase 10: Align exit-entry port pairs to downstream stations
+      Phase 11: Space ports from terminus stations
+
+    Pass C - Junction positioning (single pass):
+      Phase 12: Position junction stations in inter-section gaps
     """
     from nf_metro.layout.section_placement import place_sections, position_ports
 
@@ -315,6 +328,11 @@ def _compute_section_layout(
         _guard_stations_in_sections(graph, "after Phase 4")
         _guard_section_bboxes_positive(graph, "after Phase 4")
 
+    # ---- Pass A: Port initialisation & section geometry adjustments ------
+    # Position ports on bbox edges, shift internal stations, align entry
+    # and fold-exit ports, then top-align sections.  Top-align runs last
+    # in this pass so it corrects any bbox shifts from fold-exit alignment.
+
     # Phase 5: Position ports on section boundaries (after bbox is in global coords)
     for sec_id, section in graph.sections.items():
         position_ports(section, graph)
@@ -322,59 +340,55 @@ def _compute_section_layout(
     if validate:
         _guard_ports_on_boundaries(graph, "after Phase 5")
 
-    # Phase 6: Position junction stations in the inter-section gap
-    _position_junctions(graph)
+    # Phase 6: Shift internal stations in LR/RL sections with
+    # perpendicular (TOP/BOTTOM) entry away from the port.  Needs port X
+    # from Phase 5; only moves internal station X, not ports or bboxes.
+    _shift_lr_perp_entry_stations(graph, x_spacing)
 
-    # Phase 7: Align LEFT/RIGHT entry ports with their incoming connection's Y
-    # so inter-section horizontal runs are straight
+    # Phase 7: Align LEFT/RIGHT entry ports with their incoming
+    # connection's Y so inter-section horizontal runs are straight.
+    # Uses _resolve_source_xy() to derive junction coordinates
+    # on-the-fly, removing the dependency on pre-positioned junctions.
     _align_entry_ports(graph)
 
-    # Phase 7b: For non-fold LR/RL sections, pull exit-entry port pairs toward
-    # the downstream section's stations so lines flow more directly across.
+    # Phase 8: Align LEFT/RIGHT exit ports on row-spanning (fold)
+    # sections with their target's Y so the exit is at the return row.
+    # May push target sections down (via _resolve_tb_exit_y), which
+    # top-align in the next step corrects.
+    _align_exit_ports(graph)
+
+    # Phase 9: Top-align sections within each grid row.
+    # Runs after fold-exit alignment so it corrects any bbox_y shifts
+    # from Phase 8's target-section push.  Same-row port pairs shift
+    # by the same delta, preserving entry-port alignment.
+    _top_align_row_sections(graph)
+
+    if validate:
+        _guard_ports_on_boundaries(graph, "after top-align")
+
+    # ---- Pass B: Port alignment (single pass) --------------------------
+    # Downstream alignment and terminus spacing run on finalised section
+    # geometry (after top-align), so they don't need re-running.
+
+    # Phase 10: For non-fold LR/RL sections, pull exit-entry port pairs
+    # toward the downstream section's stations so lines flow directly.
     _align_ports_to_downstream(graph)
 
-    # Phase 7c: Ensure ports maintain at least y_spacing from terminus
+    # Phase 11: Ensure ports maintain at least y_spacing from terminus
     # stations in their section so file icons don't overlap routed lines.
     _space_ports_from_termini(graph, y_spacing)
 
-    # Phase 8: Align LEFT/RIGHT exit ports on row-spanning (fold) sections
-    # with their target's Y so the exit is at the return row level
-    _align_exit_ports(graph)
+    # ---- Pass C: Junction positioning (single pass) --------------------
+    # All port positions are now final; position junctions once.
 
-    # Phase 9: Re-position junctions after exit port alignment.
-    # Phase 8 may have moved exit ports on fold sections, so junctions
-    # placed in Phase 6 need updating to match the new exit port Y.
-    _position_junctions(graph)
-
-    # Phase 10: Shift internal stations in LR/RL sections with
-    # perpendicular (TOP/BOTTOM) entry away from the port.  Runs after
-    # all port positioning so ports stay put while stations move inward,
-    # preventing labels from overlapping the vertical entry descent.
-    # Mirrors Phase 2's _adjust_tb_entry_shifts for the horizontal case.
-    _shift_lr_perp_entry_stations(graph, x_spacing)
-
-    # Phase 11: Top-align sections within each grid row.
-    # Port positioning (phases 5-10) can shift bbox_y unevenly for
-    # sections in the same row.  Normalise so the topmost bbox edge
-    # is consistent across each row.
-    _top_align_row_sections(graph)
-
-    # Phase 12: Re-align same-row exit-entry port pairs after top-alignment.
-    # Phase 11 shifts sections by different deltas (since Phase 8 may have
-    # pushed one section down), breaking the Y alignment set in Phase 7b.
-    _align_ports_to_downstream(graph)
-
-    # Phase 13: Re-position junctions after top-alignment and port re-alignment.
-    # Phase 11 shifts section stations (including ports) but junctions
-    # live between sections and aren't in any section.station_ids,
-    # so they need recalculating to match the moved ports.
+    # Phase 12: Position junction stations in the inter-section gap.
     _position_junctions(graph)
 
     if validate:
-        _guard_coordinates_finite(graph, "after Phase 13 (final)")
-        _guard_section_bboxes_positive(graph, "after Phase 13 (final)")
-        _guard_stations_in_sections(graph, "after Phase 13 (final)")
-        _guard_ports_on_boundaries(graph, "after Phase 13 (final)")
+        _guard_coordinates_finite(graph, "after Phase 12 (final)")
+        _guard_section_bboxes_positive(graph, "after Phase 12 (final)")
+        _guard_stations_in_sections(graph, "after Phase 12 (final)")
+        _guard_ports_on_boundaries(graph, "after Phase 12 (final)")
 
 
 def _top_align_row_sections(graph: MetroGraph) -> None:
@@ -704,9 +718,9 @@ def _adjust_lr_entry_inset(
         if pid in graph.ports
     )
     if has_perp_entry:
-        # Reserve enough width for the Phase 10 station shift that creates
+        # Reserve enough width for the perp-entry station shift that creates
         # a gap between the perpendicular entry port and the first station.
-        # This ensures the grid column is sized correctly before Phase 10.
+        # This ensures the grid column is sized correctly before the shift.
         entry_inset = x_spacing * ENTRY_SHIFT_LR
         section.bbox_w += entry_inset
         return
@@ -896,11 +910,11 @@ def _shift_lr_perp_entry_stations(
     """Shift internal stations in LR/RL sections with perpendicular entry.
 
     Mirrors ``_adjust_tb_entry_shifts`` for horizontal-flow sections.
-    In TB sections the station shift is applied in Phase 2, and Phase 7's
-    ``_align_lr_entry_port`` later overrides the port Y with the upstream
-    source Y, creating a gap.  For LR/RL sections no such port-X override
-    exists, so we shift stations *after* all port positioning (Phase 9) so
-    that ports stay put while internal stations move inward.
+    In TB sections the station shift is applied in Phase 2, and entry-port
+    alignment later overrides the port Y with the upstream source Y,
+    creating a gap.  For LR/RL sections no such port-X override exists,
+    so we shift stations after port initialisation (Phase 5) while ports
+    stay put and internal stations move inward.
 
     The shift is only applied when the gap between the perpendicular entry
     port and the nearest entry-side internal station is smaller than the
@@ -1044,6 +1058,45 @@ def _resolve_source_section_id(
     return src_section_id
 
 
+def _resolve_source_xy(
+    graph: MetroGraph, edge_source: str, junction_ids: set[str]
+) -> tuple[float, float] | None:
+    """Return effective (x, y) for an edge source.
+
+    For port stations, returns coordinates directly.  For junctions,
+    derives coordinates from the feeding exit port, mirroring
+    ``_position_junctions`` logic so that entry-port alignment does
+    not depend on junctions being pre-positioned.
+    """
+    src = graph.stations.get(edge_source)
+    if not src:
+        return None
+    if edge_source not in junction_ids:
+        return src.x, src.y
+
+    # Junction: find the feeding exit port and compute placement.
+    for e in graph.edges:
+        if e.target != edge_source:
+            continue
+        exit_st = graph.stations.get(e.source)
+        if not exit_st or not exit_st.is_port:
+            continue
+        exit_port_obj = graph.ports.get(e.source)
+        if not exit_port_obj:
+            return exit_st.x, exit_st.y
+        if exit_port_obj.side == PortSide.BOTTOM:
+            return exit_st.x, exit_st.y + JUNCTION_MARGIN
+        elif exit_port_obj.side == PortSide.RIGHT:
+            return exit_st.x + JUNCTION_MARGIN, exit_st.y
+        elif exit_port_obj.side == PortSide.LEFT:
+            return exit_st.x - JUNCTION_MARGIN, exit_st.y
+        else:
+            return exit_st.x + JUNCTION_MARGIN, exit_st.y
+
+    # Fallback: use junction station's current coordinates.
+    return src.x, src.y
+
+
 def _set_port_y(graph: MetroGraph, port_id: str, y: float) -> None:
     """Set the Y coordinate on both the station and port objects."""
     station = graph.stations.get(port_id)
@@ -1101,6 +1154,13 @@ def _align_lr_entry_port(
         if not src or not (src.is_port or edge.source in junction_ids):
             continue
 
+        # Derive effective source coordinates (computes junction
+        # placement on-the-fly so we don't need pre-positioned junctions).
+        src_xy = _resolve_source_xy(graph, edge.source, junction_ids)
+        if src_xy is None:
+            continue
+        src_x, src_y = src_xy
+
         src_section_id = _resolve_source_section_id(graph, edge.source, junction_ids)
         src_section = graph.sections.get(src_section_id) if src_section_id else None
         if not src_section:
@@ -1114,10 +1174,10 @@ def _align_lr_entry_port(
         if entry_station:
             bbox_top = entry_section.bbox_y
             bbox_bot = entry_section.bbox_y + entry_section.bbox_h
-            if not (bbox_top <= src.y <= bbox_bot):
+            if not (bbox_top <= src_y <= bbox_bot):
                 break
 
-        target_y = src.y
+        target_y = src_y
 
         # Clamp for TB sections with perpendicular entry
         if entry_section.direction == "TB" and port.side in (
@@ -1145,16 +1205,20 @@ def _align_tb_entry_port(
     junction_ids: set[str],
 ) -> None:
     """Align a TOP/BOTTOM entry port with its incoming sources."""
-    # Collect all incoming sources
-    sources: list[tuple[Station, str | None]] = []
+    # Collect all incoming sources.  Coordinates are derived via
+    # _resolve_source_xy so junctions don't need to be pre-positioned.
+    sources: list[tuple[float, float, str | None]] = []
     for edge in graph.edges:
         if edge.target != port_id:
             continue
         src = graph.stations.get(edge.source)
         if not src or not (src.is_port or edge.source in junction_ids):
             continue
+        src_xy = _resolve_source_xy(graph, edge.source, junction_ids)
+        if src_xy is None:
+            continue
         src_section_id = _resolve_source_section_id(graph, edge.source, junction_ids)
-        sources.append((src, src_section_id))
+        sources.append((src_xy[0], src_xy[1], src_section_id))
 
     if not sources:
         return
@@ -1167,7 +1231,7 @@ def _align_tb_entry_port(
         )
     )
     is_cross_column = False
-    for _, src_sid in sources:
+    for _, _, src_sid in sources:
         src_sec = graph.sections.get(src_sid) if src_sid else None
         if src_sec:
             src_cols = set(
@@ -1179,7 +1243,7 @@ def _align_tb_entry_port(
 
     if is_cross_column:
         # Cross-column: set Y to the closest source level
-        src_ys = [s.y for s, _ in sources]
+        src_ys = [y for _, y, _ in sources]
         if port.side == PortSide.TOP:
             target_y = min(src_ys)
         else:
@@ -1193,8 +1257,8 @@ def _align_tb_entry_port(
             _nudge_port_from_stations(port_id, entry_section, graph)
     else:
         # Same-column: align X with source for vertical drop
-        src, _ = sources[0]
-        _set_port_x(graph, port_id, src.x)
+        src_x, _, _ = sources[0]
+        _set_port_x(graph, port_id, src_x)
 
 
 def _nudge_port_from_stations(
@@ -1247,7 +1311,7 @@ def _nudge_port_from_stations(
 def _align_ports_to_downstream(graph: MetroGraph) -> None:
     """Pull exit-entry port pairs toward downstream station positions.
 
-    After Phase 7 aligns entry ports to their source (exit port), the
+    After entry ports are aligned to their source (exit port), the
     exit-entry pair may sit at a Y that is far from the downstream
     section's internal stations, forcing lines to detour vertically
     between sections.  This pass moves both ports toward the downstream
@@ -1266,7 +1330,7 @@ def _align_ports_to_downstream(graph: MetroGraph) -> None:
         if not exit_section:
             continue
 
-        # Skip fold/TB sections (handled by Phase 8)
+        # Skip fold/TB sections (handled by _align_exit_ports)
         if exit_section.grid_row_span > 1 or exit_section.direction == "TB":
             continue
 
@@ -1586,7 +1650,7 @@ def _space_ports_from_termini(
     ports on the opposite side of the section.
 
     Exit ports on fold sections (grid_row_span > 1 or TB direction) are
-    skipped because Phase 8 (_align_exit_ports) will overwrite them.
+    skipped because ``_align_exit_ports`` will overwrite them.
     """
     # Pre-compute edge adjacency (used to identify direct connections
     # and to propagate port moves across section boundaries).
@@ -1605,7 +1669,7 @@ def _space_ports_from_termini(
         all_port_ids = entry_port_ids | exit_port_ids
         real_sids = {s for s in section.station_ids if s not in all_port_ids}
 
-        # Skip exit ports on fold sections -- Phase 8 will handle them.
+        # Skip exit ports on fold sections -- _align_exit_ports handles them.
         is_fold = section.grid_row_span > 1 or section.direction == "TB"
 
         # Classify termini by side.  A station with no in-section
