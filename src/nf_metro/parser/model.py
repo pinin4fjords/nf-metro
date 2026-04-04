@@ -145,9 +145,7 @@ class MetroGraph:
     # Pending terminus designations: station_id -> list of extension labels
     _pending_terminus: dict[str, list[str]] = field(default_factory=dict)
     # Lazy cache for station_lines(); invalidated on edge mutation
-    _station_lines_cache: dict[str, list[str]] | None = field(
-        default=None, repr=False
-    )
+    _station_lines_cache: dict[str, list[str]] | None = field(default=None, repr=False)
 
     def _invalidate_edge_caches(self) -> None:
         """Reset caches that depend on the edge list."""
@@ -204,9 +202,7 @@ class MetroGraph:
             for e in self.edges:
                 idx[e.source].add(e.line_id)
                 idx[e.target].add(e.line_id)
-            self._station_lines_cache = {
-                sid: sorted(lids) for sid, lids in idx.items()
-            }
+            self._station_lines_cache = {sid: sorted(lids) for sid, lids in idx.items()}
         return self._station_lines_cache.get(station_id, [])
 
     def line_stations(self, line_id: str) -> list[str]:
