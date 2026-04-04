@@ -302,7 +302,8 @@ def build_diff(
     toc_parts = ['<div class="toc">\n<h2>Changed renders</h2>']
     for section in section_order:
         items = by_section[section]
-        toc_parts.append(f"<h3>{section}</h3>\n<ul>")
+        sec_id = section.lower().replace(" ", "-")
+        toc_parts.append(f'<h3><a href="#section-{sec_id}">{section}</a></h3>\n<ul>')
         for name, kind in items:
             stem = name.removesuffix(".svg")
             badge_class = f"badge-{kind}"
@@ -317,7 +318,10 @@ def build_diff(
     # Diff entries (grouped by section)
     entries_html = []
     for section in section_order:
-        entries_html.append(f'<h2 class="section-header">{section}</h2>')
+        sec_id = section.lower().replace(" ", "-")
+        entries_html.append(
+            f'<h2 class="section-header" id="section-{sec_id}">{section}</h2>'
+        )
         for name, kind in by_section[section]:
             stem = name.removesuffix(".svg")
             heading = stem.replace("_", " ").title()
