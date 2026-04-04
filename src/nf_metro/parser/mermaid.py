@@ -735,16 +735,16 @@ def _insert_merge_junctions(graph: MetroGraph) -> None:
     _resolve_section_col() in routing correctly resolves its column for bypass
     detection.
     """
-    # Find inter-section edges targeting entry ports, grouped by
-    # (entry_port_id, line_id).
+    # Find edges from fan-out junctions targeting entry ports, grouped
+    # by (entry_port_id, line_id).  Only junction sources are counted -
+    # exit port sources route fine as normal L-shapes and shouldn't be
+    # merged (merging disrupts exit port positioning).
     convergent: dict[tuple[str, str], list[Edge]] = {}
     for edge in graph.edges:
         tgt_port = graph.ports.get(edge.target)
         if not tgt_port or not tgt_port.is_entry:
             continue
-        # Source must be a port or junction (inter-section edge)
-        src = graph.stations.get(edge.source)
-        if not src or not (src.is_port or edge.source in graph.junctions):
+        if edge.source not in graph.junctions:
             continue
         key = (edge.target, edge.line_id)
         convergent.setdefault(key, []).append(edge)
