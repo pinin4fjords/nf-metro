@@ -115,6 +115,8 @@ def route_edges(
         if result is None:
             result = _route_perp_entry(edge, src, tgt, ctx)
         if result is None:
+            result = _route_entry_runway(edge, src, tgt, ctx)
+        if result is None:
             result = _route_intra_section(edge, src, tgt, ctx)
 
         if result is not None:
@@ -1239,7 +1241,91 @@ def _route_perp_entry_merged(
 
 
 # ---------------------------------------------------------------------------
-# Handler 6: Intra-section edges (diagonal transitions, folds, straights)
+# Handler 6: Entry-port runway (flow-side entry to deep-layer target)
+# ---------------------------------------------------------------------------
+
+
+def _route_entry_runway(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Route flow-side entry port -> deep internal station with a runway.
+
+    When a line enters a section but its first internal station is deeper
+    than the earliest layer, a plain diagonal would hide the fact that
+    the line bypasses the early-layer stations.  Instead, compress the
+    diagonal into the entry region and extend a horizontal runway past
+    the bypassed stations to the target.
+    """
+    graph = ctx.graph
+    port = graph.ports.get(edge.source)
+    if not port or not port.is_entry:
+        return None
+
+    section = graph.sections.get(tgt.section_id or "")
+    if not section:
+        return None
+
+    # Only handle flow-side entries (LEFT for LR, RIGHT for RL).
+    # TB/BT and perpendicular entries are handled by earlier handlers.
+    if section.direction == "LR" and port.side != PortSide.LEFT:
+        return None
+    if section.direction == "RL" and port.side != PortSide.RIGHT:
+        return None
+    if section.direction not in ("LR", "RL"):
+        return None
+
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+
+    # Same Y means target is on the trunk track -- no runway needed.
+    if abs(sy - ty) < COORD_TOLERANCE_FINE:
+        return None
+
+    # Find the earliest internal station between entry port and target.
+    port_ids = set(section.entry_ports) | set(section.exit_ports)
+    first_x: float | None = None
+    for sid in section.station_ids:
+        if sid == edge.target or sid in port_ids:
+            continue
+        st = graph.stations.get(sid)
+        if not st or st.is_port:
+            continue
+        if section.direction == "LR" and sx < st.x < tx:
+            if first_x is None or st.x < first_x:
+                first_x = st.x
+        elif section.direction == "RL" and tx < st.x < sx:
+            if first_x is None or st.x > first_x:
+                first_x = st.x
+
+    if first_x is None:
+        return None  # No intervening stations -- normal routing is fine.
+
+    # Need enough room for the diagonal in the entry region.
+    min_straight = ctx.curve_radius + MIN_STRAIGHT_PORT
+    room = abs(first_x - sx)
+    if room < 2 * min_straight + ctx.diagonal_run:
+        return None  # Too tight -- fall through to default handler.
+
+    # Compute diagonal within the entry-to-first-station region.
+    diag_start_x, diag_end_x = _compute_diagonal_placement(
+        sx,
+        first_x,
+        ctx.diagonal_run,
+        min_straight,
+        min_straight,
+        edge.source in ctx.fork_stations,
+        False,
+    )
+
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (diag_start_x, sy), (diag_end_x, ty), (tx, ty)],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handler 7: Intra-section edges (diagonal transitions, folds, straights)
 # ---------------------------------------------------------------------------
 
 

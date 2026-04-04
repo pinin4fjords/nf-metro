@@ -452,11 +452,19 @@ def _layout_single_section(
     if not sub.stations:
         return None
 
+    # Insert phantom pass-throughs into the subgraph (not the main graph)
+    # so that lines entering at a deep layer get their own track.
+    _insert_phantom_pass_throughs(graph, section, sub)
+
     layers = assign_layers(sub)
     tracks = assign_tracks(sub, layers)
 
     if not layers:
         return None
+
+    # Snap phantom pass-throughs' successors to the pass-through track
+    # so the trunk line stays horizontal past bypassed stations.
+    _align_phantom_pass_throughs(sub, tracks)
 
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread.  Gaps larger than LINE_GAP get capped so
@@ -1944,6 +1952,82 @@ def _build_section_subgraph(graph: MetroGraph, section: Section) -> MetroGraph:
             )
 
     return sub
+
+
+def _insert_phantom_pass_throughs(
+    graph: MetroGraph,
+    section: Section,
+    sub: MetroGraph,
+) -> None:
+    """Insert phantom stations into *sub* so deep-entry lines get own tracks.
+
+    When a line enters a section via an entry port but its first internal
+    station is deeper than layer 0, the line would share a track with
+    unrelated stations at the early layers.  Adding a hidden phantom at
+    layer 0 gives the line a dedicated track for a clear horizontal runway.
+
+    Only modifies the temporary subgraph -- the main graph stays immutable.
+    """
+    if not sub.stations:
+        return
+
+    from nf_metro.layout.layers import assign_layers
+
+    layers = assign_layers(sub)
+    if not layers:
+        return
+    min_layer = min(layers.values())
+
+    entry_port_ids = set(section.entry_ports)
+
+    # Find lines entering from entry ports to deep-layer internal stations.
+    entry_targets: dict[str, set[str]] = {}
+    for edge in graph.edges:
+        if edge.source in entry_port_ids and edge.target in sub.stations:
+            entry_targets.setdefault(edge.line_id, set()).add(edge.target)
+
+    for line_id, targets in entry_targets.items():
+        target_layers = [layers.get(t, min_layer) for t in targets]
+        if all(ly > min_layer for ly in target_layers):
+            earliest_target = min(targets, key=lambda t: layers.get(t, 0))
+            phantom_id = f"_phantom_{section.id}_{line_id}"
+
+            sub.add_station(
+                Station(
+                    id=phantom_id,
+                    label="",
+                    section_id=section.id,
+                    is_hidden=True,
+                )
+            )
+            sub.add_edge(
+                Edge(source=phantom_id, target=earliest_target, line_id=line_id)
+            )
+
+
+def _align_phantom_pass_throughs(
+    sub: MetroGraph,
+    tracks: dict[str, float],
+) -> None:
+    """Snap convergence nodes to their phantom pass-through's track.
+
+    The phantom ensures a dedicated track for the bypassing line.
+    Moving the convergence node (the phantom's sole successor) to that
+    track keeps the trunk horizontal so the optional branch visually
+    "bubbles" away from it.
+    """
+    import networkx as nx
+
+    G = nx.DiGraph()
+    for edge in sub.edges:
+        G.add_edge(edge.source, edge.target)
+
+    for sid, station in sub.stations.items():
+        if not station.is_hidden or sid not in tracks or sid not in G:
+            continue
+        succs = list(G.successors(sid))
+        if len(succs) == 1 and succs[0] in tracks:
+            tracks[succs[0]] = tracks[sid]
 
 
 def _compute_fork_join_gaps(
