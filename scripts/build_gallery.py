@@ -48,6 +48,11 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         EXAMPLES_DIR,
         "nf-core/rnaseq with manual grid overrides and file markers.",
     ),
+    (
+        "genomeassembly",
+        EXAMPLES_DIR,
+        "sanger-tol/genomeassembly with fan-out/fan-in across optional stages.",
+    ),
     # --- Simple topologies ---
     (
         "single_section",
@@ -372,6 +377,10 @@ def write_manifest() -> None:
 
 
 if __name__ == "__main__":
+    # Clean stale renders so removed gallery entries don't persist
+    if RENDERS_DIR.exists():
+        for old_svg in RENDERS_DIR.glob("*.svg"):
+            old_svg.unlink()
     render_guide_examples()
     render_nextflow_examples()
     render_pipeline_examples()
