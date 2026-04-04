@@ -15,6 +15,8 @@ import pytest
 
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.routing.corners import (
+    bypass_radii,
+    corner_radius,
     l_shape_radii,
     resolve_curve_radii,
     reversed_offset,
@@ -45,6 +47,54 @@ class TestReversedOffset:
     def test_zero_bundle(self):
         """Single line: offset and max are both 0."""
         assert reversed_offset(0.0, 0.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# corner_radius
+# ---------------------------------------------------------------------------
+
+
+class TestCornerRadius:
+    """Test the unified corner radius primitive."""
+
+    def test_outside_uses_raw_offset(self):
+        assert corner_radius(3.0, 6.0, outside=True) == CURVE_RADIUS + 3.0
+
+    def test_inside_uses_reversed_offset(self):
+        assert corner_radius(3.0, 6.0, outside=False) == CURVE_RADIUS + 3.0
+        # Middle offset reverses to itself
+
+    def test_inside_endpoints(self):
+        # offset=0 (inner edge) reversed to max -> largest radius
+        assert corner_radius(0.0, 6.0, outside=False) == CURVE_RADIUS + 6.0
+        # offset=max reversed to 0 -> base radius
+        assert corner_radius(6.0, 6.0, outside=False) == CURVE_RADIUS
+
+    def test_outside_endpoints(self):
+        assert corner_radius(0.0, 6.0, outside=True) == CURVE_RADIUS
+        assert corner_radius(6.0, 6.0, outside=True) == CURVE_RADIUS + 6.0
+
+    def test_single_line(self):
+        assert corner_radius(0.0, 0.0, outside=True) == CURVE_RADIUS
+        assert corner_radius(0.0, 0.0, outside=False) == CURVE_RADIUS
+
+    def test_custom_base(self):
+        assert corner_radius(3.0, 6.0, outside=True, base_radius=5.0) == 8.0
+
+    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("n", [1, 2, 3, 5])
+    def test_matches_l_shape_radii(self, n: int, going_down: bool):
+        """corner_radius must produce the same values as l_shape_radii."""
+        for i in range(n):
+            _, r1, r2 = l_shape_radii(i, n, going_down)
+            off = (n - 1 - i) * OFFSET_STEP
+            max_off = (n - 1) * OFFSET_STEP
+            if going_down:
+                assert corner_radius(off, max_off, outside=True) == pytest.approx(r1)
+                assert corner_radius(off, max_off, outside=False) == pytest.approx(r2)
+            else:
+                assert corner_radius(off, max_off, outside=False) == pytest.approx(r1)
+                assert corner_radius(off, max_off, outside=True) == pytest.approx(r2)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +229,102 @@ class TestLShapeRadii:
         assert delta == 0.0
         assert r1 == CURVE_RADIUS
         assert r2 == CURVE_RADIUS
+
+
+# ---------------------------------------------------------------------------
+# bypass_radii
+# ---------------------------------------------------------------------------
+
+
+class TestBypassRadii:
+    """Test the U-shaped bypass (two back-to-back L-shapes)."""
+
+    @pytest.mark.parametrize("going_right", [True, False])
+    @pytest.mark.parametrize("n", [1, 2, 3])
+    def test_all_radii_are_concentric(self, n: int, going_right: bool):
+        """All four radii must be base + k * step."""
+        for i in range(n):
+            _, _, r1, r2, r3, r4 = bypass_radii(i, n, i, n, going_right)
+            for label, r in [("r1", r1), ("r2", r2), ("r3", r3), ("r4", r4)]:
+                k = (r - CURVE_RADIUS) / OFFSET_STEP
+                assert k == pytest.approx(round(k)), (
+                    f"{label}={r} not concentric for i={i}, n={n}, right={going_right}"
+                )
+
+    @pytest.mark.parametrize("going_right", [True, False])
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_gap1_concentricity_invariant(self, n: int, going_right: bool):
+        """delta1 - r1 and delta1 + r2 must be constant across lines."""
+        vals_c1 = []
+        vals_c2 = []
+        for i in range(n):
+            d1, _, r1, r2, _, _ = bypass_radii(i, n, i, n, going_right)
+            vals_c1.append(d1 - r1)
+            vals_c2.append(d1 + r2)
+        for j in range(1, n):
+            assert vals_c1[j] == pytest.approx(vals_c1[0]), (
+                f"Corner 1 invariant broken: {vals_c1}"
+            )
+            assert vals_c2[j] == pytest.approx(vals_c2[0]), (
+                f"Corner 2 invariant broken: {vals_c2}"
+            )
+
+    @pytest.mark.parametrize("going_right", [True, False])
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_gap2_concentricity_invariant(self, n: int, going_right: bool):
+        """delta2 - r3 and delta2 + r4 must be constant across lines."""
+        vals_c3 = []
+        vals_c4 = []
+        for i in range(n):
+            _, d2, _, _, r3, r4 = bypass_radii(i, n, i, n, going_right)
+            vals_c3.append(d2 - r3)
+            vals_c4.append(d2 + r4)
+        for j in range(1, n):
+            assert vals_c3[j] == pytest.approx(vals_c3[0]), (
+                f"Corner 3 invariant broken: {vals_c3}"
+            )
+            assert vals_c4[j] == pytest.approx(vals_c4[0]), (
+                f"Corner 4 invariant broken: {vals_c4}"
+            )
+
+    def test_single_line(self):
+        """Single line gets base radius at all corners, zero deltas."""
+        d1, d2, r1, r2, r3, r4 = bypass_radii(0, 1, 0, 1, going_right=True)
+        assert d1 == 0.0
+        assert d2 == 0.0
+        assert r1 == CURVE_RADIUS
+        assert r2 == CURVE_RADIUS
+        assert r3 == CURVE_RADIUS
+        assert r4 == CURVE_RADIUS
+
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_r1_r2_complementary(self, n: int):
+        """r1 + r2 = 2*base + (n-1)*step (same as L-shape invariant)."""
+        expected = 2 * CURVE_RADIUS + (n - 1) * OFFSET_STEP
+        for i in range(n):
+            _, _, r1, r2, _, _ = bypass_radii(i, n, i, n, going_right=True)
+            assert r1 + r2 == pytest.approx(expected)
+
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_r3_r4_complementary(self, n: int):
+        """r3 + r4 = 2*base + (n-1)*step (same as L-shape invariant)."""
+        expected = 2 * CURVE_RADIUS + (n - 1) * OFFSET_STEP
+        for i in range(n):
+            _, _, _, _, r3, r4 = bypass_radii(i, n, i, n, going_right=True)
+            assert r3 + r4 == pytest.approx(expected)
+
+    def test_going_right_matches_l_shape(self):
+        """For going_right, bypass_radii must match two l_shape_radii calls."""
+        for i in range(3):
+            d1, d2, r1, r2, r3, r4 = bypass_radii(i, 3, i, 3, going_right=True)
+            d1_ref, r1_ref, r2_ref = l_shape_radii(i, 3, going_down=True)
+            d2_ref, r3_ref, r4_ref = l_shape_radii(i, 3, going_down=False)
+            assert d1 == pytest.approx(d1_ref)
+            assert d2 == pytest.approx(d2_ref)
+            assert r1 == pytest.approx(r1_ref)
+            assert r2 == pytest.approx(r2_ref)
+            assert r3 == pytest.approx(r3_ref)
+            assert r4 == pytest.approx(r4_ref)
 
 
 # ---------------------------------------------------------------------------

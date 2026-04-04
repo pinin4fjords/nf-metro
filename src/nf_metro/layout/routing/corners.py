@@ -120,6 +120,45 @@ def reversed_offset(offset: float, max_offset: float) -> float:
     return max_offset - offset
 
 
+def corner_radius(
+    offset: float,
+    max_offset: float,
+    *,
+    outside: bool,
+    base_radius: float = CURVE_RADIUS,
+) -> float:
+    """Compute the concentric arc radius for one line at a corner.
+
+    Every concentric corner radius in the system follows::
+
+        radius = base_radius + effective_offset
+
+    where *effective_offset* is either the raw offset (line is on the
+    outside of the turn) or the reversed offset (line is on the inside).
+
+    Parameters
+    ----------
+    offset : float
+        This line's offset within the bundle (0 to *max_offset*).
+    max_offset : float
+        Maximum offset across all lines in the bundle.
+    outside : bool
+        ``True`` when the line at *offset* is on the **outside** of the
+        turn and therefore needs the larger radius.  ``False`` when it
+        is on the inside.
+    base_radius : float
+        Minimum curve radius (innermost line).
+
+    Returns
+    -------
+    float
+        ``base_radius + offset`` when *outside* is True,
+        ``base_radius + (max_offset - offset)`` when False.
+    """
+    eff = offset if outside else reversed_offset(offset, max_offset)
+    return base_radius + eff
+
+
 # ---------------------------------------------------------------------------
 # Standard inter-section L-shape (horizontal -> vertical -> horizontal)
 # ---------------------------------------------------------------------------
@@ -176,22 +215,92 @@ def l_shape_radii(
         * Corner 2 is a CW turn.  The leftmost line is now on the
           outside, so it gets the largest radius.
     """
+    off = (n - 1 - i) * offset_step
+    max_off = (n - 1) * offset_step
+
     if going_down:
         # i=0 -> rightmost (positive delta)
         delta = ((n - 1) / 2 - i) * offset_step
         # Corner 1 (CW):  rightmost = outside -> largest radius
-        r_first = base_radius + (n - 1 - i) * offset_step
+        r_first = corner_radius(off, max_off, outside=True, base_radius=base_radius)
         # Corner 2 (CCW): rightmost = inside  -> smallest radius
-        r_second = base_radius + i * offset_step
+        r_second = corner_radius(off, max_off, outside=False, base_radius=base_radius)
     else:
         # i=0 -> leftmost (negative delta)
         delta = (i - (n - 1) / 2) * offset_step
         # Corner 1 (CCW): leftmost = inside  -> smallest radius
-        r_first = base_radius + i * offset_step
+        r_first = corner_radius(off, max_off, outside=False, base_radius=base_radius)
         # Corner 2 (CW):  leftmost = outside -> largest radius
-        r_second = base_radius + (n - 1 - i) * offset_step
+        r_second = corner_radius(off, max_off, outside=True, base_radius=base_radius)
 
     return delta, r_first, r_second
+
+
+# ---------------------------------------------------------------------------
+# Bypass (two back-to-back L-shapes)
+# ---------------------------------------------------------------------------
+
+
+def bypass_radii(
+    g1_i: int,
+    g1_n: int,
+    g2_i: int,
+    g2_n: int,
+    going_right: bool,
+    offset_step: float = OFFSET_STEP,
+    base_radius: float = CURVE_RADIUS,
+) -> tuple[float, float, float, float, float, float]:
+    """Compute deltas and radii for a U-shaped bypass route.
+
+    A bypass is two back-to-back L-shapes: gap1 (going down, corners 1-2)
+    and gap2 (going up, corners 3-4).  This function wraps two
+    ``l_shape_radii`` calls so that all four corners satisfy the same
+    ``delta + r = const`` concentricity invariant used everywhere else.
+
+    Parameters
+    ----------
+    g1_i, g1_n : int
+        Line index and bundle size at gap1.
+    g2_i, g2_n : int
+        Line index and bundle size at gap2.
+    going_right : bool
+        ``True`` when the bypass travels rightward (dx > 0).
+        Left-going bypasses mirror the inside/outside assignment.
+    offset_step, base_radius : float
+        Passed through to ``l_shape_radii``.
+
+    Returns
+    -------
+    delta1 : float
+        X offset from gap1 channel center for this line.
+    delta2 : float
+        X offset from gap2 channel center for this line.
+    r1, r2, r3, r4 : float
+        Corner radii (1: horiz->vert-down, 2: vert-down->horiz,
+        3: horiz->vert-up, 4: vert-up->horiz).
+    """
+    # For left-going bypasses, reverse indices so the outside/inside
+    # assignment matches the mirrored corner geometry.
+    g1_idx = g1_i if going_right else g1_n - 1 - g1_i
+    g2_idx = g2_i if going_right else g2_n - 1 - g2_i
+
+    # Gap1: going-down L-shape (corners 1 and 2)
+    delta1, r1, r2 = l_shape_radii(
+        g1_idx,
+        g1_n,
+        going_down=True,
+        offset_step=offset_step,
+        base_radius=base_radius,
+    )
+    # Gap2: going-up L-shape (corners 3 and 4)
+    delta2, r3, r4 = l_shape_radii(
+        g2_idx,
+        g2_n,
+        going_down=False,
+        offset_step=offset_step,
+        base_radius=base_radius,
+    )
+    return delta1, delta2, r1, r2, r3, r4
 
 
 # ---------------------------------------------------------------------------
@@ -246,14 +355,16 @@ def tb_exit_corner(
     """
     rev = reversed_offset(src_off, max_src_off)
     horiz_y_off = rev
-    corner_radius = base_radius + rev
+    # The line at src_off is on the INSIDE of both LEFT and RIGHT
+    # exit turns, so the radius uses the reversed offset.
+    r = corner_radius(src_off, max_src_off, outside=False, base_radius=base_radius)
 
     if exit_right:
         vert_x_off = src_off
     else:
         vert_x_off = rev
 
-    return vert_x_off, horiz_y_off, corner_radius
+    return vert_x_off, horiz_y_off, r
 
 
 # ---------------------------------------------------------------------------
@@ -302,11 +413,13 @@ def tb_entry_corner(
     the outermost vertical line gets the largest radius.
     """
     rev = reversed_offset(tgt_off, max_tgt_off)
-    corner_radius = base_radius + rev
+    # The line at tgt_off is on the INSIDE of both LEFT and RIGHT
+    # entry turns, so the radius uses the reversed offset.
+    r = corner_radius(tgt_off, max_tgt_off, outside=False, base_radius=base_radius)
 
     if entry_right:
         vert_x_off = tgt_off
     else:
         vert_x_off = rev
 
-    return vert_x_off, corner_radius
+    return vert_x_off, r

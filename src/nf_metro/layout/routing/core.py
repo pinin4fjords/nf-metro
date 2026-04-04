@@ -40,6 +40,8 @@ from nf_metro.layout.routing.common import (
     row_top_edge,
 )
 from nf_metro.layout.routing.corners import (
+    bypass_radii,
+    corner_radius,
     l_shape_radii,
     reversed_offset,
     tb_entry_corner,
@@ -719,12 +721,27 @@ def _route_bypass(
     if effective_tx is None:
         effective_tx = tx
     dx = tx - sx
+    going_right = dx > 0
     graph = ctx.graph
 
     ekey = (edge.source, edge.target, edge.line_id)
     g1_j, g1_n, g2_j, g2_n = ctx.bypass_gap_idx.get(ekey, (0, 1, 0, 1))
 
     fan = ctx.junction_fan_info.get(ekey)
+
+    # Radii and per-line deltas via the same l_shape_radii logic used
+    # for all other concentric corners.
+    delta1, delta2, r1, _, r3, r4 = bypass_radii(
+        g1_j,
+        g1_n,
+        g2_j,
+        g2_n,
+        going_right=going_right,
+        offset_step=ctx.offset_step,
+        base_radius=ctx.curve_radius,
+    )
+
+    # Per-line trunk Y keeps lines visually separate on the horizontal.
     if fan is not None:
         nest_offset = g2_j * ctx.offset_step
     else:
@@ -732,95 +749,89 @@ def _route_bypass(
     base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
     by = base_y + nest_offset
 
-    base_bypass_offset = ctx.curve_radius + ctx.offset_step
-    gap1_extra = g1_j * ctx.offset_step
-    gap2_extra = g2_j * ctx.offset_step
+    # Override r2 so corner 2 concentricity matches the trunk Y ordering:
+    # by - r2 = base_y - base_radius (constant across all lines).
+    r2 = corner_radius(
+        nest_offset,
+        0,
+        outside=True,
+        base_radius=ctx.curve_radius,
+    )
 
-    if dx > 0:
+    # Gap channel centers and per-line positions.
+    base_bypass_offset = ctx.curve_radius + ctx.offset_step
+    half_g1 = (g1_n - 1) * ctx.offset_step / 2
+    half_g2 = (g2_n - 1) * ctx.offset_step / 2
+
+    if going_right:
         if fan is not None:
-            # Use unified fan position for gap1 (shared first corner)
+            # Corner 1 uses unified fan indices for a shared first corner
+            # with L-shape siblings.  Override delta1 and r1.
             ui, un = fan
-            going_down = True  # bypass always goes down first
-            delta, r_fan_first, _ = l_shape_radii(
+            fan_delta, r1, _ = l_shape_radii(
                 ui,
                 un,
-                going_down=going_down,
+                going_down=True,
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
             )
             fan_mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
-            gap1_x = fan_mid_x + delta
+            gap1_x = fan_mid_x + fan_delta
         else:
             gap1_base = (
                 adjacent_column_gap_x(graph, src_col, src_col + 1) - base_bypass_offset
             )
             gap1_limit = sx + ctx.curve_radius
             if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
-                gap1_x = gap1_limit + (g1_n - 1 - g1_j) * ctx.offset_step
+                gap1_mid = gap1_limit + half_g1
             else:
-                gap1_x = gap1_base - gap1_extra
+                gap1_mid = gap1_base - half_g1
+            gap1_x = gap1_mid + delta1
 
         gap2_base = (
             adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) + base_bypass_offset
         )
         gap2_limit = effective_tx - ctx.curve_radius
-        # When gap is too narrow, fan out from the limit toward gap center
         if gap2_base + (g2_n - 1) * ctx.offset_step > gap2_limit:
-            gap2_x = gap2_limit - (g2_n - 1 - g2_j) * ctx.offset_step
+            gap2_mid = gap2_limit - half_g2
         else:
-            gap2_x = gap2_base + gap2_extra
+            gap2_mid = gap2_base + half_g2
+        gap2_x = gap2_mid + delta2
     else:
         if fan is not None:
             ui, un = fan
-            going_down = True
-            delta, r_fan_first, _ = l_shape_radii(
+            fan_delta, r1, _ = l_shape_radii(
                 ui,
                 un,
-                going_down=going_down,
+                going_down=True,
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
             )
             fan_mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
-            gap1_x = fan_mid_x + delta
+            gap1_x = fan_mid_x + fan_delta
         else:
             gap1_base = (
                 adjacent_column_gap_x(graph, src_col - 1, src_col) + base_bypass_offset
             )
             gap1_limit = sx - ctx.curve_radius
             if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
-                gap1_x = gap1_limit - (g1_n - 1 - g1_j) * ctx.offset_step
+                gap1_mid = gap1_limit - half_g1
             else:
-                gap1_x = gap1_base + gap1_extra
+                gap1_mid = gap1_base + half_g1
+            gap1_x = gap1_mid + delta1
 
         gap2_base = (
             adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) - base_bypass_offset
         )
         gap2_limit = effective_tx + ctx.curve_radius
         if gap2_base - (g2_n - 1) * ctx.offset_step < gap2_limit:
-            gap2_x = gap2_limit + (g2_n - 1 - g2_j) * ctx.offset_step
+            gap2_mid = gap2_limit + half_g2
         else:
-            gap2_x = gap2_base - gap2_extra
-
-    # Per-corner radii for concentricity.  The bypass has 4 corners:
-    #   1: horiz->vert-down (CW)  -- concentric needs gap1+r = const
-    #   2: vert-down->horiz (CCW) -- concentric needs gap1+r = const
-    #   3: horiz->vert-up (CCW)   -- concentric needs gap2-r = const
-    #   4: vert-up->horiz (CW)    -- concentric needs gap2+r = const
-    # Corners 2 & 3 use the same radius (gap_extra based), but corner 4
-    # needs the REVERSED gap2 offset so the leftmost line gets the
-    # largest radius.
-    r_mid = ctx.curve_radius + max(gap1_extra, gap2_extra)
-    r_last = ctx.curve_radius + (g2_n - 1 - g2_j) * ctx.offset_step
-
-    if fan is not None:
-        r_first = r_fan_first
-    else:
-        r_first = r_mid
+            gap2_mid = gap2_base - half_g2
+        gap2_x = gap2_mid + delta2
 
     # Apply per-line offsets directly so the renderer doesn't have to
     # guess which waypoints belong to the source vs target side.
-    # (When source and target share the same base Y, the midpoint
-    # heuristic in the renderer breaks.)
     src_off = _get_offset(ctx, edge.source, edge.line_id)
     tgt_off = _get_offset(ctx, edge.target, edge.line_id)
 
@@ -836,7 +847,7 @@ def _route_bypass(
             (effective_tx, ty + tgt_off),
         ],
         is_inter_section=True,
-        curve_radii=[r_first, r_mid, r_mid, r_last],
+        curve_radii=[r1, r2, r3, r4],
         offsets_applied=True,
     )
 
@@ -1537,7 +1548,14 @@ def _route_perp_entry_merged(
             (tx + rev_tgt_off, ty + tgt_off),
         ],
         offsets_applied=True,
-        curve_radii=[ctx.curve_radius + rev_tgt_off],
+        curve_radii=[
+            corner_radius(
+                tgt_off,
+                max_tgt_off,
+                outside=False,
+                base_radius=ctx.curve_radius,
+            )
+        ],
     )
 
 
