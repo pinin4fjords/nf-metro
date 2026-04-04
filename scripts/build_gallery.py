@@ -48,6 +48,11 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         EXAMPLES_DIR,
         "nf-core/rnaseq with manual grid overrides and file markers.",
     ),
+    (
+        "genomeassembly",
+        EXAMPLES_DIR,
+        "sanger-tol/genomeassembly with fan-out/fan-in across optional stages.",
+    ),
     # --- Simple topologies ---
     (
         "single_section",
