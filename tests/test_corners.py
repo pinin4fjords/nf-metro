@@ -16,6 +16,7 @@ import pytest
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.routing.corners import (
     bypass_radii,
+    corner_radius,
     l_shape_radii,
     resolve_curve_radii,
     reversed_offset,
@@ -46,6 +47,54 @@ class TestReversedOffset:
     def test_zero_bundle(self):
         """Single line: offset and max are both 0."""
         assert reversed_offset(0.0, 0.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# corner_radius
+# ---------------------------------------------------------------------------
+
+
+class TestCornerRadius:
+    """Test the unified corner radius primitive."""
+
+    def test_outside_uses_raw_offset(self):
+        assert corner_radius(3.0, 6.0, outside=True) == CURVE_RADIUS + 3.0
+
+    def test_inside_uses_reversed_offset(self):
+        assert corner_radius(3.0, 6.0, outside=False) == CURVE_RADIUS + 3.0
+        # Middle offset reverses to itself
+
+    def test_inside_endpoints(self):
+        # offset=0 (inner edge) reversed to max -> largest radius
+        assert corner_radius(0.0, 6.0, outside=False) == CURVE_RADIUS + 6.0
+        # offset=max reversed to 0 -> base radius
+        assert corner_radius(6.0, 6.0, outside=False) == CURVE_RADIUS
+
+    def test_outside_endpoints(self):
+        assert corner_radius(0.0, 6.0, outside=True) == CURVE_RADIUS
+        assert corner_radius(6.0, 6.0, outside=True) == CURVE_RADIUS + 6.0
+
+    def test_single_line(self):
+        assert corner_radius(0.0, 0.0, outside=True) == CURVE_RADIUS
+        assert corner_radius(0.0, 0.0, outside=False) == CURVE_RADIUS
+
+    def test_custom_base(self):
+        assert corner_radius(3.0, 6.0, outside=True, base_radius=5.0) == 8.0
+
+    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("n", [1, 2, 3, 5])
+    def test_matches_l_shape_radii(self, n: int, going_down: bool):
+        """corner_radius must produce the same values as l_shape_radii."""
+        for i in range(n):
+            _, r1, r2 = l_shape_radii(i, n, going_down)
+            off = (n - 1 - i) * OFFSET_STEP
+            max_off = (n - 1) * OFFSET_STEP
+            if going_down:
+                assert corner_radius(off, max_off, outside=True) == pytest.approx(r1)
+                assert corner_radius(off, max_off, outside=False) == pytest.approx(r2)
+            else:
+                assert corner_radius(off, max_off, outside=False) == pytest.approx(r1)
+                assert corner_radius(off, max_off, outside=True) == pytest.approx(r2)
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.corners import (
     bypass_radii,
+    corner_radius,
     l_shape_radii,
     reversed_offset,
     tb_entry_corner,
@@ -747,7 +748,11 @@ def _route_bypass(
 
     # Override r2 so corner 2 concentricity matches the trunk Y ordering:
     # by - r2 = base_y - base_radius (constant across all lines).
-    r2 = ctx.curve_radius + nest_offset
+    # The line at nest_offset is on the outside of the down-to-right turn.
+    r2 = corner_radius(
+        nest_offset, (max(g1_n, g2_n) - 1) * ctx.offset_step,
+        outside=True, base_radius=ctx.curve_radius,
+    )
 
     # Gap channel centers and per-line positions.
     base_bypass_offset = ctx.curve_radius + ctx.offset_step
@@ -1533,7 +1538,9 @@ def _route_perp_entry_merged(
             (tx + rev_tgt_off, ty + tgt_off),
         ],
         offsets_applied=True,
-        curve_radii=[ctx.curve_radius + rev_tgt_off],
+        curve_radii=[corner_radius(
+            tgt_off, max_tgt_off, outside=False, base_radius=ctx.curve_radius,
+        )],
     )
 
 
