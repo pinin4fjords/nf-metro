@@ -137,6 +137,62 @@ graph LR
 
 Each line takes a different route through its own analysis section, then all three reconverge at annotation. The layout engine handles junction creation, vertical stacking, and routing automatically. You don't need to specify any positions or port sides.
 
+### Same-line convergence (fan-in merge)
+
+When optional processing steps mean the **same line** can reach a destination from multiple sources, nf-metro consolidates the overlapping routes. One bypass carries the full path (the "trunk"), and closer sources drop down to join it:
+
+```text
+%%metro title: Fan-In Merge
+%%metro style: dark
+%%metro line: main | Main | #0570b0
+%%metro line: aux | Auxiliary | #2db572
+%%metro line_order: span
+
+graph LR
+    subgraph source [Source]
+        %%metro exit: right | main,aux
+        s1[Produce]
+        s2[Prepare]
+        s1 -->|main,aux| s2
+    end
+
+    subgraph step_a [Step A]
+        %%metro entry: left | main
+        %%metro exit: right | main
+        a1[Process A]
+        a2[Refine A]
+        a1 -->|main| a2
+    end
+
+    subgraph step_b [Step B]
+        %%metro entry: left | main
+        %%metro exit: right | main
+        b1[Process B]
+        b2[Refine B]
+        b1 -->|main| b2
+    end
+
+    subgraph sink [Sink]
+        %%metro entry: left | main,aux
+        t1[Collect]
+        t2[Report]
+        t1 -->|main,aux| t2
+    end
+
+    %% Each section sends main to ALL downstream sections
+    s2 -->|main| a1
+    s2 -->|main| b1
+    s2 -->|main| t1
+    s2 -->|aux| t1
+    a2 -->|main| b1
+    a2 -->|main| t1
+    b2 -->|main| t1
+```
+
+![Fan-in merge example](assets/renders/03b_fan_in_merge.svg)
+
+The key pattern: every section sends `main` not just to the next step, but to **all** subsequent sections. This creates convergent same-line edges at the sink's entry port. The layout engine detects this and routes a single trunk bypass from the farthest source, with branches dropping down to join it from intermediate sections.
+
 ## 4. Section directions
 
 By default every section flows left-to-right (`LR`). You can change a section's internal flow direction with `%%metro direction:` to create more compact or visually interesting layouts.
