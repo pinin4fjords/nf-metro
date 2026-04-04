@@ -133,9 +133,7 @@ class TestCurveRadiiLength:
         self._check_routes(routes)
 
     def test_rnaseq_sections(self):
-        graph = parse_metro_mermaid(
-            (EXAMPLES_DIR / "rnaseq_sections.mmd").read_text()
-        )
+        graph = parse_metro_mermaid((EXAMPLES_DIR / "rnaseq_sections.mmd").read_text())
         compute_layout(graph)
         offsets = compute_station_offsets(graph)
         routes = route_edges(graph, station_offsets=offsets)
@@ -193,9 +191,7 @@ class TestSvgPathStructure:
         self._check_svg(svg)
 
     def test_rnaseq_sections(self):
-        _, _, _, svg = _layout_and_route_file(
-            EXAMPLES_DIR / "rnaseq_sections.mmd"
-        )
+        _, _, _, svg = _layout_and_route_file(EXAMPLES_DIR / "rnaseq_sections.mmd")
         self._check_svg(svg)
 
 
@@ -391,8 +387,7 @@ class TestConcentricBundles:
                 ]
                 if len(radii) >= 2:
                     assert len(set(radii)) == len(radii), (
-                        f"Bundle {key} corner {corner_idx}: "
-                        f"duplicate radii {radii}"
+                        f"Bundle {key} corner {corner_idx}: duplicate radii {radii}"
                     )
 
 
