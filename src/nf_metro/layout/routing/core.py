@@ -1300,19 +1300,22 @@ def _route_entry_runway(
     if first_x is None:
         return None  # No intervening stations -- normal routing is fine.
 
-    # Need enough room for the diagonal in the entry region.
-    min_straight = ctx.curve_radius + MIN_STRAIGHT_PORT
+    # Compute diagonal within the entry-to-first-station region.
+    # The source side needs a normal straight run; the runway side
+    # needs no clearance since the horizontal run continues past it.
+    src_min = ctx.curve_radius + MIN_STRAIGHT_PORT
+    tgt_min = 0.0
+
     room = abs(first_x - sx)
-    if room < 2 * min_straight + ctx.diagonal_run:
+    if room < src_min + ctx.diagonal_run:
         return None  # Too tight -- fall through to default handler.
 
-    # Compute diagonal within the entry-to-first-station region.
     diag_start_x, diag_end_x = _compute_diagonal_placement(
         sx,
         first_x,
         ctx.diagonal_run,
-        min_straight,
-        min_straight,
+        src_min,
+        tgt_min,
         edge.source in ctx.fork_stations,
         False,
     )
