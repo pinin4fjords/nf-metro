@@ -27,9 +27,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     layer count across sections in a row exceeds this threshold.
     """
     if len(graph.sections) <= 1:
-        graph.section_dag = SectionDAG(
-            successors={}, predecessors={}, edge_lines={}
-        )
+        graph.section_dag = SectionDAG(successors={}, predecessors={}, edge_lines={})
         return
 
     successors, predecessors, edge_lines = _build_section_dag(graph)
