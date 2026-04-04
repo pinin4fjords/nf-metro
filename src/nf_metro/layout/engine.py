@@ -17,6 +17,7 @@ from nf_metro.layout.constants import (
     ENTRY_SHIFT_TB_CROSS,
     EXIT_GAP_MULTIPLIER,
     FONT_HEIGHT,
+    ICON_INTER_GAP,
     JUNCTION_MARGIN,
     LABEL_BBOX_MARGIN,
     LABEL_LINE_HEIGHT,
@@ -34,6 +35,7 @@ from nf_metro.layout.constants import (
     STATION_ELBOW_TOLERANCE,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
+    TERMINUS_WIDTH,
     X_OFFSET,
     X_SPACING,
     Y_OFFSET,
@@ -722,15 +724,11 @@ def _terminus_icon_clearance(n_icons: int) -> float:
 
     The base ``TERMINUS_ICON_CLEARANCE`` covers one icon (station_radius +
     gap + icon_width + margin).  Each additional icon adds icon_width + inter-
-    icon gap.  We import render constants here to avoid a circular dependency
-    at module level.
+    icon gap.
     """
     if n_icons <= 1:
         return TERMINUS_ICON_CLEARANCE
-    from nf_metro.render.constants import ICON_INTER_GAP
-    from nf_metro.render.style import Theme
-
-    extra = (n_icons - 1) * (Theme.terminus_width + ICON_INTER_GAP)
+    extra = (n_icons - 1) * (TERMINUS_WIDTH + ICON_INTER_GAP)
     return TERMINUS_ICON_CLEARANCE + extra
 
 
