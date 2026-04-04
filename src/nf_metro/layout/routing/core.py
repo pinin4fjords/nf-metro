@@ -33,6 +33,8 @@ from nf_metro.layout.routing.common import (
     bypass_bottom_y,
     compute_bundle_info,
     inter_column_channel_x,
+    row_bottom_edge,
+    row_top_edge,
 )
 from nf_metro.layout.routing.corners import (
     l_shape_radii,
@@ -802,45 +804,17 @@ def _inter_row_channel_y(
 
         if dy > 0:
             # Going down: gap between bottom of source row and top of target row
-            row_bottom = max(
-                (
-                    s.bbox_y + s.bbox_h
-                    for s in graph.sections.values()
-                    if s.grid_row == src_row and s.bbox_h > 0
-                ),
-                default=sy,
-            )
-            row_top = min(
-                (
-                    s.bbox_y
-                    for s in graph.sections.values()
-                    if s.grid_row == tgt_row and s.bbox_h > 0
-                ),
-                default=ty,
-            )
+            bottom = row_bottom_edge(graph, src_row, default=sy)
+            top = row_top_edge(graph, tgt_row, default=ty)
             # Place above the header zone
-            header_top = row_top - HEADER_CLEARANCE
-            return (row_bottom + header_top) / 2
+            header_top = top - HEADER_CLEARANCE
+            return (bottom + header_top) / 2
         else:
             # Going up: gap between top of source row and bottom of target row
-            row_top = min(
-                (
-                    s.bbox_y
-                    for s in graph.sections.values()
-                    if s.grid_row == src_row and s.bbox_h > 0
-                ),
-                default=sy,
-            )
-            row_bottom = max(
-                (
-                    s.bbox_y + s.bbox_h
-                    for s in graph.sections.values()
-                    if s.grid_row == tgt_row and s.bbox_h > 0
-                ),
-                default=ty,
-            )
-            header_bottom = row_bottom + HEADER_CLEARANCE
-            return (row_top + header_bottom) / 2
+            top = row_top_edge(graph, src_row, default=sy)
+            bottom = row_bottom_edge(graph, tgt_row, default=ty)
+            header_bottom = bottom + HEADER_CLEARANCE
+            return (top + header_bottom) / 2
 
     # Fallback: place near target, clearing the header zone
     if dy > 0:
