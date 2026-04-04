@@ -16,6 +16,13 @@ jobs:
   render-diff:
     runs-on: ubuntu-latest
     steps:
+      - name: Mark previous preview as stale
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: render-preview
+          message: |
+            **Render preview**: :hourglass_flowing_sand: rendering in progress...
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
