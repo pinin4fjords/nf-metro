@@ -732,7 +732,10 @@ def _route_bypass(
     # Radii and per-line deltas via the same l_shape_radii logic used
     # for all other concentric corners.
     delta1, delta2, r1, r2, r3, r4 = bypass_radii(
-        g1_j, g1_n, g2_j, g2_n,
+        g1_j,
+        g1_n,
+        g2_j,
+        g2_n,
         going_right=going_right,
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
@@ -750,8 +753,10 @@ def _route_bypass(
     # by - r2 = base_y - base_radius (constant across all lines).
     # The line at nest_offset is on the outside of the down-to-right turn.
     r2 = corner_radius(
-        nest_offset, (max(g1_n, g2_n) - 1) * ctx.offset_step,
-        outside=True, base_radius=ctx.curve_radius,
+        nest_offset,
+        (max(g1_n, g2_n) - 1) * ctx.offset_step,
+        outside=True,
+        base_radius=ctx.curve_radius,
     )
 
     # Gap channel centers and per-line positions.
@@ -765,8 +770,11 @@ def _route_bypass(
             # with L-shape siblings.  Override delta1 and r1.
             ui, un = fan
             fan_delta, r1, _ = l_shape_radii(
-                ui, un, going_down=True,
-                offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+                ui,
+                un,
+                going_down=True,
+                offset_step=ctx.offset_step,
+                base_radius=ctx.curve_radius,
             )
             fan_mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
             gap1_x = fan_mid_x + fan_delta
@@ -794,8 +802,11 @@ def _route_bypass(
         if fan is not None:
             ui, un = fan
             fan_delta, r1, _ = l_shape_radii(
-                ui, un, going_down=True,
-                offset_step=ctx.offset_step, base_radius=ctx.curve_radius,
+                ui,
+                un,
+                going_down=True,
+                offset_step=ctx.offset_step,
+                base_radius=ctx.curve_radius,
             )
             fan_mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
             gap1_x = fan_mid_x + fan_delta
@@ -1538,9 +1549,14 @@ def _route_perp_entry_merged(
             (tx + rev_tgt_off, ty + tgt_off),
         ],
         offsets_applied=True,
-        curve_radii=[corner_radius(
-            tgt_off, max_tgt_off, outside=False, base_radius=ctx.curve_radius,
-        )],
+        curve_radii=[
+            corner_radius(
+                tgt_off,
+                max_tgt_off,
+                outside=False,
+                base_radius=ctx.curve_radius,
+            )
+        ],
     )
 
 

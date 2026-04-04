@@ -286,13 +286,19 @@ def bypass_radii(
 
     # Gap1: going-down L-shape (corners 1 and 2)
     delta1, r1, r2 = l_shape_radii(
-        g1_idx, g1_n, going_down=True,
-        offset_step=offset_step, base_radius=base_radius,
+        g1_idx,
+        g1_n,
+        going_down=True,
+        offset_step=offset_step,
+        base_radius=base_radius,
     )
     # Gap2: going-up L-shape (corners 3 and 4)
     delta2, r3, r4 = l_shape_radii(
-        g2_idx, g2_n, going_down=False,
-        offset_step=offset_step, base_radius=base_radius,
+        g2_idx,
+        g2_n,
+        going_down=False,
+        offset_step=offset_step,
+        base_radius=base_radius,
     )
     return delta1, delta2, r1, r2, r3, r4
 
