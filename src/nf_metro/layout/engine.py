@@ -462,7 +462,34 @@ def _layout_single_section(
     _insert_phantom_pass_throughs(graph, section, sub)
 
     layers = assign_layers(sub)
-    tracks = assign_tracks(sub, layers)
+
+    # Use entry-top ordering when all predecessor sections are horizontal
+    # (LR/RL), so the entry-connected station stays at the top and aligns
+    # with the upstream exit station (#165).  Skip for TB predecessors
+    # where vertical entry makes top-biasing inappropriate.
+    entry_top = False
+    if section.entry_ports and section.direction in ("LR", "RL"):
+        pred_dirs: set[str] = set()
+        for pid in section.entry_ports:
+            for edge in graph.edges:
+                if edge.target == pid:
+                    src_port = graph.ports.get(edge.source)
+                    if src_port:
+                        src_sec = graph.sections.get(src_port.section_id)
+                        if src_sec:
+                            pred_dirs.add(src_sec.direction)
+                    # Also check junctions (trace back to exit port)
+                    elif edge.source in graph.junctions:
+                        for e2 in graph.edges:
+                            if e2.target == edge.source:
+                                sp = graph.ports.get(e2.source)
+                                if sp:
+                                    ss = graph.sections.get(sp.section_id)
+                                    if ss:
+                                        pred_dirs.add(ss.direction)
+        entry_top = bool(pred_dirs) and all(d in ("LR", "RL") for d in pred_dirs)
+
+    tracks = assign_tracks(sub, layers, entry_top=entry_top)
 
     if not layers:
         return None
