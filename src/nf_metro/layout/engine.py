@@ -1524,8 +1524,14 @@ def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
             if st and not st.is_port and hasattr(st, "layer"):
                 layer_groups.setdefault(st.layer, set()).add(sid)
 
-        # For each port, check its connected internal stations.
+        # For each LEFT/RIGHT port, check its connected internal stations.
+        # Skip TOP/BOTTOM ports - snapping to a boundary port Y would
+        # pull stations to the section edge rather than aligning them
+        # with a horizontal predecessor.
         for pid in port_ids:
+            port_obj = graph.ports.get(pid)
+            if not port_obj or port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
             port_st = graph.stations.get(pid)
             if not port_st:
                 continue
