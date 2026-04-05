@@ -34,15 +34,10 @@ graph LR
         optitype_run[OptiType]
         _hlahd_delay[ ]
         hlahd_run[HLA-HD]
-        _hlahd_delay2[ ]
-        _merge1[ ]
 
         yara_index -->|fastq,bam| yara_mapper
         yara_mapper -->|fastq,bam| optitype_run
-        optitype_run -->|fastq,bam| _merge1
         _hlahd_delay -->|fastq,bam| hlahd_run
-        hlahd_run -->|fastq,bam| _hlahd_delay2
-        _hlahd_delay2 -->|fastq,bam| _merge1
     end
 
     subgraph reporting [Reporting]
@@ -62,4 +57,5 @@ graph LR
     %% Inter-section edges
     fastqc -->|fastq,bam| yara_index
     fastqc -->|fastq,bam| _hlahd_delay
-    _merge1 -->|fastq,bam| _branch2
+    optitype_run -->|fastq,bam| _branch2
+    hlahd_run -->|fastq,bam| _branch2
