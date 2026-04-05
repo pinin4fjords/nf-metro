@@ -28,6 +28,8 @@ def assign_tracks(
     graph: MetroGraph,
     layers: dict[str, int],
     line_gap: float = LINE_GAP,
+    *,
+    entry_top: bool = False,
 ) -> dict[str, float]:
     """Assign each station a track using the track-per-line strategy.
 
@@ -35,6 +37,8 @@ def assign_tracks(
         graph: The metro graph.
         layers: Layer assignment from assign_layers().
         line_gap: Fixed gap (in track units) between line base tracks.
+        entry_top: When True, use asymmetric (downward) fan-out at the
+            entry layer so the entry-connected station stays at the top.
 
     Returns a dict mapping station_id -> track (float).
     """
@@ -108,7 +112,7 @@ def assign_tracks(
                     G,
                     tracks,
                     straight_diamonds=graph.diamond_style == "straight",
-                    layer_idx=layer_idx,
+                    layer_idx=layer_idx if entry_top else -1,
                 )
                 for n in nodes:
                     layer_occupancy[layer_idx][n] = tracks[n]
