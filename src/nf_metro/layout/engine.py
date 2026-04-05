@@ -1551,10 +1551,24 @@ def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
                 continue
 
             # Snap the port-connected station if it's a sole layer
-            # occupant.  When center_ports is enabled, continue walking
-            # inward through successive singleton layers.
+            # occupant and has no other predecessors/successors on the
+            # port side (otherwise snapping would break those connections).
             current = next(iter(connected))
             is_entry = graph.ports[pid].is_entry
+
+            # Check the station only connects to the port on the
+            # relevant side (predecessors for entry, successors for exit).
+            other_connections: set[str] = set()
+            for edge in graph.edges:
+                if is_entry and edge.target == current:
+                    if edge.source != pid and edge.source in internal_ids:
+                        other_connections.add(edge.source)
+                elif not is_entry and edge.source == current:
+                    if edge.target != pid and edge.target in internal_ids:
+                        other_connections.add(edge.target)
+            if other_connections:
+                continue
+
             visited: set[str] = set()
             while current and current not in visited:
                 visited.add(current)
