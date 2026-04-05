@@ -698,18 +698,24 @@ class TestMergeRouting:
 
         graph = _load_and_layout(GENOMEASSEMBLY_FILE)
         routes = self._routes(graph)
-        bypass_y: dict[str, float] = {}
+        # Collect all horizontal segments per line for inter-section
+        # bypass routes.  Bypass segments are horizontal runs that sit
+        # between the source and target section Y ranges (i.e. below
+        # the top-row stations).  We look for pairs at nearby Y values
+        # that differ by exactly OFFSET_STEP.
+        horiz_by_line: dict[str, list[float]] = {}
         for r in routes:
             if not r.is_inter_section:
                 continue
             for k in range(len(r.points) - 1):
                 y = r.points[k][1]
                 if y > 200 and abs(r.points[k][1] - r.points[k + 1][1]) < 1:
-                    if r.line_id not in bypass_y or y < bypass_y[r.line_id]:
-                        bypass_y[r.line_id] = y
-                    break
-        if "assemblies" in bypass_y and "hic_reads" in bypass_y:
-            gap = abs(bypass_y["assemblies"] - bypass_y["hic_reads"])
-            assert gap == OFFSET_STEP, (
-                f"Bypass bundle gap {gap}px, expected {OFFSET_STEP}px"
+                    horiz_by_line.setdefault(r.line_id, []).append(y)
+        a_ys = horiz_by_line.get("assemblies", [])
+        h_ys = horiz_by_line.get("hic_reads", [])
+        if a_ys and h_ys:
+            # Find the pair of horizontal segments closest to each other
+            min_gap = min(abs(a - h) for a in a_ys for h in h_ys if abs(a - h) > 0)
+            assert min_gap == OFFSET_STEP, (
+                f"Bypass bundle gap {min_gap}px, expected {OFFSET_STEP}px"
             )

@@ -168,6 +168,8 @@ class MetroGraph:
     _pending_terminus: dict[str, list[str]] = field(default_factory=dict)
     # Lazy cache for station_lines(); invalidated on edge mutation
     _station_lines_cache: dict[str, list[str]] | None = field(default=None, repr=False)
+    # Grid alignment metadata (populated by Phase 2.5 _align_row_y_grids)
+    _row_y_grid_info: dict = field(default_factory=dict, repr=False)
 
     def _invalidate_edge_caches(self) -> None:
         """Reset caches that depend on the edge list."""

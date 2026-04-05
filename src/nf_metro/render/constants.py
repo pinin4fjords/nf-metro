@@ -180,6 +180,9 @@ DEBUG_LABEL_OFFSET: float = 3.0
 DEBUG_HIDDEN_LABEL_OFFSET: float = 8.0
 """Y offset from hidden station circle to label text."""
 
+DEBUG_ROW_GRID_COLOR: str = "rgba(80, 255, 180, 0.5)"
+"""Color for shared Y grid lines in debug overlay."""
+
 # ---------------------------------------------------------------------------
 # Icon styling
 # ---------------------------------------------------------------------------

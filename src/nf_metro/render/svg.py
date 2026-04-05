@@ -23,6 +23,7 @@ from nf_metro.render.constants import (
     DEBUG_HIDDEN_LABEL_OFFSET,
     DEBUG_HIDDEN_STATION_COLOR,
     DEBUG_LABEL_OFFSET,
+    DEBUG_ROW_GRID_COLOR,
     DEBUG_STROKE_WIDTH,
     DEBUG_WAYPOINT_COLOR,
     DEBUG_WAYPOINT_RADIUS,
@@ -986,11 +987,18 @@ def _render_debug_overlay(
                         max(row_bounds[r][1], y1),
                     )
 
-        # Global extents
-        all_x0 = min(b[0] for b in col_bounds.values()) - 20
-        all_x1 = max(b[1] for b in col_bounds.values()) + 20
-        all_y0 = min(b[0] for b in row_bounds.values()) - 20
-        all_y1 = max(b[1] for b in row_bounds.values()) + 20
+        # Global extents (fall back to col/row bounds or section bboxes)
+        if not col_bounds or not row_bounds:
+            # All sections are spanning - use raw section bboxes
+            all_x0 = min(s.bbox_x for s in sections) - 20
+            all_x1 = max(s.bbox_x + s.bbox_w for s in sections) + 20
+            all_y0 = min(s.bbox_y for s in sections) - 20
+            all_y1 = max(s.bbox_y + s.bbox_h for s in sections) + 20
+        else:
+            all_x0 = min(b[0] for b in col_bounds.values()) - 20
+            all_x1 = max(b[1] for b in col_bounds.values()) + 20
+            all_y0 = min(b[0] for b in row_bounds.values()) - 20
+            all_y1 = max(b[1] for b in row_bounds.values()) + 20
         grid_color = "rgba(255, 255, 0, 0.5)"
 
         # Vertical lines between columns
@@ -1050,6 +1058,62 @@ def _render_debug_overlay(
                     text_anchor="end",
                 )
             )
+
+    # Shared Y grid lines: horizontal lines at each grid slot position
+    # within each row group (populated by _align_row_y_grids in engine.py).
+    grid_info = graph._row_y_grid_info
+    if grid_info and sections:
+        for row, info in grid_info.items():
+            slot_spacing = info["slot_spacing"]
+            sec_ids = info["section_ids"]
+            ref_secs = [graph.sections[sid] for sid in sec_ids if sid in graph.sections]
+            if not ref_secs:
+                continue
+            # Collect all non-port station Y positions in the group
+            # to determine the actual grid line range.
+            all_station_ys: list[float] = []
+            for sec in ref_secs:
+                for sid in sec.station_ids:
+                    st = graph.stations.get(sid)
+                    if st and not st.is_port:
+                        all_station_ys.append(st.y)
+            if not all_station_ys:
+                continue
+            base_y = min(all_station_ys)
+            max_y = max(all_station_ys)
+            n_slots = (
+                int(round((max_y - base_y) / slot_spacing)) + 1
+                if slot_spacing > 0
+                else 1
+            )
+            # X span: from leftmost to rightmost section in the group
+            x_start = min(s.bbox_x for s in ref_secs) - 10
+            x_end = max(s.bbox_x + s.bbox_w for s in ref_secs) + 10
+            for i in range(n_slots):
+                y = base_y + i * slot_spacing
+                d.append(
+                    draw.Line(
+                        x_start,
+                        y,
+                        x_end,
+                        y,
+                        stroke=DEBUG_ROW_GRID_COLOR,
+                        stroke_width=0.75,
+                        stroke_dasharray="4,6",
+                    )
+                )
+                if i == 0:
+                    d.append(
+                        draw.Text(
+                            f"row {row} grid",
+                            debug_font_size,
+                            x_start - 4,
+                            y,
+                            fill=DEBUG_ROW_GRID_COLOR,
+                            font_family=debug_font,
+                            text_anchor="end",
+                        )
+                    )
 
     # Hidden stations: dashed-outline circles with labels
     for station in graph.stations.values():
