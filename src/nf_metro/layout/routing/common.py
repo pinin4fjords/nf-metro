@@ -288,18 +288,15 @@ def bypass_bottom_y(
     tgt_col: int,
     clearance: float = BYPASS_CLEARANCE,
     src_row: int | None = None,
-    src_y: float | None = None,
-    tgt_y: float | None = None,
+    cross_row: bool = False,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
-    Uses the tallest section in the bypassed columns (strictly between
-    src and tgt) as the baseline.  When *src_y* and *tgt_y* are provided,
-    uses geometric intersection (sections whose bbox overlaps the route's
-    Y range) for cross-row detection.  Otherwise, when *src_row* is
-    provided, only sections in the same row are considered so that bypass
-    routes stay within their row instead of looping around sections in
-    other rows.
+    When *cross_row* is True, the route must clear ALL sections in
+    the column range (regardless of grid row) so it goes cleanly
+    below everything.  Otherwise, when *src_row* is provided, only
+    sections in the same row are considered so that bypass routes
+    stay within their row.
 
     When there are no intervening sections (adjacent-column bypass),
     falls back to the shorter of the source/target endpoint sections
@@ -308,24 +305,25 @@ def bypass_bottom_y(
     """
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
 
-    # Cross-row bypass: route below ALL sections in the path (any row).
-    use_geometric = src_y is not None and tgt_y is not None
-    if use_geometric:
-        route_y_lo = min(src_y, tgt_y)
-        route_y_hi = max(src_y, tgt_y)
+    if cross_row:
+        # Route below ALL sections in the column range.
+        all_in_range = [
+            s
+            for s in graph.sections.values()
+            if s.bbox_w > 0 and lo <= s.grid_col <= hi
+        ]
+        if all_in_range:
+            return max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance
+        return clearance
 
-    def _in_path(s: Section) -> bool:
-        if use_geometric:
-            sec_y_lo = s.bbox_y
-            sec_y_hi = s.bbox_y + s.bbox_h
-            return sec_y_lo < route_y_hi and sec_y_hi > route_y_lo
+    def _in_row(s: Section) -> bool:
         return src_row is None or s.grid_row == src_row
 
     # Intervening sections (columns strictly between endpoints)
     intervening = [
         s
         for s in graph.sections.values()
-        if s.bbox_w > 0 and lo < s.grid_col < hi and _in_path(s)
+        if s.bbox_w > 0 and lo < s.grid_col < hi and _in_row(s)
     ]
     max_intervening = (
         max((s.bbox_y + s.bbox_h for s in intervening), default=0.0)
@@ -341,28 +339,12 @@ def bypass_bottom_y(
         endpoints = [
             s
             for s in graph.sections.values()
-            if s.bbox_w > 0 and s.grid_col in (lo, hi) and _in_path(s)
+            if s.bbox_w > 0 and s.grid_col in (lo, hi) and _in_row(s)
         ]
         if endpoints:
             candidate = max(s.bbox_y + s.bbox_h for s in endpoints) + clearance
         else:
             return clearance
-
-    if use_geometric:
-        # Cross-row bypass: the route must clear ALL sections in
-        # intermediate columns (regardless of row) so it goes cleanly
-        # below everything.  Also include endpoint-column sections
-        # that sit between source and target vertically, since the
-        # vertical legs of the U-shape pass through those columns.
-        all_blocking = [
-            s
-            for s in graph.sections.values()
-            if s.bbox_w > 0 and lo <= s.grid_col <= hi
-        ]
-        if all_blocking:
-            max_bottom = max(s.bbox_y + s.bbox_h for s in all_blocking)
-            candidate = max(candidate, max_bottom + clearance)
-        return candidate
 
     # When row-filtering is active, the candidate may land in the
     # inter-row gap too close to a section header in another row.
