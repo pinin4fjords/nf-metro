@@ -53,6 +53,11 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         EXAMPLES_DIR,
         "sanger-tol/genomeassembly with fan-out/fan-in across optional stages.",
     ),
+    (
+        "variantprioritization",
+        EXAMPLES_DIR,
+        "nf-core/variantprioritization with cross-row bypass routing.",
+    ),
     # --- Simple topologies ---
     (
         "single_section",
@@ -336,7 +341,12 @@ def render_pipeline_examples() -> None:
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
     section = "Pipeline Examples"
     print("Pipeline examples:")
-    for stem in ("epitopeprediction", "hlatyping", "rnaseq_sections_manual"):
+    for stem in (
+        "epitopeprediction",
+        "hlatyping",
+        "rnaseq_sections_manual",
+        "variantprioritization",
+    ):
         mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
         if not mmd_path.exists():
             continue

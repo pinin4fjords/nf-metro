@@ -474,7 +474,7 @@ def _route_inter_section(
         src_col is not None
         and tgt_col is not None
         and abs(tgt_col - src_col) > 1
-        and _has_intervening_sections(graph, src_col, tgt_col, src_row)
+        and _has_intervening_sections(graph, src_col, tgt_col, src_row, sy, ty)
     )
 
     if abs(dy) < COORD_TOLERANCE_FINE and not needs_bypass:
@@ -746,7 +746,18 @@ def _route_bypass(
         nest_offset = g2_j * ctx.offset_step
     else:
         nest_offset = max(i, g2_j) * ctx.offset_step
-    base_y = bypass_bottom_y(graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
+    # Resolve target row to detect cross-row bypasses.
+    tgt_row = _resolve_section_row(graph, tgt, ctx.junction_ids)
+    cross_row = src_row is not None and tgt_row is not None and src_row != tgt_row
+    base_y = bypass_bottom_y(
+        graph,
+        src_col,
+        tgt_col,
+        BYPASS_CLEARANCE,
+        src_row=src_row,
+        src_y=sy if cross_row else None,
+        tgt_y=ty if cross_row else None,
+    )
     by = base_y + nest_offset
 
     # Override r2 so corner 2 concentricity matches the trunk Y ordering:
@@ -2135,12 +2146,28 @@ def _has_intervening_sections(
     src_col: int,
     tgt_col: int,
     src_row: int | None = None,
+    src_y: float | None = None,
+    tgt_y: float | None = None,
 ) -> bool:
-    """Check if any same-row sections exist in columns strictly between src and tgt."""
+    """Check if any sections between src and tgt would block the route.
+
+    When *src_y* and *tgt_y* are provided, uses geometric intersection:
+    a section blocks if its bbox vertically overlaps the route's Y range.
+    Otherwise falls back to same-row grid check for backwards compatibility.
+    """
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
+    use_geometric = src_y is not None and tgt_y is not None
+    if use_geometric:
+        route_y_lo = min(src_y, tgt_y)
+        route_y_hi = max(src_y, tgt_y)
     for s in graph.sections.values():
         if s.bbox_w > 0 and lo < s.grid_col < hi:
-            if src_row is None or s.grid_row == src_row:
+            if use_geometric:
+                sec_y_lo = s.bbox_y
+                sec_y_hi = s.bbox_y + s.bbox_h
+                if sec_y_lo < route_y_hi and sec_y_hi > route_y_lo:
+                    return True
+            elif src_row is None or s.grid_row == src_row:
                 return True
     return False
 
