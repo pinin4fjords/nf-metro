@@ -26,6 +26,7 @@ from nf_metro.layout.constants import (
     LABEL_OFFSET,
     LABEL_PAD,
     LINE_GAP,
+    MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC,
     MIN_PORT_STATION_GAP,
     ROW_GAP,
     SECTION_GAP,
@@ -376,6 +377,10 @@ def _compute_section_layout(
     # toward the downstream section's stations so lines flow directly.
     _align_ports_to_downstream(graph)
 
+    # Phase 10b: When a port-connected station is the sole occupant of its
+    # layer, snap it to the port Y so the connection is horizontal.
+    _snap_sole_layer_stations_to_ports(graph)
+
     # Phase 11: Ensure ports maintain at least y_spacing from terminus
     # stations in their section so file icons don't overlap routed lines.
     _space_ports_from_termini(graph, y_spacing)
@@ -457,7 +462,26 @@ def _layout_single_section(
     _insert_phantom_pass_throughs(graph, section, sub)
 
     layers = assign_layers(sub)
-    tracks = assign_tracks(sub, layers)
+
+    # Use entry-top ordering when the immediate predecessor section is
+    # horizontal (LR/RL), so the entry-connected station stays at the
+    # top and aligns with the upstream exit station (#165).  Skip for
+    # TB predecessors where vertical entry makes top-biasing inappropriate.
+    entry_top = False
+    if section.entry_ports and section.direction in ("LR", "RL"):
+        for pid in section.entry_ports:
+            for edge in graph.edges:
+                if edge.target == pid:
+                    src_port = graph.ports.get(edge.source)
+                    if src_port:
+                        src_sec = graph.sections.get(src_port.section_id)
+                        if src_sec and src_sec.direction in ("LR", "RL"):
+                            entry_top = True
+                            break
+            if entry_top:
+                break
+
+    tracks = assign_tracks(sub, layers, entry_top=entry_top)
 
     if not layers:
         return None
@@ -1196,13 +1220,19 @@ def _align_lr_entry_port(
         if entry_section.grid_row != src_section.grid_row:
             break
 
-        # Skip alignment if source Y is outside entry section bbox
+        # Skip alignment if source Y is too far outside entry section bbox.
+        # Allow moderate expansion so ports align when adjacent sections
+        # have different track counts (#165).
         entry_station = graph.stations.get(port_id)
         if entry_station:
             bbox_top = entry_section.bbox_y
             bbox_bot = entry_section.bbox_y + entry_section.bbox_h
-            if not (bbox_top <= src_y <= bbox_bot):
+            max_expand = entry_section.bbox_h * MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC
+            if src_y < bbox_top - max_expand or src_y > bbox_bot + max_expand:
                 break
+            # Expand bbox to contain aligned port if needed
+            if src_y < bbox_top or src_y > bbox_bot:
+                _expand_bbox_for_y(entry_section, src_y)
 
         target_y = src_y
 
@@ -1432,6 +1462,29 @@ def _align_ports_to_downstream(graph: MetroGraph) -> None:
         else:
             target_y = sum(downstream_ys) / len(downstream_ys)
 
+        if graph.center_ports:
+            # Centre on the shorter section's midpoint.  Skip when
+            # centring would create a V-shaped detour (center_y is
+            # outside the range spanned by upstream and downstream Ys),
+            # but allow it when both Ys match (no existing detour).
+            exit_internal_ids = (
+                set(exit_section.station_ids)
+                - set(exit_section.entry_ports)
+                - set(exit_section.exit_ports)
+            )
+            upstream_ys: list[float] = []
+            for edge in graph.edges:
+                if edge.target == port_id and edge.source in exit_internal_ids:
+                    upstream_ys.append(graph.stations[edge.source].y)
+            if upstream_ys:
+                upstream_y = sum(upstream_ys) / len(upstream_ys)
+                shorter = min(exit_section, entry_section, key=lambda s: s.bbox_h)
+                center_y = shorter.bbox_y + shorter.bbox_h / 2
+                lo = min(upstream_y, target_y)
+                hi = max(upstream_y, target_y)
+                if lo <= center_y <= hi or abs(upstream_y - target_y) < 1.0:
+                    target_y = center_y
+
         # Only move if target_y fits within both section bboxes
         exit_top = exit_section.bbox_y
         exit_bot = exit_section.bbox_y + exit_section.bbox_h
@@ -1445,6 +1498,114 @@ def _align_ports_to_downstream(graph: MetroGraph) -> None:
 
         _set_port_y(graph, port_id, target_y)
         _set_port_y(graph, target_entry_id, target_y)
+
+
+def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
+    """Snap port-connected stations to their port Y when alone in their layer.
+
+    After port alignment, a port may sit at a different Y than its
+    connected internal station, producing a diagonal.  When that station
+    is the only one at its layer within the section, it can safely move
+    to the port Y without colliding with layer-siblings.
+    """
+    for section in graph.sections.values():
+        # Only applies to horizontal (LR/RL) sections where ports
+        # are on LEFT/RIGHT and the free axis is Y.
+        if section.direction not in ("LR", "RL"):
+            continue
+
+        port_ids = set(section.entry_ports) | set(section.exit_ports)
+        internal_ids = set(section.station_ids) - port_ids
+
+        # Skip single-station sections: the station is already centred
+        # in the section, and snapping it to a port just drags it to
+        # an extreme position.
+        if len(internal_ids) <= 1:
+            continue
+
+        # Build layer -> set of station IDs for collision checking.
+        layer_groups: dict[int, set[str]] = {}
+        for sid in internal_ids:
+            st = graph.stations.get(sid)
+            if st and not st.is_port and hasattr(st, "layer"):
+                layer_groups.setdefault(st.layer, set()).add(sid)
+
+        # For each LEFT/RIGHT port, check its connected internal stations.
+        # Skip TOP/BOTTOM ports - snapping to a boundary port Y would
+        # pull stations to the section edge rather than aligning them
+        # with a horizontal predecessor.
+        for pid in port_ids:
+            port_obj = graph.ports.get(pid)
+            if not port_obj or port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
+            port_st = graph.stations.get(pid)
+            if not port_st:
+                continue
+            port_y = port_st.y
+
+            # Collect the distinct internal stations connected to this port.
+            connected: set[str] = set()
+            for edge in graph.edges:
+                if edge.source == pid and edge.target in internal_ids:
+                    connected.add(edge.target)
+                elif edge.target == pid and edge.source in internal_ids:
+                    connected.add(edge.source)
+
+            # Only snap when exactly one station connects to the port
+            # (not a fan-in / fan-out bundle).
+            if len(connected) != 1:
+                continue
+
+            # Snap the port-connected station if it's a sole layer
+            # occupant and has no other predecessors/successors on the
+            # port side (otherwise snapping would break those connections).
+            current = next(iter(connected))
+            is_entry = graph.ports[pid].is_entry
+
+            # Skip if the station has internal predecessors (other than
+            # the port).  For entry ports this means the station receives
+            # from another source inside the section; for exit ports it
+            # means internal stations feed into it, so snapping would
+            # create a diagonal on those connections.
+            has_internal_pred = any(
+                edge.target == current
+                and edge.source != pid
+                and edge.source in internal_ids
+                for edge in graph.edges
+            )
+            if has_internal_pred:
+                continue
+
+            visited: set[str] = set()
+            while current and current not in visited:
+                visited.add(current)
+                st = graph.stations[current]
+
+                layer = getattr(st, "layer", None)
+                if layer is None:
+                    break
+                siblings = layer_groups.get(layer, set())
+                if len(siblings) > 1:
+                    break
+
+                if abs(st.y - port_y) >= 1.0:
+                    st.y = port_y
+
+                # Only continue the chain when center_ports is on.
+                if not graph.center_ports:
+                    break
+
+                # Follow to the next singleton: successors for entry
+                # ports (walking inward), predecessors for exit ports.
+                nexts: set[str] = set()
+                for edge in graph.edges:
+                    if is_entry and edge.source == current:
+                        if edge.target in internal_ids:
+                            nexts.add(edge.target)
+                    elif not is_entry and edge.target == current:
+                        if edge.source in internal_ids:
+                            nexts.add(edge.source)
+                current = next(iter(nexts)) if len(nexts) == 1 else None
 
 
 def _align_exit_ports(graph: MetroGraph) -> None:

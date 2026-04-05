@@ -83,6 +83,7 @@ nf-metro render [OPTIONS] INPUT_FILE
 | `--debug / --no-debug` | off | Show debug overlay (ports, hidden stations, edge waypoints) |
 | `--logo PATH` | none | Logo image path (overrides `%%metro logo:` directive) |
 | `--line-order [definition\|span]` | from file | Line ordering strategy: `definition` preserves `.mmd` order, `span` sorts by section span (longest first) |
+| `--center-ports / --no-center-ports` | off | Centre inter-section ports on the shorter of the two connected sections |
 
 The `--logo` flag lets you use the same `.mmd` file with different logos for dark/light themes:
 
