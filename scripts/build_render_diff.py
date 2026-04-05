@@ -21,6 +21,7 @@ import json
 import shutil
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 HTML_TEMPLATE = """\
@@ -354,7 +355,11 @@ def build_diff(
         parts.append(f"{n_added} added")
     if n_removed:
         parts.append(f"{n_removed} removed")
-    summary = f"{', '.join(parts)} out of {len(all_names)} total renders."
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    summary = (
+        f"{', '.join(parts)} out of {len(all_names)} total renders."
+        f" Generated {timestamp}."
+    )
 
     # Table of contents (grouped by section)
     toc_parts = ['<div class="toc">\n<h2>Changed renders</h2>']
