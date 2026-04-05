@@ -70,6 +70,7 @@ nf-metro render [OPTIONS] INPUT_FILE
 | `--animate / --no-animate` | off | Add animated balls traveling along lines |
 | `--debug / --no-debug` | off | Show debug overlay |
 | `--logo PATH` | none | Logo image path (overrides `%%metro logo:` directive) |
+| `--center-ports / --no-center-ports` | off | Centre inter-section ports on the shorter of the two connected sections |
 | `--from-nextflow` | off | Convert Nextflow `-with-dag` input before rendering |
 | `--title TEXT` | none | Pipeline title (used with `--from-nextflow`) |
 
