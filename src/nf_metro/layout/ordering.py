@@ -438,12 +438,14 @@ def _place_fan_out(
 
     # Use asymmetric (downward) placement when:
     # - straight diamonds with diamond fan-out, OR
-    # - predecessors are at the entry layer (layer 0), so the entry
-    #   station stays at the top of the section (#165).
+    # - predecessors are at the entry layer (layer 0) with a simple
+    #   binary fan-out (2 nodes), so the entry station stays at the
+    #   top of the section (#165).  Skip for larger fan-outs where
+    #   symmetric placement avoids line crossings.
     use_asymmetric = False
     if straight_diamonds and _is_diamond_fanout(nodes, G):
         use_asymmetric = True
-    elif layer_idx == 1:
+    elif layer_idx == 1 and n == 2:
         use_asymmetric = True
 
     if use_asymmetric:
