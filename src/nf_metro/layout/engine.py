@@ -1556,17 +1556,26 @@ def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
             current = next(iter(connected))
             is_entry = graph.ports[pid].is_entry
 
-            # Check the station only connects to the port on the
-            # relevant side (predecessors for entry, successors for exit).
-            other_connections: set[str] = set()
+            # Check the station has no other internal connections that
+            # snapping would disrupt.  For entry ports: no other
+            # predecessors.  For exit ports: no other successors AND
+            # no internal predecessors (which feed from the opposite
+            # direction and would create a diagonal).
+            has_conflict = False
             for edge in graph.edges:
                 if is_entry and edge.target == current:
                     if edge.source != pid and edge.source in internal_ids:
-                        other_connections.add(edge.source)
-                elif not is_entry and edge.source == current:
-                    if edge.target != pid and edge.target in internal_ids:
-                        other_connections.add(edge.target)
-            if other_connections:
+                        has_conflict = True
+                        break
+                elif not is_entry:
+                    if edge.source == current:
+                        if edge.target != pid and edge.target in internal_ids:
+                            has_conflict = True
+                            break
+                    if edge.target == current and edge.source in internal_ids:
+                        has_conflict = True
+                        break
+            if has_conflict:
                 continue
 
             visited: set[str] = set()
