@@ -1517,6 +1517,12 @@ def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
         port_ids = set(section.entry_ports) | set(section.exit_ports)
         internal_ids = set(section.station_ids) - port_ids
 
+        # Skip single-station sections: the station is already centred
+        # in the section, and snapping it to a port just drags it to
+        # an extreme position.
+        if len(internal_ids) <= 1:
+            continue
+
         # Build layer -> set of station IDs for collision checking.
         layer_groups: dict[int, set[str]] = {}
         for sid in internal_ids:
