@@ -2075,7 +2075,9 @@ def _align_uncentered_siblings(
             # Moved stations disagree on target X.  Find the majority
             # position and treat outliers as needing alignment too.
             rounded = [round(x, 1) for x in moved_xs]
-            ((majority_x, _),) = Counter(rounded).most_common(1)
+            ((majority_x, majority_count),) = Counter(rounded).most_common(1)
+            if majority_count <= len(moved) / 2:
+                continue  # no clear majority, skip
             outliers = [
                 sid
                 for sid, x in zip(moved, moved_xs)

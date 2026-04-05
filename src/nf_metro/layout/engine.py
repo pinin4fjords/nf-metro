@@ -37,6 +37,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
     STATION_ELBOW_TOLERANCE,
+    STATION_RADIUS_APPROX,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
     TERMINUS_WIDTH,
@@ -422,7 +423,7 @@ def _compute_section_layout(
 
 def _grid_group_section_ids(graph: MetroGraph) -> set[str]:
     """Return the set of section IDs that participated in grid alignment."""
-    grid_info: dict = getattr(graph, "_row_y_grid_info", {})
+    grid_info = graph._row_y_grid_info
     result: set[str] = set()
     for info in grid_info.values():
         result.update(info["section_ids"])
@@ -535,9 +536,8 @@ def _align_row_y_grids(
         # e.g. bench_hub with 6 lines) don't represent inter-track
         # crowding and should not inflate spacing for the entire row.
         #
-        # Approximate station radius (5px) is hard-coded here to avoid
-        # importing theme-dependent render values into the layout layer.
-        _STATION_RADIUS = 5.0
+        # Station radius for spacing calculations (see layout/constants.py).
+
         max_lines = 0
         for sec_id in sec_ids:
             sub = section_subgraphs[sec_id]
@@ -548,7 +548,7 @@ def _align_row_y_grids(
                     max_lines = max(max_lines, len(graph.station_lines(st.id)))
         min_track_gap = (
             (max_lines - 1) * OFFSET_STEP
-            + 2 * _STATION_RADIUS
+            + 2 * STATION_RADIUS_APPROX
             + LABEL_OFFSET
             + FONT_HEIGHT
         )
@@ -639,14 +639,19 @@ def _align_row_y_grids(
                     raw_slot = int(math.floor(old_y / effective_y_spacing))
                     slot = max(raw_slot, prev_slot)
                     # Check if this Y must be separated from any value
-                    # already assigned to the same slot.
-                    for other_y, other_slot in slot_for_y.items():
-                        if other_slot != slot:
-                            continue
-                        pair = (min(other_y, old_y), max(other_y, old_y))
-                        if pair in must_separate:
-                            slot = slot + 1
-                            break
+                    # already assigned to the same slot.  Re-check after
+                    # each bump in case the new slot also conflicts.
+                    _changed = True
+                    while _changed:
+                        _changed = False
+                        for other_y, other_slot in slot_for_y.items():
+                            if other_slot != slot:
+                                continue
+                            pair = (min(other_y, old_y), max(other_y, old_y))
+                            if pair in must_separate:
+                                slot += 1
+                                _changed = True
+                                break
                     # Diamond: ensure at least 2-slot gap from previous
                     if has_diamond and prev_slot > 0 and slot - prev_slot < 2:
                         slot = prev_slot + 2
@@ -726,7 +731,7 @@ def _align_row_y_grids(
             section.bbox_y = min(ys) - max_y_pad
             section.bbox_h = (max(ys) - min(ys)) + max_y_pad * 2
 
-    graph._row_y_grid_info = grid_info  # type: ignore[attr-defined]
+    graph._row_y_grid_info = grid_info
 
 
 def _recompute_grid_group_bboxes(graph: MetroGraph) -> None:
@@ -737,7 +742,7 @@ def _recompute_grid_group_bboxes(graph: MetroGraph) -> None:
     to symmetric ``max_y_pad`` padding around the final non-port station
     Y range, then expands for any ports that fall outside.
     """
-    grid_info: dict = getattr(graph, "_row_y_grid_info", {})
+    grid_info = graph._row_y_grid_info
     for _row, info in grid_info.items():
         max_y_pad = info["max_y_pad"]
         for sec_id in info["section_ids"]:

@@ -31,7 +31,7 @@ def _load(name: str):
 
 
 def _grid_info(g):
-    return getattr(g, "_row_y_grid_info", {})
+    return g._row_y_grid_info
 
 
 def _grid_secs(g) -> set[str]:
@@ -124,7 +124,7 @@ class TestGridInvariants:
             max_y = max(s.y for s in stations)
             top_pad = min_y - sec.bbox_y
             bot_pad = (sec.bbox_y + sec.bbox_h) - max_y
-            assert abs(top_pad - bot_pad) <= 6.0, (
+            assert abs(top_pad - bot_pad) <= 1.0, (
                 f"{name} {sec_id}: asymmetric padding "
                 f"top={top_pad:.1f} bot={bot_pad:.1f}"
             )

@@ -40,6 +40,13 @@ ROW_GAP: float = 120.0
 # ---------------------------------------------------------------------------
 # Section sizing / padding (engine defaults)
 # ---------------------------------------------------------------------------
+STATION_RADIUS_APPROX: float = 5.0
+"""Approximate station pill radius for layout spacing calculations.
+
+This avoids importing the theme-dependent render value into the layout
+layer.  Must stay in sync with Theme.station_radius.
+"""
+
 SECTION_GAP: float = 3.0
 """Spacing between stations within a section."""
 

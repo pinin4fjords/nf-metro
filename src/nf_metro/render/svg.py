@@ -1061,7 +1061,7 @@ def _render_debug_overlay(
 
     # Shared Y grid lines: horizontal lines at each grid slot position
     # within each row group (populated by _align_row_y_grids in engine.py).
-    grid_info: dict = getattr(graph, "_row_y_grid_info", {})
+    grid_info = graph._row_y_grid_info
     if grid_info and sections:
         for row, info in grid_info.items():
             slot_spacing = info["slot_spacing"]
