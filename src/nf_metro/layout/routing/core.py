@@ -8,7 +8,7 @@ per-line bundle offsets.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -2067,14 +2067,31 @@ def _align_uncentered_siblings(
             for sid in group
             if abs(graph.stations[sid].x - original_x[sid]) <= STATION_MOVE_TOLERANCE
         ]
-        if not moved or not unmoved:
+        if not moved:
             continue
-        if len(moved) <= len(unmoved):
-            continue
+
         moved_xs = [graph.stations[sid].x for sid in moved]
         if max(moved_xs) - min(moved_xs) > 1.0:
-            continue
-        target_x = sum(moved_xs) / len(moved_xs)
+            # Moved stations disagree on target X.  Find the majority
+            # position and treat outliers as needing alignment too.
+            rounded = [round(x, 1) for x in moved_xs]
+            ((majority_x, _),) = Counter(rounded).most_common(1)
+            outliers = [
+                sid
+                for sid, x in zip(moved, moved_xs)
+                if abs(round(x, 1) - majority_x) > 1.0
+            ]
+            if not outliers:
+                continue
+            unmoved = unmoved + outliers
+            target_x = majority_x
+        else:
+            if not unmoved:
+                continue
+            if len(moved) <= len(unmoved):
+                continue
+            target_x = sum(moved_xs) / len(moved_xs)
+
         for sid in unmoved:
             old_x = graph.stations[sid].x
             graph.stations[sid].x = target_x

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 __all__ = ["PhaseInvariantError", "compute_layout"]
 
+import math
 from collections import Counter, defaultdict
 
 from nf_metro.layout.constants import (
@@ -28,6 +29,7 @@ from nf_metro.layout.constants import (
     LINE_GAP,
     MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC,
     MIN_PORT_STATION_GAP,
+    OFFSET_STEP,
     ROW_GAP,
     SECTION_GAP,
     SECTION_X_GAP,
@@ -67,8 +69,6 @@ class PhaseInvariantError(Exception):
 
 def _guard_coordinates_finite(graph: MetroGraph, phase: str) -> None:
     """After Phase 4+: all laid-out stations must have finite coordinates."""
-    import math
-
     junction_ids = set(graph.junctions)
     for sid, st in graph.stations.items():
         if st.section_id and not st.is_port and sid not in junction_ids:
@@ -271,6 +271,9 @@ def _compute_section_layout(
     if validate:
         _guard_section_bboxes_positive(graph, "after Phase 2")
 
+    # Phase 2.5: Align Y grids across same-row, same-direction sections
+    _align_row_y_grids(graph, section_subgraphs, y_spacing, section_y_padding)
+
     # Phase 3: Place sections on the canvas
     place_sections(graph, section_x_gap, section_y_gap)
 
@@ -381,9 +384,28 @@ def _compute_section_layout(
     # layer, snap it to the port Y so the connection is horizontal.
     _snap_sole_layer_stations_to_ports(graph)
 
+    # Phase 10c: For grid-group sections (where 10b is skipped), snap
+    # entry ports to the Y of their first connected internal station.
+    # This produces a straight horizontal port-to-station connection
+    # instead of a diagonal from the upstream junction Y.
+    _snap_grid_group_entry_ports(graph)
+
+    # Phase 10d: Mirror of 10c for exit ports.  Move exit ports of
+    # grid-group sections to the Y of the downstream entry port (which
+    # 10c already snapped to a grid station).  This eliminates detours
+    # where lines leave at the section midpoint then route back.
+    _snap_grid_group_exit_ports(graph)
+
     # Phase 11: Ensure ports maintain at least y_spacing from terminus
     # stations in their section so file icons don't overlap routed lines.
     _space_ports_from_termini(graph, y_spacing)
+
+    # Phase 11b: Recompute bboxes for grid-aligned sections.  Earlier
+    # phases (6, 8, 11) may have expanded bboxes for temporary port
+    # positions that were later corrected (e.g. Phase 10 pulls ports
+    # back toward downstream stations).  Recompute with symmetric
+    # padding around the final non-port station range.
+    _recompute_grid_group_bboxes(graph)
 
     # ---- Pass C: Junction positioning (single pass) --------------------
     # All port positions are now final; position junctions once.
@@ -396,6 +418,358 @@ def _compute_section_layout(
         _guard_section_bboxes_positive(graph, "after Phase 12 (final)")
         _guard_stations_in_sections(graph, "after Phase 12 (final)")
         _guard_ports_on_boundaries(graph, "after Phase 12 (final)")
+
+
+def _grid_group_section_ids(graph: MetroGraph) -> set[str]:
+    """Return the set of section IDs that participated in grid alignment."""
+    grid_info: dict = getattr(graph, "_row_y_grid_info", {})
+    result: set[str] = set()
+    for info in grid_info.values():
+        result.update(info["section_ids"])
+    return result
+
+
+def _classify_multi_station_ys(
+    sub: MetroGraph,
+) -> tuple[dict[int, list[float]], set[float]]:
+    """Classify Y values by layer and identify multi-station-layer Ys.
+
+    Returns (layer_stations, multi_layer_ys) where layer_stations maps
+    layer -> list of Y values, and multi_layer_ys is the set of Y values
+    that appear in layers with >1 station.
+    """
+    layer_stations: dict[int, list[float]] = defaultdict(list)
+    for s in sub.stations.values():
+        layer_stations[s.layer].append(s.y)
+    multi_layer_ys: set[float] = set()
+    for ys_at_layer in layer_stations.values():
+        if len(ys_at_layer) > 1:
+            multi_layer_ys.update(ys_at_layer)
+    return layer_stations, multi_layer_ys
+
+
+def _max_stations_per_layer(sub: MetroGraph) -> int:
+    """Return the maximum number of distinct Y positions at any single layer."""
+    layer_ys: dict[int, set[float]] = defaultdict(set)
+    for s in sub.stations.values():
+        layer_ys[s.layer].add(s.y)
+    return max((len(ys) for ys in layer_ys.values()), default=1)
+
+
+def _align_row_y_grids(
+    graph: MetroGraph,
+    section_subgraphs: dict[str, MetroGraph],
+    y_spacing: float,
+    section_y_padding: float,
+) -> None:
+    """Snap station Y coordinates to a shared grid within each row.
+
+    For same-direction sections in the same grid row, determines the
+    maximum stations-per-layer across all sections and builds a shared
+    Y grid with that many slots at *y_spacing* pitch.
+
+    Constraints preserved:
+
+    1. **Isolated stations** (sole occupant of their layer, with a Y
+       value not found at any multi-station layer) keep their original Y.
+       This preserves hub-station centering (e.g. bench_hub).
+    2. **Bbox dimensions** (bbox_w, bbox_h) are unchanged.  Stations may
+       shift within their bbox but the box itself keeps its Phase-2 size.
+    3. **y_pad compensation**: a uniform shift of ``max_y_pad - y_pad``
+       is applied to every station so that after Phase 9 top-aligns
+       bbox_y, the first-station Y matches across sections despite
+       differing ``_multiline_label_padding``.
+
+    Stores grid metadata on ``graph._row_y_grid_info`` for the debug
+    overlay to render shared Y grid lines.
+
+    Runs between Phase 2 and Phase 3, operating in local coordinates.
+    """
+    from nf_metro.layout.section_placement import _assign_grid_layout
+
+    # Pre-compute grid rows (not yet set on Section objects at this point)
+    section_edges = graph.section_dag.section_edges if graph.section_dag else set()
+    _, row_assign = _assign_grid_layout(graph, section_edges)
+
+    # Group sections by (row, direction), skipping TB sections
+    groups: dict[tuple[int, str], list[str]] = defaultdict(list)
+    for sec_id in section_subgraphs:
+        section = graph.sections[sec_id]
+        row = row_assign.get(sec_id, -1)
+        if row < 0 or section.direction == "TB":
+            continue
+        groups[(row, section.direction)].append(sec_id)
+
+    # Store grid info for debug overlay
+    grid_info: dict[int, dict] = {}
+
+    for (row, _direction), sec_ids in groups.items():
+        if len(sec_ids) < 2:
+            continue
+
+        # Grid size = max stations stacked at any single layer across
+        # all sections in the group.
+        grid_slots = 0
+        for sec_id in sec_ids:
+            sub = section_subgraphs[sec_id]
+            grid_slots = max(grid_slots, _max_stations_per_layer(sub))
+
+        if grid_slots <= 1:
+            continue
+
+        # Compute max y_pad across group for compensation
+        max_y_pad = 0.0
+        for sec_id in sec_ids:
+            sub = section_subgraphs[sec_id]
+            y_pad = section_y_padding + _multiline_label_padding(sub)
+            max_y_pad = max(max_y_pad, y_pad)
+
+        # Scale effective y_spacing when stations carry many lines.
+        # Per-line offsets spread the rendered line bundle vertically;
+        # when the spread + label height exceeds the base y_spacing,
+        # labels on adjacent tracks overlap.  We inflate the grid
+        # pitch just enough to guarantee clearance.
+        #
+        # Only count stations at multi-station layers (i.e. Y values
+        # in remap_ys).  Isolated hub stations (sole layer occupant,
+        # e.g. bench_hub with 6 lines) don't represent inter-track
+        # crowding and should not inflate spacing for the entire row.
+        #
+        # Approximate station radius (5px) is hard-coded here to avoid
+        # importing theme-dependent render values into the layout layer.
+        _STATION_RADIUS = 5.0
+        max_lines = 0
+        for sec_id in sec_ids:
+            sub = section_subgraphs[sec_id]
+            _, _multi_ys = _classify_multi_station_ys(sub)
+            _crowd_ys = _multi_ys or set(s.y for s in sub.stations.values())
+            for st in sub.stations.values():
+                if not st.is_port and st.y in _crowd_ys:
+                    max_lines = max(max_lines, len(graph.station_lines(st.id)))
+        min_track_gap = (
+            (max_lines - 1) * OFFSET_STEP
+            + 2 * _STATION_RADIUS
+            + LABEL_OFFSET
+            + FONT_HEIGHT
+        )
+        effective_y_spacing = max(y_spacing, min_track_gap)
+
+        grid_info[row] = {
+            "section_ids": list(sec_ids),
+            "slot_count": grid_slots,
+            "slot_spacing": effective_y_spacing,
+            "max_y_pad": max_y_pad,
+        }
+
+        # Remap each section's stations to the shared grid
+        for sec_id in sec_ids:
+            sub = section_subgraphs[sec_id]
+            section = graph.sections[sec_id]
+
+            layer_stations, multi_layer_ys = _classify_multi_station_ys(sub)
+
+            # Remap multi-station-layer Y values first.
+            if multi_layer_ys:
+                remap_ys = sorted(multi_layer_ys)
+            else:
+                remap_ys = sorted(set(s.y for s in sub.stations.values()))
+
+            # Check for diamond patterns: isolated Y values that sit
+            # between adjacent remap_ys indicate a join/fork hub.
+            # These need at least 2 grid slots between tracks so the
+            # hub has visual room.  Only for small fan-outs; large
+            # fan-outs (>3 per layer) keep their original spacing.
+            max_layer_size = max((len(ys) for ys in layer_stations.values()), default=0)
+            all_ys = sorted(set(s.y for s in sub.stations.values()))
+            isolated_ys = set(all_ys) - set(remap_ys)
+            has_diamond = False
+            if max_layer_size <= 3 and len(remap_ys) >= 2 and isolated_ys:
+                for iso_y in isolated_ys:
+                    if remap_ys[0] < iso_y < remap_ys[-1]:
+                        has_diamond = True
+                        break
+
+            # Map Y values to grid slots.
+            #
+            # Uniform spacing preservation: when all input gaps are
+            # equal (e.g. [0, 68.8, 137.6] with gap 68.8), map to
+            # equally-spaced slots so the output gaps stay uniform.
+            # This avoids asymmetric compression that causes label
+            # clashes (e.g. floor gives [0,40,120] = gaps 40,80).
+            #
+            # Diamond gap enforcement: when a fork/join hub sits
+            # between tracks, ensure at least 2-slot gap so the hub
+            # has visual room.
+            y_map: dict[float, float] = {}
+
+            # Detect uniform input spacing
+            gaps = [remap_ys[i + 1] - remap_ys[i] for i in range(len(remap_ys) - 1)]
+            uniform_gap = len(gaps) >= 1 and all(abs(g - gaps[0]) < 1.0 for g in gaps)
+
+            if uniform_gap and len(gaps) >= 1:
+                # Floor the uniform gap to a whole number of grid
+                # slots (minimum 1).  Using floor instead of round
+                # prevents inflation (e.g. a 68.8px gap with 40px
+                # spacing stays at 1 slot, not 2).
+                slot_gap = max(1, int(math.floor(gaps[0] / effective_y_spacing)))
+                if has_diamond and slot_gap < 2:
+                    slot_gap = 2
+                for i, old_y in enumerate(remap_ys):
+                    y_map[old_y] = i * slot_gap * effective_y_spacing
+            else:
+                # Build set of Y-value pairs that MUST occupy different
+                # grid slots because they co-occur at the same layer.
+                # Unlike the previous "check only previous remap_y"
+                # approach, we check against ALL values already
+                # assigned to the candidate slot, so non-adjacent
+                # pairs (e.g. sortmerna and ribodetector separated by
+                # trimgalore in remap_ys) are still caught.
+                must_separate: set[tuple[float, float]] = set()
+                for ys_at_layer in layer_stations.values():
+                    unique_ys = sorted(
+                        set(y for y in ys_at_layer if y in multi_layer_ys)
+                    )
+                    for a_idx in range(len(unique_ys)):
+                        for b_idx in range(a_idx + 1, len(unique_ys)):
+                            must_separate.add((unique_ys[a_idx], unique_ys[b_idx]))
+
+                slot_for_y: dict[float, int] = {}
+                prev_slot = 0
+                for i, old_y in enumerate(remap_ys):
+                    raw_slot = int(math.floor(old_y / effective_y_spacing))
+                    slot = max(raw_slot, prev_slot)
+                    # Check if this Y must be separated from any value
+                    # already assigned to the same slot.
+                    for other_y, other_slot in slot_for_y.items():
+                        if other_slot != slot:
+                            continue
+                        pair = (min(other_y, old_y), max(other_y, old_y))
+                        if pair in must_separate:
+                            slot = slot + 1
+                            break
+                    # Diamond: ensure at least 2-slot gap from previous
+                    if has_diamond and prev_slot > 0 and slot - prev_slot < 2:
+                        slot = prev_slot + 2
+                    elif has_diamond and prev_slot == 0 and slot < 2 and old_y > 0:
+                        slot = 2
+                    y_map[old_y] = slot * effective_y_spacing
+                    slot_for_y[old_y] = slot
+                    prev_slot = slot
+
+            # Multi-line label clearance: when a multi-line label station
+            # is sandwiched between same-layer neighbors above AND below,
+            # the label must fit within the gap.  Enforce a 2-slot gap
+            # from the preceding Y so the label text doesn't overlap.
+            # Stations at the top or bottom of their column can extend
+            # outward and don't need the extra gap.
+            layer_at_y: dict[tuple[int, float], bool] = {}
+            for st in sub.stations.values():
+                if not st.is_port:
+                    layer_at_y[(st.layer, st.y)] = True
+            _needs_gap_ys: set[float] = set()
+            for st in sub.stations.values():
+                if st.is_port or not st.label or "\n" not in st.label:
+                    continue
+                if st.y not in y_map:
+                    continue
+                has_above = any(
+                    (st.layer, ry) in layer_at_y for ry in remap_ys if ry < st.y - 0.5
+                )
+                has_below = any(
+                    (st.layer, ry) in layer_at_y for ry in remap_ys if ry > st.y + 0.5
+                )
+                if has_above and has_below:
+                    _needs_gap_ys.add(st.y)
+            if _needs_gap_ys:
+                sorted_mapped = sorted(y_map.items(), key=lambda kv: kv[1])
+                for idx in range(1, len(sorted_mapped)):
+                    old_y, new_y = sorted_mapped[idx]
+                    prev_y = sorted_mapped[idx - 1][1]
+                    if old_y not in _needs_gap_ys:
+                        continue
+                    gap_slots = round((new_y - prev_y) / effective_y_spacing)
+                    if gap_slots < 2:
+                        extra = (2 - gap_slots) * effective_y_spacing
+                        for j in range(idx, len(sorted_mapped)):
+                            k = sorted_mapped[j][0]
+                            y_map[k] += extra
+                        sorted_mapped = sorted(y_map.items(), key=lambda kv: kv[1])
+
+            # Snap isolated Y values to the nearest grid slot (any
+            # multiple of effective_y_spacing, not just mapped slots).
+            # This keeps diamond join points between tracks on-grid
+            # without collapsing them onto a track endpoint.  Skip for
+            # large fan-outs where snapping disrupts routing geometry.
+            if max_layer_size <= 3:
+                for old_y in all_ys:
+                    if old_y not in y_map:
+                        slot = round(old_y / effective_y_spacing)
+                        y_map[old_y] = slot * effective_y_spacing
+
+            for station in sub.stations.values():
+                if station.y in y_map:
+                    station.y = y_map[station.y]
+
+            # y_pad compensation: shift all stations so that the
+            # distance from the top of the Y range to the first
+            # station equals max_y_pad.  After Phase 9 top-aligns
+            # bbox_y, this makes first_station_y consistent across
+            # sections with different multiline label padding.
+            y_pad = section_y_padding + _multiline_label_padding(sub)
+            shift = max_y_pad - y_pad
+            if shift > 0:
+                for station in sub.stations.values():
+                    station.y += shift
+
+            # Recompute bbox to match remapped + shifted positions.
+            ys = [s.y for s in sub.stations.values()]
+            section.bbox_y = min(ys) - max_y_pad
+            section.bbox_h = (max(ys) - min(ys)) + max_y_pad * 2
+
+    graph._row_y_grid_info = grid_info  # type: ignore[attr-defined]
+
+
+def _recompute_grid_group_bboxes(graph: MetroGraph) -> None:
+    """Recompute bboxes for sections in grid groups after port finalisation.
+
+    Earlier phases may temporarily expand bboxes for port positions that
+    are later corrected.  This step resets each grid-group section's bbox
+    to symmetric ``max_y_pad`` padding around the final non-port station
+    Y range, then expands for any ports that fall outside.
+    """
+    grid_info: dict = getattr(graph, "_row_y_grid_info", {})
+    for _row, info in grid_info.items():
+        max_y_pad = info["max_y_pad"]
+        for sec_id in info["section_ids"]:
+            section = graph.sections.get(sec_id)
+            if not section:
+                continue
+            non_port_ys = [
+                graph.stations[sid].y
+                for sid in section.station_ids
+                if sid in graph.stations and not graph.stations[sid].is_port
+            ]
+            if not non_port_ys:
+                continue
+            min_y = min(non_port_ys)
+            max_y = max(non_port_ys)
+            section.bbox_y = min_y - max_y_pad
+            section.bbox_h = (max_y - min_y) + max_y_pad * 2
+            # Expand for ports that landed outside the symmetric bbox.
+            # Use bare containment (no extra padding) to avoid
+            # inflating the bbox asymmetrically for off-grid ports.
+            top = section.bbox_y
+            bot = section.bbox_y + section.bbox_h
+            for sid in section.station_ids:
+                st = graph.stations.get(sid)
+                if st and st.is_port:
+                    if st.y < top:
+                        section.bbox_h += top - st.y
+                        section.bbox_y = st.y
+                    elif st.y > bot:
+                        section.bbox_h = st.y - section.bbox_y
+                    top = section.bbox_y
+                    bot = section.bbox_y + section.bbox_h
 
 
 def _top_align_row_sections(graph: MetroGraph) -> None:
@@ -1508,10 +1882,19 @@ def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
     is the only one at its layer within the section, it can safely move
     to the port Y without colliding with layer-siblings.
     """
+    # Build set of section IDs that participated in grid alignment.
+    # Phase 10b must not override the shared Y grid for these sections.
+    grid_group_secs = _grid_group_section_ids(graph)
+
     for section in graph.sections.values():
         # Only applies to horizontal (LR/RL) sections where ports
         # are on LEFT/RIGHT and the free axis is Y.
         if section.direction not in ("LR", "RL"):
+            continue
+
+        # Skip grid-group sections: their stations are on a shared Y
+        # grid and must not be pulled off-grid by port alignment.
+        if section.id in grid_group_secs:
             continue
 
         port_ids = set(section.entry_ports) | set(section.exit_ports)
@@ -1606,6 +1989,183 @@ def _snap_sole_layer_stations_to_ports(graph: MetroGraph) -> None:
                         if edge.source in internal_ids:
                             nexts.add(edge.source)
                 current = next(iter(nexts)) if len(nexts) == 1 else None
+
+
+def _snap_grid_group_entry_ports(graph: MetroGraph) -> None:
+    """Snap entry ports of grid-group sections to their connected station Y.
+
+    Phase 6 aligns entry ports to the upstream junction Y (e.g. the
+    midpoint of two exit stations in the source section).  When Phase 10b
+    is skipped for grid-group sections, the internal station stays on the
+    grid but the port keeps the junction-derived Y, creating a diagonal.
+
+    This step corrects that by moving the port to the Y of its first
+    connected non-port station inside the section, giving a straight
+    horizontal connection.
+    """
+    grid_group_secs = _grid_group_section_ids(graph)
+
+    if not grid_group_secs:
+        return
+
+    for port_id, port in graph.ports.items():
+        if not port.is_entry:
+            continue
+        if port.section_id not in grid_group_secs:
+            continue
+        if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+
+        port_st = graph.stations.get(port_id)
+        if not port_st:
+            continue
+
+        section = graph.sections.get(port.section_id)
+        if not section or section.direction not in ("LR", "RL"):
+            continue
+
+        # Find the first non-port station connected to this port.
+        target_y = None
+        for edge in graph.edges:
+            if edge.source != port_id:
+                continue
+            tgt = graph.stations.get(edge.target)
+            if tgt and not tgt.is_port and tgt.section_id == section.id:
+                target_y = tgt.y
+                break
+
+        if target_y is not None and abs(port_st.y - target_y) >= 1.0:
+            port_st.y = target_y
+
+
+def _snap_grid_group_exit_ports(graph: MetroGraph) -> None:
+    """Snap exit ports of grid-group sections to their connected station Y.
+
+    Mirrors Phase 10c (entry port snap) for exit ports.  When a
+    grid-group section's exit port is at a midpoint between internal
+    stations (the default centering), move it to the Y of the connected
+    internal station that feeds into it.  This eliminates midpoint
+    detours (e.g. get_reference exit at y=340 midpoint instead of y=320
+    where get_pcgr sits).
+
+    When multiple internal stations feed the exit port, picks the one
+    whose Y is closest to the downstream entry port (if resolvable),
+    otherwise picks the nearest to the current port position.
+    """
+    grid_group_secs = _grid_group_section_ids(graph)
+
+    if not grid_group_secs:
+        return
+
+    junction_ids = set(graph.junctions)
+
+    for port_id, port in graph.ports.items():
+        if port.is_entry:
+            continue
+        if port.section_id not in grid_group_secs:
+            continue
+        if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+
+        port_st = graph.stations.get(port_id)
+        if not port_st:
+            continue
+
+        section = graph.sections.get(port.section_id)
+        if not section or section.direction not in ("LR", "RL"):
+            continue
+
+        # Collect all internal stations that feed into this exit port.
+        source_ys: list[float] = []
+        for edge in graph.edges:
+            if edge.target != port_id:
+                continue
+            src = graph.stations.get(edge.source)
+            if src and not src.is_port and src.section_id == section.id:
+                source_ys.append(src.y)
+
+        if not source_ys:
+            continue
+
+        # Resolve downstream entry port Y for reference.
+        ds_y = _resolve_downstream_entry_y(graph, port_id, junction_ids)
+
+        # If the port already aligns with the downstream entry,
+        # don't move it - the straight connection is correct even
+        # if the internal source is at a different Y.
+        if ds_y is not None and abs(port_st.y - ds_y) < 1.0:
+            continue
+
+        unique_source_ys = sorted(set(source_ys))
+        if len(unique_source_ys) >= 3 and (
+            unique_source_ys[-1] - unique_source_ys[0] > 1.0
+        ):
+            # 3+ sources at distinct Y values: this is a fan-in merge.
+            # Keep the centered midpoint so lines converge symmetrically.
+            continue
+        elif len(unique_source_ys) == 2 and (
+            unique_source_ys[-1] - unique_source_ys[0] > 1.0
+        ):
+            # 2 sources at different Y values.  If one matches the
+            # downstream entry, snap to create a straight inter-section
+            # line.  Otherwise keep centered.
+            if ds_y is not None:
+                matching = [y for y in unique_source_ys if abs(y - ds_y) < 1.0]
+                if matching:
+                    target_y = matching[0]
+                else:
+                    continue
+            else:
+                continue
+        else:
+            target_y = source_ys[0]
+
+        if abs(port_st.y - target_y) >= 1.0:
+            port_st.y = target_y
+
+
+def _resolve_downstream_entry_y(
+    graph: MetroGraph,
+    exit_port_id: str,
+    junction_ids: set[str],
+) -> float | None:
+    """Resolve the downstream entry port Y reachable from an exit port.
+
+    Handles two patterns:
+    - Direct: exit_port -> entry_port
+    - Via junction: exit_port -> junction -> entry_port(s)
+
+    Returns the nearest downstream entry port Y, or None if not found.
+    """
+    port_st = graph.stations.get(exit_port_id)
+    if not port_st:
+        return None
+
+    entry_ys: list[float] = []
+    for edge in graph.edges:
+        if edge.source != exit_port_id:
+            continue
+        # Direct exit -> entry connection
+        dp = graph.ports.get(edge.target)
+        if dp and dp.is_entry:
+            ds_st = graph.stations.get(edge.target)
+            if ds_st:
+                entry_ys.append(ds_st.y)
+            continue
+        # Via junction
+        if edge.target in junction_ids:
+            for e2 in graph.edges:
+                if e2.source != edge.target:
+                    continue
+                dp2 = graph.ports.get(e2.target)
+                if dp2 and dp2.is_entry:
+                    ds_st = graph.stations.get(e2.target)
+                    if ds_st:
+                        entry_ys.append(ds_st.y)
+
+    if entry_ys:
+        return min(entry_ys, key=lambda y: abs(y - port_st.y))
+    return None
 
 
 def _align_exit_ports(graph: MetroGraph) -> None:

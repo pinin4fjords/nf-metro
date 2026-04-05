@@ -629,6 +629,46 @@ def place_labels(
                         above=(direction < 0),
                     )
 
+        # Final obstacle clearance: if the label still overlaps an
+        # obstacle (e.g. a terminus file icon), try flipping to the
+        # opposite side of the station first (keeps label close).
+        # Only push past the obstacle as a last resort.
+        if _has_collision(candidate, placements):
+            cbox = _label_bbox(candidate)
+            for p in placements:
+                if p.obstacle_bbox is None:
+                    continue
+                obox = _label_bbox(p)
+                if not _boxes_overlap(cbox, obox):
+                    continue
+
+                # Try flipping to the opposite side of the station.
+                flip_above = not candidate.above
+                flip_off = safe_above if flip_above else safe_below
+                flipped = _try_place(
+                    station,
+                    flip_off,
+                    flip_above,
+                    placements,
+                    min_off,
+                    max_off,
+                )
+                if not _has_collision(flipped, placements):
+                    candidate = flipped
+                    break
+
+                # Flipping also collides.  Pick whichever side keeps the
+                # label closer to the station.  When both sides have
+                # obstacles (e.g. tight grid between two terminus
+                # icons), prefer closeness over clearance - a slight
+                # overlap is better than pushing the label into an
+                # adjacent row.
+                flip_dist = abs(flipped.y - station.y)
+                orig_dist = abs(candidate.y - station.y)
+                if flip_dist < orig_dist:
+                    candidate = flipped
+                break
+
         # Clamp labels so they stay within section bbox
         if station.section_id:
             sec = graph.sections.get(station.section_id)
