@@ -34,6 +34,9 @@ class PortSide(Enum):
     BOTTOM = "bottom"
 
 
+VALID_LINE_STYLES = ("solid", "dashed", "dotted")
+
+
 @dataclass
 class MetroLine:
     """A metro line (colored route through the graph)."""
@@ -41,6 +44,7 @@ class MetroLine:
     id: str
     display_name: str
     color: str
+    style: str = "solid"
 
 
 @dataclass

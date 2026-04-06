@@ -63,6 +63,51 @@ def test_render_light_theme():
     assert "#333333" in svg  # label/stroke color present
 
 
+def test_render_dashed_line_has_dasharray():
+    """Dashed lines should produce stroke-dasharray in the SVG."""
+    graph = parse_metro_mermaid(
+        "%%metro title: Dash Test\n"
+        "%%metro line: main | Main | #ff0000 | dashed\n"
+        "graph LR\n"
+        "    a[Input]\n"
+        "    b[Output]\n"
+        "    a -->|main| b\n"
+    )
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    assert 'stroke-dasharray="8,4"' in svg or "stroke-dasharray='8,4'" in svg
+
+
+def test_render_dotted_line_has_dasharray():
+    """Dotted lines should produce stroke-dasharray in the SVG."""
+    graph = parse_metro_mermaid(
+        "%%metro title: Dot Test\n"
+        "%%metro line: main | Main | #ff0000 | dotted\n"
+        "graph LR\n"
+        "    a[Input]\n"
+        "    b[Output]\n"
+        "    a -->|main| b\n"
+    )
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    assert 'stroke-dasharray="2,4"' in svg or "stroke-dasharray='2,4'" in svg
+
+
+def test_render_solid_line_no_dasharray():
+    """Solid lines should not produce stroke-dasharray."""
+    graph = parse_metro_mermaid(
+        "%%metro title: Solid Test\n"
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    a[Input]\n"
+        "    b[Output]\n"
+        "    a -->|main| b\n"
+    )
+    compute_layout(graph)
+    svg = render_svg(graph, NFCORE_THEME)
+    assert "stroke-dasharray" not in svg
+
+
 def test_render_empty_graph():
     graph = parse_metro_mermaid("graph LR\n")
     svg = render_svg(graph, NFCORE_THEME)

@@ -81,7 +81,7 @@ Edge routing with horizontal runs and 45-degree diagonal transitions. Inter-sect
 ```
 %%metro title: Pipeline Name
 %%metro style: dark
-%%metro line: line_id | Display Name | #hexcolor
+%%metro line: line_id | Display Name | #hexcolor | style
 %%metro line_order: span
 %%metro compact_offsets: true
 %%metro legend_min_height: 72
@@ -99,6 +99,8 @@ graph LR
 ```
 
 Edges support comma-separated line IDs: `a -->|line1,line2,line3| b` creates one edge per line.
+
+Lines support an optional style (4th field): `solid` (default), `dashed`, or `dotted`. Dashed/dotted lines render with SVG `stroke-dasharray` on both edge paths and legend swatches.
 
 ## Key Design Decisions
 
