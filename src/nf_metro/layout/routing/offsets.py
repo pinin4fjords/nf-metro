@@ -513,15 +513,15 @@ def _same_section(graph: MetroGraph, id_a: str, id_b: str) -> bool:
     return bool(sec_a and sec_b and sec_a == sec_b)
 
 
-def _station_offsets_set(
-    ctx: _OffsetCtx, station_id: str, exclude_line: str
-) -> set[float]:
-    """Return the set of offsets at a station, excluding one line."""
-    return {
-        ctx.offsets.get((station_id, lid), 0.0)
+def _would_collide(
+    ctx: _OffsetCtx, station_id: str, line_id: str, value: float
+) -> bool:
+    """Check if setting (station_id, line_id) to value collides with another line."""
+    return any(
+        ctx.offsets.get((station_id, lid), 0.0) == value
         for lid in ctx.graph.station_lines(station_id)
-        if lid != exclude_line
-    }
+        if lid != line_id
+    )
 
 
 def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
@@ -542,15 +542,19 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
     Iterates until stable, since fixing one edge can propagate
     through port -> station chains within the same section.
     """
+    # Pre-filter to edges where both endpoints share the same Y and
+    # section. These properties are immutable during reconciliation.
+    candidates = [
+        edge
+        for edge in ctx.graph.edges
+        if abs(ctx.graph.stations[edge.source].y - ctx.graph.stations[edge.target].y)
+        <= 0.1
+        and _same_section(ctx.graph, edge.source, edge.target)
+    ]
+
     for _ in range(max_iterations):
         changed = False
-        for edge in ctx.graph.edges:
-            src = ctx.graph.stations[edge.source]
-            tgt = ctx.graph.stations[edge.target]
-            if abs(src.y - tgt.y) > 0.1:
-                continue
-            if not _same_section(ctx.graph, edge.source, edge.target):
-                continue
+        for edge in candidates:
             lid = edge.line_id
             src_off = ctx.offsets.get((edge.source, lid), 0.0)
             tgt_off = ctx.offsets.get((edge.target, lid), 0.0)
@@ -562,16 +566,17 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
 
             applied = False
             for candidate in (larger, smaller):
-                src_ok = src_off == candidate or (
-                    candidate not in _station_offsets_set(ctx, edge.source, lid)
+                src_ok = src_off == candidate or not _would_collide(
+                    ctx, edge.source, lid, candidate
                 )
-                tgt_ok = tgt_off == candidate or (
-                    candidate not in _station_offsets_set(ctx, edge.target, lid)
+                tgt_ok = tgt_off == candidate or not _would_collide(
+                    ctx, edge.target, lid, candidate
                 )
                 if src_ok and tgt_ok:
                     ctx.offsets[(edge.source, lid)] = candidate
                     ctx.offsets[(edge.target, lid)] = candidate
                     applied = True
+                    changed = True
                     break
 
             if not applied:
@@ -588,8 +593,8 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                 for other_lid in ctx.graph.station_lines(move_sid):
                     old = ctx.offsets.get((move_sid, other_lid), 0.0)
                     ctx.offsets[(move_sid, other_lid)] = old + delta
+                changed = True
 
-            changed = True
         if not changed:
             break
 
