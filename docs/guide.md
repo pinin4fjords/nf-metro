@@ -397,6 +397,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro line_order: <strategy>` | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks) |
 | `%%metro file: <station> \| <label>` | Mark a station as a file terminus with a document icon |
 | `%%metro compact_offsets: true` | Compact line offsets within stations (see below) |
+| `%%metro legend_min_height: <pixels>` | Minimum legend content height in pixels (useful for single-line maps where the logo would otherwise be tiny) |
 
 **Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.
 
