@@ -12,7 +12,7 @@ The simplest metro map needs three things: **lines** (colored routes), **station
 %%metro title: Simple Pipeline
 %%metro style: dark
 %%metro line: main | Main | #4CAF50
-%%metro line: qc | Quality Control | #2196F3
+%%metro line: qc | Quality Control | #2196F3 | dashed
 
 graph LR
     input[Input]

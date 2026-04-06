@@ -83,7 +83,12 @@ nf-metro render [OPTIONS] INPUT_FILE
 | `--debug / --no-debug` | off | Show debug overlay (ports, hidden stations, edge waypoints) |
 | `--logo PATH` | none | Logo image path (overrides `%%metro logo:` directive) |
 | `--line-order [definition\|span]` | from file | Line ordering strategy: `definition` preserves `.mmd` order, `span` sorts by section span (longest first) |
+| `--straight-diamonds / --no-straight-diamonds` | on | Keep top branch of diamond fork-joins on the main track. Use `--no-straight-diamonds` for symmetric fan-out. |
 | `--center-ports / --no-center-ports` | off | Centre inter-section ports on the shorter of the two connected sections |
+| `--section-x-gap FLOAT` | `50` | Horizontal gap between sections |
+| `--section-y-gap FLOAT` | `40` | Vertical gap between sections |
+| `--from-nextflow` | off | Convert Nextflow `-with-dag` mermaid input before rendering |
+| `--title TEXT` | none | Pipeline title (used with `--from-nextflow`) |
 
 The `--logo` flag lets you use the same `.mmd` file with different logos for dark/light themes:
 
