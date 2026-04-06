@@ -8,6 +8,7 @@ per-line bundle offsets.
 
 from __future__ import annotations
 
+import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
@@ -165,6 +166,7 @@ def route_edges(
             routes.append(result)
 
     _center_bubble_stations(routes, graph)
+    _spread_diagonal_bundles(routes, ctx)
 
     return routes
 
@@ -1746,6 +1748,119 @@ def _route_diagonal(
 
 
 # ---------------------------------------------------------------------------
+# Post-processing: spread bundled diagonal routes
+# ---------------------------------------------------------------------------
+
+
+def _is_diagonal_route(rp: RoutedPath) -> bool:
+    """True if *rp* is a 4-point diagonal (horizontal-diagonal-horizontal).
+
+    L-shapes also have 4 points with different Y at indices 1-2, but their
+    middle points share the same X (vertical segment).  A true diagonal
+    changes both X and Y between points 1 and 2.
+    """
+    if len(rp.points) != 4:
+        return False
+    dx = abs(rp.points[1][0] - rp.points[2][0])
+    dy = abs(rp.points[1][1] - rp.points[2][1])
+    return dx >= COORD_TOLERANCE and dy >= COORD_TOLERANCE_FINE
+
+
+def _spread_diagonal_bundles(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Translate diagonal start/end X per-line so bundled diagonals spread apart.
+
+    For L-shapes the ``delta`` from :func:`l_shape_radii` translates each
+    line's vertical channel X, giving perpendicular separation.  Diagonals
+    lack this: all lines share the same ``diag_start_x`` / ``diag_end_x``,
+    so the only separation is the Y offset (~2.1 px perpendicular on a 45-
+    degree line).  This post-pass adds a complementary X translation derived
+    from the per-line Y offset so that bundled diagonals are parallel but
+    horizontally spread.
+    """
+    if ctx.station_offsets is None:
+        return
+
+    # Collect diagonal routes grouped by shared fork / join station.
+    fork_groups: dict[str, list[RoutedPath]] = defaultdict(list)
+    join_groups: dict[str, list[RoutedPath]] = defaultdict(list)
+
+    for rp in routes:
+        if not _is_diagonal_route(rp):
+            continue
+        if rp.edge.source in ctx.fork_stations:
+            fork_groups[rp.edge.source].append(rp)
+        if rp.edge.target in ctx.join_stations:
+            join_groups[rp.edge.target].append(rp)
+
+    # Track routes already spread so we don't double-shift a route that
+    # appears in both a fork and a join group.
+    spread: set[tuple[str, str, str]] = set()
+
+    def _edge_key(rp: RoutedPath) -> tuple[str, str, str]:
+        return (rp.edge.source, rp.edge.target, rp.line_id)
+
+    for station_id, group in list(fork_groups.items()) + list(join_groups.items()):
+        unseen = [rp for rp in group if _edge_key(rp) not in spread]
+        if len(unseen) < 2:
+            continue
+        # Sub-group by diagonal direction (up vs down) so the scale
+        # factor and sign are correct for each route.
+        by_dir: dict[bool, list[RoutedPath]] = defaultdict(list)
+        for rp in unseen:
+            by_dir[rp.points[2][1] >= rp.points[1][1]].append(rp)
+        for subgroup in by_dir.values():
+            if len(subgroup) >= 2:
+                _apply_diagonal_spread(subgroup, station_id, ctx=ctx)
+        spread.update(_edge_key(rp) for rp in unseen)
+
+
+def _apply_diagonal_spread(
+    group: list[RoutedPath],
+    station_id: str,
+    *,
+    ctx: _RoutingCtx,
+) -> None:
+    """Compute and apply per-line X deltas to a diagonal sub-group.
+
+    All routes in *group* share the same diagonal direction (up or down).
+    The delta translates both diagonal waypoints (indices 1 and 2) so
+    the diagonal segments are parallel but horizontally spread.
+    """
+    offsets = [ctx.station_offsets.get((station_id, rp.line_id), 0.0) for rp in group]
+    center = sum(offsets) / len(offsets)
+
+    rep = group[0]
+    dx = rep.points[2][0] - rep.points[1][0]
+    dy = rep.points[2][1] - rep.points[1][1]
+    sign = 1.0 if dx >= 0 else -1.0
+    down_sign = -1.0 if dy > 0 else 1.0
+
+    # On a diagonal at angle theta, Y-only offset gives reduced
+    # perpendicular separation (OFFSET_STEP * cos(theta)).  This scale
+    # restores the full OFFSET_STEP: (hypot - |dx|) / |dy|.
+    # For 45 degrees: sqrt(2) - 1 ~ 0.414.
+    hypot = math.hypot(dx, dy)
+    abs_dy = abs(dy)
+    spread_scale = (hypot - abs(dx)) / abs_dy if abs_dy > COORD_TOLERANCE_FINE else 0.0
+
+    for rp, offset in zip(group, offsets):
+        delta = down_sign * (offset - center) * spread_scale * sign
+
+        # Clamp so the horizontal runs don't collapse below minimum.
+        bound_src = rp.points[0][0] + sign * MIN_STRAIGHT_EDGE
+        bound_tgt = rp.points[3][0] - sign * MIN_STRAIGHT_EDGE
+        overshoot = max(
+            sign * (bound_src - (rp.points[1][0] + delta)),
+            sign * ((rp.points[2][0] + delta) - bound_tgt),
+        )
+        if overshoot > 0 and abs(delta) > COORD_TOLERANCE_FINE:
+            delta *= max(0.0, 1.0 - overshoot / abs(delta))
+
+        rp.points[1] = (rp.points[1][0] + delta, rp.points[1][1])
+        rp.points[2] = (rp.points[2][0] + delta, rp.points[2][1])
+
+
+# ---------------------------------------------------------------------------
 # Post-processing: centre bubble stations on their flat segments
 # ---------------------------------------------------------------------------
 
@@ -1790,9 +1905,7 @@ def _build_bubble_ctx(routes: list[RoutedPath], graph: MetroGraph) -> _BubbleCtx
             flat_incoming[rp.edge.target].append(rp)
             flat_outgoing[rp.edge.source].append(rp)
             continue
-        if len(rp.points) != 4:
-            continue
-        if abs(rp.points[1][1] - rp.points[2][1]) < COORD_TOLERANCE_FINE:
+        if not _is_diagonal_route(rp):
             continue
         incoming[rp.edge.target].append(rp)
         outgoing[rp.edge.source].append(rp)
