@@ -497,13 +497,29 @@ def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
                                     ctx.offsets[(edge.source, lid)] = off
 
 
-def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
-    """Snap offsets for edges where endpoints share base Y but have different offsets.
+def _station_offsets_set(
+    ctx: _OffsetCtx, station_id: str, exclude_line: str
+) -> set[float]:
+    """Return the set of offsets at a station, excluding one line."""
+    return {
+        ctx.offsets.get((station_id, lid), 0.0)
+        for lid in ctx.graph.station_lines(station_id)
+        if lid != exclude_line
+    }
 
-    Only adjusts the specific (station, line) pairs involved in an
-    almost-horizontal edge. Iterates until no further changes are needed,
-    since fixing one edge can create a mismatch on an adjacent edge
-    (e.g. junction -> entry port -> station chains).
+
+def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
+    """Snap offsets for edges where endpoints share base Y but differ.
+
+    For each mismatched horizontal edge, tries snapping both stations
+    to the larger-magnitude offset first, then the smaller. A candidate
+    is rejected only if it would collide with another line at the same
+    station. If neither simple snap works, shifts the entire bundle at
+    the station with fewer lines so the target line lands at the
+    required offset (preserving relative spacing).
+
+    Iterates until stable, since fixing one edge can propagate
+    through junction -> port -> station chains.
     """
     for _ in range(max_iterations):
         changed = False
@@ -511,15 +527,45 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
             src = ctx.graph.stations[edge.source]
             tgt = ctx.graph.stations[edge.target]
             if abs(src.y - tgt.y) > 0.1:
-                continue  # not horizontal, skip
-            src_off = ctx.offsets.get((edge.source, edge.line_id), 0.0)
-            tgt_off = ctx.offsets.get((edge.target, edge.line_id), 0.0)
+                continue
+            lid = edge.line_id
+            src_off = ctx.offsets.get((edge.source, lid), 0.0)
+            tgt_off = ctx.offsets.get((edge.target, lid), 0.0)
             if src_off == tgt_off:
                 continue
-            # Snap the smaller-magnitude offset to match the larger
-            winning = src_off if abs(src_off) >= abs(tgt_off) else tgt_off
-            ctx.offsets[(edge.source, edge.line_id)] = winning
-            ctx.offsets[(edge.target, edge.line_id)] = winning
+
+            larger = src_off if abs(src_off) >= abs(tgt_off) else tgt_off
+            smaller = tgt_off if larger == src_off else src_off
+
+            applied = False
+            for candidate in (larger, smaller):
+                src_ok = src_off == candidate or (
+                    candidate not in _station_offsets_set(ctx, edge.source, lid)
+                )
+                tgt_ok = tgt_off == candidate or (
+                    candidate not in _station_offsets_set(ctx, edge.target, lid)
+                )
+                if src_ok and tgt_ok:
+                    ctx.offsets[(edge.source, lid)] = candidate
+                    ctx.offsets[(edge.target, lid)] = candidate
+                    applied = True
+                    break
+
+            if not applied:
+                # Both candidates collide somewhere; shift the bundle
+                # at the station with fewer lines (least disruption).
+                src_n = len(ctx.graph.station_lines(edge.source))
+                tgt_n = len(ctx.graph.station_lines(edge.target))
+                if src_n <= tgt_n:
+                    move_sid, target_val = edge.source, tgt_off
+                else:
+                    move_sid, target_val = edge.target, src_off
+                cur = ctx.offsets.get((move_sid, lid), 0.0)
+                delta = target_val - cur
+                for other_lid in ctx.graph.station_lines(move_sid):
+                    old = ctx.offsets.get((move_sid, other_lid), 0.0)
+                    ctx.offsets[(move_sid, other_lid)] = old + delta
+
             changed = True
         if not changed:
             break
