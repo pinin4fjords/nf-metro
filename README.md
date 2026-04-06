@@ -281,7 +281,7 @@ These are automatically rewritten into port-to-port connections with junction st
 | `%%metro title: <text>` | Global | Map title |
 | `%%metro logo: <path>` | Global | Logo image (replaces title text) |
 | `%%metro style: <name>` | Global | Theme: `dark`, `light` |
-| `%%metro line: <id> \| <name> \| <color>` | Global | Define a metro line |
+| `%%metro line: <id> \| <name> \| <color> [\| <style>]` | Global | Define a metro line. Optional style: `solid` (default), `dashed`, `dotted` |
 | `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Global | Pin section to grid position |
 | `%%metro legend: <position>` | Global | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, `none` |
 | `%%metro line_order: <strategy>` | Global | Line ordering for track assignment: `definition` (default) or `span` (longest-spanning lines get inner tracks) |
