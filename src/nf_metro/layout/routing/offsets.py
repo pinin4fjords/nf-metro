@@ -497,6 +497,108 @@ def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
                                     ctx.offsets[(edge.source, lid)] = off
 
 
+def _same_section(graph: MetroGraph, id_a: str, id_b: str) -> bool:
+    """Check if two stations/ports belong to the same section."""
+    sa = graph.stations[id_a]
+    sb = graph.stations[id_b]
+    sec_a = sa.section_id
+    sec_b = sb.section_id
+    if sec_a and sec_b and sec_a == sec_b:
+        return True
+    # Junctions (section_id=None): check via port lookup
+    if sec_a is None and id_a in graph.ports:
+        sec_a = graph.ports[id_a].section_id
+    if sec_b is None and id_b in graph.ports:
+        sec_b = graph.ports[id_b].section_id
+    return bool(sec_a and sec_b and sec_a == sec_b)
+
+
+def _would_collide(
+    ctx: _OffsetCtx, station_id: str, line_id: str, value: float
+) -> bool:
+    """Check if setting (station_id, line_id) to value collides with another line."""
+    return any(
+        ctx.offsets.get((station_id, lid), 0.0) == value
+        for lid in ctx.graph.station_lines(station_id)
+        if lid != line_id
+    )
+
+
+def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
+    """Snap offsets for same-section edges where endpoints share base Y.
+
+    Only processes edges where both endpoints belong to the same
+    section. Inter-section offset mismatches are handled by routing
+    (L-shaped paths with vertical segments), so they must not be
+    reconciled here - doing so cascades offsets across section
+    boundaries and breaks per-section reindexing.
+
+    For each qualifying edge, tries snapping both stations to the
+    larger-magnitude offset first, then the smaller. A candidate is
+    rejected if it would collide with another line at the same
+    station. If neither simple snap works, shifts the entire bundle
+    at the station with fewer lines (preserving relative spacing).
+
+    Iterates until stable, since fixing one edge can propagate
+    through port -> station chains within the same section.
+    """
+    # Pre-filter to edges where both endpoints share the same Y and
+    # section. These properties are immutable during reconciliation.
+    candidates = [
+        edge
+        for edge in ctx.graph.edges
+        if abs(ctx.graph.stations[edge.source].y - ctx.graph.stations[edge.target].y)
+        <= 0.1
+        and _same_section(ctx.graph, edge.source, edge.target)
+    ]
+
+    for _ in range(max_iterations):
+        changed = False
+        for edge in candidates:
+            lid = edge.line_id
+            src_off = ctx.offsets.get((edge.source, lid), 0.0)
+            tgt_off = ctx.offsets.get((edge.target, lid), 0.0)
+            if src_off == tgt_off:
+                continue
+
+            larger = src_off if abs(src_off) >= abs(tgt_off) else tgt_off
+            smaller = tgt_off if larger == src_off else src_off
+
+            applied = False
+            for candidate in (larger, smaller):
+                src_ok = src_off == candidate or not _would_collide(
+                    ctx, edge.source, lid, candidate
+                )
+                tgt_ok = tgt_off == candidate or not _would_collide(
+                    ctx, edge.target, lid, candidate
+                )
+                if src_ok and tgt_ok:
+                    ctx.offsets[(edge.source, lid)] = candidate
+                    ctx.offsets[(edge.target, lid)] = candidate
+                    applied = True
+                    changed = True
+                    break
+
+            if not applied:
+                # Both candidates collide; shift the bundle at the
+                # station with fewer lines (least disruption).
+                src_n = len(ctx.graph.station_lines(edge.source))
+                tgt_n = len(ctx.graph.station_lines(edge.target))
+                if src_n <= tgt_n:
+                    move_sid, target_val = edge.source, tgt_off
+                else:
+                    move_sid, target_val = edge.target, src_off
+                cur = ctx.offsets.get((move_sid, lid), 0.0)
+                delta = target_val - cur
+                for other_lid in ctx.graph.station_lines(move_sid):
+                    old = ctx.offsets.get((move_sid, other_lid), 0.0)
+                    ctx.offsets[(move_sid, other_lid)] = old + delta
+                changed = True
+
+        if not changed:
+            break
+
+
 def compute_station_offsets(
     graph: MetroGraph,
     offset_step: float = OFFSET_STEP,
@@ -508,7 +610,7 @@ def compute_station_offsets(
     bundles across all sections - when a line splits off and later
     rejoins, it returns to its reserved slot rather than shifting.
 
-    Runs in six phases:
+    Runs in seven phases:
 
     1. **Base offsets** - global priority (or compact-mode) assignment.
     2. **Section-local re-indexing** - closes priority gaps within
@@ -520,6 +622,8 @@ def compute_station_offsets(
     5. **Junction inheritance** - copies exit port offsets to junctions.
     6. **Entry port offsets** - TOP entry override for TB BOTTOM exits,
        LR/RL exit-to-entry propagation, compact entry separation.
+    7. **Horizontal reconciliation** - snaps mismatched offsets on
+       same-Y edges to eliminate almost-horizontal slopes.
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
@@ -530,4 +634,5 @@ def compute_station_offsets(
     _compute_exit_port_offsets(ctx)
     _propagate_to_junctions(ctx)
     _compute_entry_port_offsets(ctx)
+    _reconcile_horizontal_offsets(ctx)
     return ctx.offsets

@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.parser.model import MetroGraph, PortSide
+from nf_metro.render.svg import apply_route_offsets
 
 
 class Severity(Enum):
@@ -26,6 +28,18 @@ class Violation:
     context: dict = field(default_factory=dict)
 
 
+def _compute_routes(
+    graph: MetroGraph,
+) -> tuple[dict[tuple[str, str], float], list[RoutedPath]] | None:
+    """Compute offsets and routes once for all routing-dependent checks."""
+    try:
+        offsets = compute_station_offsets(graph)
+        routes = route_edges(graph, station_offsets=offsets)
+        return offsets, routes
+    except Exception:
+        return None
+
+
 def validate_layout(graph: MetroGraph) -> list[Violation]:
     """Run all layout checks and return violations."""
     violations: list[Violation] = []
@@ -34,9 +48,18 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
     violations.extend(check_port_boundary(graph))
     violations.extend(check_coordinate_sanity(graph))
     violations.extend(check_minimum_section_spacing(graph))
-    violations.extend(check_edge_waypoints(graph))
-    violations.extend(check_edge_section_crossing(graph))
-    violations.extend(check_bypass_section_clearance(graph))
+
+    # Compute offsets + routes once for all routing-dependent checks.
+    precomputed = _compute_routes(graph)
+    violations.extend(check_edge_waypoints(graph, _precomputed=precomputed))
+    if precomputed is not None:
+        violations.extend(check_edge_section_crossing(graph, _precomputed=precomputed))
+        violations.extend(
+            check_bypass_section_clearance(graph, _precomputed=precomputed)
+        )
+        violations.extend(
+            check_almost_horizontal_edges(graph, _precomputed=precomputed)
+        )
     violations.extend(check_station_as_elbow(graph))
     return violations
 
@@ -260,22 +283,28 @@ def check_minimum_section_spacing(
     return violations
 
 
-def check_edge_waypoints(graph: MetroGraph) -> list[Violation]:
+def check_edge_waypoints(
+    graph: MetroGraph,
+    _precomputed: tuple[dict[tuple[str, str], float], list[RoutedPath]] | None = None,
+) -> list[Violation]:
     """Check that routed edges have valid waypoints."""
     violations: list[Violation] = []
 
-    try:
-        offsets = compute_station_offsets(graph)
-        routes = route_edges(graph, station_offsets=offsets)
-    except Exception as e:
-        violations.append(
-            Violation(
-                check="edge_waypoints",
-                severity=Severity.ERROR,
-                message=f"Edge routing failed: {e}",
+    if _precomputed is not None:
+        offsets, routes = _precomputed
+    else:
+        try:
+            offsets = compute_station_offsets(graph)
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception as e:
+            violations.append(
+                Violation(
+                    check="edge_waypoints",
+                    severity=Severity.ERROR,
+                    message=f"Edge routing failed: {e}",
+                )
             )
-        )
-        return violations
+            return violations
 
     for route in routes:
         if len(route.points) < 2:
@@ -415,16 +444,21 @@ def _edge_home_sections(graph: MetroGraph, source_id: str, target_id: str) -> se
 
 
 def check_edge_section_crossing(
-    graph: MetroGraph, margin: float = 2.0
+    graph: MetroGraph,
+    margin: float = 2.0,
+    _precomputed: tuple[dict[tuple[str, str], float], list[RoutedPath]] | None = None,
 ) -> list[Violation]:
     """Check no routed edge segment passes through a non-home section."""
     violations: list[Violation] = []
 
-    try:
-        offsets = compute_station_offsets(graph)
-        routes = route_edges(graph, station_offsets=offsets)
-    except Exception:
-        return violations  # Edge routing failures are caught by check_edge_waypoints
+    if _precomputed is not None:
+        offsets, routes = _precomputed
+    else:
+        try:
+            offsets = compute_station_offsets(graph)
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception:
+            return violations
 
     # Pre-collect sections with valid bboxes
     sections = [
@@ -483,7 +517,9 @@ def check_edge_section_crossing(
 
 
 def check_bypass_section_clearance(
-    graph: MetroGraph, min_clearance: float = 5.0
+    graph: MetroGraph,
+    min_clearance: float = 5.0,
+    _precomputed: tuple[dict[tuple[str, str], float], list[RoutedPath]] | None = None,
 ) -> list[Violation]:
     """Check that vertical bypass segments maintain clearance from section edges.
 
@@ -494,11 +530,14 @@ def check_bypass_section_clearance(
     """
     violations: list[Violation] = []
 
-    try:
-        offsets = compute_station_offsets(graph)
-        routes = route_edges(graph, station_offsets=offsets)
-    except Exception:
-        return violations
+    if _precomputed is not None:
+        offsets, routes = _precomputed
+    else:
+        try:
+            offsets = compute_station_offsets(graph)
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception:
+            return violations
 
     sections = [
         (sid, s) for sid, s in graph.sections.items() if s.bbox_w > 0 and s.bbox_h > 0
@@ -672,5 +711,65 @@ def check_station_as_elbow(
                             },
                         )
                     )
+
+    return violations
+
+
+def check_almost_horizontal_edges(
+    graph: MetroGraph,
+    slope_threshold: float = 0.1,
+    min_dx: float = 10.0,
+    _precomputed: tuple[dict[tuple[str, str], float], list[RoutedPath]] | None = None,
+) -> list[Violation]:
+    """Check for almost-horizontal edge segments after offset application.
+
+    Only checks intra-section edges (both endpoints in the same section).
+    Inter-section edges are routed with L-shaped paths that absorb offset
+    mismatches via vertical segments, so slopes there are expected.
+
+    Flags segments where abs(dy) > 0.5 AND abs(dx) > abs(dy) / slope_threshold,
+    i.e. a shallow slope that should be perfectly flat.
+    """
+    violations: list[Violation] = []
+
+    if _precomputed is not None:
+        offsets, routes = _precomputed
+    else:
+        try:
+            offsets = compute_station_offsets(graph)
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception:
+            return violations
+
+    for route in routes:
+        if route.is_inter_section:
+            continue
+        pts = apply_route_offsets(route, offsets)
+        for k in range(len(pts) - 1):
+            x1, y1 = pts[k]
+            x2, y2 = pts[k + 1]
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+            if dy > 0.5 and dx >= min_dx and dx > dy / slope_threshold:
+                violations.append(
+                    Violation(
+                        check="almost_horizontal_edge",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Edge {route.edge.source}->{route.edge.target} "
+                            f"(line={route.line_id}) segment {k} is almost "
+                            f"horizontal: dx={dx:.1f}, dy={dy:.1f} "
+                            f"(slope={dy / dx:.4f})"
+                        ),
+                        context={
+                            "source": route.edge.source,
+                            "target": route.edge.target,
+                            "line": route.line_id,
+                            "segment": k,
+                            "dx": dx,
+                            "dy": dy,
+                        },
+                    )
+                )
 
     return violations

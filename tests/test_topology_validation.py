@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from layout_validator import (
     Severity,
+    check_almost_horizontal_edges,
     check_coordinate_sanity,
     check_edge_section_crossing,
     check_edge_waypoints,
@@ -86,6 +87,11 @@ class TestTopologyValidation:
         violations = check_edge_section_crossing(topology_graph)
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
+
+    def test_no_almost_horizontal_edges(self, topology_graph):
+        violations = check_almost_horizontal_edges(topology_graph)
+        warnings = [v for v in violations if v.severity == Severity.WARNING]
+        assert not warnings, "\n".join(v.message for v in warnings)
 
     def test_all_stations_have_coordinates(self, topology_graph):
         """Every real station should have been assigned non-default coords."""
@@ -719,3 +725,23 @@ class TestMergeRouting:
             assert min_gap == OFFSET_STEP, (
                 f"Bypass bundle gap {min_gap}px, expected {OFFSET_STEP}px"
             )
+
+
+class TestAlmostHorizontalEdges:
+    """Regression tests for almost-horizontal edge detection (#209).
+
+    Uses real-world examples that are known to trigger offset mismatches
+    between single-line and multi-line stations at the same Y.
+    """
+
+    def test_genomeassembly_no_slope(self):
+        """The genomeassembly example (the original #209 report) should be clean."""
+        graph = _load_and_layout(GENOMEASSEMBLY_FILE)
+        violations = check_almost_horizontal_edges(graph)
+        assert not violations, "\n".join(v.message for v in violations)
+
+    def test_variant_calling_no_slope(self):
+        """The variant_calling example should be clean."""
+        graph = _load_and_layout(EXAMPLES_DIR / "variant_calling.mmd")
+        violations = check_almost_horizontal_edges(graph)
+        assert not violations, "\n".join(v.message for v in violations)
