@@ -56,7 +56,7 @@ def compute_legend_dimensions(
 
     max_name_len = max(len(ml.display_name) for ml in graph.lines.values())
     char_width = theme.legend_font_size * LEGEND_CHAR_WIDTH_RATIO
-    content_height = len(graph.lines) * line_height
+    content_height = max(len(graph.lines) * line_height, graph.legend_min_height)
 
     # Logo scaled to fit content height
     logo_w = 0.0
@@ -93,7 +93,7 @@ def render_legend(
     padding = LEGEND_PADDING
     swatch_width = LEGEND_SWATCH_WIDTH
     text_offset = swatch_width + LEGEND_TEXT_GAP
-    content_height = len(graph.lines) * line_height
+    content_height = max(len(graph.lines) * line_height, graph.legend_min_height)
 
     legend_width, legend_height = compute_legend_dimensions(
         graph, theme, logo_size=logo_size

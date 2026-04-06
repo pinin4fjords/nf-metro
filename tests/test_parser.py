@@ -603,6 +603,24 @@ def test_parse_no_file_icon_not_terminus():
     assert graph.stations["a"].terminus_labels == []
 
 
+def test_parse_legend_min_height():
+    text = "%%metro legend_min_height: 72\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.legend_min_height == 72.0
+
+
+def test_parse_legend_min_height_default():
+    text = "graph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.legend_min_height == 0.0
+
+
+def test_parse_legend_min_height_invalid_ignored():
+    text = "%%metro legend_min_height: abc\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.legend_min_height == 0.0
+
+
 def test_no_duplicate_edges_after_resolve_sections():
     """Multiple inter-section edges to the same section should not create
     duplicate (source, target, line_id) triples after _resolve_sections."""
