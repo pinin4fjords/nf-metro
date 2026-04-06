@@ -631,15 +631,12 @@ def _align_row_y_grids(
         # e.g. bench_hub with 6 lines) don't represent inter-track
         # crowding and should not inflate spacing for the entire row.
         #
-        # Station radius for spacing calculations (see layout/constants.py).
-
         max_lines = 0
         for sec_id in sec_ids:
             sub = section_subgraphs[sec_id]
             _, _multi_ys = _classify_multi_station_ys(sub)
-            _crowd_ys = _multi_ys or set(s.y for s in sub.stations.values())
             for st in sub.stations.values():
-                if not st.is_port and st.y in _crowd_ys:
+                if not st.is_port and st.y in _multi_ys:
                     max_lines = max(max_lines, len(graph.station_lines(st.id)))
         min_track_gap = (
             (max_lines - 1) * OFFSET_STEP
