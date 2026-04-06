@@ -497,6 +497,34 @@ def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
                                     ctx.offsets[(edge.source, lid)] = off
 
 
+def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
+    """Snap offsets for edges where endpoints share base Y but have different offsets.
+
+    Only adjusts the specific (station, line) pairs involved in an
+    almost-horizontal edge. Iterates until no further changes are needed,
+    since fixing one edge can create a mismatch on an adjacent edge
+    (e.g. junction -> entry port -> station chains).
+    """
+    for _ in range(max_iterations):
+        changed = False
+        for edge in ctx.graph.edges:
+            src = ctx.graph.stations[edge.source]
+            tgt = ctx.graph.stations[edge.target]
+            if abs(src.y - tgt.y) > 0.1:
+                continue  # not horizontal, skip
+            src_off = ctx.offsets.get((edge.source, edge.line_id), 0.0)
+            tgt_off = ctx.offsets.get((edge.target, edge.line_id), 0.0)
+            if src_off == tgt_off:
+                continue
+            # Snap the smaller-magnitude offset to match the larger
+            winning = src_off if abs(src_off) >= abs(tgt_off) else tgt_off
+            ctx.offsets[(edge.source, edge.line_id)] = winning
+            ctx.offsets[(edge.target, edge.line_id)] = winning
+            changed = True
+        if not changed:
+            break
+
+
 def compute_station_offsets(
     graph: MetroGraph,
     offset_step: float = OFFSET_STEP,
@@ -508,7 +536,7 @@ def compute_station_offsets(
     bundles across all sections - when a line splits off and later
     rejoins, it returns to its reserved slot rather than shifting.
 
-    Runs in six phases:
+    Runs in seven phases:
 
     1. **Base offsets** - global priority (or compact-mode) assignment.
     2. **Section-local re-indexing** - closes priority gaps within
@@ -520,6 +548,8 @@ def compute_station_offsets(
     5. **Junction inheritance** - copies exit port offsets to junctions.
     6. **Entry port offsets** - TOP entry override for TB BOTTOM exits,
        LR/RL exit-to-entry propagation, compact entry separation.
+    7. **Horizontal reconciliation** - snaps mismatched offsets on
+       same-Y edges to eliminate almost-horizontal slopes.
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
@@ -530,4 +560,5 @@ def compute_station_offsets(
     _compute_exit_port_offsets(ctx)
     _propagate_to_junctions(ctx)
     _compute_entry_port_offsets(ctx)
+    _reconcile_horizontal_offsets(ctx)
     return ctx.offsets

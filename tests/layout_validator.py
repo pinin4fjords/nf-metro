@@ -11,6 +11,7 @@ from enum import Enum
 
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.parser.model import MetroGraph, PortSide
+from nf_metro.render.svg import apply_route_offsets
 
 
 class Severity(Enum):
@@ -38,6 +39,7 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
     violations.extend(check_edge_section_crossing(graph))
     violations.extend(check_bypass_section_clearance(graph))
     violations.extend(check_station_as_elbow(graph))
+    violations.extend(check_almost_horizontal_edges(graph))
     return violations
 
 
@@ -672,5 +674,57 @@ def check_station_as_elbow(
                             },
                         )
                     )
+
+    return violations
+
+
+def check_almost_horizontal_edges(
+    graph: MetroGraph,
+    slope_threshold: float = 0.1,
+    min_dx: float = 10.0,
+) -> list[Violation]:
+    """Check for almost-horizontal edge segments after offset application.
+
+    Flags segments where abs(dy) > 0.5 AND abs(dx) > abs(dy) / slope_threshold,
+    i.e. a shallow slope that should be perfectly flat. These arise when
+    per-line offsets differ between a single-line and multi-line station
+    sharing the same base Y.
+    """
+    violations: list[Violation] = []
+
+    try:
+        offsets = compute_station_offsets(graph)
+        routes = route_edges(graph, station_offsets=offsets)
+    except Exception:
+        return violations  # Routing failures caught by check_edge_waypoints
+
+    for route in routes:
+        pts = apply_route_offsets(route, offsets)
+        for k in range(len(pts) - 1):
+            x1, y1 = pts[k]
+            x2, y2 = pts[k + 1]
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+            if dy > 0.5 and dx >= min_dx and dx > dy / slope_threshold:
+                violations.append(
+                    Violation(
+                        check="almost_horizontal_edge",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Edge {route.edge.source}->{route.edge.target} "
+                            f"(line={route.line_id}) segment {k} is almost "
+                            f"horizontal: dx={dx:.1f}, dy={dy:.1f} "
+                            f"(slope={dy / dx:.4f})"
+                        ),
+                        context={
+                            "source": route.edge.source,
+                            "target": route.edge.target,
+                            "line": route.line_id,
+                            "segment": k,
+                            "dx": dx,
+                            "dy": dy,
+                        },
+                    )
+                )
 
     return violations

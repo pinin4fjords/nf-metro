@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from layout_validator import (
     Severity,
+    check_almost_horizontal_edges,
     check_coordinate_sanity,
     check_edge_section_crossing,
     check_edge_waypoints,
@@ -86,6 +87,11 @@ class TestTopologyValidation:
         violations = check_edge_section_crossing(topology_graph)
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
+
+    def test_no_almost_horizontal_edges(self, topology_graph):
+        violations = check_almost_horizontal_edges(topology_graph)
+        warnings = [v for v in violations if v.severity == Severity.WARNING]
+        assert not warnings, "\n".join(v.message for v in warnings)
 
     def test_all_stations_have_coordinates(self, topology_graph):
         """Every real station should have been assigned non-default coords."""
@@ -719,3 +725,99 @@ class TestMergeRouting:
             assert min_gap == OFFSET_STEP, (
                 f"Bypass bundle gap {min_gap}px, expected {OFFSET_STEP}px"
             )
+
+
+class TestAlmostHorizontalEdges:
+    """Inline unit tests for almost-horizontal edge detection (#209)."""
+
+    @staticmethod
+    def _build_graph(mmd_text_or_path):
+        if isinstance(mmd_text_or_path, Path):
+            mmd_text_or_path = mmd_text_or_path.read_text()
+        graph = parse_metro_mermaid(mmd_text_or_path)
+        compute_layout(graph)
+        return graph
+
+    def test_single_to_multi_no_slope(self):
+        """Single-line station -> multi-line hub should not create a slope.
+
+        Mirrors genomeassembly: input_long_reads (1 line) -> hifiasm (3 lines).
+        The single-line station has offset 0 while the hub's offset for that
+        line is non-zero, creating an almost-horizontal edge without the fix.
+        """
+        mmd = """\
+%%metro title: Single to Multi
+%%metro line: alpha | Alpha | #ff0000
+%%metro line: beta | Beta | #0000ff
+%%metro line: gamma | Gamma | #00ff00
+
+graph LR
+    subgraph sec1 [Section 1]
+        %%metro entry: left | alpha
+        %%metro exit: right | alpha, beta, gamma
+        solo[Solo]
+        hub[Hub]
+        solo -->|alpha| hub
+    end
+    subgraph sec2 [Section 2]
+        %%metro entry: left | alpha, beta, gamma
+        %%metro exit: right | alpha, beta, gamma
+        a_out[A Out]
+        b_out[B Out]
+        g_out[G Out]
+        hub -->|alpha| a_out
+        hub -->|beta| b_out
+        hub -->|gamma| g_out
+    end
+"""
+        graph = self._build_graph(mmd)
+        violations = check_almost_horizontal_edges(graph)
+        assert not violations, "\n".join(v.message for v in violations)
+
+    def test_multi_to_multi_different_slots(self):
+        """Two multi-line stations with different line counts should stay flat.
+
+        A 2-line station connecting to a 3-line station: the shared line
+        may have different offset slots, creating a slope without the fix.
+        """
+        mmd = """\
+%%metro title: Multi to Multi
+%%metro line: alpha | Alpha | #ff0000
+%%metro line: beta | Beta | #0000ff
+%%metro line: gamma | Gamma | #00ff00
+
+graph LR
+    subgraph sec1 [Section 1]
+        %%metro entry: left | alpha, beta
+        %%metro exit: right | alpha, beta, gamma
+        duo[Duo]
+        trio[Trio]
+        duo -->|alpha| trio
+        duo -->|beta| trio
+    end
+    subgraph sec2 [Section 2]
+        %%metro entry: left | alpha, beta, gamma
+        %%metro exit: right | alpha, beta, gamma
+        a_end[A End]
+        b_end[B End]
+        g_end[G End]
+        trio -->|alpha| a_end
+        trio -->|beta| b_end
+        trio -->|gamma| g_end
+    end
+"""
+        graph = self._build_graph(mmd)
+        violations = check_almost_horizontal_edges(graph)
+        assert not violations, "\n".join(v.message for v in violations)
+
+    def test_genomeassembly_no_slope(self):
+        """The genomeassembly example (the original #209 report) should be clean."""
+        graph = self._build_graph(EXAMPLES_DIR / "genomeassembly.mmd")
+        violations = check_almost_horizontal_edges(graph)
+        assert not violations, "\n".join(v.message for v in violations)
+
+    def test_variant_calling_no_slope(self):
+        """The variant_calling example should be clean."""
+        graph = self._build_graph(EXAMPLES_DIR / "variant_calling.mmd")
+        violations = check_almost_horizontal_edges(graph)
+        assert not violations, "\n".join(v.message for v in violations)
