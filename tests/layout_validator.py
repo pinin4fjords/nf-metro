@@ -678,22 +678,6 @@ def check_station_as_elbow(
     return violations
 
 
-def _stations_same_section(graph: MetroGraph, id_a: str, id_b: str) -> bool:
-    """Check if two stations/ports belong to the same section."""
-    sa = graph.stations.get(id_a)
-    sb = graph.stations.get(id_b)
-    if not sa or not sb:
-        return False
-    sec_a = sa.section_id
-    sec_b = sb.section_id
-    # Ports may have section_id set, but also check port registry
-    if sec_a is None and id_a in graph.ports:
-        sec_a = graph.ports[id_a].section_id
-    if sec_b is None and id_b in graph.ports:
-        sec_b = graph.ports[id_b].section_id
-    return bool(sec_a and sec_b and sec_a == sec_b)
-
-
 def check_almost_horizontal_edges(
     graph: MetroGraph,
     slope_threshold: float = 0.1,
