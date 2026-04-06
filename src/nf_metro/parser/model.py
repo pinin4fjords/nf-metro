@@ -163,6 +163,7 @@ class MetroGraph:
     compact_offsets: bool = False
     center_ports: bool = False
     legend_position: str = "bottom"
+    legend_min_height: float = 0.0
     logo_path: str = ""
     # Section dependency graph (populated by auto_layout)
     section_dag: SectionDAG | None = None

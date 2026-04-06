@@ -120,6 +120,36 @@ def test_render_legend():
     assert "Main" in svg
 
 
+def test_legend_min_height_enlarges_legend():
+    """A single-line graph with legend_min_height should produce a taller legend."""
+    from nf_metro.render.legend import compute_legend_dimensions
+
+    base_text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    a[A]\n    b[B]\n"
+        "    a -->|main| b\n"
+    )
+    graph_default = parse_metro_mermaid(base_text)
+    _, h_default = compute_legend_dimensions(graph_default, NFCORE_THEME)
+
+    min_h_text = (
+        "%%metro legend_min_height: 120\n"
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n"
+        "    a[A]\n    b[B]\n"
+        "    a -->|main| b\n"
+    )
+    graph_min = parse_metro_mermaid(min_h_text)
+    _, h_min = compute_legend_dimensions(graph_min, NFCORE_THEME)
+
+    assert h_min > h_default
+    # content_height should be at least the minimum
+    from nf_metro.render.constants import LEGEND_PADDING
+
+    assert h_min >= 120 + 2 * LEGEND_PADDING
+
+
 def test_render_file_size():
     """SVG output should be reasonably small."""
     graph = parse_metro_mermaid(

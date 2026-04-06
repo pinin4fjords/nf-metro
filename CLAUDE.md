@@ -84,6 +84,7 @@ Edge routing with horizontal runs and 45-degree diagonal transitions. Inter-sect
 %%metro line: line_id | Display Name | #hexcolor | style
 %%metro line_order: span
 %%metro compact_offsets: true
+%%metro legend_min_height: 72
 %%metro grid: section_id | col,row
 
 graph LR
