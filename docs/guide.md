@@ -35,7 +35,7 @@ graph LR
 
 A few things to notice:
 
-- **`%%metro line:`** defines a route as `id | Display Name | #hexcolor`. Every edge must reference one of these IDs.
+- **`%%metro line:`** defines a route as `id | Display Name | #hexcolor` with an optional fourth field for style (`solid`, `dashed`, or `dotted`). Every edge must reference one of these IDs.
 - **`graph LR`** starts the Mermaid graph. nf-metro always uses left-to-right flow at the top level.
 - **Stations** use Mermaid node syntax: `node_id[Label]`.
 - **Edges** carry a line ID: `source -->|line_id| target`. An edge can carry multiple lines at once: `a -->|line1,line2| b`.
@@ -391,7 +391,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro title: <text>` | Map title |
 | `%%metro logo: <path>` | Logo image (replaces title text). Use `--logo` CLI flag to override per-render. |
 | `%%metro style: <name>` | Theme: `dark` (default) or `light` |
-| `%%metro line: <id> \| <name> \| <color>` | Define a metro line with ID, display name, and hex color |
+| `%%metro line: <id> \| <name> \| <color> [\| <style>]` | Define a metro line. Optional style: `solid` (default), `dashed`, or `dotted` |
 | `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Pin a section to a grid position |
 | `%%metro legend: <position>` | Legend position: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` |
 | `%%metro line_order: <strategy>` | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks) |

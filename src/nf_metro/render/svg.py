@@ -42,6 +42,7 @@ from nf_metro.render.constants import (
     SECTION_NUM_FONT_SIZE,
     SECTION_NUM_Y_OFFSET,
     SECTION_STROKE_WIDTH,
+    STROKE_DASHARRAY,
     SVG_CURVE_RADIUS,
     TERMINUS_FONT_COLOR,
     TEXT_VCENTER_DY,
@@ -53,6 +54,14 @@ from nf_metro.render.constants import (
 from nf_metro.render.icons import render_file_icon
 from nf_metro.render.legend import compute_legend_dimensions, render_legend
 from nf_metro.render.style import Theme
+
+
+def _line_style_kwargs(style: str) -> dict:
+    """Return extra SVG kwargs for a metro line style (dashed/dotted)."""
+    dasharray = STROKE_DASHARRAY.get(style)
+    if dasharray:
+        return {"stroke_dasharray": dasharray}
+    return {}
 
 
 def apply_route_offsets(
@@ -607,6 +616,7 @@ def _render_edges(
     for route in routes:
         line = graph.lines.get(route.line_id)
         color = line.color if line else FALLBACK_LINE_COLOR
+        style_kw = _line_style_kwargs(line.style) if line else {}
 
         pts = apply_route_offsets(route, station_offsets)
 
@@ -620,6 +630,7 @@ def _render_edges(
                     stroke=color,
                     stroke_width=theme.line_width,
                     stroke_linecap="round",
+                    **style_kw,
                 )
             )
         elif len(pts) >= 3:
@@ -629,6 +640,7 @@ def _render_edges(
                 fill="none",
                 stroke_linecap="round",
                 stroke_linejoin="round",
+                **style_kw,
             )
             path.M(*pts[0])
 

@@ -209,3 +209,12 @@ SECTION_LABEL_REGION_RATIO: float = 0.5
 
 ICON_CLEARANCE_MARGIN: float = 4.0
 """Extra clearance around terminus icons when computing section bounds."""
+
+# ---------------------------------------------------------------------------
+# Line styles (stroke dash arrays)
+# ---------------------------------------------------------------------------
+STROKE_DASHARRAY: dict[str, str] = {
+    "dashed": "8,4",
+    "dotted": "2,4",
+}
+"""SVG stroke-dasharray values for non-solid line styles."""

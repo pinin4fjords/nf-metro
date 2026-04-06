@@ -16,6 +16,7 @@ from nf_metro.render.constants import (
     LEGEND_TEXT_GAP,
     LOGO_GAP,
     LOGO_SCALE_FACTOR,
+    STROKE_DASHARRAY,
     TEXT_VCENTER_DY,
 )
 from nf_metro.render.style import Theme
@@ -136,6 +137,10 @@ def render_legend(
         entry_y = y + padding + i * line_height + line_height / 2
 
         # Color swatch (line segment)
+        dash_kw = {}
+        dasharray = STROKE_DASHARRAY.get(metro_line.style)
+        if dasharray:
+            dash_kw["stroke_dasharray"] = dasharray
         d.append(
             draw.Line(
                 x + padding + logo_offset,
@@ -145,6 +150,7 @@ def render_legend(
                 stroke=metro_line.color,
                 stroke_width=theme.line_width,
                 stroke_linecap="round",
+                **dash_kw,
             )
         )
 
