@@ -723,11 +723,12 @@ def check_almost_horizontal_edges(
 ) -> list[Violation]:
     """Check for almost-horizontal edge segments after offset application.
 
-    Only checks intra-section edges (both endpoints in the same section).
-    Inter-section edges are routed with L-shaped paths that absorb offset
-    mismatches via vertical segments, so slopes there are expected.
+    Checks both intra-section and inter-section edges. Intra-section
+    slopes indicate offset mismatches that should be flat. Inter-section
+    slopes (outside the L-shaped vertical segments) indicate offset
+    reordering regressions.
 
-    Flags segments where abs(dy) > 0.5 AND abs(dx) > abs(dy) / slope_threshold,
+    Flags segments where abs(dy) > 0.5 AND abs(dx) >= abs(dy) / slope_threshold,
     i.e. a shallow slope that should be perfectly flat.
     """
     violations: list[Violation] = []
@@ -742,15 +743,13 @@ def check_almost_horizontal_edges(
             return violations
 
     for route in routes:
-        if route.is_inter_section:
-            continue
         pts = apply_route_offsets(route, offsets)
         for k in range(len(pts) - 1):
             x1, y1 = pts[k]
             x2, y2 = pts[k + 1]
             dx = abs(x2 - x1)
             dy = abs(y2 - y1)
-            if dy > 0.5 and dx >= min_dx and dx > dy / slope_threshold:
+            if dy > 0.5 and dx >= min_dx and dx >= dy / slope_threshold:
                 violations.append(
                     Violation(
                         check="almost_horizontal_edge",
