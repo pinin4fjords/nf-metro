@@ -12,6 +12,7 @@ import re
 import warnings
 
 from nf_metro.parser.model import (
+    VALID_LINE_STYLES,
     Edge,
     MetroGraph,
     MetroLine,
@@ -189,11 +190,17 @@ def _parse_directive(
     elif content.startswith("line:"):
         parts = content[len("line:") :].strip().split("|")
         if len(parts) >= 3:
+            style = "solid"
+            if len(parts) >= 4:
+                raw_style = parts[3].strip().lower()
+                if raw_style in VALID_LINE_STYLES:
+                    style = raw_style
             graph.add_line(
                 MetroLine(
                     id=parts[0].strip(),
                     display_name=parts[1].strip(),
                     color=parts[2].strip(),
+                    style=style,
                 )
             )
     elif content.startswith("entry:"):

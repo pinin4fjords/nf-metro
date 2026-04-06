@@ -52,6 +52,30 @@ def test_parse_lines():
     assert graph.lines["alt"].color == "#0000ff"
 
 
+def test_parse_line_style_dashed():
+    text = "%%metro line: opt | Optional | #aaaaaa | dashed\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.lines["opt"].style == "dashed"
+
+
+def test_parse_line_style_dotted():
+    text = "%%metro line: opt | Optional | #aaaaaa | dotted\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.lines["opt"].style == "dotted"
+
+
+def test_parse_line_style_default_solid():
+    text = "%%metro line: main | Main Line | #ff0000\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.lines["main"].style == "solid"
+
+
+def test_parse_line_style_invalid_ignored():
+    text = "%%metro line: main | Main Line | #ff0000 | wavy\ngraph LR\n"
+    graph = parse_metro_mermaid(text)
+    assert graph.lines["main"].style == "solid"
+
+
 def test_parse_nodes_square_bracket():
     text = "graph LR\n    fastqc[FastQC]\n"
     graph = parse_metro_mermaid(text)
