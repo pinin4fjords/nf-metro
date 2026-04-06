@@ -678,6 +678,22 @@ def check_station_as_elbow(
     return violations
 
 
+def _stations_same_section(graph: MetroGraph, id_a: str, id_b: str) -> bool:
+    """Check if two stations/ports belong to the same section."""
+    sa = graph.stations.get(id_a)
+    sb = graph.stations.get(id_b)
+    if not sa or not sb:
+        return False
+    sec_a = sa.section_id
+    sec_b = sb.section_id
+    # Ports may have section_id set, but also check port registry
+    if sec_a is None and id_a in graph.ports:
+        sec_a = graph.ports[id_a].section_id
+    if sec_b is None and id_b in graph.ports:
+        sec_b = graph.ports[id_b].section_id
+    return bool(sec_a and sec_b and sec_a == sec_b)
+
+
 def check_almost_horizontal_edges(
     graph: MetroGraph,
     slope_threshold: float = 0.1,
@@ -685,10 +701,12 @@ def check_almost_horizontal_edges(
 ) -> list[Violation]:
     """Check for almost-horizontal edge segments after offset application.
 
+    Only checks intra-section edges (both endpoints in the same section).
+    Inter-section edges are routed with L-shaped paths that absorb offset
+    mismatches via vertical segments, so slopes there are expected.
+
     Flags segments where abs(dy) > 0.5 AND abs(dx) > abs(dy) / slope_threshold,
-    i.e. a shallow slope that should be perfectly flat. These arise when
-    per-line offsets differ between a single-line and multi-line station
-    sharing the same base Y.
+    i.e. a shallow slope that should be perfectly flat.
     """
     violations: list[Violation] = []
 
@@ -699,6 +717,8 @@ def check_almost_horizontal_edges(
         return violations  # Routing failures caught by check_edge_waypoints
 
     for route in routes:
+        if route.is_inter_section:
+            continue
         pts = apply_route_offsets(route, offsets)
         for k in range(len(pts) - 1):
             x1, y1 = pts[k]

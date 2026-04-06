@@ -497,6 +497,22 @@ def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
                                     ctx.offsets[(edge.source, lid)] = off
 
 
+def _same_section(graph: MetroGraph, id_a: str, id_b: str) -> bool:
+    """Check if two stations/ports belong to the same section."""
+    sa = graph.stations[id_a]
+    sb = graph.stations[id_b]
+    sec_a = sa.section_id
+    sec_b = sb.section_id
+    if sec_a and sec_b and sec_a == sec_b:
+        return True
+    # Junctions (section_id=None): check via port lookup
+    if sec_a is None and id_a in graph.ports:
+        sec_a = graph.ports[id_a].section_id
+    if sec_b is None and id_b in graph.ports:
+        sec_b = graph.ports[id_b].section_id
+    return bool(sec_a and sec_b and sec_a == sec_b)
+
+
 def _station_offsets_set(
     ctx: _OffsetCtx, station_id: str, exclude_line: str
 ) -> set[float]:
@@ -509,17 +525,22 @@ def _station_offsets_set(
 
 
 def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
-    """Snap offsets for edges where endpoints share base Y but differ.
+    """Snap offsets for same-section edges where endpoints share base Y.
 
-    For each mismatched horizontal edge, tries snapping both stations
-    to the larger-magnitude offset first, then the smaller. A candidate
-    is rejected only if it would collide with another line at the same
-    station. If neither simple snap works, shifts the entire bundle at
-    the station with fewer lines so the target line lands at the
-    required offset (preserving relative spacing).
+    Only processes edges where both endpoints belong to the same
+    section. Inter-section offset mismatches are handled by routing
+    (L-shaped paths with vertical segments), so they must not be
+    reconciled here - doing so cascades offsets across section
+    boundaries and breaks per-section reindexing.
+
+    For each qualifying edge, tries snapping both stations to the
+    larger-magnitude offset first, then the smaller. A candidate is
+    rejected if it would collide with another line at the same
+    station. If neither simple snap works, shifts the entire bundle
+    at the station with fewer lines (preserving relative spacing).
 
     Iterates until stable, since fixing one edge can propagate
-    through junction -> port -> station chains.
+    through port -> station chains within the same section.
     """
     for _ in range(max_iterations):
         changed = False
@@ -527,6 +548,8 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
             src = ctx.graph.stations[edge.source]
             tgt = ctx.graph.stations[edge.target]
             if abs(src.y - tgt.y) > 0.1:
+                continue
+            if not _same_section(ctx.graph, edge.source, edge.target):
                 continue
             lid = edge.line_id
             src_off = ctx.offsets.get((edge.source, lid), 0.0)
@@ -552,8 +575,8 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     break
 
             if not applied:
-                # Both candidates collide somewhere; shift the bundle
-                # at the station with fewer lines (least disruption).
+                # Both candidates collide; shift the bundle at the
+                # station with fewer lines (least disruption).
                 src_n = len(ctx.graph.station_lines(edge.source))
                 tgt_n = len(ctx.graph.station_lines(edge.target))
                 if src_n <= tgt_n:
