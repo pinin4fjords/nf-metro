@@ -1,5 +1,7 @@
 """Tests for edge routing."""
 
+from pathlib import Path
+
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -61,6 +63,31 @@ def test_station_offsets_multiple_lines():
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     assert offsets[("a", "main")] != offsets[("a", "alt")]
+
+
+def test_exit_only_line_reordered_above():
+    """A line originating at a shared station and exiting to a port above
+    should get a lower (top) offset than the through-running line.
+
+    Regression test for #125: at bcftools in variant_calling_tuned, the
+    QC line should not cross over the Main line.
+    """
+    mmd = (
+        Path(__file__).resolve().parent.parent
+        / "examples"
+        / "variant_calling_tuned.mmd"
+    )
+    graph = parse_metro_mermaid(mmd.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+
+    # QC exits upward to reporting, so should be above (lower offset) Main
+    qc_off = offsets[("bcftools", "qc")]
+    main_off = offsets[("bcftools", "main")]
+    assert qc_off < main_off, (
+        f"QC offset ({qc_off}) should be less than Main ({main_off}) "
+        f"at bcftools to avoid crossing"
+    )
 
 
 # --- Inter-section routing tests ---
