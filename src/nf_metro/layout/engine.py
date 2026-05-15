@@ -1222,41 +1222,43 @@ def _compact_row_content_to_bbox_top(
        ``section_y_padding`` (clamped so ports inside the section stay
        within the bbox).
 
-    Row-spanning sections (``grid_row_span > 1``) are excluded.  Their
-    extra height is consumed by either (a) TB content flowing down to
-    the next spanned row, or (b) LR trunk-Y alignment with the spanned
-    rows.  Compacting them would yank stations above the inter-section
-    bundle Y of the rowspan-1 cohort and force the next section's
-    entry port to route upward to reach the new content Y.
+    Row-spanning sections (``grid_row_span > 1``) are only isolated
+    from their row-mates when their trunk Y differs (no shared
+    horizontal bundle).  When a rowspan section trunks at the row's
+    bundle Y, it must compact together with its column neighbours so
+    the shared bundle stays straight.
     """
     row_sections: dict[int, list[Section]] = defaultdict(list)
     for section in graph.sections.values():
         if section.bbox_h <= 0 or section.grid_row < 0:
             continue
-        if section.grid_row_span > 1:
-            continue
         row_sections[section.grid_row].append(section)
+
+    def _shares_bundle(a: Section, b: Section) -> bool:
+        if a.grid_row_span <= 1 and b.grid_row_span <= 1:
+            return True
+        a_t = _section_trunk_y(graph, a)
+        b_t = _section_trunk_y(graph, b)
+        return a_t is not None and b_t is not None and abs(a_t - b_t) < 0.5
 
     for sections in row_sections.values():
         if not sections:
             continue
         sections_by_col = sorted(sections, key=lambda s: s.grid_col)
-        # Build contiguous-column groups, but rowspan>1 sections trunk
-        # at a Y of their own (no horizontal bundle shared with row
-        # mates) so each one shifts independently.
         groups: list[list[Section]] = [[sections_by_col[0]]]
         for s in sections_by_col[1:]:
             prev = groups[-1][-1]
-            if (
-                s.grid_col - prev.grid_col <= 1
-                and s.grid_row_span <= 1
-                and prev.grid_row_span <= 1
-            ):
+            if s.grid_col - prev.grid_col <= 1 and _shares_bundle(prev, s):
                 groups[-1].append(s)
             else:
                 groups.append([s])
 
         for group in groups:
+            # An isolated rowspan section has no shared bundle to keep
+            # straight; compacting it alone yanks its content above the
+            # rowspan-1 cohort's trunk Y.
+            if len(group) == 1 and group[0].grid_row_span > 1:
+                continue
             allowed_shifts: list[float] = []
             for section in group:
                 # Use all real (non-port) stations as the top reference so
