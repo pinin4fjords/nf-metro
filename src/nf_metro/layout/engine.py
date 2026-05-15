@@ -1822,6 +1822,13 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
     siblings carrying the full bundle (linear pass-throughs) are left
     in place so non-fan-out topologies keep their natural Y ordering.
 
+    Additionally, a sibling is only redistributed when it shares an
+    upstream predecessor with the trunk station.  This excludes
+    columns of source stations (file inputs) that happen to sit in a
+    column with a full-bundle station: with no shared upstream
+    junction, they aren't fan-out branches and must stay on their
+    per-line track Y so they line up with their downstream consumers.
+
     No-op when ``--no-center-ports`` is set, when a section has no
     qualifying trunk-junction column, or when there are no
     strict-subset siblings.
@@ -1831,6 +1838,12 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
     grid_sec_ids = _grid_group_section_ids(graph)
     if not grid_sec_ids:
         return
+
+    import networkx as nx
+
+    G = nx.DiGraph()
+    for edge in graph.edges:
+        G.add_edge(edge.source, edge.target)
 
     for section in graph.sections.values():
         if (
@@ -1861,14 +1874,23 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
                 continue
             trunk_sid = trunks[0]
             trunk_y = graph.stations[trunk_sid].y
+            trunk_preds = set(G.predecessors(trunk_sid)) if trunk_sid in G else set()
+            if not trunk_preds:
+                # No shared predecessor possible: source-station columns
+                # stay on their per-line track Y rather than being pulled
+                # into a uniform fan around an unrelated trunk.
+                continue
             # Fan-out siblings: strict subset of bundle (skip full-bundle
-            # pass-throughs and orphan stations with no lines).
+            # pass-throughs and orphan stations with no lines), and must
+            # share a predecessor with the trunk.
             siblings = [
                 s
                 for s in sids
                 if s != trunk_sid
                 and set(graph.station_lines(s))
                 and set(graph.station_lines(s)) < bundle
+                and s in G
+                and not trunk_preds.isdisjoint(G.predecessors(s))
             ]
             if not siblings:
                 continue
