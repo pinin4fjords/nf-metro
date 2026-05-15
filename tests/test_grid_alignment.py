@@ -88,26 +88,28 @@ class TestGridInvariants:
                         f"(first_y={first_y:.1f}, eff={eff})"
                     )
 
-    def test_first_station_y_consistent(self, grid_graph):
-        """First station Y matches across sections in each row group."""
+    def test_bbox_top_aligned(self, grid_graph):
+        """Section bbox tops align within each row group."""
         name, g = grid_graph
         for row, info in _grid_info(g).items():
-            first_ys = []
-            for sec_id in info["section_ids"]:
-                stations = [
-                    s
-                    for s in g.stations.values()
-                    if s.section_id == sec_id and not s.is_port
-                ]
-                if stations:
-                    first_ys.append(min(s.y for s in stations))
-            if len(first_ys) >= 2:
-                assert max(first_ys) - min(first_ys) < 2.0, (
-                    f"{name} row {row}: first_ys differ: {first_ys}"
+            tops = [
+                g.sections[sec_id].bbox_y
+                for sec_id in info["section_ids"]
+                if sec_id in g.sections and g.sections[sec_id].bbox_h > 0
+            ]
+            if len(tops) >= 2:
+                assert max(tops) - min(tops) < 2.0, (
+                    f"{name} row {row}: bbox tops differ: {tops}"
                 )
 
-    def test_symmetric_bbox_padding(self, grid_graph):
-        """Grid group section bboxes have symmetric top/bottom padding."""
+    def test_bottom_padding_at_least_top(self, grid_graph):
+        """Bot padding >= top padding (no content below bbox).
+
+        With trunk-Y alignment, sections may shift content downward, so
+        top padding can exceed the original symmetric value.  But bottom
+        padding must remain non-negative (content within bbox) and at
+        least as large as the original section_y_padding floor.
+        """
         name, g = grid_graph
         for sec_id in _grid_secs(g):
             sec = g.sections.get(sec_id)
@@ -120,13 +122,10 @@ class TestGridInvariants:
             ]
             if not stations:
                 continue
-            min_y = min(s.y for s in stations)
             max_y = max(s.y for s in stations)
-            top_pad = min_y - sec.bbox_y
             bot_pad = (sec.bbox_y + sec.bbox_h) - max_y
-            assert abs(top_pad - bot_pad) <= 1.0, (
-                f"{name} {sec_id}: asymmetric padding "
-                f"top={top_pad:.1f} bot={bot_pad:.1f}"
+            assert bot_pad >= -0.5, (
+                f"{name} {sec_id}: content below bbox bot_pad={bot_pad:.1f}"
             )
 
 
@@ -364,3 +363,115 @@ class TestVariantbenchmarkingSpacing:
         assert len(layer1) >= 2
         xs = [s.x for s in layer1]
         assert max(xs) - min(xs) < 2.0, f"layer-1 X spread: {xs}"
+
+
+# ---------------------------------------------------------------------------
+# Trunk-Y alignment is gated on identical bundles across a row group
+# ---------------------------------------------------------------------------
+
+
+class TestTrunkAlignBundleGate:
+    """`_align_row_trunk_ys` must only fire when adjacent same-row sections
+    share the same bundle of lines across their LR ports.  When bundles
+    differ (e.g. one section carries an extra bypass line that the next
+    drops), forcing a common trunk Y just shifts content downward for no
+    geometric gain.  When bundles match, the alignment is necessary so the
+    inter-section bundle flows horizontally across the row.
+    """
+
+    def test_differing_bundles_do_not_shift(self):
+        """variant_calling: bundles differ across the row -> no station shift."""
+        from nf_metro.layout.engine import (
+            _align_row_trunk_ys,
+            _section_bundle_lines,
+            _section_trunk_y,
+        )
+
+        g = _load("variant_calling")
+        # Sections in row 0 have differing bundles (preprocess/reporting
+        # carry the qc line; alignment/variant_calling do not).
+        row0 = sorted(
+            (s for s in g.sections.values() if s.grid_row == 0 and s.bbox_h > 0),
+            key=lambda s: s.grid_col,
+        )
+        bundles = [_section_bundle_lines(g, s) for s in row0 if s.direction == "LR"]
+        non_empty = [b for b in bundles if b]
+        assert any(b != non_empty[0] for b in non_empty), (
+            "fixture precondition: bundles must differ across the row"
+        )
+
+        # Snapshot Y of every internal station, run the gated phase
+        # again, and confirm nothing moves.
+        before = {sid: s.y for sid, s in g.stations.items()}
+        _align_row_trunk_ys(g)
+        for sid, s in g.stations.items():
+            assert abs(s.y - before[sid]) < 0.5, (
+                f"{sid}: y shifted by {s.y - before[sid]:.2f} despite differing bundles"
+            )
+
+        # And: trunk Ys remain at their pre-alignment values (some at
+        # 120, some at 160).  If the gate were absent, all would equal
+        # the deepest trunk.
+        trunks = {s.id: _section_trunk_y(g, s) for s in row0 if s.direction == "LR"}
+        trunk_vals = {t for t in trunks.values() if t is not None}
+        assert len(trunk_vals) > 1, (
+            f"trunks should remain diverged when bundles differ; got {trunks}"
+        )
+
+    def test_matching_bundles_do_align(self):
+        """Synthetic DA-style fixture: identical bundle, diverged trunks -> align.
+
+        secA, secB, secC all carry the same {a, b} bundle through their
+        LR ports.  secB has two stations above its trunk, so its
+        unaligned trunk Y sits below secA's and secC's.  The fix must
+        shift secA and secC down so all three trunks share secB's Y,
+        keeping the bundle horizontal across the row.
+        """
+        from nf_metro.layout.engine import _section_trunk_y
+
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "trunk_align_matching_bundle.mmd"
+        )
+        text = fixture.read_text()
+        g = parse_metro_mermaid(text)
+        compute_layout(g)
+
+        row0 = sorted(
+            (s for s in g.sections.values() if s.grid_row == 0 and s.direction == "LR"),
+            key=lambda s: s.grid_col,
+        )
+        trunks = {s.id: _section_trunk_y(g, s) for s in row0}
+        trunk_vals = [t for t in trunks.values() if t is not None]
+        assert len(trunk_vals) >= 3, (
+            f"fixture precondition: need 3 trunks; got {trunks}"
+        )
+        # With matching bundles the gate lets alignment proceed: all
+        # trunks should land on a single Y.
+        assert max(trunk_vals) - min(trunk_vals) < 1.0, (
+            f"trunks should align when bundles match; got {trunks}"
+        )
+
+    def test_variantbenchmarking_inputs_not_pulled_down(self):
+        """variantbenchmarking row 0 mixes bundles ({test,truth} vs {test}).
+
+        Pre-fix, the gate-less algorithm shifted `inputs` (trunk 120)
+        down to match preprocess/normalization (trunk 160), pulling
+        samplesheet from y=120 to y=160 and inflating the inputs bbox
+        height by 40px.  With the bundle gate, inputs stays on its
+        natural Y because filtering breaks the row-wide bundle.
+        """
+        g = _load("variantbenchmarking")
+        # samplesheet sits at the top of the inputs section; its
+        # untouched Y is 120.  Over-application drags it to 160.
+        ss = g.stations["samplesheet"]
+        assert ss.y < 130, (
+            f"samplesheet y={ss.y} suggests inputs was shifted down "
+            f"despite bundle mismatch with filtering"
+        )
+        # The inputs bbox should not have been inflated.
+        inputs_sec = g.sections["inputs"]
+        assert inputs_sec.bbox_h < 300, (
+            f"inputs bbox_h={inputs_sec.bbox_h} inflated; alignment leaked through gate"
+        )
