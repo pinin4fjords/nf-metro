@@ -1186,12 +1186,18 @@ def _compact_row_content_to_bbox_top(
        ``section_y_padding`` (clamped so ports inside the section stay
        within the bbox).
 
-    Sections with ``grid_row_span > 1`` are excluded because their
-    content spans multiple rows and the per-row frame doesn't apply.
+    Row-spanning sections (``grid_row_span > 1``) are excluded.  Their
+    extra height is consumed by either (a) TB content flowing down to
+    the next spanned row, or (b) LR trunk-Y alignment with the spanned
+    rows.  Compacting them would yank stations above the inter-section
+    bundle Y of the rowspan-1 cohort and force the next section's
+    entry port to route upward to reach the new content Y.
     """
     row_sections: dict[int, list[Section]] = defaultdict(list)
     for section in graph.sections.values():
-        if section.bbox_h <= 0 or section.grid_row < 0 or section.grid_row_span > 1:
+        if section.bbox_h <= 0 or section.grid_row < 0:
+            continue
+        if section.grid_row_span > 1:
             continue
         row_sections[section.grid_row].append(section)
 
@@ -1201,12 +1207,31 @@ def _compact_row_content_to_bbox_top(
     # station-row's worth of clearance so labels still avoid the
     # topmost line track.
     off_track_gap = max(FONT_HEIGHT + STATION_RADIUS_APPROX * 2, y_spacing / 2)
+    # Captioned off-track icons render a label line under the icon
+    # body; that text needs to clear the topmost line track too, so
+    # the gap below a captioned bottom-of-band station is widened by
+    # the caption extent.
+    captioned_extra = FONT_HEIGHT + STATION_RADIUS_APPROX * 2
+
+    def _has_caption(sid: str) -> bool:
+        st = graph.stations.get(sid)
+        return bool(st and st.terminus_names and any(st.terminus_names))
 
     for sections in row_sections.values():
+        if not sections:
+            continue
         sections_by_col = sorted(sections, key=lambda s: s.grid_col)
+        # Build contiguous-column groups, but rowspan>1 sections trunk
+        # at a Y of their own (no horizontal bundle shared with row
+        # mates) so each one shifts independently.
         groups: list[list[Section]] = [[sections_by_col[0]]]
         for s in sections_by_col[1:]:
-            if s.grid_col - groups[-1][-1].grid_col <= 1:
+            prev = groups[-1][-1]
+            if (
+                s.grid_col - prev.grid_col <= 1
+                and s.grid_row_span <= 1
+                and prev.grid_row_span <= 1
+            ):
                 groups[-1].append(s)
             else:
                 groups.append([s])
@@ -1222,7 +1247,18 @@ def _compact_row_content_to_bbox_top(
                 on_track_min = min(on_track_ys)
                 shift = on_track_min - section.bbox_y - section_y_padding
                 if off_track_ys:
-                    shift = min(shift, on_track_min - max(off_track_ys) - off_track_gap)
+                    gap = off_track_gap
+                    bottom_off_y = max(off_track_ys)
+                    bottom_off_ids = [
+                        sid
+                        for sid in section.station_ids
+                        if sid in graph.stations
+                        and getattr(graph.stations[sid], "off_track", False)
+                        and abs(graph.stations[sid].y - bottom_off_y) < 0.5
+                    ]
+                    if any(_has_caption(sid) for sid in bottom_off_ids):
+                        gap += captioned_extra
+                    shift = min(shift, on_track_min - bottom_off_y - gap)
                 allowed_shifts.append(max(0.0, shift))
             delta = min(allowed_shifts) if allowed_shifts else 0.0
 
@@ -3040,6 +3076,14 @@ def _space_ports_from_termini(
         for sid in real_sids:
             st = graph.stations.get(sid)
             if not st or not st.is_terminus or st.is_port:
+                continue
+            # Off-track stations get lifted above the topmost line track
+            # later (Phase 13), so they no longer share a Y with the
+            # inter-section bundle.  Excluding them here prevents ports
+            # from being pushed away (and dragging the upstream port via
+            # junction propagation) for a conflict that won't exist by
+            # render time.
+            if getattr(st, "off_track", False):
                 continue
             preds = predecessors.get(sid, set())
             succs = successors.get(sid, set())
