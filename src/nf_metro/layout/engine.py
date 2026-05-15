@@ -528,6 +528,13 @@ def _compute_section_layout(
     # trunk alignment is unaffected.
     _shrink_bboxes_to_content_bottom(graph, section_y_padding)
 
+    # Phase 13k: Close vertical slack that the pre-shrink row-height
+    # estimate (in ``_compute_section_offsets``) left between row ``r``
+    # and row ``r + 1`` once 13j has collapsed bboxes to their content.
+    # Only fires when a rowspan section's content fell short of its row
+    # claim; multi-row layouts with content-filled rows are untouched.
+    _tighten_lower_rows_after_shrink(graph, section_y_gap)
+
     if validate:
         _guard_coordinates_finite(graph, "after Phase 12 (final)")
         _guard_section_bboxes_positive(graph, "after Phase 12 (final)")
@@ -2343,6 +2350,64 @@ def _shrink_bboxes_to_content_bottom(
         new_h = desired_bot - section.bbox_y
         if new_h < section.bbox_h - 0.5:
             section.bbox_h = max(0.0, new_h)
+
+
+def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) -> None:
+    """Pull lower-row sections up to close slack left by rowspan claims.
+
+    ``_compute_section_offsets`` sizes ``row_heights[r]`` from pre-shrink
+    bbox heights, and a rowspan section that ends at row ``r`` inflates
+    the height further to fit its (then-tall) bbox.  After
+    ``_shrink_bboxes_to_content_bottom`` collapses bbox bottoms to
+    actual content, row ``r+1`` sits below empty space when the only
+    section "filling" row ``r`` was the rowspanned one (whose own bbox
+    now ends well above the row bottom).
+
+    For each row ``r >= 1``, this measures the gap between row ``r``'s
+    current top and the max bbox bottom of sections that *end* at row
+    ``r - 1`` (single-row sections in row ``r - 1`` plus rowspan
+    sections that terminate there).  Rowspan sections that *extend
+    into* row ``r`` are excluded: their bbox bottom is now content-
+    bounded, not row-bounded, so they no longer constrain row ``r``'s
+    top.  Any slack beyond ``section_y_gap`` is closed by shifting
+    sections in row ``r`` and below (along with their stations and
+    ports) upward by that amount.  Junctions live in inter-section
+    space and routing recomputes after layout, so their positions are
+    left alone.
+    """
+    if not graph.sections:
+        return
+
+    sections_by_start_row: dict[int, list[Section]] = defaultdict(list)
+    sections_by_end_row: dict[int, list[Section]] = defaultdict(list)
+    for s in graph.sections.values():
+        if s.bbox_h <= 0:
+            continue
+        sections_by_start_row[s.grid_row].append(s)
+        sections_by_end_row[s.grid_row + s.grid_row_span - 1].append(s)
+    if not sections_by_start_row:
+        return
+    max_row = max(sections_by_end_row)
+
+    for r in range(1, max_row + 1):
+        lower = sections_by_start_row.get(r, [])
+        ending_at_prev = sections_by_end_row.get(r - 1, [])
+        if not lower or not ending_at_prev:
+            continue
+        max_above_bot = max(s.bbox_y + s.bbox_h for s in ending_at_prev)
+        current_top = min(s.bbox_y for s in lower)
+        slack = current_top - (max_above_bot + section_y_gap)
+        if slack <= 0.5:
+            continue
+
+        for s in graph.sections.values():
+            if s.grid_row < r:
+                continue
+            s.bbox_y -= slack
+            for stid in s.station_ids:
+                st = graph.stations.get(stid)
+                if st is not None:
+                    st.y -= slack
 
 
 def _align_terminus_to_upstream(graph: MetroGraph) -> None:
