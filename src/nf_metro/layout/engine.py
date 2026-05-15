@@ -257,6 +257,8 @@ def _compute_section_layout(
 
     Pass C - Junction positioning (single pass):
       Phase 12: Position junction stations in inter-section gaps
+      Phase 13: Lift off-track stations above section's top track
+      Phase 13a: Re-align bbox tops within each row (bbox-only)
     """
     from nf_metro.layout.section_placement import place_sections, position_ports
 
@@ -436,6 +438,13 @@ def _compute_section_layout(
     # Phase 13: Lift off_track stations above their section's top track.
     # Runs last so it operates on finalised station Ys and bboxes.
     _lift_off_track_stations(graph, y_spacing, section_y_padding)
+
+    # Phase 13a: Re-align bbox tops within each grid row after off-track
+    # lifting expanded some sections upward.  Unlike Phase 9/11c which
+    # shifts stations with the bbox, this only grows the bbox upward so
+    # the empty input-band space lines up across the row.  Station Ys
+    # in unlifted sections are preserved.
+    _top_align_row_bboxes_only(graph)
 
     if validate:
         _guard_coordinates_finite(graph, "after Phase 12 (final)")
@@ -927,6 +936,63 @@ def _top_align_row_sections(graph: MetroGraph) -> None:
                     if station:
                         station.y -= delta
                 section.bbox_y -= delta
+
+
+def _row_contiguous_column_groups(
+    graph: MetroGraph,
+) -> list[list[Section]]:
+    """Group laid-out sections by grid row into contiguous column runs.
+
+    Each returned group has at least 2 sections sitting in adjacent
+    grid columns (gap <= 1) within the same row.  Sections with no
+    bbox or unassigned row are skipped, matching the precondition
+    used by the row-alignment callers in this module.
+    """
+    by_row: dict[int, list[Section]] = defaultdict(list)
+    for section in graph.sections.values():
+        if section.bbox_h > 0 and section.grid_row >= 0:
+            by_row[section.grid_row].append(section)
+
+    result: list[list[Section]] = []
+    for row in by_row.values():
+        if len(row) < 2:
+            continue
+        row_sorted = sorted(row, key=lambda s: s.grid_col)
+        group = [row_sorted[0]]
+        for s in row_sorted[1:]:
+            if s.grid_col - group[-1].grid_col <= 1:
+                group.append(s)
+            else:
+                if len(group) >= 2:
+                    result.append(group)
+                group = [s]
+        if len(group) >= 2:
+            result.append(group)
+    return result
+
+
+def _top_align_row_bboxes_only(graph: MetroGraph) -> None:
+    """Align bbox tops within each row by growing bboxes upward.
+
+    Unlike ``_top_align_row_sections`` (which shifts stations together
+    with their bbox), this phase only moves ``bbox_y`` and grows
+    ``bbox_h`` so the section background extends upward to match the
+    row's topmost bbox.  Station, port and junction Ys inside the
+    section are left in place, producing empty space at the top of
+    sections that didn't have off-track inputs to lift.
+
+    Used after ``_lift_off_track_stations`` so off-track expansion in
+    one section doesn't leave other row-mates with misaligned bbox
+    tops.
+    """
+    for group in _row_contiguous_column_groups(graph):
+        min_top = min(s.bbox_y for s in group)
+        for section in group:
+            delta = section.bbox_y - min_top
+            if delta <= 0:
+                continue
+            section.bbox_y = min_top
+            section.bbox_h += delta
 
 
 def _section_trunk_y(graph: MetroGraph, section: Section) -> float | None:
