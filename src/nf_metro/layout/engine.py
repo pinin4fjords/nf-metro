@@ -429,6 +429,11 @@ def _compute_section_layout(
     # structures, and file inputs are left in place.
     _redistribute_fanout_siblings(graph, y_spacing)
 
+    # Phase 11da: Symmetrically fan a column of full-bundle stations
+    # around the trunk Y when no unique trunk exists (e.g. Reporting's
+    # Shiny app + Quarto report, both carrying the full bundle).
+    _redistribute_full_bundle_columns(graph, y_spacing)
+
     # ---- Pass C: Junction positioning (single pass) --------------------
     # All port positions are now final; position junctions once.
 
@@ -1792,6 +1797,20 @@ def _section_bundle_lines(graph: MetroGraph, section: Section) -> set[str]:
     return bundle
 
 
+def _section_columns_by_x(
+    graph: MetroGraph, section: Section
+) -> dict[float, list[str]]:
+    """Group a section's non-port stations by their (rounded) X column."""
+    port_ids = set(section.entry_ports) | set(section.exit_ports)
+    cols: dict[float, list[str]] = defaultdict(list)
+    for sid in section.station_ids:
+        if sid in port_ids:
+            continue
+        if (st := graph.stations.get(sid)) is not None:
+            cols[round(st.x, 3)].append(sid)
+    return cols
+
+
 def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
     """Symmetrically distribute fan-out siblings around a trunk junction.
 
@@ -1866,6 +1885,86 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
                 k = (i + 1) // 2
                 sign = 1 if (i % 2 == 1) else -1
                 graph.stations[sid].y = trunk_y + sign * k * y_spacing
+
+
+def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
+    """Fan a terminal section's full-bundle column around the trunk Y.
+
+    Active when ``graph.center_ports`` is True.  Handles the
+    Reporting-style case where a *terminal* section (no exit ports)
+    holds a column of two or more full-bundle stations with no unique
+    trunk junction, so the existing fan-out logic skips it.  Stations
+    are placed symmetrically around a trunk Y derived from other
+    full-bundle stations in the section (or the LR port Y).
+
+    Even count leaves the trunk row empty (``trunk_y ± s, ± 2s, ...``);
+    odd count keeps a middle station at ``trunk_y`` with the rest
+    flanking.  Non-terminal sections are left untouched so the
+    Differential symfan, Functional method bank, file inputs and
+    fan-in chains keep their natural Y ordering.
+    """
+    if not graph.center_ports:
+        return
+    grid_sec_ids = _grid_group_section_ids(graph)
+    if not grid_sec_ids:
+        return
+
+    for section in graph.sections.values():
+        if (
+            section.id not in grid_sec_ids
+            or section.direction not in ("LR", "RL")
+            or section.bbox_h <= 0
+            or section.exit_ports
+        ):
+            continue
+        bundle = _section_bundle_lines(graph, section)
+        if not bundle:
+            continue
+
+        cols = _section_columns_by_x(graph, section)
+        full_by_col = {
+            x: [s for s in sids if set(graph.station_lines(s)) == bundle]
+            for x, sids in cols.items()
+        }
+
+        for x, full in full_by_col.items():
+            # Fire only when every column station carries the full bundle
+            # and there are >=2 (so no unique trunk station exists).
+            if len(full) < 2 or len(full) != len(cols[x]):
+                continue
+            other_ys = [
+                graph.stations[s].y
+                for ox, sids in full_by_col.items()
+                if ox != x
+                for s in sids
+            ]
+            if other_ys:
+                other_ys.sort()
+                trunk_y = other_ys[len(other_ys) // 2]
+            else:
+                port_ids = set(section.entry_ports) | set(section.exit_ports)
+                port_ys = [
+                    graph.ports[pid].y
+                    for pid in port_ids
+                    if (p := graph.ports.get(pid)) is not None
+                    and p.side in (PortSide.LEFT, PortSide.RIGHT)
+                ]
+                if not port_ys:
+                    continue
+                trunk_y = sum(port_ys) / len(port_ys)
+
+            full.sort(key=lambda s: graph.stations[s].y)
+            n = len(full)
+            half = n // 2
+            # Even count skips the trunk row (offset 0); odd count seats one
+            # station on it so the fan stays symmetric around trunk_y.
+            offsets = (
+                [*range(-half, 0), *range(1, half + 1)]
+                if n % 2 == 0
+                else list(range(-half, half + 1))
+            )
+            for sid, off in zip(full, offsets):
+                graph.stations[sid].y = trunk_y + off * y_spacing
 
 
 def _layout_single_section(
