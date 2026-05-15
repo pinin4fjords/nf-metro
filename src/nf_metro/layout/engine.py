@@ -467,6 +467,19 @@ def _compute_section_layout(
     # padding by more than one ``y_spacing`` slot.
     _fan_free_content_upward(graph, section_y_padding, y_spacing)
 
+    # Phase 13e: Snap all station/port Ys to a per-section y_spacing
+    # grid.  Trunk-Y align, port-snap, and the row compaction/fan
+    # phases compute shifts that don't respect the grid pitch, leaving
+    # coordinates at fractional Ys (e.g. 298.785 when the pitch is 55).
+    # This final pass restores clean grid positions before validation.
+    _snap_all_y_to_grid(graph, y_spacing)
+
+    # Phase 13f: Grow TB-section bbox bottoms so they align with the
+    # downstream LR section's bbox bottom.  Without this the TB
+    # section's bbox ends right at the inter-section exit port Y,
+    # making the line look pinned to the section edge.
+    _align_tb_section_bbox_bottoms(graph)
+
     if validate:
         _guard_coordinates_finite(graph, "after Phase 12 (final)")
         _guard_section_bboxes_positive(graph, "after Phase 12 (final)")
@@ -1522,6 +1535,248 @@ def _lift_would_cause_uturn(
     if len(feeder_ys) < 2:
         return False
     return all(y >= anchor_y - 0.5 for y in feeder_ys)
+
+
+def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
+    """Snap every station and port Y to the nearest row-wide grid slot.
+
+    Earlier phases (``_align_row_trunk_ys``, port-snap, downstream
+    alignment) compute shifts that don't respect the grid pitch, so
+    stations can land at fractional Ys (e.g. ``298.785`` when the pitch
+    is 55).  This final pass restores a clean grid by:
+
+    1. Grouping sections by row.  Sections sharing a row from
+       ``_align_row_y_grids`` use the row's ``slot_spacing`` as pitch
+       and snap to a single origin so trunks stay co-linear across the
+       row.  Sections without a row grid entry are treated as their
+       own one-section group at the input ``y_spacing``.
+    2. Finding the group's grid origin as the mode of ``y % pitch``
+       across ALL non-port, on-track stations in the group.  Using a
+       global mode prevents per-section origins from drifting (which
+       would kink the trunk between sections).
+    3. Snapping every station and LEFT/RIGHT port in the group to the
+       nearest ``origin + n * pitch``, bounded by half a pitch so
+       adjacency cannot flip.
+
+    Two exclusions preserve deliberate non-grid Ys:
+
+    * LR/RL exit ports on TB-direction sections were placed by
+      ``_resolve_tb_exit_y`` at the receiving section's entry-port Y
+      (in a different row).  Snapping them to the TB's own row grid
+      reintroduces the kink the alignment removed.
+    * Stations that act as a convergence point for two or more inbound
+      sources at different Ys (fan-in midpoint) carry geometric meaning
+      that snapping destroys.
+
+    Fan-out divergence hubs (stations whose Y sits strictly between
+    targets above and below) are snapped to grid like other stations.
+    The downstream column-centring pass identifies the snap-induced
+    flat connection from such a fork hub to one of its targets and
+    declines to treat it as a chain predecessor, so the target column
+    still centres.
+
+    Groups with no on-grid majority are left untouched.
+    """
+    if y_spacing <= 0:
+        return
+    # Map each convergence station/port to the set of source Ys it
+    # converges (recorded pre-snap so the midpoint can be restored
+    # after sources move).
+    convergence_sources = _convergence_source_ys(graph)
+    # Divergence anchors (fan-out hubs sitting between target Ys) are
+    # snapped to grid like everyone else: the routing column-centring
+    # pass treats their incidental flat connection (induced by snap)
+    # as non-chain so the target column still centres correctly.
+    groups: dict[object, tuple[float, list[str]]] = {}
+    grouped_ids: set[str] = set()
+    for row, info in (graph._row_y_grid_info or {}).items():
+        pitch = info.get("slot_spacing", y_spacing)
+        sec_ids = list(info.get("section_ids", []))
+        groups[("row", row)] = (pitch, sec_ids)
+        grouped_ids.update(sec_ids)
+    for section in graph.sections.values():
+        if section.id not in grouped_ids:
+            groups[("solo", section.id)] = (y_spacing, [section.id])
+
+    for pitch, sec_ids in groups.values():
+        half = pitch / 2.0
+        residues: Counter[float] = Counter()
+        per_section_ports: dict[str, set[str]] = {}
+        for sec_id in sec_ids:
+            section = graph.sections.get(sec_id)
+            if section is None or section.bbox_h <= 0:
+                continue
+            port_ids = set(section.entry_ports) | set(section.exit_ports)
+            per_section_ports[sec_id] = port_ids
+            for sid in section.station_ids:
+                if sid in port_ids:
+                    continue
+                st = graph.stations.get(sid)
+                if st is None or getattr(st, "off_track", False):
+                    continue
+                residues[round(st.y % pitch, 3)] += 1
+        if not residues:
+            continue
+        origin_r, top = residues.most_common(1)[0]
+        if top < 2 and len(residues) > 1:
+            continue
+
+        def _snap(
+            y: float, origin: float = origin_r, p: float = pitch, h: float = half
+        ) -> float:
+            snapped = origin + round((y - origin) / p) * p
+            return snapped if abs(snapped - y) <= h + 1e-6 else y
+
+        for sec_id, port_ids in per_section_ports.items():
+            section = graph.sections.get(sec_id)
+            if section is None:
+                continue
+            is_tb_section = section.direction == "TB"
+            for sid in section.station_ids:
+                if sid in port_ids:
+                    continue
+                st = graph.stations.get(sid)
+                if st is None or getattr(st, "off_track", False):
+                    continue
+                if sid in convergence_sources:
+                    continue
+                st.y = _snap(st.y)
+            for pid in port_ids:
+                port = graph.ports.get(pid)
+                port_st = graph.stations.get(pid)
+                if port is None or port_st is None:
+                    continue
+                if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                    continue
+                # TB exit ports are anchored to the downstream entry-port
+                # Y by _resolve_tb_exit_y; preserve that alignment.
+                if is_tb_section and not port.is_entry:
+                    continue
+                if pid in convergence_sources:
+                    continue
+                port_st.y = _snap(port_st.y)
+
+    # Restore convergence midpoints after snap: if a convergence
+    # target's source Ys moved during snap, re-place the target at the
+    # new midpoint so a fan-in still visually converges symmetrically.
+    for target_id, src_ids in convergence_sources.items():
+        st = graph.stations.get(target_id)
+        if st is None or getattr(st, "off_track", False):
+            continue
+        # Convergence sources whose snap displaced them away from their
+        # original Y may break the midpoint relationship; recompute
+        # from the post-snap source coordinates.
+        new_src_ys = [graph.stations[sid].y for sid in src_ids if sid in graph.stations]
+        if len(set(round(y, 3) for y in new_src_ys)) < 2:
+            continue
+        midpoint = (max(new_src_ys) + min(new_src_ys)) / 2.0
+        st.y = midpoint
+
+
+def _convergence_source_ys(graph: MetroGraph) -> dict[str, list[str]]:
+    """Return {target_id: [source_station_ids]} for fan-in convergences.
+
+    A station/port qualifies as a convergence target when it has two or
+    more inbound real-station predecessors at distinct Ys and the
+    target's own Y is the midpoint of those sources' Ys.  Snapping such
+    a target to a grid slot pulls it off the midpoint, forcing a
+    formerly-symmetric merge into an asymmetric one.
+
+    Walks one step back through junctions to identify the real
+    predecessors so fan-in via a single junction is still detected.
+    """
+    junction_ids = set(graph.junctions)
+    inbound: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges:
+        src_id = edge.source
+        if src_id in junction_ids:
+            for e2 in graph.edges:
+                if e2.target != src_id:
+                    continue
+                pre = graph.stations.get(e2.source)
+                if pre is None or pre.is_port:
+                    continue
+                inbound[edge.target].add(e2.source)
+        else:
+            src = graph.stations.get(src_id)
+            if src is None or src.is_port:
+                continue
+            inbound[edge.target].add(src_id)
+
+    convergence: dict[str, list[str]] = {}
+    for target_id, src_ids in inbound.items():
+        if len(src_ids) < 2:
+            continue
+        st = graph.stations.get(target_id)
+        if st is None:
+            continue
+        src_ys = sorted({round(graph.stations[sid].y, 3) for sid in src_ids})
+        if len(src_ys) < 2:
+            continue
+        midpoint = (src_ys[0] + src_ys[-1]) / 2.0
+        # Treat as a convergence only when the target sits at the
+        # midpoint of the source Y range (within a small tolerance).
+        # Stations that just happen to receive multiple inbound edges
+        # but sit on a single track (e.g. fan-in to the existing trunk)
+        # are excluded so they remain on-grid.
+        if abs(st.y - midpoint) < 1.0:
+            convergence[target_id] = sorted(src_ids)
+    return convergence
+
+
+def _divergence_target_ys(graph: MetroGraph) -> set[str]:
+    """Return station/port ids that are fan-out divergence anchors.
+
+    A station/port qualifies as a divergence anchor when it has two or
+    more outbound real-station successors at distinct Ys and the
+    station's own Y lies strictly between at least one successor above
+    and one successor below.  Snapping such a hub onto one of those
+    successor tracks converts that outbound diagonal into a flat
+    segment, which the downstream routing centring pass treats as a
+    chain predecessor and consequently refuses to centre the
+    successor's column.
+
+    Walks one step forward through junctions to identify the real
+    successors so fan-out via a single junction is still detected.
+    """
+    junction_ids = set(graph.junctions)
+    outbound: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges:
+        tgt_id = edge.target
+        if tgt_id in junction_ids:
+            for e2 in graph.edges:
+                if e2.source != tgt_id:
+                    continue
+                post = graph.stations.get(e2.target)
+                if post is None or post.is_port:
+                    continue
+                outbound[edge.source].add(e2.target)
+        else:
+            tgt = graph.stations.get(tgt_id)
+            if tgt is None or tgt.is_port:
+                continue
+            outbound[edge.source].add(tgt_id)
+
+    anchors: set[str] = set()
+    for src_id, tgt_ids in outbound.items():
+        if len(tgt_ids) < 2:
+            continue
+        st = graph.stations.get(src_id)
+        if st is None:
+            continue
+        tgt_ys = sorted({round(graph.stations[sid].y, 3) for sid in tgt_ids})
+        if len(tgt_ys) < 2:
+            continue
+        # Only treat as an anchor when the station sits strictly between
+        # at least one outbound target above and one below.  Hubs sitting
+        # at or beyond either extreme can snap freely - the snap won't
+        # collapse a diagonal onto a target track.
+        sy = st.y
+        has_below = any(ty < sy - 0.5 for ty in tgt_ys)
+        has_above = any(ty > sy + 0.5 for ty in tgt_ys)
+        if has_below and has_above:
+            anchors.add(src_id)
+    return anchors
 
 
 def _section_bundle_lines(graph: MetroGraph, section: Section) -> set[str]:
@@ -3186,6 +3441,76 @@ def _resolve_tb_exit_y(
             exit_section.bbox_h = desired_bot - exit_section.bbox_y
 
     return tgt_y
+
+
+def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
+    """Extend each TB-section's bbox bottom to match its downstream
+    target section's bbox bottom.
+
+    A TB (fold) section's exit port sits at the Y of the downstream
+    LR/RL section's entry port (placed by ``_resolve_tb_exit_y``).
+    When the TB section's bbox bottom equals its exit-port Y, the
+    inter-section line runs flush against the section edge.
+
+    For every TB section with an LR/RL exit, find the target sections
+    its exit ports feed into (directly or via a junction) and grow the
+    TB section's ``bbox_h`` so its bottom reaches the maximum of those
+    targets' bbox bottoms.  Bbox tops are preserved; only ``bbox_h``
+    grows.
+
+    Skipped for TB sections with BOTTOM-side exit ports (TB->TB flow)
+    so the bottom-edge port placement invariant continues to hold.
+    """
+    junction_ids = set(graph.junctions)
+
+    def _downstream_section_ids(tb_section: Section) -> set[str]:
+        out: set[str] = set()
+        for pid in tb_section.exit_ports:
+            for edge in graph.edges:
+                if edge.source != pid:
+                    continue
+                candidates: list[str] = []
+                if edge.target in junction_ids:
+                    for e2 in graph.edges:
+                        if e2.source == edge.target:
+                            candidates.append(e2.target)
+                else:
+                    candidates.append(edge.target)
+                for tid in candidates:
+                    tport = graph.ports.get(tid)
+                    if tport is None:
+                        continue
+                    tsec = graph.sections.get(tport.section_id)
+                    if tsec is None or tsec.id == tb_section.id:
+                        continue
+                    out.add(tsec.id)
+        return out
+
+    for section in list(graph.sections.values()):
+        if section.direction != "TB" or section.bbox_h <= 0:
+            continue
+        exit_sides = {
+            graph.ports[pid].side for pid in section.exit_ports if pid in graph.ports
+        }
+        if not exit_sides & {PortSide.LEFT, PortSide.RIGHT}:
+            continue
+        if PortSide.BOTTOM in exit_sides:
+            continue
+        target_ids = _downstream_section_ids(section)
+        if not target_ids:
+            continue
+        target_bots = [
+            graph.sections[tid].bbox_y + graph.sections[tid].bbox_h
+            for tid in target_ids
+            if tid in graph.sections and graph.sections[tid].bbox_h > 0
+        ]
+        if not target_bots:
+            continue
+        desired_bot = max(target_bots)
+        current_bot = section.bbox_y + section.bbox_h
+        if desired_bot - current_bot <= 0.5:
+            continue
+        section.bbox_h = desired_bot - section.bbox_y
 
 
 def _clamp_tb_entry_port(
