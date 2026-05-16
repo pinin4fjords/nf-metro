@@ -23,6 +23,7 @@ from nf_metro.layout.constants import (
     HEADER_CLEARANCE,
     JUNCTION_MARGIN,
     MERGE_ROUTE_MARGIN,
+    MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     OFFSET_STEP,
@@ -1833,21 +1834,28 @@ def _route_diagonal(
     # next to P and the bypass line runs parallel below the trunk for
     # the entire span between P and T.
     #
-    # Use ``MIN_STRAIGHT_EDGE`` for the V-side flat (not the port-based
-    # ``CURVE_RADIUS + MIN_STRAIGHT_PORT``) so the two halves of the
-    # U-shape have matching flat lengths at V: P -> V's tgt_min and
-    # V -> T's src_min both come out to MIN_STRAIGHT_EDGE.  Otherwise
-    # if the far endpoint of either half is a port, that half gets
-    # min_straight=15 while the other gets 10, yielding an asymmetric
-    # U with a visible kink.
+    # The V-side flat must be at least ``CURVE_RADIUS +
+    # MIN_STATION_FLAT_LENGTH`` so that, after the corner curve consumes
+    # ``CURVE_RADIUS`` pixels of the flat, a visible horizontal segment
+    # of ``MIN_STATION_FLAT_LENGTH`` pixels remains on each side of V.
+    # The two halves (P -> V's tgt_min and V -> T's src_min) use the
+    # same value so the U at V stays symmetric.  If horizontal room
+    # between the real endpoint and V is too narrow to also fit the
+    # diagonal_run and the far-end minimum, fall back to
+    # ``MIN_STRAIGHT_EDGE`` to preserve the diagonal.
+    v_flat = CURVE_RADIUS + MIN_STATION_FLAT_LENGTH
     if tgt.is_hidden and edge.target.startswith("__bypass_"):
         is_fork_flag = False
         is_join_flag = True
-        tgt_min = MIN_STRAIGHT_EDGE
+        tgt_min = v_flat
+        if src_min + tgt_min + ctx.diagonal_run > abs(dx):
+            tgt_min = MIN_STRAIGHT_EDGE
     elif src.is_hidden and edge.source.startswith("__bypass_"):
         is_fork_flag = True
         is_join_flag = False
-        src_min = MIN_STRAIGHT_EDGE
+        src_min = v_flat
+        if src_min + tgt_min + ctx.diagonal_run > abs(dx):
+            src_min = MIN_STRAIGHT_EDGE
 
     diag_start_x, diag_end_x = _compute_diagonal_placement(
         sx,
