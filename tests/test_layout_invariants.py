@@ -702,3 +702,37 @@ def test_terminus_not_directly_after_diagonal(fixture):
                     f"(dx={dx:.1f}, dy={dy:.1f})"
                 )
                 break
+
+
+# ---------------------------------------------------------------------------
+# Station markers and off-track file icons must never overlap
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", ["da_pipeline.mmd", "rnaseq_sections.mmd"])
+def test_no_station_or_icon_overlap(fixture):
+    """No two station marker bboxes (including off-track file icons)
+    may overlap; otherwise one station hides another in the rendered
+    SVG."""
+    from nf_metro.layout.engine import _station_marker_bbox
+
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    boxes: list[tuple[str, tuple[float, float, float, float]]] = []
+    for sid in graph.stations:
+        b = _station_marker_bbox(graph, sid, offsets=offsets)
+        if b is not None:
+            boxes.append((sid, b))
+
+    tol = 0.5
+    for i, (s1, (x1, y1, X1, Y1)) in enumerate(boxes):
+        for s2, (x2, y2, X2, Y2) in boxes[i + 1 :]:
+            overlap = (
+                x1 < X2 - tol and x2 < X1 - tol and y1 < Y2 - tol and y2 < Y1 - tol
+            )
+            assert not overlap, (
+                f"{fixture}: marker overlap between {s1!r} "
+                f"bbox=({x1:.1f},{y1:.1f},{X1:.1f},{Y1:.1f}) "
+                f"and {s2!r} "
+                f"bbox=({x2:.1f},{y2:.1f},{X2:.1f},{Y2:.1f})"
+            )

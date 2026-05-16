@@ -140,6 +140,57 @@ def _guard_section_bboxes_positive(graph: MetroGraph, phase: str) -> None:
             )
 
 
+def _station_marker_bbox(
+    graph: MetroGraph,
+    sid: str,
+    offsets: dict | None = None,
+    radius: float = STATION_RADIUS_APPROX,
+) -> tuple[float, float, float, float] | None:
+    """Rendered marker / icon bbox for ``sid``, or ``None`` for ports,
+    hidden stations, and junctions.
+
+    Mirrors the pill geometry used by ``nf_metro.render.svg``: width
+    ``2 * radius``, height ``(max_off - min_off) + 2 * radius``, centred
+    at ``(station.x, station.y + (min_off + max_off) / 2)``.
+    """
+    from nf_metro.layout.routing import compute_station_offsets
+
+    st = graph.stations.get(sid)
+    if st is None or st.is_port or st.is_hidden or sid in graph.junctions:
+        return None
+    if offsets is None:
+        offsets = compute_station_offsets(graph)
+    line_offs = [offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)] or [
+        0.0
+    ]
+    min_off, max_off = min(line_offs), max(line_offs)
+    cy = st.y + (min_off + max_off) / 2
+    half_h = (max_off - min_off) / 2 + radius
+    return (st.x - radius, cy - half_h, st.x + radius, cy + half_h)
+
+
+def _guard_no_station_overlap(graph: MetroGraph, phase: str) -> None:
+    """Final-phase: no two station marker bboxes may overlap at render
+    time, else one station hides another in the SVG."""
+    from nf_metro.layout.routing import compute_station_offsets
+
+    offsets = compute_station_offsets(graph)
+    boxes: list[tuple[str, tuple[float, float, float, float]]] = []
+    for sid in graph.stations:
+        b = _station_marker_bbox(graph, sid, offsets=offsets)
+        if b is not None:
+            boxes.append((sid, b))
+    tol = 0.5
+    for i, (s1, (x1, y1, X1, Y1)) in enumerate(boxes):
+        for s2, (x2, y2, X2, Y2) in boxes[i + 1 :]:
+            if x1 < X2 - tol and x2 < X1 - tol and y1 < Y2 - tol and y2 < Y1 - tol:
+                raise PhaseInvariantError(
+                    f"{phase}: position clash: {s1!r} at "
+                    f"({(x1 + X1) / 2:.1f},{(y1 + Y1) / 2:.1f}) overlaps "
+                    f"{s2!r} at ({(x2 + X2) / 2:.1f},{(y2 + Y2) / 2:.1f})"
+                )
+
+
 def compute_layout(
     graph: MetroGraph,
     x_spacing: float = X_SPACING,
@@ -562,6 +613,7 @@ def _compute_section_layout(
         _guard_section_bboxes_positive(graph, "after Phase 12 (final)")
         _guard_stations_in_sections(graph, "after Phase 12 (final)")
         _guard_ports_on_boundaries(graph, "after Phase 12 (final)")
+        _guard_no_station_overlap(graph, "after Phase 12 (final)")
 
 
 def _renumber_sections_by_grid(graph: MetroGraph) -> None:
@@ -1841,6 +1893,22 @@ def _balance_section_content_around_trunk(
                 graph.stations[nxt].y += delta
                 cur = nxt
 
+        # Ys of every other station (incl. off-track icons) at ``col_x``.
+        # Lift candidates must avoid these slots or the lifted marker
+        # overlaps an existing marker / icon at render time.
+        def _column_occupied_ys(col_x: float, skip_sid: str) -> list[float]:
+            occ: list[float] = []
+            for sid2 in section.station_ids:
+                if sid2 == skip_sid:
+                    continue
+                st2 = graph.stations.get(sid2)
+                if st2 is None or st2.is_port or st2.is_hidden:
+                    continue
+                if abs(st2.x - col_x) > 0.5:
+                    continue
+                occ.append(st2.y)
+            return occ
+
         max_iters = len(movable)
         for _ in range(max_iters):
             section_top_y = min(graph.stations[s].y for s in internal_ids)
@@ -1857,8 +1925,19 @@ def _balance_section_content_around_trunk(
                 below.sort(key=lambda s: graph.stations[s].y, reverse=True)
             else:
                 below.sort(key=lambda s: graph.stations[s].y)
-            candidate = below[0]
+            # First below-trunk candidate whose lift Y doesn't collide
+            # with another station/icon already occupying the same column.
+            candidate = None
             new_y = section_top_y - y_spacing
+            for cand in below:
+                col_x = graph.stations[cand].x
+                occ = _column_occupied_ys(col_x, cand)
+                if any(abs(oy - new_y) < y_spacing - 0.5 for oy in occ):
+                    continue
+                candidate = cand
+                break
+            if candidate is None:
+                break
             st = graph.stations.get(candidate)
             has_above_label = bool(st and st.label and st.label.strip())
             label_clearance = y_spacing / 2 if has_above_label else 0.0
