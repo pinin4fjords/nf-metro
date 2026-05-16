@@ -33,6 +33,7 @@ from nf_metro.layout.constants import (
     LINE_GAP,
     MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC,
     MIN_PORT_STATION_GAP,
+    MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     MIN_Y_SPACING_FLOOR,
@@ -3707,15 +3708,18 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
 def _shrink_bboxes_to_content_bottom(
     graph: MetroGraph, section_y_padding: float
 ) -> None:
-    """Bottom-only bbox shrink after late content lifts.
+    """Resize bbox bottoms so they sit ``section_y_padding`` below content.
 
     ``_compact_row_content_to_bbox_top`` shrinks the bottom slack to
     ``section_y_padding`` once, but later phases
     (``_fan_source_inputs_upward``, ``_recenter_full_bundle_columns``)
     can pull content further up, leaving fresh empty space below the
-    last station.  Re-shrink each section's ``bbox_h`` so the bottom
-    sits ``section_y_padding`` below the bottom-most station/port.
-    Station Ys are unchanged, so trunk alignment is preserved.
+    last station; conversely ``_snap_all_y_to_grid`` can snap a station
+    downward, eating into the existing padding.  Re-size each section's
+    ``bbox_h`` so the bottom sits ``section_y_padding`` below the
+    bottom-most station/port -- shrinking when content rose, growing
+    when content snapped down.  Station Ys are unchanged, so trunk
+    alignment is preserved.
 
     Never trims past the maximum bbox bottom of any row-mate.  A
     row-mate is any other section whose bbox vertical range overlaps
@@ -3752,13 +3756,23 @@ def _shrink_bboxes_to_content_bottom(
                 out.append(o_y_bot)
         return out
 
+    v_curve_clearance = CURVE_RADIUS + MIN_STATION_FLAT_LENGTH / 2
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
         content_max_ys = [
             graph.stations[sid].y
             for sid in section.station_ids
-            if sid in graph.stations and not graph.stations[sid].is_port
+            if (
+                sid in graph.stations
+                and not graph.stations[sid].is_port
+                and not sid.startswith("__bypass_")
+            )
+        ]
+        bypass_max_ys = [
+            graph.stations[sid].y
+            for sid in section.station_ids
+            if sid in graph.stations and sid.startswith("__bypass_")
         ]
         port_max_ys = [
             graph.stations[sid].y
@@ -3767,9 +3781,16 @@ def _shrink_bboxes_to_content_bottom(
         ]
         if not content_max_ys:
             continue
-        desired_bot = max(content_max_ys) + section_y_padding
+        content_bot = max(content_max_ys) + section_y_padding
+        if bypass_max_ys:
+            content_bot = max(content_bot, max(bypass_max_ys) + v_curve_clearance)
         if port_max_ys:
-            desired_bot = max(desired_bot, max(port_max_ys))
+            content_bot = max(content_bot, max(port_max_ys))
+        current_bot = section.bbox_y + section.bbox_h
+        if content_bot > current_bot + 0.5:
+            section.bbox_h = content_bot - section.bbox_y
+            continue
+        desired_bot = content_bot
         mate_bots = _row_mate_bottoms(section)
         if mate_bots:
             desired_bot = max(desired_bot, max(mate_bots))
@@ -3997,10 +4018,12 @@ def _layout_single_section(
     # Ensure minimum inner extent so stations sit on visible track
     _enforce_min_extent(sub, section, x_spacing, y_spacing)
 
-    # Bypass V helpers (``__bypass_``) get reduced padding so the
-    # section grows enough to keep the diversion curve clear of the
-    # edge without absorbing the full station_y_padding (which would
-    # push downstream sections too far).
+    # Bypass V helpers (``__bypass_``) have no rendered marker.  Use
+    # them to extend the bbox only when V sits beyond the real-station
+    # extent, and only by enough for the diversion curve to clear the
+    # section edge (~CURVE_RADIUS + half a station flat) - much less
+    # than the full station_y_padding (which is reserved for label
+    # clearance around real stations).
     real_for_bbox = [
         s for s in sub.stations.values() if not s.id.startswith("__bypass_")
     ]
@@ -4011,16 +4034,25 @@ def _layout_single_section(
     ys = [s.y for s in real_for_bbox]
     extra_label_h = _multiline_label_padding(sub)
     y_pad = section_y_padding + extra_label_h
-    v_pad = section_y_padding / 2
+    v_curve_clearance = CURVE_RADIUS + MIN_STATION_FLAT_LENGTH / 2
     y_min = min(ys)
     y_max = max(ys)
-    if bypass_v_ys:
-        y_min = min(y_min, min(bypass_v_ys) + (y_pad - v_pad))
-        y_max = max(y_max, max(bypass_v_ys) - (y_pad - v_pad))
     section.bbox_x = min(xs) - section_x_padding
-    section.bbox_y = y_min - y_pad
     section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
-    section.bbox_h = (y_max - y_min) + y_pad * 2
+    bbox_top = y_min - y_pad
+    bbox_bot = y_max + y_pad
+    if bypass_v_ys:
+        # When V sits beyond the real-station extent, use curve-only
+        # clearance rather than full label padding: V has no marker,
+        # no label, just a curve corner to render past.
+        v_min = min(bypass_v_ys)
+        v_max = max(bypass_v_ys)
+        if v_min < y_min:
+            bbox_top = min(bbox_top, v_min - v_curve_clearance)
+        if v_max > y_max:
+            bbox_bot = v_max + v_curve_clearance
+    section.bbox_y = bbox_top
+    section.bbox_h = bbox_bot - bbox_top
 
     # Apply direction-specific bbox adjustments
     _adjust_tb_labels(sub, section, graph)
