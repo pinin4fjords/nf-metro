@@ -30,6 +30,7 @@ TEST_FIXTURES_DIR = project_root / "tests" / "fixtures"
 TOPOLOGIES_DIR = project_root / "examples" / "topologies"
 GUIDE_DIR = project_root / "examples" / "guide"
 GALLERY_DIR = project_root / "docs" / "gallery"
+PIPELINES_DIR = project_root / "docs" / "pipelines"
 RENDERS_DIR = project_root / "docs" / "assets" / "renders"
 
 # Ordered list of examples. Each entry is (filename_stem, source_dir, description).
@@ -44,22 +45,14 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
     (
         "rnaseq_auto",
         EXAMPLES_DIR,
-        "nf-core/rnaseq with fully auto-inferred layout.",
+        "Demonstrates fully auto-inferred layout: no `%%metro grid:` directives "
+        "needed. See [nf-core Pipelines](../pipelines/index.md) for the full gallery.",
     ),
     (
         "rnaseq_sections",
         EXAMPLES_DIR,
-        "nf-core/rnaseq with manual grid overrides and file markers.",
-    ),
-    (
-        "genomeassembly",
-        EXAMPLES_DIR,
-        "sanger-tol/genomeassembly with fan-out/fan-in across optional stages.",
-    ),
-    (
-        "variantprioritization",
-        EXAMPLES_DIR,
-        "nf-core/variantprioritization with cross-row bypass routing.",
+        "Same pipeline with manual `%%metro grid:` overrides and file markers, "
+        "showing how explicit directives can fine-tune placement.",
     ),
     (
         "differentialabundance",
@@ -177,19 +170,66 @@ CATEGORY_HEADERS: dict[str, str] = {
 }
 
 
+# Ordered list of nf-core pipeline examples.
+# Each entry is (filename_stem, display_name, repo_url, description).
+PIPELINE_ENTRIES: list[tuple[str, str, str, str]] = [
+    (
+        "rnaseq_auto",
+        "nf-core/rnaseq",
+        "https://github.com/nf-core/rnaseq",
+        "RNA-seq analysis with multiple aligner and quantification routes "
+        "(STAR/RSEM, STAR/Salmon, HISAT2, Salmon pseudo-alignment, Kallisto).",
+    ),
+    (
+        "epitopeprediction",
+        "nf-core/epitopeprediction",
+        "https://github.com/nf-core/epitopeprediction",
+        "MHC binding prediction from VCF, protein FASTA, or peptide TSV inputs "
+        "through five prediction tools.",
+    ),
+    (
+        "hlatyping",
+        "nf-core/hlatyping",
+        "https://github.com/nf-core/hlatyping",
+        "HLA typing from FASTQ or BAM inputs via OptiType and HLA-HD.",
+    ),
+    (
+        "variantprioritization",
+        "nf-core/variantprioritization",
+        "https://github.com/nf-core/variantprioritization",
+        "Somatic and germline variant prioritization using PCGR and CPSR.",
+    ),
+    (
+        "variantbenchmarking",
+        "nf-core/variantbenchmarking",
+        "https://github.com/nf-core/variantbenchmarking",
+        "Benchmarking of variant callers against truth sets with "
+        "Truvari, hap.py, RTGtools, and more.",
+    ),
+    (
+        "genomeassembly",
+        "sanger-tol/genomeassembly",
+        "https://github.com/sanger-tol/genomeassembly",
+        "Genome assembly from long reads and Hi-C data through "
+        "purging, polishing, scaffolding, and QC.",
+    ),
+]
+
 # Manifest mapping SVG filename -> section for the render diff page.
 # Populated by each render function, written to RENDERS_DIR/manifest.json.
 _manifest: dict[str, str] = {}
 
 
-def render_mmd(mmd_path: Path, svg_path: Path) -> None:
+def render_mmd(
+    mmd_path: Path, svg_path: Path, *, debug: bool = DEBUG_RENDERS
+) -> None:
     """Parse, layout, and render a .mmd file to SVG."""
     text = mmd_path.read_text()
     graph = parse_metro_mermaid(text)
     compute_layout(graph)
     theme_name = graph.style if graph.style in THEMES else "nfcore"
     theme = THEMES[theme_name]
-    svg_str = render_svg(graph, theme, debug=DEBUG_RENDERS)
+    svg_str = render_svg(graph, theme, debug=debug)
     svg_path.write_text(svg_str)
 
 
@@ -360,28 +400,72 @@ def render_nextflow_examples() -> None:
     print()
 
 
-def render_pipeline_examples() -> None:
-    """Render pipeline examples not covered by the gallery or guide."""
+def build_pipelines_page() -> None:
+    """Generate docs/pipelines/index.md and render pipeline SVGs."""
+    PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
-    section = "Pipeline Examples"
-    print("Pipeline examples:")
-    for stem in (
-        "epitopeprediction",
-        "hlatyping",
-        "rnaseq_sections_manual",
-        "variantprioritization",
-    ):
+    section = "nf-core Pipelines"
+    print("nf-core pipelines:")
+
+    lines: list[str] = [
+        "# nf-core Pipelines",
+        "",
+        "Real-world pipelines rendered with nf-metro. These are maintained as "
+        "`.mmd` files alongside the pipeline source code and rendered automatically.",
+        "",
+        "See the [Gallery](../gallery/index.md) for layout pattern examples and the "
+        "[Guide](../guide.md) for how to write your own.",
+        "",
+    ]
+
+    for stem, display_name, repo_url, description in PIPELINE_ENTRIES:
+        mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
+        svg_path = RENDERS_DIR / f"pipeline_{stem}.svg"
+
+        if not mmd_path.exists():
+            print(f"  WARNING: {mmd_path} not found, skipping")
+            continue
+
+        try:
+            render_mmd(mmd_path, svg_path, debug=True)
+            status = "OK"
+        except Exception as e:
+            status = f"FAIL: {e}"
+            print(f"  {stem}: {status}")
+            continue
+
+        _manifest[svg_path.name] = section
+        print(f"  {stem}: {status}")
+
+        mmd_source = mmd_path.read_text()
+
+        lines.append(f"## [{display_name}]({repo_url})\n")
+        lines.append(f"{description}\n")
+        lines.append(f"![{display_name}](../assets/renders/pipeline_{stem}.svg)\n")
+        lines.append('??? note "Mermaid source"\n')
+        lines.append("    ```text")
+        for src_line in mmd_source.rstrip().split("\n"):
+            lines.append(f"    {src_line}")
+        lines.append("    ```\n")
+
+    pipelines_md = "\n".join(lines)
+    pipelines_path = PIPELINES_DIR / "index.md"
+    pipelines_path.write_text(pipelines_md)
+    print(f"\nPipelines page written to {pipelines_path}")
+    print()
+
+    # Also render rnaseq_sections_manual for the guide (not on pipelines page)
+    for stem in ("rnaseq_sections_manual",):
         mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
         if not mmd_path.exists():
             continue
         svg_path = RENDERS_DIR / f"{stem}.svg"
         try:
             render_mmd(mmd_path, svg_path)
-            _manifest[svg_path.name] = section
+            _manifest[svg_path.name] = "Guide Examples"
             print(f"  {stem}: OK")
         except Exception as e:
             print(f"  {stem}: FAIL - {e}")
-    print()
 
 
 def render_test_fixtures() -> None:
@@ -417,7 +501,7 @@ if __name__ == "__main__":
             old_svg.unlink()
     render_guide_examples()
     render_nextflow_examples()
-    render_pipeline_examples()
+    build_pipelines_page()
     render_test_fixtures()
     build_gallery()
     write_manifest()
