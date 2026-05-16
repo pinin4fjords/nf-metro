@@ -709,7 +709,13 @@ def _compute_section_layout(
     # incoming, one outgoing, single-line consumer) onto a half-grid Y
     # when sharing the full-row Y with a busier sibling whose inbound
     # bundle would otherwise cross the sparse station's marker bbox.
-    _shift_sparse_loop_stations_to_clear_bundle(graph, y_spacing)
+    _shift_sparse_loop_stations_to_clear_bundle(graph, y_spacing, section_y_padding)
+
+    # Phase 13l: When Phase 13k grew a section's bbox downward, push
+    # sections in lower rows down so they don't crowd the grown bbox.
+    # ``_tighten_lower_rows_after_shrink`` only closes slack (pulls
+    # rows up); the inverse push happens here.
+    _push_lower_rows_after_bbox_grow(graph, section_y_gap)
 
     if validate:
         _guard_coordinates_finite(graph, "after Phase 12 (final)")
@@ -2416,7 +2422,9 @@ def _recenter_loop_side_stations(graph: MetroGraph) -> None:
 
 
 def _shift_sparse_loop_stations_to_clear_bundle(
-    graph: MetroGraph, y_spacing: float
+    graph: MetroGraph,
+    y_spacing: float,
+    section_y_padding: float = SECTION_Y_PADDING,
 ) -> None:
     """Shift single-line loop side stations onto a half-pitch Y when
     their full-row Y collides with a busier sibling's inbound bundle.
@@ -2528,19 +2536,109 @@ def _shift_sparse_loop_stations_to_clear_bundle(
             # stations must land on a full grid row.
             shift = y_spacing if dy > 0 else -y_spacing
             new_y = st.y + shift
-            # Grow the section bbox downward / upward if the shift
-            # pushes S past the current bbox edge.  Without this the
-            # validator would fire on bbox-overflow.
+            # Grow the section bbox so the standard ``section_y_padding``
+            # sits between the shifted station's marker edge and the
+            # bbox edge.  The earlier ``+ STATION_RADIUS_APPROX`` -only
+            # buffer kept the validator happy but left the bbox flush
+            # against the station marker, breaking the visual padding
+            # invariant other sections satisfy after
+            # ``_shrink_bboxes_to_content_bottom``.
+            edge_pad = STATION_RADIUS_APPROX + section_y_padding
             sec_top = section.bbox_y
             sec_bottom = section.bbox_y + section.bbox_h
-            if new_y < sec_top + 5:
-                grow = sec_top + 5 - new_y
+            if new_y < sec_top + edge_pad:
+                grow = sec_top + edge_pad - new_y
                 section.bbox_y -= grow
                 section.bbox_h += grow
-            elif new_y > sec_bottom - 5:
-                grow = new_y - (sec_bottom - 5)
+            elif new_y > sec_bottom - edge_pad:
+                grow = new_y - (sec_bottom - edge_pad)
                 section.bbox_h += grow
             st.y = new_y
+
+
+def _push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> None:
+    """Push lower-row sections down when an upper-row bbox grows.
+
+    ``_shift_sparse_loop_stations_to_clear_bundle`` (Phase 13k) can
+    grow a section's ``bbox_h`` downward when shifting a sparse loop
+    station like ``grea`` past the original bbox bottom.  Row offsets
+    were fixed earlier by ``_compute_section_offsets`` from pre-shift
+    bbox heights, so the section below the grown one ends up sitting
+    closer than ``section_y_gap`` from the new bbox bottom.
+
+    For each row ``r >= 1``, measure the deficit between the lowest
+    bbox bottom of sections ending at row ``r - 1`` and the top of
+    sections at row ``r``, but only count pairs whose column spans
+    overlap.  Two sections that share a vertical edge in column space
+    must keep ``section_y_gap`` between them; sections in different
+    columns can sit with smaller (or no) vertical separation without
+    visual interference.  If a positive deficit remains, shift row
+    ``r`` and below downward by that deficit (sections + stations +
+    ports).  Junctions live in inter-section space and are reproduced
+    by routing.
+    """
+    if not graph.sections:
+        return
+
+    sections_by_row_start: dict[int, list[Section]] = defaultdict(list)
+    for s in graph.sections.values():
+        sections_by_row_start[s.grid_row].append(s)
+    if not sections_by_row_start:
+        return
+    max_row = max(s.grid_row + s.grid_row_span - 1 for s in graph.sections.values())
+
+    def _cols_overlap(a: Section, b: Section) -> bool:
+        a_start = a.grid_col
+        a_end = a_start + a.grid_col_span - 1
+        b_start = b.grid_col
+        b_end = b_start + b.grid_col_span - 1
+        return not (a_end < b_start or b_end < a_start)
+
+    for r in range(1, max_row + 1):
+        lower = sections_by_row_start.get(r, [])
+        if not lower:
+            continue
+        ending_at_prev = [
+            s
+            for s in graph.sections.values()
+            if s.grid_row + s.grid_row_span - 1 == r - 1 and s.bbox_h > 0
+        ]
+        if not ending_at_prev:
+            continue
+        # Only consider column-overlapping (upper, lower) pairs for
+        # deficit computation: a tall upper-row bbox that lives in a
+        # different column from the lower-row content does not need
+        # additional vertical clearance to satisfy the row gap.
+        deficit = 0.0
+        for us in ending_at_prev:
+            for ls in lower:
+                if ls.bbox_h <= 0:
+                    continue
+                if not _cols_overlap(us, ls):
+                    continue
+                upper_bot = us.bbox_y + us.bbox_h
+                lower_top = ls.bbox_y
+                d = (upper_bot + section_y_gap) - lower_top
+                if d > deficit:
+                    deficit = d
+        if deficit <= 0.5:
+            continue
+
+        shifted_section_ids = {
+            sid for sid, s in graph.sections.items() if s.grid_row >= r
+        }
+        for sid in shifted_section_ids:
+            graph.sections[sid].bbox_y += deficit
+        shifted_station_ids = set()
+        for sid in shifted_section_ids:
+            shifted_station_ids.update(graph.sections[sid].station_ids)
+        for stid in shifted_station_ids:
+            st = graph.stations.get(stid)
+            if st is not None:
+                st.y += deficit
+            port = graph.ports.get(stid)
+            if port is not None:
+                port.y += deficit
 
 
 def _loop_corner_x(
