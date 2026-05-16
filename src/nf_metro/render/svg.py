@@ -630,22 +630,19 @@ def _render_edges(
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
 
-    # Sort routes by effective Y of the source point (highest Y first) so
-    # lines are drawn bottom-to-top.  This ensures each interior line in a
-    # bundle only loses one boundary edge to its neighbor rather than having
-    # a line drawn first get painted over on both sides.
-    def _sort_key(route: RoutedPath) -> float:
-        if route.offsets_applied:
-            return -route.points[0][1]
-        src_off = station_offsets.get((route.edge.source, route.line_id), 0.0)
-        return -(route.points[0][1] + src_off)
-
-    routes = sorted(routes, key=_sort_key)
+    # Group routes by metro line so each line's paths are contiguous in
+    # document order, then any two lines have the same relative paint order
+    # at every overlap.  Reverse-of-definition order makes the first-defined
+    # line paint last (on top everywhere).  Unknown line_ids sort to the
+    # back (painted last); Python's stable sort preserves within-group order.
+    line_priority = {lid: i for i, lid in enumerate(graph.lines)}
+    routes = sorted(routes, key=lambda r: -line_priority.get(r.line_id, -1))
 
     for route in routes:
         line = graph.lines.get(route.line_id)
         color = line.color if line else FALLBACK_LINE_COLOR
         style_kw = _line_style_kwargs(line.style) if line else {}
+        class_name = f"metro-line-{route.line_id}"
 
         pts = apply_route_offsets(route, station_offsets)
 
@@ -659,6 +656,7 @@ def _render_edges(
                     stroke=color,
                     stroke_width=theme.line_width,
                     stroke_linecap="round",
+                    class_=class_name,
                     **style_kw,
                 )
             )
@@ -669,6 +667,7 @@ def _render_edges(
                 fill="none",
                 stroke_linecap="round",
                 stroke_linejoin="round",
+                class_=class_name,
                 **style_kw,
             )
             path.M(*pts[0])
