@@ -5,13 +5,14 @@ Section-first layout: sections are laid out independently, then placed on a meta
 
 from __future__ import annotations
 
-__all__ = ["PhaseInvariantError", "compute_layout"]
+__all__ = ["PhaseInvariantError", "compute_layout", "compute_min_y_spacing"]
 
 import math
 from collections import Counter, defaultdict
 
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
+    DESCENDER_CLEARANCE,
     DIAGONAL_RUN,
     ENTRY_SHIFT_LR,
     ENTRY_SHIFT_TB,
@@ -19,6 +20,10 @@ from nf_metro.layout.constants import (
     EXIT_GAP_MULTIPLIER,
     FONT_HEIGHT,
     GUARD_TOLERANCE,
+    ICON_CAPTION_FONT_HEIGHT,
+    ICON_CAPTION_GAP,
+    ICON_HALF_HEIGHT,
+    ICON_STACK_LABEL_CLEARANCE,
     JUNCTION_MARGIN,
     LABEL_BBOX_MARGIN,
     LABEL_LINE_HEIGHT,
@@ -30,6 +35,7 @@ from nf_metro.layout.constants import (
     MIN_PORT_STATION_GAP,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
+    MIN_Y_SPACING_FLOOR,
     OFFSET_STEP,
     ROW_GAP,
     SECTION_GAP,
@@ -268,10 +274,82 @@ def _guard_no_line_crosses_non_consumer(graph: MetroGraph, phase: str) -> None:
                     )
 
 
+def compute_min_y_spacing(
+    graph: MetroGraph, floor: float = MIN_Y_SPACING_FLOOR
+) -> float:
+    """Return the minimum global ``y_spacing`` the graph's content needs.
+
+    Scans every LR/RL section and asks, for any pair of stations that
+    could land in vertically-adjacent grid slots in the same column:
+    what centre-to-centre pitch is needed for their labels / captioned
+    file icons not to collide?
+
+    The four worst-case vertical extents considered are:
+
+    * captioned file-icon below the marker: ``ICON_HALF_HEIGHT +
+      ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT``
+    * captioned file-icon above the marker: ``ICON_HALF_HEIGHT``
+    * labeled station, label below: ``LABEL_OFFSET + FONT_HEIGHT +
+      DESCENDER_CLEARANCE``
+    * labeled station, label above: ``LABEL_OFFSET + FONT_HEIGHT +
+      DESCENDER_CLEARANCE``
+
+    Required pitch for two stacked elements is
+    ``upper.below_extent + lower.above_extent +
+    ICON_STACK_LABEL_CLEARANCE``.  We take the worst case across all
+    candidate pairs in every LR/RL section, then clamp to ``floor`` so
+    a label-light graph stays at the historical default pitch.
+
+    Label-only stations alternate above/below within a column at the
+    default pitch, so they're not the binding constraint on their own.
+    Captioned file icons can't alternate (caption placement is fixed
+    under the icon), so the widening fires when icons enter the mix.
+
+    The result is applied uniformly to the whole render -- the grid
+    stays global, no per-section overrides.
+    """
+    icon_below = ICON_HALF_HEIGHT + ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT
+    icon_above = ICON_HALF_HEIGHT
+    label_extent = LABEL_OFFSET + FONT_HEIGHT + DESCENDER_CLEARANCE
+    clearance = ICON_STACK_LABEL_CLEARANCE
+
+    pitch_icon_icon = icon_above + icon_below + clearance
+    pitch_icon_over_label = icon_below + label_extent + clearance
+    pitch_label_over_icon = label_extent + icon_above + clearance
+
+    required = floor
+    if not graph.sections:
+        return required
+
+    for section in graph.sections.values():
+        if section.direction not in ("LR", "RL"):
+            continue
+        captioned = 0
+        labeled = 0
+        for sid in section.station_ids:
+            st = graph.stations.get(sid)
+            if st is None or st.is_port or st.is_hidden:
+                continue
+            has_caption = st.is_terminus and any(
+                bool(n) for n in (st.terminus_names or [])
+            )
+            has_label = bool(st.label) and not st.is_terminus
+            if has_caption:
+                captioned += 1
+            elif has_label:
+                labeled += 1
+        if captioned >= 2:
+            required = max(required, pitch_icon_icon)
+        if captioned >= 1 and labeled >= 1:
+            required = max(required, pitch_icon_over_label, pitch_label_over_icon)
+
+    return required
+
+
 def compute_layout(
     graph: MetroGraph,
     x_spacing: float = X_SPACING,
-    y_spacing: float = Y_SPACING,
+    y_spacing: float | None = None,
     x_offset: float = X_OFFSET,
     y_offset: float = Y_OFFSET,
     row_gap: float = ROW_GAP,
@@ -284,10 +362,17 @@ def compute_layout(
 ) -> None:
     """Compute layout positions for all stations in the graph.
 
+    When ``y_spacing`` is ``None`` (the default) it is derived from the
+    graph's content via ``compute_min_y_spacing`` so renders adapt to
+    captioned icons and labelled stations automatically.  Pass an
+    explicit numeric value to override.
+
     When *validate* is True, phase-boundary invariant checks run after
     key phases.  Violations raise ``PhaseInvariantError`` instead of
     silently producing broken layouts.
     """
+    if y_spacing is None:
+        y_spacing = compute_min_y_spacing(graph)
     # Optionally reorder lines by section span before layout.
     # Must happen here (on the full graph) before section subgraphs are
     # built, since subgraphs share graph.lines via reference.
@@ -716,6 +801,13 @@ def _compute_section_layout(
     # ``_tighten_lower_rows_after_shrink`` only closes slack (pulls
     # rows up); the inverse push happens here.
     _push_lower_rows_after_bbox_grow(graph, section_y_gap)
+
+    # Phase 13m: Pad vertical spacing between stacked file-input icons
+    # whose under-icon captions would otherwise overlap the next icon
+    # below.  The default ``y_spacing`` grid (40 px) is smaller than a
+    # captioned icon's vertical extent (~44 px), so columns of source
+    # inputs in DA-style sections need a slightly wider pitch.
+    _pad_stacked_captioned_file_icons(graph, y_spacing, section_y_padding)
 
     if validate:
         _guard_coordinates_finite(graph, "after Phase 12 (final)")
@@ -6165,8 +6257,23 @@ def _place_off_track_above_consumers(
     # doesn't crash into a sibling off-track already at the desired Y.
     used_ys_per_col: dict[float, list[float]] = defaultdict(list)
 
+    # Iterate consumers bottom-up (largest consumer Y first).  The
+    # bumping mechanism only pushes upward, so placing the bottommost
+    # consumer's icon first lets subsequent (higher-consumer) icons
+    # stack above it.  The resulting visual order matches the consumer
+    # Y order: an upper consumer gets an upper icon, a lower consumer
+    # gets a lower icon, regardless of edge declaration order in the mmd.
+    def _consumer_anchor_y(item: tuple[str, list[Station]]) -> float:
+        cid = item[0] if item[0] else fallback_consumer_id
+        a = graph.stations.get(cid)
+        return a.y if a is not None else 0.0
+
+    ordered_consumers = sorted(
+        by_consumer.items(), key=_consumer_anchor_y, reverse=True
+    )
+
     highest_y: float | None = None
-    for consumer_id, stations in by_consumer.items():
+    for consumer_id, stations in ordered_consumers:
         anchor_id = consumer_id if consumer_id else fallback_consumer_id
         anchor = graph.stations.get(anchor_id)
         if anchor is None:
@@ -6414,3 +6521,143 @@ def _reanchor_off_track_to_consumer(
 
     if grew:
         _shift_graph_into_canvas(graph, section_y_padding)
+
+
+def _required_captioned_icon_pitch(y_spacing: float) -> float:
+    """Minimum centre-to-centre Y gap between two captioned file icons.
+
+    Stacked file-input stations carrying under-icon captions need enough
+    Y separation for the upper caption text to clear the lower icon's
+    top edge.  The required pitch is
+
+        2 * icon_half + caption_gap + caption_font_height + clearance
+
+    floored at ``y_spacing`` so the existing grid pitch is honoured when
+    captions are short.
+    """
+    pitch = (
+        2 * ICON_HALF_HEIGHT
+        + ICON_CAPTION_GAP
+        + ICON_CAPTION_FONT_HEIGHT
+        + ICON_STACK_LABEL_CLEARANCE
+    )
+    return max(pitch, y_spacing)
+
+
+def _has_under_icon_caption(station: Station) -> bool:
+    """True if a terminus station renders a name caption under its icon."""
+    if not station.is_terminus:
+        return False
+    names = station.terminus_names or []
+    return any(bool(n) for n in names)
+
+
+def _pad_stacked_captioned_file_icons(
+    graph: MetroGraph,
+    y_spacing: float,
+    section_y_padding: float,
+) -> None:
+    """Pad vertical spacing between stacked file-input icons with captions.
+
+    The default station pitch (``y_spacing`` ~ 40 px) is smaller than the
+    extent of a captioned file icon (icon height 32 + caption gap 4 +
+    caption font ~8 = 44 px).  Two adjacent file-input stations in the
+    same column then have their upper caption visually crash into the
+    lower icon's top edge.
+
+    For each LR/RL section, find all internal source/terminus stations
+    with under-icon captions, group by column, sort each column by Y,
+    and walk pairs from top to bottom: when the gap is below the
+    required pitch, shift the lower station (and its linear consumer
+    chain inside the section) downward by the deficit so the chain's
+    horizontal alignment with the trunk row is preserved.  Cumulative
+    shifts propagate to subsequent stations in the column.
+
+    Grows the section bbox downward as needed so the displaced station
+    stays inside the section's padding zone.  Sections below in the
+    same grid layout are nudged down to keep clearance.
+    """
+    if not graph.sections:
+        return
+
+    pitch = _required_captioned_icon_pitch(y_spacing)
+    if pitch <= y_spacing + 0.5:
+        return
+
+    in_edges: dict[str, set[str]] = {}
+    out_edges: dict[str, set[str]] = {}
+    for e in graph.edges:
+        in_edges.setdefault(e.target, set()).add(e.source)
+        out_edges.setdefault(e.source, set()).add(e.target)
+
+    junction_ids = set(graph.junctions)
+    grew_sections: list[Section] = []
+
+    for section in graph.sections.values():
+        if section.bbox_h <= 0 or section.direction not in ("LR", "RL"):
+            continue
+        internal_ids = [
+            sid
+            for sid in section.station_ids
+            if sid in graph.stations
+            and not graph.stations[sid].is_port
+            and sid not in junction_ids
+        ]
+        if not internal_ids:
+            continue
+        internal_set = set(internal_ids)
+
+        # Group captioned terminus stations by column (rounded X).
+        cols: dict[float, list[str]] = defaultdict(list)
+        for sid in internal_ids:
+            st = graph.stations[sid]
+            if _has_under_icon_caption(st):
+                cols[round(st.x, 1)].append(sid)
+
+        def _shift_chain(src: str, delta: float) -> None:
+            cur = src
+            src_lines = set(graph.station_lines(src))
+            visited: set[str] = {src}
+            while True:
+                outs = out_edges.get(cur, set())
+                if len(outs) != 1:
+                    break
+                nxt = next(iter(outs))
+                if nxt in visited or nxt not in internal_set:
+                    break
+                if len(in_edges.get(nxt, set())) != 1:
+                    break
+                if set(graph.station_lines(nxt)) != src_lines:
+                    break
+                graph.stations[nxt].y += delta
+                visited.add(nxt)
+                cur = nxt
+
+        section_grew = False
+        for col_sids in cols.values():
+            if len(col_sids) < 2:
+                continue
+            col_sids.sort(key=lambda s: graph.stations[s].y)
+            for i in range(1, len(col_sids)):
+                upper = graph.stations[col_sids[i - 1]]
+                lower = graph.stations[col_sids[i]]
+                gap = lower.y - upper.y
+                deficit = pitch - gap
+                if deficit <= 0.5:
+                    continue
+                lower.y += deficit
+                _shift_chain(col_sids[i], deficit)
+                # Grow bbox if the shifted icon would now sit past the
+                # section's bottom padding line.
+                icon_bot = lower.y + ICON_HALF_HEIGHT
+                needed_bbox_bot = icon_bot + section_y_padding
+                cur_bbox_bot = section.bbox_y + section.bbox_h
+                if needed_bbox_bot > cur_bbox_bot:
+                    section.bbox_h = needed_bbox_bot - section.bbox_y
+                    section_grew = True
+
+        if section_grew:
+            grew_sections.append(section)
+
+    if grew_sections:
+        _push_lower_rows_after_bbox_grow(graph, SECTION_Y_GAP)

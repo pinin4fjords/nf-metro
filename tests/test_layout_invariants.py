@@ -24,6 +24,7 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, PortSide
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 # Tolerance for "same Y" assertions.  The grid pitch defaults to 55px;
 # 1px slack absorbs sub-pixel rounding from fan-recenter phases.
@@ -35,6 +36,14 @@ def _layout(fixture: str, **kwargs) -> MetroGraph:
     text = (FIXTURES / fixture).read_text()
     graph = parse_metro_mermaid(text)
     graph.center_ports = True
+    compute_layout(graph, **kwargs)
+    return graph
+
+
+def _layout_example(name: str, **kwargs) -> MetroGraph:
+    """Parse an example file and run layout, honouring its own directives."""
+    text = (EXAMPLES / name).read_text()
+    graph = parse_metro_mermaid(text)
     compute_layout(graph, **kwargs)
     return graph
 
@@ -271,6 +280,155 @@ def test_off_track_inputs_above_consumer(fixture):
             f"Off-track {off_id} y={off_st.y} not above consumer "
             f"{consumer_id} y={cons_st.y}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Stacked file-input icons leave room for under-icon captions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "example",
+    ["differentialabundance.mmd", "differentialabundance_default.mmd"],
+)
+def test_stacked_file_icons_label_clearance(example):
+    """Two vertically-adjacent file-input stations sharing a column must
+    sit far enough apart that the upper station's under-icon caption
+    doesn't crash into the top edge of the lower icon.
+
+    The default station pitch (``y_spacing`` ~ 40 px) is shorter than
+    the captioned icon's vertical extent (~icon_height + caption_gap +
+    caption_font_height = 32 + 4 + ~8 = 44 px).  Catches the regression
+    where stacked source inputs in DA section 1 (Samples/Contrasts,
+    Matrix, GTF, CEL, MaxQuant, GEO ID) have their captions visibly
+    overlapping the next icon.
+    """
+    from nf_metro.layout.constants import (
+        ICON_CAPTION_FONT_HEIGHT,
+        ICON_CAPTION_GAP,
+        ICON_HALF_HEIGHT,
+        ICON_STACK_LABEL_CLEARANCE,
+    )
+
+    required_pitch = (
+        2 * ICON_HALF_HEIGHT
+        + ICON_CAPTION_GAP
+        + ICON_CAPTION_FONT_HEIGHT
+        + ICON_STACK_LABEL_CLEARANCE
+    )
+
+    graph = _layout_example(example)
+    junction_ids = set(graph.junctions)
+
+    def _has_caption(station) -> bool:
+        if not station.is_terminus:
+            return False
+        return any(bool(n) for n in (station.terminus_names or []))
+
+    # Group captioned terminus stations by section + column.
+    by_col: dict[tuple[str, float], list[str]] = defaultdict(list)
+    for sid, st in graph.stations.items():
+        if (
+            st.is_port
+            or sid in junction_ids
+            or st.section_id is None
+            or not _has_caption(st)
+        ):
+            continue
+        by_col[(st.section_id, round(st.x, 1))].append(sid)
+
+    tested = False
+    for (sec_id, col_x), sids in by_col.items():
+        if len(sids) < 2:
+            continue
+        tested = True
+        sids.sort(key=lambda s: graph.stations[s].y)
+        for upper_id, lower_id in zip(sids, sids[1:]):
+            upper = graph.stations[upper_id]
+            lower = graph.stations[lower_id]
+            gap = lower.y - upper.y
+            assert gap + _Y_TOL >= required_pitch, (
+                f"{example} section {sec_id} col x={col_x}: "
+                f"file-icon pair {upper_id} (y={upper.y}) -> "
+                f"{lower_id} (y={lower.y}) gap={gap:.2f} px "
+                f"< required {required_pitch:.2f} px "
+                f"(2*icon_half + caption_gap + caption_font + clearance)"
+            )
+
+    assert tested, f"{example}: no captioned file-icon column with two icons"
+
+
+# ---------------------------------------------------------------------------
+# Off-track icons ordered top-to-bottom by their consumer Y
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "example",
+    ["differentialabundance.mmd", "differentialabundance_default.mmd"],
+)
+def test_off_track_icons_ordered_by_consumer_y(example):
+    """Within a section, the Y order of off-track input icons must
+    match the Y order of their on-track consumers.
+
+    When several off-track inputs feed different consumers in the same
+    section, the icon for the upper consumer (smaller consumer Y) must
+    sit above the icon for the lower consumer.  Catches the regression
+    where placement followed mmd declaration order rather than consumer
+    position, leaving the network icon above the gene-sets icon even
+    though the network's consumer (decoupler) sits below the gene-sets
+    consumer (GSEA).
+    """
+    graph = _layout_example(example)
+    junction_ids = set(graph.junctions)
+
+    # Build off_track -> in-section consumer map from edges.
+    consumer_of: dict[str, str] = {}
+    for edge in graph.edges:
+        src = graph.stations.get(edge.source)
+        tgt = graph.stations.get(edge.target)
+        if (
+            src is None
+            or tgt is None
+            or not src.off_track
+            or src.is_port
+            or src.id in junction_ids
+            or tgt.is_port
+            or tgt.id in junction_ids
+            or tgt.off_track
+            or src.section_id != tgt.section_id
+        ):
+            continue
+        consumer_of.setdefault(src.id, tgt.id)
+
+    # Group off-track stations by section.
+    by_section: dict[str, list[str]] = defaultdict(list)
+    for off_id in consumer_of:
+        sid = graph.stations[off_id].section_id
+        if sid is not None:
+            by_section[sid].append(off_id)
+
+    # Need at least one section with two distinct consumers to test
+    # the ordering invariant.
+    tested = False
+    for sec_id, off_ids in by_section.items():
+        distinct_consumers = {consumer_of[o] for o in off_ids}
+        if len(distinct_consumers) < 2:
+            continue
+        tested = True
+        # Sort off-track stations by their own Y (top to bottom).
+        sorted_offs = sorted(off_ids, key=lambda o: graph.stations[o].y)
+        # The consumer Ys, in the same order, must be non-decreasing.
+        cons_ys = [graph.stations[consumer_of[o]].y for o in sorted_offs]
+        for i in range(len(cons_ys) - 1):
+            assert cons_ys[i] <= cons_ys[i + 1] + _Y_TOL, (
+                f"{example} section {sec_id}: off-track icon order "
+                f"does not match consumer Y order.  Icons (top->bottom): "
+                f"{[(o, graph.stations[o].y) for o in sorted_offs]}; "
+                f"their consumer Ys: {cons_ys}"
+            )
+
+    assert tested, f"{example}: no section with multiple off-track consumers"
 
 
 # ---------------------------------------------------------------------------
@@ -1874,4 +2032,90 @@ def test_row_gap_accommodates_bypass(fixture):
     assert not offenders, (
         f"{fixture}: row gap must be >= section_y_gap for every "
         f"column-overlapping pair: " + "; ".join(offenders)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Auto y_spacing must fit the worst-case content in every LR/RL section
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "differentialabundance.mmd",
+        "differentialabundance_default.mmd",
+        "rnaseq_auto.mmd",
+        "rnaseq_sections.mmd",
+        "variantprioritization.mmd",
+        "genomeassembly.mmd",
+    ],
+)
+def test_auto_y_spacing_fits_content(example):
+    """With the engine's auto-derived ``y_spacing``, no two on-track
+    stations in the same LR/RL section column may stack tighter than the
+    chosen pitch.
+
+    Captioned file-icon stations sit at fixed offsets relative to their
+    station marker (caption below the icon, icon centred on the marker)
+    so the row pitch must accommodate the worst stacking case; the
+    invariant fails if any captioned station's caption would overlap
+    the next station's icon or label.
+
+    Also verifies that ``compute_min_y_spacing`` is not below the floor
+    and that the historical default-content cases (small simple maps)
+    don't widen unnecessarily.
+    """
+    from nf_metro.layout.constants import MIN_Y_SPACING_FLOOR
+    from nf_metro.layout.engine import compute_min_y_spacing
+
+    graph = _layout_example(example)  # y_spacing=None -> auto
+
+    y_spacing = compute_min_y_spacing(graph)
+    assert y_spacing >= MIN_Y_SPACING_FLOOR, (
+        f"{example}: auto y_spacing {y_spacing:.2f} below floor {MIN_Y_SPACING_FLOOR}"
+    )
+
+    # No two on-track stations in the same section column may sit
+    # tighter than the chosen pitch.
+    port_ids: set[str] = set()
+    for sec in graph.sections.values():
+        port_ids.update(sec.entry_ports)
+        port_ids.update(sec.exit_ports)
+    junction_ids = set(graph.junctions)
+
+    by_section_x: dict[tuple[str, float], list[tuple[float, str]]] = defaultdict(list)
+    for sid, st in graph.stations.items():
+        if (
+            st.is_port
+            or st.is_hidden
+            or st.off_track
+            or sid in port_ids
+            or sid in junction_ids
+            or st.section_id is None
+        ):
+            continue
+        sec = graph.sections.get(st.section_id)
+        if sec is None or sec.direction not in ("LR", "RL"):
+            continue
+        by_section_x[(st.section_id, round(st.x, 1))].append((st.y, sid))
+
+    tol = 1.0
+    offenders: list[str] = []
+    for (sec_id, xx), entries in by_section_x.items():
+        entries.sort()
+        for i in range(len(entries) - 1):
+            y1, s1 = entries[i]
+            y2, s2 = entries[i + 1]
+            gap = y2 - y1
+            if gap + tol < y_spacing:
+                offenders.append(
+                    f"sec={sec_id} x={xx} {s1}@{y1:.1f} -> {s2}@{y2:.1f} "
+                    f"gap={gap:.2f} < y_spacing={y_spacing:.2f}"
+                )
+
+    assert not offenders, (
+        f"{example}: stations stacked tighter than auto y_spacing "
+        f"({y_spacing:.2f}); each pair would risk caption/label "
+        f"overlap: " + "; ".join(offenders)
     )
