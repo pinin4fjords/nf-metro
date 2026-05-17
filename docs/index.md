@@ -52,7 +52,7 @@ nf-metro info examples/simple_pipeline.mmd
 
 ### `nf-metro render`
 
-Render a Mermaid metro map definition to SVG.
+Render a Mermaid metro map definition to SVG or interactive HTML.
 
 ```
 nf-metro render [OPTIONS] INPUT_FILE
@@ -60,7 +60,8 @@ nf-metro render [OPTIONS] INPUT_FILE
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-o`, `--output PATH` | `<input>.svg` | Output SVG file path |
+| `-o`, `--output PATH` | `<input>.<format>` | Output file path |
+| `--format [svg\|html]` | `svg` | Output format: `svg` or interactive `html` |
 | `--theme [nfcore\|light]` | `nfcore` | Visual theme |
 | `--width INTEGER` | auto | SVG width in pixels |
 | `--height INTEGER` | auto | SVG height in pixels |
@@ -73,6 +74,24 @@ nf-metro render [OPTIONS] INPUT_FILE
 | `--center-ports / --no-center-ports` | off | Centre inter-section ports on the shorter of the two connected sections |
 | `--from-nextflow` | off | Convert Nextflow `-with-dag` input before rendering |
 | `--title TEXT` | none | Pipeline title (used with `--from-nextflow`) |
+
+#### Interactive HTML output
+
+`--format html` produces a self-contained `.html` file with the SVG inlined plus a small JS/CSS layer (no external dependencies, no network):
+
+```bash
+nf-metro render pipeline.mmd --format html -o pipeline.html
+```
+
+The page supports drag-to-pan, scroll-to-zoom, station hover tooltips, and a clickable line legend. Clicking a line isolates it: stations and sections not carrying that line are hidden and the view zooms to the bounding box of what remains. Click again, hit `Esc`, or use the Reset button to restore.
+
+The **Embed&hellip;** button opens a panel with three copyable snippets:
+
+- **Inline HTML** - a self-contained `<div>` you paste into any HTML host (MkDocs, Confluence, Notion, blog templates). Keeps full interactivity, no iframe.
+- **iframe** - a one-liner pointing at the hosted `.html` file.
+- **Static SVG** - the raw `<svg>` markup for hosts that strip scripts.
+
+GitHub READMEs strip `<script>` tags, so embed there as a static SVG (or link out to a hosted version). Most static-site generators and internal wikis run the inline-HTML snippet as-is.
 
 ### `nf-metro convert`
 

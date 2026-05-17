@@ -64,7 +64,7 @@ nf-metro info examples/simple_pipeline.mmd
 
 ### `nf-metro render`
 
-Render a Mermaid metro map definition to SVG.
+Render a Mermaid metro map definition to SVG or interactive HTML.
 
 ```
 nf-metro render [OPTIONS] INPUT_FILE
@@ -72,7 +72,8 @@ nf-metro render [OPTIONS] INPUT_FILE
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-o`, `--output PATH` | `<input>.svg` | Output SVG file path |
+| `-o`, `--output PATH` | `<input>.<format>` | Output file path |
+| `--format [svg\|html]` | `svg` | Output format: `svg` or interactive `html` |
 | `--theme [nfcore\|light]` | `nfcore` | Visual theme |
 | `--width INTEGER` | auto | SVG width in pixels |
 | `--height INTEGER` | auto | SVG height in pixels |
@@ -96,6 +97,26 @@ The `--logo` flag lets you use the same `.mmd` file with different logos for dar
 nf-metro render pipeline.mmd -o pipeline_dark.svg --theme nfcore --logo logo_dark.png
 nf-metro render pipeline.mmd -o pipeline_light.svg --theme light --logo logo_light.png
 ```
+
+#### Interactive HTML output
+
+`--format html` produces a self-contained `.html` file with the SVG inlined plus a small JS/CSS layer (no external dependencies, no network):
+
+```bash
+nf-metro render pipeline.mmd --format html -o pipeline.html
+```
+
+The page provides:
+
+- **Drag to pan**, **scroll to zoom** (Cmd/Ctrl+scroll in embedded mode).
+- **Hover a station** to see its label, section, and the lines passing through it.
+- **Click a line in the legend** to isolate it. Stations and sections not carrying that line disappear and the view zooms to the bounding box of what remains. Click again, hit `Esc`, or use the **Reset** button to restore.
+- **Embed&hellip;** opens a copy-snippet panel with three options:
+  - **Inline HTML** - a self-contained `<div>` you paste into any HTML host (MkDocs, Confluence, Notion, blog templates). Keeps full interactivity, no iframe.
+  - **iframe** - a one-liner pointing at the hosted `.html` file.
+  - **Static SVG** - the raw `<svg>` markup for contexts that strip scripts.
+
+GitHub READMEs strip `<script>` tags, so embed there as a static SVG (or link out to a hosted version). Most static-site generators and internal wikis run the inline-HTML snippet as-is.
 
 ### `nf-metro validate`
 
