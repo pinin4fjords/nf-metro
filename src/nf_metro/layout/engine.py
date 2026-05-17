@@ -1954,14 +1954,24 @@ def _compact_row_content_to_bbox_top(
 
             if delta >= 0.5:
                 for section in group:
+                    # bbox_y is preserved; only bbox_h shrinks.  Clamp
+                    # edge-pinned ports so the shift doesn't push them
+                    # outside the (now-shorter) bbox.
+                    new_bottom = section.bbox_y + max(0.0, section.bbox_h - delta)
                     for sid in section.station_ids:
                         st = graph.stations.get(sid)
                         if st is None:
                             continue
-                        st.y -= delta
+                        new_y = st.y - delta
                         port = graph.ports.get(sid)
-                        if port:
-                            port.y -= delta
+                        if port is not None:
+                            if port.side == PortSide.TOP:
+                                new_y = max(new_y, section.bbox_y)
+                            elif port.side == PortSide.BOTTOM:
+                                new_y = min(new_y, new_bottom)
+                            _set_port_y(graph, sid, new_y)
+                        else:
+                            st.y = new_y
                     section.bbox_h = max(0.0, section.bbox_h - delta)
 
             for section in group:
