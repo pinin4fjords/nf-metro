@@ -134,11 +134,14 @@ def test_compute_layout_off_track_bbox_contains_stations():
 
 
 def test_compute_layout_rowspan_section_compacts_content():
-    """Row-spanning sections get their content compacted to the bbox top.
+    """Row-spanning sections compact to share the row trunk Y.
 
-    Without this, a rowspan>1 section gets bbox-top-aligned to taller
-    same-row neighbours but its own content stays anchored further
-    down, leaving a large empty band above the first row.
+    A row-spanning section without its own off-track content should
+    sit on the row's trunk Y so a straight inter-section bundle passes
+    through it without kinking.  When a row-mate has off-track inputs
+    that raise its bbox top, the rowspan section's bbox top follows so
+    the row's overall bbox shapes consistently, even if that leaves
+    the trunk content below the top padding zone.
     """
     graph = parse_metro_mermaid(
         "%%metro line: main | Main | #ff0000\n"
@@ -164,11 +167,20 @@ def test_compute_layout_rowspan_section_compacts_content():
     )
     compute_layout(graph, x_spacing=70, y_spacing=55)
     tall = graph.sections["tall"]
+    short = graph.sections["short"]
     a_y = graph.stations["a"].y
-    # Empty band above first content should be at most one station row.
-    assert a_y - tall.bbox_y < 55, (
-        f"tall section has {a_y - tall.bbox_y:.1f}px empty space above its "
-        f"first station (>= y_spacing of 55)"
+    a_out_y = graph.stations["a_out"].y
+    b_y = graph.stations["b"].y
+    # The trunk a -> a_out -> b must stay horizontal across sections.
+    assert a_y == pytest.approx(a_out_y), (
+        f"a y={a_y} and a_out y={a_out_y} must share trunk Y"
+    )
+    assert a_out_y == pytest.approx(b_y), (
+        f"a_out y={a_out_y} and b y={b_y} must share trunk Y across sections"
+    )
+    # Tall and short share the same bbox top (row-level top alignment).
+    assert tall.bbox_y == pytest.approx(short.bbox_y), (
+        f"tall bbox_y={tall.bbox_y} should match short bbox_y={short.bbox_y}"
     )
 
 
@@ -1122,12 +1134,15 @@ def test_full_bundle_column_fans_non_terminal_section():
 
 
 def test_off_track_input_sits_adjacent_to_its_consumer():
-    """Each off-track input lands one y_spacing above its consumer.
+    """Each off-track input sits above its consumer.
 
     When two off-track inputs in the same section feed different
-    consumer stations, they should sit at distinct Ys derived from
-    their respective consumers, not stack at a uniform top-of-section
-    band.
+    consumer stations, each input must sit above (smaller Y than) its
+    consumer.  When the two consumers share a Y - so the section's
+    trunk is straight - the inputs stack above the shared trunk row at
+    consecutive ``y_spacing`` slots so they don't overlap.  When the
+    consumers sit at different Ys (e.g. parallel branches), each input
+    anchors to its own consumer at ``consumer_y - y_spacing``.
     """
     graph = parse_metro_mermaid(
         "%%metro line: main | Main | #ff0000\n"
@@ -1148,15 +1163,15 @@ def test_off_track_input_sits_adjacent_to_its_consumer():
     lower_y = graph.stations["lower"].y
     in_a_y = graph.stations["in_a"].y
     in_b_y = graph.stations["in_b"].y
-    # Each input sits one row above its respective consumer.
-    assert in_a_y == pytest.approx(upper_y - 55), (
-        f"in_a y={in_a_y} should be upper_y - y_spacing = {upper_y - 55}"
-    )
-    assert in_b_y == pytest.approx(lower_y - 55), (
-        f"in_b y={in_b_y} should be lower_y - y_spacing = {lower_y - 55}"
-    )
+    # Each input sits above its consumer (smaller Y).
+    assert in_a_y < upper_y, f"in_a y={in_a_y} should sit above upper y={upper_y}"
+    assert in_b_y < lower_y, f"in_b y={in_b_y} should sit above lower y={lower_y}"
     # Inputs sit at different Ys (not a uniform band).
     assert in_a_y != in_b_y
+    # Inputs stack at ``y_spacing`` pitch (one slot apart).
+    assert abs(abs(in_a_y - in_b_y) - 55) < 0.5, (
+        f"in_a y={in_a_y}, in_b y={in_b_y} should differ by one y_spacing slot"
+    )
 
 
 def test_multiple_off_track_inputs_share_consumer_stack_above_it():
@@ -1187,6 +1202,56 @@ def test_multiple_off_track_inputs_share_consumer_stack_above_it():
     assert ys[1] == pytest.approx(mid_y - 55), (
         f"Lower input y={ys[1]} should be mid_y - y_spacing = {mid_y - 55}"
     )
+
+
+def test_off_track_convergence_keeps_consumer_on_trunk():
+    """The off_track_convergence gallery fixture: four off-track inputs all
+    consumed by one in-section station (`align`) must not pull `align` off
+    the row trunk.
+
+    Locks in the fix for the displacement bug: prior to the off-track
+    exclusion in ``assign_tracks`` / ``_layout_single_section``, ``align``
+    sat ~230 px below the row trunk because the in-section track grouping
+    treated the four file inputs as ordinary on-track stations on the same
+    line and pushed the consumer off-track.
+    """
+    fixture = (
+        Path(__file__).resolve().parent.parent
+        / "examples"
+        / "topologies"
+        / "off_track_convergence.mmd"
+    )
+    graph = parse_metro_mermaid(fixture.read_text())
+    compute_layout(graph, x_spacing=70, y_spacing=55)
+    # Reads -> Prepare -> Align -> Annotate -> Report should sit on one
+    # horizontal trunk Y.
+    reads_y = graph.stations["reads"].y
+    prep_y = graph.stations["prep"].y
+    align_y = graph.stations["align"].y
+    annotate_y = graph.stations["annotate"].y
+    report_y = graph.stations["report"].y
+    assert reads_y == pytest.approx(prep_y), f"reads y={reads_y} vs prep y={prep_y}"
+    assert prep_y == pytest.approx(align_y), f"prep y={prep_y} vs align y={align_y}"
+    assert align_y == pytest.approx(annotate_y), (
+        f"align y={align_y} vs annotate y={annotate_y}"
+    )
+    assert annotate_y == pytest.approx(report_y), (
+        f"annotate y={annotate_y} vs report y={report_y}"
+    )
+    # The four file inputs stack above align at consecutive y_spacing slots.
+    icons = sorted(
+        graph.stations[s].y for s in ("ref_in", "gtf_in", "vcf_in", "bed_in")
+    )
+    # Each icon sits above the consumer; consecutive icons differ by one
+    # y_spacing slot.
+    for icon_y in icons:
+        assert icon_y < align_y, (
+            f"icon y={icon_y} should sit above consumer align y={align_y}"
+        )
+    for a, b in zip(icons, icons[1:]):
+        assert b - a == pytest.approx(55), (
+            f"icons at y={a} and y={b} should stack at y_spacing=55 apart"
+        )
 
 
 def test_cli_straight_diamonds_default(tmp_path):
