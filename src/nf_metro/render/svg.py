@@ -1084,6 +1084,124 @@ def _render_labels(
             )
 
 
+def _grid_bbox_bounds(
+    sections: list[Section],
+) -> tuple[dict[int, tuple[float, float]], dict[int, tuple[float, float]]]:
+    """Collect per-column X bounds and per-row Y bounds from section bboxes.
+
+    Spanning sections (``grid_col_span > 1`` or ``grid_row_span > 1``) are
+    excluded from the corresponding axis - their extent across multiple
+    cells would distort a single-cell measurement.
+    """
+    col_bounds: dict[int, tuple[float, float]] = {}
+    row_bounds: dict[int, tuple[float, float]] = {}
+    for sec in sections:
+        x0, x1 = sec.bbox_x, sec.bbox_x + sec.bbox_w
+        y0, y1 = sec.bbox_y, sec.bbox_y + sec.bbox_h
+        if sec.grid_col_span == 1:
+            cx0, cx1 = col_bounds.get(sec.grid_col, (x0, x1))
+            col_bounds[sec.grid_col] = (min(cx0, x0), max(cx1, x1))
+        if sec.grid_row_span == 1:
+            ry0, ry1 = row_bounds.get(sec.grid_row, (y0, y1))
+            row_bounds[sec.grid_row] = (min(ry0, y0), max(ry1, y1))
+    return col_bounds, row_bounds
+
+
+def _sections_by_grid_cell(
+    sections: list[Section],
+) -> dict[tuple[int, int], Section]:
+    """Index non-spanning sections by ``(grid_col, grid_row)``."""
+    out: dict[tuple[int, int], Section] = {}
+    for sec in sections:
+        if sec.grid_col_span == 1 and sec.grid_row_span == 1:
+            out[(sec.grid_col, sec.grid_row)] = sec
+    return out
+
+
+def _compute_row_boundary_segments(
+    sections: list[Section],
+    col_bounds: dict[int, tuple[float, float]],
+) -> list[tuple[int, int, float, float, float]]:
+    """Return row-boundary segments as ``(row_a, row_b, x_start, x_end, y)``.
+
+    For each consecutive grid-row pair, pick a boundary Y and draw a
+    canvas-wide horizontal line at that Y, broken around bboxes the
+    line would cut:
+
+    1. If rows don't overlap globally (max bbox-bottom of row a is
+       above min bbox-top of row b), use the global midpoint - the
+       natural row separator that sits below every section in the
+       upper row and above every section in the lower row.
+    2. Otherwise (a fold extends one row into the other's band), emit
+       one per-column segment at each cell's local midpoint, dropping
+       cells where the bboxes locally overlap.  Fold columns and
+       columns missing one of the two rows produce visible gaps.
+    """
+    if not col_bounds:
+        return []
+    sec_by_cell = _sections_by_grid_cell(sections)
+    canvas_x0 = min(b[0] for b in col_bounds.values()) - 20
+    canvas_x1 = max(b[1] for b in col_bounds.values()) + 20
+    sections_by_row: dict[int, list[Section]] = {}
+    for sec in sections:
+        if sec.grid_row_span == 1:
+            sections_by_row.setdefault(sec.grid_row, []).append(sec)
+    rows = sorted(sections_by_row)
+    segments: list[tuple[int, int, float, float, float]] = []
+    for i in range(len(rows) - 1):
+        ra, rb = rows[i], rows[i + 1]
+        row_a_secs = sections_by_row.get(ra, [])
+        row_b_secs = sections_by_row.get(rb, [])
+        if not row_a_secs or not row_b_secs:
+            continue
+        max_bottom = max(s.bbox_y + s.bbox_h for s in row_a_secs)
+        min_top = min(s.bbox_y for s in row_b_secs)
+        if max_bottom < min_top:
+            # Rows are globally separable: one canvas-wide line at the
+            # natural midpoint (below every row a section, above every
+            # row b section).  No bbox is cut by construction.
+            y = (max_bottom + min_top) / 2
+            segments.append((ra, rb, canvas_x0, canvas_x1, y))
+            continue
+        # Rows overlap (a fold extends one row into the other's band).
+        # Emit per-column segments only at cells where both rows have
+        # a non-spanning section and the sections don't locally overlap,
+        # so the line appears only where the boundary is unambiguous.
+        for c, (x_start, x_end) in col_bounds.items():
+            sa = sec_by_cell.get((c, ra))
+            sb = sec_by_cell.get((c, rb))
+            if sa is None or sb is None:
+                continue
+            a_bot = sa.bbox_y + sa.bbox_h
+            b_top = sb.bbox_y
+            if a_bot >= b_top:
+                continue
+            segments.append((ra, rb, x_start, x_end, (a_bot + b_top) / 2))
+    return segments
+
+
+def _compute_col_boundary_xs(
+    col_bounds: dict[int, tuple[float, float]],
+) -> list[tuple[int, int, float]]:
+    """Return ``(col_a, col_b, mid_x)`` triples for consecutive grid columns
+    whose bbox X ranges don't overlap.
+
+    Columns don't overlap like rows do (there's no column-axis analogue
+    of a fold), so a single canvas-spanning line per pair suffices; the
+    overlap guard is defensive.
+    """
+    result: list[tuple[int, int, float]] = []
+    sorted_cols = sorted(col_bounds)
+    for i in range(len(sorted_cols) - 1):
+        ca, cb = sorted_cols[i], sorted_cols[i + 1]
+        right = col_bounds[ca][1]
+        left = col_bounds[cb][0]
+        if right >= left:
+            continue
+        result.append((ca, cb, (right + left) / 2))
+    return result
+
+
 def _render_debug_overlay(
     d: draw.Drawing,
     graph: MetroGraph,
@@ -1141,53 +1259,20 @@ def _render_debug_overlay(
     # Grid lines: dashed lines at boundaries between grid rows/columns
     sections = list(graph.sections.values())
     if sections:
-        # Collect column and row boundaries from section bboxes
-        col_bounds: dict[int, tuple[float, float]] = {}
-        row_bounds: dict[int, tuple[float, float]] = {}
-        for sec in sections:
-            c, r = sec.grid_col, sec.grid_row
-            x0, x1 = sec.bbox_x, sec.bbox_x + sec.bbox_w
-            y0, y1 = sec.bbox_y, sec.bbox_y + sec.bbox_h
-            # Skip spanning sections for column/row bounds - they distort
-            # single-column measurements by assigning their full width to
-            # one column.
-            if sec.grid_col_span == 1:
-                if c not in col_bounds:
-                    col_bounds[c] = (x0, x1)
-                else:
-                    col_bounds[c] = (
-                        min(col_bounds[c][0], x0),
-                        max(col_bounds[c][1], x1),
-                    )
-            if sec.grid_row_span == 1:
-                if r not in row_bounds:
-                    row_bounds[r] = (y0, y1)
-                else:
-                    row_bounds[r] = (
-                        min(row_bounds[r][0], y0),
-                        max(row_bounds[r][1], y1),
-                    )
+        col_bounds, row_bounds = _grid_bbox_bounds(sections)
 
-        # Global extents (fall back to col/row bounds or section bboxes)
+        # Global extents for full-canvas column lines and row label anchor.
         if not col_bounds or not row_bounds:
-            # All sections are spanning - use raw section bboxes
             all_x0 = min(s.bbox_x for s in sections) - 20
-            all_x1 = max(s.bbox_x + s.bbox_w for s in sections) + 20
             all_y0 = min(s.bbox_y for s in sections) - 20
             all_y1 = max(s.bbox_y + s.bbox_h for s in sections) + 20
         else:
             all_x0 = min(b[0] for b in col_bounds.values()) - 20
-            all_x1 = max(b[1] for b in col_bounds.values()) + 20
             all_y0 = min(b[0] for b in row_bounds.values()) - 20
             all_y1 = max(b[1] for b in row_bounds.values()) + 20
         grid_color = "rgba(255, 255, 0, 0.5)"
 
-        # Vertical lines between columns
-        sorted_cols = sorted(col_bounds.keys())
-        for i in range(len(sorted_cols) - 1):
-            right = col_bounds[sorted_cols[i]][1]
-            left = col_bounds[sorted_cols[i + 1]][0]
-            mid_x = (right + left) / 2
+        for ca, cb, mid_x in _compute_col_boundary_xs(col_bounds):
             d.append(
                 draw.Line(
                     mid_x,
@@ -1201,7 +1286,7 @@ def _render_debug_overlay(
             )
             d.append(
                 draw.Text(
-                    f"col {sorted_cols[i]}|{sorted_cols[i + 1]}",
+                    f"col {ca}|{cb}",
                     debug_font_size,
                     mid_x,
                     all_y0 - 4,
@@ -1211,29 +1296,30 @@ def _render_debug_overlay(
                 )
             )
 
-        # Horizontal lines between rows
-        sorted_rows = sorted(row_bounds.keys())
-        for i in range(len(sorted_rows) - 1):
-            bottom = row_bounds[sorted_rows[i]][1]
-            top = row_bounds[sorted_rows[i + 1]][0]
-            mid_y = (bottom + top) / 2
+        row_segments = _compute_row_boundary_segments(sections, col_bounds)
+        for _ra, _rb, x_start, x_end, y in row_segments:
             d.append(
                 draw.Line(
-                    all_x0,
-                    mid_y,
-                    all_x1,
-                    mid_y,
+                    x_start,
+                    y,
+                    x_end,
+                    y,
                     stroke=grid_color,
                     stroke_width=1,
                     stroke_dasharray="6,4",
                 )
             )
+        # One label per row pair, anchored at the first segment's Y.
+        row_pair_label_ys: dict[tuple[int, int], float] = {}
+        for ra, rb, _xs, _xe, y in row_segments:
+            row_pair_label_ys.setdefault((ra, rb), y)
+        for (ra, rb), y in row_pair_label_ys.items():
             d.append(
                 draw.Text(
-                    f"row {sorted_rows[i]}|{sorted_rows[i + 1]}",
+                    f"row {ra}|{rb}",
                     debug_font_size,
                     all_x0 - 4,
-                    mid_y,
+                    y,
                     fill=grid_color,
                     font_family=debug_font,
                     text_anchor="end",

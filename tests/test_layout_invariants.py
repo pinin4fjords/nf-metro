@@ -3108,3 +3108,59 @@ def _resolve_section_col_for_station(graph, station):
                     if sec and sec.grid_col >= 0:
                         return sec.grid_col
     return None
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_debug_grid_overlay_boundaries_outside_section_bboxes(fixture):
+    """Debug-overlay row/column separator segments must not cut through
+    any section bbox.
+
+    The overlay draws per-column horizontal segments between consecutive
+    grid rows (and per-row vertical segments between consecutive columns).
+    Each segment sits at the local midpoint between two adjacent
+    sections' bboxes; when a fold extends a section past its row's
+    natural extent the local midpoint would land inside a bbox, so the
+    segment for that column is dropped.  This test asserts no emitted
+    segment cuts any section bbox in the rows/columns it joins.
+
+    Bug: https://github.com/pinin4fjords/nf-metro/issues/316
+    """
+    from nf_metro.render.svg import (
+        _compute_col_boundary_xs,
+        _compute_row_boundary_segments,
+        _grid_bbox_bounds,
+    )
+
+    graph = _layout(fixture)
+    sections = list(graph.sections.values())
+    if not sections:
+        pytest.skip("no sections")
+    col_bounds, row_bounds = _grid_bbox_bounds(sections)
+
+    offenders: list[str] = []
+    for ra, rb, x_start, x_end, y in _compute_row_boundary_segments(
+        sections, col_bounds
+    ):
+        for sec in sections:
+            if sec.grid_row_span != 1 or sec.grid_row not in (ra, rb):
+                continue
+            y0, y1 = sec.bbox_y, sec.bbox_y + sec.bbox_h
+            x0, x1 = sec.bbox_x, sec.bbox_x + sec.bbox_w
+            x_overlaps = max(x_start, x0) < min(x_end, x1)
+            if x_overlaps and y0 < y < y1:
+                offenders.append(
+                    f"row {ra}|{rb} segment y={y:.1f} x={x_start:.0f}..{x_end:.0f} "
+                    f"cuts {sec.id!r} (row={sec.grid_row}, y={y0:.1f}..{y1:.1f})"
+                )
+    for ca, cb, mid_x in _compute_col_boundary_xs(col_bounds):
+        for sec in sections:
+            if sec.grid_col_span != 1:
+                continue
+            x0, x1 = sec.bbox_x, sec.bbox_x + sec.bbox_w
+            if x0 < mid_x < x1:
+                offenders.append(
+                    f"col {ca}|{cb} mid_x={mid_x:.1f} cuts {sec.id!r} "
+                    f"(col={sec.grid_col}, x={x0:.1f}..{x1:.1f})"
+                )
+
+    assert not offenders, f"{fixture}: " + "; ".join(offenders[:5])
