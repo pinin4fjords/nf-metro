@@ -32,10 +32,10 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.routing.common import (
     RoutedPath,
-    adjacent_column_gap_x,
     bypass_bottom_y,
     col_left_edge,
     col_right_edge,
+    column_gap_midpoint,
     compute_bundle_info,
     inter_column_channel_x,
     row_bottom_edge,
@@ -205,21 +205,26 @@ def _classify_merge_edges(
     trunk_by: dict[str, float] = {}
     entry_port_for: dict[str, str] = {}
 
+    def _col_for_id(sid: str) -> int | None:
+        st = graph.stations.get(sid)
+        if st is None:
+            return None
+        return _resolve_section_col(graph, st)
+
     for mjid in junctions:
         mst = graph.stations.get(mjid)
         if not mst:
             continue
-        tgt_col = _resolve_section_col(graph, mst, junction_ids)
+        tgt_col = _resolve_section_col(graph, mst)
         if tgt_col is None:
             continue
 
         # Resolve entry port (successor of merge junction)
-        for e in graph.edges:
-            if e.source == mjid:
-                ep = graph.ports.get(e.target)
-                if ep and ep.is_entry:
-                    entry_port_for[mjid] = e.target
-                    break
+        for e in graph.edges_from(mjid):
+            ep = graph.ports.get(e.target)
+            if ep and ep.is_entry:
+                entry_port_for[mjid] = e.target
+                break
 
         # Find farthest bypass predecessor (trunk carrier).  Branches
         # must land on the trunk's own bypass_bottom_y -- the value the
@@ -230,14 +235,12 @@ def _classify_merge_edges(
         farthest_source: str | None = None
         farthest_span = 0
         trunk_pred_by = 0.0
-        for edge in graph.edges:
-            if edge.target != mjid:
-                continue
+        for edge in graph.edges_to(mjid):
             pred = graph.stations.get(edge.source)
             if not pred:
                 continue
-            pred_col = _resolve_section_col(graph, pred, junction_ids)
-            pred_row = _resolve_section_row(graph, pred, junction_ids)
+            pred_col = _resolve_section_col(graph, pred)
+            pred_row = _resolve_section_row(graph, pred)
             if (
                 pred_col is not None
                 and abs(tgt_col - pred_col) > 1
@@ -265,11 +268,7 @@ def _classify_merge_edges(
     index_exclude: set[_EdgeKey] = set()
 
     for mjid, trunk_src in trunk_source.items():
-        m_col = _resolve_section_col(
-            graph,
-            graph.stations.get(mjid),  # type: ignore[arg-type]
-            junction_ids,
-        )
+        m_col = _col_for_id(mjid)
 
         # Check for adjacent JUNCTION predecessors whose stubs need
         # the merge -> entry edge to cross the full gap.  Adjacent
@@ -277,36 +276,27 @@ def _classify_merge_edges(
         # redundant for them.
         has_adjacent_junction_pred = False
         if m_col is not None:
-            for e2 in graph.edges:
-                if e2.target != mjid or e2.source == trunk_src:
+            for e2 in graph.edges_to(mjid):
+                if e2.source == trunk_src or e2.source not in junction_ids:
                     continue
-                p = graph.stations.get(e2.source)
-                if not p or e2.source not in junction_ids:
-                    continue
-                p_col = _resolve_section_col(graph, p, junction_ids)
+                p_col = _col_for_id(e2.source)
                 if p_col is not None and abs(m_col - p_col) <= 1:
                     has_adjacent_junction_pred = True
                     break
 
-        for edge in graph.edges:
-            # merge -> entry: skip unless adjacent junction pred needs it
-            if edge.source == mjid and not has_adjacent_junction_pred:
+        # merge -> entry: skip unless adjacent junction pred needs it
+        if not has_adjacent_junction_pred:
+            for edge in graph.edges_from(mjid):
                 ep = graph.ports.get(edge.target)
                 if ep and ep.is_entry:
                     skip_edges.add((edge.source, edge.target, edge.line_id))
-            # Non-trunk bypass junction -> merge: exclude from indexing
-            # (truncated branches shouldn't occupy bundle slots)
-            if (
-                edge.target == mjid
-                and edge.source != trunk_src
-                and edge.source in junction_ids
-                and m_col is not None
-            ):
-                src_col = _resolve_section_col(
-                    graph,
-                    graph.stations.get(edge.source),  # type: ignore[arg-type]
-                    junction_ids,
-                )
+        # Non-trunk bypass junction -> merge: exclude from indexing
+        # (truncated branches shouldn't occupy bundle slots)
+        if m_col is not None:
+            for edge in graph.edges_to(mjid):
+                if edge.source == trunk_src or edge.source not in junction_ids:
+                    continue
+                src_col = _col_for_id(edge.source)
                 if src_col is not None and abs(m_col - src_col) > 1:
                     index_exclude.add((edge.source, edge.target, edge.line_id))
 
@@ -332,7 +322,7 @@ def _build_routing_context(
     station_offsets: dict[tuple[str, str], float] | None,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
-    junction_ids = set(graph.junctions)
+    junction_ids = graph.junction_ids
 
     # Fold edge: max X across all stations
     all_x = [s.x for s in graph.stations.values()]
@@ -510,9 +500,9 @@ def _route_inter_section(
     )
 
     # Resolve section columns and row for bypass detection
-    src_col = _resolve_section_col(graph, src, ctx.junction_ids)
-    tgt_col = _resolve_section_col(graph, tgt, ctx.junction_ids)
-    src_row = _resolve_section_row(graph, src, ctx.junction_ids)
+    src_col = _resolve_section_col(graph, src)
+    tgt_col = _resolve_section_col(graph, tgt)
+    src_row = _resolve_section_row(graph, src)
     needs_bypass = (
         src_col is not None
         and tgt_col is not None
@@ -559,7 +549,7 @@ def _route_inter_section(
                 return _route_merge_trunk(
                     edge, src, tgt, i, src_col, tgt_col, ctx, src_row
                 )
-            return _route_merge_branch(edge, src, ctx, src_col, tgt_col)
+            return _route_merge_branch(edge, src, ctx, src_col)
         return _route_bypass(edge, src, tgt, i, src_col, tgt_col, ctx, src_row)
 
     # Near-vertical: junction to same-column entry with tiny horizontal
@@ -574,22 +564,13 @@ def _route_inter_section(
     # columns the standard L-shape naturally drops in the inter-column
     # gap and going "away from target" would route backward through a
     # neighbouring section.
-    src_col_for_special = (
-        _resolve_section_col(graph, src, ctx.junction_ids)
-        if edge.source in ctx.junction_ids
-        else None
-    )
-    tgt_col_for_special = _resolve_section_col(graph, tgt, ctx.junction_ids)
-    same_col_special = (
-        src_col_for_special is not None
-        and tgt_col_for_special is not None
-        and src_col_for_special == tgt_col_for_special
-    )
     if (
         edge.source in ctx.junction_ids
         and abs(dx) <= JUNCTION_MARGIN + COORD_TOLERANCE
         and abs(dy) > abs(dx) * 3
-        and same_col_special
+        and (src_col_for_special := _resolve_section_col(graph, src)) is not None
+        and (tgt_col_for_special := _resolve_section_col(graph, tgt)) is not None
+        and src_col_for_special == tgt_col_for_special
     ):
         delta, r_first, r_second = l_shape_radii(
             i,
@@ -684,7 +665,6 @@ def _route_merge_branch(
     src: Station,
     ctx: _RoutingCtx,
     src_col: int,
-    tgt_col: int,
 ) -> RoutedPath:
     """Truncated L-shape descent from a junction to the trunk level.
 
@@ -796,7 +776,7 @@ def _route_bypass(
     else:
         nest_offset = max(i, g2_j) * ctx.offset_step
     # Resolve target row to detect cross-row bypasses.
-    tgt_row = _resolve_section_row(graph, tgt, ctx.junction_ids)
+    tgt_row = _resolve_section_row(graph, tgt)
     cross_row = src_row is not None and tgt_row is not None and src_row != tgt_row
     base_y = bypass_bottom_y(
         graph,
@@ -860,7 +840,7 @@ def _route_bypass(
             gap1_x = fan_mid_x + fan_delta
         else:
             gap1_base = (
-                adjacent_column_gap_x(graph, src_col, src_col + 1) - base_bypass_offset
+                column_gap_midpoint(graph, src_col, src_col + 1) - base_bypass_offset
             )
             gap1_limit = sx + ctx.curve_radius
             if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
@@ -870,7 +850,7 @@ def _route_bypass(
             gap1_x = gap1_mid + delta1
 
         gap2_base = (
-            adjacent_column_gap_x(graph, tgt_col - 1, tgt_col) + base_bypass_offset
+            column_gap_midpoint(graph, tgt_col - 1, tgt_col) + base_bypass_offset
         )
         gap2_limit = effective_tx - ctx.curve_radius
         if gap2_base + (g2_n - 1) * ctx.offset_step > gap2_limit:
@@ -892,7 +872,7 @@ def _route_bypass(
             gap1_x = fan_mid_x + fan_delta
         else:
             gap1_base = (
-                adjacent_column_gap_x(graph, src_col - 1, src_col) + base_bypass_offset
+                column_gap_midpoint(graph, src_col - 1, src_col) + base_bypass_offset
             )
             gap1_limit = sx - ctx.curve_radius
             if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
@@ -902,7 +882,7 @@ def _route_bypass(
             gap1_x = gap1_mid + delta1
 
         gap2_base = (
-            adjacent_column_gap_x(graph, tgt_col, tgt_col + 1) - base_bypass_offset
+            column_gap_midpoint(graph, tgt_col, tgt_col + 1) - base_bypass_offset
         )
         gap2_limit = effective_tx + ctx.curve_radius
         if gap2_base - (g2_n - 1) * ctx.offset_step < gap2_limit:
@@ -1132,10 +1112,10 @@ def _route_right_entry_wrap(
     # Detect cross-row case: use bypass-style Y just below the source
     # row's sections so the line runs horizontally under the adjacent
     # section before dropping to the target row.
-    src_row = _resolve_section_row(ctx.graph, src, ctx.junction_ids)
-    tgt_row = _resolve_section_row(ctx.graph, tgt, ctx.junction_ids)
-    src_col = _resolve_section_col(ctx.graph, src, ctx.junction_ids)
-    tgt_col = _resolve_section_col(ctx.graph, tgt, ctx.junction_ids)
+    src_row = _resolve_section_row(ctx.graph, src)
+    tgt_row = _resolve_section_row(ctx.graph, tgt)
+    src_col = _resolve_section_col(ctx.graph, src)
+    tgt_col = _resolve_section_col(ctx.graph, tgt)
 
     cross_row = (
         src_row is not None
@@ -1238,24 +1218,22 @@ def _resolve_section(
         return graph.sections.get(station.section_id)
 
     if prefer_upstream:
-        # Check incoming edges first (upstream preference)
-        for e in graph.edges:
-            if e.target == station.id:
-                other = graph.stations.get(e.source)
-                if other and other.section_id:
-                    sec = graph.sections.get(other.section_id)
-                    if sec:
-                        return sec
-        # Fall back to outgoing edges
-        for e in graph.edges:
-            if e.source == station.id:
-                other = graph.stations.get(e.target)
-                if other and other.section_id:
-                    sec = graph.sections.get(other.section_id)
-                    if sec:
-                        return sec
+        for e in graph.edges_to(station.id):
+            other = graph.stations.get(e.source)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+        for e in graph.edges_from(station.id):
+            other = graph.stations.get(e.target)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
     else:
-        # Scan both directions in one pass (no preference)
+        # Preserve original graph.edges insertion order: callers depend on
+        # the first incident edge winning when a junction has neighbours
+        # in multiple sections.
         for e in graph.edges:
             other_id = None
             if e.source == station.id:
@@ -1682,7 +1660,7 @@ def _route_entry_runway(
         return None
 
     # Find the earliest internal station between entry port and target.
-    port_ids = set(section.entry_ports) | set(section.exit_ports)
+    port_ids = section.port_ids
     first_x: float | None = None
     for sid in section.station_ids:
         if sid == edge.target or sid in port_ids:
@@ -2441,11 +2419,7 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
 # ---------------------------------------------------------------------------
 
 
-def _resolve_section_col(
-    graph: MetroGraph,
-    station: Station,
-    junction_ids: set[str],
-) -> int | None:
+def _resolve_section_col(graph: MetroGraph, station: Station) -> int | None:
     """Resolve the grid column for a port or junction station."""
     sec = _resolve_section(graph, station, prefer_upstream=False)
     if sec and sec.grid_col >= 0:
@@ -2453,11 +2427,7 @@ def _resolve_section_col(
     return None
 
 
-def _resolve_section_row(
-    graph: MetroGraph,
-    station: Station,
-    junction_ids: set[str],
-) -> int | None:
+def _resolve_section_row(graph: MetroGraph, station: Station) -> int | None:
     """Resolve the grid row for a port or junction station."""
     sec = _resolve_section(graph, station, prefer_upstream=False)
     if sec and sec.grid_row >= 0:
@@ -2522,9 +2492,9 @@ def _compute_bypass_gap_indices(
         if not is_inter:
             continue
 
-        src_col = _resolve_section_col(graph, src, junction_ids)
-        tgt_col = _resolve_section_col(graph, tgt, junction_ids)
-        src_row = _resolve_section_row(graph, src, junction_ids)
+        src_col = _resolve_section_col(graph, src)
+        tgt_col = _resolve_section_col(graph, tgt)
+        src_row = _resolve_section_row(graph, src)
         if (
             src_col is None
             or tgt_col is None
@@ -2610,24 +2580,22 @@ def _compute_junction_fan_info(
         jst = graph.stations.get(jid)
         if not jst:
             continue
-        src_col = _resolve_section_col(graph, jst, junction_ids)
+        src_col = _resolve_section_col(graph, jst)
         if src_col is None:
             continue
-        src_row = _resolve_section_row(graph, jst, junction_ids)
+        src_row = _resolve_section_row(graph, jst)
 
         # Collect all outgoing inter-section edges (excluding skipped)
         outgoing: list[Edge] = []
         has_lshape = False
         has_bypass = False
-        for edge in graph.edges:
-            if edge.source != jid:
-                continue
+        for edge in graph.edges_from(jid):
             if (edge.source, edge.target, edge.line_id) in _skip:
                 continue
             tgt = graph.stations.get(edge.target)
             if not tgt or not (tgt.is_port or edge.target in junction_ids):
                 continue
-            tgt_col = _resolve_section_col(graph, tgt, junction_ids)
+            tgt_col = _resolve_section_col(graph, tgt)
             if tgt_col is None:
                 continue
             is_bypass = abs(tgt_col - src_col) > 1 and _has_intervening_sections(

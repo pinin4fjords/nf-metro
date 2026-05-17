@@ -544,7 +544,9 @@ def _insert_terminus_convergence_stations(graph: MetroGraph) -> None:
         graph.register_station(st)
 
     if edges_to_remove:
-        graph.edges = [e for i, e in enumerate(graph.edges) if i not in edges_to_remove]
+        graph.replace_edges(
+            [e for i, e in enumerate(graph.edges) if i not in edges_to_remove]
+        )
     for edge in new_edges:
         graph.add_edge(edge)
 
@@ -763,7 +765,9 @@ def _insert_bypass_stations(graph: MetroGraph) -> None:
         graph.register_station(st)
 
     if edges_to_remove:
-        graph.edges = [e for i, e in enumerate(graph.edges) if i not in edges_to_remove]
+        graph.replace_edges(
+            [e for i, e in enumerate(graph.edges) if i not in edges_to_remove]
+        )
     for edge in new_edges:
         graph.add_edge(edge)
 
@@ -992,7 +996,7 @@ def _rewrite_edges_with_junctions(
             port_counter += 1
             junction = Station(id=junction_id, label="", is_port=True, section_id=None)
             graph.add_station(junction)
-            graph.junctions.append(junction_id)
+            graph.add_junction(junction_id)
 
             all_line_ids_set: set[str] = set()
             for edges in entry_targets.values():
@@ -1023,8 +1027,7 @@ def _rewrite_edges_with_junctions(
         if key not in seen:
             seen.add(key)
             deduped.append(edge)
-    graph.edges = deduped
-    graph._invalidate_edge_caches()
+    graph.replace_edges(deduped)
 
 
 def _create_ports_and_junctions(
@@ -1107,7 +1110,7 @@ def _insert_merge_junctions(graph: MetroGraph) -> None:
             section_id=entry_port.section_id,
         )
         graph.add_station(merge_station)
-        graph.junctions.append(merge_id)
+        graph.add_junction(merge_id)
 
         # Rewrite: each source -> merge junction
         for edge in edges:
@@ -1118,7 +1121,7 @@ def _insert_merge_junctions(graph: MetroGraph) -> None:
         new_edges.append(Edge(source=merge_id, target=entry_port_id, line_id=line_id))
 
     # Apply edge rewrites
-    graph.edges = [
+    kept = [
         e for e in graph.edges if (e.source, e.target, e.line_id) not in edges_to_remove
-    ] + new_edges
-    graph._invalidate_edge_caches()
+    ]
+    graph.replace_edges(kept + new_edges)
