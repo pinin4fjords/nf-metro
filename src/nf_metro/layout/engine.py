@@ -4423,24 +4423,23 @@ def _shrink_bboxes_to_content_bottom(
         my_grid_row = section.grid_row if section.grid_row >= 0 else None
         my_y_top = section.bbox_y
         my_y_bot = section.bbox_y + section.bbox_h
+        # LR/RL sections with grid coords match on starting row only;
+        # TB sections (and any unplaced section) fall back to bbox-Y
+        # overlap.  See block comment above for the why.
+        use_grid = section.direction != "TB" and my_grid_row is not None
         out: list[float] = []
         for other in graph.sections.values():
             if other.id == section.id or other.bbox_h <= 0:
                 continue
-            if section.direction == "TB":
-                o_y_top = other.bbox_y
-                o_y_bot = other.bbox_y + other.bbox_h
-                mate = o_y_top < my_y_bot and o_y_bot > my_y_top
-            elif my_grid_row is not None and other.grid_row >= 0:
+            o_y_bot = other.bbox_y + other.bbox_h
+            if use_grid and other.grid_row >= 0:
                 o_grid_top = other.grid_row
                 o_grid_bot = other.grid_row + max(1, other.grid_row_span)
                 mate = o_grid_top <= my_grid_row < o_grid_bot
             else:
-                o_y_top = other.bbox_y
-                o_y_bot = other.bbox_y + other.bbox_h
-                mate = o_y_top < my_y_bot and o_y_bot > my_y_top
+                mate = other.bbox_y < my_y_bot and o_y_bot > my_y_top
             if mate:
-                out.append(other.bbox_y + other.bbox_h)
+                out.append(o_y_bot)
         return out
 
     v_curve_clearance = CURVE_RADIUS + MIN_STATION_FLAT_LENGTH / 2
