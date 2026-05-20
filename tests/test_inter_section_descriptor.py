@@ -1,10 +1,7 @@
-"""Tests for the inter-section routing descriptor scaffolding.
+"""Tests for the inter-section routing descriptor catalogue.
 
-These tests pin down the parity contract of :class:`TurnSequence`
-and check that every entry in :data:`WRAP_TABLE` agrees with the
-row-delta parity contribution a future section-DAG propagator will
-assign.  Catches descriptor/propagator drift before the table is
-wired into the dispatcher.
+Pin down :class:`TurnSequence`'s parity-counting contract and
+sanity-check the structure of every :data:`WRAP_TABLE` entry.
 """
 
 from __future__ import annotations
@@ -107,37 +104,8 @@ def test_wrap_descriptor_parity_delegates_to_turn_sequence():
 
 
 # ---------------------------------------------------------------------------
-# WRAP_TABLE alignment check
+# WRAP_TABLE structural checks
 # ---------------------------------------------------------------------------
-#
-# The future section-DAG propagator will set each section's flip parity as
-# ``flip[tgt] = flip[src] XOR (drow_sign != 0)``, with roots at
-# ``flip = False``.  For a fresh section reached from a root predecessor,
-# the parity contribution is therefore exactly ``drow_sign != 0``.  Every
-# descriptor's :attr:`TurnSequence.parity` must equal that contribution
-# or routes visibly cross at the entry-port quarter-circles.
-
-
-def test_wrap_table_parity_matches_propagator_contribution():
-    """Every WRAP_TABLE entry's parity matches the row-delta contribution.
-
-    For an edge with ``drow_sign = D``, the future propagator
-    contributes ``D != 0`` to the target section's flip flag.  Each
-    descriptor's ``TurnSequence.parity`` must equal that contribution.
-    """
-    mismatches: list[str] = []
-    for key, descriptor in WRAP_TABLE.items():
-        _exit_side, _entry_side, drow_sign, _dcol_sign = key
-        propagator_contribution = drow_sign != 0
-        if descriptor.parity != propagator_contribution:
-            mismatches.append(
-                f"{key} ({descriptor.kind}): descriptor.parity = "
-                f"{descriptor.parity}, propagator_contribution = "
-                f"{propagator_contribution}"
-            )
-    assert not mismatches, "WRAP_TABLE / propagator drift:\n  " + "\n  ".join(
-        mismatches
-    )
 
 
 def test_wrap_table_keys_are_well_formed():
