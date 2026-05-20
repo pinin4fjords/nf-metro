@@ -30,15 +30,18 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.routing.common import (
+    Direction,
     RoutedPath,
     bypass_bottom_y,
     col_left_edge,
     col_right_edge,
     column_gap_midpoint,
     compute_bundle_info,
+    horizontal_direction,
     inter_column_channel_x,
     inter_row_channel_y,
     resolve_section,
+    vertical_direction,
 )
 from nf_metro.layout.routing.corners import (
     bypass_radii,
@@ -486,6 +489,8 @@ def _route_inter_section(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
     dy = ty - sy
+    horizontal = horizontal_direction(dx)
+    vertical = vertical_direction(dy)
 
     i, n = ctx.bundle_info.get((edge.source, edge.target, edge.line_id), (0, 1))
 
@@ -574,12 +579,12 @@ def _route_inter_section(
         delta, r_first, r_second = l_shape_radii(
             i,
             n,
-            going_down=(dy > 0),
+            going_down=vertical is Direction.D,
             offset_step=ctx.offset_step,
             base_radius=ctx.curve_radius,
         )
         # Push channel away from target into the inter-column gap.
-        if dx < 0:
+        if horizontal is Direction.L:
             vx = sx + ctx.curve_radius + ctx.offset_step + delta
         else:
             vx = sx - ctx.curve_radius - ctx.offset_step + delta
@@ -595,7 +600,12 @@ def _route_inter_section(
     # channel around the right side of the target section so the route
     # goes over the top and in from the right, rather than cutting
     # horizontally through the section interior.
-    if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.RIGHT and dx > 0:
+    if (
+        tgt_port
+        and tgt_port.is_entry
+        and tgt_port.side == PortSide.RIGHT
+        and horizontal is Direction.R
+    ):
         return _route_right_entry_wrap(edge, src, tgt, i, n, ctx)
 
     # Non-bypass edges to merge junctions: route to entry port.
@@ -673,24 +683,24 @@ def _route_merge_branch(
     """
     sx, sy = src.x, src.y
     dx = ctx.graph.stations[edge.target].x - sx
-    trunk_dir = 1.0 if dx > 0 else -1.0
+    horizontal = horizontal_direction(dx)
     src_off = _get_offset(ctx, edge.source, edge.line_id)
 
     # Trunk bypass Y level (branches drop to meet it)
     by = ctx.merge.trunk_by.get(edge.target, sy)
 
     # Position descent at MERGE_ROUTE_MARGIN from section edge
-    if dx > 0:
+    if horizontal is Direction.R:
         lead_x = col_right_edge(ctx.graph, src_col) + MERGE_ROUTE_MARGIN
     else:
         lead_x = col_left_edge(ctx.graph, src_col) - MERGE_ROUTE_MARGIN
     # Clamp to at least curve_radius from the junction
-    min_lead = sx + trunk_dir * ctx.curve_radius
-    if trunk_dir > 0:
+    min_lead = sx + horizontal.sign * ctx.curve_radius
+    if horizontal is Direction.R:
         lead_x = max(lead_x, min_lead)
     else:
         lead_x = min(lead_x, min_lead)
-    tail_x = lead_x + trunk_dir * ctx.curve_radius * 2
+    tail_x = lead_x + horizontal.sign * ctx.curve_radius * 2
 
     return RoutedPath(
         edge=edge,
@@ -761,7 +771,8 @@ def _route_bypass(
     if effective_tx is None:
         effective_tx = tx
     dx = tx - sx
-    going_right = dx > 0
+    horizontal = horizontal_direction(dx)
+    going_right = horizontal is Direction.R
     graph = ctx.graph
 
     ekey = (edge.source, edge.target, edge.line_id)
@@ -920,7 +931,9 @@ def _route_l_shape(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
     dy = ty - sy
-    going_down = dy > 0
+    horizontal = horizontal_direction(dx)
+    vertical = vertical_direction(dy)
+    going_down = vertical is Direction.D
 
     # When the junction has both L-shape and bypass siblings, use
     # unified fan-out positions so all lines share one concentric
@@ -938,10 +951,9 @@ def _route_l_shape(
             base_radius=ctx.curve_radius,
         )
         # mid_x places all lines so they diverge at sx
-        if dx > 0:
-            mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
-        else:
-            mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
+        mid_x = sx + horizontal.sign * (
+            ctx.curve_radius + (un - 1) * ctx.offset_step / 2
+        )
         # Second corner: from sub-bundle (only L-shape siblings turn here)
         _, _, r_second = l_shape_radii(
             i,
@@ -1026,11 +1038,13 @@ def _route_top_entry_l_shape(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
     dy = ty - sy
+    vertical = vertical_direction(dy)
+    going_down = vertical is Direction.D
 
     delta, r_first, r_second = l_shape_radii(
         i,
         n,
-        going_down=(dy > 0),
+        going_down=going_down,
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
     )
@@ -1046,17 +1060,17 @@ def _route_top_entry_l_shape(
     # line continues with the bundle flow before curving down.
     r_lead = ctx.curve_radius
     if abs(dx) > r_lead:
-        lead_sign = 1.0 if dx > 0 else -1.0
+        lead = horizontal_direction(dx)
     else:
-        lead_sign = 1.0  # default rightward
+        lead = Direction.R
         if src.id in ctx.graph.junctions:
             for je in ctx.graph.edges:
                 if je.target == src.id:
                     js = ctx.graph.stations.get(je.source)
                     if js and js.is_port:
-                        lead_sign = 1.0 if js.x < src.x else -1.0
+                        lead = Direction.R if js.x < src.x else Direction.L
                         break
-    lx = sx + lead_sign * r_lead
+    lx = sx + lead.sign * r_lead
     # When the lead-in point is close to the target X, skip the
     # intermediate horizontal channel and drop straight down from the
     # lead-in, curving into the target at the end.  This avoids a
@@ -1099,11 +1113,12 @@ def _route_right_entry_wrap(
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
     dy = ty - sy
+    vertical = vertical_direction(dy)
 
     delta, r_first, r_second = l_shape_radii(
         i,
         n,
-        going_down=(dy > 0),
+        going_down=vertical is Direction.D,
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
     )
