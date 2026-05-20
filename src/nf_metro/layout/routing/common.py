@@ -262,13 +262,6 @@ def inter_column_channel_x(
             right = col_right_edge(graph, tgt_col, default=tx)
             return (left + right) / 2
 
-    # Junction at L-shape elbow (src is a junction with no section_id):
-    # When the junction is at the corner of a clockwise/counter-clockwise
-    # L, the channel should sit at the junction's x so the L pivots
-    # cleanly through the junction.  Apply only for genuine L-shapes
-    # (significant dy AND dx) to avoid disturbing degenerate near-vertical
-    # or near-horizontal routes that the old fallback handled correctly.
-    # See docs/dev/authoring_misfires.md #2 / #10.
     # Fallback: place near source
     if dx > 0:
         return sx + max_r + offset_step

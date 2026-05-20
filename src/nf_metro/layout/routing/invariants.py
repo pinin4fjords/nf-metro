@@ -37,54 +37,6 @@ class Side:
     COINCIDENT = "COINCIDENT"
 
 
-def _segment_direction(
-    p1: tuple[float, float], p2: tuple[float, float]
-) -> Direction | None:
-    """Cardinal direction (STRICT off-axis tolerance); helper for unit tests."""
-    dx = p2[0] - p1[0]
-    dy = p2[1] - p1[1]
-    horizontal = abs(dx) > abs(dy) and abs(dy) <= COORD_TOLERANCE_FINE
-    vertical = abs(dy) > abs(dx) and abs(dx) <= COORD_TOLERANCE_FINE
-    if horizontal:
-        return Direction.R if dx > 0 else Direction.L
-    if vertical:
-        return Direction.D if dy > 0 else Direction.U
-    return None
-
-
-def _left_of(tangent: Direction) -> Direction:
-    """Cardinal direction 90 deg CCW from *tangent* (screen coords)."""
-    return {
-        Direction.R: Direction.U,
-        Direction.U: Direction.L,
-        Direction.L: Direction.D,
-        Direction.D: Direction.R,
-    }[tangent]
-
-
-def _relative_side(
-    a_xy: tuple[float, float],
-    b_xy: tuple[float, float],
-    side_direction: Direction,
-) -> str:
-    """LEFT iff ``(a - b) . side_direction > 0``, else RIGHT / COINCIDENT."""
-    ax, ay = a_xy
-    bx, by = b_xy
-    if side_direction is Direction.U:
-        delta = by - ay
-    elif side_direction is Direction.D:
-        delta = ay - by
-    elif side_direction is Direction.R:
-        delta = ax - bx
-    elif side_direction is Direction.L:
-        delta = bx - ax
-    else:  # pragma: no cover - exhausted by Direction
-        return Side.COINCIDENT
-    if abs(delta) <= COORD_TOLERANCE_FINE:
-        return Side.COINCIDENT
-    return Side.LEFT if delta > 0 else Side.RIGHT
-
-
 @dataclass(frozen=True)
 class BundleOrderViolation:
     """One bundle-order violation.  ``corner_xy`` = waypoint where the

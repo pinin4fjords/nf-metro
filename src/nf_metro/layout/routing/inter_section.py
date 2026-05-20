@@ -1,83 +1,23 @@
-"""Inter-section routing descriptor scaffolding.
+"""Declarative inter-section routing descriptors.
 
-This module exists to give a *declarative* counterpart to the
-imperative ``_route_inter_section`` dispatcher in ``core.py``.
+:data:`WRAP_TABLE` maps ``(exit_side, entry_side, drow_sign,
+dcol_sign)`` to a :class:`WrapDescriptor` recording the corner
+sequence and its handedness-change parity.  ``exit_side`` is
+``"JUNCTION"`` when the source has no port side; the other three are
+``sign()`` values in ``{-1, 0, +1}``.
 
-Reading the table
-=================
+Parity contract: a route whose corner sequence has an odd number of
+CW <-> CCW transitions reverses the bundle's outer/inner ordering
+between source and target.  ``_propagate_wrap_flip_parity`` in
+``engine.py`` propagates the same parity along the section DAG.  If
+the table and the propagator disagree, routes visibly cross at the
+entry-port quarter-circles; the alignment test in
+``tests/test_inter_section_descriptor.py`` keeps them in sync.
 
-:data:`WRAP_TABLE` is keyed by
-
-    (exit_side, entry_side, drow_sign, dcol_sign)
-
-where:
-
-* ``exit_side``  - side of the source section that the edge leaves
-  from (or ``"JUNCTION"`` when the source is a junction with no port
-  side).
-* ``entry_side`` - side of the target section that the edge arrives
-  at (one of ``TOP``, ``BOTTOM``, ``LEFT``, ``RIGHT``).
-* ``drow_sign`` - ``sign(tgt_row - src_row)`` (-1, 0, +1).  Captures
-  whether the edge wraps to a row above (``-1``), stays in the same
-  row (``0``), or descends to a row below (``+1``).
-* ``dcol_sign`` - ``sign(tgt_col - src_col)`` (-1, 0, +1).
-
-The value is a :class:`WrapDescriptor` that records the corner
-sequence the existing handler produces and, crucially, the **parity**
-of that sequence's handedness changes.
-
-Why parity matters
-==================
-
-When a route's corner list has an odd number of handedness changes
-(CW->CCW transitions), the bundle's outer/inner ordering reverses
-between source and target.  That is the same parity that
-``_propagate_wrap_flip_parity`` in ``engine.py`` propagates along the
-section DAG to set ``Section.flip_lines``.  If the descriptor table's
-parity ever disagrees with the engine's propagator, one of them is
-wrong and the routes will visibly cross at the entry-port
-quarter-circles.  See the alignment test in
-``tests/test_inter_section_descriptor.py``.
-
-Scope
-=====
-
-This module is **scaffolding only** in the current commit:
-
-* The dispatcher in ``core.py`` still uses its existing if-cascade.
-* :data:`WRAP_TABLE` is a forward declaration so future work
-  (B1's next iteration on dispatcher integration, then C1/C2's
-  parity unification) can cross-reference "what corner sequence does
-  case X produce" without diving into 200 lines of dispatcher logic.
-* :class:`Direction` lives in ``common.py`` so future runtime code
-  outside this module can adopt it without importing the descriptor
-  scaffolding.
-
-Known drift (deliberate omissions from ``WRAP_TABLE``)
-======================================================
-
-The dispatcher's if-cascade fires for some same-row and degenerate
-combinations whose geometric corner count disagrees with the
-propagator's row-based ``is_wrap`` flag:
-
-* Same-row L-shapes ``("RIGHT", "LEFT", 0, 1)``,
-  ``("LEFT", "RIGHT", 0, -1)``: the route has one handedness change
-  geometrically (parity = True) but ``is_wrap`` = False because the
-  edge stays in one row.
-* Same-row right-entry wrap ``("LEFT", "RIGHT", 0, 1)``: same drift.
-* Same-row TOP entry ``("RIGHT", "TOP", 0, 1)``: same drift.
-* TB BOTTOM->TOP same-column straight drop
-  ``("BOTTOM", "TOP", 1, 0)``: zero corners (parity = False) but
-  ``is_wrap`` = True.
-
-These cases are excluded from ``WRAP_TABLE`` so the alignment test
-in ``tests/test_inter_section_descriptor.py`` stays green.  They are
-the *first* concrete drift the C1/C2 unification work needs to
-resolve: either the propagator's ``is_wrap`` flag becomes
-geometry-aware (counting corner sequences instead of row deltas),
-or the descriptor's parity definition adopts the row-delta
-convention.  The choice is part of the design discussion, not this
-commit's scope.
+Same-row L-shapes and the TB ``("BOTTOM", "TOP", 1, 0)`` straight
+drop are deliberately absent: their geometric parity disagrees with
+the propagator's row-delta ``is_wrap`` flag, and reconciling that is
+left to a follow-up.
 """
 
 from __future__ import annotations

@@ -23,9 +23,6 @@ from nf_metro.layout.routing.common import Direction, RoutedPath
 from nf_metro.layout.routing.invariants import (
     BundleOrderViolation,
     Side,
-    _left_of,
-    _relative_side,
-    _segment_direction,
     check_bundle_order_preserved,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -88,67 +85,6 @@ def test_no_bundle_order_violations_in_gallery(path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Helper-level unit tests
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "p1, p2, expected",
-    [
-        ((0.0, 0.0), (10.0, 0.0), Direction.R),
-        ((10.0, 0.0), (0.0, 0.0), Direction.L),
-        ((0.0, 0.0), (0.0, 10.0), Direction.D),
-        ((0.0, 10.0), (0.0, 0.0), Direction.U),
-        ((0.0, 0.0), (10.0, 10.0), None),  # diagonal, not cardinal
-        ((0.0, 0.0), (0.0, 0.0), None),  # degenerate
-    ],
-)
-def test_segment_direction(p1, p2, expected) -> None:
-    """``_segment_direction`` returns the cardinal direction for an
-    axis-aligned segment and ``None`` otherwise.
-
-    The fine-tolerance test is implicit in the inputs: a segment with
-    any non-trivial off-axis component returns ``None``.
-    """
-    assert _segment_direction(p1, p2) is expected
-
-
-@pytest.mark.parametrize(
-    "tangent, expected_left",
-    [
-        (Direction.R, Direction.U),
-        (Direction.U, Direction.L),
-        (Direction.L, Direction.D),
-        (Direction.D, Direction.R),
-    ],
-)
-def test_left_of_is_quarter_turn_ccw(
-    tangent: Direction, expected_left: Direction
-) -> None:
-    """``_left_of`` is a quarter-turn anti-clockwise in screen coords."""
-    assert _left_of(tangent) is expected_left
-
-
-@pytest.mark.parametrize(
-    "a, b, side_dir, expected",
-    [
-        # +x axis (R): A LEFT iff A.x > B.x
-        ((5.0, 0.0), (0.0, 0.0), Direction.R, Side.LEFT),
-        ((0.0, 0.0), (5.0, 0.0), Direction.R, Side.RIGHT),
-        ((0.0, 0.0), (0.0, 0.0), Direction.R, Side.COINCIDENT),
-        # -y axis (U): A LEFT iff A.y < B.y
-        ((0.0, 0.0), (0.0, 5.0), Direction.U, Side.LEFT),
-        ((0.0, 5.0), (0.0, 0.0), Direction.U, Side.RIGHT),
-        # +y axis (D): A LEFT iff A.y > B.y
-        ((0.0, 5.0), (0.0, 0.0), Direction.D, Side.LEFT),
-        # -x axis (L): A LEFT iff A.x < B.x
-        ((0.0, 0.0), (5.0, 0.0), Direction.L, Side.LEFT),
-    ],
-)
-def test_relative_side(a, b, side_dir, expected) -> None:
-    """``_relative_side`` projects ``a - b`` onto the unit vector
-    pointing in ``side_dir`` and returns LEFT for positive projection,
-    RIGHT for negative, COINCIDENT when within tolerance.
-    """
-    assert _relative_side(a, b, side_dir) == expected
 
 
 # ---------------------------------------------------------------------------
