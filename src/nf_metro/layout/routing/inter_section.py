@@ -1,23 +1,21 @@
 """Declarative inter-section routing descriptors.
 
-:data:`WRAP_TABLE` maps ``(exit_side, entry_side, drow_sign,
-dcol_sign)`` to a :class:`WrapDescriptor` recording the corner
-sequence and its handedness-change parity.  ``exit_side`` is ``None``
-when the source is a junction without a port side; ``drow_sign`` /
-``dcol_sign`` are ``sign()`` values in ``{-1, 0, +1}``.
+:data:`WRAP_TABLE` catalogues the corner sequence each handler in
+``core.py`` produces, keyed by ``(exit_side, entry_side, drow_sign,
+dcol_sign)``.  ``exit_side`` is ``None`` when the source is a
+junction without a port side; ``drow_sign`` / ``dcol_sign`` are
+``sign()`` values in ``{-1, 0, +1}``.
 
-Parity contract: a route whose corner sequence has an odd number of
-CW <-> CCW transitions reverses the bundle's outer/inner ordering
-between source and target.  A future section-DAG propagator must
-agree with the descriptor's parity, else routes visibly cross at
-the entry-port quarter-circles.  The alignment test in
-``tests/test_inter_section_descriptor.py`` keeps the table
-internally consistent against the same row-delta contribution the
-propagator will compute.
+The table is a documentation reference: nothing in routing consumes
+it at runtime.  Bundle ordering across complex paths is preserved
+by the per-corner offset propagation inside the wrap-route
+handlers (handedness-aware radii at each turn); the runtime
+:func:`~nf_metro.layout.routing.invariants.check_bundle_order_preserved`
+guard catches any regression.
 
 Same-row L-shapes and the TB ``(BOTTOM, TOP, 1, 0)`` straight drop
-are deliberately absent: their geometric parity disagrees with the
-propagator's row-delta ``is_wrap`` flag.
+are absent because they're degenerate cases the wrap handlers
+don't fire on; the dispatcher's if-cascade handles them directly.
 """
 
 from __future__ import annotations
@@ -141,10 +139,9 @@ class TurnSequence:
         """``True`` iff the sequence has an odd number of handedness changes.
 
         A "change" is a pair of consecutive corners whose handedness
-        differs (CW->CCW or CCW->CW).  When parity is True, the
-        bundle's outer/inner ordering reverses between the route's
-        first and last corner - the condition a future section-DAG
-        propagator will reflect via ``Section.flip_lines``.
+        differs (CW->CCW or CCW->CW).  Recorded for descriptor-level
+        documentation; runtime wrap handlers preserve bundle ordering
+        via per-corner offset propagation regardless of this value.
 
         Examples
         --------
