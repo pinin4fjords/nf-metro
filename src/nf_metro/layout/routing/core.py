@@ -579,7 +579,7 @@ def _route_inter_section(
         delta, r_first, r_second = l_shape_radii(
             i,
             n,
-            going_down=vertical is Direction.D,
+            vertical=vertical,
             offset_step=ctx.offset_step,
             base_radius=ctx.curve_radius,
         )
@@ -772,7 +772,6 @@ def _route_bypass(
         effective_tx = tx
     dx = tx - sx
     horizontal = horizontal_direction(dx)
-    going_right = horizontal is Direction.R
     graph = ctx.graph
 
     ekey = (edge.source, edge.target, edge.line_id)
@@ -802,8 +801,8 @@ def _route_bypass(
     # Normally gap1 goes down and gap2 goes up, but when the source is
     # below the trunk (bottom of a tall section bypassing a shorter
     # neighbour), gap1 also goes up.
-    gap1_going_down = base_y > sy
-    gap2_going_down = ty > base_y
+    gap1_vertical = vertical_direction(base_y - sy)
+    gap2_vertical = vertical_direction(ty - base_y)
 
     # Radii and per-line deltas via the same l_shape_radii logic used
     # for all other concentric corners.
@@ -812,11 +811,11 @@ def _route_bypass(
         g1_n,
         g2_j,
         g2_n,
-        going_right=going_right,
+        horizontal=horizontal,
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
-        gap1_going_down=gap1_going_down,
-        gap2_going_down=gap2_going_down,
+        gap1_vertical=gap1_vertical,
+        gap2_vertical=gap2_vertical,
     )
     by = base_y + nest_offset
 
@@ -825,7 +824,7 @@ def _route_bypass(
     r2 = corner_radius(
         nest_offset,
         (g2_n - 1) * ctx.offset_step,
-        outside=gap1_going_down,
+        outside=gap1_vertical is Direction.D,
         base_radius=ctx.curve_radius,
     )
 
@@ -834,7 +833,7 @@ def _route_bypass(
     half_g1 = (g1_n - 1) * ctx.offset_step / 2
     half_g2 = (g2_n - 1) * ctx.offset_step / 2
 
-    if going_right:
+    if horizontal is Direction.R:
         if fan is not None:
             # Corner 1 uses unified fan indices for a shared first corner
             # with L-shape siblings.  Override delta1 and r1.
@@ -842,7 +841,7 @@ def _route_bypass(
             fan_delta, r1, _ = l_shape_radii(
                 ui,
                 un,
-                going_down=gap1_going_down,
+                vertical=gap1_vertical,
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
             )
@@ -874,7 +873,7 @@ def _route_bypass(
             fan_delta, r1, _ = l_shape_radii(
                 ui,
                 un,
-                going_down=gap1_going_down,
+                vertical=gap1_vertical,
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
             )
@@ -933,7 +932,6 @@ def _route_l_shape(
     dy = ty - sy
     horizontal = horizontal_direction(dx)
     vertical = vertical_direction(dy)
-    going_down = vertical is Direction.D
 
     # When the junction has both L-shape and bypass siblings, use
     # unified fan-out positions so all lines share one concentric
@@ -946,7 +944,7 @@ def _route_l_shape(
         delta, r_first, _ = l_shape_radii(
             ui,
             un,
-            going_down=going_down,
+            vertical=vertical,
             offset_step=ctx.offset_step,
             base_radius=ctx.curve_radius,
         )
@@ -958,7 +956,7 @@ def _route_l_shape(
         _, _, r_second = l_shape_radii(
             i,
             n,
-            going_down=going_down,
+            vertical=vertical,
             offset_step=ctx.offset_step,
             base_radius=ctx.curve_radius,
         )
@@ -966,7 +964,7 @@ def _route_l_shape(
         delta, r_first, r_second = l_shape_radii(
             i,
             n,
-            going_down=going_down,
+            vertical=vertical,
             offset_step=ctx.offset_step,
             base_radius=ctx.curve_radius,
         )
@@ -990,14 +988,14 @@ def _route_l_shape(
             _, r_first, _ = l_shape_radii(
                 fan[0],
                 fan[1],
-                going_down=going_down,
+                vertical=vertical,
                 offset_step=ctx.offset_step,
                 base_radius=new_base,
             )
             _, _, r_second = l_shape_radii(
                 i,
                 n,
-                going_down=going_down,
+                vertical=vertical,
                 offset_step=ctx.offset_step,
                 base_radius=new_base,
             )
@@ -1005,7 +1003,7 @@ def _route_l_shape(
             _, r_first, r_second = l_shape_radii(
                 i,
                 n,
-                going_down=going_down,
+                vertical=vertical,
                 offset_step=ctx.offset_step,
                 base_radius=new_base,
             )
@@ -1039,12 +1037,11 @@ def _route_top_entry_l_shape(
     dx = tx - sx
     dy = ty - sy
     vertical = vertical_direction(dy)
-    going_down = vertical is Direction.D
 
     delta, r_first, r_second = l_shape_radii(
         i,
         n,
-        going_down=going_down,
+        vertical=vertical,
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
     )
@@ -1118,7 +1115,7 @@ def _route_right_entry_wrap(
     delta, r_first, r_second = l_shape_radii(
         i,
         n,
-        going_down=vertical is Direction.D,
+        vertical=vertical,
         offset_step=ctx.offset_step,
         base_radius=ctx.curve_radius,
     )

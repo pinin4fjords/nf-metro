@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.routing.common import Direction
 
 # ---------------------------------------------------------------------------
 # Primitive: reversed (inner/outer) offset
@@ -164,7 +165,7 @@ def corner_radius(
 def l_shape_radii(
     i: int,
     n: int,
-    going_down: bool,
+    vertical: Direction,
     offset_step: float = OFFSET_STEP,
     base_radius: float = CURVE_RADIUS,
 ) -> tuple[float, float, float]:
@@ -182,8 +183,9 @@ def l_shape_radii(
         ``compute_bundle_info()``.
     n : int
         Total number of lines in the bundle.
-    going_down : bool
-        ``True`` if the vertical segment goes downward (dy > 0).
+    vertical : Direction
+        ``Direction.D`` if the vertical segment goes downward (dy > 0),
+        ``Direction.U`` if it goes upward.
     offset_step : float
         Spacing between adjacent lines in the bundle.
     base_radius : float
@@ -215,7 +217,7 @@ def l_shape_radii(
     off = (n - 1 - i) * offset_step
     max_off = (n - 1) * offset_step
 
-    if going_down:
+    if vertical is Direction.D:
         # i=0 -> rightmost (positive delta)
         delta = ((n - 1) / 2 - i) * offset_step
         # Corner 1 (CW):  rightmost = outside -> largest radius
@@ -243,11 +245,11 @@ def bypass_radii(
     g1_n: int,
     g2_i: int,
     g2_n: int,
-    going_right: bool,
+    horizontal: Direction,
     offset_step: float = OFFSET_STEP,
     base_radius: float = CURVE_RADIUS,
-    gap1_going_down: bool = True,
-    gap2_going_down: bool = False,
+    gap1_vertical: Direction = Direction.D,
+    gap2_vertical: Direction = Direction.U,
 ) -> tuple[float, float, float, float, float, float]:
     """Compute deltas and radii for a U-shaped bypass route.
 
@@ -262,19 +264,20 @@ def bypass_radii(
         Line index and bundle size at gap1.
     g2_i, g2_n : int
         Line index and bundle size at gap2.
-    going_right : bool
-        ``True`` when the bypass travels rightward (dx > 0).
-        Left-going bypasses mirror the inside/outside assignment.
+    horizontal : Direction
+        ``Direction.R`` when the bypass travels rightward (dx > 0),
+        ``Direction.L`` when leftward.  Left-going bypasses mirror the
+        inside/outside assignment.
     offset_step, base_radius : float
         Passed through to ``l_shape_radii``.
-    gap1_going_down : bool
-        Vertical direction at gap1.  ``True`` when the trunk is below
-        the source (standard case), ``False`` when the source is below
-        the trunk (e.g. bottom of a tall section bypassing a shorter
-        neighbour).
-    gap2_going_down : bool
-        Vertical direction at gap2.  Almost always ``False`` (trunk
-        below target).
+    gap1_vertical : Direction
+        Vertical direction at gap1.  ``Direction.D`` when the trunk is
+        below the source (standard case), ``Direction.U`` when the
+        source is below the trunk (e.g. bottom of a tall section
+        bypassing a shorter neighbour).
+    gap2_vertical : Direction
+        Vertical direction at gap2.  Almost always ``Direction.U``
+        (trunk below target).
 
     Returns
     -------
@@ -287,6 +290,7 @@ def bypass_radii(
     """
     # For left-going bypasses, reverse indices so the outside/inside
     # assignment matches the mirrored corner geometry.
+    going_right = horizontal is Direction.R
     g1_idx = g1_i if going_right else g1_n - 1 - g1_i
     g2_idx = g2_i if going_right else g2_n - 1 - g2_i
 
@@ -294,7 +298,7 @@ def bypass_radii(
     delta1, r1, r2 = l_shape_radii(
         g1_idx,
         g1_n,
-        going_down=gap1_going_down,
+        vertical=gap1_vertical,
         offset_step=offset_step,
         base_radius=base_radius,
     )
@@ -302,7 +306,7 @@ def bypass_radii(
     delta2, r3, r4 = l_shape_radii(
         g2_idx,
         g2_n,
-        going_down=gap2_going_down,
+        vertical=gap2_vertical,
         offset_step=offset_step,
         base_radius=base_radius,
     )
