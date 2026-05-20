@@ -15,11 +15,14 @@ from __future__ import annotations
 from nf_metro.layout.routing.common import Direction
 from nf_metro.layout.routing.inter_section import (
     WRAP_TABLE,
+    ChannelKind,
     Corner,
     CornerHandedness,
+    RouteKind,
     TurnSequence,
     WrapDescriptor,
 )
+from nf_metro.parser.model import PortSide
 
 # ---------------------------------------------------------------------------
 # TurnSequence.parity unit tests
@@ -37,10 +40,10 @@ def test_left_entry_wrap_parity_is_true():
     """
     seq = TurnSequence(
         corners=(
-            Corner(Direction.R, Direction.D, CornerHandedness.CW),
-            Corner(Direction.D, Direction.L, CornerHandedness.CW),
-            Corner(Direction.L, Direction.D, CornerHandedness.CCW),
-            Corner(Direction.D, Direction.R, CornerHandedness.CCW),
+            Corner(Direction.R, Direction.D),
+            Corner(Direction.D, Direction.L),
+            Corner(Direction.L, Direction.D),
+            Corner(Direction.D, Direction.R),
         )
     )
     assert seq.parity is True
@@ -61,8 +64,8 @@ def test_l_shape_parity_is_true():
     """
     seq = TurnSequence(
         corners=(
-            Corner(Direction.R, Direction.D, CornerHandedness.CW),
-            Corner(Direction.D, Direction.R, CornerHandedness.CCW),
+            Corner(Direction.R, Direction.D),
+            Corner(Direction.D, Direction.R),
         )
     )
     assert seq.parity is True
@@ -83,8 +86,8 @@ def test_same_handedness_pair_parity_is_false():
     """
     seq = TurnSequence(
         corners=(
-            Corner(Direction.R, Direction.D, CornerHandedness.CW),
-            Corner(Direction.D, Direction.L, CornerHandedness.CW),
+            Corner(Direction.R, Direction.D),
+            Corner(Direction.D, Direction.L),
         )
     )
     assert seq.parity is False
@@ -94,11 +97,15 @@ def test_wrap_descriptor_parity_delegates_to_turn_sequence():
     """WrapDescriptor.parity is a thin shim over TurnSequence.parity."""
     seq = TurnSequence(
         corners=(
-            Corner(Direction.R, Direction.D, CornerHandedness.CW),
-            Corner(Direction.D, Direction.R, CornerHandedness.CCW),
+            Corner(Direction.R, Direction.D),
+            Corner(Direction.D, Direction.R),
         )
     )
-    desc = WrapDescriptor(kind="test", turn_sequence=seq, channel_kind="L_SHAPE")
+    desc = WrapDescriptor(
+        kind=RouteKind.L_SHAPE,
+        turn_sequence=seq,
+        channel_kind=ChannelKind.L_SHAPE,
+    )
     assert desc.parity == seq.parity is True
 
 
@@ -149,12 +156,12 @@ def test_wrap_table_parity_matches_propagator_contribution():
 
 def test_wrap_table_keys_are_well_formed():
     """Sanity: keys use legal exit/entry sides and -1/0/+1 signs."""
-    legal_exit = {"LEFT", "RIGHT", "TOP", "BOTTOM", "JUNCTION"}
-    legal_entry = {"LEFT", "RIGHT", "TOP", "BOTTOM"}
     for key in WRAP_TABLE:
         exit_side, entry_side, drow_sign, dcol_sign = key
-        assert exit_side in legal_exit, f"bad exit_side: {key}"
-        assert entry_side in legal_entry, f"bad entry_side: {key}"
+        assert exit_side is None or isinstance(exit_side, PortSide), (
+            f"bad exit_side: {key}"
+        )
+        assert isinstance(entry_side, PortSide), f"bad entry_side: {key}"
         assert drow_sign in (-1, 0, 1), f"bad drow_sign: {key}"
         assert dcol_sign in (-1, 0, 1), f"bad dcol_sign: {key}"
 

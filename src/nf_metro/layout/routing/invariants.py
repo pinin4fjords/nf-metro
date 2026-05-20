@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from enum import Enum
 
 from nf_metro.layout.constants import COORD_TOLERANCE_FINE
 from nf_metro.layout.routing.common import Direction, RoutedPath
@@ -29,8 +30,8 @@ from nf_metro.layout.routing.common import Direction, RoutedPath
 _MIN_SEGMENT_LENGTH = 1.0
 
 
-class Side:
-    """Sentinel-string namespace: ``LEFT`` / ``RIGHT`` / ``COINCIDENT``."""
+class Side(Enum):
+    """Side of a line relative to its bundle mate's trajectory."""
 
     LEFT = "LEFT"
     RIGHT = "RIGHT"
@@ -53,8 +54,8 @@ class BundleOrderViolation:
     corner_xy: tuple[float, float]
     in_tangent: Direction
     out_tangent: Direction
-    before: str
-    after: str
+    before: Side
+    after: Side
     segment_index: int = -1
 
     def message(self) -> str:
@@ -65,9 +66,9 @@ class BundleOrderViolation:
             f"corner ({cx:.1f},{cy:.1f}) "
             f"in={self.in_tangent.value} out={self.out_tangent.value} "
             f"segment={self.segment_index}: "
-            f"expected line {self.line_a!r} on {self.before} of "
+            f"expected line {self.line_a!r} on {self.before.value} of "
             f"line {self.line_b!r} (matching incoming run); "
-            f"observed {self.line_a!r} on {self.after} of "
+            f"observed {self.line_a!r} on {self.after.value} of "
             f"line {self.line_b!r} on outgoing run"
         )
 
