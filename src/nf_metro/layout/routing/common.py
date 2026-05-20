@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from enum import Enum
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
@@ -13,7 +14,17 @@ from nf_metro.layout.constants import (
     HEADER_CLEARANCE,
     SECTION_HEADER_PROTRUSION,
 )
-from nf_metro.parser.model import Edge, MetroGraph, Section
+from nf_metro.parser.model import Edge, MetroGraph, Section, Station
+
+
+class Direction(Enum):
+    """Cardinal travel direction for a horizontal or vertical run."""
+
+    R = "R"  # east, +x
+    L = "L"  # west, -x
+    U = "U"  # north, -y
+    D = "D"  # south, +y
+
 
 # ---------------------------------------------------------------------------
 # Grid-position helpers
@@ -231,19 +242,7 @@ def inter_column_channel_x(
     tgt_sec = graph.sections.get(tgt.section_id) if tgt.section_id else None
 
     if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
-        # Find the rightmost/leftmost edges of the source and target
-        # columns (accounting for sibling sections that may be wider).
-        src_col = src_sec.grid_col
-        tgt_col = tgt_sec.grid_col
-
-        if dx > 0:
-            right = col_right_edge(graph, src_col, default=sx)
-            left = col_left_edge(graph, tgt_col, default=tx)
-            return (right + left) / 2
-        else:
-            left = col_left_edge(graph, src_col, default=sx)
-            right = col_right_edge(graph, tgt_col, default=tx)
-            return (left + right) / 2
+        return column_gap_midpoint(graph, src_sec.grid_col, tgt_sec.grid_col)
 
     # Fallback: place near source
     if dx > 0:
@@ -377,3 +376,101 @@ def bypass_bottom_y(
                         candidate = (row_bottom + header_top) / 2
 
     return candidate
+
+
+# ---------------------------------------------------------------------------
+# Section resolution + inter-row channel placement
+# ---------------------------------------------------------------------------
+
+
+def resolve_section(
+    graph: MetroGraph,
+    station: Station,
+    prefer_upstream: bool = True,
+) -> Section | None:
+    """Resolve a station's section, tracing through junctions if needed.
+
+    For stations with a ``section_id``, returns that section directly.
+    For junctions (``section_id is None``), traces edges to find a
+    connected port's section.
+
+    When *prefer_upstream* is True (default), incoming edges are checked
+    first so the junction resolves to the upstream section.  When False,
+    both directions are scanned in a single pass with no preference.
+    """
+    if station.section_id:
+        return graph.sections.get(station.section_id)
+
+    if prefer_upstream:
+        for e in graph.edges_to(station.id):
+            other = graph.stations.get(e.source)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+        for e in graph.edges_from(station.id):
+            other = graph.stations.get(e.target)
+            if other and other.section_id:
+                sec = graph.sections.get(other.section_id)
+                if sec:
+                    return sec
+    else:
+        # Preserve original graph.edges insertion order: callers depend on
+        # the first incident edge winning when a junction has neighbours
+        # in multiple sections.
+        for e in graph.edges:
+            other_id = None
+            if e.source == station.id:
+                other_id = e.target
+            elif e.target == station.id:
+                other_id = e.source
+            if other_id:
+                other = graph.stations.get(other_id)
+                if other and other.section_id:
+                    sec = graph.sections.get(other.section_id)
+                    if sec:
+                        return sec
+    return None
+
+
+def inter_row_channel_y(
+    graph: MetroGraph,
+    src: Station,
+    tgt: Station,
+    sy: float,
+    ty: float,
+    dy: float,
+    max_r: float,
+) -> float:
+    """Compute Y for a horizontal channel in an inter-row gap.
+
+    Vertical equivalent of ``inter_column_channel_x``: places the
+    channel in the inter-row gap, clear of section headers (numbered
+    circle + label rendered above/below bbox_y).
+    """
+    src_sec = resolve_section(graph, src)
+    tgt_sec = resolve_section(graph, tgt)
+
+    if src_sec and tgt_sec and src_sec.grid_row != tgt_sec.grid_row:
+        src_row = src_sec.grid_row
+        tgt_row = tgt_sec.grid_row
+
+        if dy > 0:
+            # Going down: gap between bottom of source row and top of target row
+            bottom = row_bottom_edge(graph, src_row, default=sy)
+            top = row_top_edge(graph, tgt_row, default=ty)
+            # Place above the header zone
+            header_top = top - HEADER_CLEARANCE
+            return (bottom + header_top) / 2
+        else:
+            # Going up: gap between top of source row and bottom of target row
+            top = row_top_edge(graph, src_row, default=sy)
+            bottom = row_bottom_edge(graph, tgt_row, default=ty)
+            header_bottom = bottom + HEADER_CLEARANCE
+            return (top + header_bottom) / 2
+
+    # Fallback: place near target, clearing the header zone
+    if dy > 0:
+        return ty - HEADER_CLEARANCE - max_r
+    else:
+        return ty + HEADER_CLEARANCE + max_r

@@ -20,7 +20,6 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
     FOLD_MARGIN,
-    HEADER_CLEARANCE,
     JUNCTION_MARGIN,
     MERGE_ROUTE_MARGIN,
     MIN_STATION_FLAT_LENGTH,
@@ -38,8 +37,8 @@ from nf_metro.layout.routing.common import (
     column_gap_midpoint,
     compute_bundle_info,
     inter_column_channel_x,
-    row_bottom_edge,
-    row_top_edge,
+    inter_row_channel_y,
+    resolve_section,
 )
 from nf_metro.layout.routing.corners import (
     bypass_radii,
@@ -1037,7 +1036,7 @@ def _route_top_entry_l_shape(
     )
 
     # Compute Y for the horizontal channel in the inter-row gap.
-    mid_y = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+    mid_y = inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
     hy = mid_y + delta
 
     # Horizontal lead-in: a short run so the corner from horizontal to
@@ -1132,7 +1131,7 @@ def _route_right_entry_wrap(
         hy += delta
     else:
         # Same-row: use inter-row gap above the target section.
-        hy = _inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+        hy = inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
         hy += delta
 
     # Vertical channel X: just past the entry port in the inter-section gap.
@@ -1149,104 +1148,6 @@ def _route_right_entry_wrap(
         is_inter_section=True,
         curve_radii=[r_lead, r_first, r_first, r_second],
     )
-
-
-def _inter_row_channel_y(
-    graph: MetroGraph,
-    src: Station,
-    tgt: Station,
-    sy: float,
-    ty: float,
-    dy: float,
-    max_r: float,
-) -> float:
-    """Compute Y for a horizontal channel in an inter-row gap.
-
-    Vertical equivalent of ``inter_column_channel_x``: places the
-    channel in the inter-row gap, above the target section's header
-    (number badge + label rendered above bbox_y).
-    """
-    # Keep the channel clear of section headers (numbered circle + label)
-    # that protrude above/below bbox_y.
-
-    # Resolve sections for junction stations (section_id is None for
-    # junctions; trace through edges to find a connected port's section).
-    src_sec = _resolve_section(graph, src)
-    tgt_sec = _resolve_section(graph, tgt)
-
-    if src_sec and tgt_sec and src_sec.grid_row != tgt_sec.grid_row:
-        src_row = src_sec.grid_row
-        tgt_row = tgt_sec.grid_row
-
-        if dy > 0:
-            # Going down: gap between bottom of source row and top of target row
-            bottom = row_bottom_edge(graph, src_row, default=sy)
-            top = row_top_edge(graph, tgt_row, default=ty)
-            # Place above the header zone
-            header_top = top - HEADER_CLEARANCE
-            return (bottom + header_top) / 2
-        else:
-            # Going up: gap between top of source row and bottom of target row
-            top = row_top_edge(graph, src_row, default=sy)
-            bottom = row_bottom_edge(graph, tgt_row, default=ty)
-            header_bottom = bottom + HEADER_CLEARANCE
-            return (top + header_bottom) / 2
-
-    # Fallback: place near target, clearing the header zone
-    if dy > 0:
-        return ty - HEADER_CLEARANCE - max_r
-    else:
-        return ty + HEADER_CLEARANCE + max_r
-
-
-def _resolve_section(
-    graph: MetroGraph,
-    station: Station,
-    prefer_upstream: bool = True,
-):
-    """Resolve a station's section, tracing through junctions if needed.
-
-    For stations with a ``section_id``, returns that section directly.
-    For junctions (``section_id is None``), traces edges to find a
-    connected port's section.
-
-    When *prefer_upstream* is True (default), incoming edges are checked
-    first so the junction resolves to the upstream section.  When False,
-    both directions are scanned in a single pass with no preference.
-    """
-    if station.section_id:
-        return graph.sections.get(station.section_id)
-
-    if prefer_upstream:
-        for e in graph.edges_to(station.id):
-            other = graph.stations.get(e.source)
-            if other and other.section_id:
-                sec = graph.sections.get(other.section_id)
-                if sec:
-                    return sec
-        for e in graph.edges_from(station.id):
-            other = graph.stations.get(e.target)
-            if other and other.section_id:
-                sec = graph.sections.get(other.section_id)
-                if sec:
-                    return sec
-    else:
-        # Preserve original graph.edges insertion order: callers depend on
-        # the first incident edge winning when a junction has neighbours
-        # in multiple sections.
-        for e in graph.edges:
-            other_id = None
-            if e.source == station.id:
-                other_id = e.target
-            elif e.target == station.id:
-                other_id = e.source
-            if other_id:
-                other = graph.stations.get(other_id)
-                if other and other.section_id:
-                    sec = graph.sections.get(other.section_id)
-                    if sec:
-                        return sec
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -2421,7 +2322,7 @@ def _center_bubble_stations(routes: list[RoutedPath], graph: MetroGraph) -> None
 
 def _resolve_section_col(graph: MetroGraph, station: Station) -> int | None:
     """Resolve the grid column for a port or junction station."""
-    sec = _resolve_section(graph, station, prefer_upstream=False)
+    sec = resolve_section(graph, station, prefer_upstream=False)
     if sec and sec.grid_col >= 0:
         return sec.grid_col
     return None
@@ -2429,7 +2330,7 @@ def _resolve_section_col(graph: MetroGraph, station: Station) -> int | None:
 
 def _resolve_section_row(graph: MetroGraph, station: Station) -> int | None:
     """Resolve the grid row for a port or junction station."""
-    sec = _resolve_section(graph, station, prefer_upstream=False)
+    sec = resolve_section(graph, station, prefer_upstream=False)
     if sec and sec.grid_row >= 0:
         return sec.grid_row
     return None
