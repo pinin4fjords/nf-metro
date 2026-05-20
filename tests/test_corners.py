@@ -314,7 +314,7 @@ class TestBypassRadii:
             _, _, _, _, r3, r4 = bypass_radii(i, n, i, n, horizontal=Direction.R)
             assert r3 + r4 == pytest.approx(expected)
 
-    def test_right_going_matches_l_shape(self):
+    def test_horizontal_r_matches_l_shape(self):
         """For horizontal=R, bypass_radii must match two l_shape_radii calls."""
         for i in range(3):
             d1, d2, r1, r2, r3, r4 = bypass_radii(i, 3, i, 3, horizontal=Direction.R)
