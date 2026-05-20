@@ -264,3 +264,55 @@ def test_merge_branch_lands_on_trunk_y():
         f"{fp.name}: route endpoints hanging in mid-air (not on a "
         f"station marker or sibling route segment):\n  " + "\n  ".join(offences[:5])
     )
+
+
+def test_l_shape_route_quadrant_symmetry():
+    """An L-shape route and its 180-degree mirror must produce mirrored
+    geometry: same 4-point shape, same curve radii, with all (x,y) offsets
+    from the source negated. This pins down direction handling inside
+    ``_route_l_shape`` so future direction-enum refactors cannot silently
+    swap a sign on one branch only.
+    """
+
+    def _route_one(src_col: int, src_row: int, tgt_col: int, tgt_row: int):
+        # Two single-station sections with forced exit/entry sides on the
+        # axis between them, so the inter-section edge takes the standard
+        # 4-point L-shape (horizontal -> vertical -> horizontal).
+        if tgt_col > src_col:
+            exit_side, entry_side = "right", "left"
+        else:
+            exit_side, entry_side = "left", "right"
+        graph = parse_metro_mermaid(
+            "%%metro line: main | Main | #ff0000\n"
+            f"%%metro grid: s1 | {src_col},{src_row}\n"
+            f"%%metro grid: s2 | {tgt_col},{tgt_row}\n"
+            "graph LR\n"
+            "    subgraph s1 [S1]\n"
+            f"        %%metro exit: {exit_side} | main\n"
+            "        a[A]\n"
+            "    end\n"
+            "    subgraph s2 [S2]\n"
+            f"        %%metro entry: {entry_side} | main\n"
+            "        b[B]\n"
+            "    end\n"
+            "    a -->|main| b\n"
+        )
+        compute_layout(graph)
+        routes = route_edges(graph)
+        inter = [r for r in routes if r.is_inter_section and len(r.points) == 4]
+        assert len(inter) == 1, f"expected 1 L-shape inter-section route, got {inter}"
+        return inter[0]
+
+    # Mirror pair: target down-right vs target up-left, same Manhattan distance.
+    rd = _route_one(0, 0, 1, 1)  # dx>0, dy>0  -> R/D
+    lu = _route_one(1, 1, 0, 0)  # dx<0, dy<0  -> L/U
+
+    # Mirror in source-relative coordinates.
+    rd_rel = [(p[0] - rd.points[0][0], p[1] - rd.points[0][1]) for p in rd.points]
+    lu_rel = [(p[0] - lu.points[0][0], p[1] - lu.points[0][1]) for p in lu.points]
+    for a, b in zip(rd_rel, lu_rel):
+        assert abs(a[0] + b[0]) < 1e-6, f"x mirror broken: {a} vs {b}"
+        assert abs(a[1] + b[1]) < 1e-6, f"y mirror broken: {a} vs {b}"
+
+    # Curve radii are direction-agnostic and must match exactly.
+    assert rd.curve_radii == lu.curve_radii

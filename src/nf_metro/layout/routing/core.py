@@ -30,6 +30,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.routing.common import (
+    Direction,
     RoutedPath,
     bypass_bottom_y,
     col_left_edge,
@@ -920,7 +921,10 @@ def _route_l_shape(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
     dy = ty - sy
-    going_down = dy > 0
+    horizontal = Direction.R if dx > 0 else Direction.L
+    vertical = Direction.D if dy > 0 else Direction.U
+    going_down = vertical is Direction.D
+    h_sign = 1.0 if horizontal is Direction.R else -1.0
 
     # When the junction has both L-shape and bypass siblings, use
     # unified fan-out positions so all lines share one concentric
@@ -938,10 +942,7 @@ def _route_l_shape(
             base_radius=ctx.curve_radius,
         )
         # mid_x places all lines so they diverge at sx
-        if dx > 0:
-            mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
-        else:
-            mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
+        mid_x = sx + h_sign * (ctx.curve_radius + (un - 1) * ctx.offset_step / 2)
         # Second corner: from sub-bundle (only L-shape siblings turn here)
         _, _, r_second = l_shape_radii(
             i,
