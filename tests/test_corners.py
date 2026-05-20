@@ -6,7 +6,7 @@ break when modifying routing logic:
 1. Radii are always ``base_radius + k * offset_step`` (never variable).
 2. The outermost line at every corner gets the largest radius.
 3. Bundle ordering is preserved through L-shapes (no crossings).
-4. ``going_down=True`` and ``going_down=False`` are mirror-symmetric.
+4. ``vertical=Direction.D`` and ``vertical=Direction.U`` are mirror-symmetric.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.routing.common import Direction
 from nf_metro.layout.routing.corners import (
     bypass_radii,
     corner_radius,
@@ -81,15 +82,15 @@ class TestCornerRadius:
     def test_custom_base(self):
         assert corner_radius(3.0, 6.0, outside=True, base_radius=5.0) == 8.0
 
-    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
     @pytest.mark.parametrize("n", [1, 2, 3, 5])
-    def test_matches_l_shape_radii(self, n: int, going_down: bool):
+    def test_matches_l_shape_radii(self, n: int, vertical: Direction):
         """corner_radius must produce the same values as l_shape_radii."""
         for i in range(n):
-            _, r1, r2 = l_shape_radii(i, n, going_down)
+            _, r1, r2 = l_shape_radii(i, n, vertical)
             off = (n - 1 - i) * OFFSET_STEP
             max_off = (n - 1) * OFFSET_STEP
-            if going_down:
+            if vertical is Direction.D:
                 assert corner_radius(off, max_off, outside=True) == pytest.approx(r1)
                 assert corner_radius(off, max_off, outside=False) == pytest.approx(r2)
             else:
@@ -105,30 +106,30 @@ class TestCornerRadius:
 class TestLShapeRadii:
     """Test the standard inter-section L-shape (horiz -> vert -> horiz)."""
 
-    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
     @pytest.mark.parametrize("n", [1, 2, 3, 5])
-    def test_radii_are_concentric(self, n: int, going_down: bool):
+    def test_radii_are_concentric(self, n: int, vertical: Direction):
         """All radii must be base_radius + k * offset_step for integer k."""
         for i in range(n):
-            _delta, r1, r2 = l_shape_radii(i, n, going_down)
+            _delta, r1, r2 = l_shape_radii(i, n, vertical)
             # Check r1 is an exact multiple of offset_step above base
             k1 = (r1 - CURVE_RADIUS) / OFFSET_STEP
             assert k1 == pytest.approx(round(k1)), (
-                f"r_first={r1} is not base + k*step for i={i}, n={n}, down={going_down}"
+                f"r_first={r1} is not base + k*step for i={i}, n={n}, v={vertical}"
             )
             k2 = (r2 - CURVE_RADIUS) / OFFSET_STEP
             assert k2 == pytest.approx(round(k2)), (
-                f"r_second={r2} not base+k*step i={i} n={n} down={going_down}"
+                f"r_second={r2} not base+k*step i={i} n={n} v={vertical}"
             )
 
-    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
     @pytest.mark.parametrize("n", [2, 3, 5])
-    def test_radii_cover_full_range(self, n: int, going_down: bool):
+    def test_radii_cover_full_range(self, n: int, vertical: Direction):
         """The set of radii for a bundle must span [base, base + (n-1)*step]."""
         r1s = []
         r2s = []
         for i in range(n):
-            _, r1, r2 = l_shape_radii(i, n, going_down)
+            _, r1, r2 = l_shape_radii(i, n, vertical)
             r1s.append(r1)
             r2s.append(r2)
         expected_min = CURVE_RADIUS
@@ -138,22 +139,22 @@ class TestLShapeRadii:
         assert min(r2s) == pytest.approx(expected_min)
         assert max(r2s) == pytest.approx(expected_max)
 
-    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
     @pytest.mark.parametrize("n", [2, 3, 5])
-    def test_all_radii_distinct(self, n: int, going_down: bool):
+    def test_all_radii_distinct(self, n: int, vertical: Direction):
         """Each line in the bundle must get a distinct radius at each corner."""
         r1s = set()
         r2s = set()
         for i in range(n):
-            _, r1, r2 = l_shape_radii(i, n, going_down)
+            _, r1, r2 = l_shape_radii(i, n, vertical)
             r1s.add(round(r1, 6))
             r2s.add(round(r2, 6))
         assert len(r1s) == n
         assert len(r2s) == n
 
-    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
     @pytest.mark.parametrize("n", [2, 3, 5])
-    def test_r_first_and_r_second_are_complementary(self, n: int, going_down: bool):
+    def test_r_first_and_r_second_are_complementary(self, n: int, vertical: Direction):
         """For each line, r_first + r_second must equal 2*base + (n-1)*step.
 
         This ensures that the line on the outside of corner 1 is on the
@@ -161,58 +162,58 @@ class TestLShapeRadii:
         """
         expected_sum = 2 * CURVE_RADIUS + (n - 1) * OFFSET_STEP
         for i in range(n):
-            _, r1, r2 = l_shape_radii(i, n, going_down)
+            _, r1, r2 = l_shape_radii(i, n, vertical)
             assert r1 + r2 == pytest.approx(expected_sum), (
-                f"r1+r2={r1 + r2} != {expected_sum} for i={i}, n={n}, down={going_down}"
+                f"r1+r2={r1 + r2} != {expected_sum} for i={i}, n={n}, v={vertical}"
             )
 
     @pytest.mark.parametrize("n", [2, 3, 5])
     def test_mirror_symmetry(self, n: int):
-        """going_down and going_up must produce mirror-symmetric results.
+        """Direction.D and Direction.U must produce mirror-symmetric results.
 
-        going_down line i=0 is rightmost; going_up line n-1 is also
-        rightmost.  So going_down[i] must match going_up[n-1-i] with
+        Direction.D line i=0 is rightmost; Direction.U line n-1 is also
+        rightmost.  So Direction.D[i] must match Direction.U[n-1-i] with
         the same delta, same r_first, and same r_second - they occupy
         the same spatial position in the vertical channel.
         """
         for i in range(n):
-            d_down, r1_down, r2_down = l_shape_radii(i, n, going_down=True)
-            d_up, r1_up, r2_up = l_shape_radii(n - 1 - i, n, going_down=False)
+            d_down, r1_down, r2_down = l_shape_radii(i, n, vertical=Direction.D)
+            d_up, r1_up, r2_up = l_shape_radii(n - 1 - i, n, vertical=Direction.U)
             assert d_down == pytest.approx(d_up), (
                 f"delta mismatch: down[{i}]={d_down}, up[{n - 1 - i}]={d_up}"
             )
             assert r1_down == pytest.approx(r1_up)
             assert r2_down == pytest.approx(r2_up)
 
-    @pytest.mark.parametrize("going_down", [True, False])
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
     @pytest.mark.parametrize("n", [2, 3, 5])
-    def test_no_crossing_in_vertical_channel(self, n: int, going_down: bool):
+    def test_no_crossing_in_vertical_channel(self, n: int, vertical: Direction):
         """Lines must not cross in the vertical channel.
 
         The delta offsets must be strictly monotonic (either all
         increasing or all decreasing with i).
         """
-        deltas = [l_shape_radii(i, n, going_down)[0] for i in range(n)]
+        deltas = [l_shape_radii(i, n, vertical)[0] for i in range(n)]
         diffs = [deltas[j + 1] - deltas[j] for j in range(n - 1)]
         # All diffs must have the same sign (strictly monotonic)
         assert all(d > 0 for d in diffs) or all(d < 0 for d in diffs), (
-            f"Deltas not monotonic: {deltas} for n={n}, down={going_down}"
+            f"Deltas not monotonic: {deltas} for n={n}, v={vertical}"
         )
 
-    @pytest.mark.parametrize("going_down", [True, False])
-    def test_outermost_gets_largest_radius_corner1(self, going_down: bool):
+    @pytest.mark.parametrize("vertical", [Direction.D, Direction.U])
+    def test_outermost_gets_largest_radius_corner1(self, vertical: Direction):
         """At corner 1, the spatially outermost line gets the largest radius.
 
-        Going DOWN: rightmost (largest delta) should have largest r_first.
-        Going UP: leftmost (smallest delta) should have... smallest r_first
+        Direction.D: rightmost (largest delta) should have largest r_first.
+        Direction.U: leftmost (smallest delta) should have smallest r_first
         (because leftmost is on the inside of the CCW turn).
         """
         n = 4
-        results = [l_shape_radii(i, n, going_down) for i in range(n)]
+        results = [l_shape_radii(i, n, vertical) for i in range(n)]
         deltas = [r[0] for r in results]
         r_firsts = [r[1] for r in results]
 
-        if going_down:
+        if vertical is Direction.D:
             # CW turn: the line with the largest (most positive) delta is
             # outermost and should have the largest r_first.
             outermost_idx = deltas.index(max(deltas))
@@ -225,7 +226,7 @@ class TestLShapeRadii:
 
     def test_single_line(self):
         """A single-line bundle should get base_radius at both corners."""
-        delta, r1, r2 = l_shape_radii(0, 1, going_down=True)
+        delta, r1, r2 = l_shape_radii(0, 1, vertical=Direction.D)
         assert delta == 0.0
         assert r1 == CURVE_RADIUS
         assert r2 == CURVE_RADIUS
@@ -239,26 +240,26 @@ class TestLShapeRadii:
 class TestBypassRadii:
     """Test the U-shaped bypass (two back-to-back L-shapes)."""
 
-    @pytest.mark.parametrize("going_right", [True, False])
+    @pytest.mark.parametrize("horizontal", [Direction.R, Direction.L])
     @pytest.mark.parametrize("n", [1, 2, 3])
-    def test_all_radii_are_concentric(self, n: int, going_right: bool):
+    def test_all_radii_are_concentric(self, n: int, horizontal: Direction):
         """All four radii must be base + k * step."""
         for i in range(n):
-            _, _, r1, r2, r3, r4 = bypass_radii(i, n, i, n, going_right)
+            _, _, r1, r2, r3, r4 = bypass_radii(i, n, i, n, horizontal)
             for label, r in [("r1", r1), ("r2", r2), ("r3", r3), ("r4", r4)]:
                 k = (r - CURVE_RADIUS) / OFFSET_STEP
                 assert k == pytest.approx(round(k)), (
-                    f"{label}={r} not concentric for i={i}, n={n}, right={going_right}"
+                    f"{label}={r} not concentric for i={i}, n={n}, h={horizontal}"
                 )
 
-    @pytest.mark.parametrize("going_right", [True, False])
+    @pytest.mark.parametrize("horizontal", [Direction.R, Direction.L])
     @pytest.mark.parametrize("n", [2, 3])
-    def test_gap1_concentricity_invariant(self, n: int, going_right: bool):
+    def test_gap1_concentricity_invariant(self, n: int, horizontal: Direction):
         """delta1 - r1 and delta1 + r2 must be constant across lines."""
         vals_c1 = []
         vals_c2 = []
         for i in range(n):
-            d1, _, r1, r2, _, _ = bypass_radii(i, n, i, n, going_right)
+            d1, _, r1, r2, _, _ = bypass_radii(i, n, i, n, horizontal)
             vals_c1.append(d1 - r1)
             vals_c2.append(d1 + r2)
         for j in range(1, n):
@@ -269,14 +270,14 @@ class TestBypassRadii:
                 f"Corner 2 invariant broken: {vals_c2}"
             )
 
-    @pytest.mark.parametrize("going_right", [True, False])
+    @pytest.mark.parametrize("horizontal", [Direction.R, Direction.L])
     @pytest.mark.parametrize("n", [2, 3])
-    def test_gap2_concentricity_invariant(self, n: int, going_right: bool):
+    def test_gap2_concentricity_invariant(self, n: int, horizontal: Direction):
         """delta2 - r3 and delta2 + r4 must be constant across lines."""
         vals_c3 = []
         vals_c4 = []
         for i in range(n):
-            _, d2, _, _, r3, r4 = bypass_radii(i, n, i, n, going_right)
+            _, d2, _, _, r3, r4 = bypass_radii(i, n, i, n, horizontal)
             vals_c3.append(d2 - r3)
             vals_c4.append(d2 + r4)
         for j in range(1, n):
@@ -289,7 +290,7 @@ class TestBypassRadii:
 
     def test_single_line(self):
         """Single line gets base radius at all corners, zero deltas."""
-        d1, d2, r1, r2, r3, r4 = bypass_radii(0, 1, 0, 1, going_right=True)
+        d1, d2, r1, r2, r3, r4 = bypass_radii(0, 1, 0, 1, horizontal=Direction.R)
         assert d1 == 0.0
         assert d2 == 0.0
         assert r1 == CURVE_RADIUS
@@ -302,7 +303,7 @@ class TestBypassRadii:
         """r1 + r2 = 2*base + (n-1)*step (same as L-shape invariant)."""
         expected = 2 * CURVE_RADIUS + (n - 1) * OFFSET_STEP
         for i in range(n):
-            _, _, r1, r2, _, _ = bypass_radii(i, n, i, n, going_right=True)
+            _, _, r1, r2, _, _ = bypass_radii(i, n, i, n, horizontal=Direction.R)
             assert r1 + r2 == pytest.approx(expected)
 
     @pytest.mark.parametrize("n", [2, 3])
@@ -310,15 +311,15 @@ class TestBypassRadii:
         """r3 + r4 = 2*base + (n-1)*step (same as L-shape invariant)."""
         expected = 2 * CURVE_RADIUS + (n - 1) * OFFSET_STEP
         for i in range(n):
-            _, _, _, _, r3, r4 = bypass_radii(i, n, i, n, going_right=True)
+            _, _, _, _, r3, r4 = bypass_radii(i, n, i, n, horizontal=Direction.R)
             assert r3 + r4 == pytest.approx(expected)
 
-    def test_going_right_matches_l_shape(self):
-        """For going_right, bypass_radii must match two l_shape_radii calls."""
+    def test_right_going_matches_l_shape(self):
+        """For horizontal=R, bypass_radii must match two l_shape_radii calls."""
         for i in range(3):
-            d1, d2, r1, r2, r3, r4 = bypass_radii(i, 3, i, 3, going_right=True)
-            d1_ref, r1_ref, r2_ref = l_shape_radii(i, 3, going_down=True)
-            d2_ref, r3_ref, r4_ref = l_shape_radii(i, 3, going_down=False)
+            d1, d2, r1, r2, r3, r4 = bypass_radii(i, 3, i, 3, horizontal=Direction.R)
+            d1_ref, r1_ref, r2_ref = l_shape_radii(i, 3, vertical=Direction.D)
+            d2_ref, r3_ref, r4_ref = l_shape_radii(i, 3, vertical=Direction.U)
             assert d1 == pytest.approx(d1_ref)
             assert d2 == pytest.approx(d2_ref)
             assert r1 == pytest.approx(r1_ref)
