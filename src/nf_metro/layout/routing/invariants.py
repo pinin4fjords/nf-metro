@@ -12,8 +12,10 @@ clustering fails: per-line offsets put each line's corners at
 slightly different xy, so tight tolerance misses real bugs while
 loose tolerance flags every concentric corner.
 
-Wired into :func:`compute_layout(graph, validate=True)` via
-``_guard_bundle_order_preserved`` in ``engine.py``.
+Returns a list of :class:`BundleOrderViolation`; the caller decides
+whether to log, raise, or ignore.  Tests in
+``tests/test_bundle_order_invariant.py`` exercise it against every
+gallery example and topology fixture.
 """
 
 from __future__ import annotations
@@ -177,14 +179,19 @@ def _check_pair(
             continue
         cur_dir = _segment_cardinal(mid_p1, mid_p2)
         if last_sign != 0 and sign != last_sign:
+            # ``last_dir`` and ``cur_dir`` are non-None whenever we reach
+            # here: both were set on iterations that already passed the
+            # ``perp is None`` / ``sign == 0`` gates, which require the
+            # same >= 1px segment length ``_segment_cardinal`` does.
+            assert last_dir is not None and cur_dir is not None
             return BundleOrderViolation(
                 edge_source=src_id,
                 edge_target=tgt_id,
                 line_a=a_route.line_id,
                 line_b=b_route.line_id,
                 corner_xy=a_p1,
-                in_tangent=last_dir if last_dir is not None else Direction.R,
-                out_tangent=cur_dir if cur_dir is not None else Direction.R,
+                in_tangent=last_dir,
+                out_tangent=cur_dir,
                 before=Side.LEFT if last_sign > 0 else Side.RIGHT,
                 after=Side.LEFT if sign > 0 else Side.RIGHT,
                 segment_index=k,

@@ -248,19 +248,7 @@ def inter_column_channel_x(
     tgt_sec = graph.sections.get(tgt.section_id) if tgt.section_id else None
 
     if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
-        # Find the rightmost/leftmost edges of the source and target
-        # columns (accounting for sibling sections that may be wider).
-        src_col = src_sec.grid_col
-        tgt_col = tgt_sec.grid_col
-
-        if dx > 0:
-            right = col_right_edge(graph, src_col, default=sx)
-            left = col_left_edge(graph, tgt_col, default=tx)
-            return (right + left) / 2
-        else:
-            left = col_left_edge(graph, src_col, default=sx)
-            right = col_right_edge(graph, tgt_col, default=tx)
-            return (left + right) / 2
+        return column_gap_midpoint(graph, src_sec.grid_col, tgt_sec.grid_col)
 
     # Fallback: place near source
     if dx > 0:
@@ -463,14 +451,9 @@ def inter_row_channel_y(
     """Compute Y for a horizontal channel in an inter-row gap.
 
     Vertical equivalent of ``inter_column_channel_x``: places the
-    channel in the inter-row gap, above the target section's header
-    (number badge + label rendered above bbox_y).
+    channel in the inter-row gap, clear of section headers (numbered
+    circle + label rendered above/below bbox_y).
     """
-    # Keep the channel clear of section headers (numbered circle + label)
-    # that protrude above/below bbox_y.
-
-    # Resolve sections for junction stations (section_id is None for
-    # junctions; trace through edges to find a connected port's section).
     src_sec = resolve_section(graph, src)
     tgt_sec = resolve_section(graph, tgt)
 

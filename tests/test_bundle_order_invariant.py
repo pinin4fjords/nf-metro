@@ -4,9 +4,6 @@ Covers:
 
 * Happy-path: every gallery fixture and example yields zero violations
   when passed through :func:`check_bundle_order_preserved`.
-* Helper-level negative: the per-pair side-relation primitive returns
-  the expected LEFT / RIGHT / COINCIDENT verdicts for hand-built
-  inputs.
 * Route-level negative: a synthetic ``RoutedPath`` pair with a
   hand-crafted flipped corner correctly surfaces as a violation.
 """
@@ -83,11 +80,6 @@ def test_no_bundle_order_violations_in_gallery(path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Helper-level unit tests
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # Route-level negative test: a synthetic flipped corner is caught
 # ---------------------------------------------------------------------------
 
@@ -131,28 +123,10 @@ def test_synthetic_flipped_corner_is_caught() -> None:
     """A hand-crafted bundle with a deliberate flip at a near-shared
     corner surfaces as a :class:`BundleOrderViolation`.
 
-    Construction: two L-shape routes whose corners sit within
-    ``_CLUSTER_TOLERANCE`` (= ``COORD_TOLERANCE``, 1 px) of each
-    other - tight enough that real bundles (offset by
-    ``OFFSET_STEP`` = 3 px) never cluster together, loose enough
-    that this sub-pixel-offset synthetic case does.
-
-    Line A's elbow is at ``(100, 100)``, line B's is at
-    ``(100.5, 100.5)``.  The approach segments are both R (going
-    east, dy=0 at the elbow); the exit segments are both D (going
-    south, dx=0).  Because the elbows differ in *both* x and y by
-    half a pixel, A and B sit on opposite sides of each other on
-    the incoming run (B is below A) AND opposite sides on the
-    outgoing run (B is right of A).
-
-    The expected verdict per ``_left_of`` semantics:
-
-    * incoming R, left = U (smaller y is LEFT): A.y=100 < B.y=100.5
-      so A is LEFT before.
-    * outgoing D, left = R (larger x is LEFT): A.x=100 < B.x=100.5
-      so A is RIGHT after.
-
-    LEFT->RIGHT is exactly the flip the invariant exists to catch.
+    Two L-shape routes whose elbows are half a pixel apart on both
+    axes: A is on the LEFT of B going east, then on the RIGHT going
+    south.  LEFT -> RIGHT is exactly the flip the invariant exists to
+    catch.
     """
     a_pts = [
         (0.0, 100.0),

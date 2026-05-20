@@ -2,12 +2,9 @@
 
 These tests pin down the parity contract of :class:`TurnSequence`
 and check that every entry in :data:`WRAP_TABLE` agrees with the
-parity ``_propagate_wrap_flip_parity`` would assign to a section
-reached by the corresponding edge.
-
-The parity alignment test is the load-bearing one: it is the early
-warning that catches descriptor/propagator drift before C1/C2
-unifies them into a single source of truth.
+row-delta parity contribution a future section-DAG propagator will
+assign.  Catches descriptor/propagator drift before the table is
+wired into the dispatcher.
 """
 
 from __future__ import annotations
@@ -113,31 +110,20 @@ def test_wrap_descriptor_parity_delegates_to_turn_sequence():
 # WRAP_TABLE alignment check
 # ---------------------------------------------------------------------------
 #
-# The propagator's rule (see ``_propagate_wrap_flip_parity`` in
-# ``engine.py``): each section's flip parity is
-#
-#     flip[tgt] = flip[src] XOR is_wrap
-#
-# where ``is_wrap`` is ``True`` iff the connecting edge spans
-# different grid rows (drow_sign != 0).  Roots default to
-# ``flip = False``.
-#
-# For a fresh section reached via a single edge from a root predecessor,
-# the propagator's parity contribution is therefore exactly
-# ``drow_sign != 0``.  Each descriptor's :attr:`TurnSequence.parity`
-# must agree with that contribution: a route that crosses rows must
-# emit a corner sequence with odd handedness changes, and a same-row
-# route must emit one with even changes.  Drift in either direction
-# will eventually manifest as visible line crossings at the entry-port
-# quarter-circles.
+# The future section-DAG propagator will set each section's flip parity as
+# ``flip[tgt] = flip[src] XOR (drow_sign != 0)``, with roots at
+# ``flip = False``.  For a fresh section reached from a root predecessor,
+# the parity contribution is therefore exactly ``drow_sign != 0``.  Every
+# descriptor's :attr:`TurnSequence.parity` must equal that contribution
+# or routes visibly cross at the entry-port quarter-circles.
 
 
 def test_wrap_table_parity_matches_propagator_contribution():
-    """Every WRAP_TABLE entry's parity matches what the propagator yields.
+    """Every WRAP_TABLE entry's parity matches the row-delta contribution.
 
-    For an edge with ``drow_sign = D``, the propagator contributes
-    ``D != 0`` to the target section's flip flag.  Each descriptor's
-    ``TurnSequence.parity`` must equal that contribution.
+    For an edge with ``drow_sign = D``, the future propagator
+    contributes ``D != 0`` to the target section's flip flag.  Each
+    descriptor's ``TurnSequence.parity`` must equal that contribution.
     """
     mismatches: list[str] = []
     for key, descriptor in WRAP_TABLE.items():

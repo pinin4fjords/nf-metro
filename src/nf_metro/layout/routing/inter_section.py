@@ -8,11 +8,12 @@ when the source is a junction without a port side; ``drow_sign`` /
 
 Parity contract: a route whose corner sequence has an odd number of
 CW <-> CCW transitions reverses the bundle's outer/inner ordering
-between source and target.  ``_propagate_wrap_flip_parity`` in
-``engine.py`` propagates the same parity along the section DAG.  If
-the table and the propagator disagree, routes visibly cross at the
-entry-port quarter-circles; the alignment test in
-``tests/test_inter_section_descriptor.py`` keeps them in sync.
+between source and target.  A future section-DAG propagator must
+agree with the descriptor's parity, else routes visibly cross at
+the entry-port quarter-circles.  The alignment test in
+``tests/test_inter_section_descriptor.py`` keeps the table
+internally consistent against the same row-delta contribution the
+propagator will compute.
 
 Same-row L-shapes and the TB ``(BOTTOM, TOP, 1, 0)`` straight drop
 are deliberately absent: their geometric parity disagrees with the
@@ -143,9 +144,8 @@ class TurnSequence:
         A "change" is a pair of consecutive corners whose handedness
         differs (CW->CCW or CCW->CW).  When parity is True, the
         bundle's outer/inner ordering reverses between the route's
-        first and last corner - the same condition that
-        ``_propagate_wrap_flip_parity`` propagates as
-        ``Section.flip_lines``.
+        first and last corner - the condition a future section-DAG
+        propagator will reflect via ``Section.flip_lines``.
 
         Examples
         --------
@@ -220,9 +220,7 @@ class WrapDescriptor:
 
 _L_RIGHT_DOWN_RIGHT = TurnSequence(
     corners=(
-        # exit right, then turn down
         Corner(Direction.R, Direction.D),
-        # arrive going down, then turn right into entry
         Corner(Direction.D, Direction.R),
     )
 )
