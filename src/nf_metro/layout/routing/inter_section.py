@@ -17,8 +17,7 @@ propagator will compute.
 
 Same-row L-shapes and the TB ``(BOTTOM, TOP, 1, 0)`` straight drop
 are deliberately absent: their geometric parity disagrees with the
-propagator's row-delta ``is_wrap`` flag.  Reconciling that is tracked
-in issue #393.
+propagator's row-delta ``is_wrap`` flag.
 """
 
 from __future__ import annotations

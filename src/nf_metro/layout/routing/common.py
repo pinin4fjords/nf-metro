@@ -18,13 +18,7 @@ from nf_metro.parser.model import Edge, MetroGraph, Section, Station
 
 
 class Direction(Enum):
-    """Cardinal travel direction for a horizontal or vertical run.
-
-    Used by the inter-section descriptor scaffolding (see
-    ``inter_section.py``) to characterise corner in/out tangents in a
-    direction-agnostic way.  Not yet wired into runtime routing; the
-    routing code still operates on raw signed deltas.
-    """
+    """Cardinal travel direction for a horizontal or vertical run."""
 
     R = "R"  # east, +x
     L = "L"  # west, -x

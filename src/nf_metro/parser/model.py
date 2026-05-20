@@ -151,11 +151,9 @@ class Section:
     offset_y: float = 0.0
     # Implicit sections are auto-created for loose stations; no visible box
     is_implicit: bool = False
-    # Reserved manual override: when True, the section's line-track order
-    # is reversed relative to graph.lines' definition order, to match a
-    # cross-row wrap entry whose zigzag inverts bundle ordering.  Not yet
-    # read by the layout engine; a future DAG propagator (see issue #393)
-    # will populate it automatically.
+    # Manual override that reverses the section's line-track order
+    # relative to graph.lines' definition order, to match a cross-row
+    # wrap entry whose zigzag inverts bundle ordering.
     flip_lines: bool = False
 
 
