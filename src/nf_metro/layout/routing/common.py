@@ -25,6 +25,21 @@ class Direction(Enum):
     U = "U"  # north, -y
     D = "D"  # south, +y
 
+    @property
+    def sign(self) -> float:
+        """``+1.0`` for R / D (positive axis), ``-1.0`` for L / U."""
+        return 1.0 if self in (Direction.R, Direction.D) else -1.0
+
+
+def horizontal_direction(dx: float) -> Direction:
+    """``Direction.R`` if ``dx > 0`` else ``Direction.L`` (ties resolve to L)."""
+    return Direction.R if dx > 0 else Direction.L
+
+
+def vertical_direction(dy: float) -> Direction:
+    """``Direction.D`` if ``dy > 0`` else ``Direction.U`` (ties resolve to U)."""
+    return Direction.D if dy > 0 else Direction.U
+
 
 # ---------------------------------------------------------------------------
 # Grid-position helpers

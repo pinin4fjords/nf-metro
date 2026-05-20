@@ -25,7 +25,12 @@ from dataclasses import dataclass
 from enum import Enum
 
 from nf_metro.layout.constants import COORD_TOLERANCE_FINE
-from nf_metro.layout.routing.common import Direction, RoutedPath
+from nf_metro.layout.routing.common import (
+    Direction,
+    RoutedPath,
+    horizontal_direction,
+    vertical_direction,
+)
 
 # Segments shorter than this are sub-pixel artefacts of per-line
 # offsets and carry no meaningful direction of travel.
@@ -110,8 +115,8 @@ def _segment_cardinal(
     if abs(dx) < _MIN_SEGMENT_LENGTH and abs(dy) < _MIN_SEGMENT_LENGTH:
         return None
     if abs(dx) >= abs(dy):
-        return Direction.R if dx > 0 else Direction.L
-    return Direction.D if dy > 0 else Direction.U
+        return horizontal_direction(dx)
+    return vertical_direction(dy)
 
 
 def check_bundle_order_preserved(
