@@ -316,3 +316,46 @@ def test_l_shape_route_quadrant_symmetry():
 
     # Curve radii are direction-agnostic and must match exactly.
     assert rd.curve_radii == lu.curve_radii
+
+
+def test_around_section_below_dispatched_for_cross_row_left_entry():
+    """The around-section-below handler must fire for a LEFT entry port
+    reached from the opposite-row source when the natural inter-row
+    channel would cut through an intervening section's bbox.
+
+    Mirrors the sarek section 1 -> section 5 LEFT-entry geometry: 3-row
+    layout with target in the bottom row, source in the top row to the
+    right of target, and an intervening section in the middle row whose
+    bbox falls in the inter-row channel's Y range.
+    """
+    import nf_metro.layout.routing.core as core
+
+    fixture = Path(__file__).parent.parent / "examples" / "topologies"
+    fixture = fixture / "around_section_below.mmd"
+    graph = parse_metro_mermaid(fixture.read_text())
+    compute_layout(graph)
+
+    real = core._route_around_section_below
+    captured: list = []
+
+    def hook(edge, src, tgt, entry_port, i, n, ctx):
+        result = real(edge, src, tgt, entry_port, i, n, ctx)
+        captured.append(result)
+        return result
+
+    core._route_around_section_below = hook
+    try:
+        route_edges(graph)
+    finally:
+        core._route_around_section_below = real
+
+    assert captured, "_route_around_section_below was not dispatched"
+    for r in captured:
+        # 6-point R-D-L-U-R shape.
+        assert len(r.points) == 6, f"expected 6 points, got {r.points}"
+        # All four corners concentric with the same radius (CW loop).
+        assert r.curve_radii is not None and len(r.curve_radii) == 4
+        assert len(set(r.curve_radii)) == 1, (
+            f"around-section corners must share one radius (CW loop); "
+            f"got {r.curve_radii}"
+        )

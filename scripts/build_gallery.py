@@ -167,6 +167,13 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "Multiple off-track file inputs converging on a single consumer. "
         "The trunk stays horizontal while the inputs stack above the consumer column.",
     ),
+    (
+        "around_section_below",
+        TOPOLOGIES_DIR,
+        "Cross-row route to a LEFT-entry target where the natural inter-row "
+        "channel would cut through an intervening section's bbox. Exercises "
+        "`_route_around_section_below` (sarek-style geometry).",
+    ),
 ]
 
 # Category headers inserted before specific entries

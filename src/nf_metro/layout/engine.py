@@ -5290,6 +5290,35 @@ def _shift_lr_perp_entry_stations(
                 s.x -= shift
 
 
+def _required_junction_margin(n: int) -> float:
+    """Margin needed so an n-line fan's leftmost lead-in clears the source.
+
+    For an n-line concentric fan-out the per-line ``fan_delta`` stagger
+    and per-line ``r_wrap`` curve radius cancel exactly: every line's
+    first-corner curve start lands at ``junction.x``.  The required
+    clearance therefore depends only on the lead-in length immediately
+    before the curve (``CURVE_RADIUS``), not on the fan width.
+
+    Returns ``JUNCTION_MARGIN`` directly - the baseline already exceeds
+    the curve-start clearance requirement for any reasonable ``n``.
+    The signature keeps a per-junction ``n`` so future routing layouts
+    that genuinely depend on fan width can override it without changing
+    every call site.
+    """
+    del n  # currently unused; see docstring
+    return JUNCTION_MARGIN
+
+
+def _junction_outgoing_line_count(graph: MetroGraph, jid: str) -> int:
+    """Return the number of distinct line_ids fanning out of *jid*."""
+    return len({e.line_id for e in graph.edges_from(jid)}) or 1
+
+
+def _junction_incoming_line_count(graph: MetroGraph, jid: str) -> int:
+    """Return the number of distinct line_ids merging into *jid*."""
+    return len({e.line_id for e in graph.edges_to(jid)}) or 1
+
+
 def _position_junctions(graph: MetroGraph) -> None:
     """Position junction stations at the midpoint of the inter-section gap.
 
@@ -5298,8 +5327,8 @@ def _position_junctions(graph: MetroGraph) -> None:
     exit port's Y coordinate so lines travel straight from exit to junction.
 
     Merge junctions (N>1 predecessors, 1 entry port successor) are positioned
-    at max(pred.x) + JUNCTION_MARGIN, y = entry_port.y to create a visible
-    single-line segment from merge point to entry.
+    at ``max(pred.x) + _required_junction_margin(n)``, y = entry_port.y to
+    create a visible single-line segment from merge point to entry.
     """
     for jid in graph.junctions:
         junction = graph.stations.get(jid)
@@ -5327,7 +5356,12 @@ def _position_junctions(graph: MetroGraph) -> None:
             entry_port = successor_ports[0]
             entry_port_obj = graph.ports.get(entry_port.id)
             if entry_port_obj and entry_port_obj.is_entry:
-                _position_merge_junction(junction, predecessors, entry_port)
+                _position_merge_junction(
+                    junction,
+                    predecessors,
+                    entry_port,
+                    n=_junction_incoming_line_count(graph, jid),
+                )
                 continue
 
         # Fan-out junction: 1 exit port predecessor, N>1 entry port successors
@@ -5344,7 +5378,9 @@ def _position_junctions(graph: MetroGraph) -> None:
             entry_port_xs.append(succ.x)
 
         if exit_port_x is not None and exit_port_y is not None and entry_port_xs:
-            margin = JUNCTION_MARGIN
+            margin = _required_junction_margin(
+                _junction_outgoing_line_count(graph, jid)
+            )
             exit_port_obj = graph.ports.get(exit_port_id) if exit_port_id else None
             if exit_port_obj and exit_port_obj.side == PortSide.BOTTOM:
                 junction.x = exit_port_x
@@ -5367,15 +5403,17 @@ def _position_merge_junction(
     junction: Station,
     predecessors: list[Station],
     entry_port: Station,
+    n: int = 1,
 ) -> None:
     """Position a merge junction near the entry port it feeds.
 
-    Places at x = max(predecessor.x) + JUNCTION_MARGIN, y = entry_port.y
-    so all converging lines share a visible single-line segment into the
-    entry port.
+    Places at x = max(predecessor.x) + _required_junction_margin(n),
+    y = entry_port.y so all converging lines share a visible single-line
+    segment into the entry port.  *n* is the number of distinct lines
+    merging at the junction; passing 1 falls back to the baseline margin.
     """
     max_pred_x = max(p.x for p in predecessors)
-    junction.x = max_pred_x + JUNCTION_MARGIN
+    junction.x = max_pred_x + _required_junction_margin(n)
     junction.y = entry_port.y
 
 
@@ -5439,14 +5477,20 @@ def _resolve_source_xy(
         exit_port_obj = graph.ports.get(e.source)
         if not exit_port_obj:
             return exit_st.x, exit_st.y
+        # Mirror _position_junctions: the resolved junction X must match
+        # what _position_junctions would write so that downstream
+        # alignment passes consuming this helper see the same coordinate.
+        margin = _required_junction_margin(
+            _junction_outgoing_line_count(graph, edge_source)
+        )
         if exit_port_obj.side == PortSide.BOTTOM:
-            return exit_st.x, exit_st.y + JUNCTION_MARGIN
+            return exit_st.x, exit_st.y + margin
         elif exit_port_obj.side == PortSide.RIGHT:
-            return exit_st.x + JUNCTION_MARGIN, exit_st.y
+            return exit_st.x + margin, exit_st.y
         elif exit_port_obj.side == PortSide.LEFT:
-            return exit_st.x - JUNCTION_MARGIN, exit_st.y
+            return exit_st.x - margin, exit_st.y
         else:
-            return exit_st.x + JUNCTION_MARGIN, exit_st.y
+            return exit_st.x + margin, exit_st.y
 
     # Recurse through chained junctions to find the underlying exit port.
     for js in chained:
