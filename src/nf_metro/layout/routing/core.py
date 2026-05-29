@@ -8,6 +8,7 @@ per-line bundle offsets.
 
 from __future__ import annotations
 
+import functools
 import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -34,15 +35,17 @@ from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.routing.common import (
     Direction,
     RoutedPath,
+    bundle_width,
     bypass_bottom_y,
     col_left_edge,
     col_right_edge,
-    column_gap_midpoint,
+    column_gap_edges,
     compute_bundle_info,
     horizontal_direction,
     inter_column_channel_x,
     inter_row_channel_y,
     resolve_section,
+    symmetric_bundle_midpoint,
     vertical_direction,
 )
 from nf_metro.layout.routing.corners import (
@@ -173,6 +176,7 @@ def route_edges(
 
     _center_bubble_stations(routes, graph)
     _spread_diagonal_bundles(routes, ctx)
+    _normalize_gap_channels(routes, ctx)
 
     return routes
 
@@ -977,17 +981,18 @@ def _route_bypass(
         base_radius=ctx.curve_radius,
     )
 
-    # Gap channel centers and per-line positions.
-    base_bypass_offset = ctx.curve_radius + ctx.offset_step
+    # Initial gap-channel centres and per-line positions.  These centre each
+    # leg in its (row-aware) gap via _gap_channel_base; the post-routing
+    # _normalize_gap_channels pass then re-stacks all inter-section channels
+    # into their final centred / B-separated bundle positions.
     half_g1 = (g1_n - 1) * ctx.offset_step / 2
     half_g2 = (g2_n - 1) * ctx.offset_step / 2
 
     if horizontal is Direction.R:
         if fan is not None:
-            # Corner 1 uses unified fan indices for a shared first corner
-            # with L-shape and wrap siblings.  Use the going_right
-            # fan_mid_x formula so curve_start = gap1_x - r1 = junction.x,
-            # eliminating the upstream-past-curve "nubbin".
+            # The fan shares its first corner across siblings; centre the
+            # channel on the gap slot, but never left of the near-source
+            # position or the curve would start behind the junction (nubbin).
             ui, un = fan
             fan_delta, r1, _ = l_shape_radii(
                 ui,
@@ -996,11 +1001,13 @@ def _route_bypass(
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
             )
-            fan_mid_x = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
+            near = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
+            slot = _gap_channel_base(graph, src_col, src_row, un, ctx.offset_step)
+            fan_mid_x = max(near, slot)
             gap1_x = fan_mid_x + fan_delta
         else:
-            gap1_base = (
-                column_gap_midpoint(graph, src_col, src_col + 1) - base_bypass_offset
+            gap1_base = _gap_channel_base(
+                graph, src_col, src_row, g1_n, ctx.offset_step
             )
             gap1_limit = sx + ctx.curve_radius
             if gap1_base - (g1_n - 1) * ctx.offset_step < gap1_limit:
@@ -1009,8 +1016,8 @@ def _route_bypass(
                 gap1_mid = gap1_base - half_g1
             gap1_x = gap1_mid + delta1
 
-        gap2_base = (
-            column_gap_midpoint(graph, tgt_col - 1, tgt_col) + base_bypass_offset
+        gap2_base = _gap_channel_base(
+            graph, tgt_col - 1, tgt_row, g2_n, ctx.offset_step
         )
         gap2_limit = effective_tx - ctx.curve_radius
         if gap2_base + (g2_n - 1) * ctx.offset_step > gap2_limit:
@@ -1018,38 +1025,56 @@ def _route_bypass(
         else:
             gap2_mid = gap2_base + half_g2
         if trunk_v_up_pull_away:
-            # Place this bundle CLOSER to the previous column (away from
-            # the target's edge) so it doesn't overlap with a sibling
-            # around-section bundle that hugs the target's left edge.
-            # The around-section bundle sits at target_left -
-            # (curve_radius + offset_step + extra_clearance + delta) -
-            # i.e. its xmin = target_left - SECTION_ROUTE_CLEARANCE -
-            # 2*max_around_delta.  Anchor this bundle's xmin at
-            # neighbour_right + SECTION_ROUTE_CLEARANCE so it keeps a
-            # visible gap from the neighbour, AND ensure its xmax stays
-            # clear of the around-section bundle.  When the inter-column
-            # gap is too narrow to fit both bundles with clearance, fall
-            # back to the standard placement (overlap is the lesser
-            # evil compared to a route entering the neighbour bbox).
-            neighbour_right = col_right_edge(graph, tgt_col - 1)
-            pulled_mid_candidate = neighbour_right + SECTION_ROUTE_CLEARANCE + half_g2
-            # Around-section xmin (must stay clear of pulled bundle xmax)
-            around_section_xmin = (
-                effective_tx
-                - SECTION_ROUTE_CLEARANCE
-                - 2 * ((g2_n - 1) * ctx.offset_step / 2)
+            # Two bundles share the gap between (tgt_col - 1) and tgt_col:
+            # this bypass (gap2) bundle on the LEFT, paired with an
+            # around-section bundle on the RIGHT (placed by
+            # _route_around_section_below), positioned symmetrically via
+            # symmetric_bundle_midpoint.  When the gap is too narrow to
+            # fit both bundles with clearance, fall back to the standard
+            # (single-bundle) placement; overlap is the lesser evil
+            # compared to a route entering the neighbouring section's bbox.
+            gap_left, gap_right = column_gap_edges(
+                graph, tgt_col - 1, tgt_col, row=tgt_row
             )
-            pulled_xmax = pulled_mid_candidate + half_g2
-            min_inter_bundle_gap = ctx.offset_step  # 1 step between bundles
+            this_width = bundle_width(g2_n, ctx.offset_step)
+            # The around-route bundle's line count equals the merge
+            # trunk's effective line count, which today matches g2_n
+            # (one around-route line per fan_in line).  Use g2_n as a
+            # conservative width estimate.
+            around_width = this_width
+            pulled_mid_candidate = symmetric_bundle_midpoint(
+                gap_left,
+                gap_right,
+                [this_width, around_width],
+                bundle_index=0,
+            )
+            # Sanity: only honour the symmetric placement when both
+            # bundles can fit with at least A clearance from each edge
+            # and B inter-bundle separation.  Otherwise the gap was
+            # never widened (e.g. layout disabled or pull-away
+            # triggered without _enforce_min_column_gaps participating),
+            # so fall back to the standard placement.
+            this_xmin = pulled_mid_candidate - this_width / 2
+            around_mid = symmetric_bundle_midpoint(
+                gap_left,
+                gap_right,
+                [this_width, around_width],
+                bundle_index=1,
+            )
+            around_xmax = around_mid + around_width / 2
             if (
-                pulled_mid_candidate - half_g2 - neighbour_right
-                >= SECTION_ROUTE_CLEARANCE
-                and around_section_xmin - pulled_xmax >= min_inter_bundle_gap
+                this_xmin - gap_left >= SECTION_ROUTE_CLEARANCE
+                and gap_right - around_xmax >= SECTION_ROUTE_CLEARANCE
             ):
                 gap2_mid = pulled_mid_candidate
         gap2_x = gap2_mid + delta2
     else:
         if fan is not None:
+            # Mirror of the going-right fan: centre on the gap slot but never
+            # right of the near-source position (curve must not start behind
+            # the junction).  Wrap-style routes whose source-side curve is on
+            # the RIGHT regardless of dx (left-entry wrap, around-section-
+            # below) are dispatched through their own handlers, not here.
             ui, un = fan
             fan_delta, r1, _ = l_shape_radii(
                 ui,
@@ -1058,18 +1083,13 @@ def _route_bypass(
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
             )
-            # For a leftward bypass the source-side curve sits on the
-            # LEFT of the source section (mirror of the going_right
-            # case), so fan_mid_x must be placed on the negative side
-            # of sx.  Wrap-style routes whose source-side curve is on
-            # the RIGHT regardless of dx (left-entry wrap,
-            # around-section-below) are dispatched through their own
-            # handlers and do NOT reach this branch.
-            fan_mid_x = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
+            near = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
+            slot = _gap_channel_base(graph, src_col - 1, src_row, un, ctx.offset_step)
+            fan_mid_x = min(near, slot)
             gap1_x = fan_mid_x + fan_delta
         else:
-            gap1_base = (
-                column_gap_midpoint(graph, src_col - 1, src_col) + base_bypass_offset
+            gap1_base = _gap_channel_base(
+                graph, src_col - 1, src_row, g1_n, ctx.offset_step
             )
             gap1_limit = sx - ctx.curve_radius
             if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
@@ -1078,9 +1098,7 @@ def _route_bypass(
                 gap1_mid = gap1_base + half_g1
             gap1_x = gap1_mid + delta1
 
-        gap2_base = (
-            column_gap_midpoint(graph, tgt_col, tgt_col + 1) - base_bypass_offset
-        )
+        gap2_base = _gap_channel_base(graph, tgt_col, tgt_row, g2_n, ctx.offset_step)
         gap2_limit = effective_tx + ctx.curve_radius
         if gap2_base - (g2_n - 1) * ctx.offset_step < gap2_limit:
             gap2_mid = gap2_limit + half_g2
@@ -1297,6 +1315,7 @@ def _route_top_entry_l_shape(
             line_id=edge.line_id,
             points=[(sx, sy), (lx, sy), (lx, ty), (tx, ty)],
             is_inter_section=True,
+            normalize_exempt=True,
             curve_radii=[r_lead, r_second],
         )
     return RoutedPath(
@@ -1304,6 +1323,7 @@ def _route_top_entry_l_shape(
         line_id=edge.line_id,
         points=[(sx, sy), (lx, sy), (lx, hy), (tx, hy), (tx, ty)],
         is_inter_section=True,
+        normalize_exempt=True,
         curve_radii=[r_lead, r_first, r_second],
     )
 
@@ -1509,6 +1529,7 @@ def _route_left_entry_wrap(
             (tx, ty + tgt_off),
         ],
         is_inter_section=True,
+        normalize_exempt=True,
         # Handedness-aware radii: C1 and C2 are right turns (the bundle's
         # outer line is OUTSIDE the turn) so use the larger outside-of-turn
         # radius r_wrap.  C3 and C4 are left turns (outer line is INSIDE
@@ -1519,6 +1540,37 @@ def _route_left_entry_wrap(
         curve_radii=[r_wrap, r_wrap, r_inside, r_inside],
         offsets_applied=True,
     )
+
+
+def _has_bypass_sibling_to_same_entry(
+    edge: Edge,
+    entry_port: Station,
+    ctx: _RoutingCtx,
+) -> bool:
+    """Detect whether a sibling merge trunk's bypass shares the V_up gap.
+
+    Mirrors :func:`_has_around_section_sibling` (which lives on the
+    trunk side and answers "is there an around-route sharing my gap?").
+    Used by :func:`_route_around_section_below` to decide whether the
+    V_up channel shares its gap with a bypass bundle (in which case
+    the around-route is bundle index 1 in the symmetric layout) or
+    has the gap to itself (bundle index 0 of 1).
+    """
+    if entry_port is None:
+        return False
+    ep_id = entry_port.id
+    # Walk back from the entry port through the merge-junction graph
+    # to find the merge junction this entry_port serves.
+    for mj_id, mapped_ep in ctx.merge.entry_port_for.items():
+        if mapped_ep != ep_id:
+            continue
+        # mj_id is a merge junction whose entry_port is ours.  Check
+        # whether the trunk source feeding it routes via bypass.
+        trunk_src = ctx.merge.trunk_source.get(mj_id)
+        if trunk_src is None or trunk_src == edge.source:
+            continue
+        return True
+    return False
 
 
 def _route_around_section_below(
@@ -1637,18 +1689,36 @@ def _route_around_section_below(
         section_left = ep_section.bbox_x
     else:
         section_left = ex
-    # Channel sits at section_left - (curve_radius + offset_step) - delta.
-    # The line CLOSEST to section_left is the one with delta=-max_delta
-    # (innermost in the bundle); its gap to section_left is base_gap -
-    # max_delta.  Bump uniformly so even that closest line stays at
-    # least SECTION_ROUTE_CLEARANCE from the edge.  The shift is uniform
-    # across lines so the per-line delta stagger (and the around-route's
-    # V_up sign convention) is preserved.
     n_for_outer = fan[1] if fan is not None else n
     max_delta = (n_for_outer - 1) * ctx.offset_step / 2
     base_gap = ctx.curve_radius + ctx.offset_step
+    # Bump so the bundle's innermost line keeps SECTION_ROUTE_CLEARANCE from
+    # the target section edge even when base_gap - max_delta falls short.
     extra_clearance = max(0.0, SECTION_ROUTE_CLEARANCE - (base_gap - max_delta))
-    vx = section_left - base_gap - extra_clearance - delta
+
+    # V_up X: position the bundle within the inter-column gap just
+    # left of the target section, using the principled symmetric
+    # placement.  When a sibling merge-trunk bypass shares this gap,
+    # we're bundle 1 (rightmost); else we're the sole bundle.  The
+    # symmetric helper handles both cases and the post-corner -delta
+    # stagger preserves the around-route's V_up sign convention.
+    paired_with_bypass = _has_bypass_sibling_to_same_entry(edge, entry_port, ctx)
+    if ep_col is not None and ep_col > 0:
+        gap_left, gap_right = column_gap_edges(ctx.graph, ep_col - 1, ep_col)
+        bw = bundle_width(n_for_outer, ctx.offset_step)
+        widths = [bw, bw] if paired_with_bypass else [bw]
+        bundle_idx = 1 if paired_with_bypass else 0
+        vx_mid = symmetric_bundle_midpoint(gap_left, gap_right, widths, bundle_idx)
+        # Sanity floor: keep the V_up clear of the target section's left
+        # edge (re-applying the legacy clamp) when the gap is too narrow
+        # for full symmetric placement.
+        max_vx_mid = section_left - base_gap - extra_clearance
+        vx_mid = min(vx_mid, max_vx_mid)
+        vx = vx_mid - delta
+    else:
+        # Fallback for degenerate cases without column info: legacy
+        # anchored-to-edge placement.
+        vx = section_left - base_gap - extra_clearance - delta
 
     # First-corner X: lead-in right of source, mirroring _route_left_entry_wrap.
     if fan_mid_x is not None:
@@ -1686,6 +1756,7 @@ def _route_around_section_below(
             (ex, ey + tgt_off),
         ],
         is_inter_section=True,
+        normalize_exempt=True,
         # All four corners are CW; the outer bundle line stays on the
         # OUTSIDE of every turn (large y at H_bottom, small x at V_up
         # given the V_up sign flip above), so every corner uses the
@@ -1784,6 +1855,7 @@ def _route_right_entry_wrap(
         line_id=edge.line_id,
         points=[(sx, sy), (lx, sy), (lx, hy), (vx, hy), (vx, ty), (tx, ty)],
         is_inter_section=True,
+        normalize_exempt=True,
         curve_radii=[r_lead, r_first, r_first, r_second],
     )
 
@@ -2981,6 +3053,366 @@ def _resolve_section_row(graph: MetroGraph, station: Station) -> int | None:
     if sec and sec.grid_row >= 0:
         return sec.grid_row
     return None
+
+
+@dataclass
+class _VChannel:
+    """One vertical channel segment of a routed inter-section path.
+
+    Records the route, the segment's start index in ``route.points`` (so
+    ``points[idx]`` and ``points[idx+1]`` are the channel endpoints), its
+    current x, vertical span and direction, plus the indices of any
+    flanking corners in ``route.curve_radii`` and whether each corner is
+    on the OUTSIDE of its turn for this line (recomputed after re-stack).
+    """
+
+    route: RoutedPath
+    idx: int
+    x: float
+    y_lo: float
+    y_hi: float
+    down: bool
+
+
+def _collect_vchannels(routes: list[RoutedPath]) -> list[_VChannel]:
+    """Find every vertical channel segment in inter-section routes."""
+    out: list[_VChannel] = []
+    for rp in routes:
+        if not rp.is_inter_section or rp.normalize_exempt:
+            continue
+        pts = rp.points
+        for k in range(len(pts) - 1):
+            x0, y0 = pts[k]
+            x1, y1 = pts[k + 1]
+            if abs(x1 - x0) < COORD_TOLERANCE and abs(y1 - y0) > COORD_TOLERANCE:
+                out.append(
+                    _VChannel(
+                        route=rp,
+                        idx=k,
+                        x=x0,
+                        y_lo=min(y0, y1),
+                        y_hi=max(y0, y1),
+                        down=y1 > y0,
+                    )
+                )
+    return out
+
+
+def _build_gap_intervals(
+    graph: MetroGraph,
+) -> dict[int | None, list[tuple[int, float, float]]]:
+    """Per-row list of ``(lo_col, gap_left, gap_right)`` for adjacent columns.
+
+    The row key is the grid row; a single combined ``None`` entry is also
+    produced (row-agnostic union) as a fallback for channels whose row
+    can't be matched precisely.
+    """
+    cols = sorted({s.grid_col for s in graph.sections.values() if s.bbox_w > 0})
+    rows = sorted({s.grid_row for s in graph.sections.values() if s.bbox_w > 0})
+    intervals: dict[int | None, list[tuple[int, float, float]]] = {}
+    for row in list(rows) + [None]:
+        per_row: list[tuple[int, float, float]] = []
+        for lo, hi in zip(cols, cols[1:]):
+            if hi != lo + 1:
+                continue
+            left, right = column_gap_edges(graph, lo, hi, row=row)
+            if right > left:
+                per_row.append((lo, left, right))
+        intervals[row] = per_row
+    return intervals
+
+
+def _normalize_gap_channels(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Re-bundle inter-section vertical channels sharing a gap + direction.
+
+    Post-routing pass that enforces the uniform inter-section gap geometry
+    regardless of which handler placed each leg:
+
+    * All same-direction channels sharing one inter-column gap collapse
+      into ONE concentric bundle, ``OFFSET_STEP`` apart, centred.
+    * A downward bundle and an upward bundle sharing a gap are held
+      ``BUNDLE_TO_BUNDLE_CLEARANCE`` (B) apart, centred as a group.
+    * A lone bundle centres in its gap with at least
+      ``EDGE_TO_BUNDLE_CLEARANCE`` (A) from each bounding section edge.
+
+    Only channels whose current x already lands inside a real inter-column
+    gap are touched, so wrap / around-section legs that deliberately sit
+    outside the immediate gap are left alone.  Corner radii flanking each
+    re-stacked channel are recomputed so the bundle stays concentric.
+    """
+    graph = ctx.graph
+    step = ctx.offset_step
+    channels = _collect_vchannels(routes)
+    if not channels:
+        return
+    gap_intervals = _build_gap_intervals(graph)
+
+    # Per-row vertical band (top/bottom Y) so a channel can be matched to
+    # the row whose gap it actually travels in, not merely the first row
+    # whose x-interval brackets it.  Two channels in the same column gap
+    # but different grid rows (e.g. a row-0 fan and a row-1 bypass) must
+    # NOT be merged into one bundle: each centres on its own row's gap.
+    row_bands: dict[int, tuple[float, float]] = {}
+    for s in graph.sections.values():
+        if s.bbox_h <= 0:
+            continue
+        for r in range(s.grid_row, s.grid_row + max(1, s.grid_row_span)):
+            top, bot = row_bands.get(r, (s.bbox_y, s.bbox_y + s.bbox_h))
+            row_bands[r] = (min(top, s.bbox_y), max(bot, s.bbox_y + s.bbox_h))
+
+    def _find_gap(ch: _VChannel) -> tuple[int, int | None, float, float] | None:
+        """Match a channel to ``(lo_col, row, gap_left, gap_right)``.
+
+        Prefer the row whose x-interval brackets the channel AND whose
+        vertical band the channel overlaps; fall back to any bracketing
+        row, then to the row-agnostic union.
+        """
+        x = ch.x
+        overlap_match: tuple[int, int | None, float, float] | None = None
+        bracket_match: tuple[int, int | None, float, float] | None = None
+        for row in gap_intervals:
+            if row is None:
+                continue
+            for lo, left, right in gap_intervals[row]:
+                if not (left - COORD_TOLERANCE <= x <= right + COORD_TOLERANCE):
+                    continue
+                if bracket_match is None:
+                    bracket_match = (lo, row, left, right)
+                band = row_bands.get(row)
+                if band is not None and ch.y_lo < band[1] and band[0] < ch.y_hi:
+                    if overlap_match is None:
+                        overlap_match = (lo, row, left, right)
+        if overlap_match is not None:
+            return overlap_match
+        if bracket_match is not None:
+            return bracket_match
+        for lo, left, right in gap_intervals.get(None, []):
+            if left - COORD_TOLERANCE <= x <= right + COORD_TOLERANCE:
+                return (lo, None, left, right)
+        return None
+
+    # Bucket channels per (gap lo_col, row, direction).  A channel is only
+    # a candidate when its x lands strictly inside the gap interior (so a
+    # near-vertical drop hugging a section edge is left untouched).
+    buckets: dict[tuple[int, int | None, bool], list[_VChannel]] = defaultdict(list)
+    gap_bounds: dict[tuple[int, int | None], tuple[float, float]] = {}
+    for ch in channels:
+        gap = _find_gap(ch)
+        if gap is None:
+            continue
+        lo, row, left, right = gap
+        if not (left + COORD_TOLERANCE < ch.x < right - COORD_TOLERANCE):
+            # x sits on / outside a section edge: not a clean gap channel.
+            if not (left <= ch.x <= right):
+                continue
+        gap_bounds[(lo, row)] = (left, right)
+        buckets[(lo, row, ch.down)].append(ch)
+
+    # Within a (gap, direction) bucket, split into corridors by vertical
+    # overlap: only channels whose y-spans overlap share a true corridor
+    # (independent vertical runs at different heights must NOT be merged).
+    def _corridors(chans: list[_VChannel]) -> list[list[_VChannel]]:
+        chans = sorted(chans, key=lambda c: (c.y_lo, c.y_hi))
+        groups: list[list[_VChannel]] = []
+        for ch in chans:
+            placed = False
+            for g in groups:
+                if any(
+                    ch.y_lo < o.y_hi - COORD_TOLERANCE
+                    and o.y_lo < ch.y_hi - COORD_TOLERANCE
+                    for o in g
+                ):
+                    g.append(ch)
+                    placed = True
+                    break
+            if not placed:
+                groups.append([ch])
+        return groups
+
+    # Assemble bundles per (gap, row): one per corridor, both directions,
+    # laid out together so a down/up pair sharing a gap is B-separated.
+    by_gap: dict[tuple[int, int | None], list[tuple[bool, list[_VChannel]]]]
+    by_gap = defaultdict(list)
+    for (lo, row, down), chans in buckets.items():
+        for corridor in _corridors(chans):
+            by_gap[(lo, row)].append((down, corridor))
+
+    # Intrusion guard (row-agnostic): a re-stacked channel must never land
+    # inside any section's bbox.
+    def _intrudes(x: float, y_lo: float, y_hi: float) -> bool:
+        for s in graph.sections.values():
+            if s.bbox_w <= 0:
+                continue
+            sx_l = s.bbox_x
+            sx_r = s.bbox_x + s.bbox_w
+            if sx_l - COORD_TOLERANCE < x < sx_r + COORD_TOLERANCE:
+                sy_t = s.bbox_y
+                sy_b = s.bbox_y + s.bbox_h
+                if y_lo < sy_b and sy_t < y_hi:
+                    return True
+        return False
+
+    for (lo, _row), bundles in by_gap.items():
+        # Stable left-to-right order: by current bundle centre.
+        bundles.sort(key=lambda b: sum(c.x for c in b[1]) / len(b[1]))
+        # Distinct-line count per bundle drives the bundle width and the
+        # per-line slotting: multiple segments sharing one line_id (a fan
+        # whose line feeds several targets) overlay at a single x rather
+        # than each claiming an OFFSET_STEP slot.
+        line_orders = [_distinct_line_order(c) for _, c in bundles]
+        # Skip a lone bundle carrying a single distinct line: nothing to
+        # re-bundle and centring risks disturbing wrap geometry.
+        if len(bundles) == 1 and len(line_orders[0]) <= 1:
+            continue
+        gap_left, gap_right = gap_bounds[(lo, _row)]
+        widths = [max(0, len(o) - 1) * step for o in line_orders]
+        # A lone bundle centres on the true gap midpoint (symmetric
+        # clearance both sides) rather than flooring one edge at A, which
+        # would push the bundle off-centre when the gap is sized tighter
+        # than 2A + width.  Multi-bundle gaps keep the symmetric A/B
+        # layout from symmetric_bundle_midpoint.
+        lone = len(bundles) == 1
+        for bi, (down, chans) in enumerate(bundles):
+            order = line_orders[bi]
+            if lone:
+                mid = (gap_left + gap_right) / 2
+            else:
+                mid = symmetric_bundle_midpoint(gap_left, gap_right, widths, bi)
+            n = len(order)
+            # line_id -> (slot index, x); every segment of that line overlays
+            # at its single slot rather than claiming an OFFSET_STEP each.
+            line_slot = {
+                lid: (i, mid + (i - (n - 1) / 2) * step) for i, lid in enumerate(order)
+            }
+            targets = [(ch, line_slot[ch.route.line_id]) for ch in chans]
+            # Intrusion guard: if any target x would land inside a section
+            # bbox (e.g. the gap bounds came from another row), leave this
+            # bundle untouched rather than route through a section.
+            if any(_intrudes(nx, ch.y_lo, ch.y_hi) for ch, (_li, nx) in targets):
+                continue
+            for ch, (li, nx) in targets:
+                _restack_channel(ch, nx, li, n, step, ctx.curve_radius)
+
+
+def _distinct_line_order(chans: list[_VChannel]) -> list[str]:
+    """Left-to-right order of the distinct lines in one gap-bundle corridor.
+
+    Channels sharing a ``line_id`` collapse to a single slot, so the order
+    is over distinct lines.  The ordering minimises crossings between each
+    line's vertical leg and the others' horizontal lead-outs.
+
+    A line's vertical leg spans the gap from the shared trunk level (near
+    the junction) down to its deepest turn-off; each channel segment turns
+    off horizontally at its deep endpoint (``y_hi``).  For a DOWN bundle
+    that lead-out extends RIGHTWARD toward the target; for an UP bundle the
+    lead-in extends LEFTWARD from the source.  When line A sits LEFT of B:
+
+    * DOWN: B's (right-placed, deeper) vertical crosses each A lead-out that
+      turns off shallower than B's deepest point.
+    * UP: A's (left-placed, deeper) vertical crosses each B lead-in (which
+      extends left under A) that attaches shallower than A's deepest point.
+
+    The pairwise comparator picks, for each pair, the side incurring fewer
+    crossings; ties keep the incoming x order.  This places a deep bypass
+    before a shallow neighbour (variant_calling: qc before main) yet still
+    puts a shallow long-reach line before a deeper multi-target fan when
+    that strictly reduces crossings (genomeassembly: hic before assemblies),
+    and mirrors the rule for UP bundles (subworkflows: the deeper
+    preprocess_reporting sits to the RIGHT).
+    """
+    down = chans[0].down if chans else True
+
+    # Per line: the deep turn-off depths of each segment (always y_hi), the
+    # deepest reach, and a representative x for stable tie-breaking.
+    turns: dict[str, list[float]] = defaultdict(list)
+    deepest: dict[str, float] = {}
+    rep_x: dict[str, float] = {}
+    for ch in chans:
+        lid = ch.route.line_id
+        turns[lid].append(ch.y_hi)
+        deepest[lid] = max(deepest.get(lid, ch.y_hi), ch.y_hi)
+        rep_x[lid] = min(rep_x.get(lid, ch.x), ch.x)
+
+    def crossings_if_left(a: str, b: str) -> int:
+        # Number of crossings when a is placed LEFT of b.
+        if down:
+            # b's deeper vertical crosses a's shallower right-going lead-outs.
+            return sum(1 for t in turns[a] if t < deepest[b] - COORD_TOLERANCE)
+        # UP: a's deeper vertical crosses b's shallower left-going lead-ins.
+        return sum(1 for t in turns[b] if t < deepest[a] - COORD_TOLERANCE)
+
+    def cmp(a: str, b: str) -> int:
+        ca = crossings_if_left(a, b)  # a left of b
+        cb = crossings_if_left(b, a)  # b left of a
+        if ca != cb:
+            return -1 if ca < cb else 1
+        if rep_x[a] != rep_x[b]:
+            return -1 if rep_x[a] < rep_x[b] else 1
+        return -1 if a < b else (1 if a > b else 0)
+
+    return sorted(turns, key=functools.cmp_to_key(cmp))
+
+
+def _restack_channel(
+    ch: _VChannel,
+    new_x: float,
+    i: int,
+    n: int,
+    step: float,
+    base_radius: float,
+) -> None:
+    """Move one vertical channel to *new_x* and recompute its corner radii.
+
+    Shifts the channel's two endpoints (which share x) to *new_x*; the
+    flanking horizontal segments stretch.  The re-stacked channel behaves
+    exactly like line *i* of an *n*-line standard L-shape, so its two
+    flanking corner radii come straight from :func:`l_shape_radii`, which
+    encodes the concentric (outermost-line-largest-on-the-outside)
+    geometry for both the down- and up-going cases.
+
+    ``l_shape_radii`` assigns ``i = 0`` to the rightmost (DOWN) / leftmost
+    (UP) line; the bundle here is ordered left-to-right with ``i`` growing
+    rightward, so the index is mapped accordingly.
+    """
+    rp = ch.route
+    pts = rp.points
+    k = ch.idx
+    pts[k] = (new_x, pts[k][1])
+    pts[k + 1] = (new_x, pts[k + 1][1])
+
+    if rp.curve_radii is None:
+        return
+    vertical = Direction.D if ch.down else Direction.U
+    # Map left-to-right index to l_shape_radii's convention.
+    li = (n - 1 - i) if ch.down else i
+    _, r_first, r_second = l_shape_radii(
+        li, n, vertical=vertical, offset_step=step, base_radius=base_radius
+    )
+    # Lead corner radius lives at curve_radii[k-1]; trail at curve_radii[k].
+    if 0 <= k - 1 < len(rp.curve_radii):
+        rp.curve_radii[k - 1] = r_first
+    if k < len(rp.curve_radii) and k + 2 < len(pts):
+        rp.curve_radii[k] = r_second
+
+
+def _gap_channel_base(
+    graph: MetroGraph,
+    lo: int,
+    row: int | None,
+    n: int,
+    offset_step: float,
+) -> float:
+    """Centred midline x for a bundle of *n* lines in gap ``(lo, lo+1)``.
+
+    This is only the initial placement during routing; the post-routing
+    :func:`_normalize_gap_channels` pass re-stacks every inter-section
+    channel into its final centred / B-separated position, so the value
+    here just needs to land the channel in the right gap.
+    """
+    gap_left, gap_right = column_gap_edges(graph, lo, lo + 1, row=row)
+    return symmetric_bundle_midpoint(
+        gap_left, gap_right, [max(0, n - 1) * offset_step], 0
+    )
 
 
 def _has_intervening_sections(

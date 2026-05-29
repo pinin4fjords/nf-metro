@@ -7,11 +7,14 @@ from dataclasses import dataclass
 from enum import Enum
 
 from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     DEFAULT_LINE_PRIORITY,
+    EDGE_TO_BUNDLE_CLEARANCE,
     HEADER_CLEARANCE,
+    OFFSET_STEP,
     SECTION_HEADER_PROTRUSION,
 )
 from nf_metro.parser.model import Edge, MetroGraph, Section, Station
@@ -48,9 +51,23 @@ def vertical_direction(dy: float) -> Direction:
 # patterns scattered across routing and layout modules.
 
 
-def _sections_in_col(graph: MetroGraph, col: int) -> list[Section]:
-    """Sections in a specific grid column with non-zero width."""
-    return [s for s in graph.sections.values() if s.grid_col == col and s.bbox_w > 0]
+def _sections_in_col(
+    graph: MetroGraph, col: int, row: int | None = None
+) -> list[Section]:
+    """Sections in a specific grid column with non-zero width.
+
+    When *row* is given, restrict to sections occupying that grid row
+    (honouring ``grid_row_span``).  An inter-section diversion travelling
+    in one row must measure the gap against that row's sections only,
+    otherwise a section stacked in another row of the same column (e.g. a
+    wide output section below) corrupts the gap edges.
+    """
+    secs = [s for s in graph.sections.values() if s.grid_col == col and s.bbox_w > 0]
+    if row is not None:
+        secs = [
+            s for s in secs if s.grid_row <= row <= s.grid_row + s.grid_row_span - 1
+        ]
+    return secs
 
 
 def _sections_in_row(graph: MetroGraph, row: int) -> list[Section]:
@@ -58,17 +75,21 @@ def _sections_in_row(graph: MetroGraph, row: int) -> list[Section]:
     return [s for s in graph.sections.values() if s.grid_row == row and s.bbox_h > 0]
 
 
-def col_right_edge(graph: MetroGraph, col: int, default: float = 0.0) -> float:
-    """Rightmost X extent of sections in *col*."""
-    secs = _sections_in_col(graph, col)
+def col_right_edge(
+    graph: MetroGraph, col: int, default: float = 0.0, row: int | None = None
+) -> float:
+    """Rightmost X extent of sections in *col* (optionally a single *row*)."""
+    secs = _sections_in_col(graph, col, row)
     if not secs:
         return default
     return max((s.bbox_x + s.bbox_w for s in secs), default=default)
 
 
-def col_left_edge(graph: MetroGraph, col: int, default: float = 0.0) -> float:
-    """Leftmost X extent of sections in *col*."""
-    secs = _sections_in_col(graph, col)
+def col_left_edge(
+    graph: MetroGraph, col: int, default: float = 0.0, row: int | None = None
+) -> float:
+    """Leftmost X extent of sections in *col* (optionally a single *row*)."""
+    secs = _sections_in_col(graph, col, row)
     return min((s.bbox_x for s in secs), default=default) if secs else default
 
 
@@ -86,12 +107,85 @@ def row_top_edge(graph: MetroGraph, row: int, default: float = 0.0) -> float:
     return min((s.bbox_y for s in secs), default=default) if secs else default
 
 
-def column_gap_midpoint(graph: MetroGraph, col_a: int, col_b: int) -> float:
-    """X midpoint of the gap between two columns."""
-    lo, hi = min(col_a, col_b), max(col_a, col_b)
-    right = col_right_edge(graph, lo)
-    left = col_left_edge(graph, hi, default=right)
+def column_gap_midpoint(
+    graph: MetroGraph, col_a: int, col_b: int, row: int | None = None
+) -> float:
+    """X midpoint of the gap between two columns (optionally within *row*)."""
+    right, left = column_gap_edges(graph, col_a, col_b, row)
     return (right + left) / 2
+
+
+def column_gap_edges(
+    graph: MetroGraph, col_a: int, col_b: int, row: int | None = None
+) -> tuple[float, float]:
+    """Return ``(left_edge, right_edge)`` of the gap between two columns.
+
+    *left_edge* is the right boundary of the lower-column sections;
+    *right_edge* is the left boundary of the higher-column sections.
+
+    When *row* is given, only sections occupying that grid row bound the
+    gap, so a diversion travelling in one row isn't pushed off-centre by a
+    section stacked in another row of the same column.
+    """
+    lo, hi = min(col_a, col_b), max(col_a, col_b)
+    right = col_right_edge(graph, lo, row=row)
+    left = col_left_edge(graph, hi, default=right, row=row)
+    return right, left
+
+
+def symmetric_bundle_midpoint(
+    gap_left: float,
+    gap_right: float,
+    bundle_widths: list[float],
+    bundle_index: int,
+    edge_clearance: float = EDGE_TO_BUNDLE_CLEARANCE,
+    inter_bundle: float = BUNDLE_TO_BUNDLE_CLEARANCE,
+) -> float:
+    """X midline of one bundle when several share an inter-section gap.
+
+    Implements the symmetric placement described in the inter-section
+    gap design contract::
+
+        - ``W = gap_right - gap_left``
+        - ``WT = sum(bundle_widths) + (N - 1) * B``
+        - The leftmost line of the leftmost bundle sits at
+          ``gap_left + (W - WT) / 2``.
+        - Bundles are separated by exactly ``B``; only the
+          edge-to-bundle distance grows when ``W`` exceeds the minimum.
+
+    Returns the midline x for bundle ``bundle_index`` (0-indexed from
+    the leftmost).  ``bundle_widths[k]`` is the visual span of bundle
+    ``k`` (typically ``(n_k - 1) * OFFSET_STEP``).
+
+    When ``W`` is smaller than the required minimum the function still
+    returns the symmetric midline as if the gap were exactly that
+    minimum; the caller is responsible for widening the gap (handled
+    by ``_enforce_min_column_gaps`` during section placement).
+    """
+    n = len(bundle_widths)
+    if n == 0:
+        return (gap_left + gap_right) / 2
+    if bundle_index < 0 or bundle_index >= n:
+        raise IndexError(f"bundle_index {bundle_index} out of range [0,{n})")
+
+    W = gap_right - gap_left
+    WT = sum(bundle_widths) + (n - 1) * inter_bundle
+    # If the gap is wider than the minimum (2A + WT), the extra space
+    # is distributed equally to both edges; the symmetric leftmost-line
+    # offset from gap_left is (W - WT) / 2.
+    leftmost_offset = max(edge_clearance, (W - WT) / 2)
+    # Position of the leftmost line of the leftmost bundle.
+    cursor = gap_left + leftmost_offset
+    for k in range(bundle_index):
+        cursor += bundle_widths[k] + inter_bundle
+    # cursor is now the leftmost line of bundle bundle_index;
+    # the midline is cursor + width/2.
+    return cursor + bundle_widths[bundle_index] / 2
+
+
+def bundle_width(n_lines: int, offset_step: float = OFFSET_STEP) -> float:
+    """Visual span of a bundle of *n_lines* parallel lines."""
+    return max(0, n_lines - 1) * offset_step
 
 
 @dataclass
@@ -104,6 +198,12 @@ class RoutedPath:
     is_inter_section: bool = False
     curve_radii: list[float] | None = None
     offsets_applied: bool = False
+    normalize_exempt: bool = False
+    """Skip this route in the gap-channel normalization post-pass.
+
+    Set by wrap / around-section / TOP-entry handlers whose vertical
+    channels follow a special concentric loop (all corners share one
+    radius) that the standard L-shape re-stacking would break."""
 
 
 def compute_bundle_info(
@@ -259,7 +359,18 @@ def inter_column_channel_x(
     if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
         return column_gap_midpoint(graph, src_sec.grid_col, tgt_sec.grid_col)
 
-    # Fallback: place near source
+    # Extend the same gap-centred placement to junction endpoints (whose
+    # section is found by tracing the junction graph) so a junction-sourced
+    # L-shape centres in the inter-column gap instead of hugging one edge.
+    # Restrict to ADJACENT resolved columns: in staggered layouts a
+    # junction can resolve several columns from its target, and centring in
+    # that far span would drag the channel through empty canvas.
+    res_src = src_sec or resolve_section(graph, src)
+    res_tgt = tgt_sec or resolve_section(graph, tgt)
+    if res_src and res_tgt and abs(res_src.grid_col - res_tgt.grid_col) == 1:
+        return column_gap_midpoint(graph, res_src.grid_col, res_tgt.grid_col)
+
+    # Fallback: place near source (no resolvable adjacent column info)
     if dx > 0:
         return sx + max_r + offset_step
     else:
