@@ -621,17 +621,20 @@ in pipeline order.
   `test_no_icon_overlaps_line_path`,
   `test_row_gap_accommodates_bypass`.
 
-### Stage 6.15: pad stacked captioned file icons (engine.py:808-813)
-- **Purpose**: Pad vertical spacing between stacked file-input icons
-  whose under-icon captions would overlap the icon below at default
-  `y_spacing`.
-- **Helper**: `_pad_stacked_captioned_file_icons` (engine.py:6696).
+### Stage 6.15: snap canvas to the y-grid
+- **Purpose**: After all settling, restore canvas-wide grid alignment.
+  Stage 6.4 snaps to a per-row grid, but later helpers (notably
+  `_shift_graph_into_canvas` shifting by a non-grid amount) can leave a
+  uniform residue; shift the whole canvas back onto integer `y_spacing`
+  multiples.
+- **Helper**: `_snap_canvas_y_to_grid`.
 - **Precondition**: All other Y phases done.
-- **Postcondition**: Stacked captioned-icon columns have at least
-  `_required_captioned_icon_pitch(y_spacing)` between centres.
-- **Invariants preserved**: Non-captioned-icon Ys.
-- **Related tests**: `test_stacked_file_icons_label_clearance`,
-  `test_auto_y_spacing_fits_content`.
+- **Postcondition**: Real stations sharing a single non-zero residue are
+  shifted onto integer `y_spacing` multiples; mixed-residue (multi-row)
+  layouts and half-grid / convergence stations are left untouched.
+- **Invariants preserved**: Relative station/section/port Ys (the whole
+  canvas moves by one delta).
+- **Related tests**: `test_auto_y_spacing_fits_content`.
 
 ## Unclear / structural-debt signals
 

@@ -1,0 +1,37 @@
+%%metro title: Trunk Through Fan
+%%metro style: dark
+%%metro center_ports: true
+%%metro line: a | A | #e63946
+%%metro line: b | B | #0570b0
+
+%%metro grid: source | 0,0
+%%metro grid: middle | 1,0
+%%metro grid: sink | 2,0
+
+graph LR
+    subgraph source [Source]
+        s1[Input]
+        s2[Prepare]
+        s1 -->|a,b| s2
+    end
+
+    subgraph middle [Middle]
+        %%metro entry: left | a, b
+        %%metro exit: right | a, b
+        split[Split]
+        up[Path Up]
+        down[Path Down]
+        join[Join]
+        split -->|a,b| up
+        split -->|a,b| down
+        up -->|a,b| join
+        down -->|a,b| join
+    end
+
+    subgraph sink [Sink]
+        %%metro entry: left | a, b
+        report[Report]
+    end
+
+    s2 -->|a,b| split
+    join -->|a,b| report
