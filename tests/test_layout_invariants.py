@@ -3087,13 +3087,18 @@ def test_routes_dont_loop_backwards(fixture):
         overall_dx = pts[-1][0] - pts[0][0]
         if abs(overall_dx) < 1.0:
             continue
-        # Final-segment reversal is legitimate: a route arriving at an
-        # entry port on the opposite side from its overall direction
-        # must curve back to enter (RL section's right-entry, LR
-        # section's right-entry from below, etc.).  Only check segments
-        # before the final approach.
+        # Both endpoint-segment reversals are legitimate.  Final segment:
+        # a route arriving at an entry port on the opposite side from its
+        # overall direction must curve back to enter (RL section's
+        # right-entry, LR section's right-entry from below, etc.).  First
+        # segment: a U-turn route (around-section-below,
+        # left-entry-wrap with dx<0) leads OUT of the source's right edge
+        # before turning to head left toward the target.  Only check
+        # interior segments where a reversal would indicate the pinwheel
+        # anti-pattern from #250.
+        first_check = 2 if len(pts) >= 4 else 1
         check_until = len(pts) - 1 if len(pts) >= 3 else len(pts)
-        for j in range(1, check_until):
+        for j in range(first_check, check_until):
             seg_dx = pts[j][0] - pts[j - 1][0]
             if overall_dx > 0 and seg_dx < -0.5:
                 offenders.append(
