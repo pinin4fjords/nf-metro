@@ -272,6 +272,30 @@ def fanout_junctions(graph) -> dict[str, str]:  # noqa: ANN001 - MetroGraph (avo
     return result
 
 
+def _fanout_route_maps(
+    routes: list[RoutedPath],
+    fanouts: dict[str, str],
+) -> tuple[dict[tuple[str, str], RoutedPath], dict[tuple[str, str], RoutedPath]]:
+    """Index fan-out-incident routes by ``(junction_id, line_id)``.
+
+    Returns ``(upstream, downstream)``: ``upstream`` holds each
+    ``port -> junction`` route, ``downstream`` the first
+    ``junction -> target`` route for that line.  Both the apex-gap check
+    and the routing pass that closes it consume these maps, so the keying
+    is defined once.
+    """
+    upstream: dict[tuple[str, str], RoutedPath] = {}
+    downstream: dict[tuple[str, str], RoutedPath] = {}
+    for r in routes:
+        if not r.points:
+            continue
+        if r.edge.target in fanouts:
+            upstream[(r.edge.target, r.line_id)] = r
+        if r.edge.source in fanouts:
+            downstream.setdefault((r.edge.source, r.line_id), r)
+    return upstream, downstream
+
+
 def check_fanout_tail_join(
     routes: list[RoutedPath],
     graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
@@ -293,15 +317,7 @@ def check_fanout_tail_join(
     if not fanouts:
         return []
 
-    upstream: dict[tuple[str, str], RoutedPath] = {}
-    downstream: dict[tuple[str, str], RoutedPath] = {}
-    for r in routes:
-        if not r.points:
-            continue
-        if r.edge.target in fanouts:
-            upstream[(r.edge.target, r.line_id)] = r
-        if r.edge.source in fanouts:
-            downstream.setdefault((r.edge.source, r.line_id), r)
+    upstream, downstream = _fanout_route_maps(routes, fanouts)
 
     gaps: list[FanoutTailGap] = []
     for (jid, line_id), up in upstream.items():

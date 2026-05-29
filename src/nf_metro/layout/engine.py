@@ -579,9 +579,7 @@ def _guard_fanout_tail_join(
     travel direction (no visible apex notch).
 
     See :func:`nf_metro.layout.routing.invariants.check_fanout_tail_join`
-    for the semantic definition.  A purely perpendicular offset (an inner
-    concentric-corner member's approach Y) is tolerated; only an
-    along-travel "bite" is a violation.
+    for the semantic definition.
     """
     from nf_metro.layout.routing.invariants import check_fanout_tail_join
 

@@ -3330,29 +3330,26 @@ def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> N
     routing, which intentionally lands branches on a shared bypass Y, is
     never perturbed.
     """
-    from nf_metro.layout.routing.invariants import fanout_junctions
+    from nf_metro.layout.routing.invariants import (
+        _fanout_route_maps,
+        fanout_junctions,
+    )
 
     fanouts = fanout_junctions(ctx.graph)
     if not fanouts:
         return
 
-    downstream_start: dict[tuple[str, str], tuple[float, float]] = {}
-    for r in routes:
-        if r.edge.source in fanouts and r.points:
-            downstream_start.setdefault((r.edge.source, r.line_id), r.points[0])
-
-    for r in routes:
-        if r.edge.target not in fanouts or len(r.points) < 2:
+    upstream, downstream = _fanout_route_maps(routes, fanouts)
+    for (jid, line_id), up in upstream.items():
+        down = downstream.get((jid, line_id))
+        if down is None or len(up.points) < 2:
             continue
-        target = downstream_start.get((r.edge.target, r.line_id))
-        if target is None:
-            continue
-        p_prev, p_last = r.points[-2], r.points[-1]
+        p_prev, p_last = up.points[-2], up.points[-1]
         # Only a genuinely-horizontal final segment is extended; extend
         # its X to the downstream start X, keeping the upstream Y so the
         # approach into the bend stays horizontal.
         if abs(p_prev[1] - p_last[1]) <= COORD_TOLERANCE_FINE:
-            r.points[-1] = (target[0], p_last[1])
+            up.points[-1] = (down.points[0][0], p_last[1])
 
 
 def _distinct_line_order(chans: list[_VChannel]) -> list[str]:
