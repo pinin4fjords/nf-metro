@@ -1996,3 +1996,438 @@ class TestPassCBisection:
             assert engine._bisection_should_run(guard_name, prev_phase) is False
         # Final-block phase is not in _PASS_C_BISECTION_ORDER; guard always runs.
         assert engine._bisection_should_run(guard_name, "after final") is True
+
+
+def test_bundles_in_gap_dedupes_fanout_to_multiple_columns():
+    """A line fanning from one source to several target columns occupies a
+    single coalesced channel in the source-side gap, so it must be counted
+    as ONE bundle, not one per target column.
+
+    Regression: differentialabundance fans rnaseq/affy/geo/maxquant from a
+    single junction to functional (col 2), plots (col 2) and reporting
+    (col 3).  Keying down-channels by (src_col, tgt_col) counted the
+    col1->col2 and col1->col3 channels as two bundles of the same four
+    lines, over-widening the col1|col2 gap and pushing the (single) bundle
+    off-centre.
+    """
+    from nf_metro.layout.section_placement import _bundles_in_gap
+
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "examples"
+        / "differentialabundance.mmd"
+    )
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    col_assign = {sid: s.grid_col for sid, s in graph.sections.items()}
+
+    bundles = _bundles_in_gap(graph, col_assign, 1, 2)
+    assert bundles == [4], (
+        f"expected one coalesced 4-line down-bundle in the col1|col2 gap, "
+        f"got {bundles} (the four data lines fanning to cols 2 and 3 were "
+        f"double-counted)"
+    )
+
+
+def test_bundles_in_gap_dedupes_synthetic_fanout():
+    """Minimal synthetic: one source fanning the same line to an adjacent
+    and a bypass column must count as a single source-side bundle."""
+    from nf_metro.layout.section_placement import _bundles_in_gap
+
+    mmd = (
+        "%%metro line: a | A | #ff0000\n"
+        "%%metro line: b | B | #00ff00\n"
+        "%%metro grid: s0 | 0,0\n"
+        "%%metro grid: s1 | 1,0\n"
+        "%%metro grid: s2 | 2,0\n"
+        "graph LR\n"
+        "    subgraph s0 [S0]\n"
+        "        n0[N0]\n"
+        "    end\n"
+        "    subgraph s1 [S1]\n"
+        "        n1[N1]\n"
+        "    end\n"
+        "    subgraph s2 [S2]\n"
+        "        n2[N2]\n"
+        "    end\n"
+        "    n0 -->|a,b| n1\n"
+        "    n0 -->|a,b| n2\n"
+    )
+    graph = parse_metro_mermaid(mmd)
+    compute_layout(graph)
+    col_assign = {sid: s.grid_col for sid, s in graph.sections.items()}
+    # s0 -> s1 (adjacent) and s0 -> s2 (bypass) share lines a,b and coalesce
+    # in the s0|s1 gap: one 2-line bundle, not two.
+    bundles = _bundles_in_gap(graph, col_assign, 0, 1)
+    assert bundles == [2], f"expected one coalesced 2-line bundle, got {bundles}"
+
+
+@pytest.mark.parametrize(
+    "fixture", ["differentialabundance.mmd", "differentialabundance_default.mmd"]
+)
+def test_single_bundle_inter_section_gap_is_centered(fixture):
+    """A lone vertical bundle in an inter-section gap sits centred: the
+    clearance from the left section edge equals the clearance to the right
+    section edge (the gap is x + bundle_width + y with x == y).
+
+    Fails when the gap is over-sized for a phantom second bundle, which
+    pushes the real bundle hard against the source side.
+    """
+    from nf_metro.layout.routing import route_edges
+    from nf_metro.layout.routing.common import column_gap_edges
+
+    path = Path(__file__).resolve().parent.parent / "examples" / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    routes = route_edges(graph)
+
+    # functional is col 2; inspect the gap immediately to its left.
+    gap_left, gap_right = column_gap_edges(graph, 1, 2)
+    seg_xs = set()
+    for rp in routes:
+        for (x0, y0), (x1, y1) in zip(rp.points, rp.points[1:]):
+            if abs(x1 - x0) < 0.5 and abs(y1 - y0) > 5:
+                xm = (x0 + x1) / 2
+                if gap_left - 2 <= xm <= gap_right + 2:
+                    seg_xs.add(round(xm, 1))
+    assert seg_xs, "expected a vertical bundle in the col1|col2 gap"
+    lo, hi = min(seg_xs), max(seg_xs)
+    left_clear = lo - gap_left
+    right_clear = gap_right - hi
+    assert abs(left_clear - right_clear) <= 3.0, (
+        f"{fixture}: bundle off-centre in col1|col2 gap — "
+        f"left clearance {left_clear:.1f}px vs right {right_clear:.1f}px "
+        f"(gap W={gap_right - gap_left:.1f})"
+    )
+
+
+def _gap_vertical_channels(graph, routes, col_a, col_b):
+    """Return ``[(x, down, line_id)]`` for vertical channel segments in a gap.
+
+    Picks every vertical channel of an inter-section route whose x falls
+    inside the ``(col_a, col_b)`` inter-column gap, tagged with its
+    direction (``down`` True for a southbound segment) and line id.
+    """
+    from nf_metro.layout.constants import COORD_TOLERANCE
+    from nf_metro.layout.routing.common import column_gap_edges
+
+    gap_left, gap_right = column_gap_edges(graph, col_a, col_b)
+    out: list[tuple[float, bool, str]] = []
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        for (x0, y0), (x1, y1) in zip(rp.points, rp.points[1:]):
+            if abs(x1 - x0) < COORD_TOLERANCE and abs(y1 - y0) > COORD_TOLERANCE:
+                if gap_left - 2 <= x0 <= gap_right + 2:
+                    out.append((round(x0, 2), y1 > y0, rp.line_id))
+    return out
+
+
+@pytest.mark.parametrize(
+    "fixture, col_a, col_b, n_distinct",
+    [
+        # variant_calling: junction_6 fans `main` (adjacent col1) and `qc`
+        # (bypass to col3) -- both DOWNWARD in the col0|col1 gap.  Two
+        # distinct lines, bundled exactly OFFSET_STEP apart.
+        ("examples/variant_calling.mmd", 0, 1, 2),
+        # differentialabundance: four data lines fan downward in the gap
+        # left of `functional`, each feeding BOTH plots and reporting.  The
+        # two segments of a given line OVERLAY at one x, so the bundle is
+        # FOUR distinct lines (not eight separate channels), consecutive
+        # distinct lines OFFSET_STEP apart.
+        ("examples/differentialabundance.mmd", 1, 2, 4),
+    ],
+)
+def test_same_direction_lines_in_gap_bundle_at_offset_step(
+    fixture, col_a, col_b, n_distinct
+):
+    """Same-direction inter-section channels sharing a gap form one
+    concentric bundle keyed on DISTINCT line ids: distinct lines are
+    OFFSET_STEP apart, and every segment carrying the same line id overlays
+    at that line's single x (so a line feeding several targets does not
+    claim multiple slots)."""
+    from nf_metro.layout.constants import OFFSET_STEP
+    from nf_metro.layout.routing import route_edges
+
+    path = Path(__file__).resolve().parent.parent / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    routes = route_edges(graph)
+
+    down = [
+        (x, lid)
+        for x, is_down, lid in _gap_vertical_channels(graph, routes, col_a, col_b)
+        if is_down
+    ]
+    # Every segment of a given line must share that line's single x.
+    per_line: dict[str, set[float]] = {}
+    for x, lid in down:
+        per_line.setdefault(lid, set()).add(x)
+    for lid, xs in per_line.items():
+        assert len(xs) == 1, (
+            f"{fixture}: line {lid} occupies multiple xs {sorted(xs)} in "
+            f"col{col_a}|col{col_b} gap; same-line segments must overlay"
+        )
+
+    distinct_xs = sorted(next(iter(xs)) for xs in per_line.values())
+    assert len(distinct_xs) == n_distinct, (
+        f"{fixture}: expected {n_distinct} distinct downward lines in "
+        f"col{col_a}|col{col_b} gap, got {len(distinct_xs)} at {distinct_xs}"
+    )
+    gaps = [b - a for a, b in zip(distinct_xs, distinct_xs[1:])]
+    assert all(abs(g - OFFSET_STEP) < 0.5 for g in gaps), (
+        f"{fixture}: distinct downward lines not bundled at OFFSET_STEP "
+        f"({OFFSET_STEP}px); spacings {gaps} at xs {distinct_xs}"
+    )
+
+
+@pytest.mark.parametrize(
+    "fixture, gap",
+    [("section_diamond", (0, 1)), ("mixed_port_sides", (0, 1))],
+)
+def test_junction_sourced_bundle_centers_in_gap(fixture, gap):
+    """A vertical channel sourced from a junction (not a section station)
+    centres in its inter-column gap, same as a section-sourced one.
+
+    Before: ``inter_column_channel_x`` only centred when both endpoints had
+    a section; junction sources fell back to near-source placement and hugged
+    one edge (~4px off in section_diamond / mixed_port_sides).  Now junction
+    columns are resolved (when adjacent to the target) and the channel centres.
+    """
+    from nf_metro.layout.routing import route_edges
+    from nf_metro.layout.routing.common import column_gap_edges
+
+    p = None
+    for d in ("topologies", ""):
+        cand = (
+            Path(__file__).resolve().parent.parent / "examples" / d / f"{fixture}.mmd"
+        )
+        if cand.is_file():
+            p = cand
+            break
+    assert p is not None, f"fixture {fixture} not found"
+
+    graph = parse_metro_mermaid(p.read_text())
+    compute_layout(graph)
+    routes = route_edges(graph)
+    gl, gr = column_gap_edges(graph, *gap)
+    xs = set()
+    for rp in routes:
+        for (x0, y0), (x1, y1) in zip(rp.points, rp.points[1:]):
+            if abs(x1 - x0) < 0.5 and abs(y1 - y0) > 5:
+                xm = (x0 + x1) / 2
+                if gl - 2 <= xm <= gr + 2:
+                    xs.add(round(xm, 1))
+    assert xs, f"{fixture}: expected a vertical bundle in gap {gap}"
+    lo, hi = min(xs), max(xs)
+    left_clear, right_clear = lo - gl, gr - hi
+    assert abs(left_clear - right_clear) <= 3.0, (
+        f"{fixture}: junction-sourced bundle off-centre in gap {gap} — "
+        f"left {left_clear:.1f}px vs right {right_clear:.1f}px"
+    )
+
+
+def _all_segments(routes):
+    """Return ``[(line_id, p0, p1)]`` for every segment of every route."""
+    out = []
+    for rp in routes:
+        for p0, p1 in zip(rp.points, rp.points[1:]):
+            out.append((rp.line_id, p0, p1))
+    return out
+
+
+def _count_inter_line_crossings(routes):
+    """Count proper (interior) crossings between segments of distinct lines."""
+
+    def ccw(a, b, c):
+        return (c[1] - a[1]) * (b[0] - a[0]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def crosses(p1, p2, p3, p4):
+        d1, d2 = ccw(p3, p4, p1), ccw(p3, p4, p2)
+        d3, d4 = ccw(p1, p2, p3), ccw(p1, p2, p4)
+        return ((d1 > 1e-6 and d2 < -1e-6) or (d1 < -1e-6 and d2 > 1e-6)) and (
+            (d3 > 1e-6 and d4 < -1e-6) or (d3 < -1e-6 and d4 > 1e-6)
+        )
+
+    segs = _all_segments(routes)
+    n = 0
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            if segs[i][0] == segs[j][0]:
+                continue
+            if crosses(segs[i][1], segs[i][2], segs[j][1], segs[j][2]):
+                n += 1
+    return n
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "examples/differentialabundance.mmd",
+        "examples/variant_calling.mmd",
+        "examples/variant_calling_tuned.mmd",
+        "examples/variantprioritization.mmd",
+        "examples/genomeassembly.mmd",
+    ],
+)
+def test_normalization_adds_no_inter_line_crossings(fixture):
+    """The gap-channel normalization post-pass must never INTRODUCE a
+    crossing between two different lines that the un-normalized routing did
+    not already have.  (It may remove crossings; it must not add any.)"""
+    import nf_metro.layout.routing.core as core
+    from nf_metro.layout.routing import route_edges
+
+    path = Path(__file__).resolve().parent.parent / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+
+    orig = core._normalize_gap_channels
+    core._normalize_gap_channels = lambda *a, **k: None
+    try:
+        pre = _count_inter_line_crossings(route_edges(graph))
+    finally:
+        core._normalize_gap_channels = orig
+    post = _count_inter_line_crossings(route_edges(graph))
+
+    assert post <= pre, (
+        f"{fixture}: normalization introduced crossings "
+        f"(pre-normalize {pre}, post-normalize {post})"
+    )
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "examples/differentialabundance.mmd",
+        "examples/genomeassembly.mmd",
+    ],
+)
+def test_same_line_segments_in_gap_bundle_share_x(fixture):
+    """Within an inter-column gap, every vertical channel carrying the same
+    line id sits at one x (overlaid), so a fan whose line feeds several
+    targets does not occupy several parallel slots in the bundle."""
+    from nf_metro.layout.constants import COORD_TOLERANCE
+    from nf_metro.layout.routing import route_edges
+    from nf_metro.layout.routing.common import column_gap_edges
+
+    path = Path(__file__).resolve().parent.parent / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    routes = route_edges(graph)
+
+    cols = sorted({s.grid_col for s in graph.sections.values() if s.bbox_w > 0})
+    channels_seen = 0
+    for lo, hi in zip(cols, cols[1:]):
+        if hi != lo + 1:
+            continue
+        gl, gr = column_gap_edges(graph, lo, hi)
+        # (line_id, down) -> set of xs of its channel segments in this gap
+        per: dict[tuple[str, bool], set[float]] = {}
+        for rp in routes:
+            if not rp.is_inter_section:
+                continue
+            for (x0, y0), (x1, y1) in zip(rp.points, rp.points[1:]):
+                if abs(x1 - x0) >= COORD_TOLERANCE or abs(y1 - y0) <= COORD_TOLERANCE:
+                    continue
+                if gl - 2 <= x0 <= gr + 2:
+                    per.setdefault((rp.line_id, y1 > y0), set()).add(round(x0, 2))
+        for (lid, _down), xs in per.items():
+            channels_seen += 1
+            # Same-line segments must overlay (allow sub-pixel rounding noise).
+            spread = max(xs) - min(xs)
+            assert spread < COORD_TOLERANCE, (
+                f"{fixture}: line {lid} occupies {sorted(xs)} in gap "
+                f"{lo}|{hi}; same-line segments must overlay"
+            )
+    assert channels_seen, f"{fixture}: expected at least one gap channel (sanity check)"
+
+
+def test_around_section_diversion_up_leg_centers_in_row_gap():
+    """A U-shaped diversion routing below a section centres its up-leg in the
+    *row-aware* inter-section gap, not against the column-wide extent.
+
+    Regression: variantbenchmarking diverts the truth/test lines below
+    Preprocessing from Inputs to Variant Normalization.  output_processing
+    sits in the same column (row 1) and extends far right, so the column-wide
+    gap centre was ~873 and the up-leg hugged Normalization (~738).  With
+    row-aware gap edges + symmetric placement the up-leg centres on the
+    row-0 Preprocessing|Normalization gap (~714).
+    """
+    from nf_metro.layout.routing import route_edges
+    from nf_metro.layout.routing.common import column_gap_midpoint
+
+    path = (
+        Path(__file__).resolve().parent.parent / "examples" / "variantbenchmarking.mmd"
+    )
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    routes = route_edges(graph)
+
+    up_leg_x = None
+    for rp in routes:
+        edge = getattr(rp, "edge", None)
+        if (
+            not edge
+            or edge.source != "__junction_13"
+            or "normalization" not in edge.target
+        ):
+            continue
+        # the up-leg is the rightmost vertical segment of the diversion
+        for (x0, y0), (x1, y1) in zip(rp.points, rp.points[1:]):
+            if abs(x1 - x0) < 0.5 and abs(y1 - y0) > 5:
+                xm = (x0 + x1) / 2
+                if up_leg_x is None or xm > up_leg_x:
+                    up_leg_x = xm
+    assert up_leg_x is not None, "expected a diversion to normalization"
+
+    row0_center = column_gap_midpoint(graph, 1, 2, row=0)
+    assert abs(up_leg_x - row0_center) <= 4.0, (
+        f"diversion up-leg x={up_leg_x:.1f} not centred on row-0 gap "
+        f"center {row0_center:.1f} (off {abs(up_leg_x - row0_center):.1f})"
+    )
+
+
+def test_multi_path_gap_separates_by_b_and_centers():
+    """When a downward and an upward path share one inter-section gap, they
+    sit BUNDLE_TO_BUNDLE_CLEARANCE (B) apart, centred as a group
+    (A + w1 + B + w2 + A).
+
+    03b_fan_in_merge's StepA|StepB gap carries a down-path (junction_7) and
+    an up-path (junction_6); they previously overlapped (~5px) and now
+    separate by B and straddle the gap centre.
+    """
+    from nf_metro.layout.constants import BUNDLE_TO_BUNDLE_CLEARANCE
+    from nf_metro.layout.routing import route_edges
+    from nf_metro.layout.routing.common import column_gap_edges
+
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "examples"
+        / "guide"
+        / "03b_fan_in_merge.mmd"
+    )
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    routes = route_edges(graph)
+    gl, gr = column_gap_edges(graph, 1, 2, row=0)
+    center = (gl + gr) / 2
+
+    down_x = up_x = None
+    for rp in routes:
+        for (x0, y0), (x1, y1) in zip(rp.points, rp.points[1:]):
+            if abs(x1 - x0) < 0.5 and abs(y1 - y0) > 5:
+                xm = (x0 + x1) / 2
+                if gl - 3 <= xm <= gr + 3:
+                    if y1 > y0:
+                        down_x = xm
+                    else:
+                        up_x = xm
+    assert down_x is not None and up_x is not None, "expected a down and an up path"
+    sep = abs(up_x - down_x)
+    assert sep >= BUNDLE_TO_BUNDLE_CLEARANCE - 1, (
+        f"paths only {sep:.1f}px apart; expected >= B={BUNDLE_TO_BUNDLE_CLEARANCE}"
+    )
+    pair_mid = (down_x + up_x) / 2
+    assert abs(pair_mid - center) <= 3.0, (
+        f"path pair midpoint {pair_mid:.1f} not centred on gap {center:.1f}"
+    )
