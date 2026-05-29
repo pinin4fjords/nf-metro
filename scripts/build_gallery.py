@@ -101,6 +101,20 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         TOPOLOGIES_DIR,
         "Section-level fork-join: fan-out then reconverge.",
     ),
+    (
+        "terminal_symmetric_fan",
+        TOPOLOGIES_DIR,
+        "A terminal section whose entry fans into equal-rank sinks; the "
+        "fan stays symmetric about the entry port (regression lock for "
+        "top-anchored terminal fans).",
+    ),
+    (
+        "trunk_through_fan",
+        TOPOLOGIES_DIR,
+        "A pass-through section: the trunk runs straight through a "
+        "symmetric fan-and-reconverge, exit on the merge row (regression "
+        "lock for detached reconvergence exits).",
+    ),
     # --- Branching and multipath ---
     (
         "asymmetric_tree",

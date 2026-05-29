@@ -1,0 +1,26 @@
+%%metro title: Terminal Fan
+%%metro style: dark
+%%metro center_ports: true
+%%metro line: a | A | #e63946
+%%metro line: b | B | #0570b0
+
+%%metro grid: source | 0,0
+%%metro grid: reporting | 1,0
+
+graph LR
+    subgraph source [Source]
+        s1[Input]
+        s2[Process]
+        s1 -->|a,b| s2
+    end
+
+    subgraph reporting [Reporting]
+        %%metro entry: left | a, b
+        shiny[Shiny]
+        multiqc[MultiQC]
+        quarto[Quarto]
+    end
+
+    s2 -->|a,b| shiny
+    s2 -->|a,b| multiqc
+    s2 -->|a,b| quarto
