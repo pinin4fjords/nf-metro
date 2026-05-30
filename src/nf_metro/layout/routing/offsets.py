@@ -5,13 +5,21 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from nf_metro.layout.constants import OFFSET_STEP
-from nf_metro.layout.routing.invariants import classify_merge_port_feeders
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE_FINE,
+    OFFSET_STEP,
+    SAME_Y_TOLERANCE,
+)
+from nf_metro.layout.routing.invariants import (
+    check_partial_branch_offset_gaps,
+    classify_merge_port_feeders,
+    distinct_offset_levels,
+)
 from nf_metro.layout.routing.reversal import detect_reversed_sections
 from nf_metro.parser.model import MetroGraph, PortSide
 
 # Tolerances used across offset phases
-_SAME_Y_TOLERANCE: float = 0.1
+_SAME_Y_TOLERANCE: float = SAME_Y_TOLERANCE
 _OFFSET_EQ_TOLERANCE: float = 0.001
 
 
@@ -1146,6 +1154,39 @@ def _apply_offsets_through_section(
             queue.append(tgt_id)
 
 
+def _recenter_partial_fan_branches(ctx: _OffsetCtx) -> None:
+    """Collapse reserved absent-line slots at independent fan branches.
+
+    :func:`_apply_compact_section_consistency` gives every multi-line
+    station the section-wide slot map so straight through-lines keep
+    aligned slots.  An independent fan branch (its lines enter from a
+    fan-out and leave to a fan-in, with no straight horizontal
+    through-track to a same-Y neighbour) thereby reserves an empty slot
+    for any bundle line it does not carry, parking its marker off-centre
+    with a visible gap.
+
+    Remap such a station's distinct offset levels onto consecutive slots
+    anchored at its top line.  This removes interior gaps while
+    preserving line order and any coincident lines, and cannot bend a
+    shared track since the branch has none (compact mode only).
+    """
+    if not ctx.compact:
+        return
+
+    for violation in check_partial_branch_offset_gaps(
+        ctx.graph, ctx.offsets, offset_step=ctx.offset_step
+    ):
+        levels = distinct_offset_levels(off for _, off in violation.offsets)
+        base = levels[0]
+        for lid, cur in violation.offsets:
+            idx = next(
+                i
+                for i, lvl in enumerate(levels)
+                if abs(lvl - cur) <= COORD_TOLERANCE_FINE
+            )
+            ctx.offsets[(violation.station_id, lid)] = base + idx * ctx.offset_step
+
+
 def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
     """Snap offsets for same-section edges where endpoints share base Y.
 
@@ -1256,6 +1297,9 @@ def compute_station_offsets(
        bundle slot nearest its approach side (non-compact only).
     8. **Horizontal reconciliation** - snaps mismatched offsets on
        same-Y edges to eliminate almost-horizontal slopes.
+    9. **Partial fan-branch re-centring** - collapses reserved
+       absent-line slots at independent fan branches so a partial-line
+       station's marker has no interior gap (compact only).
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
@@ -1271,4 +1315,5 @@ def compute_station_offsets(
     _align_junction_to_entry_port(ctx)
     _allocate_merge_ports_by_approach(ctx)
     _reconcile_horizontal_offsets(ctx)
+    _recenter_partial_fan_branches(ctx)
     return ctx.offsets
