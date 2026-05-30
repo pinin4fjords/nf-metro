@@ -25,6 +25,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.render.bridges import BridgeBreak, compute_bridges
 from nf_metro.render.constants import (
     CANVAS_PADDING,
     DEBUG_DIAMOND_RADIUS,
@@ -741,15 +742,25 @@ def _render_edges(
     line_priority = {lid: i for i, lid in enumerate(graph.lines)}
     routes = sorted(routes, key=lambda r: -line_priority.get(r.line_id, -1))
 
-    for route in routes:
+    polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    bridges: dict[int, list[BridgeBreak]] = (
+        compute_bridges(graph, routes, polylines, curve_radius=curve_radius)
+        if theme.bridge_glyph
+        else {}
+    )
+
+    for route, pts in zip(routes, polylines):
         line = graph.lines.get(route.line_id)
         color = line.color if line else FALLBACK_LINE_COLOR
         style_kw = line_style_kwargs(line.style) if line else {}
         class_name = f"metro-line-{route.line_id}"
+        breaks = bridges.get(id(route))
 
-        pts = apply_route_offsets(route, station_offsets)
-
-        if len(pts) == 2:
+        if breaks:
+            _render_bridged_edge(
+                d, pts, route, breaks, color, style_kw, class_name, theme, curve_radius
+            )
+        elif len(pts) == 2:
             d.append(
                 draw.Line(
                     pts[0][0],
@@ -780,35 +791,100 @@ def _render_edges(
             resolved = resolve_curve_radii(
                 pts, route.curve_radii, default_radius=curve_radius
             )
+            before, after, curved = _curve_tangents(pts, resolved)
 
             for i in range(1, len(pts) - 1):
-                prev = pts[i - 1]
-                curr = pts[i]
-                nxt = pts[i + 1]
-
-                dx1 = curr[0] - prev[0]
-                dy1 = curr[1] - prev[1]
-                len1 = (dx1**2 + dy1**2) ** 0.5
-
-                dx2 = nxt[0] - curr[0]
-                dy2 = nxt[1] - curr[1]
-                len2 = (dx2**2 + dy2**2) ** 0.5
-
-                r = resolved[i - 1]
-
-                if len1 > 0 and len2 > 0:
-                    before_x = curr[0] - (dx1 / len1) * r
-                    before_y = curr[1] - (dy1 / len1) * r
-                    after_x = curr[0] + (dx2 / len2) * r
-                    after_y = curr[1] + (dy2 / len2) * r
-
-                    path.L(before_x, before_y)
-                    path.Q(curr[0], curr[1], after_x, after_y)
+                if curved[i]:
+                    path.L(*before[i])
+                    path.Q(pts[i][0], pts[i][1], *after[i])
                 else:
-                    path.L(*curr)
+                    path.L(*pts[i])
 
             path.L(*pts[-1])
             d.append(path)
+
+
+def _curve_tangents(
+    pts: list[tuple[float, float]], resolved: list[float]
+) -> tuple[
+    dict[int, tuple[float, float]], dict[int, tuple[float, float]], dict[int, bool]
+]:
+    """Curve entry/exit points for each interior vertex.
+
+    Returns ``(before, after, curved)`` keyed by vertex index ``i`` in
+    ``1..len(pts)-2``: ``before[i]``/``after[i]`` are the points where the
+    smoothing curve leaves and rejoins the polyline; ``curved[i]`` is False
+    for a degenerate corner (zero-length neighbour), where both collapse to
+    the vertex itself.
+    """
+    before: dict[int, tuple[float, float]] = {}
+    after: dict[int, tuple[float, float]] = {}
+    curved: dict[int, bool] = {}
+    for i in range(1, len(pts) - 1):
+        prev, curr, nxt = pts[i - 1], pts[i], pts[i + 1]
+        dx1, dy1 = curr[0] - prev[0], curr[1] - prev[1]
+        len1 = (dx1**2 + dy1**2) ** 0.5
+        dx2, dy2 = nxt[0] - curr[0], nxt[1] - curr[1]
+        len2 = (dx2**2 + dy2**2) ** 0.5
+        r = resolved[i - 1]
+        if len1 > 0 and len2 > 0:
+            before[i] = (curr[0] - dx1 / len1 * r, curr[1] - dy1 / len1 * r)
+            after[i] = (curr[0] + dx2 / len2 * r, curr[1] + dy2 / len2 * r)
+            curved[i] = True
+        else:
+            before[i] = after[i] = curr
+            curved[i] = False
+    return before, after, curved
+
+
+def _render_bridged_edge(
+    d: draw.Drawing,
+    pts: list[tuple[float, float]],
+    route: RoutedPath,
+    breaks: list[BridgeBreak],
+    color: str,
+    style_kw: dict[str, str],
+    class_name: str,
+    theme: Theme,
+    curve_radius: float,
+) -> None:
+    """Render an under-line interrupted by a short gap at each crossing.
+
+    The line is drawn exactly as the continuous case except that, on every
+    straight run carrying a crossing, the pen lifts across a small gap so the
+    over-line reads as passing over the top.
+    """
+    resolved = resolve_curve_radii(pts, route.curve_radii, default_radius=curve_radius)
+    m = len(pts) - 1
+    before, after, _ = _curve_tangents(pts, resolved)
+
+    path = draw.Path(
+        stroke=color,
+        stroke_width=theme.line_width,
+        fill="none",
+        stroke_linecap="round",
+        stroke_linejoin="round",
+        class_=class_name,
+        **{"data-line-id": route.line_id},
+        **style_kw,
+    )
+    path.M(*pts[0])
+    for s in range(m):
+        run_start = pts[0] if s == 0 else after[s]
+        run_end = pts[m] if s + 1 == m else before[s + 1]
+        seg_breaks = sorted(
+            (bk for bk in breaks if bk.seg_index == s),
+            key=lambda bk: (
+                (bk.cut_a[0] - run_start[0]) ** 2 + (bk.cut_a[1] - run_start[1]) ** 2
+            ),
+        )
+        for bk in seg_breaks:
+            path.L(*bk.cut_a)
+            path.M(*bk.cut_b)
+        path.L(*run_end)
+        if s + 1 <= m - 1:
+            path.Q(pts[s + 1][0], pts[s + 1][1], *after[s + 1])
+    d.append(path)
 
 
 def _render_stations(
