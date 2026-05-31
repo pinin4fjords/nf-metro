@@ -22,11 +22,19 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     SECTION_HEADER_PROTRUSION,
     SECTION_Y_GAP,
+    SECTION_Y_PADDING,
 )
 from nf_metro.layout.engine import (
     PhaseInvariantError,
     compute_layout,
+    compute_min_y_spacing,
     is_loop_side_branch_station,
+)
+from nf_metro.layout.phases._common import _grow_section_bbox_upward
+from nf_metro.layout.phases.off_track import (
+    _off_track_fit_top,
+    _off_track_groups,
+    _reanchor_off_track_to_consumer,
 )
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import resolve_section
@@ -564,6 +572,132 @@ def test_off_track_inputs_above_consumer(fixture):
             f"Off-track {off_id} y={off_st.y} not above consumer "
             f"{consumer_id} y={cons_st.y}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Off-track reanchor: explicit precondition + order-independent bbox fit (#463)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK)
+def test_reanchor_off_track_requires_snapped_consumers(fixture):
+    """``_reanchor_off_track_to_consumer`` must refuse to run before the
+    Stage 6.4 grid snap marks consumers final.
+
+    The reanchor re-pins each off-track input at ``consumer.y -
+    n*y_spacing``; running it against non-final (pre-snap) consumer Ys
+    lands the icon off-grid (issue #463 bug (a)).  The precondition is
+    enforced via ``graph._consumers_grid_snapped``, set right after the
+    Stage 6.4 snap.  Clearing it models an earlier caller; the reanchor
+    must raise ``PhaseInvariantError`` rather than silently mislocate.
+    """
+    graph = _layout(fixture)
+    assert _off_track_groups(graph), f"{fixture}: no off-track sections"
+    # Full layout sets the precondition; clear it to model a pre-snap caller.
+    graph._consumers_grid_snapped = False
+    y_spacing = compute_min_y_spacing(graph)
+    with pytest.raises(PhaseInvariantError):
+        _reanchor_off_track_to_consumer(graph, y_spacing)
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK)
+def test_reanchor_off_track_bbox_fit_is_reversible(fixture):
+    """Re-running the reanchor is order-independent: it recomputes the
+    section top to fit, growing **or** shrinking.
+
+    ``_grow_section_bbox_upward`` only ever lowers the top, so a stale or
+    premature run that grew the box too tall bakes in excess slack that
+    is never reclaimed (issue #463 bug (b)).  Bake in a too-tall top as a
+    premature grow-only run would, re-run the reanchor, and assert the
+    bbox top hugs the off-track band with exactly one ``SECTION_Y_PADDING``
+    band and no excess slack.
+    """
+    graph = _layout(fixture)
+    y_spacing = compute_min_y_spacing(graph)
+    groups = _off_track_groups(graph)
+    assert groups, f"{fixture}: no off-track sections"
+
+    for sec_id in groups:
+        section = graph.sections[sec_id]
+        # Bake in a stale, too-tall top as a premature grow-only run would.
+        _grow_section_bbox_upward(graph, section, section.bbox_y - 2 * y_spacing)
+
+    _reanchor_off_track_to_consumer(graph, y_spacing)
+
+    for sec_id, (_fallback, by_consumer) in groups.items():
+        section = graph.sections[sec_id]
+        highest = min(
+            graph.stations[st.id].y
+            for stations in by_consumer.values()
+            for st in stations
+        )
+        ideal_top = highest - SECTION_Y_PADDING
+        assert section.bbox_y == pytest.approx(ideal_top, abs=_Y_TOL), (
+            f"{fixture}/{sec_id}: bbox top {section.bbox_y:.1f} does not hug "
+            f"the off-track band (expected {ideal_top:.1f}); grow-only left "
+            f"{section.bbox_y - ideal_top:.1f}px of slack"
+        )
+
+
+def test_off_track_fit_top_clamps_to_content_above_band():
+    """The reversible fit must not clip on-track content above the band.
+
+    `_off_track_fit_top` seeds at ``highest_off_track - padding`` but
+    clamps down to any content station that sits higher, so a shrink
+    keeps that station's full padding band instead of cutting it off.
+    Exercises the content clamp, which never binds at the byte-identical
+    call sites (off-track is the topmost content there).
+    """
+    graph = _layout("da_pipeline.mmd")
+    groups = _off_track_groups(graph)
+    sec_id, (_fallback, by_consumer) = next(iter(groups.items()))
+    section = graph.sections[sec_id]
+    highest = min(
+        graph.stations[st.id].y for stations in by_consumer.values() for st in stations
+    )
+    on_id = next(
+        s
+        for s in section.station_ids
+        if not graph.stations[s].is_port
+        and not graph.stations[s].off_track
+        and not s.startswith("__bypass_")
+    )
+    graph.stations[on_id].y = highest - 30.0  # above the off-track band
+
+    top = _off_track_fit_top(graph, section, highest, SECTION_Y_PADDING)
+
+    assert top == pytest.approx(graph.stations[on_id].y - SECTION_Y_PADDING, abs=_Y_TOL)
+    # Grew past the off-track-only fit rather than clipping the station.
+    assert top < highest - SECTION_Y_PADDING - _Y_TOL
+
+
+def test_off_track_fit_top_clamps_to_non_top_port():
+    """A non-TOP port above the band bounds the fit so it isn't stranded.
+
+    TOP ports follow the bbox edge and impose no bound; a LEFT/RIGHT/
+    BOTTOM port sitting above the band top must keep the top from
+    shrinking below it.  Exercises the port clamp.
+    """
+    graph = _layout("da_pipeline.mmd")
+    groups = _off_track_groups(graph)
+    sec_id, (_fallback, by_consumer) = next(iter(groups.items()))
+    section = graph.sections[sec_id]
+    highest = min(
+        graph.stations[st.id].y for stations in by_consumer.values() for st in stations
+    )
+    band_top = highest - SECTION_Y_PADDING
+    pid = next(
+        p
+        for p in section.entry_ports + section.exit_ports
+        if graph.ports[p].side != PortSide.TOP
+    )
+    above = band_top - 20.0  # port above the band top
+    graph.stations[pid].y = above
+    graph.ports[pid].y = above
+
+    top = _off_track_fit_top(graph, section, highest, SECTION_Y_PADDING)
+
+    assert top == pytest.approx(above, abs=_Y_TOL)
 
 
 # ---------------------------------------------------------------------------
