@@ -64,7 +64,7 @@ from nf_metro.layout.routing.corners import (
     tb_entry_corner,
     tb_exit_corner,
 )
-from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
+from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Station
 
 # ---------------------------------------------------------------------------
 # Routing context: pre-computed state shared by all handlers
@@ -847,7 +847,7 @@ def _route_merge_branch(
 
 
 def _has_around_section_sibling(
-    edge: Edge, ep: Station, ep_port, ctx: _RoutingCtx
+    edge: Edge, ep: Station, ep_port: Port | None, ctx: _RoutingCtx
 ) -> bool:
     """Detect whether another edge to the same entry port will route via
     :func:`_route_around_section_below`.
@@ -1309,7 +1309,7 @@ def _should_step_descent(
     graph: MetroGraph,
     src: Station,
     ep: Station,
-    ep_port,
+    ep_port: Port | None,
 ) -> bool:
     """Detect the nested-column degenerate geometry that needs a stepped
     descent.
@@ -4180,7 +4180,6 @@ def _compute_bypass_gap_indices(
             continue
 
         dx = tgt.x - src.x
-        ekey: EdgeKey = (edge.source, edge.target, edge.line_id)
         bypass_edges.append((ekey, src_col, tgt_col, dx))
 
     gap1_groups: dict[tuple[int, int], list[tuple[EdgeKey, int]]] = defaultdict(list)
@@ -4209,14 +4208,14 @@ def _compute_bypass_gap_indices(
             gap1_idx[ek] = (j, n)
 
     lp = line_priority or {}
-    for group in gap2_groups.values():
+    for gap2_group in gap2_groups.values():
         # Sort by line priority so the lowest-offset line (highest
         # priority) gets the outermost vertical channel.  This
         # prevents crossings when lines converge at an entry port
         # from different source columns.
-        group.sort(key=lambda x: lp.get(x[2], 0))
-        n = len(group)
-        for j, (ek, _sc, _lid) in enumerate(group):
+        gap2_group.sort(key=lambda x: lp.get(x[2], 0))
+        n = len(gap2_group)
+        for j, (ek, _sc, _lid) in enumerate(gap2_group):
             gap2_idx[ek] = (j, n)
 
     result: dict[EdgeKey, tuple[int, int, int, int]] = {}
