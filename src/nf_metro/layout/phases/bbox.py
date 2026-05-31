@@ -14,7 +14,11 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
 )
 from nf_metro.layout.labels import label_text_width
-from nf_metro.layout.phases._common import _bbox_cols_overlap, _set_section_bbox_top
+from nf_metro.layout.phases._common import (
+    _bbox_cols_overlap,
+    _content_station_ys,
+    _set_section_bbox_top,
+)
 from nf_metro.layout.phases.single_section import _terminus_y_overhang
 from nf_metro.parser.model import MetroGraph, Section, Station
 
@@ -460,16 +464,8 @@ def _section_fit_top(
 ) -> float | None:
     """Return the content-hug bbox top for ``section``.
 
-    The top sits ``section_y_padding`` above the highest content marker,
-    clamped so bypass helpers (curve-only clearance) and ports stay
-    inside; mirror of the bottom anchor in
-    :func:`_shrink_bboxes_to_content_bottom`.  The off-track variant
-    :func:`nf_metro.layout.phases.off_track._off_track_fit_top` is the
-    same target anchored on just the off-track band.
-
-    Content set: non-port stations excluding ``__bypass_`` helpers, with
-    hidden phantoms kept -- deliberately not ``is_hidden`` (a superset
-    that drops those phantoms and diverges from ``_off_track_fit_top``).
+    :func:`_section_content_hug_top` over the shared content set, then
+    bounded by the row above.
 
     The row-above bound reserves ``section_y_gap +
     SECTION_HEADER_PROTRUSION`` (the header badge protrudes above the
@@ -480,33 +476,9 @@ def _section_fit_top(
 
     Returns ``None`` when the section has no real content to anchor to.
     """
-    content_min_ys = [
-        graph.stations[sid].y
-        for sid in section.station_ids
-        if (
-            sid in graph.stations
-            and not graph.stations[sid].is_port
-            and not sid.startswith("__bypass_")
-        )
-    ]
-    if not content_min_ys:
+    target = _section_content_hug_top(graph, section, section_y_padding)
+    if target is None:
         return None
-    bypass_min_ys = [
-        graph.stations[sid].y
-        for sid in section.station_ids
-        if sid in graph.stations and sid.startswith("__bypass_")
-    ]
-    port_min_ys = [
-        graph.stations[sid].y
-        for sid in section.station_ids
-        if sid in graph.stations and graph.stations[sid].is_port
-    ]
-    v_curve_clearance = CURVE_RADIUS + MIN_STATION_FLAT_LENGTH / 2
-    target = min(content_min_ys) - section_y_padding
-    if bypass_min_ys:
-        target = min(target, min(bypass_min_ys) - v_curve_clearance)
-    if port_min_ys:
-        target = min(target, min(port_min_ys))
 
     above_bots: list[float] = []
     for other in graph.sections.values():
@@ -538,22 +510,9 @@ def _section_content_hug_top(
     too-tall top moves it away from the row above, so it never binds when
     hugging content downward.
 
-    Separate from ``_section_fit_top`` so the grow target it shares with
-    ``_guard_section_top_padding`` is untouched.  Same content set as
-    ``_section_fit_top`` / ``_off_track_fit_top``: non-port stations
-    excluding ``__bypass_`` helpers, phantoms kept.
-
     Returns ``None`` when the section has no real content to anchor to.
     """
-    content_min_ys = [
-        graph.stations[sid].y
-        for sid in section.station_ids
-        if (
-            sid in graph.stations
-            and not graph.stations[sid].is_port
-            and not sid.startswith("__bypass_")
-        )
-    ]
+    content_min_ys = _content_station_ys(graph, section)
     if not content_min_ys:
         return None
     bypass_min_ys = [
@@ -584,15 +543,7 @@ def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:
     above content is intentional runway for that port's approach and must
     not be shrunk into.
     """
-    content_min_ys = [
-        graph.stations[sid].y
-        for sid in section.station_ids
-        if (
-            sid in graph.stations
-            and not graph.stations[sid].is_port
-            and not sid.startswith("__bypass_")
-        )
-    ]
+    content_min_ys = _content_station_ys(graph, section)
     if not content_min_ys:
         return False
     topmost = min(content_min_ys)
@@ -605,7 +556,7 @@ def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:
     return True
 
 
-def _grow_bboxes_to_content_top(
+def _fit_bboxes_to_content_top(
     graph: MetroGraph,
     section_y_padding: float,
     section_y_gap: float,
