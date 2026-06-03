@@ -183,13 +183,65 @@ def _align_tb_entry_port(
         target_y = max(target_y, entry_section.bbox_y)
         target_y = min(target_y, entry_section.bbox_y + entry_section.bbox_h)
         _set_port_y(graph, port_id, target_y)
+        # A same-column source stacked directly above/below drops in
+        # vertically; align X to it (clear of internal stations) so the
+        # mixed-source case still gets a straight drop, not a jog.
+        drop_x = _vertical_drop_source_x(graph, port, sources, entry_section, my_cols)
+        if drop_x is not None:
+            _set_port_x(graph, port_id, drop_x)
         # Only nudge X for LR/RL sections where TOP/BOTTOM ports are perpendicular
-        if entry_section.direction in ("LR", "RL"):
+        elif entry_section.direction in ("LR", "RL"):
             _nudge_port_from_stations(port_id, entry_section, graph)
     else:
         # Same-column: align X with source for vertical drop
         src_x, _, _ = sources[0]
         _set_port_x(graph, port_id, src_x)
+
+
+def _vertical_drop_source_x(
+    graph: MetroGraph,
+    port: Port,
+    sources: list[tuple[float, float, str | None]],
+    entry_section: Section,
+    my_cols: set[int],
+    tolerance: float = STATION_ELBOW_TOLERANCE,
+) -> float | None:
+    """X for a clean vertical drop from a same-column stacked source.
+
+    Returns the source X if a single same-column source sits in the row
+    directly above (TOP) / below (BOTTOM) and that X is clear of the entry
+    section's internal stations; otherwise None (no straight drop available).
+    """
+    candidate_xs: set[float] = set()
+    for sx, sy, src_sid in sources:
+        src_sec = graph.sections.get(src_sid) if src_sid else None
+        if not src_sec:
+            continue
+        src_cols = set(
+            range(src_sec.grid_col, src_sec.grid_col + src_sec.grid_col_span)
+        )
+        if not (src_cols & my_cols):
+            continue
+        if port.side == PortSide.TOP and src_sec.grid_row >= entry_section.grid_row:
+            continue
+        if port.side == PortSide.BOTTOM and src_sec.grid_row <= entry_section.grid_row:
+            continue
+        candidate_xs.add(sx)
+
+    if len(candidate_xs) != 1:
+        return None
+    drop_x = next(iter(candidate_xs))
+
+    internal_ids = (
+        set(entry_section.station_ids)
+        - set(entry_section.entry_ports)
+        - set(entry_section.exit_ports)
+    )
+    for sid in internal_ids:
+        st = graph.stations.get(sid)
+        if st and not st.is_port and abs(st.x - drop_x) < tolerance:
+            return None
+    return drop_x
 
 
 def _nudge_port_from_stations(
@@ -811,6 +863,15 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
 
     Skipped for TB sections with BOTTOM-side exit ports (TB->TB flow)
     so the bottom-edge port placement invariant continues to hold.
+
+    Also skipped when the section's LR/RL exit port already sits well
+    above the bbox bottom (more than ``MIN_PORT_STATION_GAP``).  That
+    happens when the exit leaves near the top of the section toward a
+    target in another column/row -- the port is already contained, so
+    stretching the bbox down would only add dead space (and can overlap
+    a section in the row below).  The stretch is only needed for the
+    downward-fold case, where ``_resolve_tb_exit_y`` places the exit
+    port flush at the bbox bottom.
     """
     junction_ids = graph.junction_ids
 
@@ -844,6 +905,23 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
             continue
         if PortSide.BOTTOM in exit_sides:
             continue
+        current_bot = section.bbox_y + section.bbox_h
+        lr_exit_port_ys = [
+            graph.stations[pid].y
+            for pid in section.exit_ports
+            if pid in graph.ports
+            and graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
+            and pid in graph.stations
+        ]
+        # Only stretch the downward-fold case, where the exit port sits
+        # flush at (or just above) the bbox bottom.  When every LR/RL
+        # exit port is already clear of the bottom, the port is contained
+        # and the stretch would add dead space.
+        if (
+            lr_exit_port_ys
+            and current_bot - max(lr_exit_port_ys) > MIN_PORT_STATION_GAP
+        ):
+            continue
         target_ids = _downstream_section_ids(section)
         if not target_ids:
             continue
@@ -855,7 +933,6 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
         if not target_bots:
             continue
         desired_bot = max(target_bots)
-        current_bot = section.bbox_y + section.bbox_h
         if desired_bot - current_bot <= 0.5:
             continue
         section.bbox_h = desired_bot - section.bbox_y
