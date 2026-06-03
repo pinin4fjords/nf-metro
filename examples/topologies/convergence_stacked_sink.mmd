@@ -1,0 +1,54 @@
+%%metro title: Convergence Stacked Sink
+%%metro style: dark
+%%metro line: main | Main | #0570b0
+
+graph LR
+    subgraph prep [Prep]
+        p1[Input]
+        p2[Output]
+        p1 -->|main| p2
+    end
+
+    subgraph aux [Aux Input]
+        x1[Load]
+        x2[Index]
+        x1 -->|main| x2
+    end
+
+    subgraph align [Align]
+        a1[Map]
+        a2[Sort]
+        a1 -->|main| a2
+    end
+
+    subgraph repeats [Repeats]
+        r1[Detect]
+        r2[Genotype]
+        r1 -->|main| r2
+    end
+
+    subgraph dedup [Dedup]
+        d1[Mark]
+        d2[Recal]
+        d1 -->|main| d2
+    end
+
+    subgraph merge_pt [Merge]
+        g1[Combine]
+        g2[Refine]
+        g1 -->|main| g2
+    end
+
+    subgraph report [Report]
+        rp1[Summarise]
+        rp2[Publish]
+        rp1 -->|main| rp2
+    end
+
+    p2 -->|main| a1
+    x2 -->|main| r1
+    a2 -->|main| d1
+    d2 -->|main| g1
+    r2 -->|main| g1
+    p2 -->|main| g1
+    g2 -->|main| rp1

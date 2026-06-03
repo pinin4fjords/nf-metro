@@ -1,0 +1,36 @@
+%%metro title: Self-Crossing Bridge
+%%metro style: dark
+%%metro line: bus | Bus | #0570b0
+
+%%metro grid: top | 0,0
+%%metro grid: bus_sink | 0,2
+%%metro grid: mid_src | 0,1
+%%metro grid: mid_sink | 1,1
+
+graph LR
+    subgraph top [Top]
+        t1[Top In]
+        t2[Top Out]
+        t1 -->|bus| t2
+    end
+
+    subgraph mid_src [Mid Source]
+        m1[Mid In]
+        m2[Mid Out]
+        m1 -->|bus| m2
+    end
+
+    subgraph mid_sink [Mid Sink]
+        ms1[Mid Collect]
+        ms2[Mid Report]
+        ms1 -->|bus| ms2
+    end
+
+    subgraph bus_sink [Bus Sink]
+        b1[Bus Collect]
+        b2[Bus Report]
+        b1 -->|bus| b2
+    end
+
+    t2 -->|bus| b1
+    m2 -->|bus| ms1
