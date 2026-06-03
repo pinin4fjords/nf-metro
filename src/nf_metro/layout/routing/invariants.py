@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
@@ -593,6 +594,180 @@ class PartialBranchGapViolation:
         )
 
 
+@dataclass(frozen=True)
+class CollinearOverlapViolation:
+    """Two distinct-line inter-section segments drawn on top of each other.
+
+    ``axis`` is ``"V"`` or ``"H"``; ``coord`` is the shared channel
+    position (X for vertical, Y for horizontal); ``span`` is the
+    overlapping length along the axis.
+    """
+
+    line_a: str
+    line_b: str
+    edge_a: tuple[str, str]
+    edge_b: tuple[str, str]
+    axis: str
+    coord: float
+    span: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"collinear overlay: line {self.line_a!r} "
+            f"({self.edge_a[0]}->{self.edge_a[1]}) and line {self.line_b!r} "
+            f"({self.edge_b[0]}->{self.edge_b[1]}) coincide on the {self.axis} "
+            f"channel at {self.coord:.1f} over {self.span:.1f}px"
+        )
+
+
+_COLLINEAR_LATERAL_TOL = 1.0
+_COLLINEAR_MIN_SPAN = 40.0
+
+
+def _axis_aligned(
+    p1: tuple[float, float], p2: tuple[float, float]
+) -> tuple[str | None, float]:
+    """Classify a segment as vertical/horizontal and return its channel coord."""
+    (x1, y1), (x2, y2) = p1, p2
+    if abs(x1 - x2) < COORD_TOLERANCE_FINE and abs(y1 - y2) > _COLLINEAR_LATERAL_TOL:
+        return "V", (x1 + x2) * 0.5
+    if abs(y1 - y2) < COORD_TOLERANCE_FINE and abs(x1 - x2) > _COLLINEAR_LATERAL_TOL:
+        return "H", (y1 + y2) * 0.5
+    return None, 0.0
+
+
+def _route_render_points(
+    rp: RoutedPath, offsets: dict[tuple[str, str], float]
+) -> list[tuple[float, float]]:
+    """Final render geometry for a route (mirrors render.apply_route_offsets)."""
+    if rp.offsets_applied:
+        return list(rp.points)
+    src_off = offsets.get((rp.edge.source, rp.line_id), 0.0)
+    tgt_off = offsets.get((rp.edge.target, rp.line_id), 0.0)
+    orig_sy = rp.points[0][1]
+    orig_ty = rp.points[-1][1]
+    out: list[tuple[float, float]] = []
+    last = len(rp.points) - 1
+    for k, (x, y) in enumerate(rp.points):
+        if k == 0:
+            out.append((x, y + src_off))
+        elif k == last:
+            out.append((x, y + tgt_off))
+        elif abs(y - orig_sy) <= abs(y - orig_ty):
+            out.append((x, y + src_off))
+        else:
+            out.append((x, y + tgt_off))
+    return out
+
+
+def check_no_collinear_distinct_lines(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[CollinearOverlapViolation]:
+    """Return distinct-line inter-section segments drawn exactly on top.
+
+    Two co-travelling lines that share a bundle must occupy distinct
+    parallel slots (at least ``OFFSET_STEP`` apart laterally).  When a
+    bundling/offset defect collapses them to the same channel they
+    render as one stroke obscuring the other.  This check looks at the
+    final, offset-applied geometry: it flags pairs of DIFFERENT-line
+    axis-aligned inter-section segments whose channel coordinate
+    coincides within ``_COLLINEAR_LATERAL_TOL`` and whose overlap along
+    the axis exceeds ``_COLLINEAR_MIN_SPAN``.
+
+    Legitimate cases are excluded: lines converging onto a shared
+    endpoint port (an unavoidable single approach), tight parallel
+    bundles (>= one ``OFFSET_STEP`` apart never coincide), and short
+    trunk-level lead-ins below the min span.
+    """
+    port_xy = {
+        pid: (graph.stations[pid].x, graph.stations[pid].y)
+        for pid in graph.ports
+        if pid in graph.stations
+    }
+
+    segs: list[tuple[str, tuple[str, str], str, float, float, float]] = []
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        pts = _route_render_points(rp, offsets)
+        edge = (rp.edge.source, rp.edge.target)
+        for p1, p2 in zip(pts, pts[1:]):
+            axis, coord = _axis_aligned(p1, p2)
+            if axis is None:
+                continue
+            if axis == "V":
+                lo, hi = sorted((p1[1], p2[1]))
+            else:
+                lo, hi = sorted((p1[0], p2[0]))
+            segs.append((rp.line_id, edge, axis, coord, lo, hi))
+
+    violations: list[CollinearOverlapViolation] = []
+    for i in range(len(segs)):
+        la, ea, ax_a, c_a, lo_a, hi_a = segs[i]
+        for j in range(i + 1, len(segs)):
+            lb, eb, ax_b, c_b, lo_b, hi_b = segs[j]
+            if la == lb or ax_a != ax_b:
+                continue
+            if abs(c_a - c_b) > _COLLINEAR_LATERAL_TOL:
+                continue
+            olo, ohi = max(lo_a, lo_b), min(hi_a, hi_b)
+            span = ohi - olo
+            if span <= _COLLINEAR_MIN_SPAN:
+                continue
+            if _converges_at_shared_port(port_xy, ea, eb, ax_a, c_a, olo, ohi):
+                continue
+            violations.append(
+                CollinearOverlapViolation(
+                    line_a=la,
+                    line_b=lb,
+                    edge_a=ea,
+                    edge_b=eb,
+                    axis=ax_a,
+                    coord=c_a,
+                    span=span,
+                )
+            )
+    return violations
+
+
+def _converges_at_shared_port(
+    port_xy: dict[str, tuple[float, float]],
+    edge_a: tuple[str, str],
+    edge_b: tuple[str, str],
+    axis: str,
+    coord: float,
+    olo: float,
+    ohi: float,
+) -> bool:
+    """True when the overlap is a brief convergence onto a shared port.
+
+    Distinct lines may touch at a shared endpoint port (an unavoidable
+    single point), but a long co-run alongside the port is a real overlay:
+    the convergence must collapse to the port, not run parallel-on-top for
+    a meaningful length.  Excuse the overlap only when it reaches the port
+    marker AND extends no further than ``_COLLINEAR_MIN_SPAN`` from it.
+    """
+    tol = COORD_TOLERANCE + _COLLINEAR_LATERAL_TOL
+    for pid in (set(edge_a) & set(edge_b)) & port_xy.keys():
+        px, py = port_xy[pid]
+        if axis == "V":
+            anchor = py
+            on_channel = abs(px - coord) <= tol
+        else:
+            anchor = px
+            on_channel = abs(py - coord) <= tol
+        if not on_channel or not (olo - tol <= anchor <= ohi + tol):
+            continue
+        # Distance the overlap reaches away from the port along the axis.
+        reach = max(anchor - olo, ohi - anchor)
+        if reach <= _COLLINEAR_MIN_SPAN:
+            return True
+    return False
+
+
 def check_partial_branch_offset_gaps(
     graph: MetroGraph,
     offsets: dict[tuple[str, str], float],
@@ -636,6 +811,7 @@ def check_partial_branch_offset_gaps(
 
 __all__ = [
     "BundleOrderViolation",
+    "CollinearOverlapViolation",
     "FanoutTailGap",
     "MergePortApproachViolation",
     "PartialBranchGapViolation",
@@ -643,6 +819,7 @@ __all__ = [
     "check_bundle_order_preserved",
     "check_fanout_tail_join",
     "check_merge_port_approach_side",
+    "check_no_collinear_distinct_lines",
     "check_partial_branch_offset_gaps",
     "classify_merge_port_feeders",
     "distinct_offset_levels",

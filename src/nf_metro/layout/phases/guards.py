@@ -12,10 +12,10 @@ from nf_metro.layout.constants import (
     GUARD_TOLERANCE,
     ICON_HALF_HEIGHT,
     OFFSET_STEP,
+    ROW_BAND_SLACK,
     SECTION_Y_GAP,
     STATION_RADIUS_APPROX,
     X_SPACING,
-    Y_SPACING,
 )
 from nf_metro.layout.geometry import BBoxXIndex, segment_intersects_bbox
 from nf_metro.layout.phases._common import (
@@ -24,8 +24,10 @@ from nf_metro.layout.phases._common import (
     _route_crosses_section_boundary,
     _section_bundle_lines,
     _station_marker_bbox,
+    first_vertical_leg_sign,
     first_vertical_leg_x,
     is_loop_side_branch_station,
+    routes_through_unrelated_sections,
 )
 from nf_metro.layout.phases.bbox import _section_fit_top
 from nf_metro.layout.phases.single_section import _terminus_y_overhang
@@ -641,7 +643,8 @@ def _guard_inter_section_routes_in_row_band(
 ) -> None:
     """After routing: inter-section routes whose endpoints both sit in
     grid row R must keep all waypoint Ys within a one-row band centered
-    on R, plus ``Y_SPACING`` slack for diagonal corner approach.
+    on R, plus ``ROW_BAND_SLACK`` for a clean below-row wrap channel
+    (bypass clearance + bundle nest + diagonal corner approach).
     """
     if offsets is None or routes is None:
         from nf_metro.layout.routing import compute_station_offsets, route_edges
@@ -663,7 +666,7 @@ def _guard_inter_section_routes_in_row_band(
         else:
             row_band[sec.grid_row] = (min(cur[0], top), max(cur[1], bot))
 
-    slack = Y_SPACING
+    slack = ROW_BAND_SLACK
     for r in routes:
         src = graph.stations.get(r.edge.source)
         tgt = graph.stations.get(r.edge.target)
@@ -842,23 +845,30 @@ def _guard_fan_bundles_coincide_or_separate(
     if not fan_sources:
         return
 
-    by_src_line: dict[tuple[str, str], list[float]] = {}
+    # Track each route's V1 X together with its vertical direction: two
+    # routes whose source-side channels head OPPOSITE ways (one up, one
+    # down) diverge at the junction and cannot smear, however close their
+    # X channels sit, so they are not paired.
+    by_src_line: dict[tuple[str, str], list[tuple[float, int]]] = {}
     for rp in routes:
         if not rp.is_inter_section or rp.edge.source not in fan_sources:
             continue
         vx = first_vertical_leg_x(rp.points)
-        if vx is None:
+        sign = first_vertical_leg_sign(rp.points)
+        if vx is None or sign is None:
             continue
-        by_src_line.setdefault((rp.edge.source, rp.line_id), []).append(vx)
+        by_src_line.setdefault((rp.edge.source, rp.line_id), []).append((vx, sign))
 
     # Coincide within the per-bundle stagger plus a 1px rounding epsilon;
     # GUARD_TOLERANCE (5px) would swallow the 6px smear this guards against.
     coincide_tol = OFFSET_STEP + 1.0
-    for (src, line), xs in by_src_line.items():
-        if len(xs) < 2:
+    for (src, line), entries in by_src_line.items():
+        if len(entries) < 2:
             continue
-        ordered = sorted(xs)
-        for lo, hi in zip(ordered, ordered[1:]):
+        ordered = sorted(entries)
+        for (lo, lo_sign), (hi, hi_sign) in zip(ordered, ordered[1:]):
+            if lo_sign != hi_sign:
+                continue
             gap = hi - lo
             if coincide_tol < gap < SECTION_Y_GAP:
                 raise PhaseInvariantError(
@@ -959,6 +969,229 @@ def _guard_routes_enter_sections_at_ports(
             f"line {rp.line_id!r} crosses section {sid!r} boundary at "
             f"({bx:.1f}, {by:.1f}) away from any declared port"
         )
+
+
+def _guard_no_route_through_section(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """After routing: no routed line may pass through the interior of a
+    section box it does not connect to.
+
+    A line may only occupy a section's bbox where it interacts with a
+    station there -- i.e. the section holds the route's source (the line
+    starts there) or target (it enters via that section's port).  A
+    segment crossing any other section's box is plotting the line over a
+    section it never touches (issue #484).  Unlike
+    ``_guard_routes_enter_sections_at_ports`` this inspects the final
+    rendered geometry and every route, including fan-in/-out bundle routes
+    through junction/merge nodes.
+    """
+    offenders = routes_through_unrelated_sections(graph, routes=routes, offsets=offsets)
+    if offenders:
+        rp, sid = offenders[0]
+        raise PhaseInvariantError(
+            f"{phase}: line {rp.line_id!r} on route "
+            f"{rp.edge.source!r}->{rp.edge.target!r} passes through section "
+            f"{sid!r} without interacting with any station there "
+            f"({len(offenders)} pass-through(s) total)"
+        )
+
+
+def _entry_approach_offenders(
+    graph: MetroGraph, routes: list[RoutedPath]
+) -> list[tuple[RoutedPath, str, str]]:
+    """Routes whose final approach to an entry port crosses the target's
+    interior from the port's far side.
+
+    The final leg of a route landing on a perpendicular-axis entry port
+    (LEFT/RIGHT for the X axis, TOP/BOTTOM for the Y axis) must arrive
+    from the port's own OUTWARD side.  A RIGHT entry port must be reached
+    from ``x >= port.x`` (outside the box on the right); a route whose
+    approach leg starts INSIDE the box and runs outward to the port has
+    sliced through the section interior to get there.  Returns
+    ``(route, port_id, reason)`` for each offender.
+    """
+    offenders: list[tuple[RoutedPath, str, str]] = []
+    tol = GUARD_TOLERANCE
+    for rp in routes:
+        port = graph.ports.get(rp.edge.target)
+        if port is None or not port.is_entry:
+            continue
+        section = graph.sections.get(port.section_id) if port.section_id else None
+        if section is None or section.bbox_w <= 0 or section.bbox_h <= 0:
+            continue
+        pts = rp.points
+        if len(pts) < 2:
+            continue
+        end = pts[-1]
+        prev = pts[-2]
+        bx0, by0 = section.bbox_x, section.bbox_y
+        bx1, by1 = bx0 + section.bbox_w, by0 + section.bbox_h
+        if port.side in (PortSide.LEFT, PortSide.RIGHT):
+            # Approach must be horizontal-ish and arrive from outside.
+            if abs(prev[1] - end[1]) > tol:
+                continue
+            if port.side == PortSide.RIGHT and prev[0] < bx1 - tol:
+                offenders.append(
+                    (rp, rp.edge.target, "approaches RIGHT entry from inside box")
+                )
+            elif port.side == PortSide.LEFT and prev[0] > bx0 + tol:
+                offenders.append(
+                    (rp, rp.edge.target, "approaches LEFT entry from inside box")
+                )
+        elif port.side in (PortSide.TOP, PortSide.BOTTOM):
+            if abs(prev[0] - end[0]) > tol:
+                continue
+            if port.side == PortSide.BOTTOM and prev[1] < by1 - tol:
+                offenders.append(
+                    (rp, rp.edge.target, "approaches BOTTOM entry from inside box")
+                )
+            elif port.side == PortSide.TOP and prev[1] > by0 + tol:
+                offenders.append(
+                    (rp, rp.edge.target, "approaches TOP entry from inside box")
+                )
+    return offenders
+
+
+def _guard_entry_approach_from_port_side(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """After routing: a route's final approach to an entry port must arrive
+    from the port's own outward side, not by crossing the target section's
+    interior to reach a far-side port.
+
+    Distinct from ``_guard_no_route_through_section`` (which exempts the
+    route's own target section): this catches a route reaching its OWN
+    target's far-edge entry port by slicing through the box interior and
+    doubling back (issue #484).
+    """
+    routes = _ensure_routes(graph, routes)
+    offenders = _entry_approach_offenders(graph, routes)
+    if offenders:
+        rp, pid, reason = offenders[0]
+        raise PhaseInvariantError(
+            f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} "
+            f"line {rp.line_id!r} {reason} (entry port {pid!r}); the final "
+            f"approach leg crosses the target section interior "
+            f"({len(offenders)} offender(s) total)"
+        )
+
+
+def _row_flow_directions(graph: MetroGraph) -> dict[int, str]:
+    """Dominant horizontal flow direction (``"LR"``/``"RL"``) per grid row.
+
+    Serpentine layout alternates row flow LR/RL.  The direction of a row is
+    the majority of its ``LR``/``RL`` sections; ``TB``/``BT`` transition
+    sections are ignored (they carry no horizontal flow).  Rows with no
+    horizontal section are absent from the result.
+    """
+    counts: dict[int, dict[str, int]] = {}
+    for s in graph.sections.values():
+        if s.bbox_w <= 0 or s.direction not in ("LR", "RL"):
+            continue
+        counts.setdefault(s.grid_row, {"LR": 0, "RL": 0})[s.direction] += 1
+    return {row: ("LR" if c["LR"] >= c["RL"] else "RL") for row, c in counts.items()}
+
+
+def _guard_no_artefactual_counter_flow(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """After routing: a feed from a row ABOVE its target must not run its long
+    horizontal BELOW the target row counter to that row's flow when a clear
+    inter-row gap above the target was available.
+
+    Serpentine rows alternate flow (even rows LR, odd rows RL).  A route into
+    a RIGHT entry port whose source sits in a higher row can either run its
+    rightward traverse in the clear inter-row band just above the target row
+    (then drop straight down the target's RIGHT side into the port), or dive
+    UNDER the whole target row and run that traverse counter to the target
+    row's flow.  The latter is *artefactual* counter-flow: the routing picked
+    the wrong channel when the with-flow gap above was free (issue #484).
+
+    Some counter-flow is *topological* and allowed: a feed into a LEFT/TOP/
+    BOTTOM entry from a far source must wrap to reach the port's outward side,
+    so the counter-flow is intrinsic; and a RIGHT-entry dive whose gap-above
+    band is blocked by an intervening section had no clear alternative.  This
+    guard fires only when the with-flow gap channel above the target row was
+    genuinely free for the run's X-span yet went unused.
+    """
+    from nf_metro.layout.routing.common import (
+        _center_inter_row_channel,
+        resolve_section,
+        row_bottom_edge,
+        row_top_edge,
+    )
+    from nf_metro.layout.routing.core import _h_segment_crosses_other_section
+
+    routes = _ensure_routes(graph, routes)
+
+    tol = GUARD_TOLERANCE
+    row_flow = _row_flow_directions(graph)
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        src_sec = resolve_section(graph, graph.stations.get(rp.edge.source))
+        tgt_sec = resolve_section(graph, graph.stations.get(rp.edge.target))
+        if src_sec is None or tgt_sec is None:
+            continue
+        src_row, tgt_row = src_sec.grid_row, tgt_sec.grid_row
+        if src_row < 0 or tgt_row < 0 or src_row >= tgt_row:
+            continue
+        flow = row_flow.get(tgt_row)
+        if flow is None:
+            continue
+        # Only RIGHT entry ports: the with-flow gap-above approach (drop into
+        # the port from its own outward/right side after a clear gap run) is a
+        # genuine alternative only here.  A LEFT/TOP/BOTTOM entry fed from a far
+        # source must wrap to reach the port's outward side, so any counter-flow
+        # is intrinsic (topological), not an avoidable channel choice.
+        port = graph.ports.get(rp.edge.target)
+        if port is None or not port.is_entry or port.side != PortSide.RIGHT:
+            continue
+        tgt_top = row_top_edge(graph, tgt_row, default=tgt_sec.bbox_y)
+        pts = rp.points
+        if len(pts) < 2:
+            continue
+        # Candidate with-flow channel: the inter-row band immediately ABOVE the
+        # target row (the row above the target's bottom up to the target row's
+        # top).  Its centre Y is where the routing fix runs the rightward
+        # traverse before dropping into the RIGHT port.
+        gap_top = row_bottom_edge(graph, tgt_row - 1, default=tgt_top)
+        gap_bottom = tgt_top
+        if gap_bottom <= gap_top:
+            continue  # no inter-row band above target -> dive was forced
+        gy = _center_inter_row_channel(gap_top, gap_bottom)
+        exclude = {sid for sid in (src_sec.id, tgt_sec.id) if sid is not None}
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            if abs(y2 - y1) > tol or abs(x2 - x1) <= tol:
+                continue  # horizontal runs only
+            if y1 < tgt_top - tol:
+                continue  # run sits above the target row's top -> with-flow band
+            # (a) the run goes counter to the target row's flow.
+            counter = (x2 < x1 - tol) if flow == "LR" else (x2 > x1 + tol)
+            if not counter:
+                continue
+            # (b) the with-flow gap above the target was clear for this X-span.
+            if _h_segment_crosses_other_section(graph, x1, x2, gy, exclude):
+                continue  # gap blocked -> dive was topologically necessary
+            raise PhaseInvariantError(
+                f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} line "
+                f"{rp.line_id!r} runs its horizontal at y={y1:.1f} below target "
+                f"row {tgt_row} (top={tgt_top:.1f}) counter to that row's {flow} "
+                f"flow, but the inter-row gap above the target (y={gy:.1f}) was "
+                f"clear for x=[{min(x1, x2):.1f},{max(x1, x2):.1f}]; this is "
+                f"artefactual counter-flow (issue #484)"
+            )
 
 
 def _guard_serpentine_no_backtrack(
@@ -1163,6 +1396,44 @@ def _guard_bundle_order_preserved(
             return
 
     violations = check_bundle_order_preserved(routes)
+    if not violations:
+        return
+    first = violations[0]
+    extra = f" (+{len(violations) - 1} more)" if len(violations) > 1 else ""
+    raise PhaseInvariantError(f"{phase}: {first.message()}{extra}")
+
+
+def _guard_no_collinear_distinct_lines(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float] | None = None,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """Final-phase: no two distinct lines may render on top of each other.
+
+    Wraps :func:`check_no_collinear_distinct_lines`: a bundling/offset
+    defect that collapses two co-travelling lines onto one channel makes
+    one stroke obscure the other.  Operates on the final, offset-applied
+    inter-section geometry.
+    """
+    from nf_metro.layout.routing.invariants import (
+        check_no_collinear_distinct_lines,
+    )
+
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+    if routes is None:
+        from nf_metro.layout.routing import route_edges
+
+        try:
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
+            return
+
+    violations = check_no_collinear_distinct_lines(graph, routes, offsets)
     if not violations:
         return
     first = violations[0]
