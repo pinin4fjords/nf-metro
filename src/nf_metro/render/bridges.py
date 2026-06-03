@@ -13,8 +13,10 @@ under-route, the gap span to break.  The drawing half lives in ``svg.py``.
 A crossing is genuine only when:
 
 * the two lines differ;
-* the two crossing edges share no endpoint node (fan-out/fan-in/diamond
-  reordering emanates from a shared fork and is not a crossing);
+* the two crossing edges share no endpoint node, and (when same-line) are not
+  a fan-out/fan-in (legs that both fork from a shared ancestor and rejoin on a
+  shared descendant); same-line legs with no common ancestor that only meet
+  again at the common sink are independent arms that genuinely cross;
 * the intersection is not within ``BRIDGE_NODE_TOLERANCE`` of any node the
   layout places (interchanges happen *at* nodes);
 * the two segments are not near-parallel (offset bundle slivers barely
@@ -130,6 +132,73 @@ def _shares_endpoint(e1: Edge, e2: Edge) -> bool:
     return bool({e1.source, e1.target} & {e2.source, e2.target})
 
 
+def _line_adj(graph: MetroGraph) -> dict[str, dict[str, set[str]]]:
+    """Per-line forward adjacency: ``succ[line_id][node]`` is the set of nodes
+    that node feeds along that line."""
+    succ: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for e in graph.edges:
+        succ[e.line_id][e.source].add(e.target)
+    return succ
+
+
+_line_succ = _line_adj
+
+
+def _reachable(adj: dict[str, set[str]], start: str) -> set[str]:
+    seen = {start}
+    stack = [start]
+    while stack:
+        n = stack.pop()
+        for m in adj.get(n, ()):
+            if m not in seen:
+                seen.add(m)
+                stack.append(m)
+    return seen
+
+
+def _same_line_is_fan(
+    e1: Edge,
+    e2: Edge,
+    line_succ: dict[str, dict[str, set[str]]],
+    *,
+    line_pred: dict[str, dict[str, set[str]]] | None = None,
+) -> bool:
+    """True when two same-line edges are one fan-out/fan-in rather than a
+    genuine crossover.
+
+    A fan is a fork-and-rejoin: the legs diverge from a shared ancestor on the
+    line *and* reconverge on a shared descendant.  The original test checked
+    only the rejoin, but in a convergence everything rejoins at the common sink
+    - so two independent arms (no shared ancestor, meeting only far downstream)
+    were misread as a fan.  Requiring a shared *fork* as well separates them:
+    independent arms lack a common ancestor (or rejoin only at the sink with no
+    fork), so they read as a genuine crossover and earn a bridge.
+
+    Edges sharing an endpoint are trivially one fork/join.  Otherwise both a
+    common ancestor (fork) and a common descendant (rejoin) on the line must
+    exist; reconvergence alone is not enough."""
+    if _shares_endpoint(e1, e2):
+        return True
+    succ = line_succ.get(e1.line_id, {})
+    if line_pred is None:
+        line_pred = _line_pred_from_succ(line_succ)
+    pred = line_pred.get(e1.line_id, {})
+    rejoins = not _reachable(succ, e1.target).isdisjoint(_reachable(succ, e2.target))
+    forks = not _reachable(pred, e1.source).isdisjoint(_reachable(pred, e2.source))
+    return rejoins and forks
+
+
+def _line_pred_from_succ(
+    line_succ: dict[str, dict[str, set[str]]],
+) -> dict[str, dict[str, set[str]]]:
+    pred: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for lid, adj in line_succ.items():
+        for src, tgts in adj.items():
+            for t in tgts:
+                pred[lid][t].add(src)
+    return pred
+
+
 def _near_node(pt: Point, node_xy: list[Point]) -> bool:
     return any(
         abs(pt[0] - nx) < BRIDGE_NODE_TOLERANCE
@@ -157,7 +226,11 @@ def compute_bridges(
         for s in graph.stations.values()
         if not s.is_port and not s.is_hidden and not s.id.startswith("__")
     }
-    crossings = _find_crossings(routes, polylines, node_xy, station_xy)
+    line_succ = _line_adj(graph)
+    line_pred = _line_pred_from_succ(line_succ)
+    crossings = _find_crossings(
+        routes, polylines, node_xy, station_xy, line_succ, line_pred
+    )
     clusters = _cluster_crossings(crossings)
 
     line_priority = {lid: i for i, lid in enumerate(graph.lines)}
@@ -236,14 +309,27 @@ def _find_crossings(
     polylines: list[list[Point]],
     node_xy: list[Point],
     station_xy: dict[str, Point],
+    line_succ: dict[str, dict[str, set[str]]],
+    line_pred: dict[str, dict[str, set[str]]],
 ) -> list[_Crossing]:
-    """All genuine non-merging segment crossings between distinct lines."""
+    """All genuine non-merging segment crossings.
+
+    Crossings between distinct lines always qualify (subject to the node/join
+    /angle filters below).  Same-line crossings qualify only when the two
+    routes are independent legs heading to separate destinations (a genuine
+    crossover); same-line crossings that are a fan-out/fan-in/loop reordering
+    are skipped (``_same_line_is_fan``) since their legs belong to one fork and
+    rejoin rather than cross."""
     out: list[_Crossing] = []
     for a in range(len(routes)):
         ra, pa = routes[a], polylines[a]
         for b in range(a + 1, len(routes)):
             rb, pb = routes[b], polylines[b]
-            if ra.line_id == rb.line_id or _shares_endpoint(ra.edge, rb.edge):
+            if _shares_endpoint(ra.edge, rb.edge):
+                continue
+            if ra.line_id == rb.line_id and _same_line_is_fan(
+                ra.edge, rb.edge, line_succ, line_pred=line_pred
+            ):
                 continue
             endpoints = (ra.edge.source, ra.edge.target, rb.edge.source, rb.edge.target)
             for i in range(len(pa) - 1):
