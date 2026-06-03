@@ -1,0 +1,42 @@
+%%metro title: Cross-Row Gap Wrap
+%%metro style: dark
+%%metro line: main | Main | #0570b0
+%%metro line: feed | Feed | #e63946
+
+graph LR
+    subgraph ingest [Ingest]
+        i1[Read]
+        i2[QC]
+        i1 -->|main,feed| i2
+    end
+
+    subgraph align [Align]
+        a1[Map]
+        a2[Sort]
+        a1 -->|main| a2
+    end
+
+    subgraph dedup [Dedup]
+        d1[Mark]
+        d2[Recal]
+        d1 -->|main| d2
+    end
+
+    subgraph merge_pt [Merge]
+        g1[Combine]
+        g2[Refine]
+        g1 -->|main,feed| g2
+    end
+
+    subgraph report [Report]
+        rp1[Summarise]
+        rp2[Publish]
+        rp1 -->|main| rp2
+    end
+
+    i2 -->|main| a1
+    a2 -->|main| d1
+    d2 -->|main| g1
+    i2 -->|main| g1
+    g2 -->|main| rp1
+    i2 -->|feed| g1

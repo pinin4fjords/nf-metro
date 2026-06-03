@@ -41,6 +41,10 @@ Each fixture is tagged with the layout class(es) it primarily exercises. Use thi
 | `fold_stacked_branch.mmd` | stacked branches feeding through fold |
 | `u_turn_fold.mmd` | fold with side line joining mid-trunk and leaving pre-end |
 | `wide_label_fan.mmd` | wide station labels / auto label-wrap + column-spread (issue #405) |
+| `route_around_intervening.mmd` | inter-section line detouring around an intervening section box (issue #484) |
+| `self_crossing_bridge.mmd` | same-colour self-crossing bridge glyph (issue #484) |
+| `convergence_stacked_sink.mmd` | convergence return-row stacked-sibling migration (issue #484) |
+| `cross_row_gap_wrap.mmd` | cross-row feed wrapping via the inter-row gap, no counter-flow (issue #484) |
 
 ---
 
@@ -197,3 +201,25 @@ One stacked column contains three siblings of different line counts: a 3-line br
 ### Funcprofiler Upstream
 
 Reduced upstream slice of nf-core/funcprofiler with one input section fanning out to seven profiler tools and back into a MultiQC section. Pinned via xfail in `test_no_almost_horizontal_edges` - documents a known almost-horizontal-edge defect in dense fan-out + fan-in topologies.
+
+---
+
+## #484 Regression Isolation
+
+These minimal fixtures each isolate one layout/routing mechanism that was fixed for issue #484 (a dense long-read pipeline that exposed several engine bugs). Each triggers exactly one mechanism so a future regression in it makes a test fail.
+
+### Route Around Intervening
+
+Three sections in a row (Source, Middle, Target). The `skip` line runs Source to Target directly, skipping Middle. Tests that the inter-section edge detours *around* Middle's box (dropping into the inter-row band below it) rather than slicing through its interior. Backs `test_no_route_passes_through_unrelated_section` and the `_guard_no_route_through_section` guard.
+
+### Self-Crossing Bridge
+
+A single line whose long vertical bus (Top to Bus Sink, descending one column through an intermediate row) crosses its own horizontal connector (Mid Source to Mid Sink) belonging to a separate, non-reconverging branch of the same colour. Because the two legs share a colour but never rejoin, a bridge gap is drawn where the horizontal passes under the bus. Backs `test_bridge_glyph` and `compute_bridges`.
+
+### Convergence Stacked Sink
+
+A main spine (Prep, Align, Dedup) converges at Merge, which is fed both by the spine tail and by a Prep bypass spanning non-adjacent columns. The convergence drops Merge and its successors to a return row. `Repeats` (fed from a separate Aux input so it shares no predecessor with Merge) is a lone stacked spine-sibling that would otherwise sit alone in the spine band; the convergence placer migrates it into the return row. Tests the grid-collision migration in `auto_layout._detect_convergence_split` / `_place_with_convergence`: no two sections share a grid cell and no bboxes overlap.
+
+### Cross-Row Gap Wrap
+
+A convergence layout (Ingest, Align, Dedup on row 0; Merge, Report on the return row) where the `feed` line runs from Ingest down to the rightmost return-row section. Tests that the feed wraps via the clear inter-row gap above the return row (then drops straight into the port) rather than diving under the whole return row counter to its flow. Backs `test_no_artefactual_counter_flow`, `test_entry_approach_arrives_from_port_side`, and their guards.

@@ -802,26 +802,43 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
                 port_ids, bottom_y, section, graph, fixed_axis="y"
             )
 
-    # TB sections: move LEFT/RIGHT exit ports just below the last
-    # internal station (not the section bottom) so lines don't detour
-    # to the bottom when the successor is at a similar Y level.
+    # TB sections: clamp LEFT/RIGHT ports to the station band rather than
+    # the (often tall) section edges.  Exit ports sit just below the last
+    # internal station and entry ports just above the first, so lines flow
+    # straight into the station fan instead of running along a trunk near
+    # the box edge and jogging back to the pills.  The reserved top band
+    # (entry_shift) keeps the entry port clear of the first station.
     if section.direction == "TB":
+        entry_set = set(section.entry_ports)
         exit_set = set(section.exit_ports)
-        internal_ids = set(section.station_ids) - set(section.entry_ports) - exit_set
+        internal_ids = set(section.station_ids) - entry_set - exit_set
         internal_ys = [
             graph.stations[sid].y
             for sid in internal_ids
             if sid in graph.stations and not graph.stations[sid].is_port
         ]
-        last_y = max(internal_ys) if internal_ys else section.bbox_y + section.bbox_h
-        target_y = last_y + MIN_PORT_STATION_GAP
+        if internal_ys:
+            last_y = max(internal_ys)
+            first_y = min(internal_ys)
+        else:
+            last_y = section.bbox_y + section.bbox_h
+            first_y = section.bbox_y
+        exit_target_y = last_y + MIN_PORT_STATION_GAP
+        entry_target_y = first_y - MIN_PORT_STATION_GAP
         for pid in exit_set:
             port = graph.ports.get(pid)
             if port and port.side in (PortSide.LEFT, PortSide.RIGHT):
                 station = graph.stations.get(pid)
                 if station:
-                    station.y = target_y
-                port.y = target_y
+                    station.y = exit_target_y
+                port.y = exit_target_y
+        for pid in entry_set:
+            port = graph.ports.get(pid)
+            if port and port.side in (PortSide.LEFT, PortSide.RIGHT):
+                station = graph.stations.get(pid)
+                if station:
+                    station.y = entry_target_y
+                port.y = entry_target_y
 
 
 def _position_ports_on_boundary(

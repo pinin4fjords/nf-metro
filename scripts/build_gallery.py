@@ -62,6 +62,14 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "collector fan-in descending a shared inter-column corridor.",
     ),
     (
+        "longread_variant_calling",
+        EXAMPLES_DIR,
+        "Dense long-read variant-calling pipeline (six lines, nine sections): "
+        "exercises inter-section routing around non-connecting section boxes, "
+        "cross-row feeds via the inter-row gap, same-line bundle coincidence, "
+        "and a same-colour crossover bridge.",
+    ),
+    (
         "differentialabundance",
         EXAMPLES_DIR,
         "nf-core/differentialabundance with four input lines, off-track "
@@ -237,6 +245,32 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "A right-exit bundle wrapping down to a left-entry in the row below. "
         "The horizontal run sits centred in the inter-row gap, clear of both "
         "the section above and the next row's header.",
+    ),
+    # --- #484 regression isolation ---
+    (
+        "route_around_intervening",
+        TOPOLOGIES_DIR,
+        "A line skips a middle section: it routes around the intervening "
+        "section's bbox rather than slicing through it.",
+    ),
+    (
+        "self_crossing_bridge",
+        TOPOLOGIES_DIR,
+        "One colour whose vertical bus crosses its own independent horizontal "
+        "connector earns a bridge gap (same-colour crossover, not a fan).",
+    ),
+    (
+        "convergence_stacked_sink",
+        TOPOLOGIES_DIR,
+        "A leaf sink that would otherwise sit alone in the spine band migrates "
+        "into the convergence return row (no grid-cell collision).",
+    ),
+    (
+        "cross_row_gap_wrap",
+        TOPOLOGIES_DIR,
+        "A cross-row feed runs its horizontal in the inter-row gap and drops "
+        "straight in, rather than diving under the return row counter to its "
+        "flow.",
     ),
 ]
 

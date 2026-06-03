@@ -121,6 +121,19 @@ def first_vertical_leg_x(points: list[tuple[float, float]]) -> float | None:
     return None
 
 
+def first_vertical_leg_sign(points: list[tuple[float, float]]) -> int | None:
+    """Sign of the first (near-)vertical leg of *points*.
+
+    ``-1`` when the source-side vertical channel ("V1") heads up
+    (toward smaller Y), ``+1`` when it heads down, ``None`` when no
+    vertical leg exists.
+    """
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if abs(x1 - x0) < COORD_TOLERANCE and abs(y1 - y0) > COORD_TOLERANCE:
+            return -1 if y1 < y0 else 1
+    return None
+
+
 def _canvas_width(graph: MetroGraph) -> float:
     """Horizontal extent of all positioned sections (rightmost - leftmost)."""
     rights = [s.bbox_x + s.bbox_w for s in graph.sections.values() if s.bbox_w > 0]
@@ -226,6 +239,79 @@ def _route_crosses_section_boundary(
                     if not near_port(sid, bx, by):
                         return (rp, sid, bx, by)
     return None
+
+
+def routes_through_unrelated_sections(
+    graph: MetroGraph,
+    *,
+    inset: float = 2.0,
+    routes: list[RoutedPath] | None = None,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> list[tuple[RoutedPath, str]]:
+    """Return ``(route, section_id)`` for every routed segment that passes
+    through the interior of a section box the route does not belong to.
+
+    A metro line may only occupy a section's bbox coordinates where it
+    connects to a station there: that is, the section must hold the route
+    edge's source (the line starts there) or its target (the line enters
+    via that section's port).  Any other section whose box a routed
+    segment intersects is a pass-through error -- the line is plotted over
+    a section it never interacts with (issue #484).
+
+    Unlike :func:`_route_crosses_section_boundary`, this works on the final
+    rendered geometry (route offsets applied) and inspects *every* route,
+    including fan-in/-out bundle routes through ``__junction_*`` /
+    ``__merge_*`` nodes, which the boundary guard intentionally excludes.
+    Section membership is resolved via ``section_for_station`` (so a merge
+    node assigned to its target section is correctly treated as belonging
+    there).
+    """
+    from nf_metro.layout.geometry import segment_intersects_bbox
+    from nf_metro.layout.routing import compute_station_offsets, route_edges
+    from nf_metro.render.svg import apply_route_offsets
+
+    if offsets is None:
+        offsets = compute_station_offsets(graph)
+    if routes is None:
+        try:
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception:  # noqa: BLE001 - routing failures surface elsewhere
+            return []
+
+    boxes = [
+        (
+            sid,
+            sec.bbox_x + inset,
+            sec.bbox_y + inset,
+            sec.bbox_x + sec.bbox_w - inset,
+            sec.bbox_y + sec.bbox_h - inset,
+        )
+        for sid, sec in graph.sections.items()
+        if sec.bbox_w > 2 * inset and sec.bbox_h > 2 * inset
+    ]
+
+    out: list[tuple[RoutedPath, str]] = []
+    for rp in routes:
+        own = {
+            graph.section_for_station(rp.edge.source),
+            graph.section_for_station(rp.edge.target),
+        }
+        pts = apply_route_offsets(rp, offsets)
+        for sid, x0, y0, x1, y1 in boxes:
+            if sid in own:
+                continue
+            if any(
+                segment_intersects_bbox(
+                    pts[i][0],
+                    pts[i][1],
+                    pts[i + 1][0],
+                    pts[i + 1][1],
+                    (x0, y0, x1, y1),
+                )
+                for i in range(len(pts) - 1)
+            ):
+                out.append((rp, sid))
+    return out
 
 
 def is_loop_side_branch_station(graph: MetroGraph, sid: str) -> bool:

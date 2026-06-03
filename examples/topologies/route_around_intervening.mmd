@@ -1,0 +1,31 @@
+%%metro title: Route Around Intervening
+%%metro style: dark
+%%metro line: trunk | Trunk | #0570b0
+%%metro line: skip | Skip | #e63946
+
+%%metro grid: source | 0,0
+%%metro grid: middle | 1,0
+%%metro grid: target | 2,0
+
+graph LR
+    subgraph source [Source]
+        s1[Input]
+        s2[Output]
+        s1 -->|trunk,skip| s2
+    end
+
+    subgraph middle [Middle]
+        m1[Process]
+        m2[Output]
+        m1 -->|trunk| m2
+    end
+
+    subgraph target [Target]
+        t1[Collect]
+        t2[Report]
+        t1 -->|trunk,skip| t2
+    end
+
+    s2 -->|trunk| m1
+    m2 -->|trunk| t1
+    s2 -->|skip| t1

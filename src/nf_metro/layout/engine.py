@@ -109,6 +109,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_anchors_frozen_during_placement,
     _guard_bundle_order_preserved,
     _guard_coordinates_finite,
+    _guard_entry_approach_from_port_side,
     _guard_explicit_grid_directions,
     _guard_fan_bundles_coincide_or_separate,
     _guard_fanout_junction_shares_exit_port_y,
@@ -119,9 +120,12 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_inter_section_route_no_full_width_backtrack,
     _guard_inter_section_routes_in_row_band,
     _guard_merge_port_approach_side,
+    _guard_no_artefactual_counter_flow,
+    _guard_no_collinear_distinct_lines,
     _guard_no_label_overlap,
     _guard_no_line_crosses_non_consumer,
     _guard_no_negative_grid_columns,
+    _guard_no_route_through_section,
     _guard_no_station_overlap,
     _guard_off_track_inputs_above_consumer,
     _guard_partial_branch_offset_gaps,
@@ -1144,13 +1148,21 @@ def _finalize_layout(
                 graph, phase, offsets=offsets, routes=routes
             )
             _guard_bundle_order_preserved(graph, phase, offsets=offsets, routes=routes)
+            _guard_no_collinear_distinct_lines(
+                graph, phase, offsets=offsets, routes=routes
+            )
             _guard_fanout_tail_join(graph, phase, offsets=offsets, routes=routes)
             _guard_inter_section_route_no_backtrack(graph, phase, routes=routes)
             _guard_inter_section_route_no_full_width_backtrack(
                 graph, phase, routes=routes
             )
             _guard_routes_enter_sections_at_ports(graph, phase, routes=routes)
+            _guard_no_route_through_section(
+                graph, phase, routes=routes, offsets=offsets
+            )
+            _guard_entry_approach_from_port_side(graph, phase, routes=routes)
             _guard_serpentine_no_backtrack(graph, phase, routes=routes)
+            _guard_no_artefactual_counter_flow(graph, phase, routes=routes)
             _guard_inter_row_run_clearance(graph, phase, routes=routes)
             _guard_inter_section_descent_edge_clearance(graph, phase, routes=routes)
             _guard_fan_bundles_coincide_or_separate(

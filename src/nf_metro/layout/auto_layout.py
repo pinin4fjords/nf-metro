@@ -381,6 +381,28 @@ def _detect_convergence_split(
         if sid_preds & convergence_preds:
             return_set.add(sid)
 
+    # Stacked-sibling migration: a section that feeds ONLY into the return
+    # set and would otherwise be a lone stacked sibling in the row-0 spine
+    # band (its topo column also holds a section that stays in row 0) is
+    # pulled onto the return row. Leaving it stacked forces an extra spine
+    # row occupied by a single small section, with a large empty band beside
+    # it (issue #484: tr_calling stacked under small_variants).
+    for sid in list(col_assign.keys()):
+        if sid in return_set:
+            continue
+        sid_succs = successors.get(sid, set())
+        if not sid_succs or not sid_succs.issubset(return_set):
+            continue
+        topo_col = col_assign[sid]
+        has_spine_sibling = any(
+            other != sid
+            and col_assign.get(other) == topo_col
+            and other not in return_set
+            for other in col_groups.get(topo_col, [])
+        )
+        if has_spine_sibling:
+            return_set.add(sid)
+
     # Only split if the return set has enough sections to justify a second row.
     # A single section (e.g. a bypass target) doesn't warrant a row split.
     if len(return_set) < 2:
@@ -407,25 +429,41 @@ def _place_with_convergence(
     sorted_cols = sorted(col_groups.keys())
     folded: dict[str, tuple[int, int]] = {}
 
-    # Place row-0 sections (non-return) left to right
+    # Place row-0 sections (non-return) left to right. A topo column with
+    # multiple spine sections stacks them downward (rows 0, 1, ...), so track
+    # the tallest stack to know which row the return band must clear.
     grid_col = 0
     max_row0_col = 0
+    row0_height = 1
     for topo_col in sorted_cols:
         row0_sids = [s for s in col_groups[topo_col] if s not in return_set]
         if not row0_sids:
             continue
         for i, sid in enumerate(row0_sids):
             folded[sid] = (grid_col, i)
+        row0_height = max(row0_height, len(row0_sids))
         max_row0_col = grid_col
         grid_col += 1
 
-    # Place row-1 sections (return set) right to left
+    # Place return-set sections right to left on the first row clear of the
+    # row-0 stack. Hardcoding row 1 collided with a stacked spine sibling
+    # whenever a row-0 column held 2+ sections (issue #484).
+    return_row = row0_height
     # Sort by topo col ascending: lowest topo col = rightmost on return row
     return_sids = sorted(return_set, key=lambda s: col_assign[s])
     grid_col = max_row0_col
     for sid in return_sids:
-        folded[sid] = (grid_col, 1)
+        folded[sid] = (grid_col, return_row)
         grid_col -= 1
+
+    # Boustrophedon normalization: a return row longer than the row-0 spine
+    # steps past column 0 into negative columns. Shift the whole grid right
+    # so the leftmost column is 0, preserving every section's relative
+    # position (mirrors the serpentine packer; issue #484).
+    if folded:
+        min_col = min(col for col, _ in folded.values())
+        if min_col < 0:
+            folded = {sid: (col - min_col, row) for sid, (col, row) in folded.items()}
 
     # Write results
     for sid, (col, row) in folded.items():
@@ -786,8 +824,18 @@ def _infer_directions(
                 section.direction = "RL"
                 continue
 
-        # TB: all successors are below
-        if succ_rows and all(r > my_row for r in succ_rows):
+        # TB: vertical bridge/serpentine turn. Only when every successor sits
+        # in the row directly below the section's bottom and no further right
+        # than the adjacent column. Successors to the left or directly below
+        # are a same-column drop or a return-row turn that TB serves cleanly;
+        # a successor down-and-to-the-right is instead reached by a flow-aligned
+        # exit plus an inter-section across+down L-shape, so the section stays
+        # horizontal. Successors a row gap away are likewise left to LR + drop.
+        my_bottom = my_row + section.grid_row_span - 1
+        if succ_rows and all(
+            sr == my_bottom + 1 and sc <= my_col + 1
+            for sc, sr in zip(succ_cols, succ_rows)
+        ):
             section.direction = "TB"
             continue
 

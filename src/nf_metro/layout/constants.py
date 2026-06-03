@@ -169,6 +169,16 @@ present a clear horizontal segment through their X coordinate)."""
 BYPASS_CLEARANCE: float = 25.0
 """Vertical clearance below the lowest intervening section for bypass routes."""
 
+ROW_BAND_SLACK: float = BYPASS_CLEARANCE + Y_SPACING
+"""Vertical slack a same-row inter-section route may extend past the row band.
+
+A same-row wrap routes below the row's tallest section through a bypass
+channel sitting ``BYPASS_CLEARANCE`` below the band bottom, then stacks the
+bundle's per-line nest offsets (a few ``OFFSET_STEP`` each) on top, and adds
+up to one ``Y_SPACING`` for the diagonal corner approach.  This slack bounds
+that legitimate excursion so the band guard / invariant test admit a clean
+below-row wrap while still rejecting a route that dips a full row down."""
+
 SECTION_ROUTE_CLEARANCE: float = 16.0
 """Minimum gap between a section bbox edge and an external route channel.
 
