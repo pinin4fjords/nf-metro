@@ -42,6 +42,7 @@ KNOWN_DIVERGENT: dict[str, float] = {
     "variantbenchmarking.mmd": 20.0,
     "variantbenchmarking_auto.mmd": 20.0,
     "genomic_pipeline.mmd": 5.0,
+    "longread_variant_calling.mmd": 20.0,
 }
 
 

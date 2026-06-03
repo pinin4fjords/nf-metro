@@ -19,6 +19,7 @@ from nf_metro.layout.routing.corners import (
     bypass_radii,
     corner_radius,
     l_shape_radii,
+    reference_anchored_radius,
     resolve_curve_radii,
     reversed_offset,
     tb_entry_corner,
@@ -96,6 +97,48 @@ class TestCornerRadius:
             else:
                 assert corner_radius(off, max_off, outside=False) == pytest.approx(r1)
                 assert corner_radius(off, max_off, outside=True) == pytest.approx(r2)
+
+
+class TestReferenceAnchoredRadius:
+    """Reference-anchored concentric radius for the TOP-entry staircase.
+
+    Unlike ``corner_radius`` (innermost line at base, radii always >= base),
+    this anchors a *reference* line at base and offsets every other line by its
+    signed perpendicular displacement, so inside-of-turn lines fall below base.
+    """
+
+    def test_reference_line_is_base(self):
+        assert reference_anchored_radius(0.0) == CURVE_RADIUS
+
+    def test_outside_adds_offset(self):
+        assert reference_anchored_radius(3.0) == CURVE_RADIUS + 3.0
+
+    def test_inside_goes_below_base(self):
+        assert reference_anchored_radius(-3.0) == CURVE_RADIUS - 3.0
+
+    def test_custom_base(self):
+        assert reference_anchored_radius(-2.0, base_radius=5.0) == 3.0
+
+    def test_min_radius_floors_a_tight_jog(self):
+        # base - offset would be negative; the floor keeps it renderable.
+        assert reference_anchored_radius(-12.0, base_radius=10.0, min_radius=0.1) == 0.1
+
+    def test_min_radius_inactive_when_above_floor(self):
+        assert reference_anchored_radius(2.0, base_radius=10.0, min_radius=0.1) == 12.0
+
+    def test_concentricity_invariant(self):
+        # radius - signed_offset == base for every line: arcs share a centre.
+        base = CURVE_RADIUS
+        for so in (-6.0, -3.0, 0.0, 3.0, 6.0):
+            assert reference_anchored_radius(so, base) - so == pytest.approx(base)
+
+    def test_matches_offset_bundle_arithmetic(self):
+        # The four #484 offset-bundle radii (East lead, lead_sign=+1).
+        base = CURVE_RADIUS
+        for offset in (0.0, OFFSET_STEP, 2 * OFFSET_STEP):
+            assert reference_anchored_radius(-1.0 * offset, base) == base - offset
+            assert reference_anchored_radius(offset, base) == base + offset
+            assert reference_anchored_radius(-offset, base) == base - offset
 
 
 # ---------------------------------------------------------------------------

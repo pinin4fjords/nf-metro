@@ -23,7 +23,13 @@ from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.render.bridges import BRIDGE_NODE_TOLERANCE, compute_bridges
+from nf_metro.parser.model import Edge, MetroGraph
+from nf_metro.render.bridges import (
+    BRIDGE_NODE_TOLERANCE,
+    _line_succ,
+    _same_line_is_fan,
+    compute_bridges,
+)
 from nf_metro.render.svg import apply_route_offsets, render_svg
 from nf_metro.themes import NFCORE_THEME
 
@@ -208,6 +214,68 @@ def test_animation_paths_flow_over_gaps():
         )
     )
     assert on and on == off
+
+
+def test_same_line_fan_legs_are_not_a_crossover():
+    """Two same-line edges whose legs fork and rejoin (a fan-out / fan-in /
+    loop) are a fan, not a crossover - even when their geometry crosses."""
+    g = MetroGraph(
+        edges=[
+            Edge("fork", "left", "x"),
+            Edge("fork", "right", "x"),
+            Edge("left", "join", "x"),
+            Edge("right", "join", "x"),
+        ]
+    )
+    succ = _line_succ(g)
+    e_left = Edge("fork", "left", "x")
+    e_right = Edge("fork", "right", "x")
+    # Distinct legs that rejoin downstream at "join" -> a fan, not a crossover.
+    assert _same_line_is_fan(
+        Edge("left", "join", "x"), Edge("right", "join", "x"), succ
+    )
+    # Edges sharing the fork node are also a fan.
+    assert _same_line_is_fan(e_left, e_right, succ)
+
+
+def test_same_line_independent_legs_are_a_crossover():
+    """Two same-line edges that head to destinations which never reconverge are
+    a genuine crossover and must be eligible for a bridge."""
+    g = MetroGraph(
+        edges=[
+            Edge("hub", "a1", "x"),
+            Edge("a1", "a2", "x"),
+            Edge("hub", "b1", "x"),
+            Edge("b1", "b2", "x"),
+        ]
+    )
+    succ = _line_succ(g)
+    # a1->a2 and b1->b2 share no endpoint and never reconverge downstream.
+    assert not _same_line_is_fan(Edge("a1", "a2", "x"), Edge("b1", "b2", "x"), succ)
+
+
+def test_issue484_same_colour_crossover_is_bridged():
+    """issue #484: a horizontal bam run crosses a vertical bam drop below the
+    Small-variant/Phasing sections - a genuine same-colour crossover whose legs
+    head to separate, never-reconverging destinations.  A bridge must fire."""
+    path = Path(__file__).parent.parent / "issue484.mmd"
+    if not path.exists():
+        pytest.skip("issue484.mmd repro fixture not present")
+    _, routes, _, bridges = _bridges(path)
+    by_id = {id(r): r for r in routes}
+    bam_breaks = [
+        (bk, by_id[rid])
+        for rid, breaks in bridges.items()
+        for bk in breaks
+        if by_id[rid].line_id == "bam"
+    ]
+    assert bam_breaks, "expected a bam crossover bridge in issue484"
+    # The documented crossing is at (~1616, 263); the gap is centred there.
+    assert any(
+        abs((bk.cut_a[0] + bk.cut_b[0]) / 2 - 1616) < 30
+        and abs((bk.cut_a[1] + bk.cut_b[1]) / 2 - 263) < 30
+        for bk, _ in bam_breaks
+    )
 
 
 def _motion_paths(svg: str) -> list[str]:
