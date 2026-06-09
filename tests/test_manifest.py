@@ -149,7 +149,12 @@ def test_id_is_join_key_to_dom(mapped_svg: str) -> None:
 
 
 def test_data_attrs_mirror_manifest_geometry(mapped_svg: str) -> None:
-    """The <g> data-metro-cx/cy/r equal the manifest x/y/r for each station."""
+    """The <g> data-metro-* values equal the manifest entry for each station.
+
+    The manifest and the per-station attributes derive the same geometry,
+    lines, and section independently, so this pins them together: a divergence
+    in either derivation fails here rather than shipping inconsistent halves.
+    """
     manifest = read_manifest(mapped_svg)
     root = ET.fromstring(mapped_svg)
     groups = {
@@ -164,6 +169,7 @@ def test_data_attrs_mirror_manifest_geometry(mapped_svg: str) -> None:
         assert float(g.get("data-metro-cy")) == station["y"]
         assert float(g.get("data-metro-r")) == station["r"]
         assert g.get("data-metro-lines") == ",".join(station["lines"])
+        assert g.get("data-metro-section") == station.get("section")
 
 
 def test_coordinate_space_is_viewbox(mapped_svg: str) -> None:
