@@ -20,6 +20,7 @@ def _visual_svg(svg: str) -> str:
     """The SVG with the embedded manifest stripped (the drawn output only)."""
     return _METADATA_BLOCK.sub("", svg)
 
+
 BASE = (
     "%%metro line: a | A | #ff0000 | solid\n"
     "graph LR\n"

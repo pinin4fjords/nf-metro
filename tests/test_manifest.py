@@ -86,9 +86,7 @@ def test_stations_coords_and_processes_match_graph() -> None:
     by_id = {s["id"]: s for s in manifest["stations"]}
     # Ports are excluded; every real (non-port, non-hidden) station is present.
     expected = {
-        sid
-        for sid, st in graph.stations.items()
-        if not st.is_port and not st.is_hidden
+        sid for sid, st in graph.stations.items() if not st.is_port and not st.is_hidden
     }
     assert set(by_id) == expected
 
