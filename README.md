@@ -118,6 +118,15 @@ The page provides:
 
 GitHub READMEs strip `<script>` tags, so embed there as a static SVG (or link out to a hosted version). Most static-site generators and internal wikis run the inline-HTML snippet as-is.
 
+#### Embedded data manifest
+
+Every rendered SVG carries a machine-readable manifest so the committed file is a self-contained, durable artifact - a downstream tool can drive it (position overlays, restyle stations, look up which processes a station represents) without re-running the layout engine. The data is carried two redundant ways, both sanitization-safe (no `<script>`):
+
+- A JSON manifest in a `<metadata id="nf-metro-manifest">` element: schema `version`, map `title`, canvas `width`/`height`, `lines`, `sections`, and `stations` (each with `id`, `label`, absolute `x`/`y`/`r`, the `lines` and `section` it belongs to, and the `processes` regexes it represents).
+- `data-metro-*` attributes on each station's `<g>` element (`data-metro-station`, `data-metro-cx/cy/r`, `data-metro-lines`, `data-metro-section`), so individual stations stay addressable directly in the DOM.
+
+The station `id` is the join key between the two: it equals `data-metro-station="<id>"` on the matching element. Coordinates are absolute SVG user units inside the `viewBox="0 0 width height"`, so an overlay sharing that viewBox lines up exactly. The manifest is embedded by default and adds no external dependencies; set `%%metro manifest: false` to emit the drawn map only. See [Live progress](docs/live.md#the-embedded-data-manifest) for the full schema and matching semantics.
+
 ### `nf-metro validate`
 
 Check a `.mmd` file for errors without producing output.

@@ -1,5 +1,6 @@
 """Tests for the ``%%metro process:`` directive (live-progress mapping)."""
 
+import re
 import warnings
 
 import pytest
@@ -7,7 +8,18 @@ import pytest
 from nf_metro.layout import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render import render_svg
+from nf_metro.render.manifest import MANIFEST_ELEMENT_ID, read_manifest
 from nf_metro.themes import THEMES
+
+_METADATA_BLOCK = re.compile(
+    rf'<metadata id="{re.escape(MANIFEST_ELEMENT_ID)}".*?</metadata>', re.S
+)
+
+
+def _visual_svg(svg: str) -> str:
+    """The SVG with the embedded manifest stripped (the drawn output only)."""
+    return _METADATA_BLOCK.sub("", svg)
+
 
 BASE = (
     "%%metro line: a | A | #ff0000 | solid\n"
@@ -55,8 +67,14 @@ def test_process_directive_malformed_warns():
     assert graph.process_mapping == {}
 
 
-def test_process_directive_does_not_change_render():
-    """Pure metadata: the directive must not perturb layout or SVG output."""
+def test_process_directive_does_not_change_visual_render():
+    """The directive must not perturb layout or the drawn SVG output.
+
+    It is no longer pure metadata at the byte level: the mapping is now
+    serialized into the embedded ``<metadata>`` manifest (so a committed SVG
+    carries it). But everything *drawn* must be byte-identical -- the directive
+    still never moves a station or changes a glyph.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         plain = parse_metro_mermaid(BASE)
@@ -64,4 +82,15 @@ def test_process_directive_does_not_change_render():
     compute_layout(plain)
     compute_layout(mapped)
     theme = THEMES["nfcore"]
-    assert render_svg(plain, theme) == render_svg(mapped, theme)
+    plain_svg = render_svg(plain, theme)
+    mapped_svg = render_svg(mapped, theme)
+
+    # Identical once the manifest is stripped (nothing drawn changed)...
+    assert _visual_svg(plain_svg) == _visual_svg(mapped_svg)
+    # ...but the manifest carries the mapping difference.
+    plain_proc = {s["id"]: s["processes"] for s in read_manifest(plain_svg)["stations"]}
+    mapped_proc = {
+        s["id"]: s["processes"] for s in read_manifest(mapped_svg)["stations"]
+    }
+    assert plain_proc["trim"] == []
+    assert mapped_proc["trim"] == ["TRIMGALORE"]
