@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import (
@@ -970,6 +971,33 @@ def _guard_no_line_crosses_file_icon(
                     )
 
 
+@contextmanager
+def _restoring_layout_geometry(graph: MetroGraph) -> Iterator[None]:
+    """Restore station coords and section bboxes on exit.
+
+    route_edges' diagonal-centring nudges Station.x and place_labels expands
+    section bboxes to fit labels, so a guard that re-routes and re-places to
+    inspect the drawn geometry must undo those mutations: validate=True must
+    not perturb the settled layout.
+    """
+    pos = {sid: (s.x, s.y) for sid, s in graph.stations.items()}
+    bbox = {
+        sid: (s.bbox_x, s.bbox_y, s.bbox_w, s.bbox_h)
+        for sid, s in graph.sections.items()
+    }
+    try:
+        yield
+    finally:
+        for sid, (x, y) in pos.items():
+            st = graph.stations.get(sid)
+            if st is not None:
+                st.x, st.y = x, y
+        for sid, (bx, by, bw, bh) in bbox.items():
+            s = graph.sections.get(sid)
+            if s is not None:
+                s.bbox_x, s.bbox_y, s.bbox_w, s.bbox_h = bx, by, bw, bh
+
+
 def _guard_no_line_strikes_label(
     graph: MetroGraph,
     phase: str,
@@ -1000,24 +1028,14 @@ def _guard_no_line_strikes_label(
 
         offsets = compute_station_offsets(graph)
 
-    # route_edges' diagonal-centring nudges Station.x and place_labels expands
-    # section bboxes to fit labels; the renderer draws labels on exactly that
-    # mutated geometry, so the guard must too.  Snapshot station coords and
-    # section bboxes, run the crossing check, then restore -- the guard stays
-    # observational (validate=True must not perturb the settled layout).
-    pos_snapshot = {sid: (s.x, s.y) for sid, s in graph.stations.items()}
-    bbox_snapshot = {
-        sid: (s.bbox_x, s.bbox_y, s.bbox_w, s.bbox_h)
-        for sid, s in graph.sections.items()
-    }
-    if routes is None:
-        from nf_metro.layout.routing import route_edges
+    with _restoring_layout_geometry(graph):
+        if routes is None:
+            from nf_metro.layout.routing import route_edges
 
-        try:
-            routes = route_edges(graph, station_offsets=offsets)
-        except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
-            return
-    try:
+            try:
+                routes = route_edges(graph, station_offsets=offsets)
+            except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
+                return
         placements = place_labels(
             graph,
             station_offsets=offsets,
@@ -1059,15 +1077,61 @@ def _guard_no_line_strikes_label(
                             f"({bbox[2]:.1f},{bbox[3]:.1f}); segment "
                             f"({p1[0]:.1f},{p1[1]:.1f})->({p2[0]:.1f},{p2[1]:.1f})"
                         )
-    finally:
-        for sid, (x, y) in pos_snapshot.items():
-            st = graph.stations.get(sid)
-            if st is not None:
-                st.x, st.y = x, y
-        for sid, (bx, by, bw, bh) in bbox_snapshot.items():
-            s = graph.sections.get(sid)
-            if s is not None:
-                s.bbox_x, s.bbox_y, s.bbox_w, s.bbox_h = bx, by, bw, bh
+
+
+def _guard_no_wrapped_label_trunk_strike(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float] | None = None,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """Final-phase: no wrapped label's ink overruns a foreign horizontal trunk.
+
+    A label that wraps stacks its extra lines toward a neighbouring track, so a
+    label a collision push-out drove toward that track can grow across a metro
+    line its station does not carry, drawing the name through the line.  The
+    render-time lift in ``place_labels`` pulls such a label back to its
+    un-pushed anchor; this asserts the settled render leaves none striking.
+
+    Narrower than :func:`_guard_no_line_strikes_label` (which is not wired into
+    the validate pass while diagonal-rake strikes remain): it covers only the
+    horizontal-trunk overrun the lift resolves, so it can run as an invariant.
+    """
+    from nf_metro.layout.labels import (
+        find_wrapped_label_trunk_strikes,
+        place_labels,
+    )
+    from nf_metro.render.svg import _compute_icon_obstacles
+    from nf_metro.themes import THEMES
+
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+
+    with _restoring_layout_geometry(graph):
+        if routes is None:
+            from nf_metro.layout.routing import route_edges
+
+            try:
+                routes = route_edges(graph, station_offsets=offsets)
+            except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
+                return
+        placements = place_labels(
+            graph,
+            station_offsets=offsets,
+            icon_obstacles=_compute_icon_obstacles(graph, THEMES["nfcore"], offsets),
+            routes=routes,
+            label_angle=graph.label_angle or 0.0,
+        )
+        strikes = find_wrapped_label_trunk_strikes(graph, placements, routes, offsets)
+        if strikes:
+            sid, y, line_id = strikes[0]
+            raise PhaseInvariantError(
+                f"{phase}: wrapped label of {sid!r} overruns foreign trunk "
+                f"{line_id!r} at y={y:.1f}; {len(strikes)} strike(s) total"
+            )
 
 
 def _guard_off_track_output_clears_non_producer(
