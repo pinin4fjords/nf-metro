@@ -172,6 +172,27 @@ def test_data_attrs_mirror_manifest_geometry(mapped_svg: str) -> None:
         assert g.get("data-metro-section") == station.get("section")
 
 
+def test_manifest_arrays_follow_graph_declaration_order() -> None:
+    """stations, lines, and sections keep the graph's declaration order.
+
+    Manifest equality alone would catch a render-to-render reorder but not
+    pin the order to anything meaningful; anchoring it to the graph makes an
+    ordering regression point straight at the offending derivation.
+    """
+    graph = parse_and_layout(MAPPED_TEXT)
+    manifest = read_manifest(render_svg(graph, NFCORE_THEME))
+
+    expected_stations = [
+        sid for sid, st in graph.stations.items() if not st.is_port and not st.is_hidden
+    ]
+    expected_sections = [
+        sid for sid, sec in graph.sections.items() if not sec.is_implicit
+    ]
+    assert [s["id"] for s in manifest["stations"]] == expected_stations
+    assert [ln["id"] for ln in manifest["lines"]] == list(graph.lines)
+    assert [s["id"] for s in manifest["sections"]] == expected_sections
+
+
 def test_coordinate_space_is_viewbox(mapped_svg: str) -> None:
     """x/y/r are absolute user units in viewBox '0 0 width height', no transform."""
     manifest = read_manifest(mapped_svg)
