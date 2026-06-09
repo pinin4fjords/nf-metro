@@ -25,9 +25,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR=$(gh api \
-            "repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" \
-            --jq '.[0].number')
+          PR=$(gh api --paginate \
+            "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+            --jq ".[] | select(.head.sha == \"${{ github.event.workflow_run.head_sha }}\") | .number" \
+            | head -n1)
           echo "number=$PR" >> "$GITHUB_OUTPUT"
 
       - name: Mark preview as rendering
