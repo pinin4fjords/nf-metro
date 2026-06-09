@@ -101,6 +101,7 @@ from nf_metro.render.legend import (
     marker_stroke_color,
     render_legend,
 )
+from nf_metro.render.manifest import _round1, build_manifest, manifest_metadata_svg
 from nf_metro.render.style import Theme
 
 
@@ -531,6 +532,16 @@ def _render_svg_scaled(
     svg_height = height or int(auto_height)
 
     d = draw.Drawing(svg_width, svg_height)
+
+    # Embed the machine-readable manifest first, so the file is a durable,
+    # self-describing contract regardless of what is drawn below it.
+    manifest = build_manifest(
+        graph,
+        width=svg_width,
+        height=svg_height,
+        station_radius=theme.station_radius,
+    )
+    d.append(draw.Raw(manifest_metadata_svg(manifest)))
 
     # Dark-mode CSS for transparent-background themes so that elements
     # rendered directly on the canvas (section labels, number badges,
@@ -1269,6 +1280,30 @@ def _draw_blank_terminus_nub(
     )
 
 
+def _station_group_attrs(graph: MetroGraph, theme: Theme, station: Station) -> dict:
+    """Attributes for a station's wrapping ``<g>`` element.
+
+    Makes each station one addressable DOM node carrying its identity and
+    geometry, so a consumer can restyle or replace it without the manifest or
+    a re-render.  ``data-metro-station`` is the join key: it equals the
+    station's ``id`` in the embedded manifest.  The geometry attributes mirror
+    the manifest's ``x``/``y``/``r`` (absolute SVG user units, rounded to 1dp)
+    so an overlay can position against either half interchangeably.
+    """
+    attrs = {
+        "class_": "nf-metro-station-group",
+        "data-metro-station": station.id,
+        "data-metro-cx": _round1(station.x),
+        "data-metro-cy": _round1(station.y),
+        "data-metro-r": _round1(theme.station_radius),
+        "data-metro-lines": ",".join(graph.station_lines(station.id)),
+    }
+    section = graph.sections.get(station.section_id) if station.section_id else None
+    if section is not None and not section.is_implicit:
+        attrs["data-metro-section"] = station.section_id
+    return attrs
+
+
 def _render_stations(
     d: draw.Drawing,
     graph: MetroGraph,
@@ -1281,125 +1316,140 @@ def _render_stations(
     section get horizontal pills (wide, short) since the lines run
     vertically through them.
 
-    Skips port stations (is_port=True).
+    Each station's glyph (pill/marker/rail interchange plus any terminus
+    icons) is wrapped in its own ``<g>`` carrying ``data-metro-*`` identity
+    and geometry, so the station is a single addressable element. Skips port
+    stations (is_port=True).
     """
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
+        g = draw.Group(**_station_group_attrs(graph, theme, station))
+        _render_station_into(g, graph, theme, station, station_offsets)
+        d.append(g)
 
-        r = theme.station_radius
 
-        # Rail mode: a blank terminus terminates its converged bundle exactly
-        # like any other render -- the standard unrounded nub (via _pill_box)
-        # spanning the bundle, plus the file icon -- rather than a rail-specific
-        # glyph.  The only difference is the span comes from the rail bundle
-        # (rail mode does not use station_offsets).  An off-track input drops in
-        # vertically (no horizontal fan), so it gets the icon only.
-        if graph.station_is_rail(station.id) and station.is_blank_terminus:
-            if station.off_track:
-                _append_terminus_icons(d, station, graph, theme, r, 0.0, 0.0)
-                continue
-            used = station.rail_used_ys or [station.y]
-            t_min = min(used) - station.y
-            t_max = max(used) - station.y
-            _draw_blank_terminus_nub(
-                d, station, r, t_min, t_max, _station_data_attrs(graph, station), theme
-            )
-            _append_terminus_icons(d, station, graph, theme, r, t_min, t_max)
-            continue
+def _render_station_into(
+    d: draw.Group,
+    graph: MetroGraph,
+    theme: Theme,
+    station: Station,
+    station_offsets: dict[tuple[str, str], float] | None,
+) -> None:
+    """Draw one station's glyph and terminus icons into its wrapping group."""
+    r = theme.station_radius
 
-        # Rail mode: a multi-rail station draws as a spanning interchange; a
-        # single-rail station draws as one knob centred on its rail.  Both go
-        # through _render_rail_pill (its link bar self-suppresses with no span),
-        # so a single stop sits exactly on the rail rather than being shifted by
-        # the normal-mode parallel-line station_offsets, which don't apply once
-        # a line is pinned to a fixed rail.  Marked stations keep their glyph.
-        if (
-            graph.station_is_rail(station.id)
-            and station.marker is None
-            and not station.is_terminus
-        ):
-            _render_rail_pill(d, graph, station, theme, r)
-            continue
-        if station.rail_top_y is not None and station.rail_bottom_y is not None:
-            _render_rail_pill(
-                d, graph, station, theme, r, _rail_marker_fill(station.marker, theme)
-            )
-            continue
+    # Rail mode: a blank terminus terminates its converged bundle exactly
+    # like any other render -- the standard unrounded nub (via _pill_box)
+    # spanning the bundle, plus the file icon -- rather than a rail-specific
+    # glyph.  The only difference is the span comes from the rail bundle
+    # (rail mode does not use station_offsets).  An off-track input drops in
+    # vertically (no horizontal fan), so it gets the icon only.
+    if graph.station_is_rail(station.id) and station.is_blank_terminus:
+        if station.off_track:
+            _append_terminus_icons(d, station, graph, theme, r, 0.0, 0.0)
+            return
+        used = station.rail_used_ys or [station.y]
+        t_min = min(used) - station.y
+        t_max = max(used) - station.y
+        _draw_blank_terminus_nub(
+            d, station, r, t_min, t_max, _station_data_attrs(graph, station), theme
+        )
+        _append_terminus_icons(d, station, graph, theme, r, t_min, t_max)
+        return
 
-        # Determine if this is a TB vertical station (rotated pill)
-        is_tb_vert = False
-        if station.section_id:
-            sec = graph.sections.get(station.section_id)
-            if sec and sec.direction == "TB":
-                is_tb_vert = True
+    # Rail mode: a multi-rail station draws as a spanning interchange; a
+    # single-rail station draws as one knob centred on its rail.  Both go
+    # through _render_rail_pill (its link bar self-suppresses with no span),
+    # so a single stop sits exactly on the rail rather than being shifted by
+    # the normal-mode parallel-line station_offsets, which don't apply once
+    # a line is pinned to a fixed rail.  Marked stations keep their glyph.
+    if (
+        graph.station_is_rail(station.id)
+        and station.marker is None
+        and not station.is_terminus
+    ):
+        _render_rail_pill(d, graph, station, theme, r)
+        return
+    if station.rail_top_y is not None and station.rail_bottom_y is not None:
+        _render_rail_pill(
+            d, graph, station, theme, r, _rail_marker_fill(station.marker, theme)
+        )
+        return
 
-        # A rail station is pinned to its rail Y; the parallel-line bundle
-        # offsets do not apply (the rail-pill path above ignores them too), so a
-        # marked single-rail station's glyph must seat on the rail rather than
-        # ride the bundle's mid-offset.
-        if station_offsets and not graph.station_is_rail(station.id):
-            line_offsets = [
-                station_offsets.get((station.id, lid), 0.0)
-                for lid in graph.station_lines(station.id)
-            ]
-            if line_offsets:
-                min_off = min(line_offsets)
-                max_off = max(line_offsets)
-            else:
-                min_off = max_off = 0.0
+    # Determine if this is a TB vertical station (rotated pill)
+    is_tb_vert = False
+    if station.section_id:
+        sec = graph.sections.get(station.section_id)
+        if sec and sec.direction == "TB":
+            is_tb_vert = True
+
+    # A rail station is pinned to its rail Y; the parallel-line bundle
+    # offsets do not apply (the rail-pill path above ignores them too), so a
+    # marked single-rail station's glyph must seat on the rail rather than
+    # ride the bundle's mid-offset.
+    if station_offsets and not graph.station_is_rail(station.id):
+        line_offsets = [
+            station_offsets.get((station.id, lid), 0.0)
+            for lid in graph.station_lines(station.id)
+        ]
+        if line_offsets:
+            min_off = min(line_offsets)
+            max_off = max(line_offsets)
         else:
             min_off = max_off = 0.0
+    else:
+        min_off = max_off = 0.0
 
-        station_data = _station_data_attrs(graph, station)
+    station_data = _station_data_attrs(graph, station)
 
-        if graph.station_is_rail(station.id) and (min_off, max_off) != (0.0, 0.0):
-            raise AssertionError(
-                f"rail station {station.id!r} marker glyph offset "
-                f"({min_off}, {max_off}) would lift it off its rail"
-            )
+    if graph.station_is_rail(station.id) and (min_off, max_off) != (0.0, 0.0):
+        raise AssertionError(
+            f"rail station {station.id!r} marker glyph offset "
+            f"({min_off}, {max_off}) would lift it off its rail"
+        )
 
-        if station.marker is not None:
-            _render_marker_station(
-                d,
-                station.marker,
-                theme,
-                station,
-                r,
-                min_off,
-                max_off,
-                is_tb_vert,
-                station_data,
-            )
-            if station.is_terminus:
-                _append_terminus_icons(d, station, graph, theme, r, min_off, max_off)
-            continue
-
-        x, y, w, h = _pill_box(station, r, min_off, max_off, is_tb_vert)
-
-        # Blank terminus stations get an unrounded nub; everything else a pill.
-        if station.is_blank_terminus:
-            _draw_blank_terminus_nub(
-                d, station, r, min_off, max_off, station_data, theme, is_tb_vert
-            )
-        else:
-            d.append(
-                draw.Rectangle(
-                    x,
-                    y,
-                    w,
-                    h,
-                    rx=r,
-                    ry=r,
-                    fill=theme.station_fill,
-                    stroke=theme.station_stroke,
-                    stroke_width=theme.station_stroke_width,
-                    **station_data,
-                )
-            )
-
+    if station.marker is not None:
+        _render_marker_station(
+            d,
+            station.marker,
+            theme,
+            station,
+            r,
+            min_off,
+            max_off,
+            is_tb_vert,
+            station_data,
+        )
         if station.is_terminus:
             _append_terminus_icons(d, station, graph, theme, r, min_off, max_off)
+        return
+
+    x, y, w, h = _pill_box(station, r, min_off, max_off, is_tb_vert)
+
+    # Blank terminus stations get an unrounded nub; everything else a pill.
+    if station.is_blank_terminus:
+        _draw_blank_terminus_nub(
+            d, station, r, min_off, max_off, station_data, theme, is_tb_vert
+        )
+    else:
+        d.append(
+            draw.Rectangle(
+                x,
+                y,
+                w,
+                h,
+                rx=r,
+                ry=r,
+                fill=theme.station_fill,
+                stroke=theme.station_stroke,
+                stroke_width=theme.station_stroke_width,
+                **station_data,
+            )
+        )
+
+    if station.is_terminus:
+        _append_terminus_icons(d, station, graph, theme, r, min_off, max_off)
 
 
 def caption_aware_icon_step(
