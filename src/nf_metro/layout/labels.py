@@ -12,9 +12,11 @@ __all__ = [
     "active_font_scale",
     "find_label_overlaps",
     "font_scale_context",
+    "label_glyph_advance_width",
     "label_glyph_ink_bbox",
     "label_text_width",
     "place_labels",
+    "segment_strikes_label",
 ]
 
 import math
@@ -28,7 +30,10 @@ from nf_metro.layout.constants import (
     DESCENDER_CLEARANCE,
     DIAGONAL_LABEL_OFFSET,
     FONT_HEIGHT,
+    GLYPH_ADVANCE_DEFAULT_EM,
+    GLYPH_ADVANCE_EM,
     LABEL_BBOX_MARGIN,
+    LABEL_FONT_SIZE,
     LABEL_GLYPH_INK_RATIO,
     LABEL_LINE_HEIGHT,
     LABEL_MARGIN,
@@ -42,7 +47,7 @@ from nf_metro.layout.constants import (
     TB_PILL_EDGE_OFFSET,
     X_SPACING,
 )
-from nf_metro.layout.geometry import segment_intersects_bbox
+from nf_metro.layout.geometry import segment_intersects_bbox, segment_intersects_quad
 from nf_metro.parser.model import MetroGraph
 
 if TYPE_CHECKING:
@@ -76,11 +81,31 @@ def font_scale_context(scale: float) -> Iterator[None]:
 
 
 def label_text_width(label: str) -> float:
-    """Pixel width of the widest line in a (possibly multi-line) label."""
+    """Reserved pixel width of the widest line in a (possibly multi-line) label.
+
+    A generous fixed-per-character budget for collision spacing; for the width
+    the text actually draws at, use :func:`label_glyph_advance_width`.
+    """
     char_width = CHAR_WIDTH * _ACTIVE_FONT_SCALE
     if "\n" not in label:
         return len(label) * char_width
     return max(len(line) for line in label.split("\n")) * char_width
+
+
+def label_glyph_advance_width(label: str) -> float:
+    """Rendered pixel width of the widest line in a (possibly multi-line) label.
+
+    Sums per-character advances (:data:`GLYPH_ADVANCE_EM`, Helvetica-Bold)
+    scaled by :data:`LABEL_FONT_SIZE` and the active font scale, so a wide
+    all-caps name measures as wide as it draws and a narrow one is not
+    over-claimed -- unlike the fixed-width :func:`label_text_width`.
+    """
+    size = LABEL_FONT_SIZE * _ACTIVE_FONT_SCALE
+    lines = label.split("\n") if "\n" in label else [label]
+    return size * max(
+        sum(GLYPH_ADVANCE_EM.get(c, GLYPH_ADVANCE_DEFAULT_EM) for c in line)
+        for line in lines
+    )
 
 
 def _label_text_height(label: str) -> float:
@@ -334,22 +359,84 @@ def label_glyph_ink_bbox(
 ) -> tuple[float, float, float, float]:
     """Return the label's drawn-glyph box, tightened to where text is inked.
 
-    The reserved box from :func:`_label_bbox` budgets ``CHAR_WIDTH`` per
-    character so labels claim ample collision room, but the rendered text is
-    narrower than that.  This shrinks the horizontal span to
-    ``LABEL_GLYPH_INK_RATIO`` of the reserved width about the box centre, and
-    (for a standard above/below label) replaces the vertical span with the
-    renderer's true ink band (:func:`_label_ink_y_band`), which stacks wrapped
-    lines downward rather than growing upward from the anchor.  A route grazing
-    only the empty reserved margin clears this box; a route striking through
-    the text intersects it.
+    For an axis-aligned label the horizontal span is the proportional glyph
+    advance (:func:`label_glyph_advance_width`) anchored to match the rendered
+    text, and the vertical span is the renderer's true ink band
+    (:func:`_label_ink_y_band`, which stacks wrapped lines downward rather than
+    growing upward from the anchor).  A route grazing only the empty reserved
+    margin clears this box; a route striking through the text intersects it.
+
+    Rotated or vertically-centred labels keep the reserved-box footprint
+    narrowed by ``LABEL_GLYPH_INK_RATIO``; the advance model is for horizontal
+    text.
     """
     x0, y0, x1, y1 = _label_bbox(placement)
-    center = (x0 + x1) / 2
-    ink_half = (x1 - x0) / 2 * LABEL_GLYPH_INK_RATIO
-    if not placement.angle and not placement.dominant_baseline:
-        y0, y1 = _label_ink_y_band(placement)
-    return (center - ink_half, y0, center + ink_half, y1)
+    if placement.angle or placement.dominant_baseline:
+        center = (x0 + x1) / 2
+        ink_half = (x1 - x0) / 2 * LABEL_GLYPH_INK_RATIO
+        return (center - ink_half, y0, center + ink_half, y1)
+
+    advance = label_glyph_advance_width(placement.text)
+    if placement.text_anchor == "end":
+        gx0, gx1 = placement.x - advance, placement.x
+    elif placement.text_anchor == "start":
+        gx0, gx1 = placement.x, placement.x + advance
+    else:
+        gx0, gx1 = placement.x - advance / 2, placement.x + advance / 2
+    iy0, iy1 = _label_ink_y_band(placement)
+    return (gx0, iy0, gx1, iy1)
+
+
+def _label_ink_quad(placement: LabelPlacement) -> list[tuple[float, float]]:
+    """Corners of the label's drawn-glyph footprint, rotated when angled.
+
+    For an angled label this is the proportional glyph strip
+    (:func:`label_glyph_advance_width` wide, one text-height tall) rotated about
+    the anchor like the renderer's ``rotate(angle, x, y)`` -- a thin diagonal
+    band, not the axis-aligned box that would overstate it.  For a horizontal
+    label it is the four corners of :func:`label_glyph_ink_bbox`.
+    """
+    if placement.angle and placement.obstacle_bbox is None:
+        w = label_glyph_advance_width(placement.text)
+        h = _label_text_height(placement.text)
+        if placement.text_anchor == "end":
+            left, right = placement.x - w, placement.x
+        elif placement.text_anchor == "start":
+            left, right = placement.x, placement.x + w
+        else:
+            left, right = placement.x - w / 2, placement.x + w / 2
+        upright = [
+            (left, placement.y - h),
+            (right, placement.y - h),
+            (right, placement.y),
+            (left, placement.y),
+        ]
+        rad = math.radians(placement.angle)
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        ax, ay = placement.x, placement.y
+        return [
+            (
+                ax + (cx - ax) * cos_a - (cy - ay) * sin_a,
+                ay + (cx - ax) * sin_a + (cy - ay) * cos_a,
+            )
+            for cx, cy in upright
+        ]
+    x0, y0, x1, y1 = label_glyph_ink_bbox(placement)
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+def segment_strikes_label(
+    x1: float, y1: float, x2: float, y2: float, placement: LabelPlacement
+) -> bool:
+    """``True`` iff the segment crosses the label's drawn-glyph footprint.
+
+    Uses the rotated glyph strip for an angled label (so a route grazing only
+    the empty corner of its axis-aligned box is not a strike) and the
+    glyph-ink bbox otherwise.
+    """
+    if placement.angle and placement.obstacle_bbox is None:
+        return segment_intersects_quad(x1, y1, x2, y2, _label_ink_quad(placement))
+    return segment_intersects_bbox(x1, y1, x2, y2, label_glyph_ink_bbox(placement))
 
 
 def _rotated_label_bbox(
@@ -1437,6 +1524,7 @@ def place_labels(
     if routes:
         _avoid_diagonal_routes(placements, graph, routes, station_offsets)
         _avoid_horizontal_strikethrough(placements, graph, routes, station_offsets)
+        _avoid_diagonal_strikethrough(placements, graph, routes, station_offsets)
 
     _wrap_overlapping_labels(
         placements, graph, station_offsets, allow_hyphenation=allow_hyphenation
@@ -1757,22 +1845,21 @@ def _avoid_diagonal_routes(
         placement.x, placement.y, placement.above = trial.x, trial.y, trial.above
 
 
-def _avoid_horizontal_strikethrough(
-    placements: list[LabelPlacement],
-    graph: MetroGraph,
+def _foreign_route_segments(
     routes: list["RoutedPath"],
     station_offsets: dict[tuple[str, str], float] | None,
-) -> None:
-    """Flip a label off a foreign horizontal trunk that strikes its glyph ink.
+    *,
+    diagonal: bool,
+) -> list[tuple[str, str, str, float, float, float, float]]:
+    """Route segments usable as label-strike obstacles, offsets applied.
 
-    A label hanging on the side of its station where another line's horizontal
-    run passes reads as struck through.  ``_avoid_diagonal_routes`` ignores
-    horizontal segments because labels normally clear the trunk they sit on;
-    this catches the case a *foreign* trunk (a line the station does not carry,
-    not an edge endpoint) crosses the label's glyph ink, and flips the label to
-    the opposite side when that side is free of label and ink collisions.
+    ``diagonal=True`` keeps non-horizontal runs (trunk-to-fan transitions,
+    off-track entries, bypass Vs); ``diagonal=False`` keeps horizontal runs
+    (trunks).  Each entry is ``(line_id, source, target, x1, y1, x2, y2)`` so a
+    caller can exclude segments whose edge the label's station carries or is an
+    endpoint of.
     """
-    foreign: list[tuple[str, tuple[float, float, float, float]]] = []
+    segs: list[tuple[str, str, str, float, float, float, float]] = []
     for route in routes:
         pts = list(route.points)
         if station_offsets and not route.offsets_applied and pts:
@@ -1781,10 +1868,30 @@ def _avoid_horizontal_strikethrough(
             pts[0] = (pts[0][0], pts[0][1] + so)
             pts[-1] = (pts[-1][0], pts[-1][1] + to)
         for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-            if abs(y2 - y1) >= max(abs(x2 - x1), 1.0) * 0.05:
+            is_diagonal = abs(y2 - y1) >= max(abs(x2 - x1), 1.0) * 0.05
+            if is_diagonal != diagonal:
                 continue
-            foreign.append((route.line_id, (min(x1, x2), y1, max(x1, x2), y2)))
-    if not foreign:
+            segs.append(
+                (route.line_id, route.edge.source, route.edge.target, x1, y1, x2, y2)
+            )
+    return segs
+
+
+def _flip_labels_off_foreign_strikes(
+    placements: list[LabelPlacement],
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float] | None,
+    segments: list[tuple[str, str, str, float, float, float, float]],
+) -> None:
+    """Flip each label whose glyph ink a foreign ``segments`` entry strikes.
+
+    A segment strikes a label only when its line is one the label's station
+    does not carry and the station is not an endpoint of the segment's edge
+    (the strike definition shared with ``_guard_no_line_strikes_label``).  A
+    struck label flips to its other side when that side is free of sibling
+    collisions and foreign strikes; one struck on both sides stays put.
+    """
+    if not segments:
         return
 
     for placement in [p for p in placements if p.obstacle_bbox is None]:
@@ -1794,26 +1901,18 @@ def _avoid_horizontal_strikethrough(
         if station is None:
             continue
         carried = set(graph.station_lines(station.id))
-        ink = label_glyph_ink_bbox(placement)
 
         def strikes(box: tuple[float, float, float, float]) -> bool:
-            for line_id, (sx1, sy1, sx2, sy2) in foreign:
-                if line_id in carried:
+            for line_id, src, tgt, sx1, sy1, sx2, sy2 in segments:
+                if line_id in carried or src == station.id or tgt == station.id:
                     continue
                 if segment_intersects_bbox(sx1, sy1, sx2, sy2, box):
                     return True
             return False
 
-        if not strikes(ink):
+        if not strikes(label_glyph_ink_bbox(placement)):
             continue
-        if station_offsets:
-            offs = [
-                station_offsets.get((station.id, lid), 0.0)
-                for lid in graph.station_lines(station.id)
-            ]
-            min_off, max_off = (min(offs), max(offs)) if offs else (0.0, 0.0)
-        else:
-            min_off = max_off = 0.0
+        min_off, max_off = _pill_offsets(graph, station, station_offsets)
         if placement.above:
             gap = max((station.y + min_off) - placement.y, LABEL_OFFSET)
             trial = LabelPlacement(
@@ -1836,6 +1935,53 @@ def _avoid_horizontal_strikethrough(
         if _has_collision(trial, siblings) or strikes(label_glyph_ink_bbox(trial)):
             continue
         placement.x, placement.y, placement.above = trial.x, trial.y, trial.above
+
+
+def _avoid_horizontal_strikethrough(
+    placements: list[LabelPlacement],
+    graph: MetroGraph,
+    routes: list["RoutedPath"],
+    station_offsets: dict[tuple[str, str], float] | None,
+) -> None:
+    """Flip a label off a foreign horizontal trunk that strikes its glyph ink.
+
+    A label hanging on the side of its station where another line's horizontal
+    run passes reads as struck through.  ``_avoid_diagonal_routes`` ignores
+    horizontal segments because labels normally clear the trunk they sit on;
+    this catches the case a *foreign* trunk (a line the station does not carry,
+    not an edge endpoint) crosses the label's glyph ink, and flips the label to
+    the opposite side when that side is free of label and ink collisions.
+    """
+    _flip_labels_off_foreign_strikes(
+        placements,
+        graph,
+        station_offsets,
+        _foreign_route_segments(routes, station_offsets, diagonal=False),
+    )
+
+
+def _avoid_diagonal_strikethrough(
+    placements: list[LabelPlacement],
+    graph: MetroGraph,
+    routes: list["RoutedPath"],
+    station_offsets: dict[tuple[str, str], float] | None,
+) -> None:
+    """Flip a label off a foreign diagonal route that strikes its glyph ink.
+
+    The diagonal counterpart of ``_avoid_horizontal_strikethrough``.
+    ``_avoid_diagonal_routes`` already flips diagonally-overlapped labels but
+    judges the flip target by the full reserved box, so it declines when the
+    target's empty margin merely grazes a diagonal even though the glyph ink
+    clears.  Judging by glyph ink (the strike measure) and over foreign lines,
+    a label with a clean opposite side flips, while one a bypass V rakes on
+    both sides stays put.
+    """
+    _flip_labels_off_foreign_strikes(
+        placements,
+        graph,
+        station_offsets,
+        _foreign_route_segments(routes, station_offsets, diagonal=True),
+    )
 
 
 def _clamp_label_vertical(

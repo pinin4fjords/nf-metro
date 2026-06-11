@@ -40,8 +40,8 @@ from nf_metro.layout.geometry import segment_intersects_bbox
 from nf_metro.layout.labels import (
     _label_bbox,
     find_wrapped_label_trunk_strikes,
-    label_glyph_ink_bbox,
     place_labels,
+    segment_strikes_label,
 )
 from nf_metro.layout.phases._common import _grow_section_bbox_upward
 from nf_metro.layout.phases.bbox import (
@@ -1276,18 +1276,14 @@ def test_off_track_outputs_below_downward_branch_producer(fixture):
         )
 
 
-# Fixtures where a foreign fan/bypass diagonal rakes a wide label's glyph ink.
-# Clearing the diagonal needs the column widened so its corner seats clear of
-# the label, but the required amount depends on which side ``place_labels``
-# lands the label (a label flipped away from the diagonal is not struck), which
-# is only known after routing -- the column-sizing phase runs before that.  The
-# runtime guard ``_guard_no_line_strikes_label`` flags these; the widening
-# auto-fix is tracked as a follow-up.
+# Fixtures where a foreign bypass V rakes a wide label's glyph ink on BOTH
+# sides of its station, so flipping the label to its other side does not clear
+# it (``_avoid_diagonal_strikethrough`` leaves a label whose flip target is also
+# struck).  Clearing these needs the V's flat run widened past the label or the
+# label moved, not a side flip -- tracked as a follow-up.
 _LABEL_STRIKE_DIAGONAL_XFAIL = {
-    "topologies/funcprofiler_upstream.mmd": "fan diagonal rakes 'FMH FunProfiler'",
-    "guide/06a_without_hidden.mmd": "bypass diagonal rakes 'Quantification'",
-    "guide/06b_with_hidden.mmd": "bypass diagonal rakes 'Quantification'",
-    "da_pipeline.mmd": "bypass diagonal rakes 'annotate'",
+    "guide/06a_without_hidden.mmd": "bypass V rakes 'Quantification' both sides",
+    "guide/06b_with_hidden.mmd": "bypass V rakes 'Quantification' both sides",
 }
 
 _LABEL_STRIKE_FIXTURES = _params_with_xfails(ALL_FIXTURES, _LABEL_STRIKE_DIAGONAL_XFAIL)
@@ -1319,7 +1315,6 @@ def _label_glyph_strikes(fixture: str) -> list[tuple[str, str]]:
         station = graph.stations.get(p.station_id)
         if station is None or not station.label.strip():
             continue
-        ink = label_glyph_ink_bbox(p)
         carried = set(graph.station_lines(p.station_id))
         for r in routes:
             if r.edge.source == p.station_id or r.edge.target == p.station_id:
@@ -1328,7 +1323,7 @@ def _label_glyph_strikes(fixture: str) -> list[tuple[str, str]]:
                 continue
             pts = apply_route_offsets(r, offsets)
             if any(
-                segment_intersects_bbox(x1, y1, x2, y2, ink)
+                segment_strikes_label(x1, y1, x2, y2, p)
                 for (x1, y1), (x2, y2) in zip(pts, pts[1:])
             ):
                 strikes.append((p.station_id, r.line_id))
@@ -1356,15 +1351,16 @@ def test_label_strike_guard_catches_a_strike():
     """The runtime guard fires on a genuine glyph strike and clears a graze.
 
     Locks the guard's teeth and its glyph-ink discrimination: a fixture whose
-    fan diagonal rakes a wide label's glyphs must raise, while one where a line
-    only clips a label's empty reserved margin must pass.
+    bypass V rakes a wide label's glyphs on both sides (no flip clears it) must
+    raise, while one where a line only clips a label's empty reserved margin
+    must pass.
     """
     from nf_metro.layout.phases.guards import (
         PhaseInvariantError,
         _guard_no_line_strikes_label,
     )
 
-    struck = _layout("topologies/funcprofiler_upstream.mmd")
+    struck = _layout("guide/06a_without_hidden.mmd")
     with pytest.raises(PhaseInvariantError, match="strikes through label"):
         _guard_no_line_strikes_label(struck, "test")
 
