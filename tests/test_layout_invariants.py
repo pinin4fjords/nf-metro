@@ -1347,6 +1347,50 @@ def test_no_line_strikes_through_label(fixture):
     )
 
 
+# A label wider than its station's flat run pushes a fan-in/fan-out,
+# convergence, or station-to-station descent diagonal inside the label's
+# x-extent, raking its glyphs.  At a tight column pitch the proportional flat
+# run shrinks below the (fixed-width) label and the strike appears; the engine
+# clears it by lengthening the run with whole grid columns (section runway for a
+# port fan, a per-column gap for an intra-section descent) at a fixed pitch.
+# Each case strikes at the pinned pitch on a layout without that growth.
+# ``None`` exercises the default (gallery) pitch, where these fixtures ship and
+# the strike-clearance loop must keep them clear; the pinned tighter pitches
+# stress the levers where the proportional flat run is shortest.
+_TIGHT_PITCH_STRIKE_CASES = [
+    ("topologies/funcprofiler_upstream.mmd", None),
+    ("topologies/funcprofiler_upstream.mmd", 50),
+    ("topologies/funcprofiler_upstream.mmd", 45),
+    ("topologies/variant_calling.mmd", None),
+    ("topologies/variant_calling.mmd", 45),
+    ("rnaseq_sections.mmd", None),
+    ("topologies/wide_label_fan.mmd", 45),
+]
+
+
+@pytest.mark.parametrize("fixture,x_spacing", _TIGHT_PITCH_STRIKE_CASES)
+def test_no_diagonal_strikes_label(fixture, x_spacing):
+    """No diagonal may rake a station's name label.
+
+    Uses the engine's own strike definition (the one the clearance loop and the
+    runtime guard share): a fan or descent diagonal -- of any line, the station's
+    own or foreign -- crossing the drawn glyphs, with flat runs, bypass-V
+    crossings, off-track sweeps, and angled labels excluded.  The loop lengthens
+    the flat run with whole grid columns until the transition clears.
+    """
+    from nf_metro.layout.phases.spacing import _struck_stations_and_collinear
+
+    graph = (
+        _layout(fixture) if x_spacing is None else _layout(fixture, x_spacing=x_spacing)
+    )
+    struck, collinear = _struck_stations_and_collinear(graph)
+    assert not struck, (
+        f"{fixture} @ x_spacing={x_spacing}: diagonals rake label glyph ink: "
+        + ", ".join(sorted(graph.stations[s].label for s in struck))
+    )
+    assert not collinear, f"{fixture} @ x_spacing={x_spacing}: collinear overlay"
+
+
 def test_label_strike_guard_catches_a_strike():
     """The runtime guard fires on a genuine glyph strike and clears a graze.
 
@@ -1366,6 +1410,32 @@ def test_label_strike_guard_catches_a_strike():
 
     grazed = _layout("variantbenchmarking.mmd")
     _guard_no_line_strikes_label(grazed, "test")
+
+
+def test_diagonal_strike_guard_teeth_and_exemptions():
+    """The wired guard fires on a strike the clearance loop cannot relocate,
+    stays silent once the loop has cleared one, and exempts the bypass-V rake.
+
+    A section the strike-clearance loop grows (``funcprofiler_upstream`` at a
+    tight pitch) must pass; a sectionless flat graph (``centered_tracks`` at a
+    tight pitch), whose struck stations have no section runway or column gap to
+    grow, must raise; and a bypass-V label rake (``guide/06a``) must pass, since
+    the guard excludes it.
+    """
+    from nf_metro.layout.phases.guards import (
+        PhaseInvariantError,
+        _guard_no_diagonal_strikes_horizontal_label,
+    )
+
+    cleared = _layout("topologies/funcprofiler_upstream.mmd", x_spacing=45)
+    _guard_no_diagonal_strikes_horizontal_label(cleared, "test")
+
+    unclearable = _layout("centered_tracks.mmd", x_spacing=45)
+    with pytest.raises(PhaseInvariantError, match="strikes horizontal label"):
+        _guard_no_diagonal_strikes_horizontal_label(unclearable, "test")
+
+    bypass = _layout("guide/06a_without_hidden.mmd")
+    _guard_no_diagonal_strikes_horizontal_label(bypass, "test")
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_DOWNWARD_OUTPUT)

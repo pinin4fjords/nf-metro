@@ -128,6 +128,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_no_artefactual_counter_flow,
     _guard_no_coincident_station_coords,
     _guard_no_collinear_distinct_lines,
+    _guard_no_diagonal_strikes_horizontal_label,
     _guard_no_intra_section_collinear_distinct_lines,
     _guard_no_label_overlap,
     _guard_no_line_crosses_file_icon,
@@ -245,8 +246,9 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _SPREAD_SLACK,
     _residual_label_overlaps,
     _spread_bump,
+    _struck_stations_and_collinear,
 )
-from nf_metro.parser.model import LineSpread, MetroGraph
+from nf_metro.parser.model import LineSpread, MetroGraph, Section
 
 # ---------------------------------------------------------------------------
 # Stage-boundary guards
@@ -534,6 +536,130 @@ def _compute_layout_scaled(
             break  # can't widen the binding axis (e.g. pinned) -- give up
         x_spacing, y_spacing = new_x, new_y
 
+    # Strike-clearance: a fan-in/fan-out, convergence, or descent diagonal that
+    # rakes a station's name label is cleared by lengthening the flat run at that
+    # station by whole grid columns (the pitch stays fixed), seating the
+    # transition outside the label.  Three grid-quantized levers, each a
+    # ``(kind, section, layer)`` triple: the section's entry-side runway, its
+    # exit-side runway, and a per-column gap before the struck station's layer.
+    # Need-driven: only stations the renderer would draw a strike through grow,
+    # so a clean layout -- every gallery render at its default pitch -- is left
+    # untouched.  Independent of pinned vs auto pitch: the room is local, not the
+    # global pitch, so it applies even when the caller fixed x_spacing.
+    #
+    # A grow step bumps every lever at each struck station -- which one relocates
+    # a given strike is hard to know in advance -- then a minimization pass
+    # strips each lever that turns out not to be load-bearing, so the settled
+    # layout carries the least extra width that keeps the labels clear (a strike
+    # cleared by one side does not leave the other's room behind).  A step a
+    # collinear check rejects, or that fails to reduce the struck count, is
+    # rolled back, so the loop never ships a layout worse than it found.
+
+    def _relay() -> None:
+        _layout_once(
+            graph,
+            x_spacing=x_spacing,
+            y_spacing=y_spacing,
+            x_offset=x_offset,
+            y_offset=y_offset,
+            section_x_padding=section_x_padding,
+            section_y_padding=section_y_padding,
+            section_x_gap=section_x_gap,
+            section_y_gap=section_y_gap,
+            validate=validate,
+        )
+
+    def _growable_target(station_id: str) -> tuple[Section, int] | None:
+        st = graph.stations.get(station_id)
+        if st is None or not st.section_id:
+            return None
+        sec = graph.sections.get(st.section_id)
+        if sec is None or sec.direction not in ("LR", "RL"):
+            return None
+        if graph.is_rail_section(sec.id):
+            return None
+        return sec, st.layer
+
+    def _adjust(lever: tuple[str, str, int], delta: int) -> None:
+        kind, sid, layer = lever
+        sec = graph.sections[sid]
+        if kind == "entry":
+            sec.label_strike_entry_cols += delta
+        elif kind == "exit":
+            sec.label_strike_exit_cols += delta
+        else:
+            lg = sec.label_strike_layer_gaps
+            lg[layer] = lg.get(layer, 0) + delta
+            if lg[layer] <= 0:
+                del lg[layer]
+
+    def _lever_value(lever: tuple[str, str, int]) -> int:
+        kind, sid, layer = lever
+        sec = graph.sections[sid]
+        if kind == "entry":
+            return sec.label_strike_entry_cols
+        if kind == "exit":
+            return sec.label_strike_exit_cols
+        return sec.label_strike_layer_gaps.get(layer, 0)
+
+    struck, _ = _struck_stations_and_collinear(graph)
+    for _ in range(_MAX_SPREAD_ITERS):
+        levers: set[tuple[str, str, int]] = set()
+        for sid in struck:
+            target = _growable_target(sid)
+            if target is None:
+                continue
+            sec, layer = target
+            levers |= {
+                ("entry", sec.id, 0),
+                ("exit", sec.id, 0),
+                ("gap", sec.id, layer),
+            }
+        if not levers:
+            break
+        for lever in levers:
+            _adjust(lever, 1)
+        _relay()
+        after, collinear = _struck_stations_and_collinear(graph)
+        if collinear or len(after) >= len(struck):
+            for lever in levers:
+                _adjust(lever, -1)
+            _relay()
+            break
+        struck = after
+
+    # Minimization: shrink each grown lever column by column, keeping a drop only
+    # while the labels stay clear and no collinear overlay appears, so every
+    # lever lands at its least load-bearing value.  Skipped entirely when nothing
+    # grew, so a clean layout never pays a re-lay (and is never perturbed by one).
+    grown: list[tuple[str, str, int]] = (
+        [
+            ("entry", sid, 0)
+            for sid, sec in graph.sections.items()
+            if sec.label_strike_entry_cols
+        ]
+        + [
+            ("exit", sid, 0)
+            for sid, sec in graph.sections.items()
+            if sec.label_strike_exit_cols
+        ]
+        + [
+            ("gap", sid, layer)
+            for sid, sec in graph.sections.items()
+            for layer in list(sec.label_strike_layer_gaps)
+        ]
+    )
+    if grown:
+        for lever in grown:
+            while _lever_value(lever) > 0:
+                _adjust(lever, -1)
+                _relay()
+                still_struck, collinear = _struck_stations_and_collinear(graph)
+                if still_struck or collinear:
+                    _adjust(lever, 1)
+                    break
+        _relay()
+
     # Assure file-icon leaf sinks off the trunk by construction: a leaf icon
     # the laid-out routes rake a line across is taken off-track and the layout
     # re-run once, so the off-track machinery lifts it clear of the passing
@@ -599,6 +725,7 @@ def _compute_layout_scaled(
 
     if validate:
         _guard_no_label_overlap(graph, "final")
+        _guard_no_diagonal_strikes_horizontal_label(graph, "final")
         _guard_no_wrapped_label_trunk_strike(graph, "final")
         _guard_file_icon_no_name_label(graph, "final")
         _guard_no_line_crosses_file_icon(graph, "final")

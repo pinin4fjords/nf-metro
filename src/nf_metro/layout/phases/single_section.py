@@ -185,6 +185,19 @@ def _layout_single_section(
         sub, layers, tracks, x_spacing, graph, section_sids
     )
 
+    # Label-strike clearance: a gap declared before layer ``L`` pushes ``L`` and
+    # every downstream layer along the flow axis, lengthening the flat run into
+    # the struck station so its own descent/ascent diagonal seats clear of its
+    # name.  The strike-clearance loop populates this need-driven, so it is
+    # empty (a no-op) for every layout that draws no strike.
+    if section.label_strike_layer_gaps:
+        all_layers = set(layers.values())
+        for gap_layer, cols in section.label_strike_layer_gaps.items():
+            extra = cols * x_spacing
+            for layer in all_layers:
+                if layer >= gap_layer:
+                    layer_extra[layer] = layer_extra.get(layer, 0.0) + extra
+
     # Widen track spacing when multi-line labels need more vertical room
     effective_y_spacing = _multiline_track_spacing(sub, y_spacing)
 
@@ -295,6 +308,7 @@ def _layout_single_section(
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
     _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
+    _apply_label_strike_runway(sub, section, x_spacing)
     _adjust_lr_label_clearance(sub, section)
     _adjust_terminus_icon_clearance(sub, section, graph)
 
@@ -713,6 +727,38 @@ def _adjust_lr_exit_gap(
         for s in sub.stations.values():
             s.x += shift
         section.bbox_w += exit_gap
+
+
+def _apply_label_strike_runway(
+    sub: MetroGraph,
+    section: Section,
+    x_spacing: float,
+) -> None:
+    """LR/RL sections: lengthen the entry and/or exit runway by whole columns.
+
+    A label wider than its station's flat run lets a boundary-fan diagonal seat
+    inside the label's x-extent.  Adding grid columns of runway on the struck
+    side (the entry side shifts stations along the flow so room opens before the
+    first column; the exit side grows the bbox past the last) moves the diagonal
+    transition clear of the label, keeping the column pitch fixed.  The
+    strike-clearance loop sets these only for the side of a section whose label
+    is actually struck, so this is a no-op (zero columns) for every other
+    render.
+    """
+    if section.direction not in ("LR", "RL"):
+        return
+    entry = section.label_strike_entry_cols * x_spacing
+    exit_room = section.label_strike_exit_cols * x_spacing
+    # Entry is the flow-source boundary (left for LR, right for RL); shifting
+    # stations along the flow opens room between it and the first column.
+    if section.direction == "RL":
+        entry, exit_room = exit_room, entry
+    if entry > 0:
+        for s in sub.stations.values():
+            s.x += entry
+        section.bbox_w += entry
+    if exit_room > 0:
+        section.bbox_w += exit_room
 
 
 def _adjust_lr_label_clearance(

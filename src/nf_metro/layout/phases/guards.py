@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import (
@@ -25,6 +24,7 @@ from nf_metro.layout.geometry import BBoxXIndex, segment_intersects_bbox
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
+    _restoring_layout_geometry,
     _route_crosses_section_boundary,
     _section_bundle_lines,
     _station_marker_bbox,
@@ -971,33 +971,6 @@ def _guard_no_line_crosses_file_icon(
                     )
 
 
-@contextmanager
-def _restoring_layout_geometry(graph: MetroGraph) -> Iterator[None]:
-    """Restore station coords and section bboxes on exit.
-
-    route_edges' diagonal-centring nudges Station.x and place_labels expands
-    section bboxes to fit labels, so a guard that re-routes and re-places to
-    inspect the drawn geometry must undo those mutations: validate=True must
-    not perturb the settled layout.
-    """
-    pos = {sid: (s.x, s.y) for sid, s in graph.stations.items()}
-    bbox = {
-        sid: (s.bbox_x, s.bbox_y, s.bbox_w, s.bbox_h)
-        for sid, s in graph.sections.items()
-    }
-    try:
-        yield
-    finally:
-        for sid, (x, y) in pos.items():
-            st = graph.stations.get(sid)
-            if st is not None:
-                st.x, st.y = x, y
-        for sid, (bx, by, bw, bh) in bbox.items():
-            s = graph.sections.get(sid)
-            if s is not None:
-                s.bbox_x, s.bbox_y, s.bbox_w, s.bbox_h = bx, by, bw, bh
-
-
 def _guard_no_line_strikes_label(
     graph: MetroGraph,
     phase: str,
@@ -1083,6 +1056,44 @@ def _guard_no_line_strikes_label(
                             f"({bbox[2]:.1f},{bbox[3]:.1f}); segment "
                             f"({p1[0]:.1f},{p1[1]:.1f})->({p2[0]:.1f},{p2[1]:.1f})"
                         )
+
+
+def _guard_no_diagonal_strikes_horizontal_label(
+    graph: MetroGraph,
+    phase: str,
+) -> None:
+    """Final-phase: no foreign fan diagonal rakes a stacked station's name.
+
+    Protects the strike-clearance loop's result: a fan-in/fan-out or
+    convergence diagonal that transitions through a horizontal label reads as a
+    strike-through, and the loop grows the offending section's runway by whole
+    grid columns until the transition seats clear.  This guard fails loudly if a
+    layout ships such a strike anyway.  It probes through the same helper the
+    loop uses, so it validates exactly the geometry the loop reasoned about.
+
+    Narrower than :func:`_guard_no_line_strikes_label`: it excludes bypass-V
+    crossings (a V sits a fixed offset from the station, so runway growth cannot
+    relocate it) and angled labels (handled by their rotated footprint, not
+    column runway), so it can be wired into the validate pass while those
+    remain.
+    """
+    from nf_metro.layout.phases.spacing import (
+        _probe_label_placements,
+        _struck_label_station_ids,
+    )
+
+    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    if probe is None:
+        return
+    offsets, routes, placements = probe
+    struck = _struck_label_station_ids(graph, offsets, routes, placements)
+    if struck:
+        names = ", ".join(
+            f"{sid!r} ({graph.stations[sid].label!r})" for sid in sorted(struck)
+        )
+        raise PhaseInvariantError(
+            f"{phase}: foreign fan diagonal strikes horizontal label(s): {names}"
+        )
 
 
 def _guard_no_wrapped_label_trunk_strike(
