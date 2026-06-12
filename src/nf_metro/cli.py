@@ -205,7 +205,7 @@ def render(
 
     try:
         compute_layout(graph)
-    except PhaseInvariantError as e:
+    except (ValueError, PhaseInvariantError) as e:
         raise click.ClickException(str(e))
 
     theme_obj = _resolve_theme(theme, graph)
