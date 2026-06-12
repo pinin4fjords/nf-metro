@@ -11,7 +11,6 @@ __all__ = ["assign_layers", "build_station_digraph"]
 import networkx as nx
 
 from nf_metro.parser.model import MetroGraph
-from nf_metro.parser.validate import find_cycle, format_cycle_error
 
 
 def build_station_digraph(graph: MetroGraph) -> nx.DiGraph[str]:
@@ -40,9 +39,7 @@ def assign_layers(graph: MetroGraph) -> dict[str, int]:
     """
     G = build_station_digraph(graph)
 
-    witness = find_cycle(graph)
-    if witness is not None:
-        raise ValueError(format_cycle_error(witness))
+    # Topological sort (will raise if cycles exist)
     topo_order = list(nx.topological_sort(G))
 
     layers: dict[str, int] = {}

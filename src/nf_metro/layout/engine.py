@@ -252,6 +252,11 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _struck_stations_and_collinear,
 )
 from nf_metro.parser.model import LineSpread, MetroGraph, Section
+from nf_metro.parser.validate import (
+    CyclicGraphError,
+    find_cycle,
+    format_cycle_error,
+)
 
 # ---------------------------------------------------------------------------
 # Stage-boundary guards
@@ -376,6 +381,10 @@ def compute_layout(
     key phases.  Violations raise ``PhaseInvariantError`` instead of
     silently producing broken layouts.
     """
+    witness = find_cycle(graph)
+    if witness is not None:
+        raise CyclicGraphError(format_cycle_error(witness))
+
     if x_spacing is None:
         x_spacing = graph.x_spacing
     if y_spacing is None:

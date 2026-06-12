@@ -1,4 +1,4 @@
-"""Cyclic / self-loop graphs must fail fast with a node-naming error (#645).
+"""Cyclic / self-loop graphs must fail fast with a node-naming error.
 
 The layout engine assumes a DAG (``assign_layers`` runs a topological sort).
 A cycle or self-loop in the parsed graph must be rejected on both the
@@ -12,7 +12,12 @@ from click.testing import CliRunner
 
 from nf_metro.cli import cli
 from nf_metro.layout import compute_layout
-from nf_metro.parser import ERROR, parse_metro_mermaid, validate_graph
+from nf_metro.parser import (
+    ERROR,
+    CyclicGraphError,
+    parse_metro_mermaid,
+    validate_graph,
+)
 
 _TWO_NODE_CYCLE = """\
 %%metro line: l1 | Line 1 | #ff0000 | solid
@@ -51,7 +56,7 @@ def test_validate_graph_flags_cycle(mmd: str):
 def test_compute_layout_rejects_cycle(mmd: str):
     graph = parse_metro_mermaid(mmd)
 
-    with pytest.raises(ValueError, match="cycle") as excinfo:
+    with pytest.raises(CyclicGraphError, match="cycle") as excinfo:
         compute_layout(graph)
 
     assert "a" in str(excinfo.value)

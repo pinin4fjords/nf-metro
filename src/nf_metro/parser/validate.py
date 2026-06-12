@@ -18,21 +18,23 @@ ERROR = "error"
 WARNING = "warning"
 
 
+class CyclicGraphError(ValueError):
+    """Raised when a graph the layout engine requires to be a DAG has a cycle."""
+
+
 def find_cycle(graph: MetroGraph) -> list[str] | None:
     """Return a node sequence witnessing a cycle, or ``None`` if acyclic.
 
     The returned path closes back on its first node (``["a", "b", "a"]`` for a
     two-node cycle, ``["a", "a"]`` for a self-loop) so it reads directly as
-    ``a -> b -> a`` when joined. The layout engine requires a DAG, so a cycle
-    here is a fatal input error rather than a warning.
+    ``a -> b -> a`` when joined.
     """
     g: nx.DiGraph[str] = nx.DiGraph()
     for edge in graph.edges:
         g.add_edge(edge.source, edge.target)
-    try:
-        cycle_edges = nx.find_cycle(g)
-    except nx.NetworkXNoCycle:
+    if nx.is_directed_acyclic_graph(g):
         return None
+    cycle_edges = nx.find_cycle(g)
     nodes = [source for source, _ in cycle_edges]
     nodes.append(cycle_edges[0][0])
     return nodes
