@@ -889,17 +889,16 @@ def _normalize_bypass_trunks(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         bands.sort(key=lambda b: min(t.y for t in b))
         planned = [_plan_trunk_band(b) for b in bands]
         gap = BUNDLE_TO_BUNDLE_CLEARANCE
-        heights = [(len(order) - 1) * step for order in planned]
-        total = sum(heights) + gap * (len(planned) - 1)
+        total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(planned) - 1)
         # Stack the bands top -> bottom with a clear gap; anchor at the current
         # cluster top, then slide the whole stack up if its bottom would crowd
         # the next row's header.  Sliding up (into the free upper gap) preserves
         # the inter-band gap without pushing the lower band into the header.
         top = min(t.y for t in grp)
         band_top = _clamp_inter_row_band_top(ctx, top, total)
-        for order, h in zip(planned, heights):
-            _restack_trunk_band(order, band_top, dips, step, ctx, bundled)
-            band_top += h + gap
+        for order, track_of, n in planned:
+            _restack_trunk_band(order, track_of, n, band_top, dips, step, ctx, bundled)
+            band_top += (n - 1) * step + gap
 
     _dogleg_off_exempt_trunks(routes, ctx, skip=bundled)
 
@@ -982,8 +981,85 @@ def _band_order_crossings(
 _MAX_BAND_PERMUTE = 6
 
 
-def _plan_trunk_band(band: list[_HTrunk]) -> list[list[_HTrunk]]:
-    """Order one same-direction band into concentric slots.
+_SpanOf = dict[int, tuple[float, float]]
+
+
+def _slot_span(sg: list[_HTrunk]) -> tuple[float, float]:
+    """``(x_lo, x_hi)`` envelope of one coincident-Y slot's trunks."""
+    return min(t.x_lo for t in sg), max(t.x_hi for t in sg)
+
+
+def _x_overlap(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Overlapping X extent of two ``(lo, hi)`` spans; 0 when they don't meet.
+
+    A non-zero result means the two spans share a sub-corridor over that many
+    px; the ``COORD_TOLERANCE`` floor treats a shared endpoint as no overlap.
+    """
+    extent = min(a[1], b[1]) - max(a[0], b[0])
+    return extent if extent > COORD_TOLERANCE else 0.0
+
+
+def _pack_band_tracks(order_s2d: list[list[_HTrunk]], span_of: _SpanOf) -> list[int]:
+    """Greedy track index per slot for a shallow->deep slot ordering.
+
+    Each slot takes the shallowest track one deeper than every already-placed
+    slot it overlaps in X; a slot that shares no sub-corridor with a shallower
+    one reuses that shallower track.  The result packs co-travelling trunks
+    onto adjacent tracks instead of reserving a fixed concentric depth across
+    the whole channel, so a pair sharing one corridor never has an empty track
+    wedged between them by trunks that only appear elsewhere in X.
+    """
+    tracks: list[int] = []
+    for i, sg in enumerate(order_s2d):
+        span = span_of[id(sg)]
+        tr = 0
+        for k in range(i):
+            if _x_overlap(span_of[id(order_s2d[k])], span):
+                tr = max(tr, tracks[k] + 1)
+        tracks.append(tr)
+    return tracks
+
+
+def _packed_track_map(
+    order: list[list[_HTrunk]], span_of: _SpanOf
+) -> tuple[dict[int, int], int]:
+    """Track index per slot (keyed by ``id``) and the band's track count.
+
+    *order* is outermost-first (as returned by :func:`_plan_trunk_band`); the
+    packing runs in shallow->deep order (its reverse).
+    """
+    s2d = list(reversed(order))
+    tracks = _pack_band_tracks(s2d, span_of)
+    track_of = {id(sg): tr for sg, tr in zip(s2d, tracks)}
+    return track_of, (max(tracks) + 1 if tracks else 1)
+
+
+def _band_looseness(
+    order_s2d: list[list[_HTrunk]], tracks: list[int], span_of: _SpanOf
+) -> float:
+    """Total empty-track span between X-overlapping slots, area-weighted.
+
+    For each overlapping slot pair the depth gap beyond one track is weighted
+    by the length they co-travel, so an ordering that leaves a wide bundle
+    split across a reserved track scores worse than one that packs it tight.
+    """
+    total = 0.0
+    for i in range(len(order_s2d)):
+        for j in range(i + 1, len(order_s2d)):
+            ov = _x_overlap(span_of[id(order_s2d[i])], span_of[id(order_s2d[j])])
+            gap = tracks[j] - tracks[i] - 1
+            if ov and gap > 0:
+                total += gap * ov
+    return total
+
+
+def _plan_trunk_band(
+    band: list[_HTrunk],
+) -> tuple[list[list[_HTrunk]], dict[int, int], int]:
+    """Order one same-direction band into concentric slots and pack its tracks.
+
+    Returns the outermost-first slot ``order``, a ``{id(slot): track}`` map
+    (track 0 = innermost / shallowest), and the band's track count.
 
     Bundle slots are per distinct LINE, not per trunk: two trunks of the SAME
     line whose X-spans overlap are a fan-out/fan-in of one metro line and
@@ -991,13 +1067,17 @@ def _plan_trunk_band(band: list[_HTrunk]) -> list[list[_HTrunk]]:
     trunks) keep their own concentric slots.
 
     Slots are ordered to minimise crossings between each slot's peel-off risers
-    and the others' trunk legs.  Among orderings tied on crossings the
-    widest-reaching slot sorts OUTERMOST (deepest into the channel) so a
-    slot's flanking verticals never needlessly cross another slot's leg; ties
-    beyond that keep incoming order.  The width key is also the tie-break that
-    keeps every already-optimal band byte-identical to the prior heuristic.
+    and the others' trunk legs.  Among orderings tied on crossings the one
+    whose greedy track-packing leaves the least empty space between trunks that
+    co-travel a shared sub-corridor wins (so disjoint trunks sharing a corridor
+    bundle tight instead of being split by a track reserved for a trunk that
+    only appears elsewhere in X); among those the widest-reaching slot sorts
+    OUTERMOST.  A fully-overlapping bundle packs to one concentric stack whose
+    looseness is zero for every order, so the width-only tie-break alone
+    decides it.
     """
     slot_groups = _coincident_trunk_slots(band)
+    span_of: _SpanOf = {id(sg): _slot_span(sg) for sg in slot_groups}
     heuristic = sorted(
         slot_groups,
         key=lambda sg: (
@@ -1007,7 +1087,7 @@ def _plan_trunk_band(band: list[_HTrunk]) -> list[list[_HTrunk]]:
         ),
     )
     if len(slot_groups) < 2 or len(slot_groups) > _MAX_BAND_PERMUTE:
-        return heuristic
+        return heuristic, *_packed_track_map(heuristic, span_of)
 
     # `_restack_trunk_band` lays slot 0 at the channel-interior extreme: the
     # BOTTOM (largest y) for a downward dip, the TOP for an upward dip.  Score
@@ -1017,17 +1097,22 @@ def _plan_trunk_band(band: list[_HTrunk]) -> list[list[_HTrunk]]:
     h_rank = {id(sg): r for r, sg in enumerate(h_ttb)}
     feats = {id(sg): _trunk_slot_features(sg) for sg in slot_groups}
 
-    def _key(perm: list[list[_HTrunk]]) -> tuple[int, ...]:
-        # Tie-break by position in the heuristic order: the heuristic itself
-        # scores (0, 1, .. m-1), the lexicographically smallest tuple, so an
-        # already-optimal band reproduces the heuristic order exactly.
+    def _key(perm: list[list[_HTrunk]]) -> tuple[float, ...]:
+        # Crossings first; then packed looseness so tight bundles beat split
+        # ones; then heuristic position.  The heuristic scores (.., 0, 1, ..),
+        # the smallest tuple, so a crossing- and looseness-optimal band keeps
+        # the widest-reaching slot outermost.
+        s2d = perm if dips else list(reversed(perm))
+        looseness = _band_looseness(s2d, _pack_band_tracks(s2d, span_of), span_of)
         return (
             _band_order_crossings(perm, feats),
+            looseness,
             *(h_rank[id(sg)] for sg in perm),
         )
 
     best_ttb = min((list(p) for p in itertools.permutations(h_ttb)), key=_key)
-    return list(reversed(best_ttb)) if dips else best_ttb
+    order = list(reversed(best_ttb)) if dips else best_ttb
+    return order, *_packed_track_map(order, span_of)
 
 
 def _suboptimal_trunk_bands(
@@ -1087,27 +1172,30 @@ def _clamp_inter_row_band_top(ctx: _RoutingCtx, top: float, total: float) -> flo
 
 def _restack_trunk_band(
     order: list[list[_HTrunk]],
+    track_of: dict[int, int],
+    n: int,
     band_top: float,
     dips: bool,
     step: float,
     ctx: _RoutingCtx,
     bundled: set[int],
 ) -> None:
-    """Fan one planned same-direction band into its concentric slots.
+    """Fan one planned same-direction band onto its packed tracks.
 
-    The band occupies ``[band_top, band_top + (n-1)*step]``; the slot closest
-    to the channel interior (innermost) sits at the shallow edge.  All trunks
-    here -- including exempt ones grouped with a non-exempt mate -- are placed
-    so the whole band reads as one tight concentric bundle.
+    The band occupies ``[band_top, band_top + (n-1)*step]`` across *n* tracks;
+    *track_of* gives each slot's track (0 = innermost / shallowest).  Slots
+    sharing one sub-corridor pack onto adjacent tracks, so a slot present only
+    in part of the channel reuses a track left free where it is absent.  All
+    trunks here -- including exempt ones grouped with a non-exempt mate -- are
+    placed so each co-travelling bundle reads as one tight concentric run.
     """
-    n = len(order)
-    for slot, sg in enumerate(order):
-        inner = n - 1 - slot  # 0 = innermost (shallowest); sets the corner radii
+    for sg in order:
+        inner = track_of[id(sg)]  # 0 = innermost (shallowest); sets corner radii
         # Depth from ``band_top`` (the band's smallest Y).  For a downward dip
-        # the channel interior is above, so the innermost slot sits at the top;
+        # the channel interior is above, so the innermost track sits at the top;
         # for an upward dip the interior is below, so the innermost sits at the
-        # bottom -- hence the inner/slot swap.
-        depth = inner if dips else slot
+        # bottom -- hence the inner/(n-1-inner) swap.
+        depth = inner if dips else n - 1 - inner
         new_y = band_top + depth * step
         for t in sg:
             bundled.add(id(t.route))
