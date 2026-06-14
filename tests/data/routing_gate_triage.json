@@ -936,7 +936,7 @@
     "status": "candidate-dead"
   },
   "offsets.py::if lid not in seen:::#1": {
-    "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable — the dedup happens at set construction, making the `seen` guard dead code.",
+    "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable \u2014 the dedup happens at set construction, making the `seen` guard dead code.",
     "status": "candidate-dead"
   },
   "offsets.py::if max_steps <= 0:::#1": {
@@ -1044,7 +1044,7 @@
     "status": "needs-review"
   },
   "offsets.py::if src_st and not src_st.is_port:::#1": {
-    "note": "In `_rewrite_edges_with_junctions` (resolve.py L594), edges to exit ports are always created as `Edge(source=edge.source, target=exit_port_id)` where `edge.source` is the original inter-section edge's source — an internal section station, not a port. So `src_st` is never None and `src_st.is_port` is always False. The false arm cannot be taken by any valid parsed graph.",
+    "note": "In `_rewrite_edges_with_junctions` (resolve.py L594), edges to exit ports are always created as `Edge(source=edge.source, target=exit_port_id)` where `edge.source` is the original inter-section edge's source \u2014 an internal section station, not a port. So `src_st` is never None and `src_st.is_port` is always False. The false arm cannot be taken by any valid parsed graph.",
     "status": "defensive"
   },
   "offsets.py::if src_st and not src_st.is_port:::#2": {
@@ -1067,33 +1067,105 @@
     "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
     "status": "needs-review"
   },
+  "postprocess.py::for sid, (::#1": {
+    "note": "Phantom branch arc. The multi-line `for sid, (...) in candidates.items()` unpacking target spans several lines; coverage attributes the real loop-body entry to L481->L482 (executed by 122 fixtures) and the loop exit to the function start, leaving the static L481->L488 arc as an attribution artifact no execution takes.",
+    "status": "defensive"
+  },
+  "postprocess.py::if abs(other.y - station.y) > 1:::#1": {
+    "note": "The loop-back arm (skip appending a column companion) fires only when another non-port station in the same section shares the moving station's x (within 1px) and its y (within 1px) - two near-coincident distinct stations, forbidden by the no-overlap invariant.",
+    "status": "defensive"
+  },
+  "postprocess.py::if abs(rp.points[-1][0] - old_x) < STATION_MOVE_TOLERANCE:::#1": {
+    "note": "Per-route anchor guard: only an incoming route whose end sits at the dragged station's old x is re-pointed to the new x. The skip arm protects against re-pointing a route not anchored at the station; dragged stations in the corpus only carry position-anchored routes, so it never fires.",
+    "status": "defensive"
+  },
+  "postprocess.py::if abs(rp.points[0][0] - old_x) < STATION_MOVE_TOLERANCE:::#1": {
+    "note": "Per-route anchor guard: only an outgoing route whose start sits at the dragged station's old x is re-pointed to the new x. The skip arm protects against re-pointing a route not anchored at the station (e.g. an L-shape or bypass leg not snapped by _apply_station_moves); dragged stations in the corpus only carry position-anchored routes, so it never fires.",
+    "status": "defensive"
+  },
+  "postprocess.py::if any(_is_chain_predecessor(graph, ctx, r.edge.source) for r in flat_in):::#1": {
+    "note": "Inside the multi_diag block of _flat_connects_to_internal_chain, which is never entered because multi_diag is structurally unsatisfiable. Both arms unreachable. Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if any(_is_internal_station(graph, r.edge.target) for r in flat_out):::#1": {
+    "note": "Inside the multi_diag block of _flat_connects_to_internal_chain, never entered because multi_diag is structurally unsatisfiable. Both arms unreachable. Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if ctx.station_offsets is None:::#1": {
+    "note": "Null guard in _spread_diagonal_bundles. compute_station_offsets returns a non-Optional dict and every render-path route_edges call passes it; the only caller leaving station_offsets at its None default is the validate-only _ensure_routes (guards.py), which the render sweep does not run. The early return never fires on a rendered topology, mirroring the matching assert in _apply_diagonal_spread.",
+    "status": "defensive"
+  },
+  "postprocess.py::if len(moved) <= len(unmoved):::#1": {
+    "note": "Reached only from the has-unmoved arm of the agree branch, which is unreachable because a column never mixes moved and unmoved visible stations (all-or-nothing companion consensus). Both arms unreachable. Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if majority_count <= len(moved) / 2:::#1": {
+    "note": "The no-clear-majority arm. Movers in a column either converge to one consensus x or sit off it only via hub/exit-port collinearity at a fixed >=20px quantum; the consensus cluster is always the strict majority, so majority_count is never <= half (0 of corpus, no probe topology reproduces a split). Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if max(moved_xs) - min(moved_xs) > 1.0:::#1": {
+    "note": "Movers-agree branch (else). Reachable only by a contrived topology that lifts the trunk-collinear fan branch out of the tools' column (e.g. a hidden hop) so the remaining branches centre to one shared X; the engine seats one fan branch on the hub's trunk row in every natural fan, forcing the disagree branch (L568). Left un-fixtured: the only reaching topology is a coverage-only contrivance, not a natural pipeline.",
+    "status": "needs-review"
+  },
+  "postprocess.py::if multi_diag:::#1": {
+    "note": "multi_diag branch of _flat_connects_to_internal_chain; multi_diag is structurally unsatisfiable (see the _classify_centering_routes gate at the same line text), so the function is only ever called with multi_diag False. Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if multi_diag:::#2": {
+    "note": "multi_diag branch selecting the flat-segment X extent in _centering_candidate; multi_diag is structurally unsatisfiable (see the _classify_centering_routes gate). Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if not is_fork_join and (::#1": {
+    "note": "Enters the multi_diag block, which needs a non-fork-join station (<=1 distinct predecessor and successor) carrying both a 4-point diagonal and a 2-point flat incoming route. Raw route shape is a pure function of endpoint coordinates, so all lines on one edge share one shape: n_unique_in and n_unique_flat_in can never both be >=1 for a single-predecessor station, and n_unique_in/out are <=1 when not fork-join. multi_diag is unsatisfiable (0 of 6173 corpus calls). Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if not multi_diag:::#1": {
+    "note": "The skip-this-block arm fires only when multi_diag is True, which is structurally unsatisfiable (see the _classify_centering_routes gate). Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if not other or other.is_port or other.is_hidden:::#1": {
+    "note": "Companion scan in _apply_station_moves iterates original_x, which holds only non-port stations, so `other` is never None and never a port (both operands unreachable); `other.is_hidden` is a coincidence guard skipping a hidden station that happens to share a moving station's column, which no corpus topology produces.",
+    "status": "defensive"
+  },
+  "postprocess.py::if not outliers:::#1": {
+    "note": "The no-outliers arm in the movers-disagree branch. Disagreement only arises from hub/exit-port collinearity at a >=20px quantum, never sub-pixel, so whenever spread exceeds 1px at least one mover rounds >1px from the majority x. outliers is never empty here. Pending deletion review in #689.",
+    "status": "candidate-dead"
+  },
+  "postprocess.py::if not unmoved:::#1": {
+    "note": "Agree-branch tail. `->L583` (unmoved empty, continue) is reachable only via the same contrived agree-case as the L565 gate; `->L584` (unmoved non-empty) is unreachable because the all-or-nothing companion consensus never leaves a moved and an unmoved visible station in one column. Left un-fixtured.",
+    "status": "needs-review"
+  },
+  "postprocess.py::if ox is None:::#1": {
+    "note": "Null guard in _align_uncentered_siblings. The loop iterates visible non-port stations and original_x is built from every non-port station, so ox is always present; the guard never fires.",
+    "status": "defensive"
+  },
   "rail.py::if edge.line_id not in order or len(order) <= 1:::#1": {
-    "status": "needs-review",
-    "note": "The single-feeder early-return (len(order)<=1) is reachable only via a single-line off-track input or output, and off-track I/O renders defectively in rail mode (bare rail-ends, label overlap). Parked pending #744 (reachable-but-defective). The 'not in order' disjunct is dead: the edge itself is always in the feeder<->consumer set that builds order."
+    "note": "The single-feeder early-return (len(order)<=1) is reachable only via a single-line off-track input or output, and off-track I/O renders defectively in rail mode (bare rail-ends, label overlap). Parked pending #744 (reachable-but-defective). The 'not in order' disjunct is dead: the edge itself is always in the feeder<->consumer set that builds order.",
+    "status": "needs-review"
   },
   "rail.py::if line_id in section_rails:::#1": {
-    "status": "needs-review",
-    "note": "Gated behind the port branch, so reachable only via the same connected-whole-graph-rails topology (#743). A port always carries a line present in its own section's rail map, so the in-rails arm is the live one and the fall-through is a structural fallback. Parked pending #743 (reachable-but-defective)."
+    "note": "Gated behind the port branch, so reachable only via the same connected-whole-graph-rails topology (#743). A port always carries a line present in its own section's rail map, so the in-rails arm is the live one and the fall-through is a structural fallback. Parked pending #743 (reachable-but-defective).",
+    "status": "needs-review"
   },
   "rail.py::if line_id in served and len(st.rail_used_ys) == len(served):::#1": {
-    "status": "defensive",
-    "note": "Reached only for a non-port spanning station, whose rail_used_ys is station_lines_ordered filtered to the section's per_line_y - itself built from the same _section_lines_in_order. So a served line is always in per_line_y (lengths match) and _line_rail_y is only called with a line the touching edge carries (always served). The fall-through return st.y is a defensive fallback no render-path call reaches."
+    "note": "Reached only for a non-port spanning station, whose rail_used_ys is station_lines_ordered filtered to the section's per_line_y - itself built from the same _section_lines_in_order. So a served line is always in per_line_y (lengths match) and _line_rail_y is only called with a line the touching edge carries (always served). The fall-through return st.y is a defensive fallback no render-path call reaches.",
+    "status": "defensive"
   },
   "rail.py::if off_tgt:::#1": {
-    "status": "needs-review",
-    "note": "The off-track-output arm (reverse the L-route when the target is off-track) is reachable only via an off-track output, which renders defectively in rail mode (bare line-end, detached label). Parked pending #744 (reachable-but-defective)."
+    "note": "The off-track-output arm (reverse the L-route when the target is off-track) is reachable only via an off-track output, which renders defectively in rail mode (bare line-end, detached label). Parked pending #744 (reachable-but-defective).",
+    "status": "needs-review"
   },
   "rail.py::if port is not None:::#1": {
-    "status": "needs-review",
-    "note": "The port branch is reachable only via whole-graph line_spread:rails with an inter-section edge (per-section rail mode excludes port edges from the rail router), and that topology renders defectively (dangling port stubs + avoidable crossings). Parked pending #743 rather than fixtured (reachable-but-defective, the #688 pattern)."
+    "note": "The port branch is reachable only via whole-graph line_spread:rails with an inter-section edge (per-section rail mode excludes port edges from the rail router), and that topology renders defectively (dangling port stubs + avoidable crossings). Parked pending #743 rather than fixtured (reachable-but-defective, the #688 pattern).",
+    "status": "needs-review"
   },
   "rail.py::if src is None or tgt is None:::#1": {
-    "status": "defensive",
-    "note": "Null guard over an edge's endpoints; every graph.edges endpoint exists in graph.stations, so the continue arm is a contract guard no render-path call reaches."
+    "note": "Null guard over an edge's endpoints; every graph.edges endpoint exists in graph.stations, so the continue arm is a contract guard no render-path call reaches.",
+    "status": "defensive"
   },
   "rail.py::if st is None:::#1": {
-    "status": "defensive",
-    "note": "_line_rail_y is only ever called with a real station id (on_rail.id, edge.source/target, or a sibling edge endpoint), all of which exist in graph.stations - the route loop pre-filters None endpoints at the src/tgt guard. The None arm is a contract guard no render-path call reaches."
+    "note": "_line_rail_y is only ever called with a real station id (on_rail.id, edge.source/target, or a sibling edge endpoint), all of which exist in graph.stations - the route loop pre-filters None endpoints at the src/tgt guard. The None arm is a contract guard no render-path call reaches.",
+    "status": "defensive"
   },
   "reversal.py::elif src.is_port:::#1": {
     "note": "Edge feeding a LEFT/RIGHT entry port whose source is not a junction; src is then always an exit port (is_port=True), because resolved chains feed entry ports only from exit ports or junctions. The elif is always true, so the implicit fall-through to the loop (->223) is a structural-contract guard no valid topology reaches.",
