@@ -576,6 +576,46 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "declaration order at the peel-off corner instead of inverting "
         "(issue #695).",
     ),
+    # --- LR section feeding a TB section's TOP entry ---
+    (
+        "lr_to_tb_top_drop",
+        TOPOLOGIES_DIR,
+        "An LR section feeds the TOP entry of a TB section stacked directly "
+        "below. With no explicit exit side the engine infers a BOTTOM exit: "
+        "the line curves out of the trunk after the last station and drops "
+        "straight onto the target trunk, which is aligned under the exit.",
+    ),
+    (
+        "lr_to_tb_top_drop_two_lines",
+        TOPOLOGIES_DIR,
+        "Two co-travelling lines drop out of an LR section's explicit BOTTOM "
+        "exit into a TB section's shared TOP entry below, staying parallel "
+        "through the corner and down to the trunk without crossing.",
+    ),
+    (
+        "lr_to_tb_top_near_vertical",
+        TOPOLOGIES_DIR,
+        "A RIGHT-exit LR section feeds the TOP entry of a TB section stacked "
+        "directly below. The explicit right exit leaves on the right, clears "
+        "the source box, and doubles back over the inter-row gap to drop "
+        "straight onto the target trunk rather than elbowing in through the "
+        "top-right corner.",
+    ),
+    (
+        "lr_to_tb_top_cross_col",
+        TOPOLOGIES_DIR,
+        "A junction source feeds both a same-row RIGHT-entry consumer and a "
+        "TB section's TOP entry two rows below. The downward branch drops onto "
+        "the target trunk without crossing the section boundary off-port.",
+    ),
+    (
+        "lr_to_tb_top_two_lines",
+        TOPOLOGIES_DIR,
+        "Two co-travelling lines from a RIGHT-exit LR section double back into "
+        "a TB section's shared TOP entry below, landing on their trunk X "
+        "offsets so the bundle stays parallel through the boundary without "
+        "pinching or crossing.",
+    ),
 ]
 
 # Category headers inserted before specific entries

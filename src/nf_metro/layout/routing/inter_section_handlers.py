@@ -128,10 +128,29 @@ def _route_inter_section(
     if src_is_tb_bottom and ctx.station_offsets:
         return _route_tb_bottom_exit(edge, src, tgt, ctx)
 
+    tgt_port = graph.ports.get(edge.target)
+
+    # A perpendicular (TOP/BOTTOM) exit on a horizontal-flow section leaves the
+    # section vertically and drops straight into the aligned TOP/BOTTOM entry
+    # below/above.  The after-station curve lives in the internal
+    # station->exit segment, so this inter-section leg is a plain drop.
+    src_is_perp_exit = (
+        src_port is not None
+        and not src_port.is_entry
+        and src_port.side in (PortSide.TOP, PortSide.BOTTOM)
+        and src.section_id not in ctx.tb_sections
+    )
+    if (
+        src_is_perp_exit
+        and tgt_port
+        and tgt_port.is_entry
+        and tgt_port.side in (PortSide.TOP, PortSide.BOTTOM)
+    ):
+        return _route_perp_exit_drop(edge, src, tgt, ctx)
+
     # TOP entry port: L-shape so the line gets a proper curve into the
     # section.  Must be checked before the same-X shortcut, which would
     # produce a straight vertical drop with no horizontal lead-in.
-    tgt_port = graph.ports.get(edge.target)
     if tgt_port and tgt_port.is_entry and tgt_port.side == PortSide.TOP:
         return _route_top_entry_l_shape(edge, src, tgt, i, n, ctx)
 
@@ -1049,6 +1068,59 @@ def _route_l_shape(
     )
 
 
+def _source_exit_side(graph: MetroGraph, src: Station) -> Direction | None:
+    """Horizontal side a route leaves its source section from, if any.
+
+    Returns ``Direction.L`` / ``Direction.R`` when the source is a left/right
+    exit port, or a junction fed (directly or transitively) by one; ``None``
+    when the source has no horizontal exit side (e.g. a TOP/BOTTOM port).
+    """
+    seen: set[str] = set()
+    cur: str | None = src.id
+    while cur is not None and cur not in seen:
+        seen.add(cur)
+        port = graph.ports.get(cur)
+        if port is not None and not port.is_entry:
+            if port.side == PortSide.RIGHT:
+                return Direction.R
+            if port.side == PortSide.LEFT:
+                return Direction.L
+            return None
+        if cur in graph.junctions:
+            cur = next(
+                (e.source for e in graph.edges if e.target == cur),
+                None,
+            )
+            continue
+        return None
+    return None
+
+
+def _route_perp_exit_drop(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Straight vertical drop from a perpendicular exit into an aligned entry.
+
+    A TOP/BOTTOM exit on a horizontal-flow section and the TOP/BOTTOM entry it
+    feeds share an X (the target trunk is aligned to the exit), so the
+    inter-section leg is a single straight segment.  Each line drops at the
+    target trunk's per-line X offset so a co-travelling bundle stays parallel
+    down to the port and on into the trunk, merging only at the first real
+    station inside the target.
+    """
+    sy = src.y
+    ty = tgt.y
+    x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(x, sy), (x, ty)],
+        is_inter_section=True,
+        normalize_exempt=True,
+        offsets_applied=True,
+    )
+
+
 def _route_top_entry_l_shape(
     edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
 ) -> RoutedPath:
@@ -1112,15 +1184,33 @@ def _route_top_entry_l_shape(
             - ctx.curve_radius
         )
 
-    hy = mid_y - delta
+    # A multi-line bundle fans the channel toward the source box (the line
+    # nearest it sits a bundle-width above the centre); keep the centre low
+    # enough that even that line clears the source section's bottom edge.
+    if (
+        n > 1
+        and src_sec is not None
+        and tgt_sec is not None
+        and src_sec.grid_row != tgt_sec.grid_row
+    ):
+        src_bottom = src_sec.bbox_y + src_sec.bbox_h
+        max_off = (n - 1) * ctx.offset_step
+        mid_y = max(mid_y, src_bottom + INTER_ROW_EDGE_CLEARANCE + max_off)
 
     # Horizontal lead-in: a short run so the corner from horizontal to
-    # vertical gets a proper curve.  When dx is large, the lead-in
-    # direction matches dx.  When dx is near-zero (source directly
-    # above target), infer direction from the upstream exit port so the
-    # line continues with the bundle flow before curving down.
+    # vertical gets a proper curve.  The line leaves the source on the side
+    # it physically exits from (a right/left exit port, or a junction fed by
+    # one): a right exit whose target trunk sits to its LEFT must clear the
+    # source section on the right and double back over the inter-row gap (a
+    # right-down-left-down shape), so following dx would turn the line back
+    # across the source box.  Falls back to dx for sources with no horizontal
+    # exit side, and to the upstream-feeder direction for near-vertical
+    # junction sources.
     r_lead = reference_anchored_radius(0.0, ctx.curve_radius)
-    if abs(dx) > r_lead:
+    exit_side = _source_exit_side(ctx.graph, src)
+    if exit_side is not None:
+        lead = exit_side
+    elif abs(dx) > r_lead:
         lead = horizontal_direction(dx)
     else:
         lead = Direction.R
@@ -1131,13 +1221,21 @@ def _route_top_entry_l_shape(
                     if js and js.is_port:
                         lead = Direction.R if js.x < src.x else Direction.L
                         break
-    # A bundle that genuinely travels across columns (large dx) forms a
-    # horizontal-trunk staircase into the TOP port.  Build it as one
-    # consistent perpendicular offset of a reference line so all four bends
-    # are concentric and the per-line gap stays constant.  The near-vertical
-    # case (source roughly above target, small dx) keeps the original drop
+
+    hy = mid_y - delta
+    # A multi-line bundle with a horizontal lead-in (large dx, or a side exit
+    # whose target trunk sits behind it) forms a concentric staircase into the
+    # TOP port: one consistent perpendicular offset of a reference line so all
+    # bends are concentric and the per-line gap stays constant.  The
+    # near-vertical case (source roughly above target, small dx) keeps the drop
     # below, where the source/target offsets can differ per end.
     if n > 1 and abs(dx) > r_lead:
+        # Into a TB/BT trunk, land each line at its trunk X offset so the bundle
+        # flows straight on into the trunk rather than converging at the shared
+        # port and re-fanning (a boundary pinch).
+        land_x = None
+        if tgt_sec is not None and tgt_sec.direction in ("TB", "BT"):
+            land_x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, tgt_sec.id)
         return _route_top_entry_offset_bundle(
             edge,
             src,
@@ -1147,6 +1245,8 @@ def _route_top_entry_l_shape(
             offset=i * ctx.offset_step,
             lead_sign=lead.sign,
             base_radius=r_lead,
+            target_behind=lead.sign * dx < 0,
+            land_x=land_x,
         )
 
     # delta separates bundled lines: as an X offset on the vertical
@@ -1218,6 +1318,8 @@ def _route_top_entry_offset_bundle(
     offset: float,
     lead_sign: float,
     base_radius: float,
+    target_behind: bool = False,
+    land_x: float | None = None,
 ) -> RoutedPath:
     """Concentric multi-line variant of the TOP-entry staircase route.
 
@@ -1232,22 +1334,50 @@ def _route_top_entry_offset_bundle(
     keeps ``offset + radius = const`` so the arcs are concentric and the
     per-line gap stays constant through the lead-in corner, the trunk corners
     and the drop into the port.
+
+    ``target_behind`` marks the double-back shape, where the trunk runs back
+    toward the target on the opposite side of the lead-in.  Both trunk corners
+    then turn the other way, so the trunk Y offset, the port-jog X offset and
+    the two trunk-corner radii flip sign to keep the bundle concentric.
+
+    ``land_x`` lands the final drop on the destination trunk's per-line X (a
+    drop into a TB/BT trunk), so the bundle continues straight into the trunk
+    instead of converging at the shared port and re-fanning.
     """
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
+    bsign = -1.0 if target_behind else 1.0
     lead_in_y = sy + offset
     drop1_x = lx0 - offset
-    trunk_y = hy0 + offset
+    trunk_y = hy0 + bsign * offset
     drop2_x = tx - offset
 
     # The reference line drops straight into the port; offset lines step down,
     # across and down, sitting inside the lead-in bend (radius base-offset for
-    # an East lead, base+offset for a West lead), outside the first trunk bend
-    # (base+offset) and inside the second (base-offset).  Each radius is the
-    # reference-anchored concentric form base + signed_offset.
+    # an East lead, base+offset for a West lead), and on opposite sides of the
+    # two trunk bends.  Each radius is the reference-anchored concentric form
+    # base + signed_offset; the trunk-bend signs flip for the double-back.
     r1 = reference_anchored_radius(-lead_sign * offset, base_radius)
-    r2 = reference_anchored_radius(offset, base_radius)
-    r3 = reference_anchored_radius(-offset, base_radius)
+    r2 = reference_anchored_radius(bsign * offset, base_radius)
+    r3 = reference_anchored_radius(-bsign * offset, base_radius)
+
+    if land_x is not None:
+        # Straight drop onto the trunk X; no converging port jog.
+        return RoutedPath(
+            edge=edge,
+            line_id=edge.line_id,
+            points=[
+                (sx, lead_in_y),
+                (drop1_x, lead_in_y),
+                (drop1_x, trunk_y),
+                (land_x, trunk_y),
+                (land_x, ty),
+            ],
+            is_inter_section=True,
+            normalize_exempt=True,
+            offsets_applied=True,
+            curve_radii=[r1, r2, r3],
+        )
 
     if abs(drop2_x - tx) < COORD_TOLERANCE:
         # Reference line: no port jog, drop straight in.
@@ -1269,7 +1399,9 @@ def _route_top_entry_offset_bundle(
 
     # Offset line: tight converging jog onto the shared port point.  The jog
     # can drive base - offset to zero, so floor it at the coordinate tolerance.
-    r4 = reference_anchored_radius(-offset, base_radius, min_radius=COORD_TOLERANCE)
+    r4 = reference_anchored_radius(
+        -bsign * offset, base_radius, min_radius=COORD_TOLERANCE
+    )
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
