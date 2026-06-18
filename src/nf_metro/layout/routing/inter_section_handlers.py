@@ -713,9 +713,9 @@ def _route_bypass(
     gap1_vertical = vertical_direction(base_y - sy)
     gap2_vertical = vertical_direction(ty - base_y)
 
-    # Radii and per-line deltas via the same l_shape_radii logic used
-    # for all other concentric corners.
-    delta1, delta2, r1, _, r3, r4 = bypass_radii(
+    # Per-line lateral deltas at each gap's vertical channel; the centreline +
+    # build_tapered_bundle below derive every corner radius from the geometry.
+    delta1, delta2 = bypass_radii(
         g1_j,
         g1_n,
         g2_j,
@@ -725,17 +725,8 @@ def _route_bypass(
         base_radius=ctx.curve_radius,
         gap1_vertical=gap1_vertical,
         gap2_vertical=gap2_vertical,
-    )
+    )[:2]
     by = base_y + nest_offset
-
-    # Override r2 so all trunk horizontals begin at the same X
-    # (gap1_x + r2 = constant across all lines in the bundle).
-    r2 = corner_radius(
-        nest_offset,
-        (g2_n - 1) * ctx.offset_step,
-        outside=gap1_vertical is Direction.D,
-        base_radius=ctx.curve_radius,
-    )
 
     # Initial gap-channel centres and per-line positions.  These centre each
     # leg in its (row-aware) gap via _gap_channel_base; the post-routing
@@ -750,16 +741,17 @@ def _route_bypass(
             # channel on the gap slot, but never left of the near-source
             # position or the curve would start behind the junction (nubbin).
             ui, un = fan
-            fan_delta, r1, _ = l_shape_radii(
+            fan_delta = l_shape_radii(
                 ui,
                 un,
                 vertical=gap1_vertical,
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
-            )
+            )[0]
             near = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
             slot = _gap_channel_base(graph, src_col, src_row, un, ctx.offset_step)
             fan_mid_x = max(near, slot)
+            off1 = fan_delta
             gap1_x = fan_mid_x + fan_delta
         else:
             gap1_base = _gap_channel_base(
@@ -770,6 +762,7 @@ def _route_bypass(
                 gap1_mid = gap1_limit + half_g1
             else:
                 gap1_mid = gap1_base - half_g1
+            off1 = delta1
             gap1_x = gap1_mid + delta1
 
         gap2_base = _gap_channel_base(
@@ -832,16 +825,17 @@ def _route_bypass(
             # the RIGHT regardless of dx (left-entry wrap, around-section-
             # below) are dispatched through their own handlers, not here.
             ui, un = fan
-            fan_delta, r1, _ = l_shape_radii(
+            fan_delta = l_shape_radii(
                 ui,
                 un,
                 vertical=gap1_vertical,
                 offset_step=ctx.offset_step,
                 base_radius=ctx.curve_radius,
-            )
+            )[0]
             near = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
             slot = _gap_channel_base(graph, src_col - 1, src_row, un, ctx.offset_step)
             fan_mid_x = min(near, slot)
+            off1 = fan_delta
             gap1_x = fan_mid_x + fan_delta
         else:
             gap1_base = _gap_channel_base(
@@ -852,6 +846,7 @@ def _route_bypass(
                 gap1_mid = gap1_limit - half_g1
             else:
                 gap1_mid = gap1_base + half_g1
+            off1 = delta1
             gap1_x = gap1_mid + delta1
 
         gap2_base = _gap_channel_base(graph, tgt_col, tgt_row, g2_n, ctx.offset_step)
@@ -903,26 +898,72 @@ def _route_bypass(
                         bound_left=gap1_x,
                     )
 
-    # Apply per-line offsets directly so the renderer doesn't have to
-    # guess which waypoints belong to the source vs target side.
+    # Describe the U as a centreline through the two gap channels plus a
+    # per-line offset on each, and let build_tapered_bundle derive every
+    # corner concentrically.  The source-side legs (source lead-in, gap1
+    # descent, the below-row traverse) fan by gap1's offset; the target-side
+    # legs (gap2 rise, port approach) fan by gap2's, so the bundle tapers when
+    # the two gaps carry different line counts and is rigid when they match.
+    #
+    # The two gaps' channel centres are recovered by subtracting each line's
+    # lateral offset.  The vertical legs' perpendicular offsets (sigma1,
+    # sigma2) are signed so the descent/rise lands at ``gap*_x``; the
+    # horizontal legs would also pick up that offset as a Y shift, so the
+    # centreline's horizontal Ys pre-subtract it, leaving each port at its
+    # station offset and the traverse at ``by``.  Each horizontal leg's normal
+    # follows its own travel direction: the source lead-in, the below-row
+    # traverse, and the port approach can each run either way (a leftward
+    # bypass out of a right-edge junction leads in rightward), so a single
+    # direction would mis-sign the compensation.
     src_off = _get_offset(ctx, edge.source, edge.line_id)
     tgt_off = _get_offset(ctx, edge.target, edge.line_id)
+    gap1_mid = gap1_x - off1
+    gap2_mid = gap2_x - delta2
+    n0y = 1.0 if gap1_mid >= sx else -1.0
+    n2y = 1.0 if gap2_mid >= gap1_mid else -1.0
+    n4y = 1.0 if effective_tx >= gap2_mid else -1.0
+    n1x = -1.0 if gap1_vertical is Direction.D else 1.0
+    n3x = 1.0 if gap2_vertical is Direction.U else -1.0
+    sigma1 = off1 * n1x
+    sigma2 = delta2 * n3x
+    src_y = sy + src_off - sigma1 * n0y
+    by_y = by - sigma1 * n2y
+    tgt_y = ty + tgt_off - sigma2 * n4y
+    centerline = [
+        (sx, src_y),
+        (gap1_mid, src_y),
+        (gap1_mid, by_y),
+        (gap2_mid, by_y),
+        (gap2_mid, tgt_y),
+        (effective_tx, tgt_y),
+    ]
 
-    return RoutedPath(
-        edge=edge,
-        line_id=edge.line_id,
-        points=[
-            (sx, sy + src_off),
-            (gap1_x, sy + src_off),
-            (gap1_x, by),
-            (gap2_x, by),
-            (gap2_x, ty + tgt_off),
-            (effective_tx, ty + tgt_off),
-        ],
-        is_inter_section=True,
-        curve_radii=[r1, r2, r3, r4],
-        offsets_applied=True,
+    # Declare each gap's CHANNEL bundle so the builder anchors its corners on
+    # the innermost line that actually co-travels the descent/rise -- the
+    # ``g*_n`` lines sharing the channel, not the wider junction fan that only
+    # shares the lead-in pivot.  A line that peels off and descends alone
+    # (``g1_n == 1``) then turns at the floor with a single-line radius rather
+    # than the fan's wide sweep.  Each fan is built relative to this line at its
+    # own ``g*_j`` rank, so the member is always included whatever the lead-in
+    # position placed its offset at.
+    def channel_fan(member_off: float, rank: int, n: int, sign: float) -> list[float]:
+        return [member_off + (rank - i) * ctx.offset_step * sign for i in range(n)]
+
+    src_anchor = channel_fan(sigma1, g1_j, g1_n, n1x)
+    tgt_anchor = channel_fan(sigma2, g2_j, g2_n, n3x)
+    # Pair each gap's fan with THIS line's offset in the other gap (not 0): the
+    # source corners read only the source spread and the target corners only the
+    # target spread, so neither gap's fan pulls the other's per-corner anchor.
+    bundle = [(s, sigma2) for s in src_anchor] + [(sigma1, t) for t in tgt_anchor]
+    routes = build_tapered_bundle(
+        [(edge, edge.line_id, sigma1, sigma2)],
+        centerline,
+        transition_leg=3,
+        base_radius=ctx.curve_radius,
+        bundle_offsets=bundle,
+        normalize_exempt=False,
     )
+    return routes[0]
 
 
 def _route_l_shape(

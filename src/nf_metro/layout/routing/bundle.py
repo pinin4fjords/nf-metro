@@ -131,6 +131,7 @@ def build_tapered_bundle(
     base_radius: float,
     *,
     min_radius: float | None = None,
+    bundle_offsets: Sequence[tuple[float, float]] | None = None,
     is_inter_section: bool = True,
     normalize_exempt: bool = True,
 ) -> list[RoutedPath]:
@@ -152,8 +153,8 @@ def build_tapered_bundle(
     ----------
     members
         ``(edge, line_id, src_offset, tgt_offset)`` per line.  ``src_offset ==
-        tgt_offset`` for every line reduces to the rigid bundle, byte-identical
-        to :func:`build_concentric_bundle`.
+        tgt_offset`` for every line reduces to the rigid bundle, equivalent to
+        :func:`build_concentric_bundle`.
     centerline
         ``>= 2`` axis-aligned vertices; each consecutive pair differs in exactly
         one axis.
@@ -162,27 +163,40 @@ def build_tapered_bundle(
         inter-section L-shape: the source-side leg fans by ``src_offset``, the
         channel and target-side legs by ``tgt_offset``).
     base_radius
-        Reference-line corner radius.
+        Floor corner radius: the radius the innermost-of-turn line takes.  Pass
+        the global ``curve_radius``; the builder derives the per-corner anchor
+        from the offsets (see :func:`build_concentric_bundle`).
     min_radius
         Optional floor for inside-of-turn arcs.
+    bundle_offsets
+        The ``(src_offset, tgt_offset)`` of every line in the co-travelling
+        bundle, used to anchor each corner on the innermost line.  A handler that
+        routes its siblings one at a time (so *members* holds a single line)
+        passes the full fan here -- the source-region corners anchor on the
+        source spread and the target-region corners on the target spread, so a
+        tapering U whose two gaps carry different line counts nests correctly at
+        both ends.  ``None`` anchors on *members* themselves.
     """
     n_legs = len(centerline) - 1
     if n_legs < 1:
         raise ValueError("centerline needs at least two vertices")
     if not 0 <= transition_leg <= n_legs:
         raise ValueError(f"transition_leg {transition_leg} out of range [0, {n_legs}]")
+
+    def per_leg(src: float, tgt: float) -> list[float]:
+        return [src if leg < transition_leg else tgt for leg in range(n_legs)]
+
+    anchor = (
+        [per_leg(src, tgt) for src, tgt in bundle_offsets]
+        if bundle_offsets is not None
+        else None
+    )
     return _fan_bundle(
-        [
-            (
-                edge,
-                line_id,
-                [src if leg < transition_leg else tgt for leg in range(n_legs)],
-            )
-            for edge, line_id, src, tgt in members
-        ],
+        [(edge, line_id, per_leg(src, tgt)) for edge, line_id, src, tgt in members],
         centerline,
         base_radius,
         min_radius=min_radius,
+        anchor_offsets=anchor,
         is_inter_section=is_inter_section,
         normalize_exempt=normalize_exempt,
     )
