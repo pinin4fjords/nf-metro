@@ -41,9 +41,11 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.routing.common import (
     Direction,
     RoutedPath,
+    gap_lo_for_x,
     horizontal_direction,
     initial_fanout_descent_span,
     iter_horizontal_trunks,
+    iter_vertical_segments,
     trunk_segments_cross,
     vertical_direction,
 )
@@ -1859,6 +1861,67 @@ def check_merge_branches_meet_trunk(
     return violations
 
 
+@dataclass
+class UndeclaredGapChannel:
+    """A vertical inter-section leg sits in a gap with no :class:`GapSlot`.
+
+    :func:`~nf_metro.layout.routing.normalize._materialize_gap_slots` only
+    re-stacks legs a handler declared, so an in-gap leg without a covering slot
+    is left at its raw routing X -- the overlap the materialization exists to
+    resolve.  A handler that emits a gap channel must call
+    :meth:`RoutedPath.declare_gap_slot` for it.
+    """
+
+    line_id: str
+    edge: tuple[str, str]
+    x: float
+    lo_col: int
+    down: bool
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        d = "down" if self.down else "up"
+        return (
+            f"undeclared gap channel: line {self.line_id!r} "
+            f"({self.edge[0]}->{self.edge[1]}) runs {d} at x={self.x:.1f} in "
+            f"gap (cols {self.lo_col},{self.lo_col + 1}) with no declared GapSlot"
+        )
+
+
+def check_gap_channels_materialized(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+) -> list[UndeclaredGapChannel]:
+    """Return inter-section gap channels a handler placed but did not declare.
+
+    Every non-exempt inter-section route's vertical leg that lands inside an
+    inter-column gap must carry a matching :class:`GapSlot`, so
+    :func:`_materialize_gap_slots` re-stacks it concentrically.  A leg in a gap
+    with no slot of the same low column and direction escaped materialization.
+    """
+    out: list[UndeclaredGapChannel] = []
+    for rp in routes:
+        if not rp.is_inter_section or rp.normalize_exempt:
+            continue
+        declared = {(s.gap_lo_col, s.direction is Direction.D) for s in rp.gap_slots}
+        for _k, x, y_lo, y_hi, down in iter_vertical_segments(rp):
+            match = gap_lo_for_x(graph, x, y_lo, y_hi)
+            if match is None:
+                continue
+            lo, _row = match
+            if (lo, down) not in declared:
+                out.append(
+                    UndeclaredGapChannel(
+                        line_id=rp.line_id,
+                        edge=(rp.edge.source, rp.edge.target),
+                        x=x,
+                        lo_col=lo,
+                        down=down,
+                    )
+                )
+    return out
+
+
 class CurveInvariantError(RuntimeError):
     """A rendered route contains a bundle-curve defect.
 
@@ -1923,6 +1986,10 @@ def assert_render_curve_invariants(
             "merge branch hanging in open space",
             check_merge_branches_meet_trunk(graph, routes, offsets),
         ),
+        (
+            "undeclared gap channel",
+            check_gap_channels_materialized(graph, routes),
+        ),
     ]
     messages: list[str] = []
     for label, violations in named_checks:
@@ -1961,7 +2028,9 @@ __all__ = [
     "SameLineParallelRun",
     "Side",
     "StackedElbowGraze",
+    "UndeclaredGapChannel",
     "check_bundle_order_preserved",
+    "check_gap_channels_materialized",
     "check_concentric_bundle_corners",
     "check_fanout_tail_join",
     "check_merge_branches_meet_trunk",
