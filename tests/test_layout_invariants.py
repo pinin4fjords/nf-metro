@@ -7136,6 +7136,64 @@ def test_anchor_guard_catches_a_displaced_port(monkeypatch, example, sides, axis
         _layout_example(example, validate=True, _cache=False)
 
 
+@pytest.mark.parametrize(
+    "points, should_fire",
+    [
+        # A genuine vertical descent (dy=80) sitting 2px inside the left edge
+        # grazes it: the guard must fire.
+        ([(102.0, 10.0), (102.0, 90.0)], True),
+        # A short horizontal hop (dx=4, dy=0) near the same edge is not a
+        # descent and must be ignored despite its small dx.
+        ([(100.0, 50.0), (104.0, 50.0)], False),
+    ],
+)
+def test_descent_edge_clearance_distinguishes_descent_from_short_hop(
+    points, should_fire
+):
+    """The descent-edge-clearance guard classifies a segment as a descent by
+    both a small horizontal extent *and* a meaningful vertical one, so a short
+    inter-bundle horizontal hop is not mistaken for a near-vertical descent."""
+    from nf_metro.layout.phases.guards import (
+        _guard_inter_section_descent_edge_clearance,
+    )
+    from nf_metro.layout.routing.common import RoutedPath
+    from nf_metro.parser.model import Edge, MetroGraph, Section
+
+    graph = MetroGraph(title="t")
+    sec = Section(id="s1", name="S1")
+    sec.bbox_x, sec.bbox_y, sec.bbox_w, sec.bbox_h = 100.0, 0.0, 200.0, 100.0
+    graph.sections["s1"] = sec
+    rp = RoutedPath(
+        edge=Edge(source="a", target="b", line_id="L"),
+        line_id="L",
+        points=points,
+        is_inter_section=True,
+    )
+
+    if should_fire:
+        with pytest.raises(PhaseInvariantError, match="grazes section"):
+            _guard_inter_section_descent_edge_clearance(graph, "test", routes=[rp])
+    else:
+        _guard_inter_section_descent_edge_clearance(graph, "test", routes=[rp])
+
+
+def test_refanned_trunk_stays_on_inflated_row_pitch():
+    """Re-fanning a full-bundle column uses the row's own slot pitch.
+
+    In ``genomeassembly_organellar`` the scaffolding row's pitch is inflated
+    past the base ``y_spacing`` by a wider sibling section, and the
+    inter-section ``assemblies`` trunk (YaHS, the exit port, downstream
+    asmstats) rides that inflated pitch.  Re-fanning the section's internal
+    full-bundle columns at the base pitch would leave them a fraction of a
+    slot off the trunk; recentering at the row pitch keeps the whole trunk
+    -- the fanned ``minimap2``/``cooler``, the hub ``yahs`` and the exit port
+    -- collinear."""
+    graph = _layout("genomeassembly_organellar.mmd")
+    trunk = ["scaffolding_minimap2", "yahs", "cooler", "scaffolding__exit_right_3"]
+    ys = [graph.stations[sid].y for sid in trunk]
+    assert max(ys) - min(ys) < 1.0, dict(zip(trunk, ys))
+
+
 # ---------------------------------------------------------------------------
 # TOP-entry cross-column bundle: concentric corners
 # ---------------------------------------------------------------------------
