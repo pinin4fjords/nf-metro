@@ -262,6 +262,32 @@ def bundle_width(n_lines: int, offset_step: float = OFFSET_STEP) -> float:
     return max(0, n_lines - 1) * offset_step
 
 
+@dataclass(frozen=True)
+class GapSlot:
+    """A symbolic position for a vertical channel run within a gap bundle.
+
+    A handler declares *where* a vertical run intends to sit -- which line of
+    which bundle, in which inter-column corridor, travelling which way -- without
+    committing to a concrete X coordinate.  A single materialization pass later
+    resolves the slot to final geometry, replacing the compute-then-renormalize
+    chain in which handlers emit ``_get_offset`` Xs that a post-pass discards and
+    re-derives.
+
+    The corridor is the inter-column gap bounded by the adjacent grid columns
+    ``gap_lo_col`` and ``gap_hi_col`` (``gap_hi_col == gap_lo_col + 1``); the run
+    traverses grid ``row`` in ``direction`` (:attr:`Direction.U` or
+    :attr:`Direction.D`).  ``slot_index`` is this line's 0-based rank among the
+    ``n_slots`` lines sharing the same gap and direction.
+    """
+
+    gap_lo_col: int
+    gap_hi_col: int
+    row: int
+    direction: Direction
+    slot_index: int
+    n_slots: int
+
+
 @dataclass
 class RoutedPath:
     """A routed path for an edge, consisting of (x, y) waypoints."""
@@ -278,6 +304,11 @@ class RoutedPath:
     Set by wrap / around-section / TOP-entry handlers whose vertical
     channels follow a special concentric loop (all corners share one
     radius) that the standard L-shape re-stacking would break."""
+    gap_slot: GapSlot | None = None
+    """Symbolic gap-relative slot for this route's vertical channel run.
+
+    ``None`` until a handler is migrated to declare placement symbolically; the
+    materialization pass resolves a non-``None`` slot to concrete channel X."""
 
 
 def initial_fanout_descent_span(
