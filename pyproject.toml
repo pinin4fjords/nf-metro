@@ -51,6 +51,9 @@ docs = [
     "mike>=2.0",
     "cairosvg>=2.5",
 ]
+font = [
+    "fonttools[woff]>=4.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
@@ -96,6 +99,10 @@ disallow_any_generics = true
 # Pillow, networkx via types-networkx) is typed once the package is installed.
 [[tool.mypy.overrides]]
 module = ["drawsvg", "jsonschema"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["fontTools", "fontTools.*"]
 ignore_missing_imports = true
 
 # Fully-annotated core: the data model and the layout phases pass data
