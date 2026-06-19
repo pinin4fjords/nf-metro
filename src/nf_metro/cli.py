@@ -5,7 +5,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, NoReturn, TypeVar
+from typing import Any, Literal, NoReturn, TypeVar
 
 import click
 
@@ -185,6 +185,22 @@ def _resolve_theme(theme: str | None, graph: MetroGraph) -> Theme:
     default=False,
     help="Emit viewBox only (no fixed width/height) for CSS-scalable embedding.",
 )
+@click.option(
+    "--embed-font/--no-embed-font",
+    default=False,
+    help=(
+        "Inline a subset of Inter as a base64 @font-face block so the SVG "
+        "renders identically on any host regardless of installed fonts."
+    ),
+)
+@click.option(
+    "--text-to-paths/--no-text-to-paths",
+    default=False,
+    help=(
+        "Convert all text to vector paths, removing font dependencies entirely. "
+        "Loses selectable text. Requires fonttools[woff]."
+    ),
+)
 @layout_cli_options
 def render(
     input_file: Path,
@@ -198,6 +214,8 @@ def render(
     from_nextflow: bool,
     title: str | None,
     responsive: bool,
+    embed_font: bool,
+    text_to_paths: bool,
     **layout_opts: object,
 ) -> None:
     """Render a Mermaid metro map definition to SVG or interactive HTML."""
@@ -243,10 +261,20 @@ def render(
     if output is None:
         output = input_file.with_suffix(f".{format_}")
 
+    font_portability: Literal["embed", "paths"] | None = (
+        "paths" if text_to_paths else "embed" if embed_font else None
+    )
+
     if format_ == "html":
         content = render_html(graph, theme_obj, debug=debug, embed_basename=output.name)
     else:
-        content = render_svg(graph, theme_obj, debug=debug, responsive=responsive)
+        content = render_svg(
+            graph,
+            theme_obj,
+            debug=debug,
+            responsive=responsive,
+            font_portability=font_portability,
+        )
 
     output.write_text(content if content.endswith("\n") else content + "\n")
     click.echo(

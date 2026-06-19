@@ -10,7 +10,7 @@ import textwrap
 import warnings
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
 
@@ -393,6 +393,7 @@ def render_svg(
     debug: bool = False,
     legend_position: str | None = None,
     responsive: bool = False,
+    font_portability: Literal["embed", "paths"] | None = None,
 ) -> str:
     """Render a metro map graph to an SVG string.
 
@@ -406,6 +407,13 @@ def render_svg(
     ``width``/``height`` attributes and adds
     ``preserveAspectRatio="xMinYMin meet"``, so a host page can scale the
     diagram with CSS (e.g. ``width: 100%; height: auto``).
+
+    ``font_portability`` controls how the SVG handles fonts on foreign hosts:
+
+    - ``"embed"``: inlines a subset of Inter as a base64 ``@font-face`` block.
+    - ``"paths"``: converts all text to vector paths, removing font
+      dependencies entirely (requires ``fontTools[woff]``).
+    - ``None`` (default): bare ``font-family`` reference, resolved by the host renderer.
     """
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
@@ -419,7 +427,7 @@ def render_svg(
 
     scaled_theme = _scale_theme_fonts(theme, graph.font_scale)
     with font_scale_context(graph.font_scale):
-        return _render_svg_scaled(
+        svg = _render_svg_scaled(
             graph,
             scaled_theme,
             width=width,
@@ -430,6 +438,18 @@ def render_svg(
             legend_position=legend_position,
             responsive=responsive,
         )
+
+    if font_portability == "paths":
+        from nf_metro.render.font_embed import text_to_paths as _text_to_paths
+
+        return _text_to_paths(svg)
+
+    if font_portability == "embed":
+        from nf_metro.render.font_embed import embed_font as _embed_font
+
+        return _embed_font(svg)
+
+    return svg
 
 
 def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
