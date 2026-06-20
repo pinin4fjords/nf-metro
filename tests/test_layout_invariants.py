@@ -14,6 +14,7 @@ two-section grid with simpler topology (variant calling).
 from __future__ import annotations
 
 import copy
+import warnings
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -26,6 +27,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_SLOPE_RATIO,
     EDGE_TO_BUNDLE_CLEARANCE,
+    GUARD_TOLERANCE,
     INTER_ROW_EDGE_CLEARANCE,
     MIN_STATION_FLAT_LENGTH,
     ROW_BAND_SLACK,
@@ -70,6 +72,7 @@ from nf_metro.layout.routing import (
 )
 from nf_metro.layout.routing.common import resolve_section
 from nf_metro.layout.routing.invariants import (
+    assert_render_curve_invariants,
     check_bundle_order_preserved,
     check_no_collinear_distinct_lines,
 )
@@ -4264,6 +4267,116 @@ def test_lr_section_all_perpendicular_ports_rejected():
     msg = str(excinfo.value).lower()
     assert "annotation" in msg
     assert "perpendicular" in msg or "flow-aligned" in msg
+
+
+def _bbox_spilled_stations(graph: MetroGraph) -> list[str]:
+    """Stations whose centre lies outside their section bbox (guard tolerance)."""
+    tol = GUARD_TOLERANCE
+    return [
+        sid
+        for sid, st in graph.stations.items()
+        if not st.is_port
+        and (sec := graph.sections.get(st.section_id)) is not None
+        and not (
+            sec.bbox_x - tol <= st.x <= sec.bbox_x + sec.bbox_w + tol
+            and sec.bbox_y - tol <= st.y <= sec.bbox_y + sec.bbox_h + tol
+        )
+    ]
+
+
+def test_cross_column_perp_drop_renders_cleanly():
+    """A perpendicular drop fed from a different grid column lays out cleanly.
+
+    A ``direction: TB`` section fed by a perpendicular drop from a section in
+    another grid column keeps its vertical trunk on its own column (in-bbox);
+    the cross-column feed comes over the top and drops into the trunk head.
+    The drop is flagged as a cross-column bridge, every station stays within
+    its section bbox, and the bundle satisfies the render-curve invariants with
+    no warning -- the corpus invariants over this fixture pin the clean
+    geometry (#879).
+    """
+    graph = _layout("topologies/cross_column_perp_drop.mmd")
+
+    assert "qc" in graph._cross_column_perp_bridges
+    assert not _bbox_spilled_stations(graph)
+
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        assert_render_curve_invariants(graph, routes, offsets)
+
+
+def test_cross_column_perp_entry_stays_in_bbox():
+    """A cross-column perpendicular entry never spills a station out of its bbox.
+
+    On a fold-stacked LR sink whose only feed is a perpendicular entry from a
+    wider same-column neighbour (the source X sits past the sink's box), the
+    run stays on the sink's own column instead of being dragged off it.  The
+    bundle through this forced-perpendicular drop is an unsupported shape, so
+    the render relaxes the curve invariant to a warning rather than aborting,
+    but no station leaves its section bbox (#879).
+    """
+    graph = _layout("regressions/cross_column_perp_entry_overflow.mmd")
+
+    assert "reporting" in graph._cross_column_perp_bridges
+    assert not _bbox_spilled_stations(graph)
+
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    with pytest.warns(UserWarning, match="bridged across grid columns"):
+        assert_render_curve_invariants(graph, routes, offsets)
+
+
+def test_cross_column_perp_drop_leadin_clears_trunk():
+    """A cross-column perpendicular drop whose source exit side faces away from
+    the target's entry side reaches the entry port from the port's own side,
+    not by rising up the trunk column through the target's stations (#886).
+
+    The ``align`` exit is on the BOTTOM but ``qc``'s entry is on the TOP, so the
+    exit-side corridor sits below the target.  The lead-in must cross to the
+    inter-column gap and turn down into the TOP port from above the box; a
+    straight rise on the trunk X would run up through ``collect`` and
+    ``multiqc`` and read the declared ``collect -> multiqc`` order backwards.
+    """
+    from nf_metro.layout.phases.guards import _entry_approach_offenders
+
+    graph = _layout("topologies/cross_column_perp_drop_far_exit.mmd")
+    routes = route_edges(graph)
+
+    # The lead-in must not overlay the target trunk through its stations.
+    assert not _entry_approach_offenders(graph, routes)
+
+    qc = graph.sections["qc"]
+    trunk_x = graph.stations["collect"].x
+    feeder = next(
+        r
+        for r in routes
+        if r.edge.source == "align__exit_bottom_0"
+        and r.edge.target == "qc__entry_top_1"
+    )
+
+    # The final segment enters the TOP port from above the section boundary.
+    last = feeder.points[-1]
+    prev = feeder.points[-2]
+    assert abs(last[0] - trunk_x) <= GUARD_TOLERANCE
+    assert prev[1] <= qc.bbox_y + GUARD_TOLERANCE, (
+        f"final approach starts inside the box at y={prev[1]:.1f} "
+        f"(box top {qc.bbox_y:.1f})"
+    )
+
+    # No feeder segment may travel the trunk X down inside the box, where the
+    # target's stations sit; the only trunk-X leg is the port drop from above.
+    for (x0, y0), (x1, y1) in zip(feeder.points, feeder.points[1:]):
+        on_trunk = (
+            abs(x0 - trunk_x) <= GUARD_TOLERANCE
+            and abs(x1 - trunk_x) <= GUARD_TOLERANCE
+        )
+        if on_trunk:
+            assert max(y0, y1) <= qc.bbox_y + GUARD_TOLERANCE, (
+                f"lead-in runs the trunk X into the box: "
+                f"({x0:.1f},{y0:.1f})->({x1:.1f},{y1:.1f})"
+            )
 
 
 @pytest.mark.parametrize(
