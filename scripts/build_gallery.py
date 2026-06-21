@@ -873,6 +873,15 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "its line end rather than a bare stub, and the input's label sits above "
         "the node clear of its drop and the adjacent station's label.",
     ),
+    (
+        "bottom_row_climb_clear_corridor",
+        TOPOLOGIES_DIR,
+        "A section in the bottommost grid row sends a line up and across to a "
+        "higher-row target several columns away. The columns it spans hold no "
+        "same-row section, so the line runs along its own row level and climbs "
+        "at the end rather than diving below the source row to the canvas floor "
+        "and looping back up.",
+    ),
 ]
 
 # Category headers inserted before specific entries
