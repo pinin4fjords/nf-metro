@@ -460,21 +460,26 @@ function toast(msg) {
 /* ------------------------------ examples ------------------------------ */
 
 async function loadExamples() {
-  let entries;
+  let groups;
   try {
     const resp = await fetch("examples.json", { cache: "no-store" });
     if (!resp.ok) return;
-    entries = await resp.json();
+    groups = await resp.json();
   } catch (_) {
     return; // no manifest shipped; the starter remains available
   }
-  const group = el("example-group");
-  entries.forEach(({ name, mmd }) => {
-    examples[name] = mmd;
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    group.append(opt);
+  const select = el("example-select");
+  groups.forEach(({ label, entries }) => {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = label;
+    entries.forEach(({ name, mmd }) => {
+      examples[name] = mmd;
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      optgroup.append(opt);
+    });
+    select.append(optgroup);
   });
 }
 

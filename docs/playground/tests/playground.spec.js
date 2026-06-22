@@ -131,6 +131,8 @@ test("example dropdown loads a chosen example and renders it", async () => {
   const select = page.locator("#example-select");
   // Manifest populated the dropdown beyond the placeholder + starter.
   expect(await select.locator("option").count()).toBeGreaterThan(2);
+  // Entries are grouped into multiple <optgroup>s.
+  expect(await select.locator("optgroup").count()).toBeGreaterThan(1);
 
   await select.selectOption("rnaseq_auto");
   await expect
@@ -141,6 +143,12 @@ test("example dropdown loads a chosen example and renders it", async () => {
     .toBeGreaterThan(0);
   // Action menu resets to its placeholder after loading.
   await expect(select).toHaveValue("");
+
+  // A topology fixture (only in the render diff, not examples/*.mmd) loads too.
+  await select.selectOption("single_section");
+  await expect
+    .poll(async () => page.evaluate(() => window.__nfMetro.getValue()))
+    .toContain("graph");
 
   // The starter entry is always available even without the manifest.
   await select.selectOption("__seed__");
