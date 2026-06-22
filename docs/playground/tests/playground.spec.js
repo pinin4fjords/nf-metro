@@ -140,6 +140,25 @@ test("snippet button inserts valid boilerplate and still renders", async () => {
   expect(await page.locator("#preview svg").count()).toBe(1);
 });
 
+test("Nextflow DAG import converts the seeded sample into a metro map", async () => {
+  await page.locator("#btn-convert").click();
+  await expect(page.locator("#convert-modal")).toBeVisible();
+  // Docs link points at the Nextflow import guide.
+  await expect(page.locator('#convert-modal a[href="../nextflow/"]')).toHaveCount(1);
+  // The box is pre-filled with a sample DAG, like the editor's starter map.
+  await expect(page.locator("#convert-text")).toHaveValue(/flowchart/);
+
+  // Convert the seeded sample directly.
+  await page.locator("#convert-submit").click();
+  await expect(page.locator("#convert-modal")).toBeHidden();
+  const value = await page.evaluate(() => window.__nfMetro.getValue());
+  expect(value).toContain("%%metro");
+  expect(value.toLowerCase()).toContain("fastqc");
+  await expect
+    .poll(async () => page.locator("#preview [data-line-id]").count())
+    .toBeGreaterThan(0);
+});
+
 test("line color swatch rewrites the hex in the editor", async () => {
   await page.evaluate(() =>
     window.__nfMetro.setValue(
