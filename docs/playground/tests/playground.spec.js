@@ -12,6 +12,13 @@ async function waitReady(p) {
   });
 }
 
+// Advanced controls live in a collapsed <details>; open it before driving them.
+async function openAdvanced() {
+  await page.evaluate(() => {
+    document.getElementById("advanced").open = true;
+  });
+}
+
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
   await page.goto("/index.html");
@@ -46,6 +53,16 @@ test("animate toggle adds motion elements", async () => {
     .toBeGreaterThan(0);
   await page.locator("#opt-animate").uncheck();
   await expect(page.locator("#preview animateMotion")).toHaveCount(0);
+});
+
+test("advanced options are collapsed by default and toggle open", async () => {
+  // Progressive disclosure: power-user knobs are hidden until requested.
+  await expect(page.locator("#advanced")).not.toHaveAttribute("open", /.*/);
+  await expect(page.locator("#opt-line-spread")).toBeHidden();
+  await page.locator("#advanced > summary").click();
+  await expect(page.locator("#opt-line-spread")).toBeVisible();
+  await page.locator("#advanced > summary").click();
+  await expect(page.locator("#opt-line-spread")).toBeHidden();
 });
 
 test("directional toggle adds chevron markers", async () => {
@@ -101,6 +118,7 @@ test("debug toggle adds the debug overlay", async () => {
 });
 
 test("layout controls write %%metro directives and sync from source", async () => {
+  await openAdvanced();
   const getValue = () => page.evaluate(() => window.__nfMetro.getValue());
   await page.evaluate(() =>
     window.__nfMetro.setValue("%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n")
