@@ -224,7 +224,37 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   align-items: flex-start;
   justify-content: center;
 }
-#preview svg { max-width: 100%; height: auto; }
+/* When zoomed past the viewport, left-align so the start stays scrollable. */
+#preview.zoomed { justify-content: flex-start; }
+/* flex-shrink:0 so an explicit zoom width isn't shrunk back to the container. */
+#preview svg { max-width: 100%; height: auto; flex-shrink: 0; }
+
+#zoom-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 5;
+}
+#zoom-controls button {
+  border: none;
+  border-radius: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  min-width: 34px;
+  height: 30px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+#zoom-controls button#zoom-fit { font-size: 12px; }
+#zoom-controls button:hover { background: var(--accent-press); color: #02120f; }
 
 .overlay {
   position: absolute;

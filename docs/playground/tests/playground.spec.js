@@ -232,6 +232,25 @@ test("SVG and PNG export produce non-empty downloads", async () => {
   expect(stat.size).toBeGreaterThan(0);
 });
 
+test("zoom controls scale the preview and Fit resets", async () => {
+  await page.evaluate(() =>
+    window.__nfMetro.setValue("%%metro line: a | A | #f00\ngraph LR\n  zn1[ZN1] -->|a| zn2[ZN2]\n")
+  );
+  await expect(page.locator('#preview [data-station-id="zn1"]').first()).toBeVisible();
+
+  const svgWidth = () =>
+    page.locator("#preview svg").evaluate((s) => s.getBoundingClientRect().width);
+  const fitWidth = await svgWidth();
+
+  await page.locator("#zoom-in").click();
+  await expect.poll(svgWidth).toBeGreaterThan(fitWidth + 1);
+  await expect(page.locator("#preview")).toHaveClass(/zoomed/);
+
+  await page.locator("#zoom-fit").click();
+  await expect(page.locator("#preview")).not.toHaveClass(/zoomed/);
+  await expect.poll(svgWidth).toBeLessThanOrEqual(fitWidth + 1);
+});
+
 test("example dropdown loads a chosen example and renders it", async () => {
   const select = page.locator("#example-select");
   // Manifest populated the dropdown beyond the placeholder + starter.

@@ -203,12 +203,61 @@ function doRender() {
     showError(null);
     lastSvg = res.svg;
     el("preview").innerHTML = res.svg;
+    applyZoom();
   } else {
     // Keep the last good render visible; just report the problem.
     showError(res.error);
   }
   refreshLineColors();
   syncDirectiveControls();
+}
+
+/* --------------------------------- zoom -------------------------------- */
+
+// null = fit-to-view (responsive); a number is a scale factor on the SVG's
+// intrinsic (viewBox) size. Re-applied after every render since the <svg> is
+// replaced.
+let zoomFactor = null;
+const ZOOM_STEP = 1.25;
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 8;
+
+function viewBoxWidth(svg) {
+  const m = (svg.getAttribute("viewBox") || "").match(/[-\d.]+ [-\d.]+ ([-\d.]+) [-\d.]+/);
+  return m ? parseFloat(m[1]) : svg.getBoundingClientRect().width;
+}
+
+function applyZoom() {
+  const svg = el("preview").querySelector("svg");
+  if (!svg) return;
+  el("preview").classList.toggle("zoomed", zoomFactor !== null);
+  if (zoomFactor === null) {
+    svg.style.maxWidth = "100%";
+    svg.style.width = "";
+    svg.style.height = "";
+  } else {
+    svg.style.maxWidth = "none";
+    svg.style.width = viewBoxWidth(svg) * zoomFactor + "px";
+    svg.style.height = "auto";
+  }
+}
+
+function currentScale() {
+  const svg = el("preview").querySelector("svg");
+  if (!svg) return 1;
+  return svg.getBoundingClientRect().width / viewBoxWidth(svg);
+}
+
+function zoomBy(step) {
+  // Starting from fit, continue smoothly from the currently displayed scale.
+  const base = zoomFactor === null ? currentScale() : zoomFactor;
+  zoomFactor = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, base * step));
+  applyZoom();
+}
+
+function zoomFit() {
+  zoomFactor = null;
+  applyZoom();
 }
 
 /* ------------------------- directive controls ------------------------- */
@@ -643,6 +692,10 @@ function wireControls() {
   el("btn-svg").addEventListener("click", exportSvg);
   el("btn-png").addEventListener("click", exportPng);
   el("btn-share").addEventListener("click", shareLink);
+
+  el("zoom-in").addEventListener("click", () => zoomBy(ZOOM_STEP));
+  el("zoom-out").addEventListener("click", () => zoomBy(1 / ZOOM_STEP));
+  el("zoom-fit").addEventListener("click", zoomFit);
 
   el("btn-report").addEventListener("click", openReport);
   el("report-cancel").addEventListener("click", closeReport);
