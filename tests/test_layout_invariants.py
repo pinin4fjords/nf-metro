@@ -1981,14 +1981,13 @@ def test_near_vertical_junction_hook_renders_cleanly():
 
     ``near_vertical_junction_hook`` places a target section directly below its
     feeder so the fan-out junction sits one ``JUNCTION_MARGIN`` to the RIGHT of
-    the target's RIGHT entry port.  Leading the descent channel out to the
-    junction's outward side and turning back into the port builds a hook: the two
-    horizontal legs run opposite ways, so a rigid concentric bundle inverts its
-    nesting through the opposite-handed corners and the render-curve backstop
-    names the edge.  Instead the bundle drops straight down the junction's own
-    column and turns once into the port, and the section carries the reversed
-    line order so the single turn lands each line on its own offset; a clean
-    render is the lock.
+    the target's RIGHT entry port.  Leading the descent out to the junction's
+    outward side and turning back into the port would build a hook whose
+    opposite-handed corners a rigid concentric bundle cannot nest, tripping the
+    render-curve backstop.  The RIGHT entry drops down the port's outward side and
+    turns in once, and the section carries the reversed line order so the
+    descent's transpose lands each line on its own offset and the turn nests; a
+    clean render is the lock.
     """
     graph = _layout("topologies/near_vertical_junction_hook.mmd")
     offsets = compute_station_offsets(graph)

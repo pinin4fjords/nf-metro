@@ -2261,11 +2261,11 @@ def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None
     """Reverse the line order of sections a fan-out junction drops into.
 
     A fan-out junction overhanging a same-column RIGHT entry one row below drops
-    straight down and turns once into the port (see
-    ``_route_near_vertical_junction_drop``).  That single turn transposes the
-    descending bundle into the port's lateral order, so the section receives its
-    lines in the opposite order to the junction; it carries the reversed order so
-    the drop into the port and the run out of it stay straight.
+    down the port's outward side and turns once into it (the standard
+    ``_route_right_entry_cross_row`` path).  That descent transposes the bundle
+    into the port's lateral order, so the section receives its lines in the
+    opposite order to the junction; it carries the reversed order so the drop and
+    the run out of the port stay straight and the turn nests concentrically.
     """
     graph = ctx.graph
     _reverse_offsets_from_roots(
