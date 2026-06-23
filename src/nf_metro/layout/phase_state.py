@@ -52,7 +52,7 @@ CANONICAL_STAGE_ORDER: tuple[str, ...] = (
 
 
 class FieldEnforcement(Enum):
-    """How strongly :func:`read_phase_field` polices a declared field.
+    """How strongly :func:`require_phase_field` polices a declared field.
 
     ``REQUIRE_WRITER`` -- the reader trusts data the writer stage produces, so
     reading before that stage has run is a bug; raise under ``validate=True``.
