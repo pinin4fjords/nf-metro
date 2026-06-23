@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
+    COORD_TOLERANCE,
+    JUNCTION_MARGIN,
     OFFSET_STEP,
 )
 from nf_metro.layout.routing.common import (
@@ -483,6 +485,54 @@ def is_far_side_around_below_left_entry(graph: MetroGraph, port: Port) -> bool:
         if _has_intervening_sections(
             graph, scol, psec.grid_col, srow
         ) or _has_intervening_sections(graph, scol, psec.grid_col, psec.grid_row):
+            return True
+    return False
+
+
+def is_near_vertical_drop(dx: float, dy: float) -> bool:
+    """Whether a junction-to-entry hop is the near-vertical same-column drop.
+
+    The hop is within ``JUNCTION_MARGIN`` horizontally and far steeper than it is
+    wide.  Shared by the routing dispatch
+    (``_InterFacts.is_near_vertical_same_col_junction``) and the offset-reversal
+    predicate so the two cannot drift.
+    """
+    return abs(dx) <= JUNCTION_MARGIN + COORD_TOLERANCE and abs(dy) > abs(dx) * 3
+
+
+def is_near_vertical_junction_right_entry(graph: MetroGraph, port: Port) -> bool:
+    """Whether *port* is a RIGHT entry a multi-line fan-out junction drops into.
+
+    Detected so the section's line order can be reversed to match the descent's
+    transpose (see ``_reverse_near_vertical_junction_right_entry_offsets``).  The
+    same near-vertical geometry the routing dispatch deflects to the standard
+    drop (``_InterFacts.takes_near_vertical_junction_drop``): the junction and
+    port share a grid column, the junction overhangs the port's outward edge, the
+    drop is near-vertical, and at least two lines descend together (mirroring the
+    dispatch's ``f.n >= 2``; a lone line has no bundle to transpose).
+    """
+    if not (port.is_entry and port.side is PortSide.RIGHT):
+        return False
+    psec = graph.sections.get(port.section_id)
+    pst = graph.stations.get(port.id)
+    if psec is None or pst is None:
+        return False
+    lines_by_source: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges_to(port.id):
+        lines_by_source[edge.source].add(edge.line_id)
+    for source, lines in lines_by_source.items():
+        jst = graph.stations.get(source)
+        if (
+            source not in graph.junction_ids
+            or jst is None
+            or _resolve_section_col(graph, jst) != psec.grid_col
+        ):
+            continue
+        if (
+            len(lines) >= 2
+            and jst.x >= pst.x - COORD_TOLERANCE
+            and is_near_vertical_drop(pst.x - jst.x, pst.y - jst.y)
+        ):
             return True
     return False
 

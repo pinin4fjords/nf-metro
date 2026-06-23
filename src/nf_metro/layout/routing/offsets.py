@@ -19,6 +19,7 @@ from nf_metro.layout.routing.context import (
     _resolve_section_colrow,
     fanout_divergence_peel_order,
     is_far_side_around_below_left_entry,
+    is_near_vertical_junction_right_entry,
 )
 from nf_metro.layout.routing.corners import reversed_offset
 from nf_metro.layout.routing.invariants import (
@@ -2136,6 +2137,7 @@ def compute_station_offsets(
     _recenter_partial_fan_branches(ctx)
     _reverse_tb_right_entry_offsets(ctx)
     _reverse_around_below_left_entry_offsets(ctx)
+    _reverse_near_vertical_junction_right_entry_offsets(ctx)
     return ctx.offsets
 
 
@@ -2251,5 +2253,26 @@ def _reverse_around_below_left_entry_offsets(ctx: _OffsetCtx) -> None:
             port.section_id
             for port in graph.ports.values()
             if is_far_side_around_below_left_entry(graph, port)
+        },
+    )
+
+
+def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None:
+    """Reverse the line order of sections a fan-out junction drops into.
+
+    A fan-out junction overhanging a same-column RIGHT entry one row below drops
+    down the port's outward side and turns once into it (the standard
+    ``_route_right_entry_cross_row`` path).  That descent transposes the bundle
+    into the port's lateral order, so the section receives its lines in the
+    opposite order to the junction; it carries the reversed order so the drop and
+    the run out of the port stay straight and the turn nests concentrically.
+    """
+    graph = ctx.graph
+    _reverse_offsets_from_roots(
+        ctx,
+        {
+            port.section_id
+            for port in graph.ports.values()
+            if is_near_vertical_junction_right_entry(graph, port)
         },
     )
