@@ -1008,6 +1008,7 @@ def _snap(graph: MetroGraph, phase_id: str) -> None:
     graph so the per-stage call sites stay signature-free; when disabled
     this is a single attribute read plus an early return.
     """
+    graph._stages_completed.append(phase_id)
     capture_phase_snapshot(
         graph, phase_id, getattr(graph, "_phase_snapshots_enabled", False)
     )
@@ -1192,6 +1193,11 @@ def _compute_section_layout(
     # On-track consumers are not yet grid-snapped; the off-track reanchor
     # (Stage 6.6 / 6.8) refuses to run until Stage 6.4 sets this True.
     graph._consumers_grid_snapped = False
+    # Fresh inter-phase bookkeeping for this pass: _snap appends each stage id
+    # to _stages_completed, and phase_state's write-before-read checks consult
+    # both this list and _validate_active.
+    graph._stages_completed = []
+    graph._validate_active = validate
 
     # ---- Stage 1 - Section construction (local coords) ------------------
     # Lay out each section internally, snap row Y grids, place sections on
