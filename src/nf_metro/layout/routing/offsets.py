@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -838,27 +839,20 @@ def _reassign_offsets_in_order(
         ctx.offsets[(station_id, lid)] = val
 
 
-def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
-    """Permute a TB merge's offsets so a collinear feeder drops straight.
+def _slot_merge_continuations(
+    ctx: _OffsetCtx, find_continuation: Callable[[Section, Station], set[str]]
+) -> None:
+    """Re-slot each TB merge so the lines *find_continuation* picks drop straight.
 
-    The fan-in mirror of :func:`_slot_trunk_continuation_lines`: at a section's
-    terminal merge, a line whose source sits directly above on the merge's lane
-    should drop straight, but a TB section draws each line at its
-    offset reversed against a per-station bundle max that *grows* from the solo
-    feeder (one line) to the merge (the full bundle).  A collinear feeder left
-    on its priority slot is therefore drawn on the trunk at its source but
-    outboard at the merge and kinks by one step instead of dropping straight.
-    Permute the merge station's stored offsets so the collinear feeder rides the
-    trunk-drawing slot (the largest offset, which the reversal maps onto the
-    trunk) and the diagonal siblings ride outboard.
-
-    Only the merge station is touched, so the diagonal feeders' source-side
-    slots -- and any entry-port ordering upstream -- are left intact; the merge
-    must be a section sink (no outgoing edges) so no downstream edge reads its
-    re-slotted offset as a source.  LR/RL draw the lane un-reversed with
-    per-line-constant offsets, so a collinear feeder is already straight there;
-    right-entry TB sections also draw un-reversed and are left alone.  Runs after
-    the section-reversal passes so its assignment is final.
+    The shared skeleton of the convergence and pass-through continuation passes:
+    walk every non-compact, non-rail, non-right-entry TB section's stations, ask
+    *find_continuation* which lines should ride the trunk at that merge, and
+    permute the merge's stored offsets so those lines take the trunk-drawing slot
+    (the largest offset, which the TB reversal maps onto the trunk) while the rest
+    ride outboard.  Only the merge station is touched.  LR/RL draw the lane
+    un-reversed with per-line-constant offsets and right-entry TB sections draw
+    un-reversed, so both are left alone; runs after the section-reversal passes so
+    its assignment is final.
     """
     if ctx.compact:
         return
@@ -871,15 +865,41 @@ def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
             continue
         for merge_id in section.station_ids:
             merge = graph.stations.get(merge_id)
-            if merge is None or merge.is_port or graph.edges_from(merge_id):
+            if merge is None or merge.is_port:
                 continue
-            collinear = _collinear_lines_at(ctx, section, merge, incoming=True)
+            continuation = find_continuation(section, merge)
             present = list(graph.station_lines(merge_id))
-            cont = [lid for lid in present if lid in collinear]
-            rest = [lid for lid in present if lid not in collinear]
+            cont = [lid for lid in present if lid in continuation]
+            rest = [lid for lid in present if lid not in continuation]
             if not cont or not rest:
                 continue
             _reassign_offsets_in_order(ctx, merge_id, rest + cont, present)
+
+
+def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
+    """Permute a TB merge's offsets so a collinear feeder drops straight.
+
+    The fan-in mirror of :func:`_slot_trunk_continuation_lines`: at a section's
+    terminal merge, a line whose source sits directly above on the merge's lane
+    should drop straight, but a TB section draws each line at its
+    offset reversed against a per-station bundle max that *grows* from the solo
+    feeder (one line) to the merge (the full bundle).  A collinear feeder left
+    on its priority slot is therefore drawn on the trunk at its source but
+    outboard at the merge and kinks by one step instead of dropping straight.
+    Permute the merge station's stored offsets so the collinear feeder rides the
+    trunk-drawing slot and the diagonal siblings ride outboard.
+
+    The merge must be a section sink (no outgoing edges) so no downstream edge
+    reads its re-slotted offset as a source; the diagonal feeders' source-side
+    slots and any entry-port ordering upstream are left intact.
+    """
+
+    def find_continuation(section: Section, merge: Station) -> set[str]:
+        if ctx.graph.edges_from(merge.id):
+            return set()
+        return _collinear_lines_at(ctx, section, merge, incoming=True)
+
+    _slot_merge_continuations(ctx, find_continuation)
 
 
 def _slot_passthrough_continuation_lines(ctx: _OffsetCtx) -> None:
@@ -897,53 +917,34 @@ def _slot_passthrough_continuation_lines(ctx: _OffsetCtx) -> None:
     :func:`_slot_trunk_continuation_lines` does not catch this: its fan-out hub
     detector needs two in-section outgoing lanes, but the peeling sibling here
     leaves the section, so the merge exposes a single in-section outgoing lane.
-    Permute the merge's stored offsets so the continuation rides the trunk-drawing
-    slot (the largest offset, which the TB reversal maps onto the trunk) and the
-    collinear feeder takes the offset.  Only the merge station is touched; its
-    continuation child keeps its own on-trunk slot, so the edge between them
-    becomes a straight drop.  LR/RL draw the lane un-reversed and right-entry TB
-    sections draw un-reversed, so both are left alone.
+    The continuation is re-slotted onto the trunk and the collinear feeder takes
+    the offset; the continuation child keeps its own on-trunk slot, so the edge
+    between them becomes a straight drop.
     """
-    if ctx.compact:
-        return
-    graph = ctx.graph
-    right_entry = tb_right_entry_sections(graph)
-    for sec_id, section in graph.sections.items():
-        if sec_id not in ctx.tb_sections or graph.is_rail_section(sec_id):
-            continue
-        if sec_id in right_entry:
-            continue
+
+    def find_continuation(section: Section, merge: Station) -> set[str]:
+        # A diagonal continuation competes for the trunk only when another feeder
+        # arrives collinear from above (a >=2-lane incoming bundle).
+        incoming_collinear = _collinear_lines_at(ctx, section, merge, incoming=True)
+        if not incoming_collinear:
+            return set()
         primary_axis = AxisFrame.axes_for_direction(section.direction)[0]
-        for merge_id in section.station_ids:
-            merge = graph.stations.get(merge_id)
-            if merge is None or merge.is_port:
-                continue
-            # A diagonal continuation competes for the trunk only when another
-            # feeder arrives collinear from above (a >=2-lane incoming bundle).
-            incoming_collinear = _collinear_lines_at(ctx, section, merge, incoming=True)
-            if not incoming_collinear:
-                continue
-            own_lane = axis_split(primary_axis, (merge.x, merge.y))[1]
-            # Lines leaving the merge straight down its own column (a collinear
-            # in-section continuation).  The collinear-from-above feeders are then
-            # excluded so only a continuation that *arrives* diagonally is
-            # re-slotted; one that is itself the straight feeder already drops
-            # straight and must keep its slot.
-            cont = {
-                e.line_id
-                for e in graph.edges_from(merge_id)
-                if (t := graph.stations.get(e.target)) is not None
-                and not t.is_port
-                and t.section_id == sec_id
-                and abs(axis_split(primary_axis, (t.x, t.y))[1] - own_lane)
-                < COORD_TOLERANCE
-            } - incoming_collinear
-            present = list(graph.station_lines(merge_id))
-            cont_present = [lid for lid in present if lid in cont]
-            rest = [lid for lid in present if lid not in cont]
-            if not cont_present or not rest:
-                continue
-            _reassign_offsets_in_order(ctx, merge_id, rest + cont_present, present)
+        own_lane = axis_split(primary_axis, (merge.x, merge.y))[1]
+        # Lines leaving the merge straight down its own column; the collinear-from-
+        # above feeders are excluded so only a continuation that *arrives*
+        # diagonally is re-slotted (one that is itself the straight feeder already
+        # drops straight and must keep its slot).
+        return {
+            e.line_id
+            for e in ctx.graph.edges_from(merge.id)
+            if (t := ctx.graph.stations.get(e.target)) is not None
+            and not t.is_port
+            and t.section_id == section.id
+            and abs(axis_split(primary_axis, (t.x, t.y))[1] - own_lane)
+            < COORD_TOLERANCE
+        } - incoming_collinear
+
+    _slot_merge_continuations(ctx, find_continuation)
 
 
 def _reindex_section_local(ctx: _OffsetCtx) -> None:
