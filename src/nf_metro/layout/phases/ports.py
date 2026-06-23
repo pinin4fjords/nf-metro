@@ -7,8 +7,10 @@ from collections.abc import Iterator
 
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
+    ENTRY_SHIFT_TB,
     MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC,
     MIN_PORT_STATION_GAP,
+    MIN_STATION_FLAT_LENGTH,
     SAME_COORD_TOLERANCE,
     STATION_ELBOW_TOLERANCE,
 )
@@ -125,6 +127,7 @@ def _align_lr_entry_port(
             continue
 
         if entry_section.grid_row != src_section.grid_row:
+            _lift_perp_entry_port_above_stations(graph, entry_section, port, port_id)
             break
 
         # A source exit on a side perpendicular to its section's flow sits on a
@@ -1257,6 +1260,54 @@ def _clamp_tb_entry_port(
                         graph.ports[e2.source].y = target_y
 
     return target_y
+
+
+def _lift_perp_entry_port_above_stations(
+    graph: MetroGraph, entry_section: Section, port: Port, port_id: str
+) -> None:
+    """Raise a vertical-flow section's perpendicular entry port above its row.
+
+    When the feeder lives in a different grid row, Y alignment to the feeder
+    is skipped, leaving the port on the first internal station's row.  A side
+    fan-out from that row runs along it and through a non-consumed sibling's
+    marker.  Seating the port a station gap above the topmost internal station
+    routes the fan in a channel above the row, dropping into each station from
+    outside the row (#1001).  Only the port moves; the cross-row feeder is left
+    where it is.
+
+    Applies only to LEFT/RIGHT (perpendicular) entry on a section whose flow
+    runs down the Y axis; a horizontal-flow section separates its lines on Y
+    and reaches each from its own lane, so it has no shared row to cross.
+
+    The gap matches the room ``_adjust_tb_entry_shifts`` already reserved by
+    nudging every internal station down one entry shift, so a cross-row entry
+    settles exactly where a same-row one does after ``_clamp_tb_entry_port``.
+    """
+    if lanes_run_along_y(entry_section.direction):
+        return
+    if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return
+    port_st = graph.stations.get(port_id)
+    if port_st is None:
+        return
+    internal_ys = [
+        graph.stations[sid].y
+        for sid in entry_section.station_ids
+        if sid not in entry_section.entry_ports
+        and sid not in entry_section.exit_ports
+        and sid in graph.stations
+        and not graph.stations[sid].is_port
+    ]
+    if not internal_ys:
+        return
+    base_y = graph._base_y_spacing
+    gap = base_y * ENTRY_SHIFT_TB if base_y else CURVE_RADIUS + MIN_STATION_FLAT_LENGTH
+    target_y = min(internal_ys) - gap
+    if port_st.y <= target_y:
+        return
+    _set_port_y(graph, port_id, target_y)
+    if target_y < entry_section.bbox_y:
+        _expand_bbox_for_y(entry_section, target_y)
 
 
 def _space_ports_from_termini(

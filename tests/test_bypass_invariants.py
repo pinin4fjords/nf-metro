@@ -210,6 +210,24 @@ def test_folded_genome_align_express_clears_skipped_marker():
     )
 
 
+def test_folded_pseudo_align_entry_clears_sibling_marker():
+    """A folded TB section's side entry port must fan to its siblings without
+    running through a nearer sibling's marker.
+
+    ``rnaseq_auto --fold-threshold 1`` folds ``pseudo_align`` to a TB column
+    whose LEFT entry port feeds two layer-0 siblings (``salmon_pseudo`` and
+    ``kallisto``).  The port sits one grid row below its feeder, so its entry
+    leg to ``kallisto`` runs along the row through ``salmon_pseudo``'s marker,
+    which it does not consume (#1001).
+    """
+    path = Path(__file__).resolve().parent.parent / "examples" / "rnaseq_auto.mmd"
+    graph = parse_metro_mermaid(path.read_text(), max_station_columns=1)
+    compute_layout(graph)
+    assert not _nonconsumer_crossings(graph, only_station="salmon_pseudo"), (
+        _nonconsumer_crossings(graph, only_station="salmon_pseudo")
+    )
+
+
 @pytest.mark.parametrize("name", _GUIDE_BYPASS_FIXTURES)
 def test_is_bypass_v_recognises_resolve_generated_helpers(name):
     """The helper ids ``resolve`` builds are recognised by ``is_bypass_v`` and
