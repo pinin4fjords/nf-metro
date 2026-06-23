@@ -1187,6 +1187,22 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
         section.bbox_h = desired_bot - section.bbox_y
 
 
+def _internal_station_ys(graph: MetroGraph, section: Section) -> list[float]:
+    """Y of every internal (non-port) station in a section.
+
+    Excludes the section's declared entry/exit ports and any port station,
+    leaving the real, layout-bearing stations an entry port must clear.
+    """
+    ports = set(section.entry_ports) | set(section.exit_ports)
+    return [
+        st.y
+        for sid in section.station_ids
+        if sid not in ports
+        and (st := graph.stations.get(sid)) is not None
+        and not st.is_port
+    ]
+
+
 def _clamp_tb_entry_port(
     graph: MetroGraph,
     entry_section: Section,
@@ -1203,16 +1219,7 @@ def _clamp_tb_entry_port(
 
     Returns the (possibly clamped) target_y.
     """
-    internal_ids = (
-        set(entry_section.station_ids)
-        - set(entry_section.entry_ports)
-        - set(entry_section.exit_ports)
-    )
-    internal_ys = [
-        graph.stations[sid].y
-        for sid in internal_ids
-        if sid in graph.stations and not graph.stations[sid].is_port
-    ]
+    internal_ys = _internal_station_ys(graph, entry_section)
     if not internal_ys:
         return target_y
 
@@ -1290,14 +1297,7 @@ def _lift_perp_entry_port_above_stations(
     port_st = graph.stations.get(port_id)
     if port_st is None:
         return
-    internal_ys = [
-        graph.stations[sid].y
-        for sid in entry_section.station_ids
-        if sid not in entry_section.entry_ports
-        and sid not in entry_section.exit_ports
-        and sid in graph.stations
-        and not graph.stations[sid].is_port
-    ]
+    internal_ys = _internal_station_ys(graph, entry_section)
     if not internal_ys:
         return
     base_y = graph._base_y_spacing
