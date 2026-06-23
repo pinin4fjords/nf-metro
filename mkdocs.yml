@@ -48,6 +48,7 @@ nav:
   - nf-core Pipelines: pipelines/index.md
   - Gallery: gallery/index.md
   - Playground (beta): playground/index.html
+  - How it's built: how-its-built.md
   - Internals:
     - Architecture: dev/architecture.md
     - Layout pipeline: dev/layout_pipeline.md
