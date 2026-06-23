@@ -1975,6 +1975,28 @@ def test_peeloff_concentric_runtime_guard(fixture):
     )
 
 
+def test_near_vertical_junction_hook_renders_cleanly():
+    """A fan-out junction dropping into a same-column RIGHT entry one row below
+    routes without a non-concentric hook corner (#1018).
+
+    ``near_vertical_junction_hook`` places a target section directly below its
+    feeder so the fan-out junction sits one ``JUNCTION_MARGIN`` to the RIGHT of
+    the target's RIGHT entry port.  Leading the descent channel out to the
+    junction's outward side and turning back into the port builds a hook: the two
+    horizontal legs run opposite ways, so a rigid concentric bundle inverts its
+    nesting through the opposite-handed corners and the render-curve backstop
+    names the edge.  Instead the bundle drops straight down the junction's own
+    column and turns once into the port, and the section carries the reversed
+    line order so the single turn lands each line on its own offset; a clean
+    render is the lock.
+    """
+    graph = _layout("topologies/near_vertical_junction_hook.mmd")
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    # Raises CurveInvariantError naming the offending edge on regression.
+    assert_render_curve_invariants(graph, routes, offsets)
+
+
 @pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_top_entry_lead_corner_concentric(fixture):
     """A multi-line TOP-entry L-shape must turn its lead-in corner

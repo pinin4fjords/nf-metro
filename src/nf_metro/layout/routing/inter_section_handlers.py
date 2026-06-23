@@ -21,7 +21,6 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
-    JUNCTION_MARGIN,
     MERGE_ROUTE_MARGIN,
     SECTION_ROUTE_CLEARANCE,
 )
@@ -76,6 +75,7 @@ from nf_metro.layout.routing.context import (
     _resolve_section_row,
     _RoutingCtx,
     _tb_x_offset,
+    is_near_vertical_drop,
 )
 from nf_metro.layout.routing.corners import (
     bypass_stagger,
@@ -240,8 +240,7 @@ class _InterFacts:
         """Junction dropping almost straight into a same-column entry."""
         return (
             self.edge.source in self.ctx.junction_ids
-            and abs(self.dx) <= JUNCTION_MARGIN + COORD_TOLERANCE
-            and abs(self.dy) > abs(self.dx) * 3
+            and is_near_vertical_drop(self.dx, self.dy)
             and self.same_col
         )
 
@@ -327,8 +326,17 @@ def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
     A standard L-shape would place the vertical channel toward the target (back
     inside the shared column); push it the other way so the line keeps the
     junction's natural direction before dropping.
+
+    A multi-line RIGHT entry below sits on its section's outward (right) edge, so
+    the junction already overhangs it: the lines drop straight down the junction's
+    own column and turn once into the port (:func:`_route_near_vertical_junction_drop`)
+    rather than leading out to a centred gap channel and hooking back -- a hook's
+    opposite-handed corners cannot nest a multi-line bundle.  A lone line has no
+    bundle to invert, so it keeps the natural-direction lead-out below.
     """
     ctx = f.ctx
+    if f.n >= 2 and f.entry_side is PortSide.RIGHT and f.tx <= f.sx + COORD_TOLERANCE:
+        return _route_near_vertical_junction_drop(f)
     if f.horizontal is Direction.L:
         channel_x = f.sx + ctx.curve_radius + ctx.offset_step
     else:
@@ -337,6 +345,36 @@ def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
         ctx, f.edge, f.src, f.tgt, channel_x, base_radius=ctx.curve_radius
     )
     _declare_channel(route, ctx, channel_x, vertical_direction(f.ty - f.sy))
+    return route
+
+
+def _route_near_vertical_junction_drop(f: _InterFacts) -> RoutedPath | None:
+    """Drop a junction straight into a same-column RIGHT entry one row below.
+
+    The junction overhangs the port's outward edge, so the bundle descends the
+    junction's own column and turns once into the RIGHT port from ``x >= port.x``
+    -- one corner, no hook.  The descent fans on the port's offsets so the single
+    turn is concentric, and the destination section carries the matching line
+    order (``_reverse_near_vertical_junction_right_entry_offsets``) so the bundle
+    arrives in the order the section lays it out::
+
+        (sx, sy)        -> V straight down the junction's column
+        (sx, ey)        ; turn into the port
+        (ex, ey)        -> H into the RIGHT port from its outward side
+    """
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    _members, line_ids, _edge_by_line = gather_member_edges(ctx.graph, edge)
+    tgt_offs = {lid: _get_offset(ctx, edge.target, lid) for lid in line_ids}
+    centerline = [(src.x, src.y), (src.x, tgt.y), (tgt.x, tgt.y)]
+    route = route_along(
+        edge,
+        [(edge, edge.line_id, -tgt_offs[edge.line_id])],
+        centerline,
+        base_radius=ctx.curve_radius,
+        bundle_offsets=[-tgt_offs[lid] for lid in line_ids],
+    )
+    if route is not None:
+        _declare_channel(route, ctx, src.x, vertical_direction(tgt.y - src.y))
     return route
 
 
