@@ -872,6 +872,72 @@ def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
                 ctx.offsets[(merge_id, lid)] = val
 
 
+def _slot_passthrough_continuation_lines(ctx: _OffsetCtx) -> None:
+    """Permute a pass-through TB merge's offsets so its continuation drops straight.
+
+    The non-sink companion to :func:`_slot_convergence_continuation_lines`.  At a
+    merge that is *not* a section sink, one line continues straight down to a
+    station directly below while a different feeder arrives collinear from above
+    and a sibling peels off (often leaving the section).  When the collinear-from-
+    above feeder holds the trunk-drawing slot, the continuation -- which reaches
+    the merge diagonally from another column -- is drawn outboard at the merge but
+    on the trunk at its child, so it kinks by one step and crosses the collinear
+    feeder (issue #1012).
+
+    :func:`_slot_trunk_continuation_lines` does not catch this: its fan-out hub
+    detector needs two in-section outgoing lanes, but the peeling sibling here
+    leaves the section, so the merge exposes a single in-section outgoing lane.
+    Permute the merge's stored offsets so the continuation rides the trunk-drawing
+    slot (the largest offset, which the TB reversal maps onto the trunk) and the
+    collinear feeder takes the offset.  Only the merge station is touched; its
+    continuation child keeps its own on-trunk slot, so the edge between them
+    becomes a straight drop.  LR/RL draw the lane un-reversed and right-entry TB
+    sections draw un-reversed, so both are left alone.
+    """
+    if ctx.compact:
+        return
+    graph = ctx.graph
+    right_entry = tb_right_entry_sections(graph)
+    for sec_id, section in graph.sections.items():
+        if sec_id not in ctx.tb_sections or graph.is_rail_section(sec_id):
+            continue
+        if sec_id in right_entry:
+            continue
+        primary_axis = AxisFrame.axes_for_direction(section.direction)[0]
+        for merge_id in section.station_ids:
+            merge = graph.stations.get(merge_id)
+            if merge is None or merge.is_port:
+                continue
+            # A diagonal continuation competes for the trunk only when another
+            # feeder arrives collinear from above (a >=2-lane incoming bundle).
+            incoming_collinear = _collinear_lines_at(ctx, section, merge, incoming=True)
+            if not incoming_collinear:
+                continue
+            own_lane = axis_split(primary_axis, (merge.x, merge.y))[1]
+            # Lines leaving the merge straight down its own column (a collinear
+            # in-section continuation).  The collinear-from-above feeders are then
+            # excluded so only a continuation that *arrives* diagonally is
+            # re-slotted; one that is itself the straight feeder already drops
+            # straight and must keep its slot.
+            cont = {
+                e.line_id
+                for e in graph.edges_from(merge_id)
+                if (t := graph.stations.get(e.target)) is not None
+                and not t.is_port
+                and t.section_id == sec_id
+                and abs(axis_split(primary_axis, (t.x, t.y))[1] - own_lane)
+                < COORD_TOLERANCE
+            } - incoming_collinear
+            present = list(graph.station_lines(merge_id))
+            cont_present = [lid for lid in present if lid in cont]
+            rest = [lid for lid in present if lid not in cont]
+            if not cont_present or not rest:
+                continue
+            values = sorted(ctx.offsets.get((merge_id, lid), 0.0) for lid in present)
+            for lid, val in zip(rest + cont_present, values):
+                ctx.offsets[(merge_id, lid)] = val
+
+
 def _reindex_section_local(ctx: _OffsetCtx) -> None:
     """Re-index offsets per-section to close priority gaps (non-compact only).
 
@@ -2179,6 +2245,10 @@ def compute_station_offsets(
        terminal merge, permutes the merge's offsets so a feeder whose
        source is collinear with it rides the trunk-drawing slot and drops
        straight while diagonal siblings take the offset (non-compact TB).
+    11. **Pass-through trunk-continuation slotting** - at a non-sink TB
+       merge, permutes the merge's offsets so the line continuing straight
+       to a station directly below rides the trunk-drawing slot, instead of
+       a collinear-from-above feeder forcing it outboard (non-compact TB).
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
@@ -2207,6 +2277,7 @@ def compute_station_offsets(
     _reverse_tb_right_entry_offsets(ctx)
     _reverse_around_below_left_entry_offsets(ctx)
     _slot_convergence_continuation_lines(ctx)
+    _slot_passthrough_continuation_lines(ctx)
     return ctx.offsets
 
 
