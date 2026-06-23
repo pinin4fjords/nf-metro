@@ -8,6 +8,7 @@ from nf_metro.layout.constants import (
     CANVAS_GRID_SHIFT_THRESHOLD,
 )
 from nf_metro.layout.geometry import lanes_run_along_y
+from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.layout.phases.bbox import _min_section_bbox_top
 from nf_metro.layout.phases.canvas import _translate_graph_y
 from nf_metro.layout.phases.fan_bundles import _convergence_source_ys
@@ -67,6 +68,7 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # as non-chain so the target column still centres correctly.
     groups: dict[object, tuple[float, list[str]]] = {}
     grouped_ids: set[str] = set()
+    require_phase_field(graph, "_row_y_grid_info")
     for row, info in (graph._row_y_grid_info or {}).items():
         pitch = info.get("slot_spacing", y_spacing)
         sec_ids = list(info.get("section_ids", []))
@@ -99,6 +101,7 @@ def _group_grid_origin(
     """
     residues: Counter[float] = Counter()
     per_section_ports: dict[str, set[str]] = {}
+    require_phase_field(graph, "half_grid_station_ids")
     half_grid_ids = graph.half_grid_station_ids
     for sec_id in sec_ids:
         section = graph.sections.get(sec_id)
@@ -137,6 +140,7 @@ def _snap_group_to_grid(
     if origin_info is None:
         return
     origin_r, per_section_ports = origin_info
+    require_phase_field(graph, "half_grid_station_ids")
     half_grid_ids = graph.half_grid_station_ids
 
     # Independent snapping can round two same-column stations onto one slot;
@@ -226,6 +230,7 @@ def _snap_canvas_y_to_grid(
     """
     if y_spacing <= 0 or not graph.sections:
         return
+    require_phase_field(graph, "half_grid_station_ids")
     half_grid_ids = graph.half_grid_station_ids
     convergence_sources = _convergence_source_ys(graph)
     residues: Counter[float] = Counter()

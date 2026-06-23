@@ -208,6 +208,36 @@ captured once right before the consumer, rather than from live geometry. The
 reference equals the live geometry at capture time, so the property was added
 with no change to any render.
 
+## Inter-phase state protocol
+
+Some stages hand intermediate results to later stages through private
+`graph._*` fields rather than through station coordinates. These channels are
+declared as data in [`phase_state.py`](phase_state.py) (`PHASE_FIELD_REGISTRY`),
+which records each field's writer stage, its reader stages, and why it exists;
+`tests/test_phase_state_registry.py` keeps that registry in sync with the
+dataclass fields, the engine stage list, and this document.
+
+Fields whose reader genuinely depends on the writer having run call
+`require_phase_field` just before the read, which raises `PhaseInvariantError`
+under `validate=True` when the writer stage has not completed in the current
+pass:
+
+- `graph._row_y_grid_info` - written by Stage 1.2 (`_align_row_y_grids`); read
+  by the grid-group port snap (Stage 4.2-4.4), fan re-centre (6.3/6.7), and
+  grid snap (6.4).
+- `graph.half_grid_station_ids` - written by Stage 6.3 (`center_ports` only);
+  read by the Stage 6.4 grid snap, which must skip these half-pitch stations.
+- `graph._consumers_grid_snapped` - set right after the Stage 6.4 snap; the
+  Stage 6.6 off-track reanchor carries its own always-on guard on it.
+
+The remaining channels tolerate an unwritten value by design (their read sites
+fall back to live geometry or a `None`/empty default), so they are documented in
+the registry but carry no runtime check: `graph._struct_height_below_top`
+(snapshotted after 6.15a, read by the 6.13 cascade), `graph._placement_ref_y` /
+`graph._placement_ref_bbox_top` (frozen before 6.1/6.11, read via `_ref_y` /
+`_ref_bbox_top`), and `graph._base_y_spacing` (recorded before the spread loop
+when `y_spacing` is auto-resolved).
+
 ## Stage overview
 
 The pipeline groups into six stages aligned with the coord-regime

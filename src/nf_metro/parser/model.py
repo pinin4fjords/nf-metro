@@ -510,6 +510,17 @@ class MetroGraph:
     # step uses this base pitch so a widened pitch doesn't strand the icon far
     # above the trunk.  None until compute_layout records it.
     _base_y_spacing: float | None = field(default=None, repr=False)
+    # Ordered ids of the layout stages that have completed in the current
+    # positioning pass (appended by the engine's per-stage ``_snap`` hook,
+    # reset at the start of each pass).  Backs the inter-phase write-before-read
+    # checks in ``layout/phase_state.py``: a reader can assert its writer stage
+    # is already in this list before trusting a declared ``graph._*`` field.
+    _stages_completed: list[str] = field(default_factory=list, repr=False)
+    # True while a positioning pass runs under ``validate=True``.  The
+    # phase-state accessors self-gate on it so the write-before-read checks
+    # add nothing on the production (``validate=False``) path and stay reachable
+    # from readers that don't carry the ``validate`` flag in their signature.
+    _validate_active: bool = field(default=False, repr=False)
 
     def _invalidate_edge_caches(self) -> None:
         """Reset caches that depend on the edge list."""

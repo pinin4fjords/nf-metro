@@ -8,6 +8,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
 )
+from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.layout.phases._common import (
     _fan_offsets,
     _grid_group_section_ids,
@@ -533,6 +534,7 @@ def _section_row_pitch(graph: MetroGraph, section_id: str, default: float) -> fl
     leave re-fanned stations a fraction of a slot off the trunk line.
     Falls back to ``default`` for sections not in a multi-section row.
     """
+    require_phase_field(graph, "_row_y_grid_info")
     grid_info = graph._row_y_grid_info
     for info in grid_info.values():
         if section_id in info["section_ids"]:
