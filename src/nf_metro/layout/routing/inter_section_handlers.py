@@ -245,6 +245,20 @@ class _InterFacts:
         )
 
     @property
+    def takes_near_vertical_junction_drop(self) -> bool:
+        """A near-vertical junction drop the straight-drop handler can nest.
+
+        The drop leads its channel out to the junction's outward side; a RIGHT
+        entry must be reached from ITS outward side, so a multi-line bundle would
+        hook back through opposite-handed corners it cannot nest.  Such a target
+        cedes to the cross-row wrap rule, which drops down the port's outward side
+        and turns in once; everything else drops straight.
+        """
+        return self.is_near_vertical_same_col_junction and not (
+            self.entry_side is PortSide.RIGHT and self.n >= 2
+        )
+
+    @property
     def is_left_exit(self) -> bool:
         """Source is a LEFT-side exit port (not an entry)."""
         return (
@@ -845,19 +859,9 @@ _INTER_SECTION_RULES: list[_Rule] = [
     _Rule("merge trunk", lambda f: f.is_merge_trunk, _route_merge_trunk_feeder),
     _Rule("merge branch", lambda f: f.is_merge_branch, _route_merge_branch_feeder),
     _Rule("bypass family", lambda f: f.needs_bypass, _route_bypass_family),
-    # A near-vertical junction drop leads its channel out to the junction's
-    # outward side; a RIGHT entry must be reached from ITS outward side instead,
-    # so leading out the other way and turning back builds a hook.  A multi-line
-    # bundle cannot nest that hook's opposite-handed corners, so multi-line RIGHT
-    # entries fall through to the cross-row wrap rule, which drops down the port's
-    # outward side and turns in once.  A lone line nests fine and keeps the
-    # natural-direction drop.
     _Rule(
         "near-vertical same-col junction",
-        lambda f: (
-            f.is_near_vertical_same_col_junction
-            and not (f.entry_side is PortSide.RIGHT and f.n >= 2)
-        ),
+        lambda f: f.takes_near_vertical_junction_drop,
         _route_near_vertical_junction,
     ),
     # RIGHT entry fed from the left: wrap around the right side (over the top for

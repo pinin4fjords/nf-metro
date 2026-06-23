@@ -501,21 +501,15 @@ def is_near_vertical_drop(dx: float, dy: float) -> bool:
 
 
 def is_near_vertical_junction_right_entry(graph: MetroGraph, port: Port) -> bool:
-    """Whether *port* is a RIGHT entry a fan-out junction drops straight into.
+    """Whether *port* is a RIGHT entry a multi-line fan-out junction drops into.
 
-    A fan-out junction one row above, in the port's grid column and overhanging
-    its outward (right) edge, drops down the port's outward side and turns once
-    into it (the standard ``_route_right_entry_cross_row`` path).  That descent
-    transposes the bundle into the port's lateral order, so the section receives
-    its lines in the opposite order to the junction; it carries the reversed line
-    order (``_reverse_near_vertical_junction_right_entry_offsets``) so the drop
-    and the run out of the port stay straight and the turn nests concentrically.
-
-    The same near-vertical geometry the routing dispatch tests
-    (``_InterFacts.is_near_vertical_same_col_junction``): the junction and port
-    share a grid column, the junction overhangs the port's outward edge, the drop
-    is near-vertical, and at least two lines descend together (a lone line has no
-    bundle to transpose).
+    Detected so the section's line order can be reversed to match the descent's
+    transpose (see ``_reverse_near_vertical_junction_right_entry_offsets``).  The
+    same near-vertical geometry the routing dispatch deflects to the standard
+    drop (``_InterFacts.takes_near_vertical_junction_drop``): the junction and
+    port share a grid column, the junction overhangs the port's outward edge, the
+    drop is near-vertical, and at least two lines descend together (mirroring the
+    dispatch's ``f.n >= 2``; a lone line has no bundle to transpose).
     """
     if not (port.is_entry and port.side is PortSide.RIGHT):
         return False
