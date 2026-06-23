@@ -14,6 +14,7 @@ from nf_metro.layout.constants import (
     STATION_RADIUS_APPROX,
 )
 from nf_metro.layout.geometry import lanes_run_along_y
+from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -452,6 +453,7 @@ def is_loop_side_branch_station(graph: MetroGraph, sid: str) -> bool:
 
 def _grid_group_section_ids(graph: MetroGraph) -> set[str]:
     """Return the set of section IDs that participated in grid alignment."""
+    require_phase_field(graph, "_row_y_grid_info")
     grid_info = graph._row_y_grid_info
     result: set[str] = set()
     for info in grid_info.values():

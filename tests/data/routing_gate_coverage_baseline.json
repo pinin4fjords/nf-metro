@@ -60,6 +60,7 @@
   "context.py::if not src or not tgt:::#1",
   "context.py::if not tgt or not (tgt.is_port or edge.target in junction_ids):::#1",
   "context.py::if port_st is None:::#1",
+  "context.py::if psec is None or pst is None:::#1",
   "context.py::if psec is None:::#1",
   "context.py::if sec and sec.grid_col >= 0:::#1",
   "context.py::if sec and sec.grid_row >= 0:::#1",

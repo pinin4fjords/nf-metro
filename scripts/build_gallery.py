@@ -1059,6 +1059,16 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "anchors on its own trunk rather than inheriting the high global slots, so "
         "its markers sit on their rows and the run into reports stays level.",
     ),
+    (
+        "near_vertical_junction_hook",
+        TOPOLOGIES_DIR,
+        "A fan-out junction overhanging a same-column RIGHT entry one row below. "
+        "The two-line bundle drops straight down the junction's own column and "
+        "turns once into the port, rather than leading out to a centred gap "
+        "channel and hooking back: a hook's opposite-handed corners cannot nest "
+        "a multi-line bundle. The destination section carries the matching line "
+        "order so the bundle arrives in the order the section lays it out (#1018).",
+    ),
 ]
 
 # Category headers inserted before specific entries

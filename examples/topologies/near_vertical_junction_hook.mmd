@@ -1,0 +1,33 @@
+%%metro title: Near-Vertical Junction Hook
+%%metro style: nfcore
+%%metro line: main | Main | #2db572
+%%metro line: a | A | #e63946
+%%metro line: b | B | #7b2d3b
+%%metro grid: src | 0,0
+%%metro grid: gen | 1,0
+%%metro grid: pseudo | 0,1
+
+graph LR
+    subgraph src [Source]
+        s1[Step 1]
+        s2[Step 2]
+        s3[Step 3]
+        s1 -->|main,a,b| s2
+        s2 -->|main,a,b| s3
+    end
+
+    subgraph gen [Genome]
+        g1[Genome]
+    end
+
+    subgraph pseudo [Pseudo]
+        %%metro entry: right | a, b
+        p1[Pseudo 1]
+        p2[Pseudo 2]
+        p3[Pseudo 3]
+        p1 -->|a,b| p2
+        p2 -->|a,b| p3
+    end
+
+    s3 -->|main| g1
+    s3 -->|a,b| p1

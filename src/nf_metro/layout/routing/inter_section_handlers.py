@@ -21,7 +21,6 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
-    JUNCTION_MARGIN,
     MERGE_ROUTE_MARGIN,
     SECTION_ROUTE_CLEARANCE,
 )
@@ -76,6 +75,7 @@ from nf_metro.layout.routing.context import (
     _resolve_section_row,
     _RoutingCtx,
     _tb_x_offset,
+    is_near_vertical_drop,
 )
 from nf_metro.layout.routing.corners import (
     bypass_stagger,
@@ -240,9 +240,22 @@ class _InterFacts:
         """Junction dropping almost straight into a same-column entry."""
         return (
             self.edge.source in self.ctx.junction_ids
-            and abs(self.dx) <= JUNCTION_MARGIN + COORD_TOLERANCE
-            and abs(self.dy) > abs(self.dx) * 3
+            and is_near_vertical_drop(self.dx, self.dy)
             and self.same_col
+        )
+
+    @property
+    def takes_near_vertical_junction_drop(self) -> bool:
+        """A near-vertical junction drop the straight-drop handler can nest.
+
+        The drop leads its channel out to the junction's outward side; a RIGHT
+        entry must be reached from ITS outward side, so a multi-line bundle would
+        hook back through opposite-handed corners it cannot nest.  Such a target
+        cedes to the cross-row wrap rule, which drops down the port's outward side
+        and turns in once; everything else drops straight.
+        """
+        return self.is_near_vertical_same_col_junction and not (
+            self.entry_side is PortSide.RIGHT and self.n >= 2
         )
 
     @property
@@ -848,7 +861,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     _Rule("bypass family", lambda f: f.needs_bypass, _route_bypass_family),
     _Rule(
         "near-vertical same-col junction",
-        lambda f: f.is_near_vertical_same_col_junction,
+        lambda f: f.takes_near_vertical_junction_drop,
         _route_near_vertical_junction,
     ),
     # RIGHT entry fed from the left: wrap around the right side (over the top for
