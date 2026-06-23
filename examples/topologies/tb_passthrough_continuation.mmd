@@ -1,0 +1,21 @@
+%%metro title: TB Passthrough Continuation
+%%metro style: dark
+%%metro line: r | R | #0570b0
+%%metro line: g | G | #2db572
+%%metro line: y | Y | #f5c542
+
+%%metro grid: work | 0,0
+
+graph LR
+    subgraph work [Work]
+        %%metro direction: TB
+        starN[StarN]
+        hisatN[HisatN]
+        leftchild[LeftChild]
+        merge[Merge]
+        tail[Tail]
+        starN -->|r| leftchild
+        starN -->|g| merge
+        hisatN -->|y| merge
+        merge -->|g| tail
+    end

@@ -1766,6 +1766,70 @@ class TrunkContinuationJog:
         )
 
 
+def _line_runs_lane_through(
+    graph: MetroGraph,
+    route_by_edge: dict[tuple[str, str, str], RoutedPath],
+    sid: str,
+    line_id: str,
+    primary_axis: str,
+    lane: float,
+) -> bool:
+    """Whether *line_id* runs straight along *lane* through *sid*.
+
+    True when the line is drawn on *lane* at *sid* and has an in-section
+    neighbour whose centre is collinear with *sid* on that lane, so it owns the
+    trunk there rather than merely crossing it.
+    """
+    on_lane = False
+    has_collinear_neighbour = False
+    for e in (*graph.edges_to(sid), *graph.edges_from(sid)):
+        if e.line_id != line_id:
+            continue
+        rp = route_by_edge.get((e.source, e.target, e.line_id))
+        if rp is not None:
+            end = rp.points[-1] if e.target == sid else rp.points[0]
+            if abs(axis_split(primary_axis, end)[1] - lane) < COORD_TOLERANCE:
+                on_lane = True
+        other = graph.stations.get(e.source if e.target == sid else e.target)
+        if other is not None and not other.is_port:
+            other_lane = axis_split(primary_axis, (other.x, other.y))[1]
+            if abs(other_lane - lane) < COORD_TOLERANCE:
+                has_collinear_neighbour = True
+    return on_lane and has_collinear_neighbour
+
+
+def _displaced_by_collinear_trunk_owner(
+    graph: MetroGraph,
+    route_by_edge: dict[tuple[str, str, str], RoutedPath],
+    edge: Edge,
+    rp: RoutedPath,
+    primary_axis: str,
+    lane: float,
+) -> bool:
+    """Whether this collinear edge's line is merely displaced by a sibling that
+    owns the trunk lane via its own collinear neighbour (issue #1012).
+
+    The jog checker assumes one straight line per merge lane.  When a
+    continuation runs straight along the lane through a merge, a collinear feeder
+    sibling is pushed to an outboard slot and steps to it -- a legitimate
+    displacement, not a trunk jog.  Returns True at the displaced (off-lane) end
+    when another line runs straight along the lane there.
+    """
+    ends = (
+        (edge.source, axis_split(primary_axis, rp.points[0])[1]),
+        (edge.target, axis_split(primary_axis, rp.points[-1])[1]),
+    )
+    for b_id, drawn in ends:
+        if abs(drawn - lane) < COORD_TOLERANCE:
+            continue
+        for sib in graph.station_lines(b_id):
+            if sib != edge.line_id and _line_runs_lane_through(
+                graph, route_by_edge, b_id, sib, primary_axis, lane
+            ):
+                return True
+    return False
+
+
 def check_trunk_continuation_drops_straight(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -1810,17 +1874,22 @@ def check_trunk_continuation_drops_straight(
             continue
         lanes = [axis_split(primary_axis, pt)[1] for pt in rp.points]
         lane_lo, lane_hi = min(lanes), max(lanes)
-        if lane_hi - lane_lo >= COORD_TOLERANCE:
-            violations.append(
-                TrunkContinuationJog(
-                    line_id=edge.line_id,
-                    source=edge.source,
-                    target=edge.target,
-                    section_id=sec_id,
-                    lane_lo=lane_lo,
-                    lane_hi=lane_hi,
-                )
+        if lane_hi - lane_lo < COORD_TOLERANCE:
+            continue
+        if _displaced_by_collinear_trunk_owner(
+            graph, route_by_edge, edge, rp, primary_axis, src_lane
+        ):
+            continue
+        violations.append(
+            TrunkContinuationJog(
+                line_id=edge.line_id,
+                source=edge.source,
+                target=edge.target,
+                section_id=sec_id,
+                lane_lo=lane_lo,
+                lane_hi=lane_hi,
             )
+        )
     return violations
 
 
