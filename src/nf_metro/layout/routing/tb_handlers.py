@@ -80,7 +80,18 @@ def _route_tb_internal(
     # Different X tracks: route with vertical runs + 45-degree diagonal
     if abs(dx) >= COORD_TOLERANCE:
         direction = graph.sections[src_sec].direction
-        return _route_tb_diagonal(edge, sx, sy, tx, ty, ctx, direction)
+        # A feeder descending collinear with the merge's column but landing on an
+        # outboard slot is displaced by a continuation that owns the trunk; bend
+        # its diagonal at the source so it vacates the column immediately instead
+        # of running down the trunk-owner's lane and overlapping it (issue #1012).
+        bias_to_source = (
+            edge.target in ctx.join_stations
+            and abs(sx - tgt.x) < COORD_TOLERANCE
+            and abs(tx - tgt.x) >= COORD_TOLERANCE
+        )
+        return _route_tb_diagonal(
+            edge, sx, sy, tx, ty, ctx, direction, bias_to_source=bias_to_source
+        )
 
     # Same track: straight vertical drop
     return RoutedPath(
@@ -148,6 +159,8 @@ def _route_tb_diagonal(
     ty: float,
     ctx: _RoutingCtx,
     direction: str,
+    *,
+    bias_to_source: bool = False,
 ) -> RoutedPath:
     """Route TB edges with vertical runs and a 45-degree diagonal transition.
 
@@ -155,6 +168,10 @@ def _route_tb_diagonal(
     the flow axis (Y for TB) by the shared ``_compute_diagonal_placement`` and
     laid out by :func:`~nf_metro.layout.geometry.diagonal_centreline`, which maps
     the flow-axis run back to vertical legs for a vertical-flow *direction*.
+
+    ``bias_to_source`` forces the diagonal to the source end regardless of the
+    fork/join classification, for a feeder that must leave the merge's column at
+    its source rather than run down it.
     """
     diag_start_y, diag_end_y = _compute_diagonal_placement(
         sy,
@@ -162,8 +179,8 @@ def _route_tb_diagonal(
         ctx.diagonal_run,
         MIN_STRAIGHT_EDGE,
         MIN_STRAIGHT_EDGE,
-        edge.source in ctx.fork_stations,
-        edge.target in ctx.join_stations,
+        bias_to_source or edge.source in ctx.fork_stations,
+        edge.target in ctx.join_stations and not bias_to_source,
     )
 
     return RoutedPath(
