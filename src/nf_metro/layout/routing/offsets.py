@@ -822,6 +822,21 @@ def _slot_trunk_continuation_lines(ctx: _OffsetCtx) -> None:
         _apply_section_line_order(ctx, sec_id, new_order)
 
 
+def _reassign_offsets_in_order(
+    ctx: _OffsetCtx, station_id: str, ordered: list[str], present: list[str]
+) -> None:
+    """Reassign *station_id*'s stored offsets to *ordered*, smallest first.
+
+    The line at the back of *ordered* gets the largest offset, which the TB
+    reversal maps onto the trunk.  Reuses the values already present rather than a
+    fresh ``0..n`` range, which keeps the station's marker span set by those
+    values.
+    """
+    values = sorted(ctx.offsets.get((station_id, lid), 0.0) for lid in present)
+    for lid, val in zip(ordered, values):
+        ctx.offsets[(station_id, lid)] = val
+
+
 def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
     """Permute a TB merge's offsets so a collinear feeder drops straight.
 
@@ -863,13 +878,7 @@ def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
             rest = [lid for lid in present if lid not in collinear]
             if not cont or not rest:
                 continue
-            # The trunk-drawing slot is the largest stored offset (the reversal
-            # maps it onto the trunk); the diagonal siblings take the smaller
-            # slots.  Reassigning the merge's own offset values, rather than a
-            # fresh 0..n range, keeps its marker span set by the values present.
-            values = sorted(ctx.offsets.get((merge_id, lid), 0.0) for lid in present)
-            for lid, val in zip(rest + cont, values):
-                ctx.offsets[(merge_id, lid)] = val
+            _reassign_offsets_in_order(ctx, merge_id, rest + cont, present)
 
 
 def _slot_passthrough_continuation_lines(ctx: _OffsetCtx) -> None:
@@ -933,9 +942,7 @@ def _slot_passthrough_continuation_lines(ctx: _OffsetCtx) -> None:
             rest = [lid for lid in present if lid not in cont]
             if not cont_present or not rest:
                 continue
-            values = sorted(ctx.offsets.get((merge_id, lid), 0.0) for lid in present)
-            for lid, val in zip(rest + cont_present, values):
-                ctx.offsets[(merge_id, lid)] = val
+            _reassign_offsets_in_order(ctx, merge_id, rest + cont_present, present)
 
 
 def _reindex_section_local(ctx: _OffsetCtx) -> None:
