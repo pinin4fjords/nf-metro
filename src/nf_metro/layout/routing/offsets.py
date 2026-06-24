@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -13,6 +13,7 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
 )
 from nf_metro.layout.geometry import AxisFrame, axis_split
+from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.context import (
     _has_intervening_sections,
@@ -495,7 +496,7 @@ def _section_present_line_set(ctx: _OffsetCtx, sec_id: str) -> set[str]:
 
 
 def _section_order_offsets(
-    ctx: _OffsetCtx, sec_id: str, new_order: list[str]
+    ctx: _OffsetCtx, sec_id: str, new_order: Sequence[str]
 ) -> dict[tuple[str, str], float]:
     """Per-(station, line) stored offsets that re-slot *sec_id* onto *new_order*.
 
@@ -519,7 +520,7 @@ def _section_order_offsets(
 
 
 def _apply_section_line_order(
-    ctx: _OffsetCtx, sec_id: str, new_order: list[str]
+    ctx: _OffsetCtx, sec_id: str, new_order: Sequence[str]
 ) -> None:
     """Re-slot every station in *sec_id* onto the bundle order *new_order*."""
     ctx.offsets.update(_section_order_offsets(ctx, sec_id, new_order))
@@ -644,22 +645,22 @@ def _reorder_reconvergence(
         continuing = sorted(primary_lines, key=lambda lid: primary_order.get(lid, 0))
 
         sec_present = _section_present_line_set(ctx, sec_id)
-        returning = sorted(
-            sec_present - primary_lines,
-            key=lambda lid: ctx.line_priority.get(lid, 0),
-        )
 
         if _share_flat_frame(ctx, sec_id, primary_fid):
+            returning = sorted(
+                sec_present - primary_lines,
+                key=lambda lid: ctx.line_priority.get(lid, 0),
+            )
             _align_reconvergence_to_feeder(
                 ctx, sec_id, continuing, returning, primary_fid
             )
             continue
 
-        new_order = continuing + returning
-        global_ordered = sorted(
-            sec_present, key=lambda lid: ctx.line_priority.get(lid, 0)
+        config = BoundaryConfig(
+            present=tuple(sec_present), determining=tuple(continuing)
         )
-        if new_order == global_ordered:
+        new_order = lane_order(config, ctx.line_priority)
+        if new_order is None:
             continue
 
         _apply_section_line_order(ctx, sec_id, new_order)
@@ -704,15 +705,12 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         if peel_order is None:
             continue
 
-        sec_present = _section_present_line_set(ctx, sec_id)
-        rest = sorted(
-            sec_present - set(peel_order),
-            key=lambda lid: ctx.line_priority.get(lid, 0),
+        config = BoundaryConfig(
+            present=tuple(_section_present_line_set(ctx, sec_id)),
+            determining=tuple(peel_order),
         )
-        new_order = [lid for lid in peel_order if lid in sec_present] + rest
-        if new_order == sorted(
-            sec_present, key=lambda lid: ctx.line_priority.get(lid, 0)
-        ):
+        new_order = lane_order(config, ctx.line_priority)
+        if new_order is None:
             continue
 
         _apply_section_line_order(ctx, sec_id, new_order)
