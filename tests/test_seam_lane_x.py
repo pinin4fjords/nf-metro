@@ -8,10 +8,9 @@ so the same offsets fan to the opposite screen side.
 
 :func:`check_seam_approach_equals_departure` is the oracle the rotation series
 is verified against: at a continuation seam the inter-section approach must land
-each line on the coordinate ``lane_x`` assigns it.  Horizontal sections already
-satisfy this; vertical sections whose draw reflects rather than rotates the lane
-fan are catalogued here as strict xfails until #1041 migrates the draw onto
-``lane_x``.
+each line on the coordinate ``lane_x`` assigns it.  Both horizontal and vertical
+sections satisfy this once the section draw rides ``lane_x``'s per-section lane
+sign.
 """
 
 from __future__ import annotations
@@ -33,19 +32,6 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 TOPOLOGIES = Path(__file__).resolve().parent.parent / "examples" / "topologies"
-
-# TB sections draw their lane fan by reflection rather than rotation today, so
-# every TB continuation seam lands its lines on the opposite side of the column
-# from lane_x.  #1041 migrates the section draw onto lane_x, which flips each of
-# these from xfail to pass (a strict xpass then reds CI, prompting removal).
-_SEAM_XFAILS = {
-    "lr_to_tb_top_two_lines",
-    "lr_to_tb_top_drop_two_lines",
-    "tb_internal_diagonal",
-    "tb_lr_exit_left",
-    "tb_lr_exit_right",
-    "tb_right_entry_stack",
-}
 
 
 # --------------------------------------------------------------------------- #
@@ -183,20 +169,10 @@ def _seam_mismatches(name: str) -> tuple[str, ...]:
 
 
 def _seam_params() -> list:
-    params = []
-    for path in sorted(TOPOLOGIES.glob("*.mmd")):
-        name = path.stem
-        marks = (
-            (
-                pytest.mark.xfail(
-                    reason="#1041 migrates TB draw onto lane_x", strict=True
-                ),
-            )
-            if name in _SEAM_XFAILS
-            else ()
-        )
-        params.append(pytest.param(name, id=name, marks=marks))
-    return params
+    return [
+        pytest.param(path.stem, id=path.stem)
+        for path in sorted(TOPOLOGIES.glob("*.mmd"))
+    ]
 
 
 @pytest.mark.parametrize("name", _seam_params())

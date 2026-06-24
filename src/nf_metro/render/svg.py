@@ -35,12 +35,12 @@ from nf_metro.layout.routing import (
     compute_station_offsets,
     route_edges_centred,
 )
-from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
 )
 from nf_metro.layout.routing.invariants import assert_render_curve_invariants
+from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 from nf_metro.manifest import node_data_attrs
 from nf_metro.parser.model import (
     ICON_TYPE_DIR,
@@ -1309,7 +1309,7 @@ def _drawn_bundle_span(
     graph: MetroGraph,
     station: Station,
     station_offsets: dict[tuple[str, str], float],
-    tb_right_entry: set[str],
+    positive_fan: set[str],
 ) -> tuple[float, float]:
     """Min/max of a station's per-line offsets *as drawn*.
 
@@ -1327,7 +1327,8 @@ def _drawn_bundle_span(
         return 0.0, 0.0
     sec = graph.sections.get(station.section_id) if station.section_id else None
     if sec is not None and sec.direction == "TB":
-        drawn = [-off for off in raw]
+        sign = 1.0 if station.section_id in positive_fan else -1.0
+        drawn = [sign * off for off in raw]
     else:
         drawn = raw
     return min(drawn), max(drawn)
@@ -1387,7 +1388,7 @@ def station_marker_box(
         min_off, max_off = min(used) - station.y, max(used) - station.y
     elif station_offsets and not graph.station_is_rail(station.id):
         min_off, max_off = _drawn_bundle_span(
-            graph, station, station_offsets, tb_right_entry_sections(graph)
+            graph, station, station_offsets, tb_positive_fan_sections(graph)
         )
     else:
         min_off = max_off = 0.0
@@ -1730,19 +1731,19 @@ def _render_stations(
     addressable element; with ``--no-manifest`` the glyphs are drawn directly
     with no wrapper. Skips port stations (is_port=True).
     """
-    tb_right_entry = tb_right_entry_sections(graph)
+    positive_fan = tb_positive_fan_sections(graph)
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
         if graph.embed_manifest:
             g = draw.Group(**_station_group_attrs(graph, theme, station))
             _render_station_into(
-                g, graph, theme, station, station_offsets, tb_right_entry
+                g, graph, theme, station, station_offsets, positive_fan
             )
             d.append(g)
         else:
             _render_station_into(
-                d, graph, theme, station, station_offsets, tb_right_entry
+                d, graph, theme, station, station_offsets, positive_fan
             )
 
 
@@ -1752,7 +1753,7 @@ def _render_station_into(
     theme: Theme,
     station: Station,
     station_offsets: dict[tuple[str, str], float] | None,
-    tb_right_entry: set[str],
+    positive_fan: set[str],
 ) -> None:
     """Draw one station's glyph and terminus icons into a container.
 
@@ -1830,7 +1831,7 @@ def _render_station_into(
     # ride the bundle's mid-offset.
     if station_offsets and not graph.station_is_rail(station.id):
         min_off, max_off = _drawn_bundle_span(
-            graph, station, station_offsets, tb_right_entry
+            graph, station, station_offsets, positive_fan
         )
     else:
         min_off = max_off = 0.0

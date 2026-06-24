@@ -7,6 +7,7 @@ assignments in compute_station_offsets().
 
 from __future__ import annotations
 
+from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 
@@ -82,6 +83,25 @@ def detect_reversed_sections(graph: MetroGraph) -> set[str]:
     )
 
     return reversed_secs
+
+
+def tb_positive_fan_sections(graph: MetroGraph) -> set[str]:
+    """TB sections whose bundle draws on the ``+x`` (feed) side, not rotation.
+
+    A vertical-flow section normally rides the rotation ``x - offset`` (bundle
+    left of the column).  A section whose bundle arrives from the ``+x`` side
+    instead draws ``x + offset`` so the seam corner nests as a rotation and the
+    whole feed chain stays on one side: a RIGHT-entry section (the feed wraps in
+    from the right) or a reverse-flow section (the bundle returns up the right).
+    """
+    right_entry = tb_right_entry_sections(graph)
+    reversed_secs = detect_reversed_sections(graph)
+    return {
+        sid
+        for sid, section in graph.sections.items()
+        if AxisFrame.axes_for_direction(section.direction)[0] == "y"
+        and (sid in right_entry or sid in reversed_secs)
+    }
 
 
 def _detect_tb_bottom_top_entries(

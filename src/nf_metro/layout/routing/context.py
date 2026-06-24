@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
@@ -21,7 +21,10 @@ from nf_metro.layout.routing.common import (
     merge_trunk_force_cross_row,
     resolve_section,
 )
-from nf_metro.layout.routing.reversal import detect_reversed_sections
+from nf_metro.layout.routing.reversal import (
+    detect_reversed_sections,
+    tb_positive_fan_sections,
+)
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -404,10 +407,18 @@ def _section_lane_frame(graph: MetroGraph, section: Section) -> AxisFrame:
     The lane accessors read only the frame's secondary (lane) axis name and its
     :attr:`~AxisFrame.secondary_sign`, never the axis step, so an unresolved
     spacing falls back to a unit step rather than failing.
+
+    A vertical-flow section whose bundle draws on the ``+x`` (feed) side
+    (:func:`tb_positive_fan_sections`) carries a ``+1`` lane sign so the lane
+    accessor reports the side the section actually draws on, matching
+    :func:`_tb_x_offset`.
     """
-    return AxisFrame.for_direction(
+    frame = AxisFrame.for_direction(
         section.direction, graph.x_spacing or 1.0, graph.y_spacing or 1.0
     )
+    if section.id in tb_positive_fan_sections(graph):
+        frame = replace(frame, secondary_sign=1.0)
+    return frame
 
 
 def port_lane_coord(
@@ -499,11 +510,19 @@ def _tb_x_offset(
     """Compute the X offset for a line at a station in a TB section.
 
     A vertical-flow section is the horizontal model rotated 90 degrees: where
-    an LR line rides ``y + offset``, a TB line rides ``x - offset``.  The X
-    offset is therefore the negated per-line offset, not a reflection of it
-    against the station's bundle max.
+    an LR line rides ``y + offset``, a TB line rides ``x + sign * offset``.  The
+    lane sign is ``-1`` (rotation, bundle left of the column) except for a
+    section whose bundle arrives from the ``+x`` side -- a RIGHT entry (the feed
+    wraps in from the right) or a reverse-flow section (the bundle returns up the
+    right).  Drawing those on the side they arrive on keeps the seam corner a
+    rotation rather than a pinching reflection, and the whole feed chain stays on
+    one side.
     """
-    return -_get_offset(ctx, station_id, line_id)
+    positive_fan = (
+        section_id in ctx.tb_right_entry or section_id in ctx.reversed_sections
+    )
+    sign = 1.0 if positive_fan else -1.0
+    return sign * _get_offset(ctx, station_id, line_id)
 
 
 def _resolve_section_col(graph: MetroGraph, station: Station) -> int | None:
