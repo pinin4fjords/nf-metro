@@ -86,15 +86,17 @@ def _reverses(
     feeder: Section,
     consumer: Section,
 ) -> bool:
-    via_junction = _seam_via_junction(graph, exit_port, entry_port)
-    return (
-        _is_over_top_right_entry(feeder, consumer, exit_port, entry_port)
+    if (
+        _is_over_top_right_entry(exit_port, entry_port, feeder, consumer)
         or _is_around_below_left_entry(graph, exit_port, entry_port, feeder, consumer)
-        or _is_vertical_column_continuation(feeder, exit_port, entry_port)
-        or _is_fold_right_entry(exit_port, entry_port, via_junction)
-        or _is_fold_turn_right_entry(
-            exit_port, entry_port, feeder, consumer, via_junction
-        )
+        or _is_vertical_column_continuation(exit_port, entry_port, feeder)
+    ):
+        return True
+    # Only the junction idioms need the (graph-walking) junction-mediation check,
+    # so defer it past the O(1) side/grid idioms above.
+    via_junction = _seam_via_junction(graph, exit_port, entry_port)
+    return _is_fold_right_entry(exit_port, entry_port, via_junction) or (
+        _is_fold_turn_right_entry(exit_port, entry_port, feeder, consumer, via_junction)
     )
 
 
@@ -117,7 +119,7 @@ def _seam_via_junction(graph: MetroGraph, exit_port: Port, entry_port: Port) -> 
 
 
 def _is_over_top_right_entry(
-    feeder: Section, consumer: Section, exit_port: Port, entry_port: Port
+    exit_port: Port, entry_port: Port, feeder: Section, consumer: Section
 ) -> bool:
     """U-turn: a same-row feeder loops over a TB section's top into a RIGHT entry.
 
@@ -164,7 +166,7 @@ def _is_around_below_left_entry(
 
 
 def _is_vertical_column_continuation(
-    feeder: Section, exit_port: Port, entry_port: Port
+    exit_port: Port, entry_port: Port, feeder: Section
 ) -> bool:
     """A vertical section's BOTTOM exit feeding a TOP entry.
 

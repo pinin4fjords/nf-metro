@@ -89,6 +89,11 @@ def _machinery_reverses(graph, entry_port, sec_id, tb_sections, reversed_secs) -
     )
 
 
+def _side_pair(exit_port, entry_port) -> str:
+    """Seam side signature, e.g. ``"R->L"`` for a RIGHT exit into a LEFT entry."""
+    return f"{exit_port.side.name[0]}->{entry_port.side.name[0]}"
+
+
 def _resolve_exit_ports(graph, entry_port_id):
     """Feeding exit port(s) for an entry, resolved through any fold/merge junction."""
     junction_ids = graph.junction_ids
@@ -135,7 +140,7 @@ def _seam_verdicts(path_str: str):
                     path.stem,
                     exit_port.section_id,
                     sec_id,
-                    f"{exit_port.side.name[0]}->{entry.side.name[0]}",
+                    _side_pair(exit_port, entry),
                 )
                 classifier = (
                     seam_orientation(graph, exit_port, entry) is SeamOrientation.REVERSE
