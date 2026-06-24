@@ -40,7 +40,7 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
-def _is_over_top_right_entry(
+def _machinery_is_over_top_right_entry(
     graph: MetroGraph, port: Port, tb_sections: set[str]
 ) -> bool:
     """Whether *port* is a RIGHT entry reached by an over-the-top loop.
@@ -122,7 +122,7 @@ def _machinery_reverses(graph, entry_port, sec_id, tb_sections, reversed_secs) -
     """The reversal the scattered legacy machinery effectively applies to a seam."""
     return (
         sec_id in reversed_secs
-        or _is_over_top_right_entry(graph, entry_port, tb_sections)
+        or _machinery_is_over_top_right_entry(graph, entry_port, tb_sections)
         or is_far_side_around_below_left_entry(graph, entry_port)
         or is_near_vertical_junction_right_entry(graph, entry_port)
     )

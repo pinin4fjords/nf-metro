@@ -2171,9 +2171,9 @@ def _reverse_around_below_left_entry_offsets(ctx: _OffsetCtx) -> None:
     entry port and internal trunk carry the reversed order for the rise into the
     port and the run out of it to stay straight.
 
-    A horizontal idiom outside the vertical-flow rotation and the seam-orientation
-    reorder, so it keeps its own reversal pass rather than riding the per-section
-    lane sign.
+    This around-below half-turn is a horizontal idiom outside the vertical-flow
+    rotation and the seam-orientation reorder, so it keeps its own reversal pass
+    rather than riding the per-section lane sign.
     """
     graph = ctx.graph
     _reverse_offsets_from_roots(
