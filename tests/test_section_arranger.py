@@ -3,8 +3,8 @@
 The arranger reduces a section's *boundary configuration* -- the order in which
 lines cross its determining edge -- to a lane order, so that a line crossing at
 edge-slot ``k`` rides lane ``k`` and the bundle runs parallel by construction.
-Two LR/RL passes feed it today: fan-out divergence reads the EXIT edge, and
-reconvergence reads the ENTRY edge.
+Fan-out divergence reads its exit edge's peel order; reconvergence reads its
+entry edge's primary-feeder order.
 
 The unit tests pin the reduction itself; the fixture tests prove the reduction
 is wired into the pipeline and drives the lane order of real shipped diagrams.
@@ -18,7 +18,7 @@ import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets
-from nf_metro.layout.routing.arranger import BoundaryConfig, BoundaryEdge, lane_order
+from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -32,47 +32,37 @@ EXAMPLE_TOPOLOGIES = REPO_ROOT / "examples" / "topologies"
 PRIORITY = {"a": 0, "b": 1, "c": 2, "d": 3}
 
 
-@pytest.mark.parametrize("edge", [BoundaryEdge.ENTRY, BoundaryEdge.EXIT])
-def test_determining_order_takes_the_front_lanes(edge: BoundaryEdge) -> None:
-    """Lines crossing the determining edge ride the front lanes in edge order,
-    independent of which edge they were read from."""
-    config = BoundaryConfig(present=("a", "b", "c"), determining=("c", "a"), edge=edge)
+def test_determining_order_takes_the_front_lanes() -> None:
+    """Lines crossing the determining edge ride the front lanes in edge order."""
+    config = BoundaryConfig(present=("a", "b", "c"), determining=("c", "a"))
     assert lane_order(config, PRIORITY) == ("c", "a", "b")
 
 
 def test_unconstrained_lines_fall_to_the_back_in_priority_order() -> None:
     """Lines the determining edge does not pin are appended by priority, not by
     their position in *present*."""
-    config = BoundaryConfig(
-        present=("d", "c", "b", "a"), determining=("d",), edge=BoundaryEdge.EXIT
-    )
+    config = BoundaryConfig(present=("d", "c", "b", "a"), determining=("d",))
     assert lane_order(config, PRIORITY) == ("d", "a", "b", "c")
 
 
 def test_returns_none_when_already_priority_order() -> None:
     """A determining order that reproduces the plain priority order needs no
     re-slot, signalled by ``None``."""
-    config = BoundaryConfig(
-        present=("a", "b", "c"), determining=("a", "b"), edge=BoundaryEdge.EXIT
-    )
+    config = BoundaryConfig(present=("a", "b", "c"), determining=("a", "b"))
     assert lane_order(config, PRIORITY) is None
 
 
 def test_determining_lines_absent_from_present_are_ignored() -> None:
     """An edge order naming a line the section does not carry is filtered out
     before it can claim a lane."""
-    config = BoundaryConfig(
-        present=("a", "b"), determining=("c", "b"), edge=BoundaryEdge.EXIT
-    )
+    config = BoundaryConfig(present=("a", "b"), determining=("c", "b"))
     assert lane_order(config, PRIORITY) == ("b", "a")
 
 
 def test_missing_priority_defaults_to_zero() -> None:
     """Among unconstrained lines, one absent from the priority map sorts as 0,
     ahead of a line with a positive priority."""
-    config = BoundaryConfig(
-        present=("p", "q", "z"), determining=("z",), edge=BoundaryEdge.EXIT
-    )
+    config = BoundaryConfig(present=("p", "q", "z"), determining=("z",))
     # 'z' leads (determining); 'q' (default 0) precedes 'p' (priority 3).
     assert lane_order(config, {"p": 3}) == ("z", "q", "p")
 

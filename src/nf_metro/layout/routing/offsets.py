@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -13,7 +13,7 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
 )
 from nf_metro.layout.geometry import AxisFrame, axis_split
-from nf_metro.layout.routing.arranger import BoundaryConfig, BoundaryEdge, lane_order
+from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.context import (
     _has_intervening_sections,
@@ -496,7 +496,7 @@ def _section_present_line_set(ctx: _OffsetCtx, sec_id: str) -> set[str]:
 
 
 def _section_order_offsets(
-    ctx: _OffsetCtx, sec_id: str, new_order: list[str]
+    ctx: _OffsetCtx, sec_id: str, new_order: Sequence[str]
 ) -> dict[tuple[str, str], float]:
     """Per-(station, line) stored offsets that re-slot *sec_id* onto *new_order*.
 
@@ -520,7 +520,7 @@ def _section_order_offsets(
 
 
 def _apply_section_line_order(
-    ctx: _OffsetCtx, sec_id: str, new_order: list[str]
+    ctx: _OffsetCtx, sec_id: str, new_order: Sequence[str]
 ) -> None:
     """Re-slot every station in *sec_id* onto the bundle order *new_order*."""
     ctx.offsets.update(_section_order_offsets(ctx, sec_id, new_order))
@@ -657,15 +657,13 @@ def _reorder_reconvergence(
             continue
 
         config = BoundaryConfig(
-            present=tuple(sec_present),
-            determining=tuple(continuing),
-            edge=BoundaryEdge.ENTRY,
+            present=tuple(sec_present), determining=tuple(continuing)
         )
         new_order = lane_order(config, ctx.line_priority)
         if new_order is None:
             continue
 
-        _apply_section_line_order(ctx, sec_id, list(new_order))
+        _apply_section_line_order(ctx, sec_id, new_order)
 
 
 def _section_exit_fanout_junction(ctx: _OffsetCtx, section: Section) -> str | None:
@@ -710,13 +708,12 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         config = BoundaryConfig(
             present=tuple(_section_present_line_set(ctx, sec_id)),
             determining=tuple(peel_order),
-            edge=BoundaryEdge.EXIT,
         )
         new_order = lane_order(config, ctx.line_priority)
         if new_order is None:
             continue
 
-        _apply_section_line_order(ctx, sec_id, list(new_order))
+        _apply_section_line_order(ctx, sec_id, new_order)
 
 
 def _collinear_lines_at(

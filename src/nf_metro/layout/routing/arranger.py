@@ -1,60 +1,40 @@
 """Direction-agnostic section lane arranger.
 
-A section is treated as a black box that arranges its internal lanes from its
-**boundary configuration** alone: the order in which lines cross its edges.
-When the order a line crosses the determining edge matches the lane it rides,
-the lines run parallel and never cross *by construction*.
+A section arranges its internal lanes from its *boundary configuration*: the
+order in which lines cross its edges.  When a line crosses the determining edge
+at slot ``k`` and rides lane ``k``, the lines run parallel and never cross by
+construction.
 
 This module owns the reduction at the heart of that idea -- mapping a boundary
-edge's crossing order to a section's lane order -- and nothing else.  The
-reduction is axis-free: a line's position *along* an edge (an X coordinate on a
-TOP/BOTTOM edge, a Y coordinate on a LEFT/RIGHT edge) is resolved by the caller
-via :class:`~nf_metro.layout.geometry.AxisFrame` before it reaches here, so the
-same code serves LR, RL and TB.
+edge's crossing order to a lane order -- and nothing else.  The reduction is
+axis-free: a line's position *along* an edge (an X coordinate on a TOP/BOTTOM
+edge, a Y coordinate on a LEFT/RIGHT edge) is resolved by the caller before it
+reaches here, so the same reduction serves any flow direction.
 
-Today two callers feed it, both LR/RL:
-
-* a fan-out section reads its **exit** edge -- the peel order at the shared
-  downstream fan -- so the bundle leaves in the order its lines diverge;
-* a reconvergence section reads its **entry** edge -- the primary feeder's
-  order -- so the bundle arrives in the order its lines are fed.
-
-The edge-*derivation* (which lines cross, in what order) stays with each
-caller; only the order-to-lanes reduction lives here.  Reading a section's edge
-crossings directly from its boundary geometry -- the step that lets a TB
-section join through the same path -- is layered on top of this primitive
-elsewhere.
+Callers supply the determining edge's crossing order: fan-out divergence
+supplies its exit edge's peel order, and reconvergence supplies its entry
+edge's primary-feeder order.  The edge derivation -- which lines cross, in what
+order -- stays with each caller.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-
-
-class BoundaryEdge(Enum):
-    """Which boundary edge's crossing order determines a section's lanes."""
-
-    ENTRY = "entry"
-    EXIT = "exit"
 
 
 @dataclass(frozen=True)
 class BoundaryConfig:
     """A section's lane-determining boundary configuration.
 
-    :param present: every line on the section, already in the section's default
+    :param present: every line on the section, in the section's default
         (priority) lane order.
     :param determining: the lines that cross the determining edge, in the order
         they cross it along that edge.  Lines absent from *present* are ignored;
         lines in *present* but absent here are unconstrained.
-    :param edge: which edge *determining* was read from -- recorded so callers
-        and tests can reason about which boundary fixed the arrangement.
     """
 
     present: tuple[str, ...]
     determining: tuple[str, ...]
-    edge: BoundaryEdge
 
 
 def lane_order(
@@ -69,9 +49,8 @@ def lane_order(
     """
     present = set(config.present)
     determining = tuple(lid for lid in config.determining if lid in present)
-    determining_set = set(determining)
     rest = tuple(
-        sorted(present - determining_set, key=lambda lid: line_priority.get(lid, 0))
+        sorted(present - set(determining), key=lambda lid: line_priority.get(lid, 0))
     )
     order = determining + rest
     priority_order = tuple(
