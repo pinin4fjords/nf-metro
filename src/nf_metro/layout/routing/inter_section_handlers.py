@@ -2847,7 +2847,8 @@ def _route_right_entry_over_top(
     from the port's own outward side.  Approaching a right-side port from the
     left is a U-turn, which transposes the bundle end-to-end; the descent into
     the section therefore reverses the lines, matched by the section's reversed
-    internal order (see ``_reverse_tb_right_entry_offsets``).
+    internal order (driven from the arrival bundle by
+    :func:`offsets._reorder_reconvergence`).
 
     Built via :func:`build_concentric_bundle` from the bundle's centreline, so
     the loop cannot flip and every corner is concentric by construction.
