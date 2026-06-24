@@ -3483,6 +3483,8 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_perp_entry_boundary_consistent, "B"),
     _check_spec(check_perp_exit_over_leadin_clears_only_spanned_sections, "B"),
     _check_spec(check_right_entry_drop_in_when_clear, "B"),
+    # --- Tier C: test-only oracles, run from the test suite, not the runtime ---
+    _check_spec(check_seam_approach_equals_departure, "C"),
 )
 
 
@@ -3507,6 +3509,7 @@ __all__ = [
     "RegimeOffsetMisapplied",
     "RightEntryNeedlessDive",
     "SameLineParallelRun",
+    "SeamApproachDepartureMismatch",
     "Side",
     "StackedElbowGraze",
     "UndeclaredGapChannel",
@@ -3530,6 +3533,7 @@ __all__ = [
     "check_perp_entry_boundary_consistent",
     "check_perp_exit_over_leadin_clears_only_spanned_sections",
     "check_right_entry_drop_in_when_clear",
+    "check_seam_approach_equals_departure",
     "bypass_horizontal_targets",
     "check_stacked_elbow_clearance",
     "check_partial_branch_offset_gaps",
