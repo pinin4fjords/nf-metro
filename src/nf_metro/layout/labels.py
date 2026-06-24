@@ -1171,6 +1171,7 @@ class _LabelCtx:
     section_flip: dict[str, bool]
     safe_offsets: dict[str, tuple[float, float]]
     panel_extents: dict[str, tuple[float, float]]
+    tb_positive_fan: set[str]
 
 
 def _build_label_ctx(
@@ -1265,6 +1266,10 @@ def _build_label_ctx(
         sorted_stations, label_offset, station_offsets, graph
     )
 
+    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
+
+    tb_positive_fan = tb_positive_fan_sections(graph)
+
     ctx = _LabelCtx(
         graph=graph,
         label_offset=label_offset,
@@ -1277,6 +1282,7 @@ def _build_label_ctx(
         section_flip=section_flip,
         safe_offsets=safe_offsets,
         panel_extents=panel_extents,
+        tb_positive_fan=tb_positive_fan,
     )
     return ctx, sorted_stations
 
@@ -1319,10 +1325,20 @@ def _place_tb_label(
 ) -> LabelPlacement:
     """Place a TB-section label beside the horizontal pill (left, else right)."""
     graph = ctx.graph
-    n_lines = len(graph.station_lines(station.id))
-    offset_span = (n_lines - 1) * TB_LINE_Y_OFFSET
-    pill_left = station.x - offset_span / 2 - TB_PILL_EDGE_OFFSET
-    pill_right = station.x + offset_span / 2 + TB_PILL_EDGE_OFFSET
+    lines = graph.station_lines(station.id)
+    # The pill spans the bundle as drawn: the rotation lane rides x - offset
+    # (x + offset for a positive-fan section), so the bundle sits to one side of
+    # the station X rather than centred.  Span the label to those edges so it
+    # clears the trunk by the same gap regardless of the draw side.
+    sign = 1.0 if station.section_id in ctx.tb_positive_fan else -1.0
+    offsets = ctx.station_offsets
+    if offsets is not None:
+        drawn = [sign * offsets.get((station.id, lid), 0.0) for lid in lines]
+    else:
+        half = (len(lines) - 1) * TB_LINE_Y_OFFSET / 2
+        drawn = [-half, half]
+    pill_left = station.x + min(drawn) - TB_PILL_EDGE_OFFSET
+    pill_right = station.x + max(drawn) + TB_PILL_EDGE_OFFSET
     candidate = LabelPlacement(
         station_id=station.id,
         text=station.label,
