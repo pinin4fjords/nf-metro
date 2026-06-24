@@ -35,13 +35,12 @@ from nf_metro.layout.routing import (
     compute_station_offsets,
     route_edges_centred,
 )
-from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
-    reversed_offset,
 )
 from nf_metro.layout.routing.invariants import assert_render_curve_invariants
+from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 from nf_metro.manifest import node_data_attrs
 from nf_metro.parser.model import (
     ICON_TYPE_DIR,
@@ -1310,16 +1309,14 @@ def _drawn_bundle_span(
     graph: MetroGraph,
     station: Station,
     station_offsets: dict[tuple[str, str], float],
-    tb_right_entry: set[str],
+    positive_fan: set[str],
 ) -> tuple[float, float]:
     """Min/max of a station's per-line offsets *as drawn*.
 
-    A TB section draws each line at its offset reversed against the station's
-    bundle max (matching :func:`_tb_x_offset`), except a RIGHT-entry TB section
-    whose stored offsets are already in draw order; every other axis draws the
-    stored offset directly.  Spanning the marker over the drawn offsets keeps it
-    centred on the lines that actually pass through the station -- the exact
-    transpose of the LR case, which never reverses -- so a one-line or
+    A vertical-flow (TB) section is the 90-degree rotation of a horizontal one:
+    a line rides ``x - offset`` where an LR line rides ``y + offset`` (matching
+    :func:`_tb_x_offset`).  Spanning the marker over the drawn offsets keeps it
+    centred on the lines that actually pass through the station, so a one-line or
     off-trunk-subset station does not leave its glyph beside its own track.
     """
     raw = [
@@ -1329,9 +1326,9 @@ def _drawn_bundle_span(
     if not raw:
         return 0.0, 0.0
     sec = graph.sections.get(station.section_id) if station.section_id else None
-    if sec is not None and sec.direction == "TB" and sec.id not in tb_right_entry:
-        bundle_max = max(raw)
-        drawn = [reversed_offset(off, bundle_max) for off in raw]
+    if sec is not None and sec.direction == "TB":
+        sign = 1.0 if station.section_id in positive_fan else -1.0
+        drawn = [sign * off for off in raw]
     else:
         drawn = raw
     return min(drawn), max(drawn)
@@ -1370,6 +1367,7 @@ def station_marker_box(
     theme: Theme,
     station: Station,
     station_offsets: dict[tuple[str, str], float] | None,
+    positive_fan: set[str] | None = None,
 ) -> tuple[float, float, float, float, float]:
     """The drawn marker's bounding box as ``(cx, cy, w, h, rx)``.
 
@@ -1379,6 +1377,9 @@ def station_marker_box(
     spanning the bundle for several) without re-running the renderer. Glyph
     stations (rail interchanges, explicit markers) fall back to the same
     bundle-span box, a reasonable footprint for those too.
+
+    ``positive_fan`` lets a caller iterating over stations pass that set once
+    rather than re-deriving its reversal fixed-point per station.
     """
     r = theme.station_radius
     is_tb_vert = bool(
@@ -1386,12 +1387,14 @@ def station_marker_box(
         and (sec := graph.sections.get(station.section_id))
         and sec.direction == "TB"
     )
+    if positive_fan is None:
+        positive_fan = tb_positive_fan_sections(graph)
     if station.rail_top_y is not None and station.rail_bottom_y is not None:
         used = station.rail_used_ys or [station.y]
         min_off, max_off = min(used) - station.y, max(used) - station.y
     elif station_offsets and not graph.station_is_rail(station.id):
         min_off, max_off = _drawn_bundle_span(
-            graph, station, station_offsets, tb_right_entry_sections(graph)
+            graph, station, station_offsets, positive_fan
         )
     else:
         min_off = max_off = 0.0
@@ -1734,19 +1737,19 @@ def _render_stations(
     addressable element; with ``--no-manifest`` the glyphs are drawn directly
     with no wrapper. Skips port stations (is_port=True).
     """
-    tb_right_entry = tb_right_entry_sections(graph)
+    positive_fan = tb_positive_fan_sections(graph)
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
         if graph.embed_manifest:
             g = draw.Group(**_station_group_attrs(graph, theme, station))
             _render_station_into(
-                g, graph, theme, station, station_offsets, tb_right_entry
+                g, graph, theme, station, station_offsets, positive_fan
             )
             d.append(g)
         else:
             _render_station_into(
-                d, graph, theme, station, station_offsets, tb_right_entry
+                d, graph, theme, station, station_offsets, positive_fan
             )
 
 
@@ -1756,7 +1759,7 @@ def _render_station_into(
     theme: Theme,
     station: Station,
     station_offsets: dict[tuple[str, str], float] | None,
-    tb_right_entry: set[str],
+    positive_fan: set[str],
 ) -> None:
     """Draw one station's glyph and terminus icons into a container.
 
@@ -1834,7 +1837,7 @@ def _render_station_into(
     # ride the bundle's mid-offset.
     if station_offsets and not graph.station_is_rail(station.id):
         min_off, max_off = _drawn_bundle_span(
-            graph, station, station_offsets, tb_right_entry
+            graph, station, station_offsets, positive_fan
         )
     else:
         min_off = max_off = 0.0

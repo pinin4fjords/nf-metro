@@ -8,10 +8,9 @@ so the same offsets fan to the opposite screen side.
 
 :func:`check_seam_approach_equals_departure` is the oracle the rotation series
 is verified against: at a continuation seam the inter-section approach must land
-each line on the coordinate ``lane_x`` assigns it.  Horizontal sections already
-satisfy this; vertical sections whose draw reflects rather than rotates the lane
-fan are catalogued here as strict xfails until #1041 migrates the draw onto
-``lane_x``.
+each line on the coordinate ``lane_x`` assigns it.  Both horizontal and vertical
+sections satisfy this once the section draw rides ``lane_x``'s per-section lane
+sign.
 """
 
 from __future__ import annotations
@@ -28,24 +27,15 @@ from nf_metro.layout.routing.context import (
     port_arrival_order,
     port_lane_coord,
 )
-from nf_metro.layout.routing.invariants import check_seam_approach_equals_departure
+from nf_metro.layout.routing.invariants import (
+    check_seam_approach_equals_departure,
+    check_seam_segments_meet_at_port,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
-TOPOLOGIES = Path(__file__).resolve().parent.parent / "examples" / "topologies"
-
-# TB sections draw their lane fan by reflection rather than rotation today, so
-# every TB continuation seam lands its lines on the opposite side of the column
-# from lane_x.  #1041 migrates the section draw onto lane_x, which flips each of
-# these from xfail to pass (a strict xpass then reds CI, prompting removal).
-_SEAM_XFAILS = {
-    "lr_to_tb_top_two_lines",
-    "lr_to_tb_top_drop_two_lines",
-    "tb_internal_diagonal",
-    "tb_lr_exit_left",
-    "tb_lr_exit_right",
-    "tb_right_entry_stack",
-}
+ROOT = Path(__file__).resolve().parent.parent
+TOPOLOGIES = ROOT / "examples" / "topologies"
 
 
 # --------------------------------------------------------------------------- #
@@ -183,20 +173,10 @@ def _seam_mismatches(name: str) -> tuple[str, ...]:
 
 
 def _seam_params() -> list:
-    params = []
-    for path in sorted(TOPOLOGIES.glob("*.mmd")):
-        name = path.stem
-        marks = (
-            (
-                pytest.mark.xfail(
-                    reason="#1041 migrates TB draw onto lane_x", strict=True
-                ),
-            )
-            if name in _SEAM_XFAILS
-            else ()
-        )
-        params.append(pytest.param(name, id=name, marks=marks))
-    return params
+    return [
+        pytest.param(path.stem, id=path.stem)
+        for path in sorted(TOPOLOGIES.glob("*.mmd"))
+    ]
 
 
 @pytest.mark.parametrize("name", _seam_params())
@@ -204,3 +184,45 @@ def test_seam_approach_equals_departure(name: str) -> None:
     """Every continuation seam lands each line on its section's lane coordinate."""
     mismatches = _seam_mismatches(name)
     assert not mismatches, "\n".join(mismatches)
+
+
+# --------------------------------------------------------------------------- #
+# Trunk and its outgoing/continuing bundle share the lane at every port
+# --------------------------------------------------------------------------- #
+
+
+def _port_discontinuities(path: Path) -> tuple[str, ...]:
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=False)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    return tuple(
+        d.message() for d in check_seam_segments_meet_at_port(graph, routes, offsets)
+    )
+
+
+@pytest.mark.parametrize("name", _seam_params())
+def test_seam_segments_meet_at_port(name: str) -> None:
+    """No port parts a line's trunk from its outgoing/continuing bundle."""
+    discontinuities = _port_discontinuities(TOPOLOGIES / f"{name}.mmd")
+    assert not discontinuities, "\n".join(discontinuities)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "examples/rnaseq_auto.mmd",
+        "examples/topologies/fold_fan_across.mmd",
+        "examples/topologies/lr_to_tb_top_drop_two_lines.mmd",
+    ],
+)
+def test_rotated_tb_output_connects_to_bundle(rel: str) -> None:
+    """A rotated TB trunk meets the inter-section bundle leaving (or feeding) it.
+
+    The rotation draw rides ``x - off``; the bundle crossing the seam must ride
+    the same lane, so the descent into the next section (or out of the feeding
+    one) is one stroke rather than a trunk on one side of the port and a bundle
+    reflected to the other.
+    """
+    discontinuities = _port_discontinuities(ROOT / rel)
+    assert not discontinuities, "\n".join(discontinuities)

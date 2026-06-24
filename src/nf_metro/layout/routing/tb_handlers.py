@@ -26,12 +26,8 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import (
     _get_offset,
-    _max_offset_at,
     _RoutingCtx,
     _tb_x_offset,
-)
-from nf_metro.layout.routing.corners import (
-    reversed_offset,
 )
 from nf_metro.layout.routing.perp import (
     _perp_entry_crossing_x,
@@ -41,8 +37,28 @@ from nf_metro.parser.model import (
     Edge,
     Port,
     PortSide,
+    Section,
     Station,
 )
+
+
+def _tb_trunk_endpoints(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    section: Section,
+) -> tuple[float, float]:
+    """Source and target X for an intra TB edge, holding continuations straight.
+
+    A vertical-flow section stores its offsets in arrival order and draws the
+    rotation ``x - offset`` (:func:`_tb_x_offset`), so a line keeps one lane the
+    length of its trunk by construction: source and target read the same
+    per-station rotation with no reflection or seam compensation.
+    """
+    src_x = src.x + _tb_x_offset(ctx, edge.source, edge.line_id, section.id)
+    tgt_x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, section.id)
+    return src_x, tgt_x
 
 
 def _route_tb_internal(
@@ -68,12 +84,9 @@ def _route_tb_internal(
     ):
         return None
 
-    x_src = _tb_x_offset(ctx, edge.source, edge.line_id, src_sec)
-    x_tgt = _tb_x_offset(ctx, edge.target, edge.line_id, src_sec)
-
-    sx = src.x + x_src
+    section = graph.sections[src_sec]
+    sx, tx = _tb_trunk_endpoints(ctx, edge, src, tgt, section)
     sy = src.y
-    tx = tgt.x + x_tgt
     ty = tgt.y
     dx = tx - sx
 
@@ -270,6 +283,8 @@ def _route_tb_lr_exit(
     hd = _sign(tgt.x - src.x)
 
     def vert_x_off(line_id: str) -> float:
+        # Drop along the same interior column the trunk rides, so the
+        # drop->turn corner nests concentrically against the exit-port Y fan.
         return _tb_x_offset(ctx, edge.source, line_id, src.section_id)
 
     def source_offset(line_id: str) -> float:
@@ -300,7 +315,7 @@ def _route_tb_lr_entry(
 
     The mirror of :func:`_route_tb_lr_exit`: a horizontal leg out of the port
     fanned by the port's Y offset, then a vertical drop into the station fanned
-    by the station's X offset (reversed for a LEFT entry).
+    by the station's X offset (the rotation ``x - off``).
     """
     graph = ctx.graph
     src_port = graph.ports.get(edge.source)
@@ -314,14 +329,11 @@ def _route_tb_lr_entry(
         return None
 
     _members, line_ids, _edge_by_line = gather_member_edges(graph, edge)
-    entry_right = src_port.side == PortSide.RIGHT
     hd = _sign(tgt.x - src.x)
     vd = _sign(tgt.y - src.y)
-    max_tgt_off = _max_offset_at(ctx, edge.target)
 
     def vert_x_off(line_id: str) -> float:
-        off = _get_offset(ctx, edge.target, line_id)
-        return off if entry_right else reversed_offset(off, max_tgt_off)
+        return _tb_x_offset(ctx, edge.target, line_id, tgt.section_id)
 
     def source_offset(line_id: str) -> float:
         return hd * _get_offset(ctx, edge.source, line_id)
@@ -353,18 +365,14 @@ def _perp_drop_x(edge: Edge, src_x: float, dx: float, ctx: _RoutingCtx) -> float
     calling edge (to pick the route shape) and its bundle-mates (to anchor the
     corner), so every line in the bundle reads the same channel.
     """
-    src_off = _get_offset(ctx, edge.source, edge.line_id)
-    drop_delta = _perp_entry_drop_delta(edge, dx, ctx)
     tgt = ctx.graph.stations.get(edge.target)
     tgt_sec = ctx.graph.sections.get(tgt.section_id) if tgt and tgt.section_id else None
-    if (
-        abs(drop_delta) > COORD_TOLERANCE
-        and tgt_sec is not None
-        and tgt_sec.direction not in ("TB", "BT")
-    ):
+    if tgt_sec is not None and tgt_sec.direction not in ("TB", "BT"):
         crossing_x = _perp_entry_crossing_x(ctx, edge.source, edge.line_id, src_x)
         if crossing_x is not None:
             return crossing_x
+    src_off = _get_offset(ctx, edge.source, edge.line_id)
+    drop_delta = _perp_entry_drop_delta(edge, dx, ctx)
     return src_x + src_off + drop_delta
 
 
@@ -400,7 +408,7 @@ def _route_perp_entry(
 
     if abs(dx) < COORD_TOLERANCE and abs(drop_delta) < COORD_TOLERANCE:
         # Aligned perpendicular entry: each line drops straight at its in-section
-        # trunk X offset, so a multi-line bundle stays parallel into the trunk
+        # trunk lane, so a multi-line bundle stays parallel into the trunk
         # instead of one line slanting across to a Y-staggered marker.
         x = tx + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
         return RoutedPath(

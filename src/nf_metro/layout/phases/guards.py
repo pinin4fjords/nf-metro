@@ -3127,6 +3127,30 @@ def _guard_no_distinct_line_fanout_crossing(
     )
 
 
+def _guard_fan_merge_no_partition_crossing(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float] | None = None,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """Final-phase: a vertical-flow fork/merge keeps its partitioning bundle clear.
+
+    Wraps :func:`check_fan_merge_no_partition_crossing`: at a fork or merge in a
+    vertical-flow section, two distinct lines that each reach exactly one
+    in-section neighbour must leave/dock in those neighbours' lane order.  A
+    transposed order crosses them between the station and where they peel apart,
+    a defect the bundle-mate guard misses because the lines ride different edges.
+    """
+    from nf_metro.layout.routing.invariants import (
+        check_fan_merge_no_partition_crossing,
+    )
+
+    _raise_on_first_violation(
+        graph, phase, check_fan_merge_no_partition_crossing, offsets, routes
+    )
+
+
 def _guard_trunk_continuation_drops_straight(
     graph: MetroGraph,
     phase: str,
@@ -4057,6 +4081,11 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_no_distinct_line_fanout_crossing,
+        "B",
+        needs=frozenset({"offsets", "routes"}),
+    ),
+    GuardSpec(
+        _guard_fan_merge_no_partition_crossing,
         "B",
         needs=frozenset({"offsets", "routes"}),
     ),

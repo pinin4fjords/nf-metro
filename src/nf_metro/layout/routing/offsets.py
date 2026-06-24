@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -12,7 +12,6 @@ from nf_metro.layout.constants import (
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, axis_split
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.context import (
@@ -30,6 +29,7 @@ from nf_metro.layout.routing.invariants import (
     distinct_offset_levels,
 )
 from nf_metro.layout.routing.reversal import detect_reversed_sections
+from nf_metro.layout.routing.seam import SeamOrientation, seam_orientation
 from nf_metro.parser.model import (
     LineSpread,
     MetroGraph,
@@ -131,6 +131,19 @@ def _build_same_y_adj(
     return same_y_adj
 
 
+def _stores_reflected(ctx: _OffsetCtx, sec_id: str | None) -> bool:
+    """Whether *sec_id* stores its per-line offsets reflected against the max.
+
+    A reverse-flow horizontal section stores the reflection ``(max - slot)`` so
+    its bundle draws on the far side of the trunk for the reversed flow.  A
+    vertical-flow (TB) section instead stores its arrival order positively and
+    draws the rotation ``x - offset`` (:func:`context._tb_x_offset`); there the
+    side is carried by the draw sign, not by reflecting the stored slot, so the
+    marker span and the drawn lines agree by construction.
+    """
+    return sec_id in ctx.reversed_sections and sec_id not in ctx.tb_sections
+
+
 def _compute_base_offsets(ctx: _OffsetCtx) -> None:
     """Assign initial per-station offsets from global line priority.
 
@@ -171,7 +184,7 @@ def _compute_base_offsets(ctx: _OffsetCtx) -> None:
         if not lines:
             continue
         station = graph.stations[sid]
-        reverse = station.section_id in ctx.reversed_sections
+        reverse = _stores_reflected(ctx, station.section_id)
 
         if ctx.compact:
             max_side = max(len(ctx.inbound[sid]), len(ctx.outbound[sid]), 1)
@@ -310,7 +323,7 @@ def _predicted_local_offset(
     Re-indexed sections draw from their section-local order; the rest keep their
     base (global-priority) offset.  Reversed sections count from the bottom.
     """
-    reverse = sec_id in ctx.reversed_sections
+    reverse = _stores_reflected(ctx, sec_id)
     if sec_id in section_local:
         local = section_local[sec_id]
         slot = local.get(lid, 0)
@@ -367,7 +380,7 @@ def _reanchor_keeps_runs_level(
     """
     graph = ctx.graph
     section = graph.sections[sec_id]
-    reverse = sec_id in ctx.reversed_sections
+    reverse = _stores_reflected(ctx, sec_id)
     local_max = len(candidate) - 1
     for pid in (*section.entry_ports, *section.exit_ports):
         for edge in (*graph.edges_to(pid), *graph.edges_from(pid)):
@@ -425,7 +438,7 @@ def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
         ordered_by_section[sec_id] = ordered
         global_pris = [ctx.line_priority.get(lid, 0) for lid in ordered]
         n = len(global_pris)
-        if sec_id in ctx.reversed_sections:
+        if _stores_reflected(ctx, sec_id):
             anchored_run = list(range(ctx.max_priority - n + 1, ctx.max_priority + 1))
         else:
             anchored_run = list(range(n))
@@ -461,7 +474,7 @@ def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
             continue
         local_pri = section_local[st_sec]
         local_max = max(local_pri.values()) if local_pri else 0
-        reverse = st_sec in ctx.reversed_sections
+        reverse = _stores_reflected(ctx, st_sec)
         for lid in graph.station_lines(sid_s):
             p = local_pri.get(lid, 0)
             if reverse:
@@ -505,7 +518,7 @@ def _section_order_offsets(
     """
     new_local = {lid: i for i, lid in enumerate(new_order)}
     local_max = len(new_order) - 1
-    reverse = sec_id in ctx.reversed_sections
+    reverse = _stores_reflected(ctx, sec_id)
     target: dict[tuple[str, str], float] = {}
     for sid_s, station in ctx.graph.stations.items():
         if station.section_id != sec_id:
@@ -611,6 +624,25 @@ def _order_reconvergence_by_feeder_row(
     _apply_section_line_order(ctx, sec_id, new_order)
 
 
+def _feeder_seam_ports(
+    ctx: _OffsetCtx, sec_id: str, feeder_id: str
+) -> tuple[Port, Port] | None:
+    """The ``(exit_port, entry_port)`` of the direct ``feeder_id -> sec_id`` seam."""
+    graph = ctx.graph
+    section = graph.sections[sec_id]
+    for pid in section.entry_ports:
+        entry_port = graph.ports.get(pid)
+        if entry_port is None:
+            continue
+        for edge in graph.edges_to(pid):
+            src_port = graph.ports.get(edge.source)
+            if src_port is None or src_port.is_entry:
+                continue
+            if src_port.section_id == feeder_id:
+                return src_port, entry_port
+    return None
+
+
 def _reorder_reconvergence(
     ctx: _OffsetCtx, section_local: dict[str, dict[str, int]]
 ) -> None:
@@ -619,7 +651,10 @@ def _reorder_reconvergence(
     When the primary feeder is a flat-frame neighbour the continuing lines must
     keep the feeder's offsets so the inter-section run stays level; otherwise
     they reach the section through a riser and just lead the bundle at the top.
-    Single-line feeders from distinct rows order the bundle by feeder row.
+    Single-line feeders from distinct rows order the bundle by feeder row.  A
+    vertical-flow section fed by a single multi-line feeder takes that feeder's
+    delivered logical order, transposed once iff the seam classifier reverses
+    it, so the bundle rides the column in the order it arrives.
     """
     graph = ctx.graph
     for sec_id, section in graph.sections.items():
@@ -632,11 +667,41 @@ def _reorder_reconvergence(
         lines_by_feeder: dict[str, list[str]] = {}
         for lid, fid in line_feeder.items():
             lines_by_feeder.setdefault(fid, []).append(lid)
-        if len(lines_by_feeder) < 2:
-            continue
 
         primary_fid = max(lines_by_feeder, key=lambda f: len(lines_by_feeder[f]))
         primary_lines = set(lines_by_feeder[primary_fid])
+
+        if len(lines_by_feeder) < 2:
+            if sec_id not in ctx.tb_sections or len(primary_lines) < 2:
+                continue
+            seam = _feeder_seam_ports(ctx, sec_id, primary_fid)
+            if seam is None:
+                continue
+            feeder_off = _section_line_offsets(ctx, primary_fid)
+            if not all(lid in feeder_off for lid in primary_lines):
+                continue
+            # The feeder's stored offsets are its delivered order.  A TOP/BOTTOM
+            # column continuation drops straight and preserves that order; a
+            # LEFT/RIGHT seam turns a corner that transposes it when the
+            # classifier says so (a transposition the straight-drop offsets do
+            # not already carry).
+            delivered = sorted(primary_lines, key=lambda lid: feeder_off[lid])
+            is_side = seam[1].side in (PortSide.LEFT, PortSide.RIGHT)
+            if (
+                is_side
+                and seam_orientation(ctx.graph, *seam) is SeamOrientation.REVERSE
+            ):
+                delivered = list(reversed(delivered))
+            config = BoundaryConfig(
+                present=tuple(_section_present_line_set(ctx, sec_id)),
+                determining=tuple(delivered),
+            )
+            new_order = lane_order(config, ctx.line_priority)
+            if new_order is None:
+                continue
+            _apply_section_line_order(ctx, sec_id, new_order)
+            continue
+
         if len(primary_lines) < 2:
             _order_reconvergence_by_feeder_row(ctx, sec_id, line_feeder)
             continue
@@ -714,235 +779,6 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
             continue
 
         _apply_section_line_order(ctx, sec_id, new_order)
-
-
-def _collinear_lines_at(
-    ctx: _OffsetCtx, section: Section, station: Station, *, incoming: bool
-) -> set[str]:
-    """Lines whose edge at *station* keeps the station's own lane.
-
-    The shared core of the fan-out and fan-in continuation detectors: gather the
-    lane (the line-stacking axis coordinate: X for a vertical-flow section, Y for
-    a horizontal one) of each in-section neighbour across *station* -- its
-    sources when *incoming*, its targets otherwise.  Return the lines whose
-    neighbour is collinear with *station* itself, but only when the neighbours
-    span at least two distinct lanes, so a single-edge or single-lane station
-    yields nothing.
-    """
-    graph = ctx.graph
-    primary_axis = AxisFrame.axes_for_direction(section.direction)[0]
-    edges = graph.edges_to(station.id) if incoming else graph.edges_from(station.id)
-    lanes: dict[str, float] = {}
-    for edge in edges:
-        nbr = graph.stations.get(edge.source if incoming else edge.target)
-        if nbr is None or nbr.is_port or nbr.section_id != section.id:
-            continue
-        lanes[edge.line_id] = axis_split(primary_axis, (nbr.x, nbr.y))[1]
-    if len(lanes) < 2 or len({round(v, 3) for v in lanes.values()}) < 2:
-        return set()
-    own_lane = axis_split(primary_axis, (station.x, station.y))[1]
-    return {
-        lid for lid, lane in lanes.items() if abs(lane - own_lane) < COORD_TOLERANCE
-    }
-
-
-def _trunk_continuation_lines(ctx: _OffsetCtx, section: Section) -> set[str]:
-    """Lines that continue straight across a fan-out hub on the section's trunk lane.
-
-    A fan-out hub is a non-port station whose in-section outgoing edges reach at
-    least two distinct lanes; the lines whose target keeps the hub's lane
-    continue straight along the trunk, the others peel off to a sibling lane.
-    """
-    graph = ctx.graph
-    continuation: set[str] = set()
-    for sid in section.station_ids:
-        hub = graph.stations.get(sid)
-        if hub is None or hub.is_port:
-            continue
-        continuation |= _collinear_lines_at(ctx, section, hub, incoming=False)
-    return continuation
-
-
-def _entry_feed_survives_reslot(graph: MetroGraph, section: Section) -> bool:
-    """Whether re-slotting *section*'s bundle keeps its entry feed crossing-free.
-
-    A BOTTOM exit feeding the TOP entry from directly above is itself drawn
-    TB-reversed, so it tracks a re-slotted bundle straight down.  A side feed
-    that reaches the TOP entry over the top is order-preserving and would cross
-    if the bundle below it were reversed, so a section reached that way is left
-    on its priority slots.  A hub with no entry feed (a source) is trivially
-    safe.
-    """
-    for pid in section.entry_ports:
-        for edge in graph.edges_to(pid):
-            p = graph.ports.get(edge.source)
-            if p is None or p.is_entry or p.side != PortSide.BOTTOM:
-                return False
-    return True
-
-
-def _slot_trunk_continuation_lines(ctx: _OffsetCtx) -> None:
-    """Slot a fan-out's in-lane continuation onto the trunk so it runs straight.
-
-    At a fan-out hub one line may continue straight along the trunk lane while a
-    sibling peels off to another lane.  A TB section draws each line at its
-    offset reversed against the per-station bundle max; that max shrinks from
-    the hub (the full bundle) to the continuation's solo child (one line), so a
-    continuation left on its priority slot is drawn outboard at the hub but on
-    the trunk at the child and jogs by one step instead of dropping straight
-    (issue #929).  Re-slot the section so the continuation rides the slot that
-    draws on the trunk and the peeling siblings ride outboard.  LR/RL draw their
-    lane un-reversed, so the continuation already sits on the trunk there and
-    those sections are left untouched, as are sections whose entry feed would
-    not survive the re-slot (:func:`_entry_feed_survives_reslot`).
-    """
-    if ctx.compact:
-        return
-    graph = ctx.graph
-    right_entry = tb_right_entry_sections(graph)
-    for sec_id, section in graph.sections.items():
-        if sec_id not in ctx.tb_sections or graph.is_rail_section(sec_id):
-            continue
-        if not _entry_feed_survives_reslot(graph, section):
-            continue
-        continuation = _trunk_continuation_lines(ctx, section)
-        present = sorted(
-            _section_present_line_set(ctx, sec_id),
-            key=lambda lid: ctx.line_priority.get(lid, 0),
-        )
-        cont = [lid for lid in present if lid in continuation]
-        rest = [lid for lid in present if lid not in continuation]
-        if not cont or not rest:
-            continue
-        # The trunk-drawing slot is the back of the order on a plain TB section;
-        # the right-entry override and the section-reversal each flip which end
-        # that is, so the continuation rides the back exactly when they agree.
-        continuation_last = (sec_id in right_entry) == (sec_id in ctx.reversed_sections)
-        new_order = rest + cont if continuation_last else cont + rest
-        _apply_section_line_order(ctx, sec_id, new_order)
-
-
-def _reassign_offsets_in_order(
-    ctx: _OffsetCtx, station_id: str, ordered: list[str], present: list[str]
-) -> None:
-    """Reassign *station_id*'s stored offsets to *ordered*, smallest first.
-
-    The line at the back of *ordered* gets the largest offset, which the TB
-    reversal maps onto the trunk.  Reuses the values already present rather than a
-    fresh ``0..n`` range, which keeps the station's marker span set by those
-    values.
-    """
-    values = sorted(ctx.offsets.get((station_id, lid), 0.0) for lid in present)
-    for lid, val in zip(ordered, values):
-        ctx.offsets[(station_id, lid)] = val
-
-
-def _slot_merge_continuations(
-    ctx: _OffsetCtx, find_continuation: Callable[[Section, Station], set[str]]
-) -> None:
-    """Re-slot each TB merge so the lines *find_continuation* picks drop straight.
-
-    The shared skeleton of the convergence and pass-through continuation passes:
-    walk every non-compact, non-rail, non-right-entry TB section's stations, ask
-    *find_continuation* which lines should ride the trunk at that merge, and
-    permute the merge's stored offsets so those lines take the trunk-drawing slot
-    (the largest offset, which the TB reversal maps onto the trunk) while the rest
-    ride outboard.  Only the merge station is touched.  LR/RL draw the lane
-    un-reversed with per-line-constant offsets and right-entry TB sections draw
-    un-reversed, so both are left alone; runs after the section-reversal passes so
-    its assignment is final.
-    """
-    if ctx.compact:
-        return
-    graph = ctx.graph
-    right_entry = tb_right_entry_sections(graph)
-    for sec_id, section in graph.sections.items():
-        if sec_id not in ctx.tb_sections or graph.is_rail_section(sec_id):
-            continue
-        if sec_id in right_entry:
-            continue
-        for merge_id in section.station_ids:
-            merge = graph.stations.get(merge_id)
-            if merge is None or merge.is_port:
-                continue
-            continuation = find_continuation(section, merge)
-            present = list(graph.station_lines(merge_id))
-            cont = [lid for lid in present if lid in continuation]
-            rest = [lid for lid in present if lid not in continuation]
-            if not cont or not rest:
-                continue
-            _reassign_offsets_in_order(ctx, merge_id, rest + cont, present)
-
-
-def _slot_convergence_continuation_lines(ctx: _OffsetCtx) -> None:
-    """Permute a TB merge's offsets so a collinear feeder drops straight.
-
-    The fan-in mirror of :func:`_slot_trunk_continuation_lines`: at a section's
-    terminal merge, a line whose source sits directly above on the merge's lane
-    should drop straight, but a TB section draws each line at its
-    offset reversed against a per-station bundle max that *grows* from the solo
-    feeder (one line) to the merge (the full bundle).  A collinear feeder left
-    on its priority slot is therefore drawn on the trunk at its source but
-    outboard at the merge and kinks by one step instead of dropping straight.
-    Permute the merge station's stored offsets so the collinear feeder rides the
-    trunk-drawing slot and the diagonal siblings ride outboard.
-
-    The merge must be a section sink (no outgoing edges) so no downstream edge
-    reads its re-slotted offset as a source; the diagonal feeders' source-side
-    slots and any entry-port ordering upstream are left intact.
-    """
-
-    def find_continuation(section: Section, merge: Station) -> set[str]:
-        if ctx.graph.edges_from(merge.id):
-            return set()
-        return _collinear_lines_at(ctx, section, merge, incoming=True)
-
-    _slot_merge_continuations(ctx, find_continuation)
-
-
-def _slot_passthrough_continuation_lines(ctx: _OffsetCtx) -> None:
-    """Permute a pass-through TB merge's offsets so its continuation drops straight.
-
-    The non-sink companion to :func:`_slot_convergence_continuation_lines`.  At a
-    merge that is *not* a section sink, one line continues straight down to a
-    station directly below while a different feeder arrives collinear from above
-    and a sibling peels off (often leaving the section).  When the collinear-from-
-    above feeder holds the trunk-drawing slot, the continuation -- which reaches
-    the merge diagonally from another column -- is drawn outboard at the merge but
-    on the trunk at its child, so it kinks by one step and crosses the collinear
-    feeder (issue #1012).
-
-    :func:`_slot_trunk_continuation_lines` does not catch this: its fan-out hub
-    detector needs two in-section outgoing lanes, but the peeling sibling here
-    leaves the section, so the merge exposes a single in-section outgoing lane.
-    The continuation is re-slotted onto the trunk and the collinear feeder takes
-    the offset; the continuation child keeps its own on-trunk slot, so the edge
-    between them becomes a straight drop.
-    """
-
-    def find_continuation(section: Section, merge: Station) -> set[str]:
-        # A diagonal continuation competes for the trunk only when another feeder
-        # arrives collinear from above (a >=2-lane incoming bundle).
-        incoming_collinear = _collinear_lines_at(ctx, section, merge, incoming=True)
-        if not incoming_collinear:
-            return set()
-        primary_axis = AxisFrame.axes_for_direction(section.direction)[0]
-        own_lane = axis_split(primary_axis, (merge.x, merge.y))[1]
-        # Lines leaving the merge straight down its own column; the collinear-from-
-        # above feeders are excluded so only a continuation that *arrives*
-        # diagonally is re-slotted (one that is itself the straight feeder already
-        # drops straight and must keep its slot).
-        return {
-            e.line_id
-            for e in ctx.graph.edges_from(merge.id)
-            if (t := ctx.graph.stations.get(e.target)) is not None
-            and not t.is_port
-            and t.section_id == section.id
-            and abs(axis_split(primary_axis, (t.x, t.y))[1] - own_lane)
-            < COORD_TOLERANCE
-        } - incoming_collinear
-
-    _slot_merge_continuations(ctx, find_continuation)
 
 
 def _reindex_section_local(ctx: _OffsetCtx) -> None:
@@ -1206,7 +1042,7 @@ def _apply_compact_section_consistency(ctx: _OffsetCtx) -> None:
                 unique_entry.append(lid)
         if len(unique_entry) < 2:
             continue
-        sec_reverse = sec_id in ctx.reversed_sections
+        sec_reverse = _stores_reflected(ctx, sec_id)
         sec_offs: dict[str, float] = {}
         for i, lid in enumerate(unique_entry):
             if sec_reverse:
@@ -1466,6 +1302,11 @@ def _propagate_lr_rl_exit_to_entry(ctx: _OffsetCtx) -> None:
         if not port_obj.is_entry:
             continue
         if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        if port_obj.section_id in ctx.tb_sections:
+            # A vertical-flow consumer rides its own arrival-order lane (set by
+            # the section reindex); copying a horizontal feeder's stored offset
+            # across the seam would land the port off that lane.
             continue
         feeding_exit_ports: set[str] = set()
         for edge in graph.edges_to(port_id):
@@ -2270,7 +2111,6 @@ def compute_station_offsets(
     _assert_sections_anchored_on_trunk(ctx)
     _reorder_exit_only_lines(ctx)
     _reorder_fanout_divergence(ctx)
-    _slot_trunk_continuation_lines(ctx)
     _apply_compact_section_consistency(ctx)
     _compact_station_gaps(ctx)
     _compute_exit_port_offsets(ctx)
@@ -2281,11 +2121,8 @@ def compute_station_offsets(
     _order_convergence_entry_ports(ctx)
     _reconcile_horizontal_offsets(ctx)
     _recenter_partial_fan_branches(ctx)
-    _reverse_tb_right_entry_offsets(ctx)
     _reverse_around_below_left_entry_offsets(ctx)
     _reverse_near_vertical_junction_right_entry_offsets(ctx)
-    _slot_convergence_continuation_lines(ctx)
-    _slot_passthrough_continuation_lines(ctx)
     return ctx.offsets
 
 
@@ -2360,27 +2197,6 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
             ctx.offsets[(sid, lid)] = reversed_offset(
                 ctx.offsets.get((sid, lid), 0.0), max_off
             )
-
-
-def _reverse_tb_right_entry_offsets(ctx: _OffsetCtx) -> None:
-    """Reverse the line order of TB sections entered through a RIGHT port.
-
-    A left source reaches a RIGHT-side entry by looping over the section's top
-    and approaching from the right -- a U-turn, which transposes the bundle
-    end-to-end (see ``_route_right_entry_over_top``).  The section therefore
-    receives its lines in the opposite order to the source, so its entry port,
-    internal trunk, and bottom exit all carry the reversed order for the descent
-    into the port and the drop out of it to stay straight.
-    """
-    graph = ctx.graph
-    _reverse_offsets_from_roots(
-        ctx,
-        {
-            port.section_id
-            for port in graph.ports.values()
-            if _is_over_top_right_entry(graph, port, ctx.tb_sections)
-        },
-    )
 
 
 def _reverse_around_below_left_entry_offsets(ctx: _OffsetCtx) -> None:

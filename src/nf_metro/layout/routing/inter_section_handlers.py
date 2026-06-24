@@ -968,6 +968,11 @@ def _route_tb_bottom_exit(
     drop / jog / drop with curved corners instead: down out of the BOTTOM
     port, across the inter-row gap, then down into the target.
     """
+    # The drop continues the source section's own rotation lane (x - off) out of
+    # the BOTTOM port, so the trunk and its outgoing bundle share one lane.  A
+    # horizontal-flow target's perp-entry drop aligns to this feeder lane (via
+    # the crossing-X in _perp_drop_x), so the bundle stays on the same per-line X
+    # straight through the seam.
     x_off = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
     sx = src.x + x_off
     sy = src.y
