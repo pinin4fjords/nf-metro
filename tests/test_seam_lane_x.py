@@ -145,6 +145,14 @@ def test_lane_x_order_matches_arrival_order(direction: str) -> None:
     assert arrival == by_lane == departure
 
 
+def test_port_arrival_order_breaks_ties_on_line_id() -> None:
+    """Lines sharing a lane coordinate order by line id, not input listing."""
+    graph, _ = _mini_graph("TB")
+    entry = graph.stations["s__entry"]
+    tied = {("s__entry", lid): 4.0 for lid in ("a", "b")}
+    assert port_arrival_order(graph, entry, tied) == ["a", "b"]
+
+
 @pytest.mark.parametrize("direction", ["LR", "RL", "TB", "BT"])
 def test_lane_x_collinear_continuation_keeps_lane(direction: str) -> None:
     """A line running straight through keeps one lane from entry to exit."""

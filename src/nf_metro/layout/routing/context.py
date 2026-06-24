@@ -435,10 +435,14 @@ def port_arrival_order(
     port: Station,
     station_offsets: Mapping[tuple[str, str], float],
 ) -> list[str]:
-    """Lines at *port* in the order they cross its edge (arrival order)."""
+    """Lines at *port* in the order they cross its edge (arrival order).
+
+    Ties (two lines sharing a lane coordinate) break on line id, so the order is
+    independent of the input line listing.
+    """
     return sorted(
         graph.station_lines(port.id),
-        key=lambda lid: port_lane_coord(graph, port, lid, station_offsets),
+        key=lambda lid: (port_lane_coord(graph, port, lid, station_offsets), lid),
     )
 
 
