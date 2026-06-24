@@ -39,7 +39,6 @@ from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
-    reversed_offset,
 )
 from nf_metro.layout.routing.invariants import assert_render_curve_invariants
 from nf_metro.manifest import node_data_attrs
@@ -1314,12 +1313,10 @@ def _drawn_bundle_span(
 ) -> tuple[float, float]:
     """Min/max of a station's per-line offsets *as drawn*.
 
-    A TB section draws each line at its offset reversed against the station's
-    bundle max (matching :func:`_tb_x_offset`), except a RIGHT-entry TB section
-    whose stored offsets are already in draw order; every other axis draws the
-    stored offset directly.  Spanning the marker over the drawn offsets keeps it
-    centred on the lines that actually pass through the station -- the exact
-    transpose of the LR case, which never reverses -- so a one-line or
+    A vertical-flow (TB) section is the 90-degree rotation of a horizontal one:
+    a line rides ``x - offset`` where an LR line rides ``y + offset`` (matching
+    :func:`_tb_x_offset`).  Spanning the marker over the drawn offsets keeps it
+    centred on the lines that actually pass through the station, so a one-line or
     off-trunk-subset station does not leave its glyph beside its own track.
     """
     raw = [
@@ -1329,9 +1326,8 @@ def _drawn_bundle_span(
     if not raw:
         return 0.0, 0.0
     sec = graph.sections.get(station.section_id) if station.section_id else None
-    if sec is not None and sec.direction == "TB" and sec.id not in tb_right_entry:
-        bundle_max = max(raw)
-        drawn = [reversed_offset(off, bundle_max) for off in raw]
+    if sec is not None and sec.direction == "TB":
+        drawn = [-off for off in raw]
     else:
         drawn = raw
     return min(drawn), max(drawn)

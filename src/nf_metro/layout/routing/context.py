@@ -21,9 +21,6 @@ from nf_metro.layout.routing.common import (
     merge_trunk_force_cross_row,
     resolve_section,
 )
-from nf_metro.layout.routing.corners import (
-    reversed_offset,
-)
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -494,14 +491,14 @@ def lane_x(
 def _tb_x_offset(
     ctx: _RoutingCtx, station_id: str, line_id: str, section_id: str | None
 ) -> float:
-    """Compute the TB-aware X offset for a station.
+    """Compute the X offset for a line at a station in a TB section.
 
-    RIGHT-entry sections use non-reversed offsets; others use reversed.
+    A vertical-flow section is the horizontal model rotated 90 degrees: where
+    an LR line rides ``y + offset``, a TB line rides ``x - offset``.  The X
+    offset is therefore the negated per-line offset, not a reflection of it
+    against the station's bundle max.
     """
-    off = _get_offset(ctx, station_id, line_id)
-    if section_id in ctx.tb_right_entry:
-        return off
-    return reversed_offset(off, _max_offset_at(ctx, station_id))
+    return -_get_offset(ctx, station_id, line_id)
 
 
 def _resolve_section_col(graph: MetroGraph, station: Station) -> int | None:
