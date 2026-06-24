@@ -1834,6 +1834,179 @@ def _first_axis_crossing(
 
 
 @dataclass(frozen=True)
+class FanMergeCrossing:
+    """A fork or merge at which two partitioning lines cross each other.
+
+    At a non-port station several lines fan out to (or converge from) in-section
+    neighbours.  Distinct lines that each reach exactly one side -- a partition,
+    not a shared concentric fan -- must stay clear of one another between the
+    station and where they peel apart.  When the lane order at the station
+    disagrees with the order of the neighbours they head to/from, the two routes
+    cross.  The crossing is read as a true segment intersection, so it holds for
+    a horizontal section's rows and a vertical section's columns alike, and the
+    bundle-mate guard misses it only because the crossing lines ride different
+    edges.
+    """
+
+    section_id: str
+    station_id: str
+    is_fork: bool
+    line_a: str
+    line_b: str
+    cross_x: float
+    cross_y: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        kind = "fork" if self.is_fork else "merge"
+        return (
+            f"{kind} crossing at station {self.station_id!r} "
+            f"(section {self.section_id!r}): partitioning lines "
+            f"{self.line_a!r}/{self.line_b!r} cross at "
+            f"({self.cross_x:.1f}, {self.cross_y:.1f}) -- their lane order is "
+            f"transposed against the neighbours they connect"
+        )
+
+
+def _segments_properly_cross(
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    p3: tuple[float, float],
+    p4: tuple[float, float],
+) -> tuple[float, float] | None:
+    """The interior intersection of segments ``p1p2`` and ``p3p4``, or ``None``.
+
+    Proper crossing only: segments that merely touch at a shared endpoint (the
+    fork/merge station two routes emanate from) or run collinear do not count, so
+    the common station is never mistaken for a crossing.
+    """
+
+    Point = tuple[float, float]
+
+    def ccw(a: Point, b: Point, c: Point) -> float:
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    d1, d2 = ccw(p3, p4, p1), ccw(p3, p4, p2)
+    d3, d4 = ccw(p1, p2, p3), ccw(p1, p2, p4)
+    if (d1 > 0) == (d2 > 0) or (d3 > 0) == (d4 > 0):
+        return None
+    denom = (p1[0] - p2[0]) * (p3[1] - p4[1]) - (p1[1] - p2[1]) * (p3[0] - p4[0])
+    if abs(denom) <= COORD_TOLERANCE:
+        return None
+    t = ((p1[0] - p3[0]) * (p3[1] - p4[1]) - (p1[1] - p3[1]) * (p3[0] - p4[0])) / denom
+    return (p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]))
+
+
+def _routes_first_crossing(
+    a: Sequence[tuple[float, float]], b: Sequence[tuple[float, float]]
+) -> tuple[float, float] | None:
+    """First proper segment intersection between polylines *a* and *b*, or ``None``."""
+    for i in range(len(a) - 1):
+        for j in range(len(b) - 1):
+            hit = _segments_properly_cross(a[i], a[i + 1], b[j], b[j + 1])
+            if hit is not None:
+                return hit
+    return None
+
+
+def _fan_merge_partition_legs(
+    graph: MetroGraph,
+    station: Station,
+    section_id: str,
+    route_by_edge: dict[tuple[str, str, str], list[tuple[float, float]]],
+    *,
+    is_fork: bool,
+) -> tuple[
+    list[tuple[str, str, list[tuple[float, float]]]],
+    dict[str, set[str]],
+]:
+    """The intra-section fan/merge legs incident to *station* and their routes.
+
+    A leg is ``(line_id, neighbour_id, route_points)``.  Also returns, per
+    neighbour, the set of lines reaching it, so a caller can tell a partitioning
+    pair (each line to one side) from a shared concentric fan (a line on both).
+    """
+    incident = graph.edges_from(station.id) if is_fork else graph.edges_to(station.id)
+    legs: list[tuple[str, str, list[tuple[float, float]]]] = []
+    lines_by_neighbour: dict[str, set[str]] = defaultdict(set)
+    for edge in incident:
+        nb_id = edge.target if is_fork else edge.source
+        nb = graph.stations.get(nb_id)
+        if nb is None or nb.is_port or nb.section_id != section_id:
+            continue
+        pts = route_by_edge.get((edge.source, edge.target, edge.line_id))
+        if pts is None or len(pts) < 2:
+            continue
+        legs.append((edge.line_id, nb_id, pts))
+        lines_by_neighbour[nb_id].add(edge.line_id)
+    return legs, lines_by_neighbour
+
+
+def check_fan_merge_no_partition_crossing(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[FanMergeCrossing]:
+    """Return forks/merges where two partitioning lines cross.
+
+    At a fork (one station, several outbound edges) the lines must leave in the
+    lane order of the in-section neighbours they peel toward; at a merge the
+    incoming lines must dock in their sources' lane order.  Two distinct lines
+    that each reach exactly one neighbour cross whenever that order flips -- a
+    crossing :func:`check_bundle_order_preserved` cannot see, since it compares
+    only lines sharing one edge, and :func:`check_no_distinct_line_fanout_crossing`
+    skips, since it is scoped to fan-out junctions.  A line present on both sides
+    is a shared concentric fan, not a partition, so its tolerated weave is
+    excluded.
+
+    Scoped to vertical-flow sections: such a section is the horizontal model
+    rotated 90 degrees, and a rotation preserves the horizontal layout's
+    non-crossing, so a transposed fork/merge bundle there is a lane-sign defect.
+    Horizontal sections stack lanes on Y and route a far-row feeder into a merge
+    on a perpendicular riser, a tolerated weave that genuinely crosses (every
+    multi-aligner pipeline ships one), so the same intolerance does not apply.
+    """
+    route_by_edge = {
+        (rp.edge.source, rp.edge.target, rp.line_id): apply_route_offsets(rp, offsets)
+        for rp in routes
+    }
+    violations: list[FanMergeCrossing] = []
+    for station in graph.stations.values():
+        sid = station.section_id
+        if station.is_port or sid is None or sid not in graph.sections:
+            continue
+        section = graph.sections[sid]
+        if lanes_run_along_y(section.direction) or graph.is_rail_section(sid):
+            continue
+        for is_fork in (True, False):
+            legs, lines_by_neighbour = _fan_merge_partition_legs(
+                graph, station, sid, route_by_edge, is_fork=is_fork
+            )
+            for ia in range(len(legs)):
+                for ib in range(ia + 1, len(legs)):
+                    la, nb_a, pts_a = legs[ia]
+                    lb, nb_b, pts_b = legs[ib]
+                    if la == lb or nb_a == nb_b:
+                        continue
+                    if la in lines_by_neighbour[nb_b] or lb in lines_by_neighbour[nb_a]:
+                        continue
+                    hit = _routes_first_crossing(pts_a, pts_b)
+                    if hit is not None:
+                        violations.append(
+                            FanMergeCrossing(
+                                section_id=sid,
+                                station_id=station.id,
+                                is_fork=is_fork,
+                                line_a=la,
+                                line_b=lb,
+                                cross_x=hit[0],
+                                cross_y=hit[1],
+                            )
+                        )
+    return violations
+
+
+@dataclass(frozen=True)
 class TrunkContinuationJog:
     """A same-lane continuation edge whose route jogs off its lane.
 
@@ -3462,6 +3635,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_peeloff_concentric, "A"),
     # --- Tier B: invoked only by a validate-path ``_guard_*`` wrapper ---
     _check_spec(check_tb_exit_corner_preserves_column_order, "B"),
+    _check_spec(check_fan_merge_no_partition_crossing, "B"),
     _check_spec(check_fanout_tail_join, "B"),
     _check_spec(check_merge_port_approach_side, "B"),
     _check_spec(check_convergence_shallow_feeder_concentric, "B"),

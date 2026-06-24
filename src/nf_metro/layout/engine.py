@@ -129,6 +129,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_exit_inherits_entry_bundle_order,
     _guard_explicit_grid_directions,
     _guard_fan_bundles_coincide_or_separate,
+    _guard_fan_merge_no_partition_crossing,
     _guard_fanout_junction_resolves_upstream,
     _guard_fanout_junction_shares_exit_port_y,
     _guard_fanout_tail_join,
