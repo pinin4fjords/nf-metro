@@ -47,6 +47,32 @@ from nf_metro.parser.model import (
 )
 
 
+def _reversed_side_entry_lane(
+    ctx: _RoutingCtx,
+    section,  # noqa: ANN001
+    line_id: str,
+) -> bool:
+    """Whether *line_id* rides *section*'s un-reflected column lane (``x + off``).
+
+    A reversed section stores its internal offsets as the reflection of its
+    entry-port order.  When it is entered through a LEFT/RIGHT (perpendicular)
+    port, the port sits at the section edge, not the interior column the line
+    rides down: the per-station rotation (``x - off``) then draws the lane on
+    the opposite side of the column from where the entry corner drops it.  Such
+    a line rides the un-reflected lane ``x + off`` so its trunk, drop and exit
+    corner share one column.  (A TOP/BOTTOM-entry reversed section keeps the
+    rotation, since there ``lane_x`` already equals the column.)
+    """
+    if section.id not in ctx.reversed_sections or ctx.station_offsets is None:
+        return False
+    entry_station = _entry_port_for_line(ctx.graph, section, line_id)
+    entry_port = ctx.graph.ports.get(entry_station.id) if entry_station else None
+    return entry_port is not None and entry_port.side in (
+        PortSide.LEFT,
+        PortSide.RIGHT,
+    )
+
+
 def _tb_trunk_endpoints(
     ctx: _RoutingCtx,
     edge: Edge,
@@ -62,8 +88,11 @@ def _tb_trunk_endpoints(
 
     - A reversed section stores its internal offsets as the reflection of its
       entry-port order, so the rotation draws the trunk on the opposite side of
-      the column from its inter-section approach.  It rides the entry-port lane
-      (:func:`lane_x`) so the trunk stays on the side the approach lands on.
+      the column from its inter-section approach.  A TOP/BOTTOM-entry section
+      rides the entry-port lane (:func:`lane_x`) so the trunk stays on the side
+      the approach lands on; a LEFT/RIGHT (perpendicular) entry instead rides
+      the un-reflected lane (``x + off``, see :func:`_reversed_side_entry_lane`)
+      since there the entry port sits at the edge, not the column.
     - A section no line enters through a port (a source section) has no seam
       pinning its lane, so a bundle max that grows or shrinks between stations
       would shift the per-station rotation mid-trunk.  Reflecting the offset
@@ -77,6 +106,10 @@ def _tb_trunk_endpoints(
     # every lane collapses to the column and the per-station path already
     # equals it.
     if same_column and ctx.station_offsets is not None:
+        if _reversed_side_entry_lane(ctx, section, edge.line_id):
+            sx = src.x + _get_offset(ctx, edge.source, edge.line_id)
+            tx = tgt.x + _get_offset(ctx, edge.target, edge.line_id)
+            return sx, tx
         if section.id in ctx.reversed_sections:
             lane = lane_x(ctx.graph, section, edge.line_id, ctx.station_offsets)
             return lane, lane
@@ -313,8 +346,13 @@ def _route_tb_lr_exit(
     _members, line_ids, _edge_by_line = gather_member_edges(graph, edge)
     td = _sign(tgt.y - src.y)
     hd = _sign(tgt.x - src.x)
+    section = graph.sections[src.section_id]
 
     def vert_x_off(line_id: str) -> float:
+        # Drop along the same interior column the trunk rides, so the
+        # drop->turn corner nests concentrically against the exit-port Y fan.
+        if _reversed_side_entry_lane(ctx, section, line_id):
+            return _get_offset(ctx, edge.source, line_id)
         return _tb_x_offset(ctx, edge.source, line_id, src.section_id)
 
     def source_offset(line_id: str) -> float:
