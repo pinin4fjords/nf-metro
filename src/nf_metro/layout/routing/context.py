@@ -83,6 +83,7 @@ class _RoutingCtx:
     tb_sections: set[str]
     tb_right_entry: set[str]
     reversed_sections: set[str]
+    positive_fan: set[str]
     bundle_info: dict[_EdgeKey, tuple[int, int]]
     bypass_gap_idx: dict[_EdgeKey, tuple[int, int, int, int]]
     station_offsets: dict[tuple[str, str], float] | None
@@ -287,6 +288,7 @@ def _build_routing_context(
             tb_right_entry.add(port.section_id)
 
     reversed_sections = detect_reversed_sections(graph)
+    positive_fan = tb_positive_fan_sections(graph)
 
     # Merge routing classification
     merge = _classify_merge_edges(graph, junction_ids, join_sources, fork_targets)
@@ -322,6 +324,7 @@ def _build_routing_context(
         tb_sections=tb_sections,
         tb_right_entry=tb_right_entry,
         reversed_sections=reversed_sections,
+        positive_fan=positive_fan,
         bundle_info=bundle_info,
         bypass_gap_idx=bypass_gap_idx,
         station_offsets=station_offsets,
@@ -522,16 +525,12 @@ def _tb_x_offset(
     A vertical-flow section is the horizontal model rotated 90 degrees: where
     an LR line rides ``y + offset``, a TB line rides ``x + sign * offset``.  The
     lane sign is ``-1`` (rotation, bundle left of the column) except for a
-    section whose bundle arrives from the ``+x`` side -- a RIGHT entry (the feed
-    wraps in from the right) or a reverse-flow section (the bundle returns up the
-    right).  Drawing those on the side they arrive on keeps the seam corner a
-    rotation rather than a pinching reflection, and the whole feed chain stays on
-    one side.
+    section in :func:`tb_positive_fan_sections`, whose bundle sits on the ``+x``
+    side.  Drawing those on the ``+x`` side keeps the seam corner a rotation
+    rather than a pinching reflection, and the whole feed chain stays on one
+    side.
     """
-    positive_fan = (
-        section_id in ctx.tb_right_entry or section_id in ctx.reversed_sections
-    )
-    sign = 1.0 if positive_fan else -1.0
+    sign = 1.0 if section_id in ctx.positive_fan else -1.0
     return sign * _get_offset(ctx, station_id, line_id)
 
 
