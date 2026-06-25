@@ -1,0 +1,21 @@
+%%metro title: TB perp exit into LR top-entry, two lines
+%%metro line: a | A | #e63946
+%%metro line: b | B | #0570b0
+%%metro grid: work | 0,0
+%%metro grid: out_sec | 0,1
+graph LR
+    subgraph work [Work]
+        %%metro direction: TB
+        %%metro exit: bottom | a,b
+        w1[Demux]
+        w2[Merge]
+        w1 -->|a,b| w2
+    end
+    subgraph out_sec [Output]
+        %%metro direction: LR
+        %%metro entry: top | a,b
+        o1[Publish]
+        o2[Notify]
+        o1 -->|a,b| o2
+    end
+    w2 -->|a,b| o1
