@@ -145,10 +145,28 @@ def _align_lr_entry_port(
         ):
             if lanes_run_along_x(entry_section.direction):
                 # A perpendicular entry to a vertical trunk has no drop room at
-                # the consumer's own Y; lift it above the head instead.
-                _lift_perp_entry_port_above_stations(
-                    graph, entry_section, port, port_id
-                )
+                # the consumer's own Y; lift it above the head instead.  When the
+                # feeder is itself a vertical-flow LEFT/RIGHT exit -- a straight
+                # horizontal seam between two vertical trunks -- match that exit's
+                # Y so the seam runs straight across rather than jogging between
+                # the exit's lift above its trailing station and the entry's lift
+                # above its leading one.
+                exit_st = graph.stations.get(edge.source)
+                first_ys = _internal_station_ys(graph, entry_section)
+                if (
+                    src_port.side in (PortSide.LEFT, PortSide.RIGHT)
+                    and lanes_run_along_x(src_section.direction)
+                    and exit_st is not None
+                    and first_ys
+                    and exit_st.y < min(first_ys)
+                ):
+                    _set_port_y(graph, port_id, exit_st.y)
+                    if exit_st.y < entry_section.bbox_y:
+                        _expand_bbox_for_y(entry_section, exit_st.y)
+                else:
+                    _lift_perp_entry_port_above_stations(
+                        graph, entry_section, port, port_id
+                    )
                 break
             consumer_y = _entry_consumer_y(graph, port_id, entry_section)
             if consumer_y is not None:
