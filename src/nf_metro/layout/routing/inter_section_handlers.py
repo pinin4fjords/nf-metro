@@ -232,8 +232,6 @@ class _InterFacts:
             section.direction
         ):
             return False
-        # The entry is unreachable when it sits against the flow from the exit:
-        # at/above a BOTTOM (downward) exit, at/below a TOP (upward) one.
         if self.src_port.side == PortSide.BOTTOM:
             return self.ty <= self.sy + COORD_TOLERANCE
         return self.ty >= self.sy - COORD_TOLERANCE

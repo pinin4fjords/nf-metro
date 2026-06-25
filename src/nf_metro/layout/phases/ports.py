@@ -149,25 +149,18 @@ def _align_lr_entry_port(
                 # trunks.  When the two flow in OPPOSITE directions (an upward BT
                 # handing off to a downward TB, or the reverse) the feeder's
                 # trailing edge and the consumer's leading edge sit on the same
-                # side, so the seam crosses straight at the top (or bottom): slide
-                # the consumer so its leading station sits level with the feeder's
-                # trailing station and both trunks share one band -- up one
-                # column, across, down the next.  Same-direction vertical trunks
-                # (TB->TB) instead exit one end and enter the other, so they keep
-                # the level-then-drop lift above the head.
-                exit_st = graph.stations.get(edge.source)
-                feeder_trailing_y = _vertical_exit_trailing_y(graph, edge.source)
-                if (
+                # side, so the consumer mirrors the feeder across the seam.  Any
+                # other feed (same-direction TB->TB, or a perpendicular exit)
+                # keeps the level-then-drop lift above the head.
+                mirrored = (
                     src_port.side in (PortSide.LEFT, PortSide.RIGHT)
                     and lanes_run_along_x(src_section.direction)
-                    and exit_st is not None
-                    and feeder_trailing_y is not None
                     and _opposite_vertical_flow(src_section, entry_section)
-                ):
-                    _mirror_entry_section_to_seam(
-                        graph, entry_section, port_id, feeder_trailing_y, exit_st.y
+                    and _mirror_entry_section_to_seam(
+                        graph, entry_section, port_id, edge.source
                     )
-                else:
+                )
+                if not mirrored:
                     _lift_perp_entry_port_above_stations(
                         graph, entry_section, port, port_id
                     )
@@ -213,10 +206,7 @@ def _align_lr_entry_port(
 
 def _opposite_vertical_flow(a: Section, b: Section) -> bool:
     """Whether two vertical-flow sections run in opposite directions (TB vs BT)."""
-    return (
-        AxisFrame.for_direction(a.direction, 1.0, 1.0).primary_sign
-        != AxisFrame.for_direction(b.direction, 1.0, 1.0).primary_sign
-    )
+    return AxisFrame.flow_sign(a.direction) != AxisFrame.flow_sign(b.direction)
 
 
 def _vertical_exit_trailing_y(graph: MetroGraph, exit_port_id: str) -> float | None:
@@ -242,16 +232,19 @@ def _mirror_entry_section_to_seam(
     graph: MetroGraph,
     entry_section: Section,
     entry_port_id: str,
-    feeder_trailing_y: float,
-    seam_y: float,
-) -> None:
+    exit_port_id: str,
+) -> bool:
     """Slide a vertical-flow consumer so it mirrors its feeder across the seam.
 
     The consumer's leading station (the one its LEFT/RIGHT entry feeds) is
     shifted level with the feeder's trailing station, carrying the whole section
-    with it, then the entry port is seated on the seam Y.  The two vertical
-    trunks then occupy one band either side of the inter-section gap.
+    with it, then the entry port is seated on the feeding exit's Y (the seam).
+    The two vertical trunks then occupy one band either side of the gap.
+    Returns ``False`` (mirror not applied) when the feeder or consumer station
+    can't be resolved.
     """
+    exit_st = graph.stations.get(exit_port_id)
+    feeder_trailing_y = _vertical_exit_trailing_y(graph, exit_port_id)
     consumer = next(
         (
             graph.stations[e.target]
@@ -260,8 +253,8 @@ def _mirror_entry_section_to_seam(
         ),
         None,
     )
-    if consumer is None:
-        return
+    if exit_st is None or feeder_trailing_y is None or consumer is None:
+        return False
     delta = feeder_trailing_y - consumer.y
     if abs(delta) > SAME_COORD_TOLERANCE:
         for sid in entry_section.station_ids:
@@ -272,9 +265,10 @@ def _mirror_entry_section_to_seam(
             if p:
                 p.y += delta
         entry_section.bbox_y += delta
-    _set_port_y(graph, entry_port_id, seam_y)
-    if seam_y < entry_section.bbox_y:
-        _expand_bbox_for_y(entry_section, seam_y)
+    _set_port_y(graph, entry_port_id, exit_st.y)
+    if exit_st.y < entry_section.bbox_y:
+        _expand_bbox_for_y(entry_section, exit_st.y)
+    return True
 
 
 def _align_tb_entry_port(
@@ -1130,7 +1124,7 @@ def _resolve_tb_exit_y(
     straight.  The flow sense follows the section's :attr:`primary_sign`: a
     downward (TB) flow trails at the bottom, an upward (BT) one at the top.
     """
-    flow = AxisFrame.for_direction(exit_section.direction, 1.0, 1.0).primary_sign
+    flow = AxisFrame.flow_sign(exit_section.direction)
     internal_ys = [
         graph.stations[sid].y
         for sid in exit_section.station_ids

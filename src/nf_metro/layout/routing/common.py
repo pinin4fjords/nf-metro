@@ -90,8 +90,7 @@ def trailing_perp_side(direction: str) -> PortSide:
     leading/trailing distinction follows the rotation, not a direction literal.
     Only meaningful for a vertical-flow (TB/BT) section.
     """
-    frame = AxisFrame.for_direction(direction, 1.0, 1.0)
-    return PortSide.BOTTOM if frame.primary_sign > 0 else PortSide.TOP
+    return PortSide.BOTTOM if AxisFrame.flow_sign(direction) > 0 else PortSide.TOP
 
 
 def tb_right_entry_sections(graph: MetroGraph) -> set[str]:

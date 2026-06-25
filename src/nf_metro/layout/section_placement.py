@@ -1103,7 +1103,7 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
     # flow sign: a downward (TB) flow trails at the bottom, an upward (BT) one
     # at the top.
     if lanes_run_along_x(section.direction):
-        flow = AxisFrame.for_direction(section.direction, 1.0, 1.0).primary_sign
+        flow = AxisFrame.flow_sign(section.direction)
         entry_set = set(section.entry_ports)
         exit_set = set(section.exit_ports)
         internal_ids = set(section.station_ids) - entry_set - exit_set

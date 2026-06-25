@@ -61,13 +61,22 @@ class AxisFrame:
         """
         return ("y", "x") if direction in ("TB", "BT") else ("x", "y")
 
+    @staticmethod
+    def flow_sign(direction: str) -> float:
+        """The flow-axis sign (``primary_sign``) for *direction*, spacing-free.
+
+        ``-1`` for the reversed flows (RL, BT), ``+1`` otherwise.  Exposed so a
+        pass can read the sign without building a frame with dummy spacings.
+        """
+        return -1.0 if direction in ("RL", "BT") else 1.0
+
     @classmethod
     def for_direction(
         cls, direction: str, x_spacing: float, y_spacing: float
     ) -> AxisFrame:
         primary, secondary = cls.axes_for_direction(direction)
         step = {"x": x_spacing, "y": y_spacing}
-        sign = -1.0 if direction in ("RL", "BT") else 1.0
+        sign = cls.flow_sign(direction)
         # A 90-degree-CW rotation fans a downward (TB) flow's lanes to -X; its
         # upward (BT) image reflects that to +X.
         secondary_sign = -1.0 if secondary == "x" and direction != "BT" else 1.0

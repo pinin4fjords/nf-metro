@@ -58,7 +58,7 @@ def _feeder_fan_sign(ctx: _RoutingCtx, source_id: str) -> float:
         else None
     )
     if section is not None and lanes_run_along_x(section.direction):
-        return _section_lane_frame(ctx.graph, section).secondary_sign
+        return _section_lane_frame(ctx.graph, section, ctx.positive_fan).secondary_sign
     return -1.0
 
 
