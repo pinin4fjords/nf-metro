@@ -240,6 +240,13 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "LR section stacked above it (#1044).",
     ),
     (
+        "bt_exit_top_above_2line",
+        TOPOLOGIES_DIR,
+        "The two-line form of the BT TOP-exit drop into an LR BOTTOM entry: the "
+        "bundle keeps its lane across the perpendicular boundary, the BT feeder "
+        "fanning +x rather than the downward-TB -x (#1066).",
+    ),
+    (
         "bt_to_lr",
         TOPOLOGIES_DIR,
         "A BT section's trailing TOP (perpendicular) exit taking the up-and-over "

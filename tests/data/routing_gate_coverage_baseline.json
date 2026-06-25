@@ -282,7 +282,7 @@
   "offsets.py::sec is None::#1",
   "offsets.py::while cur is not None and cur not in seen:::#1",
   "offsets.py::while stack:::#1",
-  "perp.py::if not indices:::#1",
+  "perp.py::if not feeders:::#1",
   "postprocess.py::if abs(dx_diag) <= COORD_TOLERANCE_FINE:::#1",
   "postprocess.py::if abs(other.y - station.y) > 1:::#1",
   "postprocess.py::if abs(rp.points[-1][0] - old_x) < STATION_MOVE_TOLERANCE:::#1",
