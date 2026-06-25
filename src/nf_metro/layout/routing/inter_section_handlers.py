@@ -676,8 +676,8 @@ def _route_left_exit_around_below_left_entry(
 
     # West out of the exit, around below, then east into the LEFT port is a net
     # half-turn that transposes the bundle end-to-end.  The destination section
-    # is reversed to match (``_reverse_around_below_left_entry_offsets``), so the
-    # entry offsets here are already the transposed order; the bundle tapers from
+    # takes the transposed order from the seam classifier (``_reorder_reconvergence``),
+    # so the entry offsets here are already the transposed order; the bundle tapers from
     # its exit offset out of the source to that entry offset into the port, the
     # taper following the loop's natural transpose so no line crosses a mate.
     members = [

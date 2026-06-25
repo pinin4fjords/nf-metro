@@ -22,7 +22,6 @@ from nf_metro.layout.routing.context import (
     _resolve_section_col,
     _resolve_section_colrow,
     fanout_divergence_peel_order,
-    is_far_side_around_below_left_entry,
     is_near_vertical_junction_right_entry,
 )
 from nf_metro.layout.routing.corners import reversed_offset
@@ -143,6 +142,13 @@ def _stores_reflected(ctx: _OffsetCtx, sec_id: str | None) -> bool:
     draws the rotation ``x - offset`` (:func:`context._tb_x_offset`); there the
     side is carried by the draw sign, not by reflecting the stored slot, so the
     marker span and the drawn lines agree by construction.
+
+    This horizontal reflection is a storage convention threaded through every
+    base-offset assignment, and it flips the draw *side*, not just the bundle
+    order.  The seam-classifier arrival-order path (:func:`_reorder_reconvergence`)
+    transposes order alone, so it cannot express this side flip; carrying the
+    reverse-flow side without reflected storage needs a per-section lane sign (the
+    horizontal analogue of TB's :func:`context._tb_x_offset`).
     """
     return sec_id in ctx.reversed_sections and sec_id not in ctx.tb_sections
 
@@ -675,25 +681,35 @@ def _reorder_reconvergence(
         primary_lines = set(lines_by_feeder[primary_fid])
 
         if len(lines_by_feeder) < 2:
-            if sec_id not in ctx.tb_sections or len(primary_lines) < 2:
+            if len(primary_lines) < 2:
                 continue
             seam = _feeder_seam_ports(ctx, sec_id, primary_fid)
             if seam is None:
-                continue
-            feeder_off = _section_line_offsets(ctx, primary_fid)
-            if not all(lid in feeder_off for lid in primary_lines):
                 continue
             # The feeder's stored offsets are its delivered order.  A TOP/BOTTOM
             # column continuation drops straight and preserves that order; a
             # LEFT/RIGHT seam turns a corner that transposes it when the
             # classifier says so (a transposition the straight-drop offsets do
             # not already carry).
-            delivered = sorted(primary_lines, key=lambda lid: feeder_off[lid])
             is_side = seam[1].side in (PortSide.LEFT, PortSide.RIGHT)
-            if (
+            reverse = (
                 is_side
                 and seam_orientation(ctx.graph, *seam) is SeamOrientation.REVERSE
+            )
+            # Vertical-flow sections always settle on the feeder's delivered
+            # order.  A horizontal section takes this path only for the
+            # around-below half-turn -- a reversing seam into a section that does
+            # not store its bundle reflected; forward LR/RL keep their priority
+            # slots and reflected reverse-flow sections keep their stored order.
+            if sec_id not in ctx.tb_sections and (
+                not reverse or _stores_reflected(ctx, sec_id)
             ):
+                continue
+            feeder_off = _section_line_offsets(ctx, primary_fid)
+            if not all(lid in feeder_off for lid in primary_lines):
+                continue
+            delivered = sorted(primary_lines, key=lambda lid: feeder_off[lid])
+            if reverse:
                 delivered = list(reversed(delivered))
             config = BoundaryConfig(
                 present=tuple(_section_present_line_set(ctx, sec_id)),
@@ -1368,6 +1384,15 @@ def _propagate_lr_rl_exit_to_entry(ctx: _OffsetCtx) -> None:
         exit_port_id = next(iter(feeding_exit_ports))
         src_port = graph.ports.get(exit_port_id)
         if not (src_port and src_port.section_id in ctx.lr_rl_sections):
+            continue
+        if (
+            not _stores_reflected(ctx, port_obj.section_id)
+            and seam_orientation(graph, src_port, port_obj) is SeamOrientation.REVERSE
+        ):
+            # A reversing seam (the around-below half-turn) into a section that
+            # does not store its bundle reflected: the consumer rides its own
+            # arrival-order lane (set by the reindex, _reorder_reconvergence), so
+            # copying the feeder's stored offset across would undo the transpose.
             continue
         exit_lines = set(graph.station_lines(exit_port_id))
         entry_lines = set(graph.station_lines(port_id))
@@ -2168,7 +2193,6 @@ def compute_station_offsets(
     _order_convergence_entry_ports(ctx)
     _reconcile_horizontal_offsets(ctx)
     _recenter_partial_fan_branches(ctx)
-    _reverse_around_below_left_entry_offsets(ctx)
     _reverse_near_vertical_junction_right_entry_offsets(ctx)
     return ctx.offsets
 
@@ -2207,31 +2231,6 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
             ctx.offsets[(sid, lid)] = reversed_offset(
                 ctx.offsets.get((sid, lid), 0.0), max_off
             )
-
-
-def _reverse_around_below_left_entry_offsets(ctx: _OffsetCtx) -> None:
-    """Reverse the line order of sections entered through an around-below LEFT port.
-
-    A reverse-flow bypass leaving a LEFT exit, dropping below every box, and
-    rising into a far-side LEFT entry is a half-turn that transposes the bundle
-    end-to-end (see ``_route_left_exit_around_below_left_entry``).  The section
-    therefore receives its lines in the opposite order to the source, so its
-    entry port and internal trunk carry the reversed order for the rise into the
-    port and the run out of it to stay straight.
-
-    This around-below half-turn is a horizontal idiom outside the vertical-flow
-    rotation and the seam-orientation reorder, so it keeps its own reversal pass
-    rather than riding the per-section lane sign.
-    """
-    graph = ctx.graph
-    _reverse_offsets_from_roots(
-        ctx,
-        {
-            port.section_id
-            for port in graph.ports.values()
-            if is_far_side_around_below_left_entry(graph, port)
-        },
-    )
 
 
 def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None:

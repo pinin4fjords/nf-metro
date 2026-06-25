@@ -582,9 +582,10 @@ def is_far_side_around_below_left_entry(graph: MetroGraph, port: Port) -> bool:
     with an intervening section, is a reverse-flow bypass that leaves the source
     westward, drops below every box, and rises into the far-side port from its
     outward side -- a half-turn that transposes the bundle end-to-end.  Routed
-    by ``_route_left_exit_around_below_left_entry``; the destination section is
-    reversed to match (``_reverse_around_below_left_entry_offsets``) and the
-    layout reserves left clearance for the wrap.
+    by ``_route_left_exit_around_below_left_entry``; the destination section takes
+    the feeder's delivered order transposed once by the seam classifier
+    (``_reorder_reconvergence``) and the layout reserves left clearance for the
+    wrap.
 
     Pure topology (grid columns, port sides, intervening sections), so it reads
     the same before global coordinates are assigned and after.

@@ -5,13 +5,9 @@ the target's entry port is on its own far (LEFT) edge, the bundle leaves the
 exit travelling west, drops below every intervening section, and rises into the
 port from its outward side -- a net half-turn that transposes the bundle
 end-to-end.  ``_route_left_exit_around_below_left_entry`` routes that wrap and
-``_reverse_around_below_left_entry_offsets`` reverses the destination section's
-line order to match, so the cable order dictates the destination order and no
+``_reorder_reconvergence`` takes the feeder's delivered order transposed once by
+the seam classifier, so the cable order dictates the destination order and no
 line crosses a bundle-mate.
-
-On ``main`` this topology aborts the render-time curve invariants (the U-shaped
-bypass rakes its delivery through the target interior and inverts the bundle at
-the lead-in corner); these tests pin the clean wrap.
 """
 
 from __future__ import annotations
@@ -20,6 +16,7 @@ from pathlib import Path
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing.context import is_far_side_around_below_left_entry
 from nf_metro.layout.routing.invariants import (
     assert_render_curve_invariants,
     check_bundle_order_preserved,
@@ -36,6 +33,46 @@ def _route(path: Path):
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
     return graph, offsets, routes
+
+
+def _feeder_exit_for(graph, entry_port):
+    """The non-entry port feeding *entry_port* directly, if any."""
+    for edge in graph.edges_to(entry_port.id):
+        src_port = graph.ports.get(edge.source)
+        if src_port is not None and not src_port.is_entry:
+            return src_port
+    return None
+
+
+def test_around_below_entry_takes_feeder_order_transposed() -> None:
+    """An around-below LEFT entry receives the feeder's bundle transposed.
+
+    The half-turn reversal is delivered by the seam-classifier arrival-order pass
+    (``_reorder_reconvergence``), not a dedicated post-hoc reversal: the lines
+    common to feeder and destination stack in the *opposite* offset order across
+    the seam.
+    """
+    graph, offsets, _routes = _route(FIXTURE)
+    around_below = [
+        port
+        for port in graph.ports.values()
+        if is_far_side_around_below_left_entry(graph, port)
+    ]
+    assert around_below, "fixture has no around-below LEFT entry"
+    for entry in around_below:
+        exit_port = _feeder_exit_for(graph, entry)
+        assert exit_port is not None
+        shared = [
+            lid
+            for lid in graph.station_lines(entry.id)
+            if lid in set(graph.station_lines(exit_port.id))
+        ]
+        assert len(shared) >= 2
+        feeder_order = sorted(shared, key=lambda lid: offsets[(exit_port.id, lid)])
+        entry_order = sorted(shared, key=lambda lid: offsets[(entry.id, lid)])
+        assert entry_order == list(reversed(feeder_order)), (
+            f"{entry.id} bundle not transposed across the seam"
+        )
 
 
 def test_far_side_wrap_passes_curve_invariants() -> None:
