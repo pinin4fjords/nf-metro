@@ -50,6 +50,7 @@ def _facts(**overrides: object) -> H._InterFacts:
         tb_sections=set(),
         station_offsets={},
         merge=SimpleNamespace(trunk_source={}),
+        graph=SimpleNamespace(sections={}),
     )
     defaults: dict[str, object] = dict(
         edge=SimpleNamespace(source="a", target="b", line_id="L"),
@@ -100,10 +101,32 @@ _CASES = [
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
                 merge=SimpleNamespace(trunk_source={}),
+                graph=SimpleNamespace(
+                    sections={"src_sec": SimpleNamespace(direction="TB")}
+                ),
             ),
         ),
         "TB bottom exit",
         id="tb-bottom-exit",
+    ),
+    pytest.param(
+        # A BT section's trailing exit is its TOP (the rotation image of TB's
+        # BOTTOM), so the same rule claims it.
+        dict(
+            src_port=_port(PortSide.TOP, is_entry=False),
+            ctx=SimpleNamespace(
+                junction_ids=set(),
+                bottom_exit_junctions=set(),
+                tb_sections={"src_sec"},
+                station_offsets={"x": 1.0},
+                merge=SimpleNamespace(trunk_source={}),
+                graph=SimpleNamespace(
+                    sections={"src_sec": SimpleNamespace(direction="BT")}
+                ),
+            ),
+        ),
+        "TB bottom exit",
+        id="bt-top-exit",
     ),
     pytest.param(
         # Also same-X; TOP entry (rule 4) must win over same-X drop (rule 5).

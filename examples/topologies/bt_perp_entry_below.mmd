@@ -1,0 +1,25 @@
+%%metro title: BT Fed From Below
+%%metro style: dark
+%%metro line: a | A | #e63946
+%%metro line: b | B | #0570b0
+
+%%metro grid: top_sec | 0,0
+%%metro grid: bot_sec | 0,1
+
+graph LR
+    subgraph top_sec [Upper]
+        %%metro direction: BT
+        %%metro entry: bottom | a,b
+        t1[Refine]
+        t2[Report]
+        t1 -->|a,b| t2
+    end
+
+    subgraph bot_sec [Lower]
+        %%metro direction: BT
+        b1[Ingest]
+        b2[Clean]
+        b1 -->|a,b| b2
+    end
+
+    b2 -->|a,b| t1

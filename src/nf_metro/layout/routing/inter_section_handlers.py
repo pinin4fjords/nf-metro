@@ -65,6 +65,7 @@ from nf_metro.layout.routing.common import (
     row_bottom_edge,
     row_top_edge,
     symmetric_bundle_midpoint,
+    trailing_perp_side,
     vertical_direction,
 )
 from nf_metro.layout.routing.context import (
@@ -186,13 +187,22 @@ class _InterFacts:
 
     @property
     def is_tb_bottom_exit(self) -> bool:
-        """Source is a BOTTOM exit on a TB/BT section (with station offsets)."""
-        return (
+        """Source is the trailing perp exit on a vertical-flow (TB/BT) section.
+
+        The trunk continues out the section's trailing TOP/BOTTOM edge -- BOTTOM
+        for a downward (TB) flow, TOP for its upward (BT) image -- so the drop
+        rides the section's own rotation lane out of that port.
+        """
+        if not (
             self.src_port is not None
             and not self.src_port.is_entry
-            and self.src_port.side == PortSide.BOTTOM
             and self.src.section_id in self.ctx.tb_sections
             and bool(self.ctx.station_offsets)
+        ):
+            return False
+        section = self.graph.sections.get(self.src.section_id)
+        return section is not None and self.src_port.side == trailing_perp_side(
+            section.direction
         )
 
     @property

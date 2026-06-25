@@ -14,7 +14,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     STATION_ELBOW_TOLERANCE,
 )
-from nf_metro.layout.geometry import lanes_run_along_y
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.phases._common import (
     _expand_bbox_for_y,
     _grid_group_section_ids,
@@ -1012,7 +1012,7 @@ def _align_lr_exit_port(
         if not (bbox_top <= tgt.y <= bbox_bot):
             break
 
-        if exit_section.direction == "TB":
+        if lanes_run_along_x(exit_section.direction):
             tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
         else:
             tgt_y = tgt.y
@@ -1027,39 +1027,46 @@ def _resolve_tb_exit_y(
     tgt: Station,
     exit_section: Section,
 ) -> float:
-    """Resolve the Y coordinate for a TB section's exit port.
+    """Resolve the Y coordinate for a vertical-flow (TB/BT) section's exit port.
 
-    Mirrors the entry-side gap: finds how far the perpendicular entry
-    port sits above the first internal station, and places the exit port
-    the same distance below the last internal station. Pushes the target
-    section down if needed so the inter-section line is straight.
+    Mirrors the entry-side gap: finds how far the perpendicular entry port sits
+    before the leading station (against the flow), and places the exit port the
+    same distance beyond the trailing station (along the flow).  Pushes the
+    target section along the flow if needed so the inter-section line is
+    straight.  The flow sense follows the section's :attr:`primary_sign`: a
+    downward (TB) flow trails at the bottom, an upward (BT) one at the top.
     """
+    flow = AxisFrame.for_direction(exit_section.direction, 1.0, 1.0).primary_sign
     internal_ys = [
         graph.stations[sid].y
         for sid in exit_section.station_ids
         if sid in graph.stations and not graph.stations[sid].is_port
     ]
-    last_y = max(internal_ys) if internal_ys else port.y
-    first_y = min(internal_ys) if internal_ys else port.y
+    if internal_ys:
+        trailing_y = max(internal_ys) if flow > 0 else min(internal_ys)
+        leading_y = min(internal_ys) if flow > 0 else max(internal_ys)
+    else:
+        trailing_y = leading_y = port.y
 
-    # Mirror the entry-side gap (distance from entry port to first station)
+    # Mirror the entry-side gap (distance from the entry port to the leading
+    # station, measured against the flow).
     entry_gap = MIN_PORT_STATION_GAP
     for pid in exit_section.entry_ports:
         ep = graph.ports.get(pid)
         if ep and ep.side in (PortSide.LEFT, PortSide.RIGHT):
-            entry_gap = max(entry_gap, first_y - graph.stations[pid].y)
+            entry_gap = max(entry_gap, flow * (leading_y - graph.stations[pid].y))
             break
 
-    # Ensure the gap below the last station is large enough for the
-    # exit corner curve (CURVE_RADIUS) plus a straight run so the
-    # curve doesn't crowd the station pill.
+    # Ensure the gap beyond the trailing station is large enough for the exit
+    # corner curve (CURVE_RADIUS) plus a straight run so the curve doesn't
+    # crowd the station pill.
     min_exit_gap = max(entry_gap, CURVE_RADIUS + MIN_PORT_STATION_GAP)
-    min_exit_y = last_y + min_exit_gap
-    if tgt.y >= min_exit_y:
+    bound_exit_y = trailing_y + flow * min_exit_gap
+    if flow * (tgt.y - bound_exit_y) >= 0:
         tgt_y = tgt.y
     else:
-        # Push target section down to align with exit port
-        tgt_y = min_exit_y
+        # Push target section along the flow to align with the exit port.
+        tgt_y = bound_exit_y
         delta = tgt_y - tgt.y
 
         tgt.y = tgt_y
@@ -1077,8 +1084,8 @@ def _resolve_tb_exit_y(
                             p.y += delta
                 tgt_sec.bbox_y += delta
 
-    # Extend exit section bbox so padding below the exit port
-    # mirrors the padding above the entry port.
+    # Extend the exit section bbox so the padding beyond the exit port mirrors
+    # the padding before the entry port (against the flow).
     entry_port_y = None
     for pid in exit_section.entry_ports:
         ep = graph.ports.get(pid)
@@ -1086,11 +1093,17 @@ def _resolve_tb_exit_y(
             entry_port_y = graph.stations[pid].y
             break
     if entry_port_y is not None:
-        top_pad = entry_port_y - exit_section.bbox_y
-        desired_bot = tgt_y + top_pad
-        current_bot = exit_section.bbox_y + exit_section.bbox_h
-        if desired_bot > current_bot:
-            exit_section.bbox_h = desired_bot - exit_section.bbox_y
+        box_top = exit_section.bbox_y
+        box_bot = exit_section.bbox_y + exit_section.bbox_h
+        leading_edge = box_top if flow > 0 else box_bot
+        pad = flow * (entry_port_y - leading_edge)
+        desired_trailing_edge = tgt_y + flow * pad
+        if flow > 0:
+            if desired_trailing_edge > box_bot:
+                exit_section.bbox_h = desired_trailing_edge - box_top
+        elif desired_trailing_edge < box_top:
+            exit_section.bbox_h = box_bot - desired_trailing_edge
+            exit_section.bbox_y = desired_trailing_edge
 
     return tgt_y
 

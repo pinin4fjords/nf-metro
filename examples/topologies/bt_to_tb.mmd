@@ -1,0 +1,25 @@
+%%metro title: BT Into TB
+%%metro style: dark
+%%metro line: a | A | #e63946
+
+%%metro grid: up_sec | 0,0
+%%metro grid: down_sec | 1,0
+
+graph LR
+    subgraph up_sec [Ascend]
+        %%metro direction: BT
+        %%metro exit: right | a
+        u1[Collect]
+        u2[Reduce]
+        u1 -->|a| u2
+    end
+
+    subgraph down_sec [Descend]
+        %%metro direction: TB
+        %%metro entry: left | a
+        d1[Split]
+        d2[Emit]
+        d1 -->|a| d2
+    end
+
+    u2 -->|a| d1

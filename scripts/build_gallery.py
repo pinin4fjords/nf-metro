@@ -227,6 +227,31 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "`+x` side as the rotation image of a TB fork (#1044).",
     ),
     (
+        "bt_perp_entry_below",
+        TOPOLOGIES_DIR,
+        "A BT section fed from below: a lower BT section's trailing TOP exit "
+        "continues up the shared lane into an upper BT section's BOTTOM entry, a "
+        "two-line bundle riding one column across the seam (#1044).",
+    ),
+    (
+        "bt_exit_top_above",
+        TOPOLOGIES_DIR,
+        "A BT section's trailing TOP exit dropping up into the BOTTOM entry of an "
+        "LR section stacked above it (#1044).",
+    ),
+    (
+        "bt_to_lr",
+        TOPOLOGIES_DIR,
+        "A BT section exiting through a RIGHT port -- placed at its trailing (top) "
+        "end -- into the LEFT entry of a neighbouring LR section (#1044).",
+    ),
+    (
+        "bt_to_tb",
+        TOPOLOGIES_DIR,
+        "A BT section's RIGHT exit feeding a TB section's LEFT entry: an upward "
+        "flow handing off to a downward one across the column seam (#1044).",
+    ),
+    (
         "deep_linear",
         TOPOLOGIES_DIR,
         "Seven sections in a straight chain. Exercises the grid fold threshold.",

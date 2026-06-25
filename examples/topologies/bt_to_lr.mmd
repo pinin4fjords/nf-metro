@@ -1,0 +1,25 @@
+%%metro title: BT Exit Into LR
+%%metro style: dark
+%%metro line: a | A | #e63946
+
+%%metro grid: work | 0,0
+%%metro grid: out_sec | 1,0
+
+graph LR
+    subgraph work [Work]
+        %%metro direction: BT
+        %%metro exit: right | a
+        w1[Ingest]
+        w2[Refine]
+        w1 -->|a| w2
+    end
+
+    subgraph out_sec [Output]
+        %%metro direction: LR
+        %%metro entry: left | a
+        o1[Publish]
+        o2[Notify]
+        o1 -->|a| o2
+    end
+
+    w2 -->|a| o1
