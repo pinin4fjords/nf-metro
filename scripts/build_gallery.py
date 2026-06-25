@@ -578,6 +578,14 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "trailing station stays contained (issue #1057).",
     ),
     (
+        "tb_column_continuation_two_lines",
+        TOPOLOGIES_DIR,
+        "A TB section with a two-line BOTTOM exit continuing straight down into "
+        "the TB section below. The exit port seats close to the last station "
+        "with normal section padding rather than the doubled gap the fold-span "
+        "extension would add (issue #1062).",
+    ),
+    (
         "bypass_gap2_rightward_overflow",
         TOPOLOGIES_DIR,
         "A seven-line rightward bypass whose gap-2 bundle right edge overflows "
