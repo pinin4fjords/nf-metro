@@ -1331,14 +1331,10 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
                 ]
                 max_exit_off = max(exit_line_offs) if exit_line_offs else 0.0
                 keep_order = _perp_entry_run_turns_right(graph, port_id)
-                new_offs = {
-                    lid: (
-                        ctx.offsets.get((exit_port_id, lid), 0.0)
-                        if keep_order
-                        else max_exit_off - ctx.offsets.get((exit_port_id, lid), 0.0)
-                    )
-                    for lid in lines
-                }
+                new_offs = {}
+                for lid in lines:
+                    exit_off = ctx.offsets.get((exit_port_id, lid), 0.0)
+                    new_offs[lid] = exit_off if keep_order else max_exit_off - exit_off
                 _apply_offsets_along_bundle(ctx, port_id, entry_section.id, new_offs)
             break
 

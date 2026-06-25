@@ -7,10 +7,9 @@ per-line turn-in offset must nest concentrically: the line on the inside of the
 vertical drop is the line on the inside of the horizontal turn-in, so the bundle
 neither pinches through the bend nor crosses a bundle-mate (issue #1061).
 
-The in-section line order at the consumer is mirrored only when the run turns
-*away* from the drop column; for a run that turns *toward* the drop (the
-consumer sits on the turn side) the order must follow the drop directly.  The
-two fixtures exercise both turn directions so the reconciliation generalises.
+The fixture drops into a consumer placed to the right of the drop column, so the
+run turns toward larger X: the in-section line order follows the arrival order
+directly rather than being mirrored.
 """
 
 from __future__ import annotations
