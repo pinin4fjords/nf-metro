@@ -1250,6 +1250,26 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
                 break
 
 
+def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
+    """Whether the run leaving a TOP/BOTTOM entry port heads to larger X.
+
+    The drop arrives at the port column and turns once into the consumer.  A
+    consumer placed to the right of the port turns the bundle toward larger X
+    (a down-then-right corner); one to the left turns it toward smaller X.  The
+    turn side decides which exit slot lands on the inside of the entry corner,
+    so it selects between the direct and mirrored offset maps.  Returns ``False``
+    when no internal consumer is found or the consumer sits on the port column.
+    """
+    port_st = graph.stations.get(port_id)
+    if port_st is None:
+        return False
+    for edge in graph.edges_from(port_id):
+        consumer = graph.stations.get(edge.target)
+        if consumer is not None and not consumer.is_port:
+            return consumer.x > port_st.x + COORD_TOLERANCE_FINE
+    return False
+
+
 def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
     """Match TOP entry ports to the offsets of feeding TB BOTTOM exits.
 
@@ -1265,11 +1285,14 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
     - **Horizontal (LR/RL) receiver**: the receiver is marked positive_fan by
       ``_detect_tb_bottom_top_entries``; its in-section draw uses
       ``y + offset`` while the drop places line ``i`` at ``x - offset_i``
-      (for a standard-sign TB exit).  The concentric perp-entry corner maps
-      the outermost vertical position to the innermost horizontal one, so the
-      offset order must be mirrored: ``entry_off = max_exit_off - exit_off``.
-      Lines not at the exit also default to 0.0 and thus collapse to the
-      innermost slot.
+      (for a standard-sign TB exit).  The concentric perp-entry corner pairs
+      the line on the inside of the vertical drop with the line on the inside
+      of the horizontal turn-in, and which exit slot lands inside depends on
+      which way the run turns out of the port: a consumer to the right (the
+      run turns toward larger X) keeps the order, ``entry_off = exit_off``; a
+      consumer to the left (toward smaller X) reverses it, ``entry_off =
+      max_exit_off - exit_off``.  Lines not at the exit also default to 0.0 and
+      thus collapse to the innermost slot.
 
     In both cases the 0.0 default for lines absent from the exit port is
     intentional: it collapses lines from other feeders onto one slot, so each
@@ -1307,10 +1330,12 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
                     for lid in graph.station_lines(exit_port_id)
                 ]
                 max_exit_off = max(exit_line_offs) if exit_line_offs else 0.0
+                keep_order = _perp_entry_run_turns_right(graph, port_id)
+                new_offs = {}
                 for lid in lines:
-                    ctx.offsets[(port_id, lid)] = max_exit_off - ctx.offsets.get(
-                        (exit_port_id, lid), 0.0
-                    )
+                    exit_off = ctx.offsets.get((exit_port_id, lid), 0.0)
+                    new_offs[lid] = exit_off if keep_order else max_exit_off - exit_off
+                _apply_offsets_along_bundle(ctx, port_id, entry_section.id, new_offs)
             break
 
 

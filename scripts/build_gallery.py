@@ -578,6 +578,14 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "trailing station stays contained (issue #1057).",
     ),
     (
+        "lr_top_entry_cross_column_two_line",
+        TOPOLOGIES_DIR,
+        "Two lines dropping together from a TB BOTTOM exit into the TOP entry "
+        "of an LR section: the in-section line order follows the arrival order "
+        "so the entry corner nests concentrically and the bundle neither "
+        "pinches nor crosses through the bend (issue #1061).",
+    ),
+    (
         "tb_column_continuation_two_lines",
         TOPOLOGIES_DIR,
         "A TB section with a two-line BOTTOM exit continuing straight down into "
