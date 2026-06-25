@@ -22,7 +22,7 @@ from nf_metro.layout.phases._common import (
     flow_exit_carrier_anchor,
 )
 from nf_metro.layout.phases.guards import (
-    _exit_perp_to_flow,
+    _exit_off_consumer_trunk,
     _section_lacks_flow_aligned_port,
 )
 from nf_metro.layout.phases.junctions import (
@@ -130,20 +130,26 @@ def _align_lr_entry_port(
             _lift_perp_entry_port_above_stations(graph, entry_section, port, port_id)
             break
 
-        # A source exit on a side perpendicular to its section's flow sits on a
-        # boundary edge, not on a trunk: a TOP/BOTTOM exit on a horizontal-flow
-        # section, or a LEFT/RIGHT exit on a vertical-flow (TB/BT) section whose
-        # exit structurally dips below the last station.  Aligning the entry to
-        # that boundary Y pins it off the consumer's row and forces a diagonal
-        # into the first station.  Anchor the entry on its own consumer
-        # station's Y so the route rises in the inter-section gap and enters
-        # horizontally.
+        # A source exit whose Y is a structural boundary, not a consumer-aligned
+        # trunk row, pins this entry off the consumer's row and forces a diagonal
+        # into the first station: a perpendicular exit on any section, or any
+        # exit on a vertical-flow (TB/BT) section (whose flow-aligned TOP/BOTTOM
+        # exit dips onto the section's bottom/top edge below or above its
+        # stations).  Anchor the entry on its own consumer station's Y so the
+        # route rises in the inter-section gap and enters horizontally.
         src_port = graph.ports.get(edge.source)
         if (
             src_port is not None
             and not src_port.is_entry
-            and _exit_perp_to_flow(src_port, src_section)
+            and _exit_off_consumer_trunk(src_port, src_section)
         ):
+            if lanes_run_along_x(entry_section.direction):
+                # A perpendicular entry to a vertical trunk has no drop room at
+                # the consumer's own Y; lift it above the head instead.
+                _lift_perp_entry_port_above_stations(
+                    graph, entry_section, port, port_id
+                )
+                break
             consumer_y = _entry_consumer_y(graph, port_id, entry_section)
             if consumer_y is not None:
                 _set_port_y(graph, port_id, consumer_y)

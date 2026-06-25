@@ -242,8 +242,9 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
     (
         "bt_to_lr",
         TOPOLOGIES_DIR,
-        "A BT section exiting through a RIGHT port -- placed at its trailing (top) "
-        "end -- into the LEFT entry of a neighbouring LR section (#1044).",
+        "A BT section's trailing TOP (perpendicular) exit taking the up-and-over "
+        "corridor into the LEFT entry of a neighbouring LR section, a two-line "
+        "bundle staying parallel across the seam (#1044).",
     ),
     (
         "bt_to_tb",
@@ -417,6 +418,16 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "off. The continuation rides the trunk slot so it drops straight, instead "
         "of being forced outboard where it kinks at the merge and crosses the "
         "collinear feeder (issue #1012).",
+    ),
+    (
+        "tb_bottom_exit_fork_diamond",
+        TOPOLOGIES_DIR,
+        "A TB section's BOTTOM exit forks to two stacked TB sections in different "
+        "rows, the lower also fed by the upper (a diamond). The fork junction's "
+        "leg into the nearer TOP entry drops straight in its column rather than "
+        "jogging sideways and reversing at the boundary, and the leg continuing "
+        "to the far section rides the intervening section's own trunk for the "
+        "shared line as one stroke (issue #1058).",
     ),
     # --- Offset and bypass ---
     (
@@ -596,6 +607,30 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "A cross-column feed from a RIGHT-exit producer into a TOP-entry "
         "consumer: the entry port is placed on the section boundary rather "
         "than floating above the canvas (issue #740).",
+    ),
+    (
+        "lr_top_entry_cross_column",
+        TOPOLOGIES_DIR,
+        "A TB section dropping from its BOTTOM exit into the TOP entry of an "
+        "LR section whose run sits left of the drop column: the LR run is "
+        "shifted right under the drop and the section bbox follows it so the "
+        "trailing station stays contained (issue #1057).",
+    ),
+    (
+        "lr_top_entry_cross_column_two_line",
+        TOPOLOGIES_DIR,
+        "Two lines dropping together from a TB BOTTOM exit into the TOP entry "
+        "of an LR section: the in-section line order follows the arrival order "
+        "so the entry corner nests concentrically and the bundle neither "
+        "pinches nor crosses through the bend (issue #1061).",
+    ),
+    (
+        "tb_column_continuation_two_lines",
+        TOPOLOGIES_DIR,
+        "A TB section with a two-line BOTTOM exit continuing straight down into "
+        "the TB section below. The exit port seats close to the last station "
+        "with normal section padding rather than the doubled gap the fold-span "
+        "extension would add (issue #1062).",
     ),
     (
         "bypass_gap2_rightward_overflow",
@@ -1106,6 +1141,24 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "channel and hooking back: a hook's opposite-handed corners cannot nest "
         "a multi-line bundle. The destination section carries the matching line "
         "order so the bundle arrives in the order the section lays it out (#1018).",
+    ),
+    (
+        "tb_perp_exit_side_neighbour",
+        TOPOLOGIES_DIR,
+        "A vertical-flow section's BOTTOM exit feeds a side LR neighbour sharing "
+        "the exit's Y. The connector leaves the port down into the inter-row "
+        "corridor clear of the box, runs across, then turns up into the entry, "
+        "rather than running straight along the section's bottom edge and out "
+        "through the corner (#1052).",
+    ),
+    (
+        "tb_two_line_vert_seam",
+        TOPOLOGIES_DIR,
+        "A vertical-flow section's RIGHT exit feeds another vertical-flow "
+        "section's LEFT entry with a two-line bundle. The entry sits a station "
+        "gap above the trunk head so both lines enter horizontally then drop "
+        "straight onto their trunk lanes, rather than the staggered line "
+        "slanting into the trunk for want of drop room (#1054).",
     ),
 ]
 

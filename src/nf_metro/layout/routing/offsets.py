@@ -11,6 +11,7 @@ from nf_metro.layout.constants import (
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
 )
+from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
     tb_right_entry_sections,
@@ -1252,20 +1253,60 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
                 break
 
 
-def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
-    """Match TOP entry ports to the reversed offsets of feeding TB BOTTOM exits."""
-    graph = ctx.graph
-    tb_right_entry: set[str] = set()
-    for port_obj in graph.ports.values():
-        if (
-            port_obj.is_entry
-            and port_obj.side == PortSide.RIGHT
-            and port_obj.section_id in ctx.tb_sections
-        ):
-            tb_right_entry.add(port_obj.section_id)
+def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
+    """Whether the run leaving a TOP/BOTTOM entry port heads to larger X.
 
+    The drop arrives at the port column and turns once into the consumer.  A
+    consumer placed to the right of the port turns the bundle toward larger X
+    (a down-then-right corner); one to the left turns it toward smaller X.  The
+    turn side decides which exit slot lands on the inside of the entry corner,
+    so it selects between the direct and mirrored offset maps.  Returns ``False``
+    when no internal consumer is found or the consumer sits on the port column.
+    """
+    port_st = graph.stations.get(port_id)
+    if port_st is None:
+        return False
+    for edge in graph.edges_from(port_id):
+        consumer = graph.stations.get(edge.target)
+        if consumer is not None and not consumer.is_port:
+            return consumer.x > port_st.x + COORD_TOLERANCE_FINE
+    return False
+
+
+def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
+    """Match TOP entry ports to the offsets of feeding TB BOTTOM exits.
+
+    A TB BOTTOM exit drops each line straight down, preserving the per-line X
+    position.  How the entry port matches depends on the receiver's flow axis:
+
+    - **Vertical (TB/BT) receiver**: a straight column continuation -- both
+      sections share the same rotation sign, so the exit offset is copied
+      directly for each line.  Lines that arrive via a different feeder (not
+      the TB BOTTOM exit) default to 0.0, collapsing them onto the column
+      spine so they each drop straight to their target station.
+
+    - **Horizontal (LR/RL) receiver**: the receiver is marked positive_fan by
+      ``_detect_tb_bottom_top_entries``; its in-section draw uses
+      ``y + offset`` while the drop places line ``i`` at ``x - offset_i``
+      (for a standard-sign TB exit).  The concentric perp-entry corner pairs
+      the line on the inside of the vertical drop with the line on the inside
+      of the horizontal turn-in, and which exit slot lands inside depends on
+      which way the run turns out of the port: a consumer to the right (the
+      run turns toward larger X) keeps the order, ``entry_off = exit_off``; a
+      consumer to the left (toward smaller X) reverses it, ``entry_off =
+      max_exit_off - exit_off``.  Lines not at the exit also default to 0.0 and
+      thus collapse to the innermost slot.
+
+    In both cases the 0.0 default for lines absent from the exit port is
+    intentional: it collapses lines from other feeders onto one slot, so each
+    can drop vertically to its consumer rather than jogging horizontally first.
+    """
+    graph = ctx.graph
     for port_id, port_obj in graph.ports.items():
         if not port_obj.is_entry or port_obj.side != PortSide.TOP:
+            continue
+        entry_section = graph.sections.get(port_obj.section_id)
+        if entry_section is None:
             continue
         for edge in graph.edges_to(port_id):
             src = graph.stations.get(edge.source)
@@ -1280,20 +1321,24 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
             ):
                 continue
             exit_port_id = edge.source
-            all_exit_offs = [
-                ctx.offsets.get((exit_port_id, lid), 0.0)
-                for lid in graph.station_lines(exit_port_id)
-            ]
-            max_exit_off = max(all_exit_offs) if all_exit_offs else 0.0
-            if src.section_id in tb_right_entry:
-                for lid in graph.station_lines(port_id):
+            lines = graph.station_lines(port_id)
+            if lanes_run_along_x(entry_section.direction):
+                for lid in lines:
                     ctx.offsets[(port_id, lid)] = ctx.offsets.get(
                         (exit_port_id, lid), 0.0
                     )
             else:
-                for lid in graph.station_lines(port_id):
+                exit_line_offs = [
+                    ctx.offsets.get((exit_port_id, lid), 0.0)
+                    for lid in graph.station_lines(exit_port_id)
+                ]
+                max_exit_off = max(exit_line_offs) if exit_line_offs else 0.0
+                keep_order = _perp_entry_run_turns_right(graph, port_id)
+                new_offs = {}
+                for lid in lines:
                     exit_off = ctx.offsets.get((exit_port_id, lid), 0.0)
-                    ctx.offsets[(port_id, lid)] = max_exit_off - exit_off
+                    new_offs[lid] = exit_off if keep_order else max_exit_off - exit_off
+                _apply_offsets_along_bundle(ctx, port_id, entry_section.id, new_offs)
             break
 
 

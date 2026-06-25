@@ -7,7 +7,7 @@ assignments in compute_station_offsets().
 
 from __future__ import annotations
 
-from nf_metro.layout.geometry import AxisFrame
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x
 from nf_metro.layout.routing.common import (
     tb_right_entry_sections,
     vertical_flow_sections,
@@ -38,11 +38,16 @@ def detect_reversed_sections(graph: MetroGraph) -> set[str]:
     """Find sections where incoming bundle ordering is reversed.
 
     A section is "reversed" when it receives lines via a TB section's
-    exit port that reverses the bundle ordering. This happens in two cases:
+    exit port in a way that reverses the bundle ordering.  This happens
+    in three cases:
 
-    1. TOP entry fed by a TB section's BOTTOM exit: the TB section reverses
-       X offsets in the vertical bundle, so the downstream section must use
-       reversed Y ordering to match.
+    1. TOP entry fed by a TB BOTTOM exit:
+       - Horizontal (LR/RL) receiver: always marked reversed so its
+         in-section draw (``y + offset``) matches the dropped X positions.
+       - Vertical (TB/BT) receiver: marked reversed only when the feeder
+         TB section is itself positive_fan (RIGHT-entry or seam-free), so
+         the receiver also draws on the ``+x`` side -- preserving the
+         straight column continuation.
 
     2. LEFT/RIGHT entry fed by a TB section's LEFT/RIGHT exit: the
        concentric corner routing reverses the bundle ordering (outermost
@@ -64,7 +69,15 @@ def detect_reversed_sections(graph: MetroGraph) -> set[str]:
     reversed_secs: set[str] = set()
     junction_ids = graph.junction_ids
 
-    _detect_tb_bottom_top_entries(graph, tb_sections, reversed_secs)
+    # TB sections that draw on the +x side without needing reversal context:
+    # RIGHT-entry sections and seam-free sections.  These seed the positive_fan
+    # status that must propagate to any TB section stacked below them.
+    initial_tb_positive_fan = tb_right_entry | {
+        sid for sid in tb_sections if _is_seam_free_section(graph.sections[sid])
+    }
+    _detect_tb_bottom_top_entries(
+        graph, tb_sections, reversed_secs, initial_tb_positive_fan
+    )
     _detect_fold_right_entries(graph, junction_ids, reversed_secs)
 
     sec_successors, horizontal_succ_pairs = _build_section_adjacency(graph)
@@ -122,9 +135,33 @@ def tb_positive_fan_sections(graph: MetroGraph) -> set[str]:
 
 
 def _detect_tb_bottom_top_entries(
-    graph: MetroGraph, tb_sections: set[str], reversed_secs: set[str]
+    graph: MetroGraph,
+    tb_sections: set[str],
+    reversed_secs: set[str],
+    initial_tb_positive_fan: set[str] | None = None,
 ) -> None:
-    """Phase 1a: mark sections whose TOP entry is fed by a TB BOTTOM exit."""
+    """Phase 1a: mark sections whose TOP entry is fed by a TB BOTTOM exit.
+
+    The rule depends on whether the receiver shares the TB flow axis:
+
+    - **Horizontal (LR/RL) receiver**: marked reversed so its in-section draw
+      (``y + offset``) matches the dropped X positions from the exit.
+
+    - **Vertical (TB/BT) receiver**: a straight column continuation; both
+      sections share the same rotation sign.  No marking is needed for a
+      standard-sign (non-positive_fan) feeder.  But if the feeder is a
+      positive_fan TB section (RIGHT entry or seam-free, per
+      ``initial_tb_positive_fan``), the receiver must also be marked so its
+      draw uses the same ``x + offset`` sign as the drop.
+    """
+    # Build per-section maps of BOTTOM→TOP connections for vertical receivers.
+    # Horizontal receivers are marked immediately (always reversed).
+    # Vertical receivers: mark only when the feeder is positive_fan, then
+    # cascade: a newly-marked vertical section is itself positive_fan for its
+    # downstream vertical receivers.
+    tb_positive_fan: set[str] = set(initial_tb_positive_fan or ())
+    # vertical_receivers[src_sec] = set of vertical-receiver sec_ids
+    vertical_receivers: dict[str, set[str]] = {}
     for sec_id, section in graph.sections.items():
         for port_id in section.entry_ports:
             port = graph.ports.get(port_id)
@@ -135,13 +172,27 @@ def _detect_tb_bottom_top_entries(
                 if not src or not src.is_port:
                     continue
                 src_port = graph.ports.get(edge.source)
-                if (
+                if not (
                     src_port
                     and not src_port.is_entry
                     and src_port.side == PortSide.BOTTOM
                     and src.section_id in tb_sections
                 ):
+                    continue
+                if lanes_run_along_x(section.direction):
+                    vertical_receivers.setdefault(src.section_id, set()).add(sec_id)
+                else:
                     reversed_secs.add(sec_id)
+
+    # BFS: propagate positive_fan through vertical chains.
+    queue = list(tb_positive_fan)
+    while queue:
+        src_sec = queue.pop()
+        for receiver in vertical_receivers.get(src_sec, ()):
+            if receiver not in reversed_secs:
+                reversed_secs.add(receiver)
+                tb_positive_fan.add(receiver)
+                queue.append(receiver)
 
 
 def _detect_fold_right_entries(

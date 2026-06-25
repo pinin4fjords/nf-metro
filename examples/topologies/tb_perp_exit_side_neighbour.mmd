@@ -1,0 +1,18 @@
+%%metro title: TB perp-exit into a side LR neighbour
+%%metro line: a | A | #e63946
+%%metro grid: work | 0,0
+%%metro grid: out_sec | 1,0
+graph LR
+    subgraph work [Work]
+        %%metro direction: TB
+        %%metro exit: bottom | a
+        w1[Demux]
+        w2[Merge]
+        w1 -->|a| w2
+    end
+    subgraph out_sec [Output]
+        %%metro direction: LR
+        %%metro entry: left | a
+        o1[Publish]
+    end
+    w2 -->|a| o1
