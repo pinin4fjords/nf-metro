@@ -316,6 +316,14 @@ def _apply_tb_fold_spans(
         next_row = row + 1
         if next_row not in row_offsets:
             continue
+        # A BOTTOM-only exit routes straight down; no sideways fold routing
+        # through the inter-row gap, so no fold-span extension is needed.
+        _exit_sides = {s for s, _ in section.exit_hints}
+        if PortSide.BOTTOM in _exit_sides and not _exit_sides & {
+            PortSide.LEFT,
+            PortSide.RIGHT,
+        }:
+            continue
         section.bbox_h += section_y_gap
         tb_bottom = row_offsets[row] + section.bbox_h
         next_row_bottom = row_offsets[next_row] + row_heights[next_row]
