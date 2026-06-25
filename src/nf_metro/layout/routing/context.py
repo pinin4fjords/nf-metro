@@ -81,7 +81,6 @@ class _RoutingCtx:
     fork_stations: set[str]
     join_stations: set[str]
     tb_sections: set[str]
-    tb_right_entry: set[str]
     reversed_sections: set[str]
     positive_fan: set[str]
     bundle_info: dict[_EdgeKey, tuple[int, int]]
@@ -276,17 +275,7 @@ def _build_routing_context(
     fork_stations = {sid for sid, tgts in fork_targets.items() if len(tgts) > 1}
     join_stations = {sid for sid, srcs in join_sources.items() if len(srcs) > 1}
 
-    # TB sections and their entry sides
     tb_sections = {sid for sid, s in graph.sections.items() if s.direction == "TB"}
-    tb_right_entry: set[str] = set()
-    for port in graph.ports.values():
-        if (
-            port.is_entry
-            and port.side == PortSide.RIGHT
-            and port.section_id in tb_sections
-        ):
-            tb_right_entry.add(port.section_id)
-
     reversed_sections = detect_reversed_sections(graph)
     positive_fan = tb_positive_fan_sections(graph)
 
@@ -322,7 +311,6 @@ def _build_routing_context(
         fork_stations=fork_stations,
         join_stations=join_stations,
         tb_sections=tb_sections,
-        tb_right_entry=tb_right_entry,
         reversed_sections=reversed_sections,
         positive_fan=positive_fan,
         bundle_info=bundle_info,

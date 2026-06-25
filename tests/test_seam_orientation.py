@@ -28,15 +28,54 @@ from pathlib import Path
 
 import pytest
 
+from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing.context import (
     is_far_side_around_below_left_entry,
     is_near_vertical_junction_right_entry,
 )
-from nf_metro.layout.routing.offsets import _is_over_top_right_entry
 from nf_metro.layout.routing.reversal import detect_reversed_sections
 from nf_metro.layout.routing.seam import SeamOrientation, seam_orientation
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import MetroGraph, Port, PortSide
+
+
+def _machinery_is_over_top_right_entry(
+    graph: MetroGraph, port: Port, tb_sections: set[str]
+) -> bool:
+    """Whether *port* is a RIGHT entry reached by an over-the-top loop.
+
+    Ground-truth detection for the over-the-top RIGHT-entry idiom, against which
+    this corpus oracle checks :func:`seam_orientation`.  A RIGHT entry on a TB
+    section fed by an exit port in the SAME grid row, an ADJACENT column, and to
+    the port's LEFT: that feed loops over the section's top and approaches from
+    the right -- a U-turn that transposes the bundle.  A right entry fed from the
+    right (a fold) or across columns (a bypass) keeps its order and is excluded.
+    """
+    if not (port.is_entry and port.side == PortSide.RIGHT):
+        return False
+    if port.section_id not in tb_sections:
+        return False
+    psec = graph.sections.get(port.section_id)
+    pst = graph.stations.get(port.id)
+    if psec is None or pst is None:
+        return False
+    for edge in graph.edges_to(port.id):
+        src = graph.stations.get(edge.source)
+        src_port = graph.ports.get(edge.source)
+        if not (src and src_port and not src_port.is_entry):
+            continue
+        ssec = graph.sections.get(src.section_id) if src.section_id else None
+        if ssec is None:
+            continue
+        if (
+            ssec.grid_row == psec.grid_row
+            and abs(ssec.grid_col - psec.grid_col) <= 1
+            and src.x < pst.x - COORD_TOLERANCE
+        ):
+            return True
+    return False
+
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
@@ -83,7 +122,7 @@ def _machinery_reverses(graph, entry_port, sec_id, tb_sections, reversed_secs) -
     """The reversal the scattered legacy machinery effectively applies to a seam."""
     return (
         sec_id in reversed_secs
-        or _is_over_top_right_entry(graph, entry_port, tb_sections)
+        or _machinery_is_over_top_right_entry(graph, entry_port, tb_sections)
         or is_far_side_around_below_left_entry(graph, entry_port)
         or is_near_vertical_junction_right_entry(graph, entry_port)
     )
