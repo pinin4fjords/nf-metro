@@ -570,6 +570,14 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "than floating above the canvas (issue #740).",
     ),
     (
+        "lr_top_entry_cross_column",
+        TOPOLOGIES_DIR,
+        "A TB section dropping from its BOTTOM exit into the TOP entry of an "
+        "LR section whose run sits left of the drop column: the LR run is "
+        "shifted right under the drop and the section bbox follows it so the "
+        "trailing station stays contained (issue #1057).",
+    ),
+    (
         "bypass_gap2_rightward_overflow",
         TOPOLOGIES_DIR,
         "A seven-line rightward bypass whose gap-2 bundle right edge overflows "

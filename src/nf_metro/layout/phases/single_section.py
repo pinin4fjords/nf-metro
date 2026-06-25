@@ -1013,9 +1013,20 @@ def _shift_lr_perp_entry_stations(
         # LR section's rightward shift; an RL run shifts left, so extend the
         # bbox left by the same amount to keep the trailing station inside it.
         # Guarded to a same-column drop, where the entry port sits within the
-        # run's span (nearest_x is the run's far edge here): a cross-column
-        # port would drag the run off its own columns, an unsupported shape
-        # left to fail loudly downstream.
-        if section.direction == "RL" and min(internal_xs) <= port_x <= nearest_x:
+        # run's span (nearest_x is the run's far edge here).
+        run_lo, run_hi = min(internal_xs), max(internal_xs)
+        port_within_run = run_lo <= port_x <= run_hi
+        if section.direction == "RL" and port_within_run:
             section.bbox_x -= shift
             section.bbox_w += shift
+        elif section.direction == "LR" and port_x > run_hi:
+            # Cross-column TOP/BOTTOM entry: Stage 3.2 aligned the entry port
+            # to a drop landing right of the run's natural column span, so the
+            # run is dragged rightward past the bbox _adjust_lr_entry_inset
+            # pre-sized. Re-wrap the bbox around the shifted run with the run's
+            # original padding, anchored on the entry port (the leftmost
+            # content once the run sits to its right).
+            left_pad = run_lo - section.bbox_x
+            right_pad = (section.bbox_x + section.bbox_w) - run_hi
+            section.bbox_x = port_x - left_pad
+            section.bbox_w = (run_hi + shift + right_pad) - section.bbox_x
