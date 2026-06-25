@@ -89,7 +89,7 @@ def _reverses(
     if (
         _is_over_top_right_entry(exit_port, entry_port, feeder, consumer)
         or _is_around_below_left_entry(graph, exit_port, entry_port, feeder, consumer)
-        or _is_vertical_column_continuation(exit_port, entry_port, feeder)
+        or _is_vertical_column_continuation(exit_port, entry_port, feeder, consumer)
     ):
         return True
     # Only the junction idioms need the (graph-walking) junction-mediation check,
@@ -166,19 +166,21 @@ def _is_around_below_left_entry(
 
 
 def _is_vertical_column_continuation(
-    exit_port: Port, entry_port: Port, feeder: Section
+    exit_port: Port, entry_port: Port, feeder: Section, consumer: Section
 ) -> bool:
-    """A vertical section's BOTTOM exit feeding a TOP entry.
+    """A vertical section's BOTTOM exit feeding a horizontal section's TOP entry.
 
-    The feeding vertical section already carries its down-flowing bundle
-    reversed, so the downstream column continuation receives the lines
-    transposed. A horizontal section dropping into a TOP entry keeps its order
-    and is excluded.
+    The vertical drop delivers lines in ``x + sign * offset`` order; a
+    horizontal receiver draws its bundle along Y and needs the offset order
+    mirrored to keep the perp-entry corner concentric.  A vertical receiver
+    (TB/BT) shares the same flow axis and the same sign, so the two sections
+    are a straight column continuation -- no mirroring needed there.
     """
     return (
         exit_port.side is PortSide.BOTTOM
         and entry_port.side is PortSide.TOP
         and _flow_runs_vertically(feeder.direction)
+        and not _flow_runs_vertically(consumer.direction)
         and not exit_port.is_entry
     )
 
