@@ -22,20 +22,44 @@ identical lateral for a given line and side.
 ``_perp_entry_crossing_x`` expresses the matching X for the *aligned* case: the
 single X at which a bundled inter-section feeder and its intra-section drop both
 cross the port, so the line passes straight through the boundary instead of
-converging on the marker and re-fanning.
+converging on the marker and re-fanning.  It fans to the side the feeder
+approaches from (``_feeder_fan_sign``) so the crossing tracks a ``-x`` downward
+(TB) feeder and its ``+x`` upward (BT) image alike.
 """
 
 from __future__ import annotations
 
+from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.routing.context import (
     _get_offset,
     _max_offset_at,
     _RoutingCtx,
+    _section_lane_frame,
 )
 from nf_metro.layout.routing.corners import reversed_offset
 from nf_metro.parser.model import (
     PortSide,
 )
+
+
+def _feeder_fan_sign(ctx: _RoutingCtx, source_id: str) -> float:
+    """Lateral fan sign of the inter-section feeder leaving *source_id*.
+
+    A vertical-flow (TB/BT) feeder rides its section's lane, so it fans to the
+    side its :attr:`~AxisFrame.secondary_sign` names: a downward TB feeder to
+    ``-x``, its upward BT image to ``+x``.  A horizontal feeder reaching the
+    drop instead arrives via the up-and-over riser, whose reference leg fans to
+    ``-x`` (the legacy left-fan).
+    """
+    station = ctx.graph.stations.get(source_id)
+    section = (
+        ctx.graph.sections.get(station.section_id)
+        if station and station.section_id
+        else None
+    )
+    if section is not None and lanes_run_along_x(section.direction):
+        return _section_lane_frame(ctx.graph, section).secondary_sign
+    return -1.0
 
 
 def _perp_entry_crossing_x(
@@ -45,23 +69,25 @@ def _perp_entry_crossing_x(
 
     The inter-section approach lands, and the intra-section drop departs, at
     this one X so the line passes straight through the boundary rather than
-    converging on the port marker and re-fanning.  It is the marker X minus the
-    line's inter-section feeder bundle index times the offset step, matching the
-    approach's reference-on-marker fan: the reference feeder (index 0, e.g. a
-    column-aligned vertical drop) sits on the marker, later-index lines fan one
-    consistent side.  Returns ``None`` when no bundled inter-section feeder
-    reaches the port for this line (nothing to align a crossing X to).
+    converging on the port marker and re-fanning.  It is the marker X offset by
+    the line's inter-section feeder bundle index times the offset step, fanned
+    to the side the feeder approaches from (:func:`_feeder_fan_sign`): the
+    reference feeder (index 0, e.g. a column-aligned vertical drop) sits on the
+    marker, later-index lines fan one consistent side.  Returns ``None`` when no
+    bundled inter-section feeder reaches the port for this line (nothing to
+    align a crossing X to).
     """
-    indices = [
-        info[0]
+    feeders = [
+        (info[0], edge.source)
         for edge in ctx.graph.edges_to(entry_port_id)
         if edge.line_id == line_id
         and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
         is not None
     ]
-    if not indices:
+    if not feeders:
         return None
-    return port_x - max(indices) * ctx.offset_step
+    max_index, source = max(feeders)
+    return port_x + _feeder_fan_sign(ctx, source) * max_index * ctx.offset_step
 
 
 def _perp_riser_lateral(
