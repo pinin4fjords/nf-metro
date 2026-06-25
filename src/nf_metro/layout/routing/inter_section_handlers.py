@@ -196,6 +196,27 @@ class _InterFacts:
         )
 
     @property
+    def is_tb_perp_exit_to_side(self) -> bool:
+        """A BOTTOM exit on a TB/BT section feeding a side entry at or above it.
+
+        The exit port sits on the section's own bottom edge, so the line leaves
+        downward.  A side (LEFT/RIGHT) entry that is not below the port (same Y,
+        or above) cannot be reached by a downward drop: a straight or shallow
+        run grazes the section's bottom edge and exits through the corner.  Such
+        an edge takes the down-and-over corridor route instead (see
+        _route_perp_exit_over), mirroring how :attr:`is_perp_exit` intercepts
+        horizontal-flow perpendicular exits before the same-Y shortcut.
+        """
+        return (
+            self.src_port is not None
+            and not self.src_port.is_entry
+            and self.src_port.side == PortSide.BOTTOM
+            and self.ty <= self.sy + COORD_TOLERANCE
+            and self.src.section_id in self.ctx.tb_sections
+            and self.entry_side in (PortSide.LEFT, PortSide.RIGHT)
+        )
+
+    @property
     def right_entry_from_left(self) -> bool:
         """Target is a RIGHT entry port whose source sits to its left.
 
@@ -817,6 +838,14 @@ _INTER_SECTION_RULES: list[_Rule] = [
         "perp-exit",
         lambda f: f.is_perp_exit,
         lambda f: _route_perp_exit(f.edge, f.src, f.tgt, f.src_col, f.tgt_col, f.ctx),
+    ),
+    # A TB/BT perpendicular exit feeding a side entry at the same Y grazes the
+    # section's own exit edge on a straight run, so it takes the same up/down-
+    # and-over corridor shape before the same-Y shortcut below claims it.
+    _Rule(
+        "TB perp-exit over",
+        lambda f: f.is_tb_perp_exit_to_side,
+        lambda f: _route_perp_exit_over(f.edge, f.src, f.tgt, f.ctx),
     ),
     # Same Y, no obstacle, not a right-entry plough: a straight horizontal run.
     _Rule(

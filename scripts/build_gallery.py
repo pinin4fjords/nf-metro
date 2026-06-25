@@ -1069,6 +1069,15 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "a multi-line bundle. The destination section carries the matching line "
         "order so the bundle arrives in the order the section lays it out (#1018).",
     ),
+    (
+        "tb_perp_exit_side_neighbour",
+        TOPOLOGIES_DIR,
+        "A vertical-flow section's BOTTOM exit feeds a side LR neighbour sharing "
+        "the exit's Y. The connector leaves the port down into the inter-row "
+        "corridor clear of the box, runs across, then turns up into the entry, "
+        "rather than running straight along the section's bottom edge and out "
+        "through the corner (#1052).",
+    ),
 ]
 
 # Category headers inserted before specific entries
