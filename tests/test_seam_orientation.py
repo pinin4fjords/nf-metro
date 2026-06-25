@@ -97,6 +97,11 @@ NEAR_VERTICAL_RESIDUAL = ("near_vertical_junction_hook", "src", "pseudo", "R->R"
 EXPECTED_RESIDUALS = frozenset(
     {
         NEAR_VERTICAL_RESIDUAL,
+        # positive_fan TB (right-entry) feeding a vertical TB column below it:
+        # the machinery marks the lower section as positive_fan so it draws on
+        # the same +x side as the drop, but the classifier sees a vertical→vertical
+        # continuation and correctly says PRESERVE (no bundle-order flip).
+        ("tb_right_entry_stack", "upper", "lower", "B->T"),
         ("fold_double", "annotation", "interpretation", "L->R"),
         ("fold_double", "hard_filter", "annotation", "L->R"),
         ("fold_double", "interpretation", "integration", "L->R"),

@@ -11,6 +11,7 @@ from nf_metro.layout.constants import (
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
 )
+from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import tb_right_entry_sections
 from nf_metro.layout.routing.context import (
@@ -1250,19 +1251,36 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
 
 
 def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
-    """Match TOP entry ports to the reversed offsets of feeding TB BOTTOM exits."""
-    graph = ctx.graph
-    tb_right_entry: set[str] = set()
-    for port_obj in graph.ports.values():
-        if (
-            port_obj.is_entry
-            and port_obj.side == PortSide.RIGHT
-            and port_obj.section_id in ctx.tb_sections
-        ):
-            tb_right_entry.add(port_obj.section_id)
+    """Match TOP entry ports to the offsets of feeding TB BOTTOM exits.
 
+    A TB BOTTOM exit drops each line straight down, preserving the per-line X
+    position.  How the entry port matches depends on the receiver's flow axis:
+
+    - **Vertical (TB/BT) receiver**: a straight column continuation -- both
+      sections share the same rotation sign, so the exit offset is copied
+      directly for each line.  Lines that arrive via a different feeder (not
+      the TB BOTTOM exit) default to 0.0, collapsing them onto the column
+      spine so they each drop straight to their target station.
+
+    - **Horizontal (LR/RL) receiver**: the receiver is marked positive_fan by
+      ``_detect_tb_bottom_top_entries``; its in-section draw uses
+      ``y + offset`` while the drop places line ``i`` at ``x - offset_i``
+      (for a standard-sign TB exit).  The concentric perp-entry corner maps
+      the outermost vertical position to the innermost horizontal one, so the
+      offset order must be mirrored: ``entry_off = max_exit_off - exit_off``.
+      Lines not at the exit also default to 0.0 and thus collapse to the
+      innermost slot.
+
+    In both cases the 0.0 default for lines absent from the exit port is
+    intentional: it collapses lines from other feeders onto one slot, so each
+    can drop vertically to its consumer rather than jogging horizontally first.
+    """
+    graph = ctx.graph
     for port_id, port_obj in graph.ports.items():
         if not port_obj.is_entry or port_obj.side != PortSide.TOP:
+            continue
+        entry_section = graph.sections.get(port_obj.section_id)
+        if entry_section is None:
             continue
         for edge in graph.edges_to(port_id):
             src = graph.stations.get(edge.source)
@@ -1277,20 +1295,22 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
             ):
                 continue
             exit_port_id = edge.source
-            all_exit_offs = [
-                ctx.offsets.get((exit_port_id, lid), 0.0)
-                for lid in graph.station_lines(exit_port_id)
-            ]
-            max_exit_off = max(all_exit_offs) if all_exit_offs else 0.0
-            if src.section_id in tb_right_entry:
-                for lid in graph.station_lines(port_id):
+            lines = graph.station_lines(port_id)
+            if lanes_run_along_x(entry_section.direction):
+                for lid in lines:
                     ctx.offsets[(port_id, lid)] = ctx.offsets.get(
                         (exit_port_id, lid), 0.0
                     )
             else:
-                for lid in graph.station_lines(port_id):
-                    exit_off = ctx.offsets.get((exit_port_id, lid), 0.0)
-                    ctx.offsets[(port_id, lid)] = max_exit_off - exit_off
+                exit_line_offs = [
+                    ctx.offsets.get((exit_port_id, lid), 0.0)
+                    for lid in graph.station_lines(exit_port_id)
+                ]
+                max_exit_off = max(exit_line_offs) if exit_line_offs else 0.0
+                for lid in lines:
+                    ctx.offsets[(port_id, lid)] = max_exit_off - ctx.offsets.get(
+                        (exit_port_id, lid), 0.0
+                    )
             break
 
 

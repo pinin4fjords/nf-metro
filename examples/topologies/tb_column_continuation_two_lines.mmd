@@ -1,0 +1,23 @@
+%%metro title: TB Column Continuation Two Lines
+%%metro style: dark
+%%metro line: alpha | Alpha | #e63946
+%%metro line: beta | Beta | #0570b0
+%%metro grid: top_sec | 0,0
+%%metro grid: bot_sec | 0,1
+
+graph LR
+    subgraph top_sec [Upper]
+        %%metro direction: TB
+        %%metro exit: bottom | alpha, beta
+        t1[Refine]
+        t2[Report]
+        t1 -->|alpha,beta| t2
+    end
+    subgraph bot_sec [Lower]
+        %%metro direction: TB
+        %%metro entry: top | alpha, beta
+        b1[Ingest]
+        b2[Clean]
+        b1 -->|alpha,beta| b2
+    end
+    t2 -->|alpha,beta| b1
