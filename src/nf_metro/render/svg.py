@@ -21,7 +21,7 @@ from nf_metro.layout.constants import (
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
 )
-from nf_metro.layout.geometry import segment_intersects_bbox
+from nf_metro.layout.geometry import lanes_run_along_y, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
     _label_bbox,
@@ -1824,11 +1824,11 @@ def _render_station_into(
         )
         return
 
-    # Determine if this is a TB vertical station (rotated pill)
+    # A vertical-flow (TB/BT) station draws a horizontal (rotated) pill.
     is_tb_vert = False
     if station.section_id:
         sec = graph.sections.get(station.section_id)
-        if sec and sec.direction == "TB":
+        if sec and not lanes_run_along_y(sec.direction):
             is_tb_vert = True
 
     # A rail station is pinned to its rail Y; the parallel-line bundle
@@ -1940,7 +1940,7 @@ def _terminus_icon_centers(
     sources in the reverse; RL/BT mirror that so icons always point to
     the outside of the diagram.
     """
-    is_tb = section_dir in ("TB", "BT")
+    is_tb = not lanes_run_along_y(section_dir)
     # A rail-mode off-track input parks above the rails and feeds straight down
     # into its consumer's rail (see routing/rail.py), so its icon sits directly
     # on the station coordinate (centred on the drop X) rather than marching
@@ -1983,7 +1983,7 @@ def _render_terminus_icons(
     # Detect if station is a source (no incoming edges) or sink.
     is_source = not graph.edges_to(station.id)
     section_dir = section.direction if section else "LR"
-    is_tb = section_dir in ("TB", "BT")
+    is_tb = not lanes_run_along_y(section_dir)
     # Gap between the station pill and the first icon, plus the icon's own
     # half-extent along the flow axis (width for LR/RL, height for TB/BT).
     icon_gap = r + ICON_STATION_GAP
@@ -2259,7 +2259,7 @@ def _station_marker_extent(
     is_tb = False
     if station.section_id:
         sec = graph.sections.get(station.section_id)
-        if sec and sec.direction == "TB":
+        if sec and not lanes_run_along_y(sec.direction):
             is_tb = True
 
     line_offsets = [
@@ -2508,7 +2508,7 @@ def _reserve_rail_space_for_termini(graph: MetroGraph, theme: Theme) -> None:
         name_widths = [
             len(nm) * caption_font_size * 0.55 if nm else 0.0 for nm in names
         ]
-        is_tb = sec.direction in ("TB", "BT")
+        is_tb = not lanes_run_along_y(sec.direction)
         if is_tb:
             step = theme.terminus_height + ICON_INTER_GAP
             half_flow = hh

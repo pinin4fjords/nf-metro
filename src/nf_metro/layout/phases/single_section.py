@@ -28,7 +28,7 @@ from nf_metro.layout.constants import (
     TERMINUS_ICON_CLEARANCE_V,
     TERMINUS_WIDTH,
 )
-from nf_metro.layout.geometry import Axis, AxisFrame
+from nf_metro.layout.geometry import Axis, AxisFrame, lanes_run_along_y
 from nf_metro.layout.labels import (
     _label_text_height,
     active_font_scale,
@@ -547,11 +547,15 @@ def _adjust_tb_labels(
     section: Section,
     graph: MetroGraph,
 ) -> None:
-    """TB sections: expand bbox and shift stations right so labels fit.
+    """Vertical-flow sections: expand bbox and shift stations along the lane
+    axis so side-placed labels fit.
 
-    Labels extend leftward from the station (text_anchor=end).
+    A vertical flow (TB/BT) stacks its lines along X and places labels beside
+    the pill (extending leftward, ``text_anchor=end``), so the lane-axis (X)
+    extent must be reserved.  Horizontal flows place labels above/below and
+    reserve no extra X here.
     """
-    if section.direction != "TB":
+    if lanes_run_along_y(section.direction):
         return
 
     xs = [s.x for s in sub.stations.values()]
@@ -608,7 +612,7 @@ def _adjust_lr_entry_inset(
     x_spacing: float,
 ) -> None:
     """LR/RL sections: add extra bbox width when entry has curves."""
-    if section.direction not in ("LR", "RL"):
+    if not lanes_run_along_y(section.direction):
         return
 
     has_perp_entry = any(
@@ -662,7 +666,7 @@ def _adjust_lr_exit_gap(
     share the same Y, lines exit straight horizontally and no extra space
     is needed.
     """
-    if section.direction not in ("LR", "RL"):
+    if not lanes_run_along_y(section.direction):
         return
 
     flow_exit_side = PortSide.RIGHT if section.direction == "LR" else PortSide.LEFT
@@ -867,7 +871,7 @@ def _terminus_y_overhang(
     sections (whose icons extend horizontally), so content-extent callers
     stay byte-identical there.
     """
-    if not station.is_terminus or section_dir not in ("TB", "BT"):
+    if not station.is_terminus or lanes_run_along_y(section_dir):
         return 0.0, 0.0
     is_source = not graph.edges_to(station.id)
     extent = _terminus_icon_clearance_vertical(
@@ -891,7 +895,7 @@ def _adjust_terminus_icon_clearance(
     padding doesn't leave enough room, grow the bbox on the affected side.
     """
     section_dir = section.direction or "LR"
-    is_tb = section_dir in ("TB", "BT")
+    icons_march_on_y = not lanes_run_along_y(section_dir)
 
     for station in sub.stations.values():
         if not station.is_terminus:
@@ -901,7 +905,7 @@ def _adjust_terminus_icon_clearance(
         is_source = not graph.edges_to(station.id)
         extends_forward = _terminus_icons_extend_forward(is_source, section_dir)
 
-        if is_tb:
+        if icons_march_on_y:
             needed = _terminus_icon_clearance_vertical(n_icons, station.terminus_names)
             if extends_forward:  # icons below the station
                 clearance = section.bbox_y + section.bbox_h - station.y
