@@ -14,7 +14,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     STATION_ELBOW_TOLERANCE,
 )
-from nf_metro.layout.geometry import lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.phases._common import (
     _expand_bbox_for_y,
     _grid_group_section_ids,
@@ -144,11 +144,26 @@ def _align_lr_entry_port(
             and _exit_off_consumer_trunk(src_port, src_section)
         ):
             if lanes_run_along_x(entry_section.direction):
-                # A perpendicular entry to a vertical trunk has no drop room at
-                # the consumer's own Y; lift it above the head instead.
-                _lift_perp_entry_port_above_stations(
-                    graph, entry_section, port, port_id
+                # A vertical-flow LEFT/RIGHT exit feeding this vertical-flow
+                # LEFT/RIGHT entry is a horizontal seam between two vertical
+                # trunks.  When the two flow in OPPOSITE directions (an upward BT
+                # handing off to a downward TB, or the reverse) the feeder's
+                # trailing edge and the consumer's leading edge sit on the same
+                # side, so the consumer mirrors the feeder across the seam.  Any
+                # other feed (same-direction TB->TB, or a perpendicular exit)
+                # keeps the level-then-drop lift above the head.
+                mirrored = (
+                    src_port.side in (PortSide.LEFT, PortSide.RIGHT)
+                    and lanes_run_along_x(src_section.direction)
+                    and _opposite_vertical_flow(src_section, entry_section)
+                    and _mirror_entry_section_to_seam(
+                        graph, entry_section, port_id, edge.source
+                    )
                 )
+                if not mirrored:
+                    _lift_perp_entry_port_above_stations(
+                        graph, entry_section, port, port_id
+                    )
                 break
             consumer_y = _entry_consumer_y(graph, port_id, entry_section)
             if consumer_y is not None:
@@ -187,6 +202,73 @@ def _align_lr_entry_port(
 
         _set_port_y(graph, port_id, target_y)
         break
+
+
+def _opposite_vertical_flow(a: Section, b: Section) -> bool:
+    """Whether two vertical-flow sections run in opposite directions (TB vs BT)."""
+    return AxisFrame.flow_sign(a.direction) != AxisFrame.flow_sign(b.direction)
+
+
+def _vertical_exit_trailing_y(graph: MetroGraph, exit_port_id: str) -> float | None:
+    """Y of the internal station feeding *exit_port_id*, or ``None``.
+
+    The trailing station a vertical-flow section's LEFT/RIGHT exit continues
+    from -- the station whose Y a downstream seam should mirror.
+    """
+    exit_st = graph.stations.get(exit_port_id)
+    if exit_st is None:
+        return None
+    ys = [
+        graph.stations[e.source].y
+        for e in graph.edges_to(exit_port_id)
+        if e.source in graph.stations and not graph.stations[e.source].is_port
+    ]
+    if not ys:
+        return None
+    return min(ys, key=lambda y: abs(y - exit_st.y))
+
+
+def _mirror_entry_section_to_seam(
+    graph: MetroGraph,
+    entry_section: Section,
+    entry_port_id: str,
+    exit_port_id: str,
+) -> bool:
+    """Slide a vertical-flow consumer so it mirrors its feeder across the seam.
+
+    The consumer's leading station (the one its LEFT/RIGHT entry feeds) is
+    shifted level with the feeder's trailing station, carrying the whole section
+    with it, then the entry port is seated on the feeding exit's Y (the seam).
+    The two vertical trunks then occupy one band either side of the gap.
+    Returns ``False`` (mirror not applied) when the feeder or consumer station
+    can't be resolved.
+    """
+    exit_st = graph.stations.get(exit_port_id)
+    feeder_trailing_y = _vertical_exit_trailing_y(graph, exit_port_id)
+    consumer = next(
+        (
+            graph.stations[e.target]
+            for e in graph.edges_from(entry_port_id)
+            if e.target in graph.stations and not graph.stations[e.target].is_port
+        ),
+        None,
+    )
+    if exit_st is None or feeder_trailing_y is None or consumer is None:
+        return False
+    delta = feeder_trailing_y - consumer.y
+    if abs(delta) > SAME_COORD_TOLERANCE:
+        for sid in entry_section.station_ids:
+            station = graph.stations.get(sid)
+            if station:
+                station.y += delta
+            p = graph.ports.get(sid)
+            if p:
+                p.y += delta
+        entry_section.bbox_y += delta
+    _set_port_y(graph, entry_port_id, exit_st.y)
+    if exit_st.y < entry_section.bbox_y:
+        _expand_bbox_for_y(entry_section, exit_st.y)
+    return True
 
 
 def _align_tb_entry_port(
@@ -1018,7 +1100,7 @@ def _align_lr_exit_port(
         if not (bbox_top <= tgt.y <= bbox_bot):
             break
 
-        if exit_section.direction == "TB":
+        if lanes_run_along_x(exit_section.direction):
             tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
         else:
             tgt_y = tgt.y
@@ -1033,39 +1115,46 @@ def _resolve_tb_exit_y(
     tgt: Station,
     exit_section: Section,
 ) -> float:
-    """Resolve the Y coordinate for a TB section's exit port.
+    """Resolve the Y coordinate for a vertical-flow (TB/BT) section's exit port.
 
-    Mirrors the entry-side gap: finds how far the perpendicular entry
-    port sits above the first internal station, and places the exit port
-    the same distance below the last internal station. Pushes the target
-    section down if needed so the inter-section line is straight.
+    Mirrors the entry-side gap: finds how far the perpendicular entry port sits
+    before the leading station (against the flow), and places the exit port the
+    same distance beyond the trailing station (along the flow).  Pushes the
+    target section along the flow if needed so the inter-section line is
+    straight.  The flow sense follows the section's :attr:`primary_sign`: a
+    downward (TB) flow trails at the bottom, an upward (BT) one at the top.
     """
+    flow = AxisFrame.flow_sign(exit_section.direction)
     internal_ys = [
         graph.stations[sid].y
         for sid in exit_section.station_ids
         if sid in graph.stations and not graph.stations[sid].is_port
     ]
-    last_y = max(internal_ys) if internal_ys else port.y
-    first_y = min(internal_ys) if internal_ys else port.y
+    if internal_ys:
+        trailing_y = max(internal_ys) if flow > 0 else min(internal_ys)
+        leading_y = min(internal_ys) if flow > 0 else max(internal_ys)
+    else:
+        trailing_y = leading_y = port.y
 
-    # Mirror the entry-side gap (distance from entry port to first station)
+    # Mirror the entry-side gap (distance from the entry port to the leading
+    # station, measured against the flow).
     entry_gap = MIN_PORT_STATION_GAP
     for pid in exit_section.entry_ports:
         ep = graph.ports.get(pid)
         if ep and ep.side in (PortSide.LEFT, PortSide.RIGHT):
-            entry_gap = max(entry_gap, first_y - graph.stations[pid].y)
+            entry_gap = max(entry_gap, flow * (leading_y - graph.stations[pid].y))
             break
 
-    # Ensure the gap below the last station is large enough for the
-    # exit corner curve (CURVE_RADIUS) plus a straight run so the
-    # curve doesn't crowd the station pill.
+    # Ensure the gap beyond the trailing station is large enough for the exit
+    # corner curve (CURVE_RADIUS) plus a straight run so the curve doesn't
+    # crowd the station pill.
     min_exit_gap = max(entry_gap, CURVE_RADIUS + MIN_PORT_STATION_GAP)
-    min_exit_y = last_y + min_exit_gap
-    if tgt.y >= min_exit_y:
+    bound_exit_y = trailing_y + flow * min_exit_gap
+    if flow * (tgt.y - bound_exit_y) >= 0:
         tgt_y = tgt.y
     else:
-        # Push target section down to align with exit port
-        tgt_y = min_exit_y
+        # Push target section along the flow to align with the exit port.
+        tgt_y = bound_exit_y
         delta = tgt_y - tgt.y
 
         tgt.y = tgt_y
@@ -1083,8 +1172,8 @@ def _resolve_tb_exit_y(
                             p.y += delta
                 tgt_sec.bbox_y += delta
 
-    # Extend exit section bbox so padding below the exit port
-    # mirrors the padding above the entry port.
+    # Extend the exit section bbox so the padding beyond the exit port mirrors
+    # the padding before the entry port (against the flow).
     entry_port_y = None
     for pid in exit_section.entry_ports:
         ep = graph.ports.get(pid)
@@ -1092,11 +1181,17 @@ def _resolve_tb_exit_y(
             entry_port_y = graph.stations[pid].y
             break
     if entry_port_y is not None:
-        top_pad = entry_port_y - exit_section.bbox_y
-        desired_bot = tgt_y + top_pad
-        current_bot = exit_section.bbox_y + exit_section.bbox_h
-        if desired_bot > current_bot:
-            exit_section.bbox_h = desired_bot - exit_section.bbox_y
+        box_top = exit_section.bbox_y
+        box_bot = exit_section.bbox_y + exit_section.bbox_h
+        leading_edge = box_top if flow > 0 else box_bot
+        pad = flow * (entry_port_y - leading_edge)
+        desired_trailing_edge = tgt_y + flow * pad
+        if flow > 0:
+            if desired_trailing_edge > box_bot:
+                exit_section.bbox_h = desired_trailing_edge - box_top
+        elif desired_trailing_edge < box_top:
+            exit_section.bbox_h = box_bot - desired_trailing_edge
+            exit_section.bbox_y = desired_trailing_edge
 
     return tgt_y
 

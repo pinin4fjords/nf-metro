@@ -31,7 +31,7 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_X_PADDING,
 )
-from nf_metro.layout.geometry import lanes_run_along_y
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.routing.common import (
     inter_row_wrap_band,
     max_grid_row_with_content,
@@ -1094,13 +1094,16 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
                 port_ids, bottom_y, section, graph, fixed_axis="y"
             )
 
-    # TB sections: clamp LEFT/RIGHT ports to the station band rather than
-    # the (often tall) section edges.  Exit ports sit just below the last
-    # internal station and entry ports just above the first, so lines flow
-    # straight into the station fan instead of running along a trunk near
-    # the box edge and jogging back to the pills.  The reserved top band
-    # (entry_shift) keeps the entry port clear of the first station.
-    if section.direction == "TB":
+    # Vertical-flow (TB/BT) sections: clamp LEFT/RIGHT ports to the station
+    # band rather than the (often tall) section edges.  Exit ports sit just
+    # beyond the trailing internal station and entry ports just before the
+    # leading one -- in the section's flow sense -- so lines flow straight
+    # into the station fan instead of running along a trunk near the box edge
+    # and jogging back to the pills.  The trailing/leading ends follow the
+    # flow sign: a downward (TB) flow trails at the bottom, an upward (BT) one
+    # at the top.
+    if lanes_run_along_x(section.direction):
+        flow = AxisFrame.flow_sign(section.direction)
         entry_set = set(section.entry_ports)
         exit_set = set(section.exit_ports)
         internal_ids = set(section.station_ids) - entry_set - exit_set
@@ -1110,13 +1113,15 @@ def position_ports(section: Section, graph: MetroGraph) -> None:
             if sid in graph.stations and not graph.stations[sid].is_port
         ]
         if internal_ys:
-            last_y = max(internal_ys)
-            first_y = min(internal_ys)
+            trailing_y = max(internal_ys) if flow > 0 else min(internal_ys)
+            leading_y = min(internal_ys) if flow > 0 else max(internal_ys)
         else:
-            last_y = section.bbox_y + section.bbox_h
-            first_y = section.bbox_y
-        exit_target_y = last_y + MIN_PORT_STATION_GAP
-        entry_target_y = first_y - MIN_PORT_STATION_GAP
+            box_top = section.bbox_y
+            box_bot = section.bbox_y + section.bbox_h
+            trailing_y = box_bot if flow > 0 else box_top
+            leading_y = box_top if flow > 0 else box_bot
+        exit_target_y = trailing_y + flow * MIN_PORT_STATION_GAP
+        entry_target_y = leading_y - flow * MIN_PORT_STATION_GAP
         for pid in exit_set:
             port = graph.ports.get(pid)
             if port and port.side in (PortSide.LEFT, PortSide.RIGHT):

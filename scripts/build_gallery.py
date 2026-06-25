@@ -214,6 +214,52 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "One section, one line. The simplest possible case.",
     ),
     (
+        "bt_chain",
+        TOPOLOGIES_DIR,
+        "A `%%metro direction: BT` (bottom-to-top) section: a three-station chain "
+        "whose flow runs up the column, the vertical mirror of a TB chain (#1044).",
+    ),
+    (
+        "bt_fork",
+        TOPOLOGIES_DIR,
+        "A symmetric fan-out inside a `%%metro direction: BT` section: the hub sits "
+        "at the bottom and both branches fan upward, the lane bundle riding the "
+        "`+x` side as the rotation image of a TB fork (#1044).",
+    ),
+    (
+        "bt_perp_entry_below",
+        TOPOLOGIES_DIR,
+        "A BT section fed from below: a lower BT section's trailing TOP exit "
+        "continues up the shared lane into an upper BT section's BOTTOM entry, a "
+        "two-line bundle riding one column across the seam (#1044).",
+    ),
+    (
+        "bt_exit_top_above",
+        TOPOLOGIES_DIR,
+        "A BT section's trailing TOP exit dropping up into the BOTTOM entry of an "
+        "LR section stacked above it (#1044).",
+    ),
+    (
+        "bt_exit_top_above_2line",
+        TOPOLOGIES_DIR,
+        "The two-line form of the BT TOP-exit drop into an LR BOTTOM entry: the "
+        "bundle keeps its lane across the perpendicular boundary, the BT feeder "
+        "fanning +x rather than the downward-TB -x (#1066).",
+    ),
+    (
+        "bt_to_lr",
+        TOPOLOGIES_DIR,
+        "A BT section's trailing TOP (perpendicular) exit taking the up-and-over "
+        "corridor into the LEFT entry of a neighbouring LR section, a two-line "
+        "bundle staying parallel across the seam (#1044).",
+    ),
+    (
+        "bt_to_tb",
+        TOPOLOGIES_DIR,
+        "A BT section's RIGHT exit feeding a TB section's LEFT entry: an upward "
+        "flow handing off to a downward one across the column seam (#1044).",
+    ),
+    (
         "deep_linear",
         TOPOLOGIES_DIR,
         "Seven sections in a straight chain. Exercises the grid fold threshold.",

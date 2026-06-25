@@ -65,6 +65,7 @@ from nf_metro.layout.routing.common import (
     row_bottom_edge,
     row_top_edge,
     symmetric_bundle_midpoint,
+    trailing_perp_side,
     vertical_direction,
 )
 from nf_metro.layout.routing.context import (
@@ -186,35 +187,54 @@ class _InterFacts:
 
     @property
     def is_tb_bottom_exit(self) -> bool:
-        """Source is a BOTTOM exit on a TB/BT section (with station offsets)."""
-        return (
+        """Source is the trailing perp exit on a vertical-flow (TB/BT) section.
+
+        The trunk continues out the section's trailing TOP/BOTTOM edge -- BOTTOM
+        for a downward (TB) flow, TOP for its upward (BT) image -- so the drop
+        rides the section's own rotation lane out of that port.
+        """
+        if not (
             self.src_port is not None
             and not self.src_port.is_entry
-            and self.src_port.side == PortSide.BOTTOM
             and self.src.section_id in self.ctx.tb_sections
             and bool(self.ctx.station_offsets)
+        ):
+            return False
+        section = self.graph.sections.get(self.src.section_id)
+        return section is not None and self.src_port.side == trailing_perp_side(
+            section.direction
         )
 
     @property
     def is_tb_perp_exit_to_side(self) -> bool:
-        """A BOTTOM exit on a TB/BT section feeding a side entry at or above it.
+        """A trailing perp exit on a vertical-flow section feeding a side entry
+        the flow-direction drop can't reach.
 
-        The exit port sits on the section's own bottom edge, so the line leaves
-        downward.  A side (LEFT/RIGHT) entry that is not below the port (same Y,
-        or above) cannot be reached by a downward drop: a straight or shallow
-        run grazes the section's bottom edge and exits through the corner.  Such
-        an edge takes the down-and-over corridor route instead (see
-        _route_perp_exit_over), mirroring how :attr:`is_perp_exit` intercepts
-        horizontal-flow perpendicular exits before the same-Y shortcut.
+        The exit port sits on the section's trailing edge (BOTTOM for a downward
+        TB flow, TOP for its upward BT image), so the line leaves along the flow.
+        A side (LEFT/RIGHT) entry sitting *against* the flow from the port -- at
+        or above a downward exit, at or below an upward one -- cannot be reached
+        by that drop: a straight or shallow run grazes the trailing edge and
+        exits through the corner.  Such an edge takes the up/down-and-over
+        corridor route instead (see _route_perp_exit_over), mirroring how
+        :attr:`is_perp_exit` intercepts horizontal-flow perpendicular exits
+        before the same-Y shortcut.
         """
-        return (
+        if not (
             self.src_port is not None
             and not self.src_port.is_entry
-            and self.src_port.side == PortSide.BOTTOM
-            and self.ty <= self.sy + COORD_TOLERANCE
             and self.src.section_id in self.ctx.tb_sections
             and self.entry_side in (PortSide.LEFT, PortSide.RIGHT)
-        )
+        ):
+            return False
+        section = self.graph.sections.get(self.src.section_id)
+        if section is None or self.src_port.side != trailing_perp_side(
+            section.direction
+        ):
+            return False
+        if self.src_port.side == PortSide.BOTTOM:
+            return self.ty <= self.sy + COORD_TOLERANCE
+        return self.ty >= self.sy - COORD_TOLERANCE
 
     @property
     def right_entry_from_left(self) -> bool:

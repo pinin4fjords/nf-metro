@@ -38,10 +38,11 @@ class AxisFrame:
 
     ``secondary_sign`` is the lane fan direction.  A 90-degree-CW rotation maps
     LR's screen-down lane (+Y) to screen-left (-X), so TB fans lanes to -X
-    (``-1``).  LR/RL keep ``+1`` (RL reverses only the primary); BT's ``+1`` is
-    reserved for true BT support and is never read on a behavioural path until
-    then.  The sign is applied at the draw accessor (:func:`station_lane_coord`,
-    :func:`lane_delta`), never to a stored offset, which stays positive.
+    (``-1``).  LR/RL keep ``+1`` (RL reverses only the primary); BT is TB
+    reflected on its flow axis, so it fans lanes to +X (``+1``) -- the rotation
+    image of TB's lane.  The sign is applied at the draw accessor
+    (:func:`station_lane_coord`, :func:`lane_delta`), never to a stored offset,
+    which stays positive.
     """
 
     primary: Axis
@@ -60,15 +61,24 @@ class AxisFrame:
         """
         return ("y", "x") if direction in ("TB", "BT") else ("x", "y")
 
+    @staticmethod
+    def flow_sign(direction: str) -> float:
+        """The flow-axis sign (``primary_sign``) for *direction*, spacing-free.
+
+        ``-1`` for the reversed flows (RL, BT), ``+1`` otherwise.  Exposed so a
+        pass can read the sign without building a frame with dummy spacings.
+        """
+        return -1.0 if direction in ("RL", "BT") else 1.0
+
     @classmethod
     def for_direction(
         cls, direction: str, x_spacing: float, y_spacing: float
     ) -> AxisFrame:
         primary, secondary = cls.axes_for_direction(direction)
         step = {"x": x_spacing, "y": y_spacing}
-        sign = -1.0 if direction == "RL" else 1.0
-        # A 90-degree-CW rotation fans a vertical flow's lanes to -X; BT's +1 is
-        # the inert exception reserved for true BT support.
+        sign = cls.flow_sign(direction)
+        # A 90-degree-CW rotation fans a downward (TB) flow's lanes to -X; its
+        # upward (BT) image reflects that to +X.
         secondary_sign = -1.0 if secondary == "x" and direction != "BT" else 1.0
         return cls(
             Axis(primary, step[primary]),

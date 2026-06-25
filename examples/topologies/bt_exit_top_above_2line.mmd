@@ -1,0 +1,26 @@
+%%metro title: BT Exit Top Into Section Above (2 lines)
+%%metro style: dark
+%%metro line: a | A | #e63946
+%%metro line: b | B | #0570b0
+
+%%metro grid: dst_sec | 0,0
+%%metro grid: work | 0,1
+
+graph LR
+    subgraph dst_sec [Output]
+        %%metro direction: LR
+        %%metro entry: bottom | a,b
+        o1[Report]
+        o2[Archive]
+        o1 -->|a,b| o2
+    end
+
+    subgraph work [Work]
+        %%metro direction: BT
+        %%metro exit: top | a,b
+        w1[Process]
+        w2[Collect]
+        w1 -->|a,b| w2
+    end
+
+    w2 -->|a,b| o1
