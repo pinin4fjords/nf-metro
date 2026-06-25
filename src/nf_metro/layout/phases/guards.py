@@ -30,6 +30,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     BBoxXIndex,
+    lanes_run_along_x,
     lanes_run_along_y,
     segment_intersects_bbox,
 )
@@ -782,6 +783,25 @@ def _exit_perp_to_flow(src_port: Port, src_section: Section) -> bool:
     """
     flow_sides = _FLOW_ALIGNED_SIDES.get(src_section.direction)
     return flow_sides is not None and src_port.side not in flow_sides
+
+
+def _exit_off_consumer_trunk(src_port: Port, src_section: Section) -> bool:
+    """Whether a side (LEFT/RIGHT) entry fed by this exit must anchor to its
+    consumer rather than the source.
+
+    A side entry aligns to its source only for a same-row horizontal trunk feed:
+    a flow-aligned LEFT/RIGHT exit on a horizontal-flow (LR/RL) section, whose
+    exit Y is a station row that already matches the consumer.  Every other exit
+    sits on a structural boundary edge whose Y is unrelated to the consumer's
+    row -- a perpendicular exit on any section, or any exit on a vertical-flow
+    (TB/BT) section, where the flow-aligned TOP/BOTTOM exit dips onto the
+    section's bottom/top edge below or above its stations.  Anchoring the entry
+    to such a Y forces a diagonal into the first station instead of a riser in
+    the column gap with a horizontal turn-in.
+    """
+    return _exit_perp_to_flow(src_port, src_section) or lanes_run_along_x(
+        src_section.direction
+    )
 
 
 def _perp_fed_entry_consumer_y(

@@ -49,6 +49,26 @@ def test_tb_perp_exit_side_neighbour_enters_at_ports() -> None:
     compute_layout(graph, validate=True)
 
 
+def test_tb_perp_exit_side_entry_aligns_with_consumer() -> None:
+    """The side entry sits at its consumer's Y, so the turn-in is horizontal.
+
+    The entry is fed only by the TB BOTTOM exit, whose Y is the section's bottom
+    edge below its stations.  Anchoring the entry there would force a diagonal
+    into the first station; the port instead lands at the consumer's Y so the
+    inter-section route rises in the column gap and turns in level.
+    """
+    graph = parse_metro_mermaid(
+        (TOPOLOGIES_DIR / "tb_perp_exit_side_neighbour.mmd").read_text()
+    )
+    compute_layout(graph)
+    entry = graph.stations["out_sec__entry_left_1"]
+    consumer = graph.stations["o1"]
+    assert abs(entry.y - consumer.y) < 1.0, (
+        f"LEFT entry port y={entry.y:.1f} is off its consumer o1 y={consumer.y:.1f}; "
+        "the turn-in would be a diagonal rather than level"
+    )
+
+
 @pytest.mark.parametrize("path", TOPOLOGY_FILES, ids=TOPOLOGY_IDS)
 def test_bottom_exit_routes_leave_port_downward(path: Path) -> None:
     """Every BOTTOM-exit route descends out of its port before turning.
