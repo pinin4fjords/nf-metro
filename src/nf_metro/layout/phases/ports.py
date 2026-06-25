@@ -144,11 +144,8 @@ def _align_lr_entry_port(
             and _exit_off_consumer_trunk(src_port, src_section)
         ):
             if lanes_run_along_x(entry_section.direction):
-                # Vertical-flow target: the LEFT/RIGHT entry is perpendicular
-                # to the trunk, so it must sit a station gap above the trunk
-                # head for the turn-in to drop level onto each trunk lane.
-                # Pinning it to the head's own Y leaves no drop room and slants
-                # a multi-line bundle in.
+                # A perpendicular entry to a vertical trunk has no drop room at
+                # the consumer's own Y; lift it above the head instead.
                 _lift_perp_entry_port_above_stations(
                     graph, entry_section, port, port_id
                 )
