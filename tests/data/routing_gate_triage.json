@@ -899,6 +899,14 @@
     "note": "succ_id comes from sec_successors, built only from real tgt.section_id values, so graph.sections.get(succ_id) is never None and the continue (->187) is a defensive null guard. The fall-through static arm (->188) is phantom: control falls into the following multi-line `if (`, whose first operand line carries the real arc L186->189.",
     "status": "defensive"
   },
+  "offsets.py::if entry_section is None:::#1": {
+    "note": "Defensive null guard: every port in graph.ports is created by the resolver with a valid section_id, so graph.sections.get(port_obj.section_id) is never None at routing time. The continue branch is a safety net against a malformed port that no valid graph produces.",
+    "status": "defensive"
+  },
+  "reversal.py::if receiver not in reversed_secs:::#1": {
+    "note": "BFS dedup guard in _detect_tb_bottom_top_entries: the False arm fires when a TB section appears as a vertical receiver via two different positive_fan paths (a diamond topology where two positive_fan TB sections both feed the same TB section via BOTTOM->TOP). Such topologies require a fork junction whose two legs target sections in different grid rows; the current routing's _guard_perp_entry_boundary_consistent fires on that fork pattern before this arm can be exercised. The guard is correct and necessary to prevent double-queueing and ensures BFS terminates on any future renderable diamond.",
+    "status": "defensive"
+  },
   "tb_handlers.py::if crossing_x is not None:::#1": {
     "note": "Pair of context.py::if not indices: - the helper returns None only when no bundled feeder reaches the port, but a horizontal-flow section taking a perpendicular entry is always fed by a bundled inter-section edge, so crossing_x resolves.  The crossing_x-is-None fall-through is a defensive guard, never taken across the corpus.",
     "status": "defensive"
