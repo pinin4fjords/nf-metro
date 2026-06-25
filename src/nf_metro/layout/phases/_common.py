@@ -460,7 +460,7 @@ def _runs_along_section_line_trunk(
         run_delta = abs(pts[i + 1][run_axis] - pts[i][run_axis])
         cross_delta = abs(pts[i + 1][cross_axis] - pts[i][cross_axis])
         if cross_delta > SAME_COORD_TOLERANCE and run_delta > SAME_COORD_TOLERANCE:
-            return False  # diagonal crossing: not riding the trunk
+            return False
         coord = pts[i][cross_axis]
         if not any(abs(coord - t) <= SAME_COORD_TOLERANCE for t in trunk):
             return False

@@ -93,7 +93,7 @@
   "inter_section_handlers.py::and tgt_sec is not None::#1",
   "inter_section_handlers.py::elif abs(dx) > ctx.curve_radius:::#1",
   "inter_section_handlers.py::elif gap_bottom > gap_top:::#1",
-  "inter_section_handlers.py::for je in ctx.graph.edges:::#1",
+  "inter_section_handlers.py::for je in ctx.graph.edges_to(src.id):::#1",
   "inter_section_handlers.py::if (::#2",
   "inter_section_handlers.py::if _corridor_is_viable(ctx, src, ep):::#1",
   "inter_section_handlers.py::if _corridor_is_viable(ctx, src, tgt):::#1",

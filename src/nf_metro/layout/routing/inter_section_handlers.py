@@ -2168,15 +2168,14 @@ def _route_top_entry_l_shape(
     else:
         lead = Direction.R
         if src.id in ctx.graph.junctions:
-            for je in ctx.graph.edges:
-                if je.target == src.id:
-                    js = ctx.graph.stations.get(je.source)
-                    if js and js.is_port:
-                        if abs(js.x - src.x) <= COORD_TOLERANCE:
-                            straight_drop = True
-                        else:
-                            lead = Direction.R if js.x < src.x else Direction.L
-                        break
+            for je in ctx.graph.edges_to(src.id):
+                js = ctx.graph.stations.get(je.source)
+                if js and js.is_port:
+                    if abs(js.x - src.x) <= COORD_TOLERANCE:
+                        straight_drop = True
+                    else:
+                        lead = Direction.R if js.x < src.x else Direction.L
+                    break
 
     lx0 = sx if straight_drop else sx + lead.sign * ctx.curve_radius
 
