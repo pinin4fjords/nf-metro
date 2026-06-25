@@ -1,0 +1,20 @@
+%%metro title: LR top-entry cross-column drop
+%%metro line: a | A | #e63946
+%%metro grid: work | 0,0
+%%metro grid: out_sec | 0,1
+graph LR
+    subgraph work [Work]
+        %%metro direction: TB
+        %%metro exit: bottom | a
+        w1[Demux]
+        w2[Merge]
+        w1 -->|a| w2
+    end
+    subgraph out_sec [Output]
+        %%metro direction: LR
+        %%metro entry: top | a
+        o1[Publish]
+        o2[Notify]
+        o1 -->|a| o2
+    end
+    w2 -->|a| o1
