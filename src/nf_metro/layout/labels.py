@@ -49,7 +49,11 @@ from nf_metro.layout.constants import (
     TB_PILL_EDGE_OFFSET,
     X_SPACING,
 )
-from nf_metro.layout.geometry import segment_intersects_bbox, segment_intersects_quad
+from nf_metro.layout.geometry import (
+    lanes_run_along_x,
+    segment_intersects_bbox,
+    segment_intersects_quad,
+)
 from nf_metro.parser.model import MetroGraph
 
 if TYPE_CHECKING:
@@ -1287,12 +1291,16 @@ def _build_label_ctx(
     return ctx, sorted_stations
 
 
-def _is_tb_section(graph: MetroGraph, station: Station) -> bool:
-    """Whether the station belongs to a TB (top-to-bottom) section."""
+def _places_label_beside_pill(graph: MetroGraph, station: Station) -> bool:
+    """Whether the station's label sits beside its pill (vertical-flow section).
+
+    A vertical flow (TB/BT) runs its trunk down Y and stacks lines along X, so
+    its label sits to the side instead of above/below.
+    """
     if not station.section_id:
         return False
     sec = graph.sections.get(station.section_id)
-    return bool(sec and sec.direction == "TB")
+    return bool(sec and lanes_run_along_x(sec.direction))
 
 
 def _place_station_label(
@@ -1308,7 +1316,7 @@ def _place_station_label(
     if rail_panel is not None:
         min_off, max_off = rail_panel
 
-    if _is_tb_section(graph, station):
+    if _places_label_beside_pill(graph, station):
         return _place_tb_label(ctx, station, placements)
     rail_side = _rail_label_side(graph, station)
     if ctx.label_angle:
