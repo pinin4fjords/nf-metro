@@ -372,6 +372,54 @@ def routes_through_unrelated_sections(
     node assigned to its target section is correctly treated as belonging
     there).
     """
+    return _section_interior_crossings(
+        graph, own=False, inset=inset, routes=routes, offsets=offsets
+    )
+
+
+def routes_through_own_section_interior(
+    graph: MetroGraph,
+    *,
+    inset: float = 2.0,
+    routes: list[RoutedPath] | None = None,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> list[tuple[RoutedPath, str]]:
+    """Return ``(route, section_id)`` for every inter-section route segment
+    that passes back through the interior of its *own* source or target
+    section box, beyond the port-to-boundary stub.
+
+    A route legitimately starts at its source section's exit port and ends at
+    its target section's entry port -- both on the box boundary -- so a clean
+    route only grazes those two boxes at their edges and travels the
+    inter-section gaps between them.  A segment whose interior lies inside its
+    own source or target bbox has clawed back through the box instead of
+    leaving it and routing around the outside: an away-facing-exit wrap that
+    renders as a backtrack (issue #1078).
+
+    This is the complement of :func:`routes_through_unrelated_sections`, which
+    exempts the route's own sections; together they cover every section box.
+    """
+    return _section_interior_crossings(
+        graph, own=True, inset=inset, routes=routes, offsets=offsets
+    )
+
+
+def _section_interior_crossings(
+    graph: MetroGraph,
+    *,
+    own: bool,
+    inset: float,
+    routes: list[RoutedPath] | None,
+    offsets: dict[tuple[str, str], float] | None,
+) -> list[tuple[RoutedPath, str]]:
+    """Shared scan behind :func:`routes_through_unrelated_sections` and
+    :func:`routes_through_own_section_interior`.
+
+    ``own`` selects which half of the sections each route is checked against:
+    ``True`` its own source/target boxes, ``False`` every other box.  A
+    crossing that runs along the section's own-line trunk is exempt either way
+    (a forked bundle overlaying its trunk, not a foreign pass-through).
+    """
     from nf_metro.layout.geometry import segment_intersects_bbox
     from nf_metro.layout.routing import compute_station_offsets, route_edges
     from nf_metro.layout.routing.common import apply_route_offsets
@@ -398,13 +446,15 @@ def routes_through_unrelated_sections(
 
     out: list[tuple[RoutedPath, str]] = []
     for rp in routes:
-        own = {
+        if own and not rp.is_inter_section:
+            continue
+        own_sections = {
             graph.section_for_station(rp.edge.source),
             graph.section_for_station(rp.edge.target),
         }
         pts = apply_route_offsets(rp, offsets)
         for sid, x0, y0, x1, y1 in boxes:
-            if sid in own:
+            if (sid in own_sections) != own:
                 continue
             if any(
                 segment_intersects_bbox(

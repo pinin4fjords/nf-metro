@@ -1,0 +1,25 @@
+%%metro title: Away-facing exit wraps back through interior (target left)
+%%metro line: main | Main | #e64980
+%%metro grid: feed | 1,0
+%%metro grid: post | 1,1
+%%metro grid: report | 0,1
+
+graph LR
+    subgraph feed [Feed]
+        f1[F1] -->|main| f2[F2]
+    end
+    subgraph post [Post]
+        %%metro direction: TB
+        %%metro entry: top | main
+        %%metro exit: bottom | main
+        p1[P1] -->|main| p2[P2]
+        p2 -->|main| p3[P3]
+    end
+    subgraph report [Report]
+        %%metro direction: RL
+        %%metro entry: top | main
+        r1[R1] -->|main| r2[R2]
+        r2 -->|main| r3[R3]
+    end
+    f2 -->|main| p1
+    p3 -->|main| r1

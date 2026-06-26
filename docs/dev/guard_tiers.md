@@ -29,15 +29,18 @@ current tree**: Tier A is the always-on render-path set, Tier B is the
 
 | Tier | Meaning | Promotion intent |
 |---|---|---|
-| **A** | Cheap, observational, placement-only structural checks (finite coords, bbox containment with marker overhang, station overlap, ports on boundaries), **plus** the routing `check_*` invariants already always-on via the render chokepoint, **plus** `_guard_stations_within_bbox`. | Run on the default render path (#923), warning by default with a `--strict` escalation. |
+| **A** | Cheap, observational structural checks: placement (finite coords, bbox containment with marker overhang, station overlap, ports on boundaries) **plus** `_guard_stations_within_bbox`, the inter-section backtrack/wrap guards (`_guard_inter_section_route_no_backtrack`, `_guard_inter_section_route_no_full_width_backtrack`, `_guard_serpentine_no_backtrack`, `_guard_inter_section_route_clears_own_section_interior`), and the routing `check_*` invariants already always-on via the render chokepoint. | Run on the default render path (#923), warning by default with a `--strict` escalation. |
 | **B** | The remaining `validate=True` set: route-shape, bundle-order, label, rail, and merge-port geometry. Correct but either costlier or dependent on a mid-pipeline reroute (they consume `route_edges` output), so not cheap-always-on. | Stay behind `validate=True` / `--strict`. |
 | **C** | Test-only oracles: too slow, too fixture-specific, or non-observational. | Live in the test suite, not the runtime suite. |
 
-Tier A is the cheap-structural set the cost audit confirms runs in single-digit
-microseconds and needs no routing pass. Tier B holds everything that either
-needs the routed geometry or is materially more expensive; the most expensive
-members (`check_no_hanging_routes` ~470 us, the collinear-distinct checks
-~100 us) are routed-geometry sweeps. **Tier C holds one check**,
+Tier A is the cheap-observational set the cost audit confirms runs in low tens
+of microseconds. Most members are placement-only structural checks needing no
+routing pass; the render path already pays for `routes`/`offsets`, so the
+inter-section backtrack/wrap guards (which read the routed geometry but are
+cheap sweeps, the dearest ~11 us) join it too. Tier B holds everything that is
+materially more expensive; the most expensive members
+(`check_no_hanging_routes` ~470 us, `_guard_no_route_through_section` ~93 us,
+the collinear-distinct checks ~100 us) are routed-geometry sweeps. **Tier C holds one check**,
 `check_seam_approach_equals_departure`: a seam oracle that TB/BT sections fail
 today (they draw the lane fan by reflection, not rotation), so it runs from the
 test suite rather than the runtime suite until #1041 migrates the section draw
@@ -136,14 +139,15 @@ python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 | `_guard_perp_entry_boundary_consistent` | B | 7.4 | final-only |
 | `_guard_perp_exit_over_leadin_no_overdip` | B | 2.9 | final-only |
 | `_guard_right_entry_drop_in_when_clear` | B | 2.5 | final-only |
-| `_guard_inter_section_route_no_backtrack` | B | 5.3 | final-only |
-| `_guard_inter_section_route_no_full_width_backtrack` | B | 5.9 | final-only |
+| `_guard_inter_section_route_no_backtrack` | A | 4.7 | final-only |
+| `_guard_inter_section_route_no_full_width_backtrack` | A | 5.3 | final-only |
 | `_guard_routes_enter_sections_at_ports` | B | 61.9 | final-only |
 | `_guard_no_route_through_section` | B | 92.9 | final-only |
+| `_guard_inter_section_route_clears_own_section_interior` | A | 11.3 | final-only |
 | `_guard_feeder_exits_section_through_side` | B | 8.2 | final-only |
 | `_guard_entry_approach_from_port_side` | B | 5.3 | final-only |
 | `_guard_no_opposing_line_overlap` | B | 86.1 | final-only |
-| `_guard_serpentine_no_backtrack` | B | 4.1 | final-only |
+| `_guard_serpentine_no_backtrack` | A | 3.9 | final-only |
 | `_guard_no_artefactual_counter_flow` | B | 4.6 | final-only |
 | `_guard_inter_row_run_clearance` | B | 3.6 | final-only |
 | `_guard_trunk_bands_crossing_optimal` | B | 56.9 | final-only |
