@@ -541,19 +541,13 @@ def _pack_topo_columns(
             and cumulative_width + w > max_station_columns
         )
 
-        # A branch column (several sections sharing one topo column) folds into
-        # a TB bridge per member, but the post-fold return row flows backward:
-        # a member whose successor is not seated straight below the bridge ends
-        # up placed behind its producer, so the inter-section bundle wraps. Only
-        # fold a branch column when every member's single successor drops
-        # straight below it; otherwise defer the fold to the next spine column,
-        # accepting a wider row to keep inter-section flow forward.
+        # Folding a branch column (several sections in one topo column) makes
+        # one member a TB bridge and strands the others' successors on the
+        # backward-flowing return row, behind their producers. Defer such a
+        # fold to the next spine column (accepting a wider row) unless every
+        # member's successor drops straight below the bridge.
         if need_fold and stack_size > 1:
-            next_sids = (
-                col_groups[sorted_cols[topo_idx + 1]]
-                if topo_idx + 1 < len(sorted_cols)
-                else []
-            )
+            next_sids = _next_col_sids(col_groups, sorted_cols, topo_idx)
             if not _below_fold_drop_applies(sids, successors, next_sids):
                 need_fold = False
 
@@ -598,6 +592,16 @@ def _pack_topo_columns(
     return folded, fold_sections, below_fold_sections
 
 
+def _next_col_sids(
+    col_groups: dict[int, list[str]],
+    sorted_cols: list[int],
+    topo_idx: int,
+) -> list[str]:
+    """Sections in the topo column after ``topo_idx`` (empty past the last)."""
+    nxt = topo_idx + 1
+    return col_groups[sorted_cols[nxt]] if nxt < len(sorted_cols) else []
+
+
 def _below_fold_drop_applies(
     sids: list[str],
     successors: dict[str, set[str]],
@@ -640,13 +644,12 @@ def _maybe_place_below_fold(
     """
     if band_height <= 1 or topo_idx + 1 >= len(sorted_cols):
         return
-    next_topo = sorted_cols[topo_idx + 1]
-    next_sids = col_groups[next_topo]
+    next_sids = _next_col_sids(col_groups, sorted_cols, topo_idx)
     if _below_fold_drop_applies(sids, successors, next_sids):
         for j, ns in enumerate(next_sids):
             folded[ns] = (fold_col, band_start_row + j)
             below_fold_sections.add(ns)
-        skip_topo_cols.add(next_topo)
+        skip_topo_cols.add(sorted_cols[topo_idx + 1])
         # Don't increment band_start_row: below-fold sections are in the fold
         # column, so return-row sections (in adjacent columns) share the rows.
 
