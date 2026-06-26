@@ -618,11 +618,21 @@ def _render_svg_scaled(
     # Embed the machine-readable manifest first, so the file is a durable,
     # self-describing contract regardless of what is drawn below it.
     if graph.embed_manifest:
+        _pf = tb_positive_fan_sections(graph)
+        _boxes: dict[str, dict[str, float]] = {}
+        for _s in graph.stations.values():
+            if _s.is_port or _s.is_hidden:
+                continue
+            _, _, _w, _h, _rx = station_marker_box(
+                graph, theme, _s, station_offsets, _pf
+            )
+            _boxes[_s.id] = {"w": _w, "h": _h, "rx": _rx}
         manifest = build_manifest(
             graph,
             width=svg_width,
             height=svg_height,
             station_radius=theme.station_radius,
+            extra_node_data=_boxes,
         )
         d.append(draw.Raw(manifest_metadata_svg(manifest)))
 

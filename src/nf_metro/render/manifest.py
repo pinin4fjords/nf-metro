@@ -54,6 +54,7 @@ def build_manifest(
     width: int,
     height: int,
     station_radius: float,
+    extra_node_data: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the manifest dict from the graph the renderer just laid out.
 
@@ -65,8 +66,11 @@ def build_manifest(
     (``graph.stations[].x/.y`` and ``graph.process_mapping``) so the embedded
     data cannot drift from the live behaviour.  ``width`` and ``height`` are the
     final canvas dimensions; ``station_radius`` is the single nominal marker
-    radius (an overlay needs a point and a radius, not the per-station pill
-    geometry).
+    radius.
+
+    ``extra_node_data`` is an optional mapping from station id to additional
+    fields (e.g. ``w``, ``h``, ``rx`` pill dimensions computed by the renderer)
+    that are merged into each node entry before serialisation.
 
     Ports and hidden nodes are excluded.  Every other station is included --
     unmapped ones simply carry an empty ``patterns`` list -- so the manifest is
@@ -90,6 +94,8 @@ def build_manifest(
         }
         if station.section_id in real_sections:
             entry["region"] = station.section_id
+        if extra_node_data and station.id in extra_node_data:
+            entry.update(extra_node_data[station.id])
         nodes.append(entry)
 
     return build_manifest_data(
