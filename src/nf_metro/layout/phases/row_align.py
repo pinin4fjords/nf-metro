@@ -100,12 +100,49 @@ def _row_group_grid_spacing(
     return grid_slots, max_y_pad, effective_y_spacing, section_class
 
 
+def _separate_branches_across_trunk(
+    must_separate: set[tuple[float, float]],
+    layer_stations: dict[int, list[float]],
+    remap_ys: list[float],
+) -> None:
+    """Force a symmetric diamond's branches onto slots either side of its trunk.
+
+    A same-layer branch pair (already in *must_separate*) placed symmetrically
+    about a higher-span trunk row -- one recurring across more layers, the
+    fork's through-line bracketed at the pair's midpoint -- must keep all three
+    rows on distinct, ordered slots.  Without this the narrower of two fans
+    sharing a section can let its lower branch collapse onto the trunk slot,
+    breaking a symmetric diamond.
+
+    Gated on the trunk sitting at the pair's midpoint so only symmetric
+    diamonds are affected: an asymmetric fork (one branch already on the trunk)
+    is left free to share a slot, as is a row that merely falls between a wider
+    fan's pair.
+    """
+    layer_span: dict[float, int] = defaultdict(int)
+    for ys_at_layer in layer_stations.values():
+        for y in set(ys_at_layer):
+            layer_span[y] += 1
+    for a, b in list(must_separate):
+        midpoint = (a + b) / 2
+        for m in remap_ys:
+            if (
+                a < m < b
+                and abs(m - midpoint) <= 1.0
+                and layer_span[m] > layer_span[a]
+                and layer_span[m] > layer_span[b]
+            ):
+                must_separate.add((a, m))
+                must_separate.add((m, b))
+
+
 def _assign_nonuniform_slots(
     layer_stations: dict[int, list[float]],
     multi_layer_ys: set[float],
     remap_ys: list[float],
     effective_y_spacing: float,
     has_diamond: bool,
+    symmetric_diamonds: bool,
 ) -> dict[float, float]:
     """Map non-uniformly-spaced Y values to grid slots.
 
@@ -119,6 +156,8 @@ def _assign_nonuniform_slots(
         for a_idx in range(len(unique_ys)):
             for b_idx in range(a_idx + 1, len(unique_ys)):
                 must_separate.add((unique_ys[a_idx], unique_ys[b_idx]))
+    if symmetric_diamonds:
+        _separate_branches_across_trunk(must_separate, layer_stations, remap_ys)
 
     y_map: dict[float, float] = {}
     slot_for_y: dict[float, int] = {}
@@ -151,6 +190,7 @@ def _build_grid_y_map(
     sub: MetroGraph,
     section_class_entry: tuple[dict[int, list[float]], set[float]],
     effective_y_spacing: float,
+    symmetric_diamonds: bool,
 ) -> tuple[dict[float, float], list[float], list[float], int]:
     """Map a section's station Ys to the shared grid.
 
@@ -189,7 +229,12 @@ def _build_grid_y_map(
         }
     else:
         y_map = _assign_nonuniform_slots(
-            layer_stations, multi_layer_ys, remap_ys, effective_y_spacing, has_diamond
+            layer_stations,
+            multi_layer_ys,
+            remap_ys,
+            effective_y_spacing,
+            has_diamond,
+            symmetric_diamonds,
         )
     return y_map, remap_ys, all_ys, max_layer_size
 
@@ -245,6 +290,32 @@ def _enforce_multiline_label_gap(
             sorted_mapped = sorted(y_map.items(), key=lambda kv: kv[1])
 
 
+def _isolated_slot_y(
+    old_y: float,
+    remap_ys: list[float],
+    y_map: dict[float, float],
+    effective_y_spacing: float,
+) -> float:
+    """Grid Y for an isolated row that no multi-station layer pins.
+
+    When the isolated row sits between two kept rows -- the trunk hub of a
+    fork-join, with its branches sharing a layer above and below -- map it to
+    the proportional point between the kept rows' *remapped* positions before
+    snapping.  Rounding the raw Y against the pitch instead can land the hub on
+    a branch row when the bundle width inflates the pitch past twice the hub's
+    offset, collapsing a symmetric diamond.  Rows outside the kept range fall
+    back to nearest-slot rounding.
+    """
+    lower = [ry for ry in remap_ys if ry < old_y]
+    upper = [ry for ry in remap_ys if ry > old_y]
+    if lower and upper:
+        lo, hi = max(lower), min(upper)
+        frac = (old_y - lo) / (hi - lo)
+        mapped = y_map[lo] + frac * (y_map[hi] - y_map[lo])
+        return round(mapped / effective_y_spacing) * effective_y_spacing
+    return round(old_y / effective_y_spacing) * effective_y_spacing
+
+
 def _remap_section_to_grid(
     graph: MetroGraph,
     sub: MetroGraph,
@@ -256,7 +327,10 @@ def _remap_section_to_grid(
 ) -> None:
     """Remap one section's station Ys onto the shared row grid and resize bbox."""
     y_map, remap_ys, all_ys, max_layer_size = _build_grid_y_map(
-        sub, section_class_entry, effective_y_spacing
+        sub,
+        section_class_entry,
+        effective_y_spacing,
+        graph.diamond_style == "symmetric",
     )
     _enforce_multiline_label_gap(sub, y_map, remap_ys, effective_y_spacing)
 
@@ -266,8 +340,9 @@ def _remap_section_to_grid(
     if max_layer_size <= 3:
         for old_y in all_ys:
             if old_y not in y_map:
-                slot = round(old_y / effective_y_spacing)
-                y_map[old_y] = slot * effective_y_spacing
+                y_map[old_y] = _isolated_slot_y(
+                    old_y, remap_ys, y_map, effective_y_spacing
+                )
 
     for station in sub.stations.values():
         if station.y in y_map:

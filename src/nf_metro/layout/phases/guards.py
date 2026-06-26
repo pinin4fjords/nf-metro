@@ -543,6 +543,56 @@ def _guard_tb_top_entry_drop_hugs_top(graph: MetroGraph, phase: str) -> None:
         )
 
 
+def _guard_symmetric_diamond_branches_straddle_trunk(
+    graph: MetroGraph, phase: str
+) -> None:
+    """Final: in ``diamond_style='symmetric'`` a clean horizontal 2-way diamond
+    keeps both branches off the trunk row.
+
+    A fork F whose only two successors B1, B2 rejoin at a common successor J,
+    with F and J on the same row (the trunk runs straight through), must place
+    both branches clear of that row.  A branch landing on the trunk row means a
+    grid-snap collapsed the diamond.
+
+    Skipped when F or J is a port: an entry-port fork keeps its first branch on
+    the through-track and fans the rest to one side, a deliberately asymmetric
+    placement rather than a collapse.
+    """
+    if graph.diamond_style != "symmetric":
+        return
+    succ: dict[str, list[str]] = defaultdict(list)
+    pred: dict[str, list[str]] = defaultdict(list)
+    for edge in graph.edges:
+        s, t = edge.source, edge.target
+        if s in graph.stations and t in graph.stations:
+            if t not in succ[s]:
+                succ[s].append(t)
+            if s not in pred[t]:
+                pred[t].append(s)
+    tol = SAME_COORD_TOLERANCE
+    for fork, branches in succ.items():
+        if len(branches) != 2 or graph.stations[fork].is_port:
+            continue
+        b1, b2 = branches
+        if pred[b1] != [fork] or pred[b2] != [fork]:
+            continue
+        if len(succ[b1]) != 1 or succ[b1] != succ[b2]:
+            continue
+        join = succ[b1][0]
+        if graph.stations[join].is_port:
+            continue
+        trunk_y = graph.stations[fork].y
+        if abs(graph.stations[join].y - trunk_y) > tol:
+            continue
+        for b in (b1, b2):
+            if abs(graph.stations[b].y - trunk_y) <= tol:
+                raise PhaseInvariantError(
+                    f"{phase}: symmetric diamond branch {b!r} sits on the trunk "
+                    f"row y={trunk_y:.1f} (fork {fork!r} -> {join!r}); the diamond "
+                    f"collapsed instead of straddling"
+                )
+
+
 def _guard_section_bboxes_positive(graph: MetroGraph, phase: str) -> None:
     """After Stage 1.1+: non-empty sections must have positive-size bboxes."""
     for sid, sec in graph.sections.items():
@@ -4448,6 +4498,7 @@ INLINE_GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "than the spread-widened y_spacing."
         ),
     ),
+    GuardSpec(_guard_symmetric_diamond_branches_straddle_trunk, "B"),
     GuardSpec(_guard_tall_anchor_stack_well_formed, "B"),
     GuardSpec(_guard_tb_top_entry_drop_hugs_top, "B"),
 )
