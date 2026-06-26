@@ -462,6 +462,15 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "it - and folds the spine instead, so every inter-section edge flows "
         "forward and Genome's exit faces Post (issue #1080).",
     ),
+    (
+        "branch_fold_stability",
+        TOPOLOGIES_DIR,
+        "A wide side branch (Survey) shares a topo column with the spine and sits "
+        "one station below its fold threshold. Adding a station inside Survey "
+        "must not re-grid the downstream Report onto a backward return row: "
+        "inter-section placement is a function of the DAG, not of intra-section "
+        "size (issue #1082).",
+    ),
     # --- Offset and bypass ---
     (
         "bypass_fan_in_outer_slot",
