@@ -1053,17 +1053,108 @@ def test_straight_diamond_top_branch_stays_flat():
 
 
 def test_symmetric_diamond_both_branches_deviate():
-    """With diamond_style='symmetric', both branches deviate from the trunk."""
+    """With diamond_style='symmetric', both branches straddle the trunk evenly."""
     graph = parse_metro_mermaid(_diamond_section_text())
     graph.diamond_style = "symmetric"
     compute_layout(graph)
     a_y = graph.stations["a"].y
     b_y = graph.stations["b"].y
     c_y = graph.stations["c"].y
-    # Both b and c should deviate from a (symmetric fan-out)
-    assert b_y != a_y or c_y != a_y
-    # And b should be above c (or at least at different positions)
-    assert b_y != c_y
+    # Both branches deviate from the trunk, on opposite sides, by equal amounts.
+    assert b_y != a_y and c_y != a_y
+    assert (b_y - a_y) == -(c_y - a_y)
+
+
+def _symmetric_diamond_section_text(extra_body="", n_lines=6):
+    """A many-line 2-way diamond (umi -> {fastp, tg} -> fqt) in a section that
+    peels one line off to a bottom exit.
+
+    The split exit drags the section trunk to a fractional grid offset while the
+    bundle width inflates the row pitch; both branches share a layer so the
+    grid-snap treats them as the kept rows and the trunk as an isolated hub.
+    ``extra_body`` appends further section rows (e.g. a wider fan) that redefine
+    the section's grid.
+    """
+    lines = [f"L{i}" for i in range(n_lines)]
+    spec = "".join(
+        f"%%metro line: {lid} | {lid} | #{(i * 41) % 256:02x}80a0\n"
+        for i, lid in enumerate(lines)
+    )
+    joined = ",".join(lines)
+    top = ", ".join(lines[1:])
+    bottom = lines[0]
+    return (
+        spec + "%%metro diamond_style: symmetric\n"
+        "graph LR\n"
+        "    subgraph s1 [Pre]\n"
+        f"        %%metro exit: right | {top}\n"
+        f"        %%metro exit: bottom | {bottom}\n"
+        "        umi[UMI]\n"
+        "        fastp[fastp]\n"
+        "        tg[TrimGalore]\n"
+        "        fqt[FastQC]\n"
+        f"        umi -->|{joined}| fastp\n"
+        f"        umi -->|{joined}| tg\n"
+        f"        fastp -->|{joined}| fqt\n"
+        f"        tg -->|{joined}| fqt\n" + extra_body + "    end\n"
+        "    subgraph s2 [Down]\n"
+        f"        %%metro entry: top | {bottom}\n"
+        "        sal[Salmon]\n"
+        "    end\n"
+        f"    umi -->|{bottom}| sal\n"
+    )
+
+
+def _wide_fan_body(n_lines=6):
+    """A 3-way fan downstream of the diamond join, the nf-core/rnaseq
+    BBSplit/SortMeRNA/RiboDetector shape whose rows define the section grid."""
+    joined = ",".join(f"L{i}" for i in range(n_lines))
+    return (
+        "        bb[BBSplit]\n        smr[SortMeRNA]\n        rd[RiboDetector]\n"
+        "        fqf[FastQC2]\n"
+        f"        fqt -->|{joined}| bb\n        fqt -->|{joined}| smr\n"
+        f"        fqt -->|{joined}| rd\n"
+        f"        bb -->|{joined}| fqf\n        smr -->|{joined}| fqf\n"
+        f"        rd -->|{joined}| fqf\n"
+    )
+
+
+@pytest.mark.parametrize("n_lines", [3, 6])
+def test_symmetric_diamond_survives_offset_trunk(n_lines):
+    """A symmetric diamond stays symmetric even when a split exit offsets the
+    trunk off the grid and the bundle width inflates the row pitch.
+
+    Regression: at six lines the grid-snap rounded the trunk hub onto the top
+    branch (umi == fastp), collapsing the diamond.  The branches must straddle
+    the trunk by equal and opposite offsets.
+    """
+    graph = parse_metro_mermaid(_symmetric_diamond_section_text(n_lines=n_lines))
+    compute_layout(graph)
+    umi = graph.stations["umi"].y
+    top = graph.stations["fastp"].y
+    bottom = graph.stations["tg"].y
+    assert top != umi and bottom != umi, "a branch collapsed onto the trunk"
+    assert (top - umi) == -(bottom - umi), "branches not symmetric about trunk"
+
+
+@pytest.mark.parametrize("n_lines", [3, 6])
+def test_symmetric_diamond_symmetric_beside_wider_fan(n_lines):
+    """A narrow symmetric diamond stays symmetric when a wider fan in the same
+    section defines a non-uniform row grid.
+
+    Regression (nf-core/rnaseq): the lower branch collapsed onto the trunk row
+    (umi == tg) because the slot packer only forced same-layer rows apart, so
+    the diamond's lower branch could share the trunk's slot.
+    """
+    graph = parse_metro_mermaid(
+        _symmetric_diamond_section_text(_wide_fan_body(n_lines), n_lines)
+    )
+    compute_layout(graph)
+    umi = graph.stations["umi"].y
+    top = graph.stations["fastp"].y
+    bottom = graph.stations["tg"].y
+    assert top != umi and bottom != umi, "a branch collapsed onto the trunk"
+    assert (top - umi) == -(bottom - umi), "branches not symmetric about trunk"
 
 
 def test_straight_diamond_merge_returns_to_trunk():

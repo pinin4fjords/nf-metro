@@ -17,7 +17,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/cross_track_interchange.mmd": {
@@ -217,7 +218,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/diagonal_labels.mmd": {
@@ -787,7 +789,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/differentialabundance.mmd": {
@@ -1007,7 +1010,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/differentialabundance_default.mmd": {
@@ -1211,7 +1215,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/directional_flow.mmd": {
@@ -1232,7 +1237,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/disconnected_components.mmd": {
@@ -1436,7 +1442,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/epitopeprediction.mmd": {
@@ -1636,7 +1643,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/file_icons.mmd": {
@@ -1836,7 +1844,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/genomeassembly.mmd": {
@@ -2036,7 +2045,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/genomeassembly_staggered.mmd": {
@@ -2252,7 +2262,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/genomic_pipeline.mmd": {
@@ -2484,7 +2495,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/group_labels.mmd": {
@@ -2684,7 +2696,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/01_minimal.mmd": {
@@ -2705,7 +2718,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/02_sections.mmd": {
@@ -2909,7 +2923,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/03_fan_out.mmd": {
@@ -3117,7 +3132,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/03b_fan_in_merge.mmd": {
@@ -3317,7 +3333,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/04_directions.mmd": {
@@ -3521,7 +3538,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/05_file_icons.mmd": {
@@ -3721,7 +3739,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/05b_multi_icons.mmd": {
@@ -3921,7 +3940,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/05c_files_icon.mmd": {
@@ -4121,7 +4141,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/05d_folder_icon.mmd": {
@@ -4321,7 +4342,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/05f_banner_labels.mmd": {
@@ -4521,7 +4543,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/06a_without_hidden.mmd": {
@@ -4721,7 +4744,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/guide/06b_with_hidden.mmd": {
@@ -4921,7 +4945,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/hlatyping.mmd": {
@@ -5121,7 +5146,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/legend_combo.mmd": {
@@ -5142,7 +5168,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/legend_logo_placement.mmd": {
@@ -5346,7 +5373,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/line_spread.mmd": {
@@ -5546,7 +5574,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/longread_variant_calling.mmd": {
@@ -5750,7 +5779,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/marker_styles.mmd": {
@@ -5950,7 +5980,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/off_track_outputs.mmd": {
@@ -6150,7 +6181,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/rail_mode.mmd": {
@@ -6358,7 +6390,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/rnaseq_auto.mmd": {
@@ -6566,7 +6599,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/rnaseq_sections.mmd": {
@@ -6969,7 +7003,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/rnaseq_sections_manual.mmd": {
@@ -7372,7 +7407,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/sarek_metro.mmd": {
@@ -7576,7 +7612,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/simple_pipeline.mmd": {
@@ -7597,7 +7634,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/tb_file_termini.mmd": {
@@ -8155,7 +8193,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/aligner_row_pinned_continuation.mmd": {
@@ -8355,7 +8394,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/around_below_ep_col_gt0.mmd": {
@@ -8563,7 +8603,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/around_section_below.mmd": {
@@ -8771,7 +8812,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/asymmetric_tree.mmd": {
@@ -8979,7 +9021,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bottom_row_climb_clear_corridor.mmd": {
@@ -9183,7 +9226,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_chain.mmd": {
@@ -9383,7 +9427,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_exit_top_above.mmd": {
@@ -9587,7 +9632,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_exit_top_above_2line.mmd": {
@@ -9791,7 +9837,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_fork.mmd": {
@@ -9991,7 +10038,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_perp_entry_below.mmd": {
@@ -10195,7 +10243,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_to_lr.mmd": {
@@ -10395,7 +10444,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bt_to_tb.mmd": {
@@ -10595,7 +10645,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bundle_terminator_continuation.mmd": {
@@ -10795,7 +10846,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_fan_in_outer_slot.mmd": {
@@ -11003,7 +11055,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_gap2_rightward_overflow.mmd": {
@@ -11203,7 +11256,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_label_rake.mmd": {
@@ -11403,7 +11457,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_label_rake_left.mmd": {
@@ -11603,7 +11658,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_label_rake_wide.mmd": {
@@ -11992,7 +12048,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_leftward_far_side_entry.mmd": {
@@ -12192,7 +12249,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_leftward_overflow.mmd": {
@@ -12392,7 +12450,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/bypass_v_tight.mmd": {
@@ -12783,7 +12842,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/clear_channel_target_aware_push.mmd": {
@@ -12991,7 +13051,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/compact_gap_peer_conflict.mmd": {
@@ -13191,7 +13252,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/compact_hidden_passthrough.mmd": {
@@ -13391,7 +13453,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/complex_multipath.mmd": {
@@ -13595,7 +13658,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/convergence_stacked_sink.mmd": {
@@ -13803,7 +13867,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/convergent_offrow_exit_climb.mmd": {
@@ -14007,7 +14072,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/corridor_narrow_gap_fallback.mmd": {
@@ -14215,7 +14281,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/cross_col_top_entry.mmd": {
@@ -14415,7 +14482,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/cross_column_perp_drop.mmd": {
@@ -14615,7 +14683,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/cross_column_perp_drop_far_exit.mmd": {
@@ -14815,7 +14884,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/cross_row_gap_wrap.mmd": {
@@ -15019,7 +15089,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/deep_linear.mmd": {
@@ -15219,7 +15290,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/disjoint_sameline_trunks.mmd": {
@@ -15419,7 +15491,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/divergent_fanout_split.mmd": {
@@ -15623,7 +15696,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/dogleg_exempt_distinct.mmd": {
@@ -15827,7 +15901,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/dogleg_exempt_sameline.mmd": {
@@ -16031,7 +16106,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/dogleg_twoline_fanout.mmd": {
@@ -16235,7 +16311,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/exit_corner_offset_dogleg.mmd": {
@@ -16439,7 +16516,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/fan_bypass_nesting.mmd": {
@@ -16651,7 +16729,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/fan_in_merge.mmd": {
@@ -16851,7 +16930,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/fold_double.mmd": {
@@ -17059,7 +17139,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/fold_fan_across.mmd": {
@@ -17271,7 +17352,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/fold_stacked_branch.mmd": {
@@ -17487,7 +17569,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/funcprofiler_upstream.mmd": {
@@ -17880,7 +17963,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/header_nudge.mmd": {
@@ -18088,7 +18172,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/header_side_rotated.mmd": {
@@ -18296,7 +18381,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/inrow_skip_breeze.mmd": {
@@ -18497,6 +18583,7 @@
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
       "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final",
       "_guard_no_same_row_backward_feed|None",
       "_guard_no_mixed_entry_directions|None",
       "_guard_no_same_row_backward_feed|None",
@@ -18693,7 +18780,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/inter_row_wrap_clearance.mmd": {
@@ -18913,7 +19001,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/interchange_lane_reorder.mmd": {
@@ -19113,7 +19202,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/junction_entry_align.mmd": {
@@ -19317,7 +19407,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/junction_entry_collision.mmd": {
@@ -19517,7 +19608,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/junction_entry_reversed_fold.mmd": {
@@ -19717,7 +19809,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/junction_fanout_convergence.mmd": {
@@ -19917,7 +20010,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/left_entry_up_wrap.mmd": {
@@ -20121,7 +20215,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_perp_bottom_exit_perp_entry.mmd": {
@@ -20321,7 +20416,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_perp_bottom_exit_side_entry.mmd": {
@@ -20521,7 +20617,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_perp_top_exit_perp_entry.mmd": {
@@ -20721,7 +20818,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_perp_top_exit_perp_entry_diverging.mmd": {
@@ -20921,7 +21019,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_perp_top_exit_side_entry.mmd": {
@@ -21121,7 +21220,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_to_tb_top_cross_col.mmd": {
@@ -21325,7 +21425,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_to_tb_top_drop.mmd": {
@@ -21529,7 +21630,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_to_tb_top_drop_two_lines.mmd": {
@@ -21733,7 +21835,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_to_tb_top_near_vertical.mmd": {
@@ -21937,7 +22040,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_to_tb_top_two_lines.mmd": {
@@ -22141,7 +22245,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_top_entry_cross_column.mmd": {
@@ -22345,7 +22450,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/lr_top_entry_cross_column_two_line.mmd": {
@@ -22549,7 +22655,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_around_below_leftmost.mmd": {
@@ -22753,7 +22860,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_bottom_row_bypass.mmd": {
@@ -22961,7 +23069,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_leftmost_sink_branch.mmd": {
@@ -23165,7 +23274,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_offrow_continuation.mmd": {
@@ -23369,7 +23479,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_port_above_approach.mmd": {
@@ -23573,7 +23684,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_pullaway.mmd": {
@@ -23777,7 +23889,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_right_entry.mmd": {
@@ -23981,7 +24094,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_trunk_out_of_range_section.mmd": {
@@ -24185,7 +24299,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/merge_trunk_over_low_section.mmd": {
@@ -24389,7 +24504,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/mismatched_tracks.mmd": {
@@ -24593,7 +24709,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/mixed_bundle_column.mmd": {
@@ -24801,7 +24918,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/mixed_port_sides.mmd": {
@@ -25005,7 +25123,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/multi_input_convergence.mmd": {
@@ -25217,7 +25336,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/multi_line_bundle.mmd": {
@@ -25417,7 +25537,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/multicarrier_offrow_exit_climb.mmd": {
@@ -25621,7 +25742,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/near_vertical_junction_hook.mmd": {
@@ -25825,7 +25947,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/off_track_convergence.mmd": {
@@ -26025,7 +26148,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/off_track_convergence_multiline.mmd": {
@@ -26225,7 +26349,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/off_track_input_above_consumer.mmd": {
@@ -26437,7 +26562,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/parallel_independent.mmd": {
@@ -26641,7 +26767,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/peeloff_extra_line_consumer.mmd": {
@@ -26841,7 +26968,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/peeloff_riser_respace.mmd": {
@@ -27041,7 +27169,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/post_convergence_trunk.mmd": {
@@ -27241,7 +27370,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/rail_inter_section.mmd": {
@@ -27473,7 +27603,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/right_entry_from_above.mmd": {
@@ -27677,7 +27808,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/right_entry_from_above_far.mmd": {
@@ -27881,7 +28013,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/right_entry_gap_above_empty_row.mmd": {
@@ -28085,7 +28218,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/right_entry_wrap_no_fan.mmd": {
@@ -28289,7 +28423,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/rl_entry_runway.mmd": {
@@ -28489,7 +28624,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/rnaseq_lite.mmd": {
@@ -28693,7 +28829,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/route_around_intervening.mmd": {
@@ -28893,7 +29030,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/section_diamond.mmd": {
@@ -29097,7 +29235,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/self_crossing_bridge.mmd": {
@@ -29305,7 +29444,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/shared_sink_parallel.mmd": {
@@ -29513,7 +29653,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/single_section.mmd": {
@@ -29713,7 +29854,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/stacked_left_exit_drop.mmd": {
@@ -29917,7 +30059,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/stacked_lr_serpentine.mmd": {
@@ -30125,7 +30268,388 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
+    ]
+  },
+  "examples/topologies/symmetric_diamond_beside_wide_fan.mmd": {
+    "raised": null,
+    "trace": [
+      "_guard_no_same_row_backward_feed|None",
+      "_guard_no_mixed_entry_directions|None",
+      "_guard_section_bboxes_positive|after Stage 1.1",
+      "_guard_no_negative_grid_columns|after Stage 1.1",
+      "_guard_explicit_grid_directions|after Stage 1.1",
+      "_guard_tall_anchor_stack_well_formed|after Stage 1.1",
+      "_guard_independent_components_disjoint|after Stage 1.3",
+      "_guard_coordinates_finite|after Stage 2.1",
+      "_guard_stations_in_sections|after Stage 2.1",
+      "_guard_section_bboxes_positive|after Stage 2.1",
+      "_guard_ports_on_boundaries|after Stage 3.1",
+      "_guard_ports_on_boundaries|after top-align",
+      "_guard_anchors_frozen_during_placement|Stage 4.9 _redistribute_fanout_siblings",
+      "_guard_anchors_frozen_during_placement|Stage 4.10 _redistribute_full_bundle_columns",
+      "_guard_coordinates_finite|after Stage 5.2",
+      "_guard_section_bboxes_positive|after Stage 5.2",
+      "_guard_ports_on_boundaries|after Stage 5.2",
+      "_guard_station_x_column_drift|after Stage 5.2",
+      "_guard_coordinates_finite|after Stage 5.3",
+      "_guard_section_bboxes_positive|after Stage 5.3",
+      "_guard_stations_in_sections|after Stage 5.3",
+      "_guard_ports_on_boundaries|after Stage 5.3",
+      "_guard_station_x_column_drift|after Stage 5.3",
+      "_guard_coordinates_finite|after Stage 5.4",
+      "_guard_section_bboxes_positive|after Stage 5.4",
+      "_guard_stations_in_sections|after Stage 5.4",
+      "_guard_ports_on_boundaries|after Stage 5.4",
+      "_guard_station_x_column_drift|after Stage 5.4",
+      "_guard_coordinates_finite|after Stage 5.5",
+      "_guard_section_bboxes_positive|after Stage 5.5",
+      "_guard_stations_in_sections|after Stage 5.5",
+      "_guard_ports_on_boundaries|after Stage 5.5",
+      "_guard_station_x_column_drift|after Stage 5.5",
+      "_guard_anchors_frozen_during_placement|Stage 6.1 _fan_free_content_upward",
+      "_guard_coordinates_finite|after Stage 6.1",
+      "_guard_section_bboxes_positive|after Stage 6.1",
+      "_guard_stations_in_sections|after Stage 6.1",
+      "_guard_ports_on_boundaries|after Stage 6.1",
+      "_guard_station_x_column_drift|after Stage 6.1",
+      "_guard_anchors_frozen_during_placement|Stage 6.2 _fan_source_inputs_upward",
+      "_guard_coordinates_finite|after Stage 6.2",
+      "_guard_section_bboxes_positive|after Stage 6.2",
+      "_guard_stations_in_sections|after Stage 6.2",
+      "_guard_ports_on_boundaries|after Stage 6.2",
+      "_guard_station_x_column_drift|after Stage 6.2",
+      "_guard_coordinates_finite|after Stage 6.4",
+      "_guard_section_bboxes_positive|after Stage 6.4",
+      "_guard_stations_in_sections|after Stage 6.4",
+      "_guard_ports_on_boundaries|after Stage 6.4",
+      "_guard_no_station_overlap|after Stage 6.4",
+      "_guard_no_coincident_station_coords|after Stage 6.4",
+      "_guard_station_x_column_drift|after Stage 6.4",
+      "_guard_coordinates_finite|after Stage 6.5",
+      "_guard_section_bboxes_positive|after Stage 6.5",
+      "_guard_stations_in_sections|after Stage 6.5",
+      "_guard_ports_on_boundaries|after Stage 6.5",
+      "_guard_no_station_overlap|after Stage 6.5",
+      "_guard_no_coincident_station_coords|after Stage 6.5",
+      "_guard_station_x_column_drift|after Stage 6.5",
+      "_guard_coordinates_finite|after Stage 6.6",
+      "_guard_section_bboxes_positive|after Stage 6.6",
+      "_guard_stations_in_sections|after Stage 6.6",
+      "_guard_ports_on_boundaries|after Stage 6.6",
+      "_guard_no_station_overlap|after Stage 6.6",
+      "_guard_no_coincident_station_coords|after Stage 6.6",
+      "_guard_station_x_column_drift|after Stage 6.6",
+      "_guard_coordinates_finite|after Stage 6.10",
+      "_guard_section_bboxes_positive|after Stage 6.10",
+      "_guard_stations_in_sections|after Stage 6.10",
+      "_guard_ports_on_boundaries|after Stage 6.10",
+      "_guard_no_station_overlap|after Stage 6.10",
+      "_guard_no_coincident_station_coords|after Stage 6.10",
+      "_guard_station_x_column_drift|after Stage 6.10",
+      "_guard_anchors_frozen_during_placement|Stage 6.11 _balance_section_content_around_trunk",
+      "_guard_coordinates_finite|after Stage 6.11",
+      "_guard_section_bboxes_positive|after Stage 6.11",
+      "_guard_stations_in_sections|after Stage 6.11",
+      "_guard_ports_on_boundaries|after Stage 6.11",
+      "_guard_no_station_overlap|after Stage 6.11",
+      "_guard_no_coincident_station_coords|after Stage 6.11",
+      "_guard_station_x_column_drift|after Stage 6.11",
+      "_guard_anchors_frozen_during_placement|Stage 6.12 _recenter_loop_side_stations",
+      "_guard_coordinates_finite|after Stage 6.12",
+      "_guard_section_bboxes_positive|after Stage 6.12",
+      "_guard_stations_in_sections|after Stage 6.12",
+      "_guard_ports_on_boundaries|after Stage 6.12",
+      "_guard_no_station_overlap|after Stage 6.12",
+      "_guard_no_coincident_station_coords|after Stage 6.12",
+      "_guard_station_x_column_drift|after Stage 6.12",
+      "_guard_coordinates_finite|after Stage 6.13",
+      "_guard_section_bboxes_positive|after Stage 6.13",
+      "_guard_stations_in_sections|after Stage 6.13",
+      "_guard_ports_on_boundaries|after Stage 6.13",
+      "_guard_no_station_overlap|after Stage 6.13",
+      "_guard_no_coincident_station_coords|after Stage 6.13",
+      "_guard_station_x_column_drift|after Stage 6.13",
+      "_guard_coordinates_finite|after Stage 6.14",
+      "_guard_section_bboxes_positive|after Stage 6.14",
+      "_guard_stations_in_sections|after Stage 6.14",
+      "_guard_ports_on_boundaries|after Stage 6.14",
+      "_guard_no_station_overlap|after Stage 6.14",
+      "_guard_no_coincident_station_coords|after Stage 6.14",
+      "_guard_no_line_crosses_non_consumer|after Stage 6.14",
+      "_guard_sparse_loop_station_clears_column_neighbour|after Stage 6.14",
+      "_guard_station_x_column_drift|after Stage 6.14",
+      "_guard_coordinates_finite|after Stage 6.15",
+      "_guard_section_bboxes_positive|after Stage 6.15",
+      "_guard_stations_in_sections|after Stage 6.15",
+      "_guard_ports_on_boundaries|after Stage 6.15",
+      "_guard_no_station_overlap|after Stage 6.15",
+      "_guard_no_coincident_station_coords|after Stage 6.15",
+      "_guard_no_line_crosses_non_consumer|after Stage 6.15",
+      "_guard_sparse_loop_station_clears_column_neighbour|after Stage 6.15",
+      "_guard_station_x_column_drift|after Stage 6.15",
+      "_guard_coordinates_finite|after Stage 6.16",
+      "_guard_section_bboxes_positive|after Stage 6.16",
+      "_guard_stations_in_sections|after Stage 6.16",
+      "_guard_ports_on_boundaries|after Stage 6.16",
+      "_guard_no_station_overlap|after Stage 6.16",
+      "_guard_no_coincident_station_coords|after Stage 6.16",
+      "_guard_no_line_crosses_non_consumer|after Stage 6.16",
+      "_guard_sparse_loop_station_clears_column_neighbour|after Stage 6.16",
+      "_guard_station_x_column_drift|after Stage 6.16",
+      "_guard_coordinates_finite|after final",
+      "_guard_section_bboxes_positive|after final",
+      "_guard_stations_in_sections|after final",
+      "_guard_ports_on_boundaries|after final",
+      "_guard_no_station_overlap|after final",
+      "_guard_no_coincident_station_coords|after final",
+      "_guard_no_line_crosses_non_consumer|after final",
+      "_guard_sparse_loop_station_clears_column_neighbour|after final",
+      "_guard_station_x_column_drift|after final",
+      "_guard_row_trunk_cy_consistent|after final",
+      "_guard_off_track_clear_of_anchor|after final",
+      "_guard_fanout_junction_shares_exit_port_y|after final",
+      "_guard_fanout_junction_resolves_upstream|after final",
+      "_guard_entry_port_fed_only_by_ports|after final",
+      "_guard_flow_exit_anchored_to_carrier|after final",
+      "_guard_perp_fed_entry_anchored_to_consumer|after final",
+      "_guard_perp_entry_clears_vertical_trunk_head|after final",
+      "_guard_post_convergence_trunk_continues|after final",
+      "_guard_perp_entry_feed_not_collinear|after final",
+      "_guard_merge_port_approach_side|after final",
+      "_guard_convergence_shallow_feeder_concentric|after final",
+      "_guard_merge_port_outgoing_side_preserved|after final",
+      "_guard_exit_inherits_entry_bundle_order|after final",
+      "_guard_bypass_port_no_slot_gaps|after final",
+      "_guard_partial_branch_offset_gaps|after final",
+      "_guard_row_gaps|after final",
+      "_guard_section_top_padding|after final",
+      "_guard_terminus_icons_within_bbox|after final",
+      "_guard_inter_section_routes_in_row_band|after final",
+      "_guard_topmost_row_top_entry_hugs_section|after final",
+      "_guard_off_track_output_clears_non_producer|after final",
+      "_guard_tb_exit_corner_column_order|after final",
+      "_guard_no_split_same_line_fanout_descents|after final",
+      "_guard_no_distinct_line_fanout_crossing|after final",
+      "_guard_fan_merge_no_partition_crossing|after final",
+      "_guard_trunk_continuation_drops_straight|after final",
+      "_guard_no_dogleg_crosses_exempt_trunk|after final",
+      "_guard_no_stacked_elbow_graze|after final",
+      "_guard_fanout_tail_join|after final",
+      "_guard_perp_entry_boundary_consistent|after final",
+      "_guard_perp_exit_over_leadin_no_overdip|after final",
+      "_guard_right_entry_drop_in_when_clear|after final",
+      "_guard_inter_section_route_no_backtrack|after final",
+      "_guard_inter_section_route_no_full_width_backtrack|after final",
+      "_guard_routes_enter_sections_at_ports|after final",
+      "_guard_rail_connector_ports_no_stub|after final",
+      "_guard_no_route_through_section|after final",
+      "_guard_feeder_exits_section_through_side|after final",
+      "_guard_entry_approach_from_port_side|after final",
+      "_guard_no_opposing_line_overlap|after final",
+      "_guard_serpentine_no_backtrack|after final",
+      "_guard_no_artefactual_counter_flow|after final",
+      "_guard_inter_row_run_clearance|after final",
+      "_guard_trunk_bands_crossing_optimal|after final",
+      "_guard_inter_section_descent_edge_clearance|after final",
+      "_guard_fan_bundles_coincide_or_separate|after final",
+      "_guard_no_same_row_backward_feed|None",
+      "_guard_no_mixed_entry_directions|None",
+      "_guard_section_bboxes_positive|after Stage 1.1",
+      "_guard_no_negative_grid_columns|after Stage 1.1",
+      "_guard_explicit_grid_directions|after Stage 1.1",
+      "_guard_tall_anchor_stack_well_formed|after Stage 1.1",
+      "_guard_independent_components_disjoint|after Stage 1.3",
+      "_guard_coordinates_finite|after Stage 2.1",
+      "_guard_stations_in_sections|after Stage 2.1",
+      "_guard_section_bboxes_positive|after Stage 2.1",
+      "_guard_ports_on_boundaries|after Stage 3.1",
+      "_guard_ports_on_boundaries|after top-align",
+      "_guard_anchors_frozen_during_placement|Stage 4.9 _redistribute_fanout_siblings",
+      "_guard_anchors_frozen_during_placement|Stage 4.10 _redistribute_full_bundle_columns",
+      "_guard_coordinates_finite|after Stage 5.2",
+      "_guard_section_bboxes_positive|after Stage 5.2",
+      "_guard_ports_on_boundaries|after Stage 5.2",
+      "_guard_station_x_column_drift|after Stage 5.2",
+      "_guard_coordinates_finite|after Stage 5.3",
+      "_guard_section_bboxes_positive|after Stage 5.3",
+      "_guard_stations_in_sections|after Stage 5.3",
+      "_guard_ports_on_boundaries|after Stage 5.3",
+      "_guard_station_x_column_drift|after Stage 5.3",
+      "_guard_coordinates_finite|after Stage 5.4",
+      "_guard_section_bboxes_positive|after Stage 5.4",
+      "_guard_stations_in_sections|after Stage 5.4",
+      "_guard_ports_on_boundaries|after Stage 5.4",
+      "_guard_station_x_column_drift|after Stage 5.4",
+      "_guard_coordinates_finite|after Stage 5.5",
+      "_guard_section_bboxes_positive|after Stage 5.5",
+      "_guard_stations_in_sections|after Stage 5.5",
+      "_guard_ports_on_boundaries|after Stage 5.5",
+      "_guard_station_x_column_drift|after Stage 5.5",
+      "_guard_anchors_frozen_during_placement|Stage 6.1 _fan_free_content_upward",
+      "_guard_coordinates_finite|after Stage 6.1",
+      "_guard_section_bboxes_positive|after Stage 6.1",
+      "_guard_stations_in_sections|after Stage 6.1",
+      "_guard_ports_on_boundaries|after Stage 6.1",
+      "_guard_station_x_column_drift|after Stage 6.1",
+      "_guard_anchors_frozen_during_placement|Stage 6.2 _fan_source_inputs_upward",
+      "_guard_coordinates_finite|after Stage 6.2",
+      "_guard_section_bboxes_positive|after Stage 6.2",
+      "_guard_stations_in_sections|after Stage 6.2",
+      "_guard_ports_on_boundaries|after Stage 6.2",
+      "_guard_station_x_column_drift|after Stage 6.2",
+      "_guard_coordinates_finite|after Stage 6.4",
+      "_guard_section_bboxes_positive|after Stage 6.4",
+      "_guard_stations_in_sections|after Stage 6.4",
+      "_guard_ports_on_boundaries|after Stage 6.4",
+      "_guard_no_station_overlap|after Stage 6.4",
+      "_guard_no_coincident_station_coords|after Stage 6.4",
+      "_guard_station_x_column_drift|after Stage 6.4",
+      "_guard_coordinates_finite|after Stage 6.5",
+      "_guard_section_bboxes_positive|after Stage 6.5",
+      "_guard_stations_in_sections|after Stage 6.5",
+      "_guard_ports_on_boundaries|after Stage 6.5",
+      "_guard_no_station_overlap|after Stage 6.5",
+      "_guard_no_coincident_station_coords|after Stage 6.5",
+      "_guard_station_x_column_drift|after Stage 6.5",
+      "_guard_coordinates_finite|after Stage 6.6",
+      "_guard_section_bboxes_positive|after Stage 6.6",
+      "_guard_stations_in_sections|after Stage 6.6",
+      "_guard_ports_on_boundaries|after Stage 6.6",
+      "_guard_no_station_overlap|after Stage 6.6",
+      "_guard_no_coincident_station_coords|after Stage 6.6",
+      "_guard_station_x_column_drift|after Stage 6.6",
+      "_guard_coordinates_finite|after Stage 6.10",
+      "_guard_section_bboxes_positive|after Stage 6.10",
+      "_guard_stations_in_sections|after Stage 6.10",
+      "_guard_ports_on_boundaries|after Stage 6.10",
+      "_guard_no_station_overlap|after Stage 6.10",
+      "_guard_no_coincident_station_coords|after Stage 6.10",
+      "_guard_station_x_column_drift|after Stage 6.10",
+      "_guard_anchors_frozen_during_placement|Stage 6.11 _balance_section_content_around_trunk",
+      "_guard_coordinates_finite|after Stage 6.11",
+      "_guard_section_bboxes_positive|after Stage 6.11",
+      "_guard_stations_in_sections|after Stage 6.11",
+      "_guard_ports_on_boundaries|after Stage 6.11",
+      "_guard_no_station_overlap|after Stage 6.11",
+      "_guard_no_coincident_station_coords|after Stage 6.11",
+      "_guard_station_x_column_drift|after Stage 6.11",
+      "_guard_anchors_frozen_during_placement|Stage 6.12 _recenter_loop_side_stations",
+      "_guard_coordinates_finite|after Stage 6.12",
+      "_guard_section_bboxes_positive|after Stage 6.12",
+      "_guard_stations_in_sections|after Stage 6.12",
+      "_guard_ports_on_boundaries|after Stage 6.12",
+      "_guard_no_station_overlap|after Stage 6.12",
+      "_guard_no_coincident_station_coords|after Stage 6.12",
+      "_guard_station_x_column_drift|after Stage 6.12",
+      "_guard_coordinates_finite|after Stage 6.13",
+      "_guard_section_bboxes_positive|after Stage 6.13",
+      "_guard_stations_in_sections|after Stage 6.13",
+      "_guard_ports_on_boundaries|after Stage 6.13",
+      "_guard_no_station_overlap|after Stage 6.13",
+      "_guard_no_coincident_station_coords|after Stage 6.13",
+      "_guard_station_x_column_drift|after Stage 6.13",
+      "_guard_coordinates_finite|after Stage 6.14",
+      "_guard_section_bboxes_positive|after Stage 6.14",
+      "_guard_stations_in_sections|after Stage 6.14",
+      "_guard_ports_on_boundaries|after Stage 6.14",
+      "_guard_no_station_overlap|after Stage 6.14",
+      "_guard_no_coincident_station_coords|after Stage 6.14",
+      "_guard_no_line_crosses_non_consumer|after Stage 6.14",
+      "_guard_sparse_loop_station_clears_column_neighbour|after Stage 6.14",
+      "_guard_station_x_column_drift|after Stage 6.14",
+      "_guard_coordinates_finite|after Stage 6.15",
+      "_guard_section_bboxes_positive|after Stage 6.15",
+      "_guard_stations_in_sections|after Stage 6.15",
+      "_guard_ports_on_boundaries|after Stage 6.15",
+      "_guard_no_station_overlap|after Stage 6.15",
+      "_guard_no_coincident_station_coords|after Stage 6.15",
+      "_guard_no_line_crosses_non_consumer|after Stage 6.15",
+      "_guard_sparse_loop_station_clears_column_neighbour|after Stage 6.15",
+      "_guard_station_x_column_drift|after Stage 6.15",
+      "_guard_coordinates_finite|after Stage 6.16",
+      "_guard_section_bboxes_positive|after Stage 6.16",
+      "_guard_stations_in_sections|after Stage 6.16",
+      "_guard_ports_on_boundaries|after Stage 6.16",
+      "_guard_no_station_overlap|after Stage 6.16",
+      "_guard_no_coincident_station_coords|after Stage 6.16",
+      "_guard_no_line_crosses_non_consumer|after Stage 6.16",
+      "_guard_sparse_loop_station_clears_column_neighbour|after Stage 6.16",
+      "_guard_station_x_column_drift|after Stage 6.16",
+      "_guard_coordinates_finite|after final",
+      "_guard_section_bboxes_positive|after final",
+      "_guard_stations_in_sections|after final",
+      "_guard_ports_on_boundaries|after final",
+      "_guard_no_station_overlap|after final",
+      "_guard_no_coincident_station_coords|after final",
+      "_guard_no_line_crosses_non_consumer|after final",
+      "_guard_sparse_loop_station_clears_column_neighbour|after final",
+      "_guard_station_x_column_drift|after final",
+      "_guard_row_trunk_cy_consistent|after final",
+      "_guard_off_track_clear_of_anchor|after final",
+      "_guard_fanout_junction_shares_exit_port_y|after final",
+      "_guard_fanout_junction_resolves_upstream|after final",
+      "_guard_entry_port_fed_only_by_ports|after final",
+      "_guard_flow_exit_anchored_to_carrier|after final",
+      "_guard_perp_fed_entry_anchored_to_consumer|after final",
+      "_guard_perp_entry_clears_vertical_trunk_head|after final",
+      "_guard_post_convergence_trunk_continues|after final",
+      "_guard_perp_entry_feed_not_collinear|after final",
+      "_guard_merge_port_approach_side|after final",
+      "_guard_convergence_shallow_feeder_concentric|after final",
+      "_guard_merge_port_outgoing_side_preserved|after final",
+      "_guard_exit_inherits_entry_bundle_order|after final",
+      "_guard_bypass_port_no_slot_gaps|after final",
+      "_guard_partial_branch_offset_gaps|after final",
+      "_guard_row_gaps|after final",
+      "_guard_section_top_padding|after final",
+      "_guard_terminus_icons_within_bbox|after final",
+      "_guard_inter_section_routes_in_row_band|after final",
+      "_guard_topmost_row_top_entry_hugs_section|after final",
+      "_guard_off_track_output_clears_non_producer|after final",
+      "_guard_tb_exit_corner_column_order|after final",
+      "_guard_no_split_same_line_fanout_descents|after final",
+      "_guard_no_distinct_line_fanout_crossing|after final",
+      "_guard_fan_merge_no_partition_crossing|after final",
+      "_guard_trunk_continuation_drops_straight|after final",
+      "_guard_no_dogleg_crosses_exempt_trunk|after final",
+      "_guard_no_stacked_elbow_graze|after final",
+      "_guard_fanout_tail_join|after final",
+      "_guard_perp_entry_boundary_consistent|after final",
+      "_guard_perp_exit_over_leadin_no_overdip|after final",
+      "_guard_right_entry_drop_in_when_clear|after final",
+      "_guard_inter_section_route_no_backtrack|after final",
+      "_guard_inter_section_route_no_full_width_backtrack|after final",
+      "_guard_routes_enter_sections_at_ports|after final",
+      "_guard_rail_connector_ports_no_stub|after final",
+      "_guard_no_route_through_section|after final",
+      "_guard_feeder_exits_section_through_side|after final",
+      "_guard_entry_approach_from_port_side|after final",
+      "_guard_no_opposing_line_overlap|after final",
+      "_guard_serpentine_no_backtrack|after final",
+      "_guard_no_artefactual_counter_flow|after final",
+      "_guard_inter_row_run_clearance|after final",
+      "_guard_trunk_bands_crossing_optimal|after final",
+      "_guard_inter_section_descent_edge_clearance|after final",
+      "_guard_fan_bundles_coincide_or_separate|after final",
+      "_guard_no_label_overlap|final",
+      "_guard_no_diagonal_strikes_horizontal_label|final",
+      "_guard_no_line_strikes_label|final",
+      "_guard_bypass_v_flat_visible|final",
+      "_guard_no_wrapped_label_trunk_strike|final",
+      "_guard_file_icon_no_name_label|final",
+      "_guard_no_line_crosses_file_icon|final",
+      "_guard_centered_line_spread_balanced|final",
+      "_guard_rail_above_label_band|final",
+      "_guard_rail_stations_seat_on_rails|final",
+      "_guard_rail_one_station_per_column|final",
+      "_guard_single_trunk_off_track_step|final",
+      "_guard_off_track_consumer_on_trunk|final",
+      "_guard_off_track_input_column_stack|final",
+      "_guard_interchange_bar_clears_non_members|final",
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_bottom_entry_flow_start.mmd": {
@@ -30325,7 +30849,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_bottom_exit_fork_diamond.mmd": {
@@ -30533,7 +31058,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_column_continuation_two_lines.mmd": {
@@ -30737,7 +31263,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_convergence_straight_drop.mmd": {
@@ -30937,7 +31464,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_internal_diagonal.mmd": {
@@ -31137,7 +31665,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_left_exit_step.mmd": {
@@ -31345,7 +31874,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_lr_exit_left.mmd": {
@@ -31549,7 +32079,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_lr_exit_right.mmd": {
@@ -31749,7 +32280,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_passthrough_continuation.mmd": {
@@ -31949,7 +32481,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_passthrough_trunk.mmd": {
@@ -32149,7 +32682,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_perp_exit_side_neighbour.mmd": {
@@ -32349,7 +32883,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_right_entry_stack.mmd": {
@@ -32553,7 +33088,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_trunk_through_fan.mmd": {
@@ -32932,7 +33468,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_two_line_vert_seam.mmd": {
@@ -33132,7 +33669,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/terminal_symmetric_fan.mmd": {
@@ -33346,7 +33884,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/terminus_join.mmd": {
@@ -33367,7 +33906,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/top_entry_header_clash.mmd": {
@@ -33571,7 +34111,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/trunk_through_fan.mmd": {
@@ -33785,7 +34326,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/u_turn_fold.mmd": {
@@ -33989,7 +34531,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/uneven_diamond.mmd": {
@@ -34010,7 +34553,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/upward_bypass.mmd": {
@@ -34210,7 +34754,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/variant_calling.mmd": {
@@ -34605,7 +35150,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/wide_fan_in.mmd": {
@@ -34817,7 +35363,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/wide_fan_out.mmd": {
@@ -35029,7 +35576,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/wide_label_fan.mmd": {
@@ -35436,7 +35984,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/wrapped_label_trunk.mmd": {
@@ -35457,7 +36006,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/variant_calling.mmd": {
@@ -35657,7 +36207,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/variant_calling_tuned.mmd": {
@@ -35857,7 +36408,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/variantbenchmarking.mmd": {
@@ -36061,7 +36613,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/variantbenchmarking_auto.mmd": {
@@ -36265,7 +36818,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/variantprioritization.mmd": {
@@ -36469,7 +37023,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/bubble_forced_label_clears_diagonal.mmd": {
@@ -36683,7 +37238,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/bubble_label_clears_diagonal.mmd": {
@@ -36897,7 +37453,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/bubble_output_above.mmd": {
@@ -37111,7 +37668,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/captioned_sibling_outputs.mmd": {
@@ -37325,7 +37883,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/da_pipeline.mmd": {
@@ -37545,7 +38104,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/diagonal_single_trunk_off_track.mmd": {
@@ -38163,7 +38723,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/file_icon_fanin.mmd": {
@@ -38383,7 +38944,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/font_scale.mmd": {
@@ -38597,7 +39159,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/genomeassembly_organellar.mmd": {
@@ -38817,7 +39380,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/icon_caption_wrap.mmd": {
@@ -39031,7 +39595,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/leaf_file_icon_on_trunk.mmd": {
@@ -39438,7 +40003,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/multiline_labels.mmd": {
@@ -39652,7 +40218,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/off_track_output_branched.mmd": {
@@ -39866,7 +40433,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/off_track_outputs_along_trunk.mmd": {
@@ -40080,7 +40648,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/rail_diagonal_labels.mmd": {
@@ -40298,7 +40867,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/rail_marker_fill.mmd": {
@@ -40526,7 +41096,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/rail_single_line_callers.mmd": {
@@ -40619,7 +41190,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/topologies/twoline_fanout_up.mmd": {
@@ -40839,7 +41411,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/trunk_align_matching_bundle.mmd": {
@@ -41053,7 +41626,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/uneven_diamond.mmd": {
@@ -41074,7 +41648,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   }
 }
