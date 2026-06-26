@@ -85,6 +85,24 @@ so it's the mode for iterating on a single pipeline - re-run and watch the same
 page - and it's the server the plugin's managed mode spawns. For many pipelines
 or runs side by side, use the dashboard in §2b instead.
 
+`serve` accepts two input formats:
+
+- **`.mmd`** - the source file; `serve` renders and lays out the map on startup.
+  Use this during map development, since changing the file and restarting
+  immediately reflects the update.
+- **`.svg`** - a pre-rendered SVG with its embedded manifest (the default output
+  of `nf-metro render`). `serve` reads station geometry and the process mapping
+  directly from the manifest - no re-render, no Python graph. Use this when you
+  have committed the SVG to a repo and want to serve it without the source, or
+  when you want layout to be stable across restarts regardless of any tool
+  version change. The `--theme` option has no effect in this mode (the SVG is
+  already drawn).
+
+!!! tip "SVG must carry a manifest"
+    The SVG path requires the manifest embedded in the file. `nf-metro render`
+    embeds it by default. If you opted out with `--no-manifest`, re-render
+    without that flag before serving.
+
 ### One-liner (recommended)
 
 Pass the Nextflow command after `--` and `serve` handles everything: it wires
@@ -92,7 +110,12 @@ Pass the Nextflow command after `--` and `serve` handles everything: it wires
 run finishes.
 
 ```bash
+# from a source file
 nf-metro serve path/to/map.mmd --open --shutdown-after-complete -- \
+    nextflow run my/pipeline
+
+# from a pre-rendered SVG
+nf-metro serve path/to/map.svg --open --shutdown-after-complete -- \
     nextflow run my/pipeline
 ```
 
@@ -102,7 +125,7 @@ If you prefer to keep the server and the pipeline in separate terminals (useful
 when iterating across many re-runs with the server left running):
 
 ```bash
-# shell 1 - the live server
+# shell 1 - the live server (either input format works)
 nf-metro serve path/to/map.mmd --port 8080
 # open http://localhost:8080/
 
