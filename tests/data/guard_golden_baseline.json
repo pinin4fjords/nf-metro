@@ -31054,7 +31054,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "examples/topologies/tb_bottom_exit_fork_diamond.mmd": {
@@ -41609,7 +41610,8 @@
       "_guard_off_track_consumer_on_trunk|final",
       "_guard_off_track_input_column_stack|final",
       "_guard_interchange_bar_clears_non_members|final",
-      "_guard_tb_top_entry_drop_hugs_top|final"
+      "_guard_tb_top_entry_drop_hugs_top|final",
+      "_guard_symmetric_diamond_branches_straddle_trunk|final"
     ]
   },
   "tests/fixtures/topologies/twoline_fanout_up.mmd": {
