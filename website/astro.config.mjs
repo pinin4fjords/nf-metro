@@ -1,9 +1,12 @@
 // @ts-check
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, fontProviders } from "astro/config";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
+
+// Expressive Code options (custom grammars + the color-chips plugin) live in
+// ec.config.mjs — the <Code> component requires them to be loadable separately.
 
 // Project GitHub Pages site: https://pinin4fjords.github.io/nf-metro/
 const site = "https://pinin4fjords.github.io";
@@ -16,27 +19,6 @@ const base = "/nf-metro/";
 // it to the dev server (which otherwise restricts /@fs/ to the project root).
 const examplesDir = fileURLToPath(new URL("../examples", import.meta.url));
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-
-// Custom TextMate grammar so ```metro / ```mmd blocks highlight nf-metro's
-// dialect (%%metro directives, graph/subgraph keywords, edges, node labels,
-// hex colors). Real Mermaid lives in ```mermaid fences, rendered as diagrams
-// by the astro-mermaid integration below.
-const metroGrammar = JSON.parse(
-  readFileSync(
-    new URL("./src/grammars/metro.tmLanguage.json", import.meta.url),
-    "utf8",
-  ),
-);
-
-// Shiki has no bundled Lark grammar, so ```lark fences in the parser docs would
-// render unhighlighted. This custom TextMate grammar covers Lark's rule/terminal
-// definitions, priorities, regex/string literals, and %directives.
-const larkGrammar = JSON.parse(
-  readFileSync(
-    new URL("./src/grammars/lark.tmLanguage.json", import.meta.url),
-    "utf8",
-  ),
-);
 
 // Compare two dotted version strings (e.g. "0.7.2", "0.1") so the larger sorts
 // first (descending). Missing patch components count as 0.
@@ -132,9 +114,7 @@ export default defineConfig({
       description:
         "Metro-map-style SVG diagrams from Mermaid graph definitions with %%metro directives — for visualizing bioinformatics pipeline workflows.",
       favicon: "/favicon.svg",
-      expressiveCode: {
-        shiki: { langs: [metroGrammar, larkGrammar] },
-      },
+      // Expressive Code options (grammars + color-chips plugin) are in ec.config.mjs.
       social: [
         {
           icon: "github",

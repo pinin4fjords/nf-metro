@@ -17,6 +17,7 @@
     "@mermaid-js/layout-elk": "^0.2.2",
     "astro": "^7.0.3",
     "astro-mermaid": "^2.1.0",
+    "expressive-code-color-chips": "^0.1.4",
     "mermaid": "^11.16.0",
     "sharp": "^0.35.2"
   }
