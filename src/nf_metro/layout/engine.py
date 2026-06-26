@@ -187,6 +187,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_single_trunk_off_track_step,
     _guard_station_x_column_drift,
     _guard_stations_in_sections,
+    _guard_symmetric_diamond_branches_straddle_trunk,
     _guard_tall_anchor_stack_well_formed,
     _guard_tb_exit_corner_column_order,
     _guard_tb_top_entry_drop_hugs_top,
@@ -700,6 +701,7 @@ def _compute_layout_scaled(
         _guard_off_track_input_column_stack(graph, "final")
         _guard_interchange_bar_clears_non_members(graph, "final")
         _guard_tb_top_entry_drop_hugs_top(graph, "final")
+        _guard_symmetric_diamond_branches_straddle_trunk(graph, "final")
 
 
 def _bypass_label_rakes(graph: MetroGraph) -> set[str]:

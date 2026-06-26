@@ -307,6 +307,15 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "holds its own track instead of collapsing the shorter ones together.",
     ),
     (
+        "symmetric_diamond_beside_wide_fan",
+        TOPOLOGIES_DIR,
+        "A `diamond_style: symmetric` 2-way fork-join sharing a section with a "
+        "wider 3-way fan. The 2-way diamond straddles its trunk evenly, but at "
+        "full pitch -- as tall as the 3-way fan, with an empty trunk row "
+        "between its branches -- because the half-pitch compaction is a "
+        "per-section decision the mixed-fan section cannot qualify for (#1076).",
+    ),
+    (
         "terminal_symmetric_fan",
         TOPOLOGIES_DIR,
         "A terminal section whose entry fans into equal-rank sinks; the "
@@ -444,6 +453,32 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "jogging sideways and reversing at the boundary, and the leg continuing "
         "to the far section rides the intervening section's own trunk for the "
         "shared line as one stroke (issue #1058).",
+    ),
+    (
+        "tb_bottom_exit_bundle_jog",
+        TOPOLOGIES_DIR,
+        "A four-line bundle leaves a TB section's BOTTOM exit and jogs down into "
+        "the TOP entry of an RL section placed in the row below and one column "
+        "to the left. The four lines keep distinct channels through the jog "
+        "instead of collapsing onto one (issue #1074).",
+    ),
+    (
+        "branch_fold_forward",
+        TOPOLOGIES_DIR,
+        "A side branch (Aux) shares a topo column with the spine (Genome). At a "
+        "low fold threshold the serpentine packer skips that branch column as a "
+        "fold point - folding it would strand Genome's consumer (Post) behind "
+        "it - and folds the spine instead, so every inter-section edge flows "
+        "forward and Genome's exit faces Post (issue #1080).",
+    ),
+    (
+        "branch_fold_stability",
+        TOPOLOGIES_DIR,
+        "A wide side branch (Survey) shares a topo column with the spine and sits "
+        "one station below its fold threshold. Adding a station inside Survey "
+        "must not re-grid the downstream Report onto a backward return row: "
+        "inter-section placement is a function of the DAG, not of intra-section "
+        "size (issue #1082).",
     ),
     # --- Offset and bypass ---
     (
@@ -1175,6 +1210,15 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "gap above the trunk head so both lines enter horizontally then drop "
         "straight onto their trunk lanes, rather than the staggered line "
         "slanting into the trunk for want of drop room (#1054).",
+    ),
+    (
+        "aligner_row_pinned_continuation",
+        TOPOLOGIES_DIR,
+        "Three sibling aligners feed one dedup hub that lands on the lead "
+        "aligner's row, while one aligner's line continues on a track pinned "
+        "to the section bottom by hidden continuation stations. The aligners "
+        "stack on consecutive grid rows instead of the low-line aligner being "
+        "dragged down to crowd its neighbour and strand the middle row (#1071).",
     ),
 ]
 

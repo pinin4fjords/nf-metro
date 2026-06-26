@@ -65,6 +65,62 @@ matched against the **fully-qualified** process name:
   `NFCORE_RNASEQ:RNASEQ:ALIGN:...`, when a tool recurs).
 - The directive is pure metadata: it never affects the rendered map.
 
+### Skip the boilerplate with `auto_process`
+
+When a map's station ids already name their processes (`star`, `salmon_quant`,
+`trimgalore`, ...), writing a `process:` line per station just restates the id.
+Set `%%metro auto_process: true` (or pass `--auto-process`) and each station
+with no explicit directive gets its own id as a default pattern, anchored to the
+final segment of the process name:
+
+```
+%%metro auto_process: true
+```
+
+`star` then matches `...:STAR_ALIGN`, `salmon_quant` matches `...:SALMON_QUANT`,
+and so on; a tool name buried in the scope path (e.g. `...:QUANTIFY_STAR_SALMON:SALMON_QUANT`)
+does **not** light up the `star` station. You write explicit `process:` lines
+only for the exceptions:
+
+- **Abstraction stations** whose id is not a process name (`fastqc_raw`,
+  `fastqc_trimmed`, `multiqc_final`) - the default matches nothing, so they stay
+  dark until you map them.
+- **One process under several scopes** - if the same process name runs in two
+  subworkflows that the map draws as separate stations (e.g. `salmon_quant` for
+  the genome aligner and `salmon_pseudo` for the pseudo-aligner), scope each
+  override by its subworkflow so the right station lights up.
+
+Run `check-mapping` after enabling it: a default that matches nothing surfaces
+as a dead pattern, pointing you straight at the stations that still need a line.
+
+### Factor out the shared prefix with `process_scope`
+
+The explicit `process:` lines for the exceptions all repeat the pipeline's
+fully-qualified prefix (`NFCORE_RNASEQ:RNASEQ:...`) and have to be written as
+regexes. Set `%%metro process_scope:` (or pass `--process-scope`) to the shared
+prefix and each `process:` value becomes the **tail** under that scope, joined
+as `<scope>:<tail>` and matched **literally**:
+
+```
+%%metro process_scope: NFCORE_RNASEQ:RNASEQ
+%%metro auto_process: true
+
+%%metro process: fastqc_raw    | FASTQ_FASTQC_UMITOOLS_TRIMGALORE:FASTQC
+%%metro process: salmon_quant  | QUANTIFY_STAR_SALMON:SALMON_QUANT
+%%metro process: salmon_pseudo | QUANTIFY_PSEUDO_ALIGNMENT:SALMON_QUANT
+```
+
+- The prefix lives in one place, so the per-station lines carry only what
+  distinguishes them.
+- Values are matched **literally** under a scope - a `.` is a dot, not a
+  wildcard - so a pasted process path is robust with no regex to get wrong.
+- Dropping the scope (and the explicit lines) falls back to `auto_process` leaf
+  matching, which ignores the path entirely and so survives a subworkflow
+  renesting; keep the explicit scoped lines where you need precision instead.
+
+Without a `process_scope`, `process:` values stay regexes (e.g.
+`NFCORE_RNASEQ:RNASEQ:.*ALIGN.*`), unchanged.
+
 ## The embedded data manifest
 
 `nf-metro serve` lights up a map because it holds the in-memory graph - it
@@ -93,14 +149,51 @@ so it's the mode for iterating on a single pipeline - re-run and watch the same
 page - and it's the server the plugin's managed mode spawns. For many pipelines
 or runs side by side, use the dashboard in §2b instead.
 
+`serve` accepts two input formats:
+
+- **`.mmd`** - the source file; `serve` renders and lays out the map on startup.
+  Use this during map development, since changing the file and restarting
+  immediately reflects the update.
+- **`.svg`** - a pre-rendered SVG with its embedded manifest (the default output
+  of `nf-metro render`). `serve` reads station geometry and the process mapping
+  directly from the manifest - no re-render, no Python graph. Use this when you
+  have committed the SVG to a repo and want to serve it without the source, or
+  when you want layout to be stable across restarts regardless of any tool
+  version change. The `--theme` option has no effect in this mode (the SVG is
+  already drawn).
+
+!!! tip "SVG must carry a manifest"
+The SVG path requires the manifest embedded in the file. `nf-metro render`
+embeds it by default. If you opted out with `--no-manifest`, re-render
+without that flag before serving.
+
+### One-liner (recommended)
+
+Pass the Nextflow command after `--` and `serve` handles everything: it wires
+`-with-weblog` automatically, opens your browser, and shuts itself down when the
+run finishes.
+
 ```bash
-nf-metro serve path/to/map.mmd --port 8080
+# from a source file
+nf-metro serve path/to/map.mmd --open --shutdown-after-complete -- \
+    nextflow run my/pipeline
+
+# from a pre-rendered SVG
+nf-metro serve path/to/map.svg --open --shutdown-after-complete -- \
+    nextflow run my/pipeline
 ```
 
-Then open <http://localhost:8080/> and start the pipeline with its weblog
-pointed at the server:
+### Two-shell alternative
+
+If you prefer to keep the server and the pipeline in separate terminals (useful
+when iterating across many re-runs with the server left running):
 
 ```bash
+# shell 1 - the live server (either input format works)
+nf-metro serve path/to/map.mmd --port 8080
+# open http://localhost:8080/
+
+# shell 2 - the pipeline
 nextflow run my/pipeline -with-weblog http://localhost:8080/events
 ```
 
@@ -108,13 +201,16 @@ Stations light up as tasks are submitted, run, and complete. A browser that
 connects mid-run receives the current state immediately, so you never see a
 blank map.
 
-| Option      | Meaning                                                                                                                              |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `--port`    | Port to listen on (default 8080).                                                                                                    |
-| `--host`    | Interface to bind. Default `127.0.0.1` (local only); use `0.0.0.0` to accept connections from other hosts.                           |
-| `--theme`   | Theme name (`nfcore`, `light`, `seqera`). The page chrome (background, text) follows the theme, so a light theme gives a light page. |
-| `--overlay` | Status-overlay style: `ring` (default), `pulse`, `dot`, or `led`. Sets the style shown until a viewer picks another.                 |
-| `--token`   | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header.                                                       |
+| Option                      | Meaning                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `--port`                    | Port to listen on (default 8080).                                                                                                    |
+| `--host`                    | Interface to bind. Default `127.0.0.1` (local only); use `0.0.0.0` to accept connections from other hosts.                           |
+| `--theme`                   | Theme name (`nfcore`, `light`, `seqera`). The page chrome (background, text) follows the theme, so a light theme gives a light page. |
+| `--overlay`                 | Status-overlay style: `ring` (default), `pulse`, `dot`, or `led`. Sets the style shown until a viewer picks another.                 |
+| `--open`                    | Open the live page in the default browser when the server starts.                                                                    |
+| `--shutdown-after-complete` | Stop the server shortly after the run's `completed` or `error` event (or after the launched command exits).                          |
+| `--shutdown-grace`          | Seconds to keep the map up after the run finishes before shutting down (used with `--shutdown-after-complete`; default 5).           |
+| `--token`                   | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header.                                                       |
 
 ### Overlay styles
 
@@ -340,4 +436,14 @@ but are not treated as failures since they may be intentional.
 The repository ships a self-contained demo under
 [`examples/live/`](https://github.com/pinin4fjords/nf-metro/tree/main/examples/live):
 a toy workflow whose processes only `sleep`, a mapped map, and a process list
-for `check-mapping`. See its `README.md` to run it end to end.
+for `check-mapping`. From the repo root:
+
+```bash
+nf-metro serve examples/live/pipeline.mmd --open --shutdown-after-complete -- \
+    nextflow run examples/live/workflow/main.nf \
+              -c examples/live/workflow/nextflow.config
+```
+
+Three coloured lines fan out after Trim Galore, run in parallel, then converge
+at MultiQC. The browser opens automatically and the server stops when the
+pipeline finishes.

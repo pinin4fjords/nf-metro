@@ -9,6 +9,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import networkx as nx
+
 from nf_metro.layout.constants import (
     COLLINEAR_AXIS_TOL,
     COMPONENT_BAND_OVERLAP_TOLERANCE,
@@ -40,6 +42,7 @@ from nf_metro.layout.phases._common import (
     _restoring_layout_geometry,
     _route_crosses_section_boundary,
     _section_bundle_lines,
+    _section_lr_port_anchor_y,
     _station_marker_bbox,
     first_vertical_leg_sign,
     first_vertical_leg_x,
@@ -47,6 +50,7 @@ from nf_metro.layout.phases._common import (
     is_loop_side_branch_station,
     iter_sole_trunk_continuations,
     marker_cross_exempt,
+    routes_through_own_section_interior,
     routes_through_unrelated_sections,
 )
 from nf_metro.layout.phases.bbox import _section_fit_top
@@ -540,6 +544,53 @@ def _guard_tb_top_entry_drop_hugs_top(graph: MetroGraph, phase: str) -> None:
             f"its box top despite a clean vertical TOP-entry drop "
             f"(expected <= {SECTION_Y_PADDING:.1f})"
         )
+
+
+def _guard_symmetric_diamond_branches_straddle_trunk(
+    graph: MetroGraph, phase: str
+) -> None:
+    """Final: in ``diamond_style='symmetric'`` a clean horizontal 2-way diamond
+    keeps both branches off the trunk row.
+
+    A fork F whose only two successors B1, B2 rejoin at a common successor J,
+    with F and J on the same row (the trunk runs straight through), must place
+    both branches clear of that row.  A branch landing on the trunk row means a
+    grid-snap collapsed the diamond.
+
+    Skipped when F or J is a port: an entry-port fork keeps its first branch on
+    the through-track and fans the rest to one side, a deliberately asymmetric
+    placement rather than a collapse.
+    """
+    if graph.diamond_style != "symmetric":
+        return
+    g: nx.DiGraph[str] = nx.DiGraph()
+    for edge in graph.edges:
+        if edge.source in graph.stations and edge.target in graph.stations:
+            g.add_edge(edge.source, edge.target)
+    tol = SAME_COORD_TOLERANCE
+    for fork in g:
+        branches = list(g.successors(fork))
+        if len(branches) != 2 or graph.stations[fork].is_port:
+            continue
+        b1, b2 = branches
+        if list(g.predecessors(b1)) != [fork] or list(g.predecessors(b2)) != [fork]:
+            continue
+        joins = list(g.successors(b1))
+        if len(joins) != 1 or joins != list(g.successors(b2)):
+            continue
+        join = joins[0]
+        if graph.stations[join].is_port:
+            continue
+        trunk_y = graph.stations[fork].y
+        if abs(graph.stations[join].y - trunk_y) > tol:
+            continue
+        for b in (b1, b2):
+            if abs(graph.stations[b].y - trunk_y) <= tol:
+                raise PhaseInvariantError(
+                    f"{phase}: symmetric diamond branch {b!r} sits on the trunk "
+                    f"row y={trunk_y:.1f} (fork {fork!r} -> {join!r}); the diamond "
+                    f"collapsed instead of straddling"
+                )
 
 
 def _guard_section_bboxes_positive(graph: MetroGraph, phase: str) -> None:
@@ -1254,6 +1305,82 @@ def _guard_off_track_input_column_stack(graph: MetroGraph, phase: str) -> None:
                 f"station(s) share its column and anchor -- it is stranded above "
                 f"an empty row (expected at most {n * step:.1f}px)"
             )
+
+
+# Same-column on-track stations sit at least one row pitch apart, and the
+# half-grid symfan idiom places members at half a pitch.  A sparse loop station
+# crowded below this fraction of a pitch from a column neighbour can only have
+# been shifted toward it, so the threshold sits between the half-grid offset and
+# a full row.
+_LOOP_STATION_COLUMN_CLEARANCE_FRACTION = 0.6
+
+
+def _guard_sparse_loop_station_clears_column_neighbour(
+    graph: MetroGraph, phase: str
+) -> None:
+    """A sparse single-line loop station clears its same-column neighbours by
+    at least a row pitch.
+
+    ``_shift_sparse_loop_stations_to_clear_bundle`` (Stage 6.14) shifts a
+    sparse loop station (one edge in, one edge out, both endpoints on the
+    section trunk) one row off the trunk only to clear a busier same-row
+    sibling whose inbound bundle crosses its column.  Fired without that
+    crossing, the shift pushes the station a partial pitch toward a
+    same-column neighbour, crowding the two markers and stranding the row it
+    skipped (issue #1071).  The complementary
+    :func:`_guard_no_line_crosses_non_consumer` catches the opposite error
+    of skipping a needed shift.
+    """
+    from nf_metro.layout.engine import compute_min_y_spacing
+
+    pitch = compute_min_y_spacing(graph)
+    if pitch <= 0:
+        return
+    floor = _LOOP_STATION_COLUMN_CLEARANCE_FRACTION * pitch
+    half_grid = graph.half_grid_station_ids
+    tol = 1.0
+    for section in graph.sections.values():
+        if section.bbox_h <= 0 or section.direction not in ("LR", "RL"):
+            continue
+        trunk_y = _section_lr_port_anchor_y(graph, section)
+        if trunk_y is None:
+            continue
+        port_ids = set(section.entry_ports) | set(section.exit_ports)
+        members = [
+            st
+            for sid in section.station_ids
+            if sid not in port_ids
+            and (st := graph.stations.get(sid)) is not None
+            and not (st.is_port or st.is_hidden or st.off_track)
+            and sid not in half_grid
+        ]
+        for st in members:
+            ins = graph.edges_to(st.id)
+            outs = graph.edges_from(st.id)
+            if len(ins) != 1 or len(outs) != 1:
+                continue
+            src = graph.stations.get(ins[0].source)
+            tgt = graph.stations.get(outs[0].target)
+            if src is None or tgt is None:
+                continue
+            if (
+                abs(src.y - trunk_y) > SAME_COORD_TOLERANCE
+                or abs(tgt.y - trunk_y) > SAME_COORD_TOLERANCE
+                or abs(st.y - trunk_y) <= SAME_COORD_TOLERANCE
+            ):
+                continue
+            for other in members:
+                if other.id == st.id or abs(other.x - st.x) > SAME_COORD_TOLERANCE:
+                    continue
+                gap = abs(other.y - st.y)
+                if tol < gap < floor:
+                    raise PhaseInvariantError(
+                        f"{phase}: sparse loop station {st.id!r} (y={st.y:.1f}, "
+                        f"x={st.x:.1f}) sits only {gap:.1f}px from same-column "
+                        f"neighbour {other.id!r} (y={other.y:.1f}), under one row "
+                        f"pitch ({pitch:.1f}) -- shifted toward it without a "
+                        f"crossing bundle to clear"
+                    )
 
 
 def _guard_off_track_consumer_on_trunk(graph: MetroGraph, phase: str) -> None:
@@ -2576,6 +2703,43 @@ def _guard_no_route_through_section(
             f"{rp.edge.source!r}->{rp.edge.target!r} passes through section "
             f"{sid!r} without interacting with any station there "
             f"({len(offenders)} pass-through(s) total)"
+        )
+
+
+def _guard_inter_section_route_clears_own_section_interior(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """After routing: an inter-section route must not run back through the
+    interior of its own source or target section box.
+
+    A route connects a source section's exit port to a target section's entry
+    port, both on the box boundary; reaching between them means travelling the
+    inter-section gaps and routing *around* the boxes.  A segment whose
+    interior lies inside its own source or target bbox has clawed back through
+    the box -- the symptom of an exit side that faces away from the consumer,
+    which renders as a silent wrapped/backtracking bundle (#1078, surfaced by
+    #1074).  ``_guard_no_route_through_section`` exempts a route's own
+    sections; this guard covers exactly that gap.
+
+    This guard makes the wrap *visible* on the render path; choosing an exit
+    side that faces the consumer (#1081) and routing around the boxes (#1083)
+    is what removes it.
+    """
+    offenders = routes_through_own_section_interior(
+        graph, routes=routes, offsets=offsets
+    )
+    if offenders:
+        rp, sid = offenders[0]
+        raise PhaseInvariantError(
+            f"{phase}: inter-section route {rp.edge.source!r}->"
+            f"{rp.edge.target!r} line {rp.line_id!r} runs back through the "
+            f"interior of its own section {sid!r} instead of routing around it "
+            f"({len(offenders)} interior crossing(s) total); the exit side "
+            f"faces away from the target and the bundle wraps"
         )
 
 
@@ -4022,6 +4186,21 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         bisection_safe=True,
         first_valid_stage="after Stage 6.14",
     ),
+    # The sparse loop-station shift runs at Stage 6.14, so its crowding
+    # outcome is only observable from that checkpoint onward.
+    GuardSpec(
+        _guard_sparse_loop_station_clears_column_neighbour,
+        "A",
+        bisection_safe=True,
+        first_valid_stage="after Stage 6.14",
+        issue_pin=("#1071",),
+        narrow_reason=(
+            "Scoped to sparse single-line loop stations (one edge in, one out, "
+            "both endpoints on the section trunk) on LR/RL sections -- the only "
+            "stations Stage 6.14 shifts -- and exempts half-grid symfan members "
+            "that legitimately sit a half pitch from a column neighbour."
+        ),
+    ),
     GuardSpec(_guard_station_x_column_drift, "A", bisection_safe=True),
     # --- final-only set (run only at the closing ``after final`` boundary) ---
     # The row trunk Y is only finalised once Stage 6.7 has re-centred
@@ -4195,7 +4374,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_inter_section_route_no_backtrack,
-        "B",
+        "A",
         needs=frozenset({"routes"}),
         issue_pin=("#386",),
         narrow_reason=(
@@ -4206,7 +4385,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_inter_section_route_no_full_width_backtrack,
-        "B",
+        "A",
         needs=frozenset({"routes"}),
     ),
     GuardSpec(
@@ -4234,6 +4413,19 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "A route may occupy a section's bbox only where it has a station "
             "there (its source or port-entered target); exempting those is "
             "what stops it flagging legitimate occupancy."
+        ),
+    ),
+    GuardSpec(
+        _guard_inter_section_route_clears_own_section_interior,
+        "A",
+        needs=frozenset({"routes", "offsets"}),
+        issue_pin=("#1074", "#1078", "#1081", "#1083"),
+        narrow_reason=(
+            "Fires only on a route through its OWN source/target box interior "
+            "(the gap _guard_no_route_through_section leaves by exempting those "
+            "sections); a clean route grazes only their boundary ports and an "
+            "own-line trunk overlay is exempt, so it stays silent on legitimate "
+            "wraps and is the always-on detector for the #1078 backtrack."
         ),
     ),
     GuardSpec(
@@ -4269,7 +4461,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "channel are not flagged."
         ),
     ),
-    GuardSpec(_guard_serpentine_no_backtrack, "B", needs=frozenset({"routes"})),
+    GuardSpec(_guard_serpentine_no_backtrack, "A", needs=frozenset({"routes"})),
     GuardSpec(
         _guard_no_artefactual_counter_flow,
         "B",
@@ -4356,6 +4548,7 @@ INLINE_GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "than the spread-widened y_spacing."
         ),
     ),
+    GuardSpec(_guard_symmetric_diamond_branches_straddle_trunk, "B"),
     GuardSpec(_guard_tall_anchor_stack_well_formed, "B"),
     GuardSpec(_guard_tb_top_entry_drop_hugs_top, "B"),
 )

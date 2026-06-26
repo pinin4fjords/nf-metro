@@ -63,7 +63,11 @@ Each line takes a different route through its own analysis section, then all thr
 
 When optional processing steps mean the **same line** can reach a destination from multiple sources, nf-metro consolidates the overlapping routes. One bypass carries the full path (the "trunk"), and closer sources drop down to join it:
 
-<Code code={fanInMergeMmd} lang="metro" title="examples/guide/03b_fan_in_merge.mmd" />
+<Code
+  code={fanInMergeMmd}
+  lang="metro"
+  title="examples/guide/03b_fan_in_merge.mmd"
+/>
 
 ![Fan-in merge example](assets/renders/03b_fan_in_merge.svg)
 
@@ -75,7 +79,11 @@ By default every section flows left-to-right (`LR`). You can change a section's 
 
 This example adds a top-to-bottom (`TB`) section that acts as a vertical connector between the fan-out analysis paths and the final reporting section:
 
-<Code code={directionsMmd} lang="metro" title="examples/guide/04_directions.mmd" />
+<Code
+  code={directionsMmd}
+  lang="metro"
+  title="examples/guide/04_directions.mmd"
+/>
 
 ![Directions example](assets/renders/04_directions.svg)
 
@@ -108,7 +116,11 @@ Two things are needed:
 
 The blank label tells nf-metro to render the document icon (with the label from the directive) instead of a pill-shaped station. Connect it to the pipeline with normal edges like any other station.
 
-<Code code={fileIconsMmd} lang="metro" title="examples/guide/05_file_icons.mmd" />
+<Code
+  code={fileIconsMmd}
+  lang="metro"
+  title="examples/guide/05_file_icons.mmd"
+/>
 
 ![File icons example](assets/renders/05_file_icons.svg)
 
@@ -196,7 +208,11 @@ Sometimes you need a branching or merging point in the graph that doesn't repres
 
 Here is a pipeline with a visible `branch` station that serves only as a fork point:
 
-<Code code={withoutHiddenMmd} lang="metro" title="examples/guide/06a_without_hidden.mmd" />
+<Code
+  code={withoutHiddenMmd}
+  lang="metro"
+  title="examples/guide/06a_without_hidden.mmd"
+/>
 
 ![Visible branch point](assets/renders/06a_without_hidden.svg)
 
@@ -277,6 +293,8 @@ These go at the top of the file, before `graph LR`.
 | `%%metro interchange: <node> \| <rail-1 lines> \| <rail-2 lines> [\| ...]` | Render a shared step as a cross-track interchange instead of a convergence point (see below). Each pipe-group is one rail (comma-separated lines bundle on it). Auto-layout infers this for fully-parallel lanes, so the directive is only needed to pin a grouping.                                                                                                                                   |
 | `%%metro legend_min_height: <pixels>`                                      | Minimum legend content height in pixels (useful for single-line maps where the logo would otherwise be tiny)                                                                                                                                                                                                                                                                                           |
 | `%%metro process: <station> \| <regex>`                                    | Tie a station to the Nextflow process(es) it represents, for live progress (see [Live progress](/nf-metro/live/)). The regex matches the fully-qualified process name; repeat the directive to attach several patterns to one station. Pure metadata - it never affects the rendered map.                                                                                                              |
+| `%%metro auto_process: <bool>`                                             | Give every station with no explicit `process:` directive its own id as a default process pattern, so a map whose station ids already name their processes lights up live with no per-station mapping (see [Live progress](/nf-metro/live/)). Off by default; CLI equivalent `--auto-process`.                                                                                                          |
+| `%%metro process_scope: <prefix>`                                          | Common fully-qualified-name prefix shared by the pipeline's processes (e.g. `NFCORE_RNASEQ:RNASEQ`). Each `process:` value is then the tail under this scope, matched literally and tolerant of intermediate subworkflow nesting (see [Live progress](/nf-metro/live/)). CLI equivalent `--process-scope`.                                                                                             |
 | `%%metro manifest: <bool>`                                                 | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `%%metro manifest: false` (or `--no-manifest`) emits the drawn map only.                                                                                                                                                                                            |
 
 **Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.

@@ -77,6 +77,9 @@
           "x": { "type": "number", "description": "Centre x, absolute SVG user units." },
           "y": { "type": "number", "description": "Centre y, absolute SVG user units." },
           "r": { "type": "number", "description": "Nominal marker radius." },
+          "w": { "type": "number", "description": "Marker pill width (SVG user units)." },
+          "h": { "type": "number", "description": "Marker pill height (SVG user units)." },
+          "rx": { "type": "number", "description": "Marker pill corner radius." },
           "groups": {
             "type": "array",
             "items": { "type": "string" },

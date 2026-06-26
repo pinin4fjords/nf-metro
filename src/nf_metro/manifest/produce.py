@@ -39,8 +39,10 @@ def build_manifest_data(
         nodes: The addressable nodes. Each is a mapping with required ``id``,
             ``x``, ``y``, ``r`` and optional ``label`` (defaults to ``id``),
             ``groups`` (ids of any groups the node belongs to), ``region`` (one
-            containing region id), and ``patterns`` (the regexes the node
-            matches). Coordinates are rounded here, so pass raw values.
+            containing region id), ``patterns`` (the regexes the node
+            matches), and ``w``/``h``/``rx`` (marker pill dimensions, emitted
+            when present so an overlay can reproduce the exact shape).
+            Coordinates are rounded here, so pass raw values.
         groups: Optional multi-membership categories; each a mapping with
             ``id``, ``label``, ``color``.
         regions: Optional single-membership containers; each a mapping with
@@ -85,6 +87,9 @@ def _node_entry(node: Mapping[str, Any]) -> dict[str, Any]:
     }
     if node.get("region"):
         entry["region"] = node["region"]
+    for key in ("w", "h", "rx"):
+        if node.get(key) is not None:
+            entry[key] = _round1(node[key])
     return entry
 
 
@@ -170,14 +175,19 @@ def node_data_attrs(
     r: float,
     groups: Sequence[str] = (),
     region: str | None = None,
+    w: float | None = None,
+    h: float | None = None,
+    rx: float | None = None,
 ) -> dict[str, Any]:
     """The ``data-node-*`` attribute set for one node's element.
 
     The DOM-addressable mirror of a manifest node: ``data-node-id`` is the join
     key (equals the manifest ``id``) and the geometry attributes mirror the
     manifest's ``x``/``y``/``r`` (rounded to 1dp), so a consumer can position
-    against either half interchangeably.  Returned as a plain dict so a producer
-    can spread it onto whatever element it draws.
+    against either half interchangeably.  When the marker box dimensions are
+    known, ``w``/``h``/``rx`` are also emitted so an overlay can reproduce the
+    exact pill shape without re-rendering.  Returned as a plain dict so a
+    producer can spread it onto whatever element it draws.
     """
     attrs: dict[str, Any] = {
         "data-node-id": id,
@@ -188,4 +198,10 @@ def node_data_attrs(
     }
     if region:
         attrs["data-node-region"] = region
+    if w is not None:
+        attrs["data-node-w"] = _round1(w)
+    if h is not None:
+        attrs["data-node-h"] = _round1(h)
+    if rx is not None:
+        attrs["data-node-rx"] = _round1(rx)
     return attrs

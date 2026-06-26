@@ -376,6 +376,15 @@ class MetroGraph:
     directional: bool = False
     strict: bool = False
     embed_manifest: bool = True
+    # When set, every real station with no explicit %%metro process: directive
+    # gets its own id as a default process pattern, so a map whose station ids
+    # already name their processes lights up live with no per-station mapping.
+    auto_process: bool = False
+    # Common fully-qualified-name prefix shared by a pipeline's processes (e.g.
+    # "NFCORE_RNASEQ:RNASEQ"). When set, each explicit %%metro process: value is
+    # the tail under this scope, combined as "<scope>:<tail>" and matched
+    # literally, so a pasted process path needs no regex and no repeated prefix.
+    process_scope: str = ""
     # Max station-columns a section row may reach before the auto-layout wraps
     # it onto the next row. None falls back to 15; raise it to keep a long
     # horizontal trunk of sections on a single row. Overridden by the

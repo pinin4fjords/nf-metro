@@ -18,6 +18,7 @@ import jsonschema
 import pytest
 from conftest import compute_corpus_layout, content_corpus, parse_and_layout
 
+from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.live.mapping import stations_for_process
 from nf_metro.render.manifest import (
     MANIFEST_SCHEMA_VERSION,
@@ -25,7 +26,7 @@ from nf_metro.render.manifest import (
     match_node_ids,
     read_manifest,
 )
-from nf_metro.render.svg import render_svg
+from nf_metro.render.svg import render_svg, station_marker_box
 from nf_metro.themes import NFCORE_THEME
 
 # A small map with sections, multiple lines, and a process mapping so every
@@ -130,10 +131,12 @@ def test_nodes_coords_and_patterns_match_graph() -> None:
     }
     assert set(by_id) == expected
 
+    offsets = compute_station_offsets(graph)
     for sid, entry in by_id.items():
         st = graph.stations[sid]
-        assert entry["x"] == round(st.x, 1)
-        assert entry["y"] == round(st.y, 1)
+        cx, cy, _, _, _ = station_marker_box(graph, NFCORE_THEME, st, offsets)
+        assert entry["x"] == round(cx, 1)
+        assert entry["y"] == round(cy, 1)
         assert entry["r"] == round(NFCORE_THEME.station_radius, 1)
         assert entry["groups"] == graph.station_lines(sid)
         assert entry["patterns"] == graph.process_mapping.get(sid, [])
