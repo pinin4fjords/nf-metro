@@ -1,4 +1,6 @@
-# How nf-metro is built
+---
+title: "How nf-metro is built"
+---
 
 nf-metro is a layout engine, a rendering pipeline, and a test harness, assembled incrementally over several months. This page describes the engineering decisions behind it: why the validation layers exist, how the visual review loop works, and what the "ratchet" discipline means in practice. If you want to work on the codebase, this is the context.
 
@@ -12,7 +14,7 @@ Because the phases share mutable state and everything depends on everything else
 
 ## The four validation layers
 
-The codebase has four complementary validation layers. They are complementary, not redundant: each catches bugs the others cannot see. These are described in detail in the [Testing docs](testing.md#the-four-validation-layers); the short version:
+The codebase has four complementary validation layers. They are complementary, not redundant: each catches bugs the others cannot see. These are described in detail in the [Testing docs](/nf-metro/testing/#the-four-validation-layers); the short version:
 
 | Layer | What it checks | When |
 |---|---|---|
@@ -71,11 +73,11 @@ Not all phase guards are equal. The guard system has three tiers:
 - **Tier B (defensive)**: guards that protect against known fragile transitions. Enabled but annotated.
 - **Issue-pinned**: guards that track a known defect against the corpus, marked `xfail`. When the issue is fixed, the test flips to `XPASS` and prompts removal of the pin.
 
-The full tier taxonomy and rationale is in [`docs/dev/guard_tiers.md`](guard_tiers.md).
+The full tier taxonomy and rationale is in [`docs/dev/guard_tiers.md`](/nf-metro/guard_tiers/).
 
 ## Routing dispatch
 
-The routing module uses a [first-match dispatcher](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/core.py) over a table of handler families. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The dispatch table and the full handler inventory are documented in [`docs/dev/inter_section_dispatch.md`](inter_section_dispatch.md) and [`docs/dev/routing_gate_coverage.md`](routing_gate_coverage.md).
+The routing module uses a [first-match dispatcher](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/core.py) over a table of handler families. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The dispatch table and the full handler inventory are documented in [`docs/dev/inter_section_dispatch.md`](/nf-metro/inter_section_dispatch/) and [`docs/dev/routing_gate_coverage.md`](/nf-metro/routing_gate_coverage/).
 
 When adding a new routing case, the pattern is:
 
@@ -88,12 +90,12 @@ When adding a new routing case, the pattern is:
 
 The `docs/dev/` tree covers the internals in detail:
 
-- [`architecture.md`](architecture.md) - system overview and data flow
-- [`layout_pipeline.md`](layout_pipeline.md) - the phase sequence with entry/exit contracts
-- [`routing.md`](routing.md) - edge routing mechanics and the centreline/offset model
-- [`inter_section_dispatch.md`](inter_section_dispatch.md) - the dispatch table for inter-section routes
-- [`routing_gate_coverage.md`](routing_gate_coverage.md) - which handler arms are covered by corpus tests
-- [`parser.md`](parser.md) - the Lark grammar and post-parse rewrites
-- [`testing.md`](testing.md) - test structure and validation layers in detail
+- [`architecture.md`](/nf-metro/architecture/) - system overview and data flow
+- [`layout_pipeline.md`](/nf-metro/layout_pipeline/) - the phase sequence with entry/exit contracts
+- [`routing.md`](/nf-metro/routing/) - edge routing mechanics and the centreline/offset model
+- [`inter_section_dispatch.md`](/nf-metro/inter_section_dispatch/) - the dispatch table for inter-section routes
+- [`routing_gate_coverage.md`](/nf-metro/routing_gate_coverage/) - which handler arms are covered by corpus tests
+- [`parser.md`](/nf-metro/parser/) - the Lark grammar and post-parse rewrites
+- [`testing.md`](/nf-metro/testing/) - test structure and validation layers in detail
 
 The `CONTRACT.md` at [`src/nf_metro/layout/CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md) is the per-phase lifecycle specification: what each phase receives, modifies, and guarantees.

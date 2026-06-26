@@ -1,0 +1,23 @@
+{
+  "name": "nf-metro-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.40.0",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@mermaid-js/layout-elk": "^0.2.2",
+    "astro": "^6.4.5",
+    "astro-mermaid": "^2.1.0",
+    "mermaid": "^11.16.0",
+    "sharp": "^0.34.5"
+  }
+}

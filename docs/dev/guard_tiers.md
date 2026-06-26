@@ -1,4 +1,8 @@
-# Guard tiers
+---
+title: "Guard tiers"
+sidebar:
+  order: 7
+---
 
 nf-metro defends its layout output with two families of runtime invariant:
 

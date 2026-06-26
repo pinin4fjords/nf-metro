@@ -1,4 +1,6 @@
-# Importing from Nextflow
+---
+title: "Importing from Nextflow"
+---
 
 nf-metro can convert Nextflow's built-in DAG output into a metro map. This works best for simple pipelines with a handful of subworkflows. For complex pipelines like those in nf-core, direct conversion is unlikely to produce a good diagram -- you will need to hand-write or heavily edit the `.mmd` file. Improving this is an active area of development.
 
@@ -140,7 +142,7 @@ nf-metro render pipeline.mmd -o pipeline.svg
 
 Here is what the converter produces for the variant calling pipeline:
 
-```text
+```metro
 %%metro title: Preprocess / Alignment / Variant Calling Pipeline
 %%metro style: dark
 %%metro line: main | Main | #2db572
@@ -189,7 +191,7 @@ graph LR
 
 After editing -- cleaning up labels, renaming the bypass line, and adding a proper title -- the `.mmd` becomes:
 
-```text
+```metro
 %%metro title: Variant Calling Pipeline
 %%metro style: dark
 %%metro line: main | Main | #2db572
@@ -238,7 +240,7 @@ graph LR
 
 ![Variant calling - hand-tuned](assets/renders/nf_variant_calling_tuned.svg)
 
-The changes are small but the diagram reads better: proper casing on labels (BWA-MEM, SAMtools, GATK HaplotypeCaller), a meaningful line name ("QC Reporting" instead of "Preprocess - Reporting"), and a cleaner title. See the [Guide](guide.md) for the full `.mmd` format reference.
+The changes are small but the diagram reads better: proper casing on labels (BWA-MEM, SAMtools, GATK HaplotypeCaller), a meaningful line name ("QC Reporting" instead of "Preprocess - Reporting"), and a cleaner title. See the [Guide](/nf-metro/guide/) for the full `.mmd` format reference.
 
 ## Adding file icons
 
@@ -248,7 +250,7 @@ Starting from the hand-tuned variant calling example above, here is what changes
 
 1. Add `%%metro file:` directives at the top of the file, one per file terminus:
 
-    ```text
+    ```metro
     %%metro file: fastq_in | FASTQ
     %%metro file: ref_in | FASTA
     %%metro file: vcf_out | VCF
@@ -269,7 +271,7 @@ Starting from the hand-tuned variant calling example above, here is what changes
 
 Here is the full `.mmd` with file icons added:
 
-```text
+```metro
 %%metro title: Variant Calling Pipeline
 %%metro style: dark
 %%metro file: fastq_in | FASTQ
@@ -346,7 +348,7 @@ Add `banner` as a fourth field to a `file:` or `files:` directive to draw the fo
 
 Nextflow's `-with-dag` output contains three types of nodes: processes (the actual pipeline steps), channels/values (data plumbing), and operators (Nextflow internals like `mix` and `collect`). Here is the raw DAG for the flat pipeline example:
 
-```text
+```metro
 flowchart TB
     subgraph " "
     v0["Channel.of"]
@@ -384,7 +386,7 @@ The converter:
 
 The result for this example:
 
-```text
+```metro
 %%metro title: Pipeline
 %%metro style: dark
 %%metro line: main | Main | #2db572

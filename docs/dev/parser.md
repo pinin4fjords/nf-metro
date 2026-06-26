@@ -1,4 +1,8 @@
-# Parser
+---
+title: "Parser"
+sidebar:
+  order: 8
+---
 
 A walkthrough of how nf-metro turns `.mmd` text into a `MetroGraph`. If
 you're adding a node shape, a `%%metro` directive, or a new statement
@@ -13,7 +17,7 @@ transformer), `directives.py` (directive parsing and dispatch), `resolve.py`
 (the post-parse graph rewrites), and `mermaid.py` (the public entry point and
 statement-application driver).
 Parsing is the first of the three stages (**Parse -> Layout -> Render**);
-the [layout pipeline](layout_pipeline.md) takes over from the `MetroGraph`
+the [layout pipeline](/nf-metro/dev/layout_pipeline/) takes over from the `MetroGraph`
 this stage produces.
 
 ## What "parsing" means here

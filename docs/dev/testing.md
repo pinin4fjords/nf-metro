@@ -1,4 +1,8 @@
-# Testing
+---
+title: "Testing"
+sidebar:
+  order: 10
+---
 
 The test suite has four complementary validation layers, each checking a
 different artifact at a different point in the pipeline.  Run everything
@@ -58,7 +62,7 @@ CI, prompting the marker's removal.
 The per-phase preconditions, postconditions, and invariants the layout
 engine must preserve are documented in
 [`src/nf_metro/layout/CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md);
-see also [Layout pipeline](layout_pipeline.md).
+see also [Layout pipeline](/nf-metro/dev/layout_pipeline/).
 
 ## The byte-identical gallery diff
 

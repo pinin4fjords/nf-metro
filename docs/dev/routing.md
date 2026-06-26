@@ -1,4 +1,8 @@
-# Routing
+---
+title: "Routing"
+sidebar:
+  order: 3
+---
 
 Routing turns the laid-out `MetroGraph` (stations, ports, and junctions
 with coordinates) into a list of `RoutedPath` polylines, one per edge.

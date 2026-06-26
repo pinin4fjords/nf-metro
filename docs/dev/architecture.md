@@ -1,4 +1,8 @@
-# Architecture
+---
+title: "Architecture"
+sidebar:
+  order: 1
+---
 
 nf-metro turns a Mermaid `graph LR` definition (augmented with `%%metro`
 directives) into a metro-map-style SVG.  The pipeline has three stages:
@@ -23,7 +27,7 @@ edges, plus the `%%metro` directive extensions.  After the line scan it
 runs a post-parse pass that auto-infers layout, then rewrites
 inter-section edges into port/junction chains via `_resolve_sections`.
 
-See [Parser](parser.md) for the directive model and the
+See [Parser](/nf-metro/dev/parser/) for the directive model and the
 parse-then-resolve flow.
 
 ### Layout (`src/nf_metro/layout/`)
@@ -39,8 +43,8 @@ in
 Edge routing (horizontal runs plus 45-degree diagonal transitions, with
 L-shaped inter-section routing) lives in `layout/routing/`.
 
-See [Layout pipeline](layout_pipeline.md) for the full phase-by-phase
-walkthrough and [Routing](routing.md) for the route families.
+See [Layout pipeline](/nf-metro/dev/layout_pipeline/) for the full phase-by-phase
+walkthrough and [Routing](/nf-metro/dev/routing/) for the route families.
 
 ### Render (`src/nf_metro/render/`)
 
@@ -55,14 +59,14 @@ using the `drawsvg` library.  Visual properties come from a `Theme`
 
 | Topic | Where |
 | --- | --- |
-| Layout phase-by-phase | [layout_pipeline.md](layout_pipeline.md) |
+| Layout phase-by-phase | [layout_pipeline.md](/nf-metro/dev/layout_pipeline/) |
 | Per-phase contract (preconditions/postconditions/invariants) | [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md) |
-| Edge routing families | [routing.md](routing.md) |
-| Routing gate-arm coverage matrix (auto-generated) | [routing_gate_coverage.md](routing_gate_coverage.md) |
-| Routing gate-arm triage process | [routing_gate_triage.md](routing_gate_triage.md) |
-| Parser and `%%metro` model | [parser.md](parser.md) |
-| SVG, HTML, bridges, manifest, animation | [render.md](render.md) |
-| Adding fixtures, tests, invariants | [testing.md](testing.md) |
+| Edge routing families | [routing.md](/nf-metro/dev/routing/) |
+| Routing gate-arm coverage matrix (auto-generated) | [routing_gate_coverage.md](/nf-metro/dev/routing_gate_coverage/) |
+| Routing gate-arm triage process | [routing_gate_triage.md](/nf-metro/dev/routing_gate_triage/) |
+| Parser and `%%metro` model | [parser.md](/nf-metro/dev/parser/) |
+| SVG, HTML, bridges, manifest, animation | [render.md](/nf-metro/dev/render/) |
+| Adding fixtures, tests, invariants | [testing.md](/nf-metro/dev/testing/) |
 | Topology stress fixtures (inventory + known issues) | [`examples/topologies/README.md`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/README.md) |
 
 ## Data model

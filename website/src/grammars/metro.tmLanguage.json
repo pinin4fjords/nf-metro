@@ -1,0 +1,115 @@
+{
+  "displayName": "Mermaid / nf-metro",
+  "name": "metro",
+  "scopeName": "source.metro",
+  "aliases": [
+    "mmd",
+    "metro-map"
+  ],
+  "patterns": [
+    {
+      "include": "#metro-directive"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#keyword"
+    },
+    {
+      "include": "#edge"
+    },
+    {
+      "include": "#edgelabel"
+    },
+    {
+      "include": "#nodelabel"
+    },
+    {
+      "include": "#color"
+    },
+    {
+      "include": "#number"
+    }
+  ],
+  "repository": {
+    "metro-directive": {
+      "begin": "(%%metro)[ \\t]+([a-zA-Z_]+:)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.directive.metro"
+        },
+        "2": {
+          "name": "support.type.property-name.metro"
+        }
+      },
+      "end": "$",
+      "patterns": [
+        {
+          "include": "#color"
+        },
+        {
+          "match": "\\|",
+          "name": "punctuation.separator.metro"
+        },
+        {
+          "match": "\\b(true|false|left|right|top|bottom|bundle|centered|rails|solid|dashed|dotted|definition|span|straight|symmetric)\\b",
+          "name": "constant.language.metro"
+        },
+        {
+          "include": "#number"
+        }
+      ]
+    },
+    "comment": {
+      "match": "%%.*$",
+      "name": "comment.line.percentage.mermaid"
+    },
+    "keyword": {
+      "match": "\\b(graph|flowchart|subgraph|end|direction|classDef|class|style|linkStyle)\\b|(?<=\\b(?:graph|flowchart)[ \\t])(LR|RL|TB|TD|BT)\\b",
+      "name": "keyword.control.mermaid"
+    },
+    "edge": {
+      "match": "(-{2,3}>|<-{2,3}|-\\.->|-\\.-|={2,3}>|--|===|~~~)",
+      "name": "keyword.operator.edge.mermaid"
+    },
+    "edgelabel": {
+      "begin": "\\|",
+      "end": "\\|",
+      "name": "string.other.edgelabel.mermaid",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.edgelabel.mermaid"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.edgelabel.mermaid"
+        }
+      }
+    },
+    "nodelabel": {
+      "begin": "[\\[({]",
+      "end": "[\\])}]",
+      "name": "string.quoted.nodelabel.mermaid",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.nodelabel.mermaid"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.nodelabel.mermaid"
+        }
+      }
+    },
+    "color": {
+      "match": "#[0-9A-Fa-f]{3,8}\\b",
+      "name": "constant.other.color.rgb-value.hex"
+    },
+    "number": {
+      "match": "\\b[0-9]+(\\.[0-9]+)?\\b",
+      "name": "constant.numeric.mermaid"
+    }
+  }
+}

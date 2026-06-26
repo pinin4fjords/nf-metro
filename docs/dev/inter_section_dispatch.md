@@ -1,4 +1,9 @@
-# Inter-section dispatch table
+---
+title: "Inter-section dispatch table"
+sidebar:
+  label: "Inter-section dispatch"
+  order: 4
+---
 
 Inter-section edges (port/junction to port/junction) are routed by
 `_route_inter_section` in
@@ -9,7 +14,7 @@ matched against an ordered list of named rules, and the first whose predicate
 holds owns the route.
 
 Every rule's handler builds its route from a centreline through the
-[bundle builder](routing.md) (`build_concentric_bundle` /
+[bundle builder](/nf-metro/dev/routing/) (`build_concentric_bundle` /
 `build_tapered_bundle`), so no handler assembles per-line points or corner
 radii by hand. The runtime curve guard (below) is a backstop, not the
 mechanism that keeps the routes correct.

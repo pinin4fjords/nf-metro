@@ -1,4 +1,8 @@
-# Contributing
+---
+title: "Contributing"
+sidebar:
+  order: 11
+---
 
 This page covers the development workflow for nf-metro: how to set up, run checks, add tests, and submit changes.
 
@@ -84,7 +88,7 @@ The corollary: once a check is in, it stays in. Do not remove checks to make CI 
 
 ## Adding a routing handler
 
-The routing module uses a first-match dispatcher over handler families in `src/nf_metro/layout/routing/`. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The full dispatch table is documented in [`docs/dev/inter_section_dispatch.md`](inter_section_dispatch.md).
+The routing module uses a first-match dispatcher over handler families in `src/nf_metro/layout/routing/`. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The full dispatch table is documented in [`docs/dev/inter_section_dispatch.md`](/nf-metro/dev/inter_section_dispatch/).
 
 To add a handler for a new case:
 

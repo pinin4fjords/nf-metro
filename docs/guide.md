@@ -1,4 +1,6 @@
-# Writing metro maps
+---
+title: "Writing metro maps"
+---
 
 nf-metro turns text descriptions of pipelines into metro-map-style diagrams. Input files use a subset of [Mermaid](https://mermaid.js.org/) `graph LR` syntax, extended with `%%metro` directives for colors, sections, and layout control.
 
@@ -8,7 +10,7 @@ This guide builds up the format step by step, starting from a flat list of stati
 
 The simplest metro map needs three things: **lines** (colored routes), **stations** (pipeline steps), and **edges** (connections that carry lines between stations).
 
-```text
+```metro
 %%metro title: Simple Pipeline
 %%metro style: dark
 %%metro line: main | Main | #4CAF50
@@ -40,8 +42,9 @@ A few things to notice:
 - **Stations** use Mermaid node syntax: `node_id[Label]`.
 - **Edges** carry a line ID: `source -->|line_id| target`. An edge can carry multiple lines at once: `a -->|line1,line2| b`.
 
-!!! tip "Declare each station on its own line"
-    Give every station one labelled line of its own (`fastqc[FastQC]`) and use **bare ids** in edges (`fastqc -->|qc| multiqc`). Because most stations are shared by several edges, this keeps each label in exactly one place, and it gives `%%metro` directives (`file:`, `marker:`, `off_track:`, ...) a clear node to anchor to. nf-metro also accepts inline-shaped endpoints (`fastqc[FastQC] -->|qc| multiqc[MultiQC]`) for Mermaid compatibility, but avoid them in committed maps: a station can only carry its inline label on one of its edges, so mixing the two styles fragments where a label lives.
+:::tip[Declare each station on its own line]
+Give every station one labelled line of its own (`fastqc[FastQC]`) and use **bare ids** in edges (`fastqc -->|qc| multiqc`). Because most stations are shared by several edges, this keeps each label in exactly one place, and it gives `%%metro` directives (`file:`, `marker:`, `off_track:`, ...) a clear node to anchor to. nf-metro also accepts inline-shaped endpoints (`fastqc[FastQC] -->|qc| multiqc[MultiQC]`) for Mermaid compatibility, but avoid them in committed maps: a station can only carry its inline label on one of its edges, so mixing the two styles fragments where a label lives.
+:::
 
 Without sections, all stations sit on a single track. That works for simple pipelines, but real workflows have logical groupings.
 
@@ -49,7 +52,7 @@ Without sections, all stations sit on a single track. That works for simple pipe
 
 Sections wrap related stations in visual boxes using Mermaid `subgraph` blocks. This makes the diagram easier to read and lets the layout engine route lines between groups automatically.
 
-```text
+```metro
 %%metro title: Sectioned Pipeline
 %%metro style: dark
 %%metro line: main | Main | #4CAF50
@@ -90,7 +93,7 @@ nf-metro places sections on a grid automatically based on their dependencies. It
 
 When lines diverge from a shared section into separate analysis paths and then reconverge, nf-metro stacks the target sections vertically and routes each line to its destination:
 
-```text
+```metro
 %%metro title: Fan-out Pipeline
 %%metro style: dark
 %%metro line: wgs | Whole Genome | #e63946
@@ -144,7 +147,7 @@ Each line takes a different route through its own analysis section, then all thr
 
 When optional processing steps mean the **same line** can reach a destination from multiple sources, nf-metro consolidates the overlapping routes. One bypass carries the full path (the "trunk"), and closer sources drop down to join it:
 
-```text
+```metro
 %%metro title: Fan-In Merge
 %%metro style: dark
 %%metro line: main | Main | #0570b0
@@ -195,7 +198,7 @@ By default every section flows left-to-right (`LR`). You can change a section's 
 
 This example adds a top-to-bottom (`TB`) section that acts as a vertical connector between the fan-out analysis paths and the final reporting section:
 
-```text
+```metro
 %%metro title: Section Directions
 %%metro style: dark
 %%metro line: rna | RNA-seq | #2db572
@@ -256,7 +259,7 @@ Two things are needed:
 
 1. A **`%%metro file:`** directive at the top of the file, mapping a station ID to a label:
 
-    ```text
+    ```metro
     %%metro file: reads_in | FASTQ
     %%metro file: report_out | HTML
     ```
@@ -269,7 +272,7 @@ Two things are needed:
 
 The blank label tells nf-metro to render the document icon (with the label from the directive) instead of a pill-shaped station. Connect it to the pipeline with normal edges like any other station.
 
-```text
+```metro
 %%metro title: File Icons
 %%metro style: dark
 %%metro file: reads_in | FASTQ
@@ -307,7 +310,7 @@ For a complex real-world example using file icons, see [`examples/rnaseq_section
 
 When a station represents paired input files (e.g. paired-end FASTQ reads), use `%%metro files:` instead of `%%metro file:`. This renders a stacked-documents icon to visually distinguish it from a single file:
 
-```text
+```metro
 %%metro files: reads_in | FASTQ
 ```
 
@@ -317,7 +320,7 @@ When a station represents paired input files (e.g. paired-end FASTQ reads), use 
 
 For stations that represent a directory of output files rather than a single file, use `%%metro dir:`:
 
-```text
+```metro
 %%metro dir: results_out | Results
 ```
 
@@ -329,7 +332,7 @@ All three directives (`file:`, `files:`, `dir:`) work the same way: pair a stati
 
 The label inside an icon is meant for a short type chip (e.g. `CSV`, `FASTQ`). To attach a human-readable name without overlapping the chip, add an optional third field to the directive:
 
-```text
+```metro
 %%metro file: samples_in | CSV | Samples
 %%metro file: contrasts_in | YAML | Contrasts
 ```
@@ -340,7 +343,7 @@ The name is rendered as a caption directly below the icon. If multiple labels ar
 
 To make a format stand out, add `banner` as a fourth field to a `file:` or `files:` directive. The format label then renders as bold white text on a dark strip across the lower part of the icon, transit-map "format chip" style, while the white document stays visible:
 
-```text
+```metro
 %%metro files: aln_out | BAM | Alignments | banner
 ```
 
@@ -352,7 +355,7 @@ Any `name` caption (third field) still renders below the icon, so `| <name> | ba
 
 By default every station is drawn as a uniform pill. The `%%metro marker:` directive overrides one station's marker so it can encode a tool attribute - mandatory vs optional, hardware-accelerated, expanded in another diagram - through its shape and fill:
 
-```text
+```metro
 %%metro marker: node_id | shape, fill
 ```
 
@@ -363,13 +366,13 @@ By default every station is drawn as a uniform pill. The `%%metro marker:` direc
 
 To explain the markers, add a key below the line legend with `%%metro marker_legend:`, one row per shape/fill combination:
 
-```text
+```metro
 %%metro marker_legend: shape, fill | Caption
 ```
 
 Here a two-line variant-calling pipeline uses square (mandatory), open-circle (optional), pill (expanded elsewhere) and coloured-square (hardware-accelerated) markers, with a matching key:
 
-```text
+```metro
 %%metro title: Per-station marker styles
 %%metro style: dark
 %%metro line: germline | Germline calling | #0570b0
@@ -429,7 +432,7 @@ Sometimes you need a branching or merging point in the graph that doesn't repres
 
 Here is a pipeline with a visible `branch` station that serves only as a fork point:
 
-```text
+```metro
 %%metro title: Visible Branch Point
 %%metro style: dark
 %%metro line: dna | DNA | #e63946
@@ -467,7 +470,7 @@ graph LR
 
 The "Branch" station is real in the graph but meaningless in the pipeline. Renaming it to `_branch` hides it:
 
-```text
+```metro
     subgraph processing [Processing]
         _branch
         align[Alignment]
@@ -497,7 +500,7 @@ The nf-core/variantbenchmarking example at [`examples/variantbenchmarking_auto.m
 
 ![nf-core/variantbenchmarking](assets/renders/variantbenchmarking_auto.svg)
 
-See the [Gallery](gallery/index.md) for more rendered examples.
+See the [Gallery](/nf-metro/gallery/) for more rendered examples.
 
 ---
 
@@ -541,7 +544,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro line_spread: <mode>[ \| <id>...]` | How lines sharing a station relate vertically (see below). `<mode>` is `bundle` (default), `centered`, or `rails`. The bare form sets the graph default; `<mode> \| sectionA, sectionB` overrides those sections. |
 | `%%metro interchange: <node> \| <rail-1 lines> \| <rail-2 lines> [\| ...]` | Render a shared step as a cross-track interchange instead of a convergence point (see below). Each pipe-group is one rail (comma-separated lines bundle on it). Auto-layout infers this for fully-parallel lanes, so the directive is only needed to pin a grouping. |
 | `%%metro legend_min_height: <pixels>` | Minimum legend content height in pixels (useful for single-line maps where the logo would otherwise be tiny) |
-| `%%metro process: <station> \| <regex>` | Tie a station to the Nextflow process(es) it represents, for live progress (see [Live progress](live.md)). The regex matches the fully-qualified process name; repeat the directive to attach several patterns to one station. Pure metadata - it never affects the rendered map. |
+| `%%metro process: <station> \| <regex>` | Tie a station to the Nextflow process(es) it represents, for live progress (see [Live progress](/nf-metro/live/)). The regex matches the fully-qualified process name; repeat the directive to attach several patterns to one station. Pure metadata - it never affects the rendered map. |
 | `%%metro manifest: <bool>` | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `%%metro manifest: false` (or `--no-manifest`) emits the drawn map only. |
 
 **Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.
@@ -550,7 +553,7 @@ With `%%metro compact_offsets: true`, stations are only as wide as the lines act
 
 **Off-track inputs.** Pipelines often have reference or auxiliary inputs (a FASTA, a GTF, a known-variants VCF) that feed *into* a processing step partway through a section rather than flowing along the main route. By default such an input station would claim a line-track slot on the trunk, pushing the layout around. List its station ID in `%%metro off_track:` and nf-metro lifts it above the section's main track, dropping it down into its consumer:
 
-```text
+```metro
 %%metro file: ref_in | FASTA | Reference
 %%metro file: gtf_in | GTF | Annotation
 %%metro off_track: ref_in, gtf_in
@@ -560,7 +563,7 @@ This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the 
 
 **Off-track outputs.** The same directive works for file *artefacts* written part-way through a section (a `bam`/`cram` dumped after a mapping step, say). A producer-fed sink - a station with an incoming edge from an on-track step and no on-track consumer - is anchored above its **producer** rather than the section top, so the artefact hangs off the trunk right where it is written:
 
-```text
+```metro
 %%metro file: bam_mapped | BAM
 %%metro off_track: bam_mapped
 ```
@@ -575,13 +578,13 @@ The [off_track_outputs](https://github.com/pinin4fjords/nf-metro/blob/main/examp
 
 The bare directive sets the graph-wide default:
 
-```text
+```metro
 %%metro line_spread: rails
 ```
 
 Append `| <section>, ...` to override individual sections, so one map can mix modes - a `bundle` trunk feeding a `rails` analysis panel, say:
 
-```text
+```metro
 %%metro line_spread: centered
 %%metro line_spread: rails | pathways
 ```
@@ -594,7 +597,7 @@ Unlike `line_spread: rails`, this is per-node and works in ordinary `bundle`/`ce
 
 Auto-layout infers an interchange automatically wherever the lanes are *fully parallel* - every line through the node has its own predecessor and its own successor, so converging them buys nothing. You only need the directive to pin a specific rail grouping (e.g. bundling two lines onto one rail), or to force an interchange where lines share a neighbour:
 
-```text
+```metro
 %%metro interchange: markduplicates | tumor | normal
 ```
 

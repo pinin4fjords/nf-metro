@@ -1,9 +1,12 @@
-# Live progress
+---
+title: "Live progress"
+---
 
-!!! note "Stable since 1.0"
-    The `%%metro process:` directive, `nf-metro serve` / `nf-metro check-mapping`
-    commands, and the event/overlay formats are stable as of 1.0 and covered by
-    semantic versioning.
+:::note[Stable since 1.0]
+The `%%metro process:` directive, `nf-metro serve` / `nf-metro check-mapping`
+commands, and the event/overlay formats are stable as of 1.0 and covered by
+semantic versioning.
+:::
 
 nf-metro can light up a metro map in real time as a Nextflow pipeline runs.
 Stock Nextflow `-with-weblog` posts task events to `nf-metro serve`, which draws
@@ -11,9 +14,14 @@ a status overlay on top of the static map - stations go pending → queued →
 running → done (or failed) with a per-sample count. No Seqera Platform, no
 plugin.
 
-```
-nextflow run --with-weblog ──HTTP──> nf-metro serve ──SSE──> browser overlay
-   (task events)                   (map + process mapping)   (stations light up)
+```mermaid
+flowchart TD
+    A["<code style='white-space:nowrap'>nextflow run --with-weblog</code><br/>(task events)"]
+    B["<code style='white-space:nowrap'>nf-metro serve</code><br/>(map + process mapping)"]
+    C["browser overlay<br/>(stations light up)"]
+
+    A -->|HTTP| B
+    B -->|SSE| C
 ```
 
 The layout is computed once and the overlay is drawn on top, so the map never
@@ -21,9 +29,9 @@ re-flows as state changes.
 
 <video controls autoplay loop muted playsinline
        style="width: 100%; max-width: 760px; border-radius: 6px"
-       src="../assets/live_demo.mp4">
+       src="/nf-metro/assets/live_demo.mp4">
   Your browser can't play the embedded video -
-  <a href="../assets/live_demo.mp4">download it here</a>.
+  <a href="/nf-metro/assets/live_demo.mp4">download it here</a>.
 </video>
 
 *A pipeline run lighting up the map in real time.*
@@ -35,7 +43,7 @@ Nextflow processes (often a whole subworkflow), so the mapping is many-to-one.
 Declare it with `%%metro process:` directives - a station id and a regex
 matched against the **fully-qualified** process name:
 
-```text
+```metro
 %%metro process: align | NFCORE_RNASEQ:RNASEQ:.*ALIGN.*
 %%metro process: qc    | FASTQC
 %%metro process: qc    | MULTIQC
@@ -70,13 +78,13 @@ re-render.
 
 The manifest format is tool-neutral (a station is a *node*, a line a *group*, a
 section a *region*); its schema, matching semantics, and reader/matcher tooling
-are a standalone contract documented on the [Data manifest](manifest.md) page -
+are a standalone contract documented on the [Data manifest](/nf-metro/manifest/) page -
 the same standard any non-metro tool can emit. Set `%%metro manifest: false`
 (or `--no-manifest`) to emit the drawn map only, with no manifest, no
 `data-node-*` attributes, and no station-group wrapper.
 
 `serve` is one ready-made consumer of that manifest. To drive the overlay from
-your **own** application instead, see the [Embedding guide](embedding.md).
+your **own** application instead, see the [Embedding guide](/nf-metro/embedding/).
 
 ## 2. Serve the map
 
@@ -197,31 +205,32 @@ the plumbing handled for you. The Python tooling here never depends on it.
 
 ### Installing the plugin
 
-!!! warning "Not yet on the Nextflow plugin registry"
-    The plugin is not yet published to the Nextflow plugin registry, so the
-    normal `plugins { id 'nf-metro@0.1.0' }` auto-download does not work yet.
-    Build and install it locally first:
+:::caution[Not yet on the Nextflow plugin registry]
+The plugin is not yet published to the Nextflow plugin registry, so the
+normal `plugins { id 'nf-metro@0.1.0' }` auto-download does not work yet.
+Build and install it locally first:
 
-    ```bash
-    git clone https://github.com/pinin4fjords/nf-metro-plugin
-    cd nf-metro-plugin
-    make install        # installs to ~/.nextflow/plugins
-    ```
+```bash
+git clone https://github.com/pinin4fjords/nf-metro-plugin
+cd nf-metro-plugin
+make install        # installs to ~/.nextflow/plugins
+```
 
-    Requires Java 17+ and Nextflow 25.10.0+. Once installed, the `plugins {}`
-    block in the config examples below will find it.
+Requires Java 17+ and Nextflow 25.10.0+. Once installed, the `plugins {}`
+block in the config examples below will find it.
 
-    Alternatively, run against the build tree without installing (build first,
-    then set `NXF_PLUGINS_DEV`; still requires `-plugins` on the command line):
+Alternatively, run against the build tree without installing (build first,
+then set `NXF_PLUGINS_DEV`; still requires `-plugins` on the command line):
 
-    ```bash
-    git clone https://github.com/pinin4fjords/nf-metro-plugin
-    cd nf-metro-plugin
-    make assemble       # build but do not install
-    # then, from anywhere:
-    NXF_PLUGINS_DEV=/path/to/nf-metro-plugin \
-      nextflow run my/pipeline -plugins nf-metro@0.1.0
-    ```
+```bash
+git clone https://github.com/pinin4fjords/nf-metro-plugin
+cd nf-metro-plugin
+make assemble       # build but do not install
+# then, from anywhere:
+NXF_PLUGINS_DEV=/path/to/nf-metro-plugin \
+  nextflow run my/pipeline -plugins nf-metro@0.1.0
+```
+:::
 
 ### Plugin demo: shared dashboard
 
@@ -267,12 +276,13 @@ register-then-emit step is awkward to do by hand). The plugin has three modes -
 attach, managed, central - documented in its
 [README](https://github.com/pinin4fjords/nf-metro-plugin#three-modes).
 
-!!! note "Managed mode requires `nf-metro` on PATH"
-    Managed mode spawns `nf-metro serve` as a subprocess, so the `nf-metro`
-    command must be on the PATH when Nextflow runs. If it is not found the
-    plugin logs a warning and the pipeline continues without the live map.
-    Use `metro.binary = '/absolute/path/to/nf-metro'` in the config to point
-    to a specific installation.
+:::note[Managed mode requires `nf-metro` on PATH]
+Managed mode spawns `nf-metro serve` as a subprocess, so the `nf-metro`
+command must be on the PATH when Nextflow runs. If it is not found the
+plugin logs a warning and the pipeline continues without the live map.
+Use `metro.binary = '/absolute/path/to/nf-metro'` in the config to point
+to a specific installation.
+:::
 
 ## 3. Keep the mapping honest
 

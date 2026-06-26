@@ -1,17 +1,20 @@
-# Embed contract: `data-*` attributes and driver API
+---
+title: "Embed contract: `data-*` attributes and driver API"
+---
 
 This is the **reference** for the stable surface a host depends on. If you are
-starting out, read the task-oriented [Embedding guide](embedding.md) first - it
+starting out, read the task-oriented [Embedding guide](/nf-metro/embedding/) first - it
 explains which output to produce and how to size, theme, and drive a map - and
 come here for the exact attribute vocabulary and driver method signatures.
 
-!!! note "Stable as of nf-metro 1.0"
-    The embed contract is a public, versioned surface. The `data-*` attribute
-    names, the driver API, and the manifest schema are governed by the driver
-    contract version (`DRIVER_CONTRACT_VERSION`) and manifest schema version
-    (`MANIFEST_SCHEMA_VERSION`), both `1.0`. Changes follow `major.minor`
-    semantics (see [Versioning](#versioning)): additive changes bump the minor,
-    breaking changes bump the major. Consumers must tolerate unknown fields.
+:::note[Stable as of nf-metro 1.0]
+The embed contract is a public, versioned surface. The `data-*` attribute
+names, the driver API, and the manifest schema are governed by the driver
+contract version (`DRIVER_CONTRACT_VERSION`) and manifest schema version
+(`MANIFEST_SCHEMA_VERSION`), both `1.0`. Changes follow `major.minor`
+semantics (see [Versioning](#versioning)): additive changes bump the minor,
+breaking changes bump the major. Consumers must tolerate unknown fields.
+:::
 
 An nf-metro SVG is a **self-describing, driveable artifact**.  A host page
 can:
@@ -23,7 +26,7 @@ can:
 
 This page documents the two halves of the contract: the **`data-*` attributes**
 carried by the SVG and the **driver API** that a host uses to manipulate it.
-The [Data manifest](manifest.md) page covers the manifest format (nodes, groups,
+The [Data manifest](/nf-metro/manifest/) page covers the manifest format (nodes, groups,
 regions, overlays) in more depth.
 
 ---
@@ -69,7 +72,7 @@ svg.querySelectorAll('[data-section-lines]')
 A second set - `data-node-id` and `data-node-cx`/`-cy`/`-r` (plus
 `data-node-groups`/`-region`) - carries the coordinate and pattern data overlays
 need. It is written by the manifest system and specified in full under
-[Per-node attributes](manifest.md#per-node-attributes) on the Data manifest page.
+[Per-node attributes](/nf-metro/manifest/#per-node-attributes) on the Data manifest page.
 
 Both sets join on the station id (`data-station-id` = `data-node-id` =
 `node.id` in the manifest JSON).
@@ -201,9 +204,9 @@ Alias for `clearHighlight()`.
 For a coordinate-accurate progress overlay (e.g. lighting up stations as a
 pipeline runs), draw a transparent layer that shares the base SVG's `viewBox`
 and place markers at each node's manifest coordinates. The
-[`overlay_svg()`](manifest.md#the-functions) helper builds that layer, and the
+[`overlay_svg()`](/nf-metro/manifest/#the-functions) helper builds that layer, and the
 manifest tutorial,
-[Light up a diagram as a job runs](manifest.md#tutorial-light-up-a-diagram-as-a-job-runs),
+[Light up a diagram as a job runs](/nf-metro/manifest/#tutorial-light-up-a-diagram-as-a-job-runs),
 walks the full read-match-draw recipe end to end.
 
 The `highlightLine` / `selectNode` API and the overlay approach are

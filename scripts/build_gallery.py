@@ -33,9 +33,18 @@ NEXTFLOW_FIXTURES_DIR = project_root / "tests" / "fixtures" / "nextflow"
 TEST_FIXTURES_DIR = project_root / "tests" / "fixtures"
 TOPOLOGIES_DIR = project_root / "examples" / "topologies"
 GUIDE_DIR = project_root / "examples" / "guide"
+# Markdown content lives in the repo-root docs/ dir (the Astro site in website/
+# loads it via a symlink: website/src/content/docs -> ../../docs).
 GALLERY_DIR = project_root / "docs" / "gallery"
 PIPELINES_DIR = project_root / "docs" / "pipelines"
 RENDERS_DIR = project_root / "docs" / "assets" / "renders"
+
+# Base-absolute URL prefix for generated *page* links (matches astro.config `base`).
+SITE_BASE = "/nf-metro/"
+# Relative path from a generated page (docs/<dir>/index.md) up to docs/assets/renders.
+# gallery/ + pipelines/ are one dir deep, so one `../` reaches docs/. Astro bundles and
+# base-prefixes these (via the content symlink), so URLs render correctly and on GitHub.
+RENDERS_REL = "../assets/renders"
 
 # Ordered list of examples. Each entry is (filename_stem, source_dir, description).
 # Main examples first, then topologies grouped by category.
@@ -78,7 +87,7 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "rnaseq_auto",
         EXAMPLES_DIR,
         "Demonstrates fully auto-inferred layout: no `%%metro grid:` directives "
-        "needed. See [nf-core Pipelines](../pipelines/index.md) for the full gallery.",
+        f"needed. See [nf-core Pipelines]({SITE_BASE}pipelines/) for the full gallery.",
     ),
     (
         "rnaseq_sections",
@@ -1346,7 +1355,9 @@ def build_gallery() -> None:
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 
     lines: list[str] = [
-        "# Gallery",
+        "---",
+        "title: Gallery",
+        "---",
         "",
         "Rendered examples covering a range of layout patterns. "
         "Click any heading in the right-hand table of contents to jump to an example.",
@@ -1393,13 +1404,13 @@ def build_gallery() -> None:
         lines.append(f"{description}\n")
         lines.append("**CLI command:**\n")
         lines.append(f"```bash\nnf-metro render {cli_path} -o {stem}.svg\n```\n")
-        lines.append('??? note "Mermaid source"\n')
-        lines.append("    ```text")
-        for src_line in mmd_source.rstrip().split("\n"):
-            lines.append(f"    {src_line}")
-        lines.append("    ```\n")
+        lines.append("<details>\n<summary>Mermaid source</summary>\n")
+        lines.append("```metro")
+        lines.extend(mmd_source.rstrip().split("\n"))
+        lines.append("```\n")
+        lines.append("</details>\n")
         lines.append("**Rendered output:**\n")
-        lines.append(f"![{heading}](../assets/renders/{stem}.svg)\n")
+        lines.append(f"![{heading}]({RENDERS_REL}/{stem}.svg)\n")
 
     gallery_md = "\n".join(lines)
     gallery_path = GALLERY_DIR / "index.md"
@@ -1464,13 +1475,15 @@ def build_pipelines_page() -> None:
     print("nf-core pipelines:")
 
     lines: list[str] = [
-        "# nf-core Pipelines",
+        "---",
+        "title: nf-core pipelines",
+        "---",
         "",
         "Real-world pipelines rendered with nf-metro. These are maintained as "
         "`.mmd` files alongside the pipeline source code and rendered automatically.",
         "",
-        "See the [Gallery](../gallery/index.md) for layout pattern examples and the "
-        "[Guide](../guide.md) for how to write your own.",
+        f"See the [Gallery]({SITE_BASE}gallery/) for layout pattern examples and the "
+        f"[Guide]({SITE_BASE}guide/) for how to write your own.",
         "",
     ]
 
@@ -1497,12 +1510,12 @@ def build_pipelines_page() -> None:
 
         lines.append(f"## [{display_name}]({repo_url})\n")
         lines.append(f"{description}\n")
-        lines.append(f"![{display_name}](../assets/renders/pipeline_{stem}.svg)\n")
-        lines.append('??? note "Mermaid source"\n')
-        lines.append("    ```text")
-        for src_line in mmd_source.rstrip().split("\n"):
-            lines.append(f"    {src_line}")
-        lines.append("    ```\n")
+        lines.append(f"![{display_name}]({RENDERS_REL}/pipeline_{stem}.svg)\n")
+        lines.append("<details>\n<summary>Mermaid source</summary>\n")
+        lines.append("```metro")
+        lines.extend(mmd_source.rstrip().split("\n"))
+        lines.append("```\n")
+        lines.append("</details>\n")
 
     pipelines_md = "\n".join(lines)
     pipelines_path = PIPELINES_DIR / "index.md"

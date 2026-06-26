@@ -1,4 +1,8 @@
-# Layout pipeline
+---
+title: "Layout pipeline"
+sidebar:
+  order: 2
+---
 
 A reader-friendly walkthrough of how nf-metro turns a parsed metro graph
 into placed coordinates.  If you're hunting a layout bug, fixing a

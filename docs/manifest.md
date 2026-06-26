@@ -1,10 +1,13 @@
-# The data manifest
+---
+title: "The data manifest"
+---
 
-!!! note "Stable since 1.0"
-    The manifest schema, `diagram-manifest` element id, and `data-node-*`
-    attribute names are stable as of nf-metro 1.0 and covered by semantic
-    versioning. Incompatible schema changes will bump the `version` field and
-    the nf-metro major version together.
+:::note[Stable since 1.0]
+The manifest schema, `diagram-manifest` element id, and `data-node-*`
+attribute names are stable as of nf-metro 1.0 and covered by semantic
+versioning. Incompatible schema changes will bump the `version` field and
+the nf-metro major version together.
+:::
 
 Every SVG nf-metro renders is a **self-describing, addressable artifact**: a
 downstream tool can drive it - position overlays, restyle nodes, look up which
@@ -16,17 +19,19 @@ standalone standard and the tooling nf-metro ships to produce and consume it, so
 **any** diagram tool can emit a conforming SVG. nf-metro is just the first
 producer.
 
-!!! tip "Just want to make one? Start with the tutorial"
-    If your goal is simply to produce an SVG and drive it from events, skip the
-    spec and jump to the [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs):
-    it builds one end to end and finishes with a single script you can copy and
-    run. The sections in between are the format reference, aimed at implementers.
+:::tip[Just want to make one? Start with the tutorial]
+If your goal is simply to produce an SVG and drive it from events, skip the
+spec and jump to the [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs):
+it builds one end to end and finishes with a single script you can copy and
+run. The sections in between are the format reference, aimed at implementers.
+:::
 
-!!! note "Headed for its own package"
-    The tooling lives in `nf_metro.manifest`, a dependency-free module (Python
-    standard library only, no other nf-metro imports). It is structured so it can
-    later be lifted into its own distribution as-is; until then, import it from
-    nf-metro.
+:::note[Headed for its own package]
+The tooling lives in `nf_metro.manifest`, a dependency-free module (Python
+standard library only, no other nf-metro imports). It is structured so it can
+later be lifted into its own distribution as-is; until then, import it from
+nf-metro.
+:::
 
 ## Terminology
 
@@ -142,7 +147,7 @@ isn't already present.)
 Add `--geometry` to also check the *drawn* picture, not just the schema: it flags
 a route drawn through a station's label or marker (rail interchanges excepted).
 The offset-collapse check (distinct lines merging into one stroke) needs the
-engine's assigned offsets, so it runs only via [`render --validate`](index.md#validating-the-rendered-geometry).
+engine's assigned offsets, so it runs only via [`render --validate`](/nf-metro/#validating-the-rendered-geometry).
 
 ```bash
 nf-metro validate-svg pipeline.svg --geometry
@@ -320,10 +325,11 @@ for a producer whose data isn't manifest-shaped.
 Everything above defines the compatibility contract; the state model below is
 optional convention. A consumer that only needs static addressing can stop here.
 
-!!! tip "Worked example"
-    The [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs) at the end of this
-    page builds a tiny pipeline diagram and lights it up from a progress snapshot,
-    end to end, in ~40 lines.
+:::tip[Worked example]
+The [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs) at the end of this
+page builds a tiny pipeline diagram and lights it up from a progress snapshot,
+end to end, in ~40 lines.
+:::
 
 The manifest gives an overlay everything it needs without a re-render: the
 `viewBox` to share, and each node's `id`, centre, and radius. **The standard
@@ -341,14 +347,14 @@ plus a run-level `{ name, state }` where `state` is `idle` / `running` /
 `complete` / `error`.
 
 nf-metro's `serve` is **one reference implementation** of this: it draws a glowing
-LED halo per node and recolours it by state (see [Live progress](live.md)). A
+LED halo per node and recolours it by state (see [Live progress](/nf-metro/live/)). A
 host application is free to map the same state vocabulary onto its own visual
 language - filled badges, a progress bar, a colour change on the node itself.
 Take the geometry and the state model from the standard; bring your own paint.
 
 To turn a specific runtime's events into that state model, write a binding.
 nf-metro ships one for Nextflow's `-with-weblog` stream; that path, the server,
-and the Nextflow plugin are documented under [Live progress](live.md).
+and the Nextflow plugin are documented under [Live progress](/nf-metro/live/).
 
 ## Tutorial: light up a diagram as a job runs
 
@@ -545,7 +551,7 @@ server, so you don't write any of the Python yourself:
 ![Data flow: nextflow run POSTs name and status to nf-metro serve, which matches and folds into per-node state (Steps 2 and 3) and streams it over Server-Sent Events to the browser, which recolours the overlay](assets/manifest_serve_flow.svg)
 
 So `nf-metro serve` is the tutorial wired to a live event source and a browser.
-See [Live progress](live.md) to actually run it (it also has a multi-run
+See [Live progress](/nf-metro/live/) to actually run it (it also has a multi-run
 dashboard and an optional Nextflow plugin), and note the glowing-LED styling
 there is just its choice - yours can differ.
 

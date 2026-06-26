@@ -17,7 +17,8 @@ module.exports = defineConfig({
   },
   webServer: {
     command: "python3 -m http.server 8765",
-    cwd: path.join(__dirname, ".."),
+    // Serve the static playground app (lives under the Astro project's public/).
+    cwd: path.join(__dirname, "..", "public", "playground"),
     url: "http://127.0.0.1:8765/index.html",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

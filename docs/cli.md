@@ -1,56 +1,11 @@
-# nf-metro
+---
+title: "CLI reference"
+description: "Full reference for the nf-metro command-line interface: render, convert, validate, and info."
+---
 
-Generate metro-map-style SVG diagrams from Mermaid graph definitions with `%%metro` directives. Designed for visualizing bioinformatics pipeline workflows (e.g., nf-core pipelines) as transit-style maps where each analysis route is a colored "metro line."
+nf-metro ships four commands — `render`, `convert`, `validate`, and `info`. This page documents every option. Most `render` flags also have a `%%metro` directive twin; an explicitly-passed flag overrides the directive.
 
-![nf-core/rnaseq metro map](assets/renders/rnaseq_auto.svg)
-
-## Installation
-
-### pip (PyPI)
-
-```bash
-pip install nf-metro
-```
-
-### Conda (Bioconda)
-
-```bash
-conda install bioconda::nf-metro
-```
-
-### Container (Seqera Containers)
-
-A pre-built container is available via [Seqera Containers](https://seqera.io/containers/):
-
-```bash
-docker pull community.wave.seqera.io/library/pip_nf-metro:611b1ba39c6007f1
-```
-
-Requires Python 3.10+.
-
-## Quick start
-
-Render a metro map from a `.mmd` file:
-
-```bash
-nf-metro render examples/simple_pipeline.mmd -o pipeline.svg
-```
-
-Validate your input without rendering:
-
-```bash
-nf-metro validate examples/simple_pipeline.mmd
-```
-
-Inspect structure (sections, lines, stations):
-
-```bash
-nf-metro info examples/simple_pipeline.mmd
-```
-
-## CLI reference
-
-### `nf-metro render`
+## `nf-metro render`
 
 Render a Mermaid metro map definition to SVG or interactive HTML.
 
@@ -58,7 +13,7 @@ Render a Mermaid metro map definition to SVG or interactive HTML.
 nf-metro render [OPTIONS] INPUT_FILE
 ```
 
-Every layout/render option below also has a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](guide.md#cli-flags-and-directive-precedence) in the guide).
+Every layout/render option below also has a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide).
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -89,9 +44,9 @@ Every layout/render option below also has a `%%metro` directive twin; an explici
 | `--height INTEGER` | auto | Output height in pixels |
 | `--animate / --no-animate` | off | Add animated balls traveling along lines |
 
-#### Embedding options
+### Embedding options
 
-Flags for producing an SVG to embed in another page or application. The [Embedding guide](embedding.md) explains when to use each.
+Flags for producing an SVG to embed in another page or application. The [Embedding guide](/nf-metro/embedding/) explains when to use each.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -103,7 +58,7 @@ Flags for producing an SVG to embed in another page or application. The [Embeddi
 | `--no-dark-mode-css` | off | Suppress the `prefers-color-scheme: dark` block when the host manages its own theme |
 | `--no-chrome-css` | off | Bake concrete chrome colors instead of `--nfm-*` `var()` (needed for raster export, e.g. cairosvg) |
 
-#### Interactive HTML output
+### Interactive HTML output
 
 `--format html` produces a self-contained `.html` file with the SVG inlined plus a small JS/CSS layer (no external dependencies, no network):
 
@@ -113,9 +68,9 @@ nf-metro render pipeline.mmd --format html -o pipeline.html
 
 The page supports drag-to-pan, scroll-to-zoom, station hover tooltips, and a clickable line legend. Clicking a line isolates it: stations and sections not carrying that line are hidden and the view zooms to the bounding box of what remains. Click again, hit `Esc`, or use the Reset button to restore.
 
-The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, and static-SVG snippets. The [Embedding guide](embedding.md) explains when to reach for each, plus responsive sizing, font portability, host theming, and progress overlays.
+The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, and static-SVG snippets. The [Embedding guide](/nf-metro/embedding/) explains when to reach for each, plus responsive sizing, font portability, host theming, and progress overlays.
 
-#### Validating the rendered geometry
+### Validating the rendered geometry
 
 Pass `--validate` to check the *drawn* SVG after rendering and fail (non-zero exit) if a route is drawn through a station's label or marker, or two distinct lines collapse into one stroke where they should run parallel. This reads the geometry as it ends up on the page (after the per-line offsets and label shifts the layout applies), catching defects the pre-render checks cannot see:
 
@@ -123,9 +78,9 @@ Pass `--validate` to check the *drawn* SVG after rendering and fail (non-zero ex
 nf-metro render pipeline.mmd -o pipeline.svg --validate
 ```
 
-To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](manifest.md#manifest-schema).
+To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](/nf-metro/manifest/#manifest-schema).
 
-### `nf-metro convert`
+## `nf-metro convert`
 
 Convert a Nextflow `-with-dag` mermaid file to nf-metro format.
 
@@ -138,9 +93,9 @@ nf-metro convert [OPTIONS] INPUT_FILE
 | `-o`, `--output PATH` | stdout | Output `.mmd` file path |
 | `--title TEXT` | auto | Pipeline title |
 
-See [Importing from Nextflow](nextflow.md) for details and examples.
+See [Importing from Nextflow](/nf-metro/nextflow/) for details and examples.
 
-### `nf-metro validate`
+## `nf-metro validate`
 
 Check a `.mmd` file for errors without producing output.
 
@@ -148,26 +103,10 @@ Check a `.mmd` file for errors without producing output.
 nf-metro validate INPUT_FILE
 ```
 
-### `nf-metro info`
+## `nf-metro info`
 
 Print a summary of the parsed map: sections, lines, stations, and edges.
 
 ```
 nf-metro info INPUT_FILE
 ```
-
-## Writing metro maps
-
-Read the [Guide](guide.md) to learn how to write `.mmd` files, from minimal examples to multi-section pipelines with custom grid layouts.
-
-## Embedding maps in your own page
-
-Read the [Embedding guide](embedding.md) to put a rendered map into a docs site, dashboard, or app: responsive sizing, font portability, host theming, and driving a progress overlay from a running pipeline.
-
-## Gallery
-
-See the [Gallery](gallery/index.md) for rendered examples covering simple pipelines, complex multi-line topologies, fan-out/fan-in patterns, fold layouts, and realistic bioinformatics workflows.
-
-## License
-
-[MIT](https://github.com/pinin4fjords/nf-metro/blob/main/LICENSE)

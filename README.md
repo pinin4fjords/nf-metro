@@ -1,4 +1,9 @@
-# nf-metro
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pinin4fjords/nf-metro/main/assets/nf-metro-logo-dark.svg">
+    <img alt="nf-metro" src="https://raw.githubusercontent.com/pinin4fjords/nf-metro/main/assets/nf-metro-logo-light.svg" width="640">
+  </picture>
+</p>
 
 **[Documentation](https://pinin4fjords.github.io/nf-metro/latest/)** | **[Playground](https://pinin4fjords.github.io/nf-metro/latest/playground/)** | **[Gallery](https://pinin4fjords.github.io/nf-metro/latest/gallery/)**
 

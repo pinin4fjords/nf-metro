@@ -1,8 +1,13 @@
-# Routing gate-arm triage
+---
+title: "Routing gate-arm triage"
+sidebar:
+  label: "Routing gate triage"
+  order: 6
+---
 
 How to run a campaign that gives every un-exercised branch in `layout/routing/`
 a verdict. This is the *process* doc; the auto-generated matrix it operates on
-is [`routing_gate_coverage.md`](routing_gate_coverage.md), and the tool that
+is [`routing_gate_coverage.md`](/nf-metro/dev/routing_gate_coverage/), and the tool that
 produces it is `scripts/routing_gate_coverage.py`.
 
 ## Why this exists
