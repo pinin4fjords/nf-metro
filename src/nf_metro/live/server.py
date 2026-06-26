@@ -122,6 +122,10 @@ class StationGeom(TypedDict):
     rx: float
 
 
+def _strip_xml_decl(svg: str) -> str:
+    return re.sub(r"^<\?xml[^>]*\?>\s*", "", svg)
+
+
 class MapModel:
     """Static map: SVG body, canvas size, overlay station geometry, mapping."""
 
@@ -129,7 +133,7 @@ class MapModel:
         self.mapping = graph.process_mapping
         self.is_light = _is_light_bg(theme.background_color)
         svg = render_svg(graph, theme)
-        self.svg_body = re.sub(r"^<\?xml[^>]*\?>\s*", "", svg)
+        self.svg_body = _strip_xml_decl(svg)
 
         dim = SVG_DIM_RE.search(svg)
         self.width = float(dim.group(1)) if dim else float(graph.width or 1000)
@@ -171,34 +175,28 @@ class MapModel:
                 "render with --manifest (the default)"
             )
         model = cls.__new__(cls)
-        model.svg_body = re.sub(r"^<\?xml[^>]*\?>\s*", "", svg_text)
+        model.svg_body = _strip_xml_decl(svg_text)
         model.width = float(manifest.get("width", 1000))
         model.height = float(manifest.get("height", 600))
         model.is_light = is_light
-        model.mapping = {
-            node["id"]: node.get("patterns", [])
-            for node in manifest.get("nodes", [])
-            if node.get("patterns")
-        }
+        model.mapping = {}
         model.stations = []
         for node in manifest.get("nodes", []):
             node_id = node["id"]
-            if node_id not in model.mapping:
-                continue
-            r = float(node.get("r", 8))
-            w = float(node.get("w", r * 2))
-            h = float(node.get("h", r * 2))
-            rx = float(node.get("rx", r))
-            model.stations.append(
-                {
-                    "id": node_id,
-                    "x": float(node["x"]),
-                    "y": float(node["y"]),
-                    "w": w,
-                    "h": h,
-                    "rx": rx,
-                }
-            )
+            patterns = node.get("patterns", [])
+            if patterns:
+                model.mapping[node_id] = patterns
+                r = float(node.get("r", 8))
+                model.stations.append(
+                    {
+                        "id": node_id,
+                        "x": float(node["x"]),
+                        "y": float(node["y"]),
+                        "w": float(node.get("w", r * 2)),
+                        "h": float(node.get("h", r * 2)),
+                        "rx": float(node.get("rx", r)),
+                    }
+                )
         return model
 
     def stations_for_process(self, process: str) -> list[str]:

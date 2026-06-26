@@ -646,12 +646,6 @@ def serve(
                 "no station will update.",
                 err=True,
             )
-        if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
-            click.echo(
-                "Binding 0.0.0.0: reachable from other hosts; "
-                "use --token to restrict /events.",
-                err=True,
-            )
         httpd = serve_model(model, host=host, port=port, token=token, overlay=overlay)
     else:
         try:
@@ -667,15 +661,14 @@ def serve(
                 "Warning: no %%metro process: directives; no station will update.",
                 err=True,
             )
-        if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
-            click.echo(
-                "Binding 0.0.0.0: reachable from other hosts; "
-                "use --token to restrict /events.",
-                err=True,
-            )
-
         httpd = serve_map(
             graph, theme_obj, host=host, port=port, token=token, overlay=overlay
+        )
+    if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
+        click.echo(
+            "Binding 0.0.0.0: reachable from other hosts; "
+            "use --token to restrict /events.",
+            err=True,
         )
     # Local subprocesses post to a concrete loopback address, not 0.0.0.0.
     run_host = "127.0.0.1" if host == "0.0.0.0" else host

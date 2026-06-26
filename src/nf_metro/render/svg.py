@@ -615,24 +615,25 @@ def _render_svg_scaled(
     else:
         d = draw.Drawing(svg_width, svg_height)
 
+    positive_fan = tb_positive_fan_sections(graph)
+
     # Embed the machine-readable manifest first, so the file is a durable,
     # self-describing contract regardless of what is drawn below it.
     if graph.embed_manifest:
-        _pf = tb_positive_fan_sections(graph)
-        _boxes: dict[str, dict[str, float]] = {}
-        for _s in graph.stations.values():
-            if _s.is_port or _s.is_hidden:
+        boxes: dict[str, dict[str, float]] = {}
+        for s in graph.stations.values():
+            if s.is_port or s.is_hidden:
                 continue
-            _cx, _cy, _w, _h, _rx = station_marker_box(
-                graph, theme, _s, station_offsets, _pf
+            cx, cy, w, h, rx = station_marker_box(
+                graph, theme, s, station_offsets, positive_fan
             )
-            _boxes[_s.id] = {"x": _cx, "y": _cy, "w": _w, "h": _h, "rx": _rx}
+            boxes[s.id] = {"x": cx, "y": cy, "w": w, "h": h, "rx": rx}
         manifest = build_manifest(
             graph,
             width=svg_width,
             height=svg_height,
             station_radius=theme.station_radius,
-            extra_node_data=_boxes,
+            extra_node_data=boxes,
         )
         d.append(draw.Raw(manifest_metadata_svg(manifest)))
 
@@ -699,7 +700,7 @@ def _render_svg_scaled(
         render_animation(d, graph, routes, station_offsets, theme)
 
     # Draw stations (all circles, skip ports)
-    _render_stations(d, graph, theme, station_offsets)
+    _render_stations(d, graph, theme, station_offsets, positive_fan)
 
     # Draw labels
     _render_labels(d, labels, theme)
@@ -1752,6 +1753,7 @@ def _render_stations(
     graph: MetroGraph,
     theme: Theme,
     station_offsets: dict[tuple[str, str], float] | None = None,
+    positive_fan: set[str] | None = None,
 ) -> None:
     """Render stations as pill shapes.
 
@@ -1765,7 +1767,8 @@ def _render_stations(
     addressable element; with ``--no-manifest`` the glyphs are drawn directly
     with no wrapper. Skips port stations (is_port=True).
     """
-    positive_fan = tb_positive_fan_sections(graph)
+    if positive_fan is None:
+        positive_fan = tb_positive_fan_sections(graph)
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
