@@ -2,6 +2,10 @@
 title: "Importing from Nextflow"
 ---
 
+import { Code } from "@astrojs/starlight/components";
+import variantCallingMmd from "@examples/variant_calling.mmd?raw";
+import variantCallingTunedMmd from "@examples/variant_calling_tuned.mmd?raw";
+
 nf-metro can convert Nextflow's built-in DAG output into a metro map. This works best for simple pipelines with a handful of subworkflows. For complex pipelines like those in nf-core, direct conversion is unlikely to produce a good diagram -- you will need to hand-write or heavily edit the `.mmd` file. Improving this is an active area of development.
 
 ## Generating a Nextflow DAG
@@ -191,52 +195,7 @@ graph LR
 
 After editing -- cleaning up labels, renaming the bypass line, and adding a proper title -- the `.mmd` becomes:
 
-```metro
-%%metro title: Variant Calling Pipeline
-%%metro style: dark
-%%metro line: main | Main | #2db572
-%%metro line: qc | QC Reporting | #0570b0
-
-graph LR
-    subgraph preprocess [Pre-processing]
-        fastqc[FastQC]
-        fastp[FastP]
-    end
-
-    subgraph alignment [Alignment]
-        bwa_index[BWA Index]
-        bwa_mem[BWA-MEM]
-        samtools_sort[SAMtools Sort]
-        samtools_index[SAMtools Index]
-
-        bwa_index -->|main| bwa_mem
-        bwa_mem -->|main| samtools_sort
-        samtools_sort -->|main| samtools_index
-    end
-
-    subgraph variant_calling [Variant Calling]
-        gatk[GATK HaplotypeCaller]
-        deepvariant[DeepVariant]
-        bcftools[BCFtools Stats]
-
-        gatk -->|main| bcftools
-        deepvariant -->|main| bcftools
-    end
-
-    subgraph reporting [Reporting]
-        multiqc[MultiQC]
-    end
-
-    %% Inter-section edges
-    fastp -->|main| bwa_mem
-    samtools_sort -->|main| gatk
-    samtools_sort -->|main| deepvariant
-    samtools_index -->|main| gatk
-    samtools_index -->|main| deepvariant
-    bcftools -->|main| multiqc
-    fastqc -->|qc| multiqc
-    fastp -->|qc| multiqc
-```
+<Code code={variantCallingMmd} lang="metro" title="examples/variant_calling.mmd" />
 
 ![Variant calling - hand-tuned](assets/renders/nf_variant_calling_tuned.svg)
 
@@ -271,65 +230,7 @@ Starting from the hand-tuned variant calling example above, here is what changes
 
 Here is the full `.mmd` with file icons added:
 
-```metro
-%%metro title: Variant Calling Pipeline
-%%metro style: dark
-%%metro file: fastq_in | FASTQ
-%%metro file: ref_in | FASTA
-%%metro file: vcf_out | VCF
-%%metro file: report_out | HTML
-%%metro line: main | Main | #2db572
-%%metro line: qc | QC Reporting | #0570b0
-
-graph LR
-    subgraph preprocess [Pre-processing]
-        fastq_in[ ]
-        fastqc[FastQC]
-        fastp[FastP]
-        fastq_in -->|main,qc| fastp
-        fastq_in -->|qc| fastqc
-    end
-
-    subgraph alignment [Alignment]
-        ref_in[ ]
-        bwa_index[BWA Index]
-        bwa_mem[BWA-MEM]
-        samtools_sort[SAMtools Sort]
-        samtools_index[SAMtools Index]
-
-        ref_in -->|main| bwa_index
-        bwa_index -->|main| bwa_mem
-        bwa_mem -->|main| samtools_sort
-        samtools_sort -->|main| samtools_index
-    end
-
-    subgraph variant_calling [Variant Calling]
-        gatk[GATK HaplotypeCaller]
-        deepvariant[DeepVariant]
-        bcftools[BCFtools Stats]
-        vcf_out[ ]
-
-        gatk -->|main| bcftools
-        deepvariant -->|main| bcftools
-        bcftools -->|main| vcf_out
-    end
-
-    subgraph reporting [Reporting]
-        multiqc[MultiQC]
-        report_out[ ]
-        multiqc -->|qc| report_out
-    end
-
-    %% Inter-section edges
-    fastp -->|main| bwa_mem
-    samtools_sort -->|main| gatk
-    samtools_sort -->|main| deepvariant
-    samtools_index -->|main| gatk
-    samtools_index -->|main| deepvariant
-    bcftools -->|qc| multiqc
-    fastqc -->|qc| multiqc
-    fastp -->|qc| multiqc
-```
+<Code code={variantCallingTunedMmd} lang="metro" title="examples/variant_calling_tuned.mmd" />
 
 ![Variant calling - with file icons](assets/renders/nf_variant_calling_tuned_icons.svg)
 

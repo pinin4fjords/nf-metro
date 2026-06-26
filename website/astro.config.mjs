@@ -1,5 +1,6 @@
 // @ts-check
 import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig, fontProviders } from "astro/config";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
@@ -7,6 +8,14 @@ import mermaid from "astro-mermaid";
 // Project GitHub Pages site: https://pinin4fjords.github.io/nf-metro/
 const site = "https://pinin4fjords.github.io";
 const base = "/nf-metro/";
+
+// The committed example .mmd files live at the repo root (../examples), one
+// level above this Astro project. The guide imports them as raw strings so its
+// code blocks stay in lockstep with the renders they document — single source
+// of truth, no copy-paste drift. `@examples` aliases that dir; `fs.allow` opens
+// it to the dev server (which otherwise restricts /@fs/ to the project root).
+const examplesDir = fileURLToPath(new URL("../examples", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 // Custom TextMate grammar so ```metro / ```mmd blocks highlight nf-metro's
 // dialect (%%metro directives, graph/subgraph keywords, edges, node labels,
@@ -79,6 +88,16 @@ function buildReleasesSidebar() {
 export default defineConfig({
   site,
   base,
+  vite: {
+    resolve: {
+      alias: { "@examples": examplesDir },
+      // docs/ is symlinked into src/content/docs, so guide.mdx's real path sits
+      // outside this project. Keep the symlinked path during resolution so its
+      // bare imports (@astrojs/starlight/components) find website/node_modules.
+      preserveSymlinks: true,
+    },
+    server: { fs: { allow: [repoRoot] } },
+  },
   // Degular (Seqera display face) via Astro's Fonts API: self-hosts, emits the
   // @font-face + a metric-matched fallback, and (with <Font preload> in
   // src/components/Head.astro) preloads it to avoid the page-title FOUT.

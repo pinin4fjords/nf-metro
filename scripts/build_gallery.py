@@ -41,7 +41,7 @@ RENDERS_DIR = project_root / "docs" / "assets" / "renders"
 
 # Base-absolute URL prefix for generated *page* links (matches astro.config `base`).
 SITE_BASE = "/nf-metro/"
-# Relative path from a generated page (docs/<dir>/index.md) up to docs/assets/renders.
+# Relative path from a generated page (docs/<dir>/index.mdx) up to docs/assets/renders.
 # gallery/ + pipelines/ are one dir deep, so one `../` reaches docs/. Astro bundles and
 # base-prefixes these (via the content symlink), so URLs render correctly and on GitHub.
 RENDERS_REL = "../assets/renders"
@@ -1296,6 +1296,58 @@ def clean_name(stem: str) -> str:
     return stem.replace("_", " ").title()
 
 
+def mmd_import(stem: str, source_dir: Path) -> tuple[str, str, str]:
+    """Describe how to embed a committed ``.mmd`` as imported source in an ``.mdx``
+    page. Returns ``(identifier, import_statement, source_label)``.
+
+    The generated pages render the example with Starlight's ``<Code>`` component
+    fed by a Vite ``?raw`` import (via the ``@examples`` alias) rather than pasting
+    the source inline. That keeps the page in lockstep with ``examples/`` and stops
+    the generated Markdown from carrying a second copy of every fixture.
+    """
+    if source_dir == TOPOLOGIES_DIR:
+        rel = f"topologies/{stem}"
+        prefix = "topo_"
+    else:
+        rel = stem
+        prefix = "mmd_"
+    identifier = prefix + re.sub(r"\W", "_", stem)
+    import_statement = f'import {identifier} from "@examples/{rel}.mmd?raw";'
+    source_label = f"examples/{rel}.mmd"
+    return identifier, import_statement, source_label
+
+
+def _details_code(identifier: str, source_label: str) -> list[str]:
+    """Markdown lines for a collapsed <details> wrapping an imported <Code> block.
+
+    Blank lines around the component are required so MDX parses it as a child
+    expression of the <details> element rather than literal text.
+    """
+    return [
+        "<details>",
+        "<summary>Mermaid source</summary>",
+        "",
+        f'<Code code={{{identifier}}} lang="metro" title="{source_label}" />',
+        "",
+        "</details>\n",
+    ]
+
+
+def mdx_page(title: str, imports: list[str], body: list[str]) -> list[str]:
+    """Assemble an .mdx page: frontmatter, the <Code> import + per-example raw
+    imports (deduped, order-preserved), then the body lines."""
+    return [
+        "---",
+        f"title: {title}",
+        "---",
+        "",
+        'import { Code } from "@astrojs/starlight/components";',
+        *dict.fromkeys(imports),
+        "",
+        *body,
+    ]
+
+
 def render_guide_examples() -> None:
     """Render all guide examples to docs/assets/renders/."""
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1350,15 +1402,14 @@ def render_guide_examples() -> None:
 
 
 def build_gallery() -> None:
-    """Generate docs/gallery/index.md and docs/assets/renders/*.svg."""
+    """Generate docs/gallery/index.mdx and docs/assets/renders/*.svg."""
     GALLERY_DIR.mkdir(parents=True, exist_ok=True)
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Collected `import … from "@examples/…?raw"` statements, one per example,
+    # spliced in below the frontmatter once the body is built.
+    imports: list[str] = []
     lines: list[str] = [
-        "---",
-        "title: Gallery",
-        "---",
-        "",
         "Rendered examples covering a range of layout patterns. "
         "Click any heading in the right-hand table of contents to jump to an example.",
         "",
@@ -1391,29 +1442,20 @@ def build_gallery() -> None:
         _manifest[svg_path.name] = current_category
         print(f"  {stem}: {status}")
 
-        # Determine the CLI command path
-        if source_dir == EXAMPLES_DIR:
-            cli_path = f"examples/{stem}.mmd"
-        else:
-            cli_path = f"examples/topologies/{stem}.mmd"
-
         heading = clean_name(stem)
-        mmd_source = mmd_path.read_text()
+        identifier, import_statement, source_label = mmd_import(stem, source_dir)
+        imports.append(import_statement)
 
         lines.append(f"### {heading}\n")
         lines.append(f"{description}\n")
         lines.append("**CLI command:**\n")
-        lines.append(f"```bash\nnf-metro render {cli_path} -o {stem}.svg\n```\n")
-        lines.append("<details>\n<summary>Mermaid source</summary>\n")
-        lines.append("```metro")
-        lines.extend(mmd_source.rstrip().split("\n"))
-        lines.append("```\n")
-        lines.append("</details>\n")
+        lines.append(f"```bash\nnf-metro render {source_label} -o {stem}.svg\n```\n")
+        lines.extend(_details_code(identifier, source_label))
         lines.append("**Rendered output:**\n")
         lines.append(f"![{heading}]({RENDERS_REL}/{stem}.svg)\n")
 
-    gallery_md = "\n".join(lines)
-    gallery_path = GALLERY_DIR / "index.md"
+    gallery_md = "\n".join(mdx_page("Gallery", imports, lines))
+    gallery_path = GALLERY_DIR / "index.mdx"
     gallery_path.write_text(gallery_md)
     print(f"\nGallery written to {gallery_path}")
     print(f"SVG renders in {RENDERS_DIR}")
@@ -1468,17 +1510,14 @@ def render_nextflow_examples() -> None:
 
 
 def build_pipelines_page() -> None:
-    """Generate docs/pipelines/index.md and render pipeline SVGs."""
+    """Generate docs/pipelines/index.mdx and render pipeline SVGs."""
     PIPELINES_DIR.mkdir(parents=True, exist_ok=True)
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
     section = "nf-core Pipelines"
     print("nf-core pipelines:")
 
+    imports: list[str] = []
     lines: list[str] = [
-        "---",
-        "title: nf-core pipelines",
-        "---",
-        "",
         "Real-world pipelines rendered with nf-metro. These are maintained as "
         "`.mmd` files alongside the pipeline source code and rendered automatically.",
         "",
@@ -1506,19 +1545,16 @@ def build_pipelines_page() -> None:
         _manifest[svg_path.name] = section
         print(f"  {stem}: {status}")
 
-        mmd_source = mmd_path.read_text()
+        identifier, import_statement, source_label = mmd_import(stem, EXAMPLES_DIR)
+        imports.append(import_statement)
 
         lines.append(f"## [{display_name}]({repo_url})\n")
         lines.append(f"{description}\n")
         lines.append(f"![{display_name}]({RENDERS_REL}/pipeline_{stem}.svg)\n")
-        lines.append("<details>\n<summary>Mermaid source</summary>\n")
-        lines.append("```metro")
-        lines.extend(mmd_source.rstrip().split("\n"))
-        lines.append("```\n")
-        lines.append("</details>\n")
+        lines.extend(_details_code(identifier, source_label))
 
-    pipelines_md = "\n".join(lines)
-    pipelines_path = PIPELINES_DIR / "index.md"
+    pipelines_md = "\n".join(mdx_page("nf-core pipelines", imports, lines))
+    pipelines_path = PIPELINES_DIR / "index.mdx"
     pipelines_path.write_text(pipelines_md)
     print(f"\nPipelines page written to {pipelines_path}")
     print()

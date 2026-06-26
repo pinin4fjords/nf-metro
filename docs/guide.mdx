@@ -2,6 +2,16 @@
 title: "Writing metro maps"
 ---
 
+import { Code } from "@astrojs/starlight/components";
+import minimalMmd from "@examples/guide/01_minimal.mmd?raw";
+import sectionsMmd from "@examples/guide/02_sections.mmd?raw";
+import fanOutMmd from "@examples/guide/03_fan_out.mmd?raw";
+import fanInMergeMmd from "@examples/guide/03b_fan_in_merge.mmd?raw";
+import directionsMmd from "@examples/guide/04_directions.mmd?raw";
+import fileIconsMmd from "@examples/guide/05_file_icons.mmd?raw";
+import markerStylesMmd from "@examples/marker_styles.mmd?raw";
+import withoutHiddenMmd from "@examples/guide/06a_without_hidden.mmd?raw";
+
 nf-metro turns text descriptions of pipelines into metro-map-style diagrams. Input files use a subset of [Mermaid](https://mermaid.js.org/) `graph LR` syntax, extended with `%%metro` directives for colors, sections, and layout control.
 
 This guide builds up the format step by step, starting from a flat list of stations and finishing with a multi-section pipeline that fans out, changes direction, and reconverges.
@@ -10,28 +20,7 @@ This guide builds up the format step by step, starting from a flat list of stati
 
 The simplest metro map needs three things: **lines** (colored routes), **stations** (pipeline steps), and **edges** (connections that carry lines between stations).
 
-```metro
-%%metro title: Simple Pipeline
-%%metro style: dark
-%%metro line: main | Main | #4CAF50
-%%metro line: qc | Quality Control | #2196F3 | dashed
-
-graph LR
-    input[Input]
-    fastqc[FastQC]
-    trim[Trimming]
-    align[Alignment]
-    quant[Quantification]
-    multiqc[MultiQC]
-
-    input -->|main| trim
-    trim -->|main| align
-    align -->|main| quant
-    input -->|qc| fastqc
-    trim -->|qc| fastqc
-    quant -->|qc| multiqc
-    fastqc -->|qc| multiqc
-```
+<Code code={minimalMmd} lang="metro" title="examples/guide/01_minimal.mmd" />
 
 ![Minimal example](assets/renders/01_minimal.svg)
 
@@ -52,36 +41,7 @@ Without sections, all stations sit on a single track. That works for simple pipe
 
 Sections wrap related stations in visual boxes using Mermaid `subgraph` blocks. This makes the diagram easier to read and lets the layout engine route lines between groups automatically.
 
-```metro
-%%metro title: Sectioned Pipeline
-%%metro style: dark
-%%metro line: main | Main | #4CAF50
-%%metro line: qc | Quality Control | #2196F3
-
-graph LR
-    subgraph preprocessing [Pre-processing]
-        input[Input]
-        trim[Trimming]
-        fastqc[FastQC]
-        input -->|main,qc| trim
-        trim -->|main,qc| fastqc
-    end
-
-    subgraph analysis [Analysis]
-        align[Alignment]
-        quant[Quantification]
-        align -->|main| quant
-    end
-
-    subgraph reporting [Reporting]
-        multiqc[MultiQC]
-        report[Report]
-        multiqc -->|qc| report
-    end
-
-    fastqc -->|main| align
-    fastqc -->|qc| multiqc
-```
+<Code code={sectionsMmd} lang="metro" title="examples/guide/02_sections.mmd" />
 
 ![Sectioned example](assets/renders/02_sections.svg)
 
@@ -93,51 +53,7 @@ nf-metro places sections on a grid automatically based on their dependencies. It
 
 When lines diverge from a shared section into separate analysis paths and then reconverge, nf-metro stacks the target sections vertically and routes each line to its destination:
 
-```metro
-%%metro title: Fan-out Pipeline
-%%metro style: dark
-%%metro line: wgs | Whole Genome | #e63946
-%%metro line: wes | Whole Exome | #0570b0
-%%metro line: panel | Targeted Panel | #2db572
-
-graph LR
-    subgraph preprocessing [Pre-processing]
-        fastqc[FastQC]
-        trim[Trimming]
-        fastqc -->|wgs,wes,panel| trim
-    end
-
-    subgraph wgs_analysis [WGS Analysis]
-        bwa_wgs[BWA-MEM]
-        gatk_wgs[GATK HaplotypeCaller]
-        bwa_wgs -->|wgs| gatk_wgs
-    end
-
-    subgraph wes_analysis [WES Analysis]
-        bwa_wes[BWA-MEM]
-        gatk_wes[GATK Mutect2]
-        bwa_wes -->|wes| gatk_wes
-    end
-
-    subgraph panel_analysis [Panel Analysis]
-        minimap[Minimap2]
-        freebayes[FreeBayes]
-        minimap -->|panel| freebayes
-    end
-
-    subgraph annotation [Annotation]
-        vep[VEP]
-        report[Report]
-        vep -->|wgs,wes,panel| report
-    end
-
-    trim -->|wgs| bwa_wgs
-    trim -->|wes| bwa_wes
-    trim -->|panel| minimap
-    gatk_wgs -->|wgs| vep
-    gatk_wes -->|wes| vep
-    freebayes -->|panel| vep
-```
+<Code code={fanOutMmd} lang="metro" title="examples/guide/03_fan_out.mmd" />
 
 ![Fan-out example](assets/renders/03_fan_out.svg)
 
@@ -147,46 +63,7 @@ Each line takes a different route through its own analysis section, then all thr
 
 When optional processing steps mean the **same line** can reach a destination from multiple sources, nf-metro consolidates the overlapping routes. One bypass carries the full path (the "trunk"), and closer sources drop down to join it:
 
-```metro
-%%metro title: Fan-In Merge
-%%metro style: dark
-%%metro line: main | Main | #0570b0
-%%metro line: aux | Auxiliary | #2db572
-
-graph LR
-    subgraph source [Source]
-        s1[Produce]
-        s2[Prepare]
-        s1 -->|main,aux| s2
-    end
-
-    subgraph step_a [Step A]
-        a1[Process A]
-        a2[Refine A]
-        a1 -->|main| a2
-    end
-
-    subgraph step_b [Step B]
-        b1[Process B]
-        b2[Refine B]
-        b1 -->|main| b2
-    end
-
-    subgraph sink [Sink]
-        t1[Collect]
-        t2[Report]
-        t1 -->|main,aux| t2
-    end
-
-    %% Each section sends main to ALL downstream sections
-    s2 -->|main| a1
-    s2 -->|main| b1
-    s2 -->|main| t1
-    s2 -->|aux| t1
-    a2 -->|main| b1
-    a2 -->|main| t1
-    b2 -->|main| t1
-```
+<Code code={fanInMergeMmd} lang="metro" title="examples/guide/03b_fan_in_merge.mmd" />
 
 ![Fan-in merge example](assets/renders/03b_fan_in_merge.svg)
 
@@ -198,48 +75,7 @@ By default every section flows left-to-right (`LR`). You can change a section's 
 
 This example adds a top-to-bottom (`TB`) section that acts as a vertical connector between the fan-out analysis paths and the final reporting section:
 
-```metro
-%%metro title: Section Directions
-%%metro style: dark
-%%metro line: rna | RNA-seq | #2db572
-%%metro line: dna | DNA-seq | #e63946
-%%metro legend: bl
-
-graph LR
-    subgraph preprocessing [Pre-processing]
-        fastqc[FastQC]
-        trim[Trimming]
-        fastqc -->|rna,dna| trim
-    end
-    subgraph rna_analysis [RNA Analysis]
-        star[STAR]
-        salmon[Salmon]
-        star -->|rna| salmon
-    end
-    subgraph dna_analysis [DNA Analysis]
-        bwa[BWA-MEM]
-        gatk[GATK]
-        bwa -->|dna| gatk
-    end
-    subgraph postprocessing [Post-processing]
-        %%metro direction: TB
-        samtools[SAMtools]
-        picard[Picard]
-        bedtools[BEDTools]
-        samtools -->|rna,dna| picard
-        picard -->|rna,dna| bedtools
-    end
-    subgraph reporting [Reporting]
-        multiqc[MultiQC]
-        report[Report]
-        multiqc -->|rna,dna| report
-    end
-    trim -->|rna| star
-    trim -->|dna| bwa
-    salmon -->|rna| samtools
-    gatk -->|dna| samtools
-    bedtools -->|rna,dna| multiqc
-```
+<Code code={directionsMmd} lang="metro" title="examples/guide/04_directions.mmd" />
 
 ![Directions example](assets/renders/04_directions.svg)
 
@@ -272,33 +108,7 @@ Two things are needed:
 
 The blank label tells nf-metro to render the document icon (with the label from the directive) instead of a pill-shaped station. Connect it to the pipeline with normal edges like any other station.
 
-```metro
-%%metro title: File Icons
-%%metro style: dark
-%%metro file: reads_in | FASTQ
-%%metro file: report_out | HTML
-%%metro line: main | Main | #4CAF50
-%%metro line: qc | Quality Control | #2196F3
-
-graph LR
-    subgraph analysis [Analysis]
-        reads_in[ ]
-        trim[Trimming]
-        align[Alignment]
-        quant[Quantification]
-        reads_in -->|main,qc| trim
-        trim -->|main| align
-        align -->|main| quant
-    end
-
-    subgraph reporting [Reporting]
-        multiqc[MultiQC]
-        report_out[ ]
-        trim -->|qc| multiqc
-        quant -->|qc| multiqc
-        multiqc -->|qc| report_out
-    end
-```
+<Code code={fileIconsMmd} lang="metro" title="examples/guide/05_file_icons.mmd" />
 
 ![File icons example](assets/renders/05_file_icons.svg)
 
@@ -372,53 +182,7 @@ To explain the markers, add a key below the line legend with `%%metro marker_leg
 
 Here a two-line variant-calling pipeline uses square (mandatory), open-circle (optional), pill (expanded elsewhere) and coloured-square (hardware-accelerated) markers, with a matching key:
 
-```metro
-%%metro title: Per-station marker styles
-%%metro style: dark
-%%metro line: germline | Germline calling | #0570b0
-%%metro line: somatic | Somatic calling | #e63946
-%%metro legend: bl
-
-%%metro marker: bwa | square, solid
-%%metro marker: markdup | square, solid
-%%metro marker: bqsr | square, #4CAF50
-%%metro marker: haplotypecaller | square, #4CAF50
-%%metro marker: mutect2 | square, #1f4e79
-%%metro marker: cnvkit | pill, open
-%%metro marker: vep | circle, open
-%%metro marker: snpeff | circle, open
-
-%%metro marker_legend: square, solid | Mandatory
-%%metro marker_legend: circle, open | Optional
-%%metro marker_legend: pill, open | Expanded elsewhere
-%%metro marker_legend: square, #4CAF50 | Parabricks accelerated
-%%metro marker_legend: square, #1f4e79 | Sentieon accelerated
-
-graph LR
-    subgraph alignment [Alignment & preprocessing]
-        bwa[BWA-MEM]
-        markdup[MarkDuplicates]
-        bqsr[BQSR]
-
-        bwa -->|germline,somatic| markdup
-        markdup -->|germline,somatic| bqsr
-    end
-
-    subgraph calling [Variant calling & annotation]
-        haplotypecaller[HaplotypeCaller]
-        mutect2[Mutect2]
-        cnvkit[CNVkit]
-        snpeff[SnpEff]
-        vep[VEP]
-
-        haplotypecaller -->|germline| snpeff
-        mutect2 -->|somatic| vep
-        mutect2 -->|somatic| cnvkit
-    end
-
-    bqsr -->|germline| haplotypecaller
-    bqsr -->|somatic| mutect2
-```
+<Code code={markerStylesMmd} lang="metro" title="examples/marker_styles.mmd" />
 
 ![Per-station markers](assets/renders/marker_styles.svg)
 
@@ -432,39 +196,7 @@ Sometimes you need a branching or merging point in the graph that doesn't repres
 
 Here is a pipeline with a visible `branch` station that serves only as a fork point:
 
-```metro
-%%metro title: Visible Branch Point
-%%metro style: dark
-%%metro line: dna | DNA | #e63946
-%%metro line: rna | RNA | #0570b0
-%%metro line: prot | Protein | #2db572
-
-graph LR
-    subgraph input [Input]
-        fetch[Fetch Data]
-        validate[Validate]
-        fetch -->|dna,rna,prot| validate
-    end
-
-    subgraph processing [Processing]
-        branch[Branch]
-        align[Alignment]
-        quant[Quantification]
-        search[Database Search]
-        branch -->|dna,rna| align
-        branch -->|prot| search
-        align -->|rna| quant
-    end
-
-    subgraph reporting [Reporting]
-        multiqc[MultiQC]
-    end
-
-    validate -->|dna,rna,prot| branch
-    align -->|dna| multiqc
-    quant -->|rna| multiqc
-    search -->|prot| multiqc
-```
+<Code code={withoutHiddenMmd} lang="metro" title="examples/guide/06a_without_hidden.mmd" />
 
 ![Visible branch point](assets/renders/06a_without_hidden.svg)
 
