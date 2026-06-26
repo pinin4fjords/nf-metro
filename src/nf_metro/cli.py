@@ -631,32 +631,52 @@ def serve(
     map; only mapped stations change state. Use `nf-metro check-mapping` to
     verify the mapping covers the pipeline.
     """
-    from nf_metro.live.server import run_lifecycle
+    from nf_metro.live.server import MapModel, run_lifecycle, serve_model
     from nf_metro.live.server import serve as serve_map
 
-    try:
-        graph = parse_metro_mermaid(input_file.read_text())
-        compute_layout(graph)
-    except (ValueError, PhaseInvariantError) as e:
-        raise click.ClickException(str(e))
+    if input_file.suffix.lower() == ".svg":
+        try:
+            model = MapModel.from_svg(input_file.read_text())
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        mapped = sorted(model.mapping)
+        if not mapped:
+            click.echo(
+                "Warning: SVG manifest has no process patterns; "
+                "no station will update.",
+                err=True,
+            )
+        if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
+            click.echo(
+                "Binding 0.0.0.0: reachable from other hosts; "
+                "use --token to restrict /events.",
+                err=True,
+            )
+        httpd = serve_model(model, host=host, port=port, token=token, overlay=overlay)
+    else:
+        try:
+            graph = parse_metro_mermaid(input_file.read_text())
+            compute_layout(graph)
+        except (ValueError, PhaseInvariantError) as e:
+            raise click.ClickException(str(e))
 
-    theme_obj = resolve_theme(theme, graph)
-    mapped = sorted(graph.process_mapping)
-    if not mapped:
-        click.echo(
-            "Warning: no %%metro process: directives; no station will update.",
-            err=True,
-        )
-    if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
-        click.echo(
-            "Binding 0.0.0.0: reachable from other hosts; "
-            "use --token to restrict /events.",
-            err=True,
-        )
+        theme_obj = resolve_theme(theme, graph)
+        mapped = sorted(graph.process_mapping)
+        if not mapped:
+            click.echo(
+                "Warning: no %%metro process: directives; no station will update.",
+                err=True,
+            )
+        if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
+            click.echo(
+                "Binding 0.0.0.0: reachable from other hosts; "
+                "use --token to restrict /events.",
+                err=True,
+            )
 
-    httpd = serve_map(
-        graph, theme_obj, host=host, port=port, token=token, overlay=overlay
-    )
+        httpd = serve_map(
+            graph, theme_obj, host=host, port=port, token=token, overlay=overlay
+        )
     # Local subprocesses post to a concrete loopback address, not 0.0.0.0.
     run_host = "127.0.0.1" if host == "0.0.0.0" else host
     page_url = f"http://{run_host}:{port}/"

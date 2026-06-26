@@ -1690,7 +1690,11 @@ def _draw_blank_terminus_nub(
 
 
 def _station_group_attrs(
-    graph: MetroGraph, theme: Theme, station: Station
+    graph: MetroGraph,
+    theme: Theme,
+    station: Station,
+    station_offsets: dict[tuple[str, str], float] | None = None,
+    positive_fan: set[str] | None = None,
 ) -> dict[str, Any]:
     """Attributes for a station's wrapping ``<g>`` element.
 
@@ -1700,12 +1704,21 @@ def _station_group_attrs(
     ``id`` in the embedded manifest.  The geometry attributes mirror the
     manifest's ``x``/``y``/``r`` (absolute SVG user units, rounded to 1dp) so an
     overlay can position against either half interchangeably.  A metro line is a
-    manifest group and a section is a manifest region.
+    manifest group and a section is a manifest region.  When ``station_offsets``
+    is supplied the full pill box (``w``/``h``/``rx``) is also emitted so an
+    overlay can reproduce the exact marker shape.
     """
     section = graph.sections.get(station.section_id) if station.section_id else None
     section_id = (
         station.section_id if section is not None and not section.is_implicit else None
     )
+    w: float | None = None
+    h: float | None = None
+    rx: float | None = None
+    if station_offsets is not None:
+        _, _, w, h, rx = station_marker_box(
+            graph, theme, station, station_offsets, positive_fan
+        )
     return {
         "class_": _ns("nf-metro-station-group"),
         **node_data_attrs(
@@ -1715,6 +1728,9 @@ def _station_group_attrs(
             r=theme.station_radius,
             groups=graph.station_lines(station.id),
             region=section_id,
+            w=w,
+            h=h,
+            rx=rx,
         ),
     }
 
@@ -1742,7 +1758,10 @@ def _render_stations(
         if station.is_port or station.is_hidden:
             continue
         if graph.embed_manifest:
-            g = draw.Group(**_station_group_attrs(graph, theme, station))
+            attrs = _station_group_attrs(
+                graph, theme, station, station_offsets, positive_fan
+            )
+            g = draw.Group(**attrs)
             _render_station_into(
                 g, graph, theme, station, station_offsets, positive_fan
             )

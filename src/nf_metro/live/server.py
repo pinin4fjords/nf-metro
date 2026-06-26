@@ -26,6 +26,7 @@ from nf_metro.layout import compute_layout
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 from nf_metro.live.mapping import stations_for_process
+from nf_metro.manifest.read import read_manifest
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render import render_svg
@@ -153,6 +154,52 @@ class MapModel:
                     "rx": round(rx, 1),
                 }
             )
+
+    @classmethod
+    def from_svg(cls, svg_text: str, is_light: bool = False) -> "MapModel":
+        """Build a MapModel from a rendered SVG with an embedded manifest.
+
+        Reads geometry and process-mapping from the ``<metadata id="diagram-manifest">``
+        block rather than re-rendering, so a pre-rendered SVG can drive the live
+        server without the source ``.mmd`` file.  Raises ``ValueError`` if the
+        SVG carries no manifest.
+        """
+        manifest = read_manifest(svg_text)
+        if manifest is None:
+            raise ValueError(
+                "serve: SVG has no embedded manifest; "
+                "render with --manifest (the default)"
+            )
+        model = cls.__new__(cls)
+        model.svg_body = re.sub(r"^<\?xml[^>]*\?>\s*", "", svg_text)
+        model.width = float(manifest.get("width", 1000))
+        model.height = float(manifest.get("height", 600))
+        model.is_light = is_light
+        model.mapping = {
+            node["id"]: node.get("patterns", [])
+            for node in manifest.get("nodes", [])
+            if node.get("patterns")
+        }
+        model.stations = []
+        for node in manifest.get("nodes", []):
+            node_id = node["id"]
+            if node_id not in model.mapping:
+                continue
+            r = float(node.get("r", 8))
+            w = float(node.get("w", r * 2))
+            h = float(node.get("h", r * 2))
+            rx = float(node.get("rx", r))
+            model.stations.append(
+                {
+                    "id": node_id,
+                    "x": float(node["x"]),
+                    "y": float(node["y"]),
+                    "w": w,
+                    "h": h,
+                    "rx": rx,
+                }
+            )
+        return model
 
     def stations_for_process(self, process: str) -> list[str]:
         return stations_for_process(process, self.mapping)
@@ -588,13 +635,34 @@ def serve(
     token: str | None = None,
     overlay: str = DEFAULT_OVERLAY,
 ) -> MetroServer:
-    """Build the model and return a serving ``MetroServer``.
+    """Build the model from a graph+theme and return a serving ``MetroServer``.
 
     The caller drives the server (``serve_forever``); separating construction
     makes the handler and state testable without binding a socket. ``overlay``
     is the status-overlay style shown until a viewer picks another in the page.
     """
-    model = MapModel(graph, theme)
+    return serve_model(
+        MapModel(graph, theme),
+        host=host,
+        port=port,
+        token=token,
+        overlay=overlay,
+    )
+
+
+def serve_model(
+    model: MapModel,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    token: str | None = None,
+    overlay: str = DEFAULT_OVERLAY,
+) -> MetroServer:
+    """Return a serving ``MetroServer`` from a pre-built ``MapModel``.
+
+    Allows callers that already hold a model (e.g. loaded from an SVG) to skip
+    the render step.  The caller drives the server lifecycle via
+    :func:`run_lifecycle`.
+    """
     state = ProgressState(model)
     httpd = MetroServer((host, port), make_handler(model, state, token, overlay))
     httpd.state = state
