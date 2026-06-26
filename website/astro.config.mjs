@@ -19,6 +19,16 @@ const metroGrammar = JSON.parse(
   ),
 );
 
+// Shiki has no bundled Lark grammar, so ```lark fences in the parser docs would
+// render unhighlighted. This custom TextMate grammar covers Lark's rule/terminal
+// definitions, priorities, regex/string literals, and %directives.
+const larkGrammar = JSON.parse(
+  readFileSync(
+    new URL("./src/grammars/lark.tmLanguage.json", import.meta.url),
+    "utf8",
+  ),
+);
+
 // Compare two dotted version strings (e.g. "0.7.2", "0.1") so the larger sorts
 // first (descending). Missing patch components count as 0.
 /** @param {string} a @param {string} b */
@@ -104,7 +114,7 @@ export default defineConfig({
         "Metro-map-style SVG diagrams from Mermaid graph definitions with %%metro directives — for visualizing bioinformatics pipeline workflows.",
       favicon: "/favicon.svg",
       expressiveCode: {
-        shiki: { langs: [metroGrammar] },
+        shiki: { langs: [metroGrammar, larkGrammar] },
       },
       social: [
         {
@@ -129,14 +139,16 @@ export default defineConfig({
         {
           label: "Overview",
           items: [
-            { label: "Home", link: base },
+            // Starlight prepends `base` to sidebar `link` values, so these are
+            // base-relative ("/" -> "/nf-metro/"); passing `base` here doubled it.
+            { label: "Home", link: "/" },
             { label: "Guide", slug: "guide" },
             { label: "CLI reference", slug: "cli" },
             { label: "Gallery", slug: "gallery" },
             { label: "nf-core pipelines", slug: "pipelines" },
             {
               label: "Playground (beta)",
-              link: `${base}playground/`,
+              link: "/playground/",
               attrs: { target: "_self" },
             },
           ],

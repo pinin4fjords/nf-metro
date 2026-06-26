@@ -109,7 +109,7 @@ defines `WRAP_TABLE`, a declarative mirror of the inter-section
 if-cascade. It is a **documentation reference only**: nothing in
 routing consumes it at runtime. Each entry is keyed by
 
-```
+```python
 (exit_side, entry_side, drow_sign, dcol_sign)
 ```
 

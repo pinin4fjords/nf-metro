@@ -44,7 +44,7 @@ The work splits in two:
 
 `.mmd` files use a subset of Mermaid `graph LR` syntax:
 
-```
+```metro
 %%metro title: Pipeline Name
 %%metro line: line_id | Display Name | #hexcolor | style
 

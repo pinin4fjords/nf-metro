@@ -7,7 +7,7 @@ sidebar:
 nf-metro turns a Mermaid `graph LR` definition (augmented with `%%metro`
 directives) into a metro-map-style SVG. The pipeline has three stages:
 
-```
+```text
 Parse  ->  Layout  ->  Render
 ```
 

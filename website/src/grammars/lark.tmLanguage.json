@@ -1,0 +1,119 @@
+{
+  "displayName": "Lark grammar",
+  "name": "lark",
+  "scopeName": "source.lark",
+  "aliases": ["lark-grammar"],
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#directive"
+    },
+    {
+      "include": "#definition"
+    },
+    {
+      "include": "#regexp"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#terminal-ref"
+    },
+    {
+      "include": "#operator"
+    },
+    {
+      "include": "#number"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.lark"
+    },
+    "directive": {
+      "match": "%(ignore|import|declare|override|extend)\\b",
+      "name": "keyword.control.directive.lark"
+    },
+    "definition": {
+      "comment": "A rule (lowercase) or terminal (uppercase) being defined, with an optional .priority, up to its colon.",
+      "match": "^[ \\t]*(?:(_?[A-Z][A-Z0-9_]*)|(_?\\??[a-z][a-z0-9_]*))(\\.\\-?[0-9]+)?[ \\t]*(:)",
+      "captures": {
+        "1": {
+          "name": "entity.name.type.terminal.lark"
+        },
+        "2": {
+          "name": "entity.name.function.rule.lark"
+        },
+        "3": {
+          "name": "constant.numeric.priority.lark"
+        },
+        "4": {
+          "name": "keyword.operator.definition.lark"
+        }
+      }
+    },
+    "regexp": {
+      "begin": "/(?![ \\t])",
+      "end": "/[imslux]*",
+      "name": "string.regexp.lark",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.lark"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.lark"
+        }
+      },
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.lark"
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"i?",
+          "name": "string.quoted.double.lark",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.lark"
+            }
+          ]
+        },
+        {
+          "begin": "'",
+          "end": "'i?",
+          "name": "string.quoted.single.lark",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.lark"
+            }
+          ]
+        }
+      ]
+    },
+    "terminal-ref": {
+      "match": "\\b_?[A-Z][A-Z0-9_]*\\b",
+      "name": "support.constant.terminal.lark"
+    },
+    "operator": {
+      "match": "->|[|?*+~()\\[\\]]",
+      "name": "keyword.operator.lark"
+    },
+    "number": {
+      "match": "\\b[0-9]+\\b",
+      "name": "constant.numeric.lark"
+    }
+  }
+}

@@ -103,7 +103,7 @@ Automated geometry checks verify that coordinates are correct. They cannot verif
 
 **Via CI (preferred):** push to a PR. The workflow at `.github/workflows/pr-renders.yml` renders the gallery on both the PR branch and the base, builds a side-by-side before/after for every SVG that changed, and publishes the diff at:
 
-```
+```text
 https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/
 ```
 

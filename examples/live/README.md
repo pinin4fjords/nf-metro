@@ -9,7 +9,7 @@ Platform, no plugin. Stock Nextflow `-with-weblog` posts task events to
 stations go pending -> queued -> running -> done (or failed) with a per-sample
 count.
 
-```
+```text
 nextflow run --with-weblog ──HTTP──> nf-metro serve ──SSE──> browser overlay
    (task events)                   (map + process mapping)   (stations light up)
 ```

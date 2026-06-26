@@ -9,7 +9,7 @@ nf-metro ships four commands — `render`, `convert`, `validate`, and `info`. Th
 
 Render a Mermaid metro map definition to SVG or interactive HTML.
 
-```
+```bash
 nf-metro render [OPTIONS] INPUT_FILE
 ```
 
@@ -84,7 +84,7 @@ To run the same geometry checks on an already-rendered SVG, use [`nf-metro valid
 
 Convert a Nextflow `-with-dag` mermaid file to nf-metro format.
 
-```
+```bash
 nf-metro convert [OPTIONS] INPUT_FILE
 ```
 
@@ -99,7 +99,7 @@ See [Importing from Nextflow](/nf-metro/nextflow/) for details and examples.
 
 Check a `.mmd` file for errors without producing output.
 
-```
+```bash
 nf-metro validate INPUT_FILE
 ```
 
@@ -107,6 +107,6 @@ nf-metro validate INPUT_FILE
 
 Print a summary of the parsed map: sections, lines, stations, and edges.
 
-```
+```bash
 nf-metro info INPUT_FILE
 ```

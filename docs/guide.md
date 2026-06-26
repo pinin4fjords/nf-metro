@@ -660,7 +660,7 @@ stations end up outside their own section box. nf-metro renders such a map
 **best-effort and prints a warning to stderr** naming the problem, rather than
 refusing to produce anything:
 
-```
+```console
 $ nf-metro render broken.mmd -o broken.svg
 ... the settled layout violates Tier-A invariants the renderer is about to draw ...
 Rendered 12 stations, 11 edges, 1 lines -> broken.svg
@@ -670,7 +670,7 @@ Pass `--strict` (or add `%%metro strict: true`) to turn that warning into a
 hard error with a non-zero exit, so a broken map fails your build instead of
 shipping a visibly-wrong diagram:
 
-```
+```console
 $ nf-metro render broken.mmd -o broken.svg --strict
 Error: the settled layout violates Tier-A invariants ...
 ```
