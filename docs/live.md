@@ -57,6 +57,62 @@ matched against the **fully-qualified** process name:
   `NFCORE_RNASEQ:RNASEQ:ALIGN:...`, when a tool recurs).
 - The directive is pure metadata: it never affects the rendered map.
 
+### Skip the boilerplate with `auto_process`
+
+When a map's station ids already name their processes (`star`, `salmon_quant`,
+`trimgalore`, ...), writing a `process:` line per station just restates the id.
+Set `%%metro auto_process: true` (or pass `--auto-process`) and each station
+with no explicit directive gets its own id as a default pattern, anchored to the
+final segment of the process name:
+
+```
+%%metro auto_process: true
+```
+
+`star` then matches `...:STAR_ALIGN`, `salmon_quant` matches `...:SALMON_QUANT`,
+and so on; a tool name buried in the scope path (e.g. `...:QUANTIFY_STAR_SALMON:SALMON_QUANT`)
+does **not** light up the `star` station. You write explicit `process:` lines
+only for the exceptions:
+
+- **Abstraction stations** whose id is not a process name (`fastqc_raw`,
+  `fastqc_trimmed`, `multiqc_final`) - the default matches nothing, so they stay
+  dark until you map them.
+- **One process under several scopes** - if the same process name runs in two
+  subworkflows that the map draws as separate stations (e.g. `salmon_quant` for
+  the genome aligner and `salmon_pseudo` for the pseudo-aligner), scope each
+  override by its subworkflow so the right station lights up.
+
+Run `check-mapping` after enabling it: a default that matches nothing surfaces
+as a dead pattern, pointing you straight at the stations that still need a line.
+
+### Factor out the shared prefix with `process_scope`
+
+The explicit `process:` lines for the exceptions all repeat the pipeline's
+fully-qualified prefix (`NFCORE_RNASEQ:RNASEQ:...`) and have to be written as
+regexes. Set `%%metro process_scope:` (or pass `--process-scope`) to the shared
+prefix and each `process:` value becomes the **tail** under that scope, joined
+as `<scope>:<tail>` and matched **literally**:
+
+```
+%%metro process_scope: NFCORE_RNASEQ:RNASEQ
+%%metro auto_process: true
+
+%%metro process: fastqc_raw    | FASTQ_FASTQC_UMITOOLS_TRIMGALORE:FASTQC
+%%metro process: salmon_quant  | QUANTIFY_STAR_SALMON:SALMON_QUANT
+%%metro process: salmon_pseudo | QUANTIFY_PSEUDO_ALIGNMENT:SALMON_QUANT
+```
+
+- The prefix lives in one place, so the per-station lines carry only what
+  distinguishes them.
+- Values are matched **literally** under a scope - a `.` is a dot, not a
+  wildcard - so a pasted process path is robust with no regex to get wrong.
+- Dropping the scope (and the explicit lines) falls back to `auto_process` leaf
+  matching, which ignores the path entirely and so survives a subworkflow
+  renesting; keep the explicit scoped lines where you need precision instead.
+
+Without a `process_scope`, `process:` values stay regexes (e.g.
+`NFCORE_RNASEQ:RNASEQ:.*ALIGN.*`), unchanged.
+
 ## The embedded data manifest
 
 `nf-metro serve` lights up a map because it holds the in-memory graph - it

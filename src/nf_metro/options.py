@@ -215,6 +215,25 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         "geometry as an error (non-zero exit) instead of a warning.",
     ),
     LayoutOption(
+        name="auto_process",
+        kind="bool",
+        parse_time=True,
+        help="Map each station to its own id as a default process pattern when "
+        "it has no explicit %%metro process: directive, so a map whose station "
+        "ids already name their Nextflow processes lights up live with no "
+        "per-station mapping. Explicit directives override the default.",
+    ),
+    LayoutOption(
+        name="process_scope",
+        kind="str",
+        parse_time=True,
+        help="Common fully-qualified-name prefix shared by the pipeline's "
+        "processes (e.g. 'NFCORE_RNASEQ:RNASEQ'). Each %%metro process: value is "
+        "then the tail under this scope, joined as '<scope>:<tail>' and matched "
+        "literally - so a pasted process path needs no regex and the prefix is "
+        "written once. Without a scope, process: values stay regexes.",
+    ),
+    LayoutOption(
         name="manifest",
         attr="embed_manifest",
         kind="bool",

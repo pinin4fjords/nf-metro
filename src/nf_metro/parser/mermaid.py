@@ -156,18 +156,30 @@ def _validate_edge_annotations(graph: MetroGraph) -> None:
 
 
 def parse_metro_mermaid(
-    text: str, max_station_columns: int | None = None
+    text: str,
+    max_station_columns: int | None = None,
+    auto_process: bool | None = None,
+    process_scope: str | None = None,
 ) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives.
 
     ``max_station_columns`` is the row-wrap width supplied by the caller (the
     ``--max-layers-per-row`` CLI flag). When ``None``, a ``%%metro
     fold_threshold`` directive supplies the width, falling back to 15.
+
+    ``auto_process`` is the ``--auto-process`` CLI flag; when not ``None`` it
+    overrides the ``%%metro auto_process`` directive, deciding whether stations
+    without an explicit ``process:`` mapping get their id as a default pattern.
+
+    ``process_scope`` is the ``--process-scope`` CLI flag; when not ``None`` it
+    overrides the ``%%metro process_scope`` directive, supplying the common FQN
+    prefix that explicit ``process:`` tails are joined under and matched
+    literally against.
     """
     _check_unsupported_input(text)
     graph = MetroGraph()
     _apply_statements(parse_statements(text), graph)
-    _finalize_graph(graph, max_station_columns)
+    _finalize_graph(graph, max_station_columns, auto_process, process_scope)
     return graph
 
 
@@ -195,7 +207,12 @@ def _apply_statements(statements: list[_Statement], graph: MetroGraph) -> None:
             _apply_node(stmt.node_id, stmt.label, graph, current_section_id)
 
 
-def _finalize_graph(graph: MetroGraph, max_station_columns: int | None) -> None:
+def _finalize_graph(
+    graph: MetroGraph,
+    max_station_columns: int | None,
+    auto_process: bool | None = None,
+    process_scope: str | None = None,
+) -> None:
     """Validate, run the post-parse resolution, and apply buffered metadata."""
     _validate_edge_annotations(graph)
 
@@ -232,6 +249,13 @@ def _finalize_graph(graph: MetroGraph, max_station_columns: int | None) -> None:
         _resolve_sections(graph)
         _insert_bypass_stations(graph)
 
+    # A caller value (the --auto-process / --process-scope CLI flags) wins over
+    # the matching %%metro directive set during statement application.
+    if auto_process is not None:
+        graph.auto_process = auto_process
+    if process_scope is not None:
+        graph.process_scope = process_scope
+
     _apply_pending_metadata(graph)
 
 
@@ -264,14 +288,34 @@ def _apply_pending_metadata(graph: MetroGraph) -> None:
         if station:
             station.marker = marker
 
+    scope = graph.process_scope
     for station_id, pattern in graph._pending_process:
         if station_id in graph.stations:
-            graph.process_mapping.setdefault(station_id, []).append(pattern)
+            # Under a scope the prefix anchors the start and the literal tail
+            # anchors the final segment(s), tolerating intermediate subworkflow
+            # nesting between them; without a scope the value is a regex matched
+            # as-is (the legacy behaviour).
+            if scope:
+                effective = rf"(?:^|:){re.escape(scope)}:(?:.+:)?{re.escape(pattern)}$"
+            else:
+                effective = pattern
+            graph.process_mapping.setdefault(station_id, []).append(effective)
         else:
             warnings.warn(
                 f"%%metro process: unknown station id {station_id!r}; ignoring",
                 stacklevel=2,
             )
+
+    if graph.auto_process:
+        for station_id, station in graph.stations.items():
+            if station.is_port or station.is_hidden:
+                continue
+            # Anchor the id to the start of the final ':'-delimited segment (the
+            # process name itself) so it can't match a tool name buried in the
+            # scope path, e.g. station 'star' must not light up for
+            # '...:QUANTIFY_STAR_SALMON:SALMON_QUANT'.
+            default = rf"(?:^|:){re.escape(station_id)}[^:]*$"
+            graph.process_mapping.setdefault(station_id, [default])
 
 
 def _apply_node(

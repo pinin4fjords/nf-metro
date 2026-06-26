@@ -57,6 +57,15 @@ files render with no changes unless you opt in to a new rendering feature.
   process(es) it represents for live-progress mode. The regex matches the
   fully-qualified process name; repeat to attach several patterns to one
   station. Pure metadata — never affects the rendered map.
+- **`%%metro auto_process: true`** (and `--auto-process`) — give every station
+  with no explicit `process:` directive its own id as a default process
+  pattern, anchored to the final segment of the process name, so a map whose
+  station ids already name their processes lights up live with no per-station
+  mapping. Opt-in; explicit directives override.
+- **`%%metro process_scope: <prefix>`** (and `--process-scope`) — factor out the
+  fully-qualified-name prefix shared by a pipeline's processes (e.g.
+  `NFCORE_RNASEQ:RNASEQ`); each `process:` value is then the tail under that
+  scope, matched literally and tolerant of intermediate subworkflow nesting.
 - **`%%metro directional: true`** — graph-wide opt-in for flow direction
   chevrons (mirrors `--directional`).
 - **`%%metro marker: <station> | <shape>, <fill>`** — override a station's
