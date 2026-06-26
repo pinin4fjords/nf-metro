@@ -246,6 +246,16 @@ nav.sidebar a[aria-current="page"]:hover {
 }
 
 /* ============================================================
+   Wider content column.
+   Starlight's default is 45rem, which squeezes the multi-column
+   CLI/option tables. Widen the whole content column to 56rem.
+   https://github.com/withastro/starlight/discussions/2180
+   ============================================================ */
+:root {
+  --sl-content-width: 56rem;
+}
+
+/* ============================================================
    HOME PAGE  (rendered by src/pages/index.astro, scoped under .home)
    ============================================================ */
 .home {
