@@ -1,0 +1,33 @@
+# Programmatically generated outputs — never reformat these.
+
+# Generated docs content (scripts/build_gallery.py): markdown + rendered SVGs
+docs/gallery/
+docs/pipelines/
+docs/assets/renders/
+
+# Auto-generated dev doc (scripts/routing_gate_coverage.py)
+docs/dev/routing_gate_coverage.md
+
+# Golden baselines written and compared by their generator scripts/tests
+tests/data/
+
+# Python package source and its runtime assets (templates with @@ placeholders,
+# shipped JSON schema, render JS). This is ruff's domain, not prettier's.
+src/
+
+# Vendored Claude Code skills/tooling — not project source
+.claude/
+
+# Astro build output and generated types
+website/dist/
+website/.astro/
+
+# Generated playground manifest and dev wheels (scripts/build_playground_examples.py)
+website/public/playground/examples.json
+website/public/playground/wheels/
+
+# npm-generated lockfiles
+package-lock.json
+
+# Dependencies
+node_modules/

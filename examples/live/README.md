@@ -16,12 +16,12 @@ nextflow run --with-weblog ──HTTP──> nf-metro serve ──SSE──> bro
 
 ## Files
 
-| File | Role |
-|------|------|
-| `pipeline.mmd` | The metro map. `%%metro process:` directives tie each station to a Nextflow process name. |
-| `workflow/main.nf` | A toy RNA-seq-shaped workflow whose processes only `sleep` over 4 samples. Three branches (QC / alignment / quantification) reconverging at MultiQC. |
-| `workflow/nextflow.config` | Local executor, throttled so RUNNING states are visible. |
-| `processes.txt` | The process names this map should cover, for `check-mapping`. |
+| File                       | Role                                                                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pipeline.mmd`             | The metro map. `%%metro process:` directives tie each station to a Nextflow process name.                                                            |
+| `workflow/main.nf`         | A toy RNA-seq-shaped workflow whose processes only `sleep` over 4 samples. Three branches (QC / alignment / quantification) reconverging at MultiQC. |
+| `workflow/nextflow.config` | Local executor, throttled so RUNNING states are visible.                                                                                             |
+| `processes.txt`            | The process names this map should cover, for `check-mapping`.                                                                                        |
 
 ## Run it
 

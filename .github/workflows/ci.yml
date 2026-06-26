@@ -19,6 +19,18 @@ jobs:
       - run: ruff format --check src/ tests/
       - run: mypy
 
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Runs the prettier hook from prek.toml (web/docs files; Python is handled
+      # by ruff in the lint job). prek auto-provisions node + prettier + the astro
+      # plugin; --show-diff-on-failure (added by the action) prints what needs
+      # formatting.
+      - uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
+        with:
+          extra-args: prettier --all-files
+
   test:
     runs-on: ubuntu-latest
     strategy:

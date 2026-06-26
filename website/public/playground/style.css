@@ -11,14 +11,24 @@
   --danger-bg: #2a1414;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font:
+    14px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 body {
@@ -40,7 +50,10 @@ body {
   font-size: 15px;
   letter-spacing: 0.2px;
 }
-.brand .muted { color: var(--muted); font-weight: 400; }
+.brand .muted {
+  color: var(--muted);
+  font-weight: 400;
+}
 .brand .beta {
   font-size: 10px;
   font-weight: 700;
@@ -72,9 +85,13 @@ body {
   font-size: 12px;
   white-space: nowrap;
 }
-.pane-toolbar label.check { gap: 5px; }
+.pane-toolbar label.check {
+  gap: 5px;
+}
 
-.advanced { border-bottom: 1px solid var(--border); }
+.advanced {
+  border-bottom: 1px solid var(--border);
+}
 .advanced > summary {
   list-style: none;
   cursor: pointer;
@@ -87,15 +104,23 @@ body {
   align-items: center;
   gap: 6px;
 }
-.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary::-webkit-details-marker {
+  display: none;
+}
 .advanced > summary::before {
   content: "▸";
   font-size: 10px;
   transition: transform 0.12s ease;
 }
-.advanced[open] > summary::before { transform: rotate(90deg); }
-.advanced > summary:hover { color: var(--text); }
-.advanced .advanced-controls { border-bottom: none; }
+.advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+.advanced > summary:hover {
+  color: var(--text);
+}
+.advanced .advanced-controls {
+  border-bottom: none;
+}
 
 .swatches {
   display: flex;
@@ -119,8 +144,13 @@ body {
   background: none;
   cursor: pointer;
 }
-.swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
-.swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
+.swatch input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.swatch input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
 .swatches:empty::after {
   content: "none defined";
   color: var(--muted);
@@ -141,7 +171,8 @@ body {
   margin: 2px 4px;
 }
 
-select, input[type="number"] {
+select,
+input[type="number"] {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -150,8 +181,12 @@ select, input[type="number"] {
   font: inherit;
   font-size: 12px;
 }
-input[type="number"] { width: 68px; }
-input[type="checkbox"] { accent-color: var(--accent); }
+input[type="number"] {
+  width: 68px;
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
 
 button {
   background: var(--panel-2);
@@ -163,9 +198,18 @@ button {
   font-size: 12px;
   cursor: pointer;
 }
-button:hover { border-color: var(--accent); }
-button:active { background: var(--accent-press); border-color: var(--accent-press); color: #02120f; }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:hover {
+  border-color: var(--accent);
+}
+button:active {
+  background: var(--accent-press);
+  border-color: var(--accent-press);
+  color: #02120f;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 #split {
   flex: 1;
@@ -174,14 +218,17 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   min-height: 0;
 }
 
-#editor-pane, #preview-pane {
+#editor-pane,
+#preview-pane {
   position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-#editor-pane { border-right: 1px solid var(--border); }
+#editor-pane {
+  border-right: 1px solid var(--border);
+}
 
 .CodeMirror {
   flex: 1;
@@ -191,17 +238,42 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   background: var(--bg);
   color: var(--text);
 }
-.CodeMirror-gutters { background: var(--panel); border-right: 1px solid var(--border); }
-.CodeMirror-cursor { border-left: 2px solid var(--text); }
-.CodeMirror-focused .CodeMirror-cursor { border-left: 2px solid var(--accent); }
-.CodeMirror-selected { background: #2a3344 !important; }
-.CodeMirror-focused .CodeMirror-selected { background: #31507a !important; }
-.CodeMirror-line::selection, .CodeMirror-line > span::selection { background: #31507a; }
-.cm-s-default .cm-comment { color: #5c6b7a; }
-.cm-metro-directive { color: var(--accent); font-weight: 600; }
-.cm-metro-keyword { color: #c792ea; }
-.cm-metro-line { color: #ffcb6b; }
-.cm-metro-arrow { color: #82aaff; }
+.CodeMirror-gutters {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+.CodeMirror-cursor {
+  border-left: 2px solid var(--text);
+}
+.CodeMirror-focused .CodeMirror-cursor {
+  border-left: 2px solid var(--accent);
+}
+.CodeMirror-selected {
+  background: #2a3344 !important;
+}
+.CodeMirror-focused .CodeMirror-selected {
+  background: #31507a !important;
+}
+.CodeMirror-line::selection,
+.CodeMirror-line > span::selection {
+  background: #31507a;
+}
+.cm-s-default .cm-comment {
+  color: #5c6b7a;
+}
+.cm-metro-directive {
+  color: var(--accent);
+  font-weight: 600;
+}
+.cm-metro-keyword {
+  color: #c792ea;
+}
+.cm-metro-line {
+  color: #ffcb6b;
+}
+.cm-metro-arrow {
+  color: #82aaff;
+}
 
 #error {
   background: var(--danger-bg);
@@ -215,7 +287,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   overflow: auto;
 }
 
-#preview-pane { background: #0e1219; }
+#preview-pane {
+  background: #0e1219;
+}
 #preview {
   flex: 1;
   overflow: auto;
@@ -225,12 +299,21 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   justify-content: center;
 }
 /* When zoomed past the viewport, left-align so the start stays scrollable. */
-#preview.zoomed { justify-content: flex-start; }
+#preview.zoomed {
+  justify-content: flex-start;
+}
 /* flex-shrink:0 so an explicit zoom width isn't shrunk back to the container. */
-#preview svg { max-width: 100%; height: auto; flex-shrink: 0; }
+#preview svg {
+  max-width: 100%;
+  height: auto;
+  flex-shrink: 0;
+}
 /* Dim the preview while the Python renderer is running. The class is set just
    before a setTimeout(0) so the browser gets one paint cycle to show it. */
-#preview.rendering { opacity: 0.45; cursor: wait; }
+#preview.rendering {
+  opacity: 0.45;
+  cursor: wait;
+}
 
 #zoom-controls {
   position: absolute;
@@ -256,8 +339,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   line-height: 1;
   cursor: pointer;
 }
-#zoom-controls button#zoom-fit { font-size: 12px; }
-#zoom-controls button:hover { background: var(--accent-press); color: #02120f; }
+#zoom-controls button#zoom-fit {
+  font-size: 12px;
+}
+#zoom-controls button:hover {
+  background: var(--accent-press);
+  color: #02120f;
+}
 
 .overlay {
   position: absolute;
@@ -279,11 +367,21 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
-.muted { color: var(--muted); }
-.small { font-size: 12px; }
-.hidden { display: none !important; }
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12px;
+}
+.hidden {
+  display: none !important;
+}
 
 #toast {
   position: fixed;
@@ -305,7 +403,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-color: var(--danger);
   color: var(--danger);
 }
-.report-btn:hover { border-color: var(--danger); background: var(--danger-bg); }
+.report-btn:hover {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
 
 .modal-overlay {
   position: fixed;
@@ -325,8 +426,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 20px 22px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
-.modal h2 { margin: 0 0 8px; font-size: 17px; }
-.modal p { margin: 0 0 14px; }
+.modal h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+.modal p {
+  margin: 0 0 14px;
+}
 .modal label {
   display: block;
   margin-bottom: 6px;
@@ -350,15 +456,22 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-size: 13px;
   resize: vertical;
 }
-.modal textarea:focus { outline: none; border-color: var(--accent); }
+.modal textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
 }
-.modal-actions button.ghost { color: var(--muted); }
-.modal a { color: var(--accent); }
+.modal-actions button.ghost {
+  color: var(--muted);
+}
+.modal a {
+  color: var(--accent);
+}
 .modal code {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -382,13 +495,19 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-color: var(--accent);
   color: #02120f;
 }
-.mode-btn[aria-pressed="true"]:hover { border-color: var(--accent); }
+.mode-btn[aria-pressed="true"]:hover {
+  border-color: var(--accent);
+}
 
 /* Hit-target affordance while a build mode is active. */
 #preview.mode-add-station [data-section-id],
-#preview.mode-add-edge [data-station-id] { cursor: crosshair; }
+#preview.mode-add-edge [data-station-id] {
+  cursor: crosshair;
+}
 #preview.mode-add-station svg,
-#preview.mode-add-edge svg { cursor: default; }
+#preview.mode-add-edge svg {
+  cursor: default;
+}
 
 /* Selection + connect-source highlight, applied to concrete SVG shapes. */
 #preview .nfm-sel {
@@ -453,28 +572,61 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font: inherit;
   font-size: 12px;
 }
-.prop-row input[type="text"]:focus { outline: none; border-color: var(--accent); }
-.prop-grid { display: flex; gap: 8px; }
-.prop-grid input[type="number"] { width: 100%; }
-.prop-edges { display: flex; flex-direction: column; gap: 6px; }
+.prop-row input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.prop-grid {
+  display: flex;
+  gap: 8px;
+}
+.prop-grid input[type="number"] {
+  width: 100%;
+}
+.prop-edges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .prop-edge {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
 }
-.prop-edge .ends { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.prop-edge select { flex: 0 0 auto; }
-.prop-edge button.add { padding: 2px 7px; }
-.prop-edge button.del { color: var(--danger); border-color: var(--danger); padding: 2px 7px; }
-.prop-empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.prop-edge .ends {
+  flex: 1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prop-edge select {
+  flex: 0 0 auto;
+}
+.prop-edge button.add {
+  padding: 2px 7px;
+}
+.prop-edge button.del {
+  color: var(--danger);
+  border-color: var(--danger);
+  padding: 2px 7px;
+}
+.prop-empty {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+}
 .prop-delete {
   width: 100%;
   margin-top: 4px;
   color: var(--danger);
   border-color: var(--danger);
 }
-.prop-delete:hover { background: var(--danger-bg); border-color: var(--danger); }
+.prop-delete:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
 .prop-action {
   width: 100%;
   margin-top: 4px;
@@ -506,7 +658,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 5px 6px;
   border-radius: 6px;
 }
-.line-picker button:hover { background: var(--panel-2); }
+.line-picker button:hover {
+  background: var(--panel-2);
+}
 .line-picker .dot {
   width: 12px;
   height: 12px;
@@ -516,6 +670,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 @media (max-width: 720px) {
-  #split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-  #editor-pane { border-right: none; border-bottom: 1px solid var(--border); }
+  #split {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  #editor-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
 }

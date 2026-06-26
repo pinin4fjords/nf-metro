@@ -27,17 +27,16 @@ description: "Seqera design system v2 — three-layer token architecture (Primit
 # UI Playground file key: MBj38MxoDPSXJ4tzgicfy4
 
 colors:
-
   # ── Surface — Seqera/Decision Colors > Surface ─────────────────────────────
   # Dark mode surface depth (deepest → highest elevation):
   #   surface-inset  →  surface-page  →  surface-subtle  →  (surface-brand for brand sections)
   #
-  surface-page: "#FFFFFF"              # Light: #FFFFFF / Dark: #242424 (Grey/1100 — neutral base canvas)
-  surface-subtle: "#F7F7F7"            # Light: #F7F7F7 (Grey/100) / Dark: #181818 (Grey/1200 — fully neutral, no purple tint)
-  surface-inset: "#EAEBEB"             # Light: #EAEBEB (Grey/200) / Dark: #242424 (Grey/1100 — code blocks, wells, inputs)
-  surface-brand: "#E2F7F3"             # Light: #E2F7F3 (Green/100) / Dark: #065647 (Green/1000 — expressive brand sections: footer, dark hero)
-  surface-overlay: "#EAEBEB"           # Light: #EAEBEB (Grey/200) / Dark: #242424 (Grey/1100 — modal scrim backdrop, hover wash)
-  surface-invert: "#201637"            # Light: #201637 (Dark-brand) / Dark: #FFFFFF — inverted high-contrast block
+  surface-page: "#FFFFFF" # Light: #FFFFFF / Dark: #242424 (Grey/1100 — neutral base canvas)
+  surface-subtle: "#F7F7F7" # Light: #F7F7F7 (Grey/100) / Dark: #181818 (Grey/1200 — fully neutral, no purple tint)
+  surface-inset: "#EAEBEB" # Light: #EAEBEB (Grey/200) / Dark: #242424 (Grey/1100 — code blocks, wells, inputs)
+  surface-brand: "#E2F7F3" # Light: #E2F7F3 (Green/100) / Dark: #065647 (Green/1000 — expressive brand sections: footer, dark hero)
+  surface-overlay: "#EAEBEB" # Light: #EAEBEB (Grey/200) / Dark: #242424 (Grey/1100 — modal scrim backdrop, hover wash)
+  surface-invert: "#201637" # Light: #201637 (Dark-brand) / Dark: #FFFFFF — inverted high-contrast block
 
   # Deprecated v1 aliases — DO NOT use in new code. Use the tokens above.
   # surface-dark: "#201637"            → use surface-invert (light)
@@ -45,57 +44,57 @@ colors:
   # surface-page-dark: "#160F26"       → removed; use surface-inset dark (#242424)
 
   # ── Text — Seqera/Decision Colors > Text ────────────────────────────────────
-  text-default: "#201637"              # Light: #201637 (Dark-brand) / Dark: #FFFFFF — body copy, headlines, UI labels
-  text-muted: "#BABCBD"                # Light: #BABCBD (Grey/600) / Dark: #CFD0D1 (Grey/400) — metadata, timestamps, helper text
-  text-inverse: "#FFFFFF"              # Light: #FFFFFF / Dark: #201637 (Dark-brand) — text on dark surfaces
-  text-emphasized: "#065647"           # Light: #065647 (Green/1000) / Dark: #31C9AC (Green/500) — featured text, callouts, eyebrow badges
-  text-link: "#065647"                 # Light: #065647 (Green/1000) / Dark: #31C9AC (Green/500) — hyperlinks ONLY
+  text-default: "#201637" # Light: #201637 (Dark-brand) / Dark: #FFFFFF — body copy, headlines, UI labels
+  text-muted: "#BABCBD" # Light: #BABCBD (Grey/600) / Dark: #CFD0D1 (Grey/400) — metadata, timestamps, helper text
+  text-inverse: "#FFFFFF" # Light: #FFFFFF / Dark: #201637 (Dark-brand) — text on dark surfaces
+  text-emphasized: "#065647" # Light: #065647 (Green/1000) / Dark: #31C9AC (Green/500) — featured text, callouts, eyebrow badges
+  text-link: "#065647" # Light: #065647 (Green/1000) / Dark: #31C9AC (Green/500) — hyperlinks ONLY
   # text-green removed — use text-emphasized (same values: #065647 light / #31C9AC dark)
 
   # ── Border — Seqera/Decision Colors > Border ────────────────────────────────
-  border-default: "#DDDEDE"            # Light: #DDDEDE (Grey/300) / Dark: #919393 (Grey/800)
-  border-muted: "#EAEBEB"              # Light: #EAEBEB (Grey/200) / Dark: #545555 (Grey/1000)
-  border-focus: "#065647"              # Light: #065647 (Green/1000) / Dark: #31C9AC (Green/500) — focus ring: always 2px solid, 2px offset
+  border-default: "#DDDEDE" # Light: #DDDEDE (Grey/300) / Dark: #919393 (Grey/800)
+  border-muted: "#EAEBEB" # Light: #EAEBEB (Grey/200) / Dark: #545555 (Grey/1000)
+  border-focus: "#065647" # Light: #065647 (Green/1000) / Dark: #31C9AC (Green/500) — focus ring: always 2px solid, 2px offset
   # border-dark removed — was alias for border-default dark; use border-default
 
   # ── Action / CTA — Seqera/Decision Colors > Action ──────────────────────────
   # Pairing rule: action-text (#201637) ONLY pairs with action-bg (green).
   # When using action-bg-emphasis (dark fill) always use text-inverse (white) — not action-text.
   #
-  action-bg: "#31C9AC"                 # Primary CTA fill — Green/500. Light & Dark (same).
-  action-bg-hover: "#0CAE8E"           # Hover of action-bg. Light: #0CAE8E (Green/700) / Dark: #56D3BA (Green/400)
+  action-bg: "#31C9AC" # Primary CTA fill — Green/500. Light & Dark (same).
+  action-bg-hover: "#0CAE8E" # Hover of action-bg. Light: #0CAE8E (Green/700) / Dark: #56D3BA (Green/400)
   # action-bg-pressed removed — not in Figma variables
-  action-bg-emphasis: "#201637"        # Emphasis fill: secondary/dark action button. Light: #201637 / Dark: #201637 (same both modes)
+  action-bg-emphasis: "#201637" # Emphasis fill: secondary/dark action button. Light: #201637 / Dark: #201637 (same both modes)
   # action-bg-emphasis-hover removed — not in Figma variables
   # action-text: "#201637" — gap: not yet a Figma variable. Use text-default (#201637) as fallback until created.
-  action-border: "#31C9AC"             # Outline/border for action — Green/500. Light & Dark.
-  action-accent: "#0A967B"             # Active states, progress, running indicator. Light: #0A967B (Green/800) / Dark: #56D3BA (Green/400)
+  action-border: "#31C9AC" # Outline/border for action — Green/500. Light & Dark.
+  action-accent: "#0A967B" # Active states, progress, running indicator. Light: #0A967B (Green/800) / Dark: #56D3BA (Green/400)
 
   # link-default removed — use text-link (same value)
 
   # ── Disabled — Seqera/Decision Colors > Disabled ────────────────────────────
-  disabled-bg: "#F7F7F7"               # Light: #F7F7F7 (Grey/100) / Dark: #7B7B7B (Grey/900)
-  disabled-text: "#BABCBD"             # Light: #BABCBD (Grey/600) / Dark: #BABCBD (Grey/600 — same both modes)
+  disabled-bg: "#F7F7F7" # Light: #F7F7F7 (Grey/100) / Dark: #7B7B7B (Grey/900)
+  disabled-text: "#BABCBD" # Light: #BABCBD (Grey/600) / Dark: #BABCBD (Grey/600 — same both modes)
 
   # neutral-subtle / neutral-emphasis removed — not in Figma variables
 
   # ── Semantic — Error  (Seqera/Primitives > Red → Decision Colors > Error) ───
-  error-surface: "#FBE7E9"             # Light: Red/100  / Dark: #63181F (Red/1000)
-  error-border: "#EE9AA2"              # Light: Red/300  / Dark: #C7303E (Red/700)
-  error-default: "#DC3545"             # Light: #DC3545 (Red/600) / Dark: #E7727D (Red/400)
-  error-text: "#AC2936"                # Light: Red/800  / Dark: #F5C2C7 (Red/200)
+  error-surface: "#FBE7E9" # Light: Red/100  / Dark: #63181F (Red/1000)
+  error-border: "#EE9AA2" # Light: Red/300  / Dark: #C7303E (Red/700)
+  error-default: "#DC3545" # Light: #DC3545 (Red/600) / Dark: #E7727D (Red/400)
+  error-text: "#AC2936" # Light: Red/800  / Dark: #F5C2C7 (Red/200)
 
   # ── Semantic — Warning  (Seqera/Primitives > Yellow → Decision Colors > Warning)
-  warning-surface: "#FFF4E0"           # Light: Yellow/100   / Dark: #734A00 (Yellow/1000)
-  warning-border: "#FFD280"            # Light: Yellow/300   / Dark: #E79500 (Yellow/700)
-  warning-default: "#FFA500"           # Light: #FFA500 (Yellow/600) / Dark: #FFC04D (Yellow/400)
-  warning-text: "#A96D00"              # Light: Yellow/900   / Dark: #FFE4B3 (Yellow/200)
+  warning-surface: "#FFF4E0" # Light: Yellow/100   / Dark: #734A00 (Yellow/1000)
+  warning-border: "#FFD280" # Light: Yellow/300   / Dark: #E79500 (Yellow/700)
+  warning-default: "#FFA500" # Light: #FFA500 (Yellow/600) / Dark: #FFC04D (Yellow/400)
+  warning-text: "#A96D00" # Light: Yellow/900   / Dark: #FFE4B3 (Yellow/200)
 
   # ── Semantic — Success  (Seqera/Primitives > Functional-Green → Decision Colors > Success)
-  success-surface: "#E5F5EC"           # Light: Functional-Green/100  / Dark: #124E2C (Functional-Green/1000)
-  success-border: "#94D7B0"            # Light: Functional-Green/300  / Dark: #249D58 (Functional-Green/700)
-  success-default: "#28AE61"           # Light: #28AE61 (Func-Green/600) / Dark: #69C690 (Func-Green/400)
-  success-text: "#1F884C"              # Light: Functional-Green/800  / Dark: #BFE7D0 (Functional-Green/200)
+  success-surface: "#E5F5EC" # Light: Functional-Green/100  / Dark: #124E2C (Functional-Green/1000)
+  success-border: "#94D7B0" # Light: Functional-Green/300  / Dark: #249D58 (Functional-Green/700)
+  success-default: "#28AE61" # Light: #28AE61 (Func-Green/600) / Dark: #69C690 (Func-Green/400)
+  success-text: "#1F884C" # Light: Functional-Green/800  / Dark: #BFE7D0 (Functional-Green/200)
 
   # Info / interaction blue (functional blue scale) — pending decision
   # info-surface: "#E8EBFC"            # step 1
@@ -185,7 +184,7 @@ typography:
 rounded:
   none: 0px
   xs: 4px
-  md: 8px              # reserved — intentionally unused, guards against 8px SaaS default creep
+  md: 8px # reserved — intentionally unused, guards against 8px SaaS default creep
   screenshot: 16px
   badge: 20px
   full: 9999px
@@ -329,6 +328,7 @@ Type is set in **Degular** for all display sizes (`{typography.display}` through
 The shape language is **structural**. Cards, panels, containers, and layout elements hold at `{rounded.none}` (0px). Only interactive elements — buttons and inputs — earn `{rounded.xs}` (4px). Product screenshots get `{rounded.screenshot}` (16px) plus a prominent drop-shadow.
 
 **Key characteristics:**
+
 - Single green accent (`{colors.action-bg}`) appears at most 2–3 times per screen; color is structural, not decorative
 - Dark mode is fully neutral grey — `{colors.surface-page}` #242424 (floor) → `{colors.surface-subtle}` #181818 (cards/panels). Brand sections use deep green (`{colors.surface-brand}` #065647), not purple
 - Aggressive typographic scale — hero pairs with small directly, no intermediate buffer
@@ -384,10 +384,10 @@ Decision token names describe what the color **IS** (its semantic role), never w
 
 These are **separate collections** serving different audiences.
 
-| Collection | Figma | Audience | Purpose |
-|---|---|---|---|
-| **Seqera/Brand Tokens** | Brand Colors + Neutrals | Brand designers, marketers, presentation creators | Simplified palette for brand assets, slides, print |
-| **Seqera/Decision Colors** | Surface, Text, Border, Action, etc. | UI designers, developers, component authors | All UI decisions — the only layer referenced in code |
+| Collection                 | Figma                               | Audience                                          | Purpose                                              |
+| -------------------------- | ----------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| **Seqera/Brand Tokens**    | Brand Colors + Neutrals             | Brand designers, marketers, presentation creators | Simplified palette for brand assets, slides, print   |
+| **Seqera/Decision Colors** | Surface, Text, Border, Action, etc. | UI designers, developers, component authors       | All UI decisions — the only layer referenced in code |
 
 Brand Tokens are NOT used in UI components. Decision Colors are NOT used in brand/marketing assets outside the digital product.
 
@@ -409,14 +409,14 @@ The only permitted **dark green text** on light backgrounds is `{colors.text-lin
 
 The surface stack models physical depth. In dark mode, surfaces get lighter as they elevate above the page floor — this is opposite to how light is often used, but matches the physical metaphor of elevation.
 
-| Token | Light | Dark | Role |
-|---|---|---|---|
-| `{colors.surface-inset}` | #F3F2F5 | #160F26 | Below the page floor — code blocks, text input backgrounds, recessed wells |
-| `{colors.surface-page}` | #FFFFFF | #242424 | The base canvas — all marketing and product pages |
-| `{colors.surface-subtle}` | #F3F2F5 | #2D273C | Elevated above page — cards, panels, table rows, dropdowns |
-| `{colors.surface-brand}` | #E2F7F3 | #201637 | Expressive brand sections — footer, dark hero, sidebar in product |
-| `{colors.surface-overlay}` | #E5E3EA | #242424 | Modal scrim backdrop; hover wash on interactive items |
-| `{colors.surface-invert}` | #201637 | #FFFFFF | Inverted high-contrast surfaces; text-on-dark design blocks |
+| Token                      | Light   | Dark    | Role                                                                       |
+| -------------------------- | ------- | ------- | -------------------------------------------------------------------------- |
+| `{colors.surface-inset}`   | #F3F2F5 | #160F26 | Below the page floor — code blocks, text input backgrounds, recessed wells |
+| `{colors.surface-page}`    | #FFFFFF | #242424 | The base canvas — all marketing and product pages                          |
+| `{colors.surface-subtle}`  | #F3F2F5 | #2D273C | Elevated above page — cards, panels, table rows, dropdowns                 |
+| `{colors.surface-brand}`   | #E2F7F3 | #201637 | Expressive brand sections — footer, dark hero, sidebar in product          |
+| `{colors.surface-overlay}` | #E5E3EA | #242424 | Modal scrim backdrop; hover wash on interactive items                      |
+| `{colors.surface-invert}`  | #201637 | #FFFFFF | Inverted high-contrast surfaces; text-on-dark design blocks                |
 
 **`{colors.surface-page}` is the page floor — use it once per view, as the outermost background only.** Do not apply it to cards, panels, or nested containers. Inner elements that need a white fill should use `{colors.surface-subtle}` or define an explicit component token.
 
@@ -424,14 +424,14 @@ The surface stack models physical depth. In dark mode, surfaces get lighter as t
 
 ### Text
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| `{colors.text-default}` | #201637 | #FFFFFF | All body copy, paragraphs, headlines, UI labels |
-| `{colors.text-muted}` | #736F7D | #B9B7BE | Metadata, timestamps, placeholder text, secondary UI chrome |
-| `{colors.text-inverse}` | #FFFFFF | #201637 | Text on dark surfaces (dark buttons, dark cards, inverted blocks) |
-| `{colors.text-emphasized}` | #065647 | #6FD5BB | Emphasized callouts, featured stats, prominent non-link green text |
-| `{colors.text-link}` | #065647 | #31C9AC | Hyperlinks only — always paired with `href` |
-| `{colors.text-green}` | #065647 | #31C9AC | Green non-link UI — badges, eyebrows, active nav on `{colors.surface-brand}` |
+| Token                      | Light   | Dark    | Use                                                                          |
+| -------------------------- | ------- | ------- | ---------------------------------------------------------------------------- |
+| `{colors.text-default}`    | #201637 | #FFFFFF | All body copy, paragraphs, headlines, UI labels                              |
+| `{colors.text-muted}`      | #736F7D | #B9B7BE | Metadata, timestamps, placeholder text, secondary UI chrome                  |
+| `{colors.text-inverse}`    | #FFFFFF | #201637 | Text on dark surfaces (dark buttons, dark cards, inverted blocks)            |
+| `{colors.text-emphasized}` | #065647 | #6FD5BB | Emphasized callouts, featured stats, prominent non-link green text           |
+| `{colors.text-link}`       | #065647 | #31C9AC | Hyperlinks only — always paired with `href`                                  |
+| `{colors.text-green}`      | #065647 | #31C9AC | Green non-link UI — badges, eyebrows, active nav on `{colors.surface-brand}` |
 
 **Body text is always `{colors.text-default}`.** `{colors.text-muted}` is for interface chrome only — timestamps, placeholders, helper text. Any editorial copy (feature descriptions, blog paragraphs) uses `{colors.text-default}`.
 
@@ -439,11 +439,11 @@ The surface stack models physical depth. In dark mode, surfaces get lighter as t
 
 ### Border & Focus
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
+| Token                     | Light   | Dark    | Use                                               |
+| ------------------------- | ------- | ------- | ------------------------------------------------- |
 | `{colors.border-default}` | #DDDEDE | #5C5767 | All card borders, input borders, dividers, topbar |
-| `{colors.border-muted}` | #EAEBEB | #453F51 | Subtle dividers, de-emphasized separators |
-| `{colors.border-focus}` | #065647 | #31C9AC | Focus ring — 2px solid, 2px offset. Always green. |
+| `{colors.border-muted}`   | #EAEBEB | #453F51 | Subtle dividers, de-emphasized separators         |
+| `{colors.border-focus}`   | #065647 | #31C9AC | Focus ring — 2px solid, 2px offset. Always green. |
 
 `{colors.border-focus}` is the focus ring color. Always `2px solid {colors.border-focus}`, `outline-offset: 2px`. Never blue.
 
@@ -451,16 +451,16 @@ The surface stack models physical depth. In dark mode, surfaces get lighter as t
 
 **Pairing rule:** `{colors.action-text}` (#201637, Brand Dark) **only pairs with `{colors.action-bg}`** (green). The dark brand text on green has sufficient contrast. When the background is `{colors.action-bg-emphasis}` (dark fill), the text must be `{colors.text-inverse}` (white) — NOT `{colors.action-text}`.
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| `{colors.action-bg}` | #31C9AC | #31C9AC | Primary CTA background — Green/500 |
-| `{colors.action-bg-hover}` | #0CAE8E | #0CAE8E | Hover state for primary CTA |
-| `{colors.action-bg-pressed}` | #065647 | #065647 | Pressed state for primary CTA |
-| `{colors.action-bg-emphasis}` | #201637 | #2D273C | Secondary/emphasis action button background — dark fill |
-| `{colors.action-bg-emphasis-hover}` | #160F26 | #201637 | Hover state for emphasis button |
-| `{colors.action-text}` | #201637 | #201637 | Text on `action-bg` (green) only |
-| `{colors.action-border}` | #31C9AC | #31C9AC | Outline/border for action elements |
-| `{colors.action-accent}` | #0CAE8E | #6FD5BB | Progress bars, active states, running indicators |
+| Token                               | Light   | Dark    | Use                                                     |
+| ----------------------------------- | ------- | ------- | ------------------------------------------------------- |
+| `{colors.action-bg}`                | #31C9AC | #31C9AC | Primary CTA background — Green/500                      |
+| `{colors.action-bg-hover}`          | #0CAE8E | #0CAE8E | Hover state for primary CTA                             |
+| `{colors.action-bg-pressed}`        | #065647 | #065647 | Pressed state for primary CTA                           |
+| `{colors.action-bg-emphasis}`       | #201637 | #2D273C | Secondary/emphasis action button background — dark fill |
+| `{colors.action-bg-emphasis-hover}` | #160F26 | #201637 | Hover state for emphasis button                         |
+| `{colors.action-text}`              | #201637 | #201637 | Text on `action-bg` (green) only                        |
+| `{colors.action-border}`            | #31C9AC | #31C9AC | Outline/border for action elements                      |
+| `{colors.action-accent}`            | #0CAE8E | #6FD5BB | Progress bars, active states, running indicators        |
 
 ```
 button-primary:  bg=action-bg (#31C9AC) + text=action-text (#201637)     ✅
@@ -472,10 +472,10 @@ button-secondary: bg=action-bg-emphasis (#201637) + text=action-text (#201637)  
 
 For UI elements that carry no brand identity — unbranded chips, placeholder graphics, neutral dividers.
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| `{colors.neutral-subtle}` | #F3F2F5 | #545555 | Neutral surface: unbranded badges, chip backgrounds |
-| `{colors.neutral-emphasis}` | #A8AAAB | #C4C6C7 | Neutral icons, decorative lines, placeholder fills |
+| Token                       | Light   | Dark    | Use                                                 |
+| --------------------------- | ------- | ------- | --------------------------------------------------- |
+| `{colors.neutral-subtle}`   | #F3F2F5 | #545555 | Neutral surface: unbranded badges, chip backgrounds |
+| `{colors.neutral-emphasis}` | #A8AAAB | #C4C6C7 | Neutral icons, decorative lines, placeholder fills  |
 
 Unlike `{colors.surface-subtle}`, neutral tokens carry **no brand hue**. Use them when the element should be invisible in terms of brand identity (e.g., a grey "coming soon" chip, a placeholder illustration fill).
 
@@ -485,30 +485,30 @@ Not brand colors — use exclusively for system feedback states.
 
 **Error** (`Seqera/Decision Colors > Error` ← `Seqera/Primitives > Red`):
 
-| Token | Light | Dark |
-|---|---|---|
+| Token                    | Light             | Dark               |
+| ------------------------ | ----------------- | ------------------ |
 | `{colors.error-surface}` | #FBE7E9 (Red/100) | #63181F (Red/1000) |
-| `{colors.error-border}` | #EE9AA2 (Red/300) | #C7303E (Red/700) |
-| `{colors.error-default}` | #DC3545 (Red/600) | #DC3545 |
-| `{colors.error-text}` | #AC2936 (Red/800) | #F5C2C7 (Red/200) |
+| `{colors.error-border}`  | #EE9AA2 (Red/300) | #C7303E (Red/700)  |
+| `{colors.error-default}` | #DC3545 (Red/600) | #DC3545            |
+| `{colors.error-text}`    | #AC2936 (Red/800) | #F5C2C7 (Red/200)  |
 
 **Warning** (`Seqera/Decision Colors > Warning` ← `Seqera/Primitives > Yellow`):
 
-| Token | Light | Dark |
-|---|---|---|
+| Token                      | Light   | Dark    |
+| -------------------------- | ------- | ------- |
 | `{colors.warning-surface}` | #FFF4E0 | #734A00 |
-| `{colors.warning-border}` | #FFD280 | #E79500 |
+| `{colors.warning-border}`  | #FFD280 | #E79500 |
 | `{colors.warning-default}` | #FFA500 | #FFA500 |
-| `{colors.warning-text}` | #A96D00 | #FFE4B3 |
+| `{colors.warning-text}`    | #A96D00 | #FFE4B3 |
 
 **Success** (`Seqera/Decision Colors > Success` ← `Seqera/Primitives > Functional-Green`):
 
-| Token | Light | Dark |
-|---|---|---|
+| Token                      | Light   | Dark    |
+| -------------------------- | ------- | ------- |
 | `{colors.success-surface}` | #E5F5EC | #124E2C |
-| `{colors.success-border}` | #94D7B0 | #249D58 |
+| `{colors.success-border}`  | #94D7B0 | #249D58 |
 | `{colors.success-default}` | #28AE61 | #28AE61 |
-| `{colors.success-text}` | #1F884C | #BFE7D0 |
+| `{colors.success-text}`    | #1F884C | #BFE7D0 |
 
 ### CSS Token → Variable Mapping
 
@@ -516,39 +516,39 @@ DESIGN.md token names map **directly** to CSS custom properties and Tailwind uti
 
 Scale tokens (`bg-nextflow-500`, `text-brand-700`) remain valid for fine-grained palette work.
 
-| Token | CSS variable | Tailwind class | Hex (light) |
-|---|---|---|---|
-| `{colors.action-bg}` | `--color-action-bg` | `bg-action-bg` | `#31C9AC` |
-| `{colors.action-bg-hover}` | `--color-action-bg-hover` | `bg-action-bg-hover` | `#0CAE8E` |
-| `{colors.action-bg-pressed}` | `--color-action-bg-pressed` | `bg-action-bg-pressed` | `#065647` |
-| `{colors.action-bg-emphasis}` | `--color-action-bg-emphasis` | `bg-action-bg-emphasis` | `#201637` |
-| `{colors.action-bg-emphasis-hover}` | `--color-action-bg-emphasis-hover` | `bg-action-bg-emphasis-hover` | `#160F26` |
-| `{colors.action-text}` | `--color-action-text` | `text-action-text` | `#201637` |
-| `{colors.action-accent}` | `--color-action-accent` | `bg-action-accent` | `#0CAE8E` |
-| `{colors.surface-page}` | `--color-surface-page` | `bg-surface-page` | `#FFFFFF` |
-| `{colors.surface-subtle}` | `--color-surface-subtle` | `bg-surface-subtle` | `#F3F2F5` |
-| `{colors.surface-inset}` | `--color-surface-inset` | `bg-surface-inset` | `#F3F2F5` |
-| `{colors.surface-brand}` | `--color-surface-brand` | `bg-surface-brand` | `#E2F7F3` |
-| `{colors.surface-overlay}` | `--color-surface-overlay` | `bg-surface-overlay` | `#E5E3EA` |
-| `{colors.surface-invert}` | `--color-surface-invert` | `bg-surface-invert` | `#201637` |
-| `{colors.text-default}` | `--color-text-default` | `text-text-default` | `#201637` |
-| `{colors.text-muted}` | `--color-text-muted` | `text-text-muted` | `#736F7D` |
-| `{colors.text-inverse}` | `--color-text-inverse` | `text-text-inverse` | `#FFFFFF` |
-| `{colors.text-emphasized}` | `--color-text-emphasized` | `text-text-emphasized` | `#065647` |
-| `{colors.text-link}` | `--color-text-link` | `text-text-link` | `#065647` |
-| `{colors.text-green}` | `--color-text-green` | `text-text-green` | `#065647` |
-| `{colors.border-default}` | `--color-border-default` | `border-border-default` | `#DDDEDE` |
-| `{colors.border-muted}` | `--color-border-muted` | `border-border-muted` | `#EAEBEB` |
-| `{colors.border-focus}` | `--color-border-focus` | `border-border-focus` | `#065647` |
-| `{colors.neutral-subtle}` | `--color-neutral-subtle` | `bg-neutral-subtle` | `#F3F2F5` |
-| `{colors.neutral-emphasis}` | `--color-neutral-emphasis` | `bg-neutral-emphasis` | `#A8AAAB` |
-| `{colors.disabled-bg}` | `--color-disabled-bg` | `bg-disabled-bg` | `#F3F2F5` |
-| `{colors.disabled-text}` | `--color-disabled-text` | `text-disabled-text` | `#DDDEDE` |
-| `{colors.error-surface}` | `--color-error-surface` | `bg-error-surface` | `#FBE7E9` |
-| `{colors.error-default}` | `--color-error-default` | `text-error-default` | `#DC3545` |
-| `{colors.error-text}` | `--color-error-text` | `text-error-text` | `#AC2936` |
-| `{colors.warning-default}` | `--color-warning-default` | `text-warning-default` | `#FFA500` |
-| `{colors.success-default}` | `--color-success-default` | `text-success-default` | `#28AE61` |
+| Token                               | CSS variable                       | Tailwind class                | Hex (light) |
+| ----------------------------------- | ---------------------------------- | ----------------------------- | ----------- |
+| `{colors.action-bg}`                | `--color-action-bg`                | `bg-action-bg`                | `#31C9AC`   |
+| `{colors.action-bg-hover}`          | `--color-action-bg-hover`          | `bg-action-bg-hover`          | `#0CAE8E`   |
+| `{colors.action-bg-pressed}`        | `--color-action-bg-pressed`        | `bg-action-bg-pressed`        | `#065647`   |
+| `{colors.action-bg-emphasis}`       | `--color-action-bg-emphasis`       | `bg-action-bg-emphasis`       | `#201637`   |
+| `{colors.action-bg-emphasis-hover}` | `--color-action-bg-emphasis-hover` | `bg-action-bg-emphasis-hover` | `#160F26`   |
+| `{colors.action-text}`              | `--color-action-text`              | `text-action-text`            | `#201637`   |
+| `{colors.action-accent}`            | `--color-action-accent`            | `bg-action-accent`            | `#0CAE8E`   |
+| `{colors.surface-page}`             | `--color-surface-page`             | `bg-surface-page`             | `#FFFFFF`   |
+| `{colors.surface-subtle}`           | `--color-surface-subtle`           | `bg-surface-subtle`           | `#F3F2F5`   |
+| `{colors.surface-inset}`            | `--color-surface-inset`            | `bg-surface-inset`            | `#F3F2F5`   |
+| `{colors.surface-brand}`            | `--color-surface-brand`            | `bg-surface-brand`            | `#E2F7F3`   |
+| `{colors.surface-overlay}`          | `--color-surface-overlay`          | `bg-surface-overlay`          | `#E5E3EA`   |
+| `{colors.surface-invert}`           | `--color-surface-invert`           | `bg-surface-invert`           | `#201637`   |
+| `{colors.text-default}`             | `--color-text-default`             | `text-text-default`           | `#201637`   |
+| `{colors.text-muted}`               | `--color-text-muted`               | `text-text-muted`             | `#736F7D`   |
+| `{colors.text-inverse}`             | `--color-text-inverse`             | `text-text-inverse`           | `#FFFFFF`   |
+| `{colors.text-emphasized}`          | `--color-text-emphasized`          | `text-text-emphasized`        | `#065647`   |
+| `{colors.text-link}`                | `--color-text-link`                | `text-text-link`              | `#065647`   |
+| `{colors.text-green}`               | `--color-text-green`               | `text-text-green`             | `#065647`   |
+| `{colors.border-default}`           | `--color-border-default`           | `border-border-default`       | `#DDDEDE`   |
+| `{colors.border-muted}`             | `--color-border-muted`             | `border-border-muted`         | `#EAEBEB`   |
+| `{colors.border-focus}`             | `--color-border-focus`             | `border-border-focus`         | `#065647`   |
+| `{colors.neutral-subtle}`           | `--color-neutral-subtle`           | `bg-neutral-subtle`           | `#F3F2F5`   |
+| `{colors.neutral-emphasis}`         | `--color-neutral-emphasis`         | `bg-neutral-emphasis`         | `#A8AAAB`   |
+| `{colors.disabled-bg}`              | `--color-disabled-bg`              | `bg-disabled-bg`              | `#F3F2F5`   |
+| `{colors.disabled-text}`            | `--color-disabled-text`            | `text-disabled-text`          | `#DDDEDE`   |
+| `{colors.error-surface}`            | `--color-error-surface`            | `bg-error-surface`            | `#FBE7E9`   |
+| `{colors.error-default}`            | `--color-error-default`            | `text-error-default`          | `#DC3545`   |
+| `{colors.error-text}`               | `--color-error-text`               | `text-error-text`             | `#AC2936`   |
+| `{colors.warning-default}`          | `--color-warning-default`          | `text-warning-default`        | `#FFA500`   |
+| `{colors.success-default}`          | `--color-success-default`          | `text-success-default`        | `#28AE61`   |
 
 Figma variables live in the **Seqera/Decision Colors** collection in the UI Playground file (`MBj38MxoDPSXJ4tzgicfy4`). Figma uses Title Case group prefixes: `Action/bg`, `Surface/page`, `Text/default`, `Border/default`.
 
@@ -562,22 +562,22 @@ Brand Tokens are a simplified palette for brand designers, marketers, and presen
 
 The Seqera brand identity palette. Used in marketing materials, slide decks, sales collateral, and brand illustrations.
 
-| Token | Hex | Primitive | Use |
-|---|---|---|---|
-| Green (brand hero) | #31C9AC | Green/500 | The primary brand color — logo, brand graphics |
-| Dark green | #065647 | Green/1000 | Dark green text in brand materials |
-| Dark brand | #201637 | Brand/dark | Primary dark brand background |
-| Deep brand | #160F26 | Brand/1100 | Deeper dark brand for contrast |
+| Token              | Hex     | Primitive  | Use                                            |
+| ------------------ | ------- | ---------- | ---------------------------------------------- |
+| Green (brand hero) | #31C9AC | Green/500  | The primary brand color — logo, brand graphics |
+| Dark green         | #065647 | Green/1000 | Dark green text in brand materials             |
+| Dark brand         | #201637 | Brand/dark | Primary dark brand background                  |
+| Deep brand         | #160F26 | Brand/1100 | Deeper dark brand for contrast                 |
 
 Dark brand (#201637) belongs here in Brand Colors, not in Neutrals. It carries the brand hue and is used for the primary brand expression (dark hero sections, footer, brand blocks in marketing). It is the expressive surface of Seqera — not a neutral.
 
 ### Neutrals (Figma: Brand Tokens > Neutrals)
 
-| Token | Hex | Primitive | Use |
-|---|---|---|---|
-| Light grey | #F3F2F5 | Brand/200 | Off-white surfaces in brand materials |
-| Mid grey | #736F7D | Brand/700 | Muted text, secondary information |
-| Dark neutral | #242424 | Grey/11 | Neutral dark for dark-mode brand backgrounds where no purple tint is desired |
+| Token        | Hex     | Primitive | Use                                                                          |
+| ------------ | ------- | --------- | ---------------------------------------------------------------------------- |
+| Light grey   | #F3F2F5 | Brand/200 | Off-white surfaces in brand materials                                        |
+| Mid grey     | #736F7D | Brand/700 | Muted text, secondary information                                            |
+| Dark neutral | #242424 | Grey/11   | Neutral dark for dark-mode brand backgrounds where no purple tint is desired |
 
 Grey/11 (#242424) is a neutral dark with no brand hue. It is the correct choice when you want dark without purple — for example, a dark section that should not read as "Seqera brand purple". In brand materials, use it for backgrounds that need to recede without asserting the brand identity.
 
@@ -597,21 +597,21 @@ Seqera's typographic personality comes from **scale jumps**, not graduation. A h
 
 ### Scale
 
-| Token | Size | Weight | Line Height | Letter Spacing | Use |
-|---|---|---|---|---|---|
-| `{typography.display}` | 68px | 600 | 1.0 | -0.025em | Once per page. The primary statement. |
-| `{typography.hero}` | 56px | 600 | 1.04 | -0.025em | Section heroes, slide headlines |
-| `{typography.h1}` | 40px | 600 | 1.1 | -0.025em | Page titles |
-| `{typography.h2}` | 32px | 600 | 1.15 | -0.025em | Major section headings |
-| `{typography.h3}` | 28px | 600 | 1.2 | -0.025em | Sub-section headings |
-| `{typography.h4}` | 24px | 600 | 1.3 | 0 | Card titles, module headings (Inter) |
-| `{typography.h5}` | 18px | 600 | 1.4 | 0 | Small headings (Inter) |
-| `{typography.h6}` | 16px | 600 | 1.4 | 0 | Smallest heading level (Inter) |
-| `{typography.intro}` | 20px | 400 | 1.5 | 0 | Hero subheadlines, section leads |
-| `{typography.body}` | 16px | 400 | 1.5 | 0 | All body text |
-| `{typography.small}` | 14px | 400 | 1.5 | 0 | Supporting text, captions, timestamps |
-| `{typography.blockquote}` | 20px | 400 | 1.5 | 0 | Pull quotes |
-| `{typography.mono}` | 14px | 400 | 1.6 | 0 | Code, CLI, technical strings |
+| Token                     | Size | Weight | Line Height | Letter Spacing | Use                                   |
+| ------------------------- | ---- | ------ | ----------- | -------------- | ------------------------------------- |
+| `{typography.display}`    | 68px | 600    | 1.0         | -0.025em       | Once per page. The primary statement. |
+| `{typography.hero}`       | 56px | 600    | 1.04        | -0.025em       | Section heroes, slide headlines       |
+| `{typography.h1}`         | 40px | 600    | 1.1         | -0.025em       | Page titles                           |
+| `{typography.h2}`         | 32px | 600    | 1.15        | -0.025em       | Major section headings                |
+| `{typography.h3}`         | 28px | 600    | 1.2         | -0.025em       | Sub-section headings                  |
+| `{typography.h4}`         | 24px | 600    | 1.3         | 0              | Card titles, module headings (Inter)  |
+| `{typography.h5}`         | 18px | 600    | 1.4         | 0              | Small headings (Inter)                |
+| `{typography.h6}`         | 16px | 600    | 1.4         | 0              | Smallest heading level (Inter)        |
+| `{typography.intro}`      | 20px | 400    | 1.5         | 0              | Hero subheadlines, section leads      |
+| `{typography.body}`       | 16px | 400    | 1.5         | 0              | All body text                         |
+| `{typography.small}`      | 14px | 400    | 1.5         | 0              | Supporting text, captions, timestamps |
+| `{typography.blockquote}` | 20px | 400    | 1.5         | 0              | Pull quotes                           |
+| `{typography.mono}`       | 14px | 400    | 1.6         | 0              | Code, CLI, technical strings          |
 
 Tailwind semantic classes map directly: `typo-display`, `typo-hero`, `typo-h1` → `typo-h6`, `typo-intro`, `typo-body`, `typo-small`. Always use these classes — never compose custom font sizes.
 
@@ -639,21 +639,22 @@ Tailwind semantic classes map directly: `typo-display`, `typo-hero`, `typo-h1` �
 
 Base unit: **4px**. All spacing is a multiple of 4. Use Tailwind's numeric scale (`p-6` = 24px, `py-20` = 80px) — never arbitrary values.
 
-| Context | Token | Value |
-|---|---|---|
-| Component internal padding | `{spacing.lg}` | 24px |
-| Card padding | `{spacing.lg}` | 24px |
-| Card padding (compact) | `{spacing.md}` | 16px |
-| Gap between components | `{spacing.lg}` | 24px |
-| Section vertical padding (desktop) | `{spacing.section}` | 80px |
-| Section vertical padding (mobile) | `{spacing.section-mobile}` | 48px |
-| Container horizontal padding | — | 24px mobile / 48px desktop |
-| Max content width | `{spacing.container}` | 1280px |
-| Max body text column width | `{spacing.body-text-max}` | 680px |
+| Context                            | Token                      | Value                      |
+| ---------------------------------- | -------------------------- | -------------------------- |
+| Component internal padding         | `{spacing.lg}`             | 24px                       |
+| Card padding                       | `{spacing.lg}`             | 24px                       |
+| Card padding (compact)             | `{spacing.md}`             | 16px                       |
+| Gap between components             | `{spacing.lg}`             | 24px                       |
+| Section vertical padding (desktop) | `{spacing.section}`        | 80px                       |
+| Section vertical padding (mobile)  | `{spacing.section-mobile}` | 48px                       |
+| Container horizontal padding       | —                          | 24px mobile / 48px desktop |
+| Max content width                  | `{spacing.container}`      | 1280px                     |
+| Max body text column width         | `{spacing.body-text-max}`  | 680px                      |
 
 ### Approved Layout Patterns
 
 **Marketing hero (1440px)**
+
 - Left column (45%): `{component.eyebrow-badge}` + headline in `{typography.hero}` + subheadline in `{typography.intro}` + `{component.button-primary}`
 - Right column (55%): product screenshot (`{component.product-screenshot}`), data-driven visualization, or code block (`{component.code-block}`)
 - Light mode background: `{colors.surface-page}` (#FFFFFF). `{colors.surface-invert}` is used in the **footer only** in light-mode web pages.
@@ -662,17 +663,20 @@ Base unit: **4px**. All spacing is a multiple of 4. Use Tailwind's numeric scale
 - Dark-mode animated grid: fine `1px` grid lines that draw in on load (`drawLines` keyframe, stroke `rgba(255,255,255,0.06)`) — dark mode only
 
 **Feature section**
+
 - Text left, product right — or inverted, alternating between features
 - Not three equal columns with icon + title + text
 - Vertical column borders: `border-x border-black/15` on sections using full container width
 - Corner bracket decoration: L-shaped corner marks in `{colors.border-default}` at corners of featured content areas
 
 **Product card**
+
 - Border: `1px solid {colors.border-default}` (light) / `1px solid {colors.border-dark}` (dark)
 - `{rounded.none}` — no rounding on cards or layout containers
 - Padding: `{spacing.lg}` (24px)
 
 **Product screenshot treatment**
+
 - `{rounded.screenshot}` (16px), `border: 1px solid {colors.border-default}`, `box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25)`
 - Background gradient behind screenshot: `from-gray-200/80 to-gray-100/80` (light) or matching dark surface tone in dark mode
 
@@ -682,13 +686,13 @@ Base unit: **4px**. All spacing is a multiple of 4. Use Tailwind's numeric scale
 
 Seqera uses elevation levels communicated through surface color change and borders — not through stacked shadow tiers.
 
-| Level | Treatment | Use |
-|---|---|---|
-| **Inset** | `{colors.surface-inset}` + border | Recessed surfaces: code blocks, text inputs, data wells — sit below the page floor |
-| **Flat** | No shadow. Border only: `1px solid {colors.border-default}` | Cards, topbar, sidebar, panels, footer — 90% of surfaces |
-| **Lifted** | `box-shadow: 0 4px 16px rgba(0,0,0,0.12)` + border | Modals, dropdowns, tooltips — elements floating above the page surface |
-| **Hero** | `box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25)` + `{rounded.screenshot}` + border | Product screenshots resting on a page |
-| **Marketing texture** (dark mode only) | SVG block pattern `opacity: 0.3–0.4` + noise layer `mix-blend-mode: overlay, opacity: 0.15` | Hero sections in dark-mode marketing pages. Never in product UI. |
+| Level                                  | Treatment                                                                                   | Use                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Inset**                              | `{colors.surface-inset}` + border                                                           | Recessed surfaces: code blocks, text inputs, data wells — sit below the page floor |
+| **Flat**                               | No shadow. Border only: `1px solid {colors.border-default}`                                 | Cards, topbar, sidebar, panels, footer — 90% of surfaces                           |
+| **Lifted**                             | `box-shadow: 0 4px 16px rgba(0,0,0,0.12)` + border                                          | Modals, dropdowns, tooltips — elements floating above the page surface             |
+| **Hero**                               | `box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25)` + `{rounded.screenshot}` + border          | Product screenshots resting on a page                                              |
+| **Marketing texture** (dark mode only) | SVG block pattern `opacity: 0.3–0.4` + noise layer `mix-blend-mode: overlay, opacity: 0.15` | Hero sections in dark-mode marketing pages. Never in product UI.                   |
 
 **Shadow philosophy.** The prominent `box-shadow` on `{component.product-screenshot}` is used on product imagery — not on cards, not on buttons, not on nav elements. In product UI, elevation comes from surface color change and borders, not shadows.
 
@@ -698,14 +702,14 @@ Seqera uses elevation levels communicated through surface color change and borde
 
 The `rounded:` scale defines every corner radius in the system. Shape is one of the most recognizable Seqera identifiers — most surfaces are deliberately square.
 
-| Token | Tailwind class | Value | Use |
-|---|---|---|---|
-| `{rounded.none}` | `rounded-none` | 0px | Cards, panels, containers, modals, navigation, footer — all layout surfaces |
-| `{rounded.xs}` | `rounded-xs` | 4px | Buttons, form inputs, code blocks — interactive and inline elements |
-| `{rounded.md}` | `rounded-md` | 8px | Reserved — not currently assigned to any active pattern |
-| `{rounded.screenshot}` | `rounded-screenshot` | 16px | Product screenshots only |
-| `{rounded.badge}` | `rounded-badge` | 20px | Eyebrow badge pill — the one non-interactive element with deliberate full rounding |
-| `{rounded.full}` | `rounded-full` | 9999px | True pill — available in the scale but not used for buttons |
+| Token                  | Tailwind class       | Value  | Use                                                                                |
+| ---------------------- | -------------------- | ------ | ---------------------------------------------------------------------------------- |
+| `{rounded.none}`       | `rounded-none`       | 0px    | Cards, panels, containers, modals, navigation, footer — all layout surfaces        |
+| `{rounded.xs}`         | `rounded-xs`         | 4px    | Buttons, form inputs, code blocks — interactive and inline elements                |
+| `{rounded.md}`         | `rounded-md`         | 8px    | Reserved — not currently assigned to any active pattern                            |
+| `{rounded.screenshot}` | `rounded-screenshot` | 16px   | Product screenshots only                                                           |
+| `{rounded.badge}`      | `rounded-badge`      | 20px   | Eyebrow badge pill — the one non-interactive element with deliberate full rounding |
+| `{rounded.full}`       | `rounded-full`       | 9999px | True pill — available in the scale but not used for buttons                        |
 
 **The rule is structural.** If it is a layout surface or container, radius is `{rounded.none}`. If it is an interactive element (button, input), it earns `{rounded.xs}`. Screenshots are the single exception.
 
@@ -718,14 +722,17 @@ The `rounded:` scale defines every corner radius in the system. Shape is one of 
 ### Buttons
 
 **`{component.button-primary}`** — Seqera Green fill (`{colors.action-bg}`), Brand Dark text (`{colors.action-text}`, `{typography.small}` 14px / Medium 500), 4px radius, `6px 18px` padding, `1px solid {colors.action-bg-hover}` border. The primary CTA across all pages. One per section — never two primaries in the same viewport.
+
 - Hover: background → `{colors.action-bg-hover}`, border → `{colors.action-bg-pressed}`.
 - Small variant (`{component.button-small}`): same surface, `4px 12px` padding.
 
 **`{component.button-secondary}`** — Emphasis dark fill (`{colors.action-bg-emphasis}` #201637 light / #2D273C dark), white text (`{colors.text-inverse}`, `{typography.small}` 14px / Medium 500), 4px radius, `6px 18px` padding, `1px solid {colors.border-default}` border. Used for secondary actions, ghost CTAs, and cancel/dismiss patterns.
+
 - Hover: background → `{colors.action-bg-emphasis-hover}`.
 - Text is always `{colors.text-inverse}` (white) — NOT `{colors.action-text}`. Dark fill requires light text.
 
 **Never:**
+
 - Pill-shaped buttons
 - Two primary buttons in the same section
 - White text on the primary (green) button — Brand Dark is required
@@ -787,6 +794,7 @@ Background gradient: `from-gray-200/80 to-gray-100/80` in light mode.
 ## Do's and Don'ts
 
 ### Do
+
 - Use `{colors.action-bg}` (#31C9AC) only for the primary CTA, active/running states, and brand confirmation moments — 2–3 times per screen maximum.
 - Set all headlines at `{typography.h3}` and above with `letter-spacing: -0.025em`. This is non-negotiable.
 - Use `{colors.text-link}` for hyperlinks; `{colors.text-green}` for green non-link UI on light surfaces — never `{colors.action-bg}` as text on white.
@@ -798,6 +806,7 @@ Background gradient: `from-gray-200/80 to-gray-100/80` in light mode.
 - Name new Decision tokens by role, not component — "bg-emphasis" not "secondary-button-bg".
 
 ### Don't
+
 - Don't introduce a second brand accent — every primary action signal is `{colors.action-bg}`.
 - Don't use `{colors.action-bg}` as large metric or stat color — size provides emphasis, not color.
 - Don't add `border-radius` to cards, panels, layout containers, or modals.
@@ -816,6 +825,7 @@ Background gradient: `from-gray-200/80 to-gray-100/80` in light mode.
 Prohibitions are more useful than prescriptions. Every rule exists because the opposite is what AI tools default to.
 
 ### Aesthetics
+
 - ❌ No gradient text (pink→purple, teal→blue, any gradient applied to letterforms)
 - ❌ No organic blob shapes or amorphous forms in illustrations
 - ❌ No isometric 3D style, no flat-design characters
@@ -827,11 +837,13 @@ Prohibitions are more useful than prescriptions. Every rule exists because the o
 - ❌ No `{colors.action-bg}` (#31C9AC) on large stat or metric numbers — numbers get emphasis from scale, not color. Use `{colors.text-default}`.
 
 ### Layout
+
 - ❌ No perfectly centered hero with two equal-weight CTAs below
 - ❌ No centered body text — only headlines, and only when ≤ 3 words
 - ❌ No decorative elements that carry no information
 
 ### Components
+
 - ❌ Never two primary buttons in the same section
 - ❌ Never more than two font weights in a single component
 - ❌ No Inter Light (`fontWeight: 300`) in product UI
@@ -849,6 +861,7 @@ Prohibitions are more useful than prescriptions. Every rule exists because the o
 ### From Linear — spatial precision and scale contrast
 
 **What we apply:**
+
 - Dramatic typographic scale — very large headline paired with very small supporting text, no intermediate sizes to soften the jump
 - Generous section padding (≥ `{spacing.section}` / 80px vertical). Whitespace is respect, not emptiness
 - The product or data IS the visual hero — never a decorative illustration in place of the real thing
@@ -857,6 +870,7 @@ Prohibitions are more useful than prescriptions. Every rule exists because the o
 ### From Vercel — monochrome discipline and dark-mode craft
 
 **What we apply:**
+
 - Color punctuates, it does not fill — most of the page is neutral; teal appears 2–3 times per screen maximum
 - Dark mode is designed from scratch, not an inverted light mode
 - Code is a design element — `{typography.mono}` has its own space, padding, and background
@@ -867,12 +881,14 @@ Prohibitions are more useful than prescriptions. Every rule exists because the o
 Supabase faces the same challenge as Seqera: a technical product with a green accent.
 
 **What we apply:**
+
 - The green accent appears exactly where the user needs to act or receive confirmation
 - Tables and data are designed, not afterthoughts
 - Product screenshots are the visual heroes, not abstract illustrations
 - Sections state what the product does using real data, not marketing speak
 
 ### The intersection — what all three share
+
 - Typography does the heavy lifting, not decoration
 - Color is structural, never decorative
 - Layouts have one clearly dominant element per section
@@ -886,14 +902,14 @@ Dark mode is not inverting light mode. It is a different surface hierarchy built
 
 ### Surface Hierarchy
 
-| Role | Light | Dark | Token |
-|---|---|---|---|
-| Page background | #FFFFFF | #242424 (Grey/11) | `{colors.surface-page}` |
-| Card / panel surface | #F3F2F5 + border | #2D273C (Brand/1000) | `{colors.surface-subtle}` |
-| Code block / input well | #F3F2F5 | #160F26 (Brand/1100) | `{colors.surface-inset}` |
-| Brand section (footer, dark hero) | #E2F7F3 | #201637 (Brand/dark) | `{colors.surface-brand}` |
-| Modal scrim / overlay wash | #E5E3EA | #242424 (Grey/11) | `{colors.surface-overlay}` |
-| Inverted block | #201637 | #FFFFFF | `{colors.surface-invert}` |
+| Role                              | Light            | Dark                 | Token                      |
+| --------------------------------- | ---------------- | -------------------- | -------------------------- |
+| Page background                   | #FFFFFF          | #242424 (Grey/11)    | `{colors.surface-page}`    |
+| Card / panel surface              | #F3F2F5 + border | #2D273C (Brand/1000) | `{colors.surface-subtle}`  |
+| Code block / input well           | #F3F2F5          | #160F26 (Brand/1100) | `{colors.surface-inset}`   |
+| Brand section (footer, dark hero) | #E2F7F3          | #201637 (Brand/dark) | `{colors.surface-brand}`   |
+| Modal scrim / overlay wash        | #E5E3EA          | #242424 (Grey/11)    | `{colors.surface-overlay}` |
+| Inverted block                    | #201637          | #FFFFFF              | `{colors.surface-invert}`  |
 
 **Why Grey/11 (#242424) as the dark page floor:**
 
@@ -901,13 +917,13 @@ The previous dark page background was Brand/dark (#201637, H271° S43% L~10%), w
 
 ### Text & Borders
 
-| Role | Light | Dark |
-|---|---|---|
-| Default text | `{colors.text-default}` #201637 | `{colors.text-default}` #FFFFFF |
-| Muted text | `{colors.text-muted}` #736F7D | `{colors.text-muted}` #B9B7BE |
-| Borders | `{colors.border-default}` #DDDEDE | `{colors.border-default}` #5C5767 |
-| Links | `{colors.text-link}` #065647 | `{colors.text-link}` #31C9AC |
-| Active nav bg | `{colors.surface-brand}` #E2F7F3 | `{colors.surface-subtle}` dark #2D273C |
+| Role          | Light                             | Dark                                   |
+| ------------- | --------------------------------- | -------------------------------------- |
+| Default text  | `{colors.text-default}` #201637   | `{colors.text-default}` #FFFFFF        |
+| Muted text    | `{colors.text-muted}` #736F7D     | `{colors.text-muted}` #B9B7BE          |
+| Borders       | `{colors.border-default}` #DDDEDE | `{colors.border-default}` #5C5767      |
+| Links         | `{colors.text-link}` #065647      | `{colors.text-link}` #31C9AC           |
+| Active nav bg | `{colors.surface-brand}` #E2F7F3  | `{colors.surface-subtle}` dark #2D273C |
 
 **`{colors.action-bg}` (#31C9AC) does not change between modes.** It is the constant — the brand signal that works on both surfaces without adjustment.
 
@@ -932,6 +948,7 @@ The previous dark page background was Brand/dark (#201637, H271° S43% L~10%), w
 Seqera produces its own illustrations. The full system is pending definition. These directional rules apply now:
 
 **What Seqera illustrations are:**
+
 - Geometric, not organic — no blobs, no amorphous shapes
 - Encoded — they represent something real about the product: pipeline flows, data structures, coverage graphs, DAGs
 - Restricted palette: nextflow scale (100–1000), brand scale (100–1100), and gray scale only
@@ -939,6 +956,7 @@ Seqera produces its own illustrations. The full system is pending definition. Th
 - No color gradients — use opacity-layered solids instead
 
 **What they are not:**
+
 - No illustrations that could belong to any tech company
 - No generic metaphors: no network of nodes, no rocket ships, no lightbulbs
 - No colors outside the brand palette
@@ -962,26 +980,26 @@ Seqera has its own custom icon set. Until it is available for import:
 
 ### Breakpoints
 
-| Name | Width | Key Changes |
-|---|---|---|
-| `xs` | 340px | Single column; min layout. Eyebrow badges hide if they push line. |
-| `sm` | 640px | Mobile landscape. 2-column grids collapse to 1. Hero switches to single column. |
-| `md` | 768px | Tablet. Feature sections stack. Primary nav condenses. |
-| `lg` | 1024px | Desktop entry. Full 2-column heroes. Feature grid at 2-up. |
-| `header-lg` | 1091px | Header layout switches to full navigation row (custom breakpoint). |
-| `xl` | 1280px | Full layout. Content locks at `{spacing.container}` (1280px). Feature grid at 3-up. |
-| `xxl` | 1536px | Extra wide — margins absorb the rest, content width stays at 1280px. |
+| Name        | Width  | Key Changes                                                                         |
+| ----------- | ------ | ----------------------------------------------------------------------------------- |
+| `xs`        | 340px  | Single column; min layout. Eyebrow badges hide if they push line.                   |
+| `sm`        | 640px  | Mobile landscape. 2-column grids collapse to 1. Hero switches to single column.     |
+| `md`        | 768px  | Tablet. Feature sections stack. Primary nav condenses.                              |
+| `lg`        | 1024px | Desktop entry. Full 2-column heroes. Feature grid at 2-up.                          |
+| `header-lg` | 1091px | Header layout switches to full navigation row (custom breakpoint).                  |
+| `xl`        | 1280px | Full layout. Content locks at `{spacing.container}` (1280px). Feature grid at 3-up. |
+| `xxl`       | 1536px | Extra wide — margins absorb the rest, content width stays at 1280px.                |
 
 ### Typography Scaling
 
-| Token | Desktop | Tablet (md) | Mobile (sm) |
-|---|---|---|---|
-| `{typography.display}` | 68px | 48px | 36px |
-| `{typography.hero}` | 56px | 40px | 32px |
-| `{typography.h1}` | 40px | 32px | 28px |
-| `{typography.h2}` | 32px | 28px | 24px |
-| `{typography.intro}` | 20px | 18px | 16px |
-| `{typography.body}` | 16px | 16px | 16px |
+| Token                  | Desktop | Tablet (md) | Mobile (sm) |
+| ---------------------- | ------- | ----------- | ----------- |
+| `{typography.display}` | 68px    | 48px        | 36px        |
+| `{typography.hero}`    | 56px    | 40px        | 32px        |
+| `{typography.h1}`      | 40px    | 32px        | 28px        |
+| `{typography.h2}`      | 32px    | 28px        | 24px        |
+| `{typography.intro}`   | 20px    | 18px        | 16px        |
+| `{typography.body}`    | 16px    | 16px        | 16px        |
 
 Body text (`{typography.body}`) never scales below 16px.
 

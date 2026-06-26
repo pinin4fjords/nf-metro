@@ -30,11 +30,11 @@ re-flows as state changes.
 <video controls autoplay loop muted playsinline
        style="width: 100%; max-width: 760px; border-radius: 6px"
        src="/nf-metro/assets/live_demo.mp4">
-  Your browser can't play the embedded video -
-  <a href="/nf-metro/assets/live_demo.mp4">download it here</a>.
+Your browser can't play the embedded video -
+<a href="/nf-metro/assets/live_demo.mp4">download it here</a>.
 </video>
 
-*A pipeline run lighting up the map in real time.*
+_A pipeline run lighting up the map in real time._
 
 ## 1. Map stations to processes
 
@@ -76,8 +76,8 @@ manifest: a JSON block in a `<metadata id="diagram-manifest">` element plus
 positioned, stations restyled, and process mappings looked up with no
 re-render.
 
-The manifest format is tool-neutral (a station is a *node*, a line a *group*, a
-section a *region*); its schema, matching semantics, and reader/matcher tooling
+The manifest format is tool-neutral (a station is a _node_, a line a _group_, a
+section a _region_); its schema, matching semantics, and reader/matcher tooling
 are a standalone contract documented on the [Data manifest](/nf-metro/manifest/) page -
 the same standard any non-metro tool can emit. Set `%%metro manifest: false`
 (or `--no-manifest`) to emit the drawn map only, with no manifest, no
@@ -108,13 +108,13 @@ Stations light up as tasks are submitted, run, and complete. A browser that
 connects mid-run receives the current state immediately, so you never see a
 blank map.
 
-| Option | Meaning |
-|--------|---------|
-| `--port` | Port to listen on (default 8080). |
-| `--host` | Interface to bind. Default `127.0.0.1` (local only); use `0.0.0.0` to accept connections from other hosts. |
-| `--theme` | Theme name (`nfcore`, `light`, `seqera`). The page chrome (background, text) follows the theme, so a light theme gives a light page. |
-| `--overlay` | Status-overlay style: `ring` (default), `pulse`, `dot`, or `led`. Sets the style shown until a viewer picks another. |
-| `--token` | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header. |
+| Option      | Meaning                                                                                                                              |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `--port`    | Port to listen on (default 8080).                                                                                                    |
+| `--host`    | Interface to bind. Default `127.0.0.1` (local only); use `0.0.0.0` to accept connections from other hosts.                           |
+| `--theme`   | Theme name (`nfcore`, `light`, `seqera`). The page chrome (background, text) follows the theme, so a light theme gives a light page. |
+| `--overlay` | Status-overlay style: `ring` (default), `pulse`, `dot`, or `led`. Sets the style shown until a viewer picks another.                 |
+| `--token`   | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header.                                                       |
 
 ### Overlay styles
 
@@ -141,12 +141,12 @@ switching style never re-renders the map. Animations respect
 
 ### Endpoints
 
-| Path | Purpose |
-|------|---------|
-| `GET /` | The live page (static SVG + status overlay). |
-| `GET /stream` | Server-sent events; the page subscribes to this. |
-| `GET /state` | Current state as JSON (handy for scripting/debugging). |
-| `POST /events` | Nextflow weblog receiver. |
+| Path           | Purpose                                                |
+| -------------- | ------------------------------------------------------ |
+| `GET /`        | The live page (static SVG + status overlay).           |
+| `GET /stream`  | Server-sent events; the page subscribes to this.       |
+| `GET /state`   | Current state as JSON (handy for scripting/debugging). |
+| `POST /events` | Nextflow weblog receiver.                              |
 
 ## 2b. Persistent server (many runs)
 
@@ -230,6 +230,7 @@ make assemble       # build but do not install
 NXF_PLUGINS_DEV=/path/to/nf-metro-plugin \
   nextflow run my/pipeline -plugins nf-metro@0.1.0
 ```
+
 :::
 
 ### Plugin demo: shared dashboard
@@ -262,12 +263,12 @@ Each run prints `registered on ...; live map: http://localhost:8080/r/<id>/`.
 Open `http://localhost:8080/` to watch every run light up on one page; the
 server stays up across runs.
 
-| Task | Without the plugin | With the plugin |
-|------|--------------------|-----------------|
-| Wiring | `-with-weblog <url>` on every run | One `plugins { id 'nf-metro' }` + a `metro {}` block in `nextflow.config` |
-| Run the server | Start `nf-metro serve` yourself in another shell | **Managed mode** spawns and stops it for the run (and can open the browser) |
+| Task             | Without the plugin                                                                        | With the plugin                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Wiring           | `-with-weblog <url>` on every run                                                         | One `plugins { id 'nf-metro' }` + a `metro {}` block in `nextflow.config`       |
+| Run the server   | Start `nf-metro serve` yourself in another shell                                          | **Managed mode** spawns and stops it for the run (and can open the browser)     |
 | Shared dashboard | `curl` the map to `/maps`, read the run id, then point `-with-weblog` at `/r/<id>/events` | **Central mode** registers the map and wires the per-run endpoint automatically |
-| Find the map | - | Prints the live URL in the run log |
+| Find the map     | -                                                                                         | Prints the live URL in the run log                                              |
 
 So the standalone path is fine for a quick look; the plugin is worth it when you
 want the integration to live in the pipeline's config, want the server started
@@ -308,11 +309,11 @@ Processes matching more than one station (duplicates progress): 1
 
 It exits non-zero when it finds drift. Options:
 
-| Option | Meaning |
-|--------|---------|
-| `--dag <file>` | A `nextflow -with-dag` Mermaid export; process names are read from its stadium nodes. |
+| Option               | Meaning                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `--dag <file>`       | A `nextflow -with-dag` Mermaid export; process names are read from its stadium nodes.                           |
 | `--processes <file>` | A newline-delimited list of process names (e.g. captured from a run) - an authoritative alternative to `--dag`. |
-| `--ignore <regex>` | Processes deliberately left unmapped (plumbing such as `.*:DUMPSOFTWAREVERSIONS`). Repeatable. |
+| `--ignore <regex>`   | Processes deliberately left unmapped (plumbing such as `.*:DUMPSOFTWAREVERSIONS`). Repeatable.                  |
 
 Stations with no mapping at all are reported as a note (they never light up),
 but are not treated as failures since they may be intentional.
@@ -330,8 +331,7 @@ but are not treated as failures since they may be intentional.
   can, since a URL with the token lands in shell history and process listings.
 - **Run lifecycle.** A `started` event resets the map, so re-running a pipeline
   re-animates a fresh map. The server tracks one run at a time. Unrecognised or
-  malformed event payloads are accepted and ignored (the endpoint always returns
-  200) so a Nextflow version emitting extra event types can't stall a run.
+  malformed event payloads are accepted and ignored (the endpoint always returns 200) so a Nextflow version emitting extra event types can't stall a run.
 - **No denominator.** Nextflow's task count is dynamic, so the per-station
   count is "done / submitted so far", not a fixed percentage.
 

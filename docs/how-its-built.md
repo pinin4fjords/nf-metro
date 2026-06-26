@@ -16,12 +16,12 @@ Because the phases share mutable state and everything depends on everything else
 
 The codebase has four complementary validation layers. They are complementary, not redundant: each catches bugs the others cannot see. These are described in detail in the [Testing docs](/nf-metro/testing/#the-four-validation-layers); the short version:
 
-| Layer | What it checks | When |
-|---|---|---|
-| **Layout oracle** | Graph geometry after layout | Every topology test |
-| **Routing invariants** | Edge waypoints as each route is computed | Always-on |
-| **Phase guards** | Pre/post-conditions at each phase boundary | Always-on |
-| **Render oracle** | Finished SVG geometry | Opt-in CLI flag; corpus gate |
+| Layer                  | What it checks                             | When                         |
+| ---------------------- | ------------------------------------------ | ---------------------------- |
+| **Layout oracle**      | Graph geometry after layout                | Every topology test          |
+| **Routing invariants** | Edge waypoints as each route is computed   | Always-on                    |
+| **Phase guards**       | Pre/post-conditions at each phase boundary | Always-on                    |
+| **Render oracle**      | Finished SVG geometry                      | Opt-in CLI flag; corpus gate |
 
 The most important design principle across all four layers: **checks only accumulate, and the bar only moves up**. Once a check is in, it stays in. A regression is a red build, not a human noticing something looks off.
 

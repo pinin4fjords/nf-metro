@@ -31,18 +31,28 @@ test.afterAll(async () => {
 
 test("boots and renders the seed map", async () => {
   await expect(page.locator("#preview svg")).toHaveCount(1);
-  expect(await page.locator("#preview [data-line-id]").count()).toBeGreaterThan(0);
-  expect(await page.locator('#preview [data-station-id="reads"]').count()).toBeGreaterThan(0);
+  expect(await page.locator("#preview [data-line-id]").count()).toBeGreaterThan(
+    0,
+  );
+  expect(
+    await page.locator('#preview [data-station-id="reads"]').count(),
+  ).toBeGreaterThan(0);
   await expect(page.locator("#error")).toBeHidden();
 });
 
 test("live edit re-renders with the new station", async () => {
-  await expect(page.locator('#preview [data-station-id="brandnew"]')).toHaveCount(0);
+  await expect(
+    page.locator('#preview [data-station-id="brandnew"]'),
+  ).toHaveCount(0);
   await page.evaluate(() => {
-    const v = window.__nfMetro.getValue() + "\n    align -->|main| brandnew[BrandNew]\n";
+    const v =
+      window.__nfMetro.getValue() +
+      "\n    align -->|main| brandnew[BrandNew]\n";
     window.__nfMetro.setValue(v);
   });
-  await expect(page.locator('#preview [data-station-id="brandnew"]').first()).toBeVisible();
+  await expect(
+    page.locator('#preview [data-station-id="brandnew"]').first(),
+  ).toBeVisible();
 });
 
 test("animate toggle adds motion elements", async () => {
@@ -66,17 +76,23 @@ test("advanced options are collapsed by default and toggle open", async () => {
 });
 
 test("directional toggle adds chevron markers", async () => {
-  await expect(page.locator('#preview [class*="metro-direction"]')).toHaveCount(0);
+  await expect(page.locator('#preview [class*="metro-direction"]')).toHaveCount(
+    0,
+  );
   await page.locator("#opt-directional").check();
   await expect
-    .poll(async () => page.locator('#preview [class*="metro-direction"]').count())
+    .poll(async () =>
+      page.locator('#preview [class*="metro-direction"]').count(),
+    )
     .toBeGreaterThan(0);
   await page.locator("#opt-directional").uncheck();
 });
 
 test("theme dropdown writes the %%metro style directive and re-renders", async () => {
   await page.evaluate(() =>
-    window.__nfMetro.setValue("%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n")
+    window.__nfMetro.setValue(
+      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    ),
   );
   const before = await page.locator("#preview").innerHTML();
 
@@ -84,7 +100,9 @@ test("theme dropdown writes the %%metro style directive and re-renders", async (
   await expect
     .poll(async () => page.evaluate(() => window.__nfMetro.getValue()))
     .toContain("%%metro style: light");
-  await expect.poll(async () => page.locator("#preview").innerHTML()).not.toBe(before);
+  await expect
+    .poll(async () => page.locator("#preview").innerHTML())
+    .not.toBe(before);
 
   await page.locator("#opt-theme").selectOption("nfcore");
   await expect
@@ -95,8 +113,8 @@ test("theme dropdown writes the %%metro style directive and re-renders", async (
 test("theme dropdown syncs from the source style directive", async () => {
   await page.evaluate(() =>
     window.__nfMetro.setValue(
-      "%%metro style: light\n%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n"
-    )
+      "%%metro style: light\n%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    ),
   );
   await expect(page.locator("#opt-theme")).toHaveValue("light");
 });
@@ -108,12 +126,14 @@ test("debug toggle adds the debug overlay", async () => {
       "%%metro line: a | A | #f00\ngraph LR\n" +
         "  subgraph s1 [One]\n    n1[N1]\n  end\n" +
         "  subgraph s2 [Two]\n    n2[N2]\n  end\n" +
-        "  n1 -->|a| n2\n"
-    )
+        "  n1 -->|a| n2\n",
+    ),
   );
   const before = await page.locator("#preview").innerHTML();
   await page.locator("#opt-debug").check();
-  await expect.poll(async () => page.locator("#preview").innerHTML()).not.toBe(before);
+  await expect
+    .poll(async () => page.locator("#preview").innerHTML())
+    .not.toBe(before);
   await page.locator("#opt-debug").uncheck();
 });
 
@@ -121,7 +141,9 @@ test("layout controls write %%metro directives and sync from source", async () =
   await openAdvanced();
   const getValue = () => page.evaluate(() => window.__nfMetro.getValue());
   await page.evaluate(() =>
-    window.__nfMetro.setValue("%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n")
+    window.__nfMetro.setValue(
+      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    ),
   );
 
   // choice -> writes directive, then "auto" removes it
@@ -145,8 +167,8 @@ test("layout controls write %%metro directives and sync from source", async () =
   await page.evaluate(() =>
     window.__nfMetro.setValue(
       "%%metro line_spread: centered\n%%metro center_ports: true\n" +
-        "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n"
-    )
+        "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    ),
   );
   await expect(page.locator("#opt-line-spread")).toHaveValue("centered");
   await expect(page.locator("#opt-center-ports")).toBeChecked();
@@ -162,7 +184,9 @@ test("Nextflow DAG import converts the seeded sample into a metro map", async ()
   await page.locator("#btn-convert").click();
   await expect(page.locator("#convert-modal")).toBeVisible();
   // Docs link points at the Nextflow import guide.
-  await expect(page.locator('#convert-modal a[href="../nextflow/"]')).toHaveCount(1);
+  await expect(
+    page.locator('#convert-modal a[href="../nextflow/"]'),
+  ).toHaveCount(1);
   // The box is pre-filled with a sample DAG, like the editor's starter map.
   await expect(page.locator("#convert-text")).toHaveValue(/flowchart/);
 
@@ -180,10 +204,12 @@ test("Nextflow DAG import converts the seeded sample into a metro map", async ()
 test("line color swatch rewrites the hex in the editor", async () => {
   await page.evaluate(() =>
     window.__nfMetro.setValue(
-      "%%metro line: a | A | #abcdef\ngraph LR\n  n1[N1] -->|a| n2[N2]\n"
-    )
+      "%%metro line: a | A | #abcdef\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    ),
   );
-  await expect(page.locator('#line-colors input[type="color"]').first()).toBeVisible();
+  await expect(
+    page.locator('#line-colors input[type="color"]').first(),
+  ).toBeVisible();
   await page.evaluate(() => {
     const input = document.querySelector('#line-colors input[type="color"]');
     input.value = "#123456";
@@ -199,7 +225,7 @@ test("syntax error surfaces inline and keeps the last good render", async () => 
   await page.evaluate(() => {
     // A self-referential cycle the layout engine rejects.
     window.__nfMetro.setValue(
-      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n  n2 -->|a| n1\n"
+      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n  n2 -->|a| n1\n",
     );
   });
   await expect(page.locator("#error")).toBeVisible();
@@ -211,7 +237,7 @@ test("SVG and PNG export produce non-empty downloads", async () => {
   // Restore a valid map after the error test.
   await page.evaluate(() => {
     window.__nfMetro.setValue(
-      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n"
+      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
     );
   });
   await expect(page.locator("#preview svg")).toHaveCount(1);
@@ -234,12 +260,18 @@ test("SVG and PNG export produce non-empty downloads", async () => {
 
 test("zoom controls scale the preview and Fit resets", async () => {
   await page.evaluate(() =>
-    window.__nfMetro.setValue("%%metro line: a | A | #f00\ngraph LR\n  zn1[ZN1] -->|a| zn2[ZN2]\n")
+    window.__nfMetro.setValue(
+      "%%metro line: a | A | #f00\ngraph LR\n  zn1[ZN1] -->|a| zn2[ZN2]\n",
+    ),
   );
-  await expect(page.locator('#preview [data-station-id="zn1"]').first()).toBeVisible();
+  await expect(
+    page.locator('#preview [data-station-id="zn1"]').first(),
+  ).toBeVisible();
 
   const svgWidth = () =>
-    page.locator("#preview svg").evaluate((s) => s.getBoundingClientRect().width);
+    page
+      .locator("#preview svg")
+      .evaluate((s) => s.getBoundingClientRect().width);
   const fitWidth = await svgWidth();
 
   await page.locator("#zoom-in").click();
@@ -284,7 +316,7 @@ test("example dropdown loads a chosen example and renders it", async () => {
 test("bug report builds a prefilled GitHub issue with the map and explanation", async () => {
   await page.evaluate(() => {
     window.__nfMetro.setValue(
-      "%%metro line: q | Q | #abc\ngraph LR\n  uniquenode[Unique] -->|q| other[Other]\n"
+      "%%metro line: q | Q | #abc\ngraph LR\n  uniquenode[Unique] -->|q| other[Other]\n",
     );
     // Prevent the real github.com tab from opening during the test.
     window.open = () => null;
@@ -295,7 +327,9 @@ test("bug report builds a prefilled GitHub issue with the map and explanation", 
   // The explanation is mandatory: submit stays disabled until it's filled.
   await expect(page.locator("#report-submit")).toBeDisabled();
 
-  await page.locator("#report-text").fill("Edge renders backwards from uniquenode");
+  await page
+    .locator("#report-text")
+    .fill("Edge renders backwards from uniquenode");
   await expect(page.locator("#report-submit")).toBeEnabled();
   await page.locator("#report-submit").click();
 
@@ -349,17 +383,28 @@ async function loadEditMap() {
     window.__nfMetro.setMode("select");
     window.__nfMetro.setValue(m);
   }, EDIT_MAP);
-  await expect(page.locator('#preview [data-station-id="n1"]').first()).toBeVisible();
+  await expect(
+    page.locator('#preview [data-station-id="n1"]').first(),
+  ).toBeVisible();
 }
 
 test("edit-mode buttons toggle and update the hint", async () => {
   await loadEditMap();
   await page.locator('.mode-btn[data-mode="add-edge"]').click();
-  await expect(page.locator('.mode-btn[data-mode="add-edge"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('.mode-btn[data-mode="select"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator('.mode-btn[data-mode="add-edge"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator('.mode-btn[data-mode="select"]')).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
   await expect(page.locator("#edit-hint")).toContainText(/source station/i);
   await page.locator('.mode-btn[data-mode="select"]').click();
-  await expect(page.locator('.mode-btn[data-mode="add-edge"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator('.mode-btn[data-mode="add-edge"]')).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 });
 
 test("clicking a station selects it and shows the property panel", async () => {
@@ -376,8 +421,12 @@ test("clicking a station selects it and shows the property panel", async () => {
 test("add-station writes a node into the chosen section", async () => {
   await loadEditMap();
   await page.evaluate(() => window.__nfMetro.addStationToSection("s2"));
-  expect(await getValue()).toMatch(/subgraph s2 \[Two\][\s\S]*node1\[New node\][\s\S]*end/);
-  await expect(page.locator('#preview [data-station-id="node1"]').first()).toBeVisible();
+  expect(await getValue()).toMatch(
+    /subgraph s2 \[Two\][\s\S]*node1\[New node\][\s\S]*end/,
+  );
+  await expect(
+    page.locator('#preview [data-station-id="node1"]').first(),
+  ).toBeVisible();
   await expect(page.locator("#prop-body")).toContainText("id: node1");
 });
 
@@ -391,7 +440,9 @@ test("add-section appends a new subgraph block and renders it", async () => {
   await loadEditMap();
   await page.locator("#btn-add-section").click();
   expect(await getValue()).toMatch(/subgraph section1 \[New Section\]/);
-  await expect(page.locator('#preview [data-section-id="section1"]').first()).toBeVisible();
+  await expect(
+    page.locator('#preview [data-section-id="section1"]').first(),
+  ).toBeVisible();
 });
 
 test("rename station rewrites its label and keeps the id", async () => {
@@ -403,7 +454,9 @@ test("rename station rewrites its label and keeps the id", async () => {
 test("reassign edge line rewrites the line token", async () => {
   await loadEditMap();
   await page.evaluate(() => {
-    const edge = window.__nfMetro.parseEdges().find((e) => e.src === "n1" && e.tgt === "n2");
+    const edge = window.__nfMetro
+      .parseEdges()
+      .find((e) => e.src === "n1" && e.tgt === "n2");
     window.__nfMetro.reassignEdgeLine(edge.lineNo, "b");
   });
   expect(await getValue()).toContain("n1 -->|b| n2");
@@ -420,7 +473,9 @@ test("section grid directive is written then cleared", async () => {
 test("delete edge removes its line", async () => {
   await loadEditMap();
   await page.evaluate(() => {
-    const edge = window.__nfMetro.parseEdges().find((e) => e.src === "n2" && e.tgt === "n3");
+    const edge = window.__nfMetro
+      .parseEdges()
+      .find((e) => e.src === "n2" && e.tgt === "n3");
     window.__nfMetro.deleteEdge(edge.lineNo);
   });
   expect(await getValue()).not.toContain("n2 -->|a| n3");
@@ -451,7 +506,10 @@ test("clicking an in-section edge selects it as an edge", async () => {
   // on both stations, so it resolves to a specific edge rather than the line. A
   // positional click at the stroke centre matches a real click on a thin route
   // (element-level .click() is flaky on near-zero-height SVG paths).
-  const box = await page.locator('#preview [data-line-id="a"]').first().boundingBox();
+  const box = await page
+    .locator('#preview [data-line-id="a"]')
+    .first()
+    .boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator("#prop-panel")).toBeVisible();
   await expect(page.locator("#prop-kind")).toHaveText("edge");
@@ -467,17 +525,21 @@ test("splitting an edge inserts a station between its endpoints", async () => {
   expect(v).toContain("node1 -->|a| n2");
   expect(v).toContain("node1[New node]");
   expect(v).not.toContain("n1 -->|a| n2");
-  await expect(page.locator('#preview [data-station-id="node1"]').first()).toBeVisible();
+  await expect(
+    page.locator('#preview [data-station-id="node1"]').first(),
+  ).toBeVisible();
 });
 
 test("splitting a multi-line edge keeps every line on both halves", async () => {
   await page.evaluate(() =>
     window.__nfMetro.setValue(
       "%%metro line: a | A | #f00\n%%metro line: b | B | #0af\n" +
-        "graph LR\n  subgraph s [S]\n    x[X]\n    y[Y]\n    x -->|a,b| y\n  end\n"
-    )
+        "graph LR\n  subgraph s [S]\n    x[X]\n    y[Y]\n    x -->|a,b| y\n  end\n",
+    ),
   );
-  await expect(page.locator('#preview [data-station-id="x"]').first()).toBeVisible();
+  await expect(
+    page.locator('#preview [data-station-id="x"]').first(),
+  ).toBeVisible();
   await page.evaluate(() => window.__nfMetro.splitEdge("x", "y", "a"));
   const v = await getValue();
   expect(v).toContain("x -->|a,b| node1");

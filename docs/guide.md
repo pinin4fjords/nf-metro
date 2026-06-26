@@ -259,16 +259,16 @@ Two things are needed:
 
 1. A **`%%metro file:`** directive at the top of the file, mapping a station ID to a label:
 
-    ```metro
-    %%metro file: reads_in | FASTQ
-    %%metro file: report_out | HTML
-    ```
+   ```metro
+   %%metro file: reads_in | FASTQ
+   %%metro file: report_out | HTML
+   ```
 
 2. A **blank terminus station** (`[ ]`) inside a section, whose ID matches the directive:
 
-    ```text
-    reads_in[ ]
-    ```
+   ```text
+   reads_in[ ]
+   ```
 
 The blank label tells nf-metro to render the document icon (with the label from the directive) instead of a pill-shaped station. Connect it to the pipeline with normal edges like any other station.
 
@@ -510,48 +510,48 @@ See the [Gallery](/nf-metro/gallery/) for more rendered examples.
 
 These go at the top of the file, before `graph LR`.
 
-| Directive | Description |
-|-----------|-------------|
-| `%%metro title: <text>` | Map title |
-| `%%metro caption: <text>` | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). |
-| `%%metro logo: <path>` | Logo image, bundled into the legend (or top-left if there is no legend). |
-| `%%metro logo_scale: <factor>` | Scale the logo within the legend block (`1.0` = default auto-size). Values above 1 grow the legend box to contain the logo. |
-| `%%metro style: <name>` | Theme: `dark` (default, the nfcore theme) or `light`. Selects the render theme unless `--theme` is passed. |
-| `%%metro line: <id> \| <name> \| <color> [\| <style>]` | Define a metro line. Optional style: `solid` (default), `dashed`, or `dotted` |
-| `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]` | Pin a section to a grid position |
-| `%%metro legend: <position>` | Position the legend (and its embedded logo). Keyword: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` (a bare keyword auto-relocates if it would overlap a section or route). Add `\| canvas` to anchor the keyword to the canvas margin, or `\| <dx>,<dy>` to nudge it; both pin the block exactly (warning on overlap rather than relocating). Use `<x>,<y>` for absolute top-left coordinates. |
-| `%%metro line_order: <strategy>` | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks) |
-| `%%metro diamond_style: <mode>` | Fork-join (diamond) layout: `straight` (default) keeps the top branch on the main track; `symmetric` fans the branches evenly |
-| `%%metro fold_threshold: <columns>` | Max station-columns a section row may reach before the auto-layout wraps it onto the next row (default 15). Raise it to keep a long horizontal trunk of sections on a single row. |
-| `%%metro x_spacing: <pixels>` | Horizontal spacing between layers (default: auto - widened from 60 only when wide labels would collide) |
-| `%%metro y_spacing: <pixels>` | Vertical spacing between tracks (default: auto - derived from the map's content) |
-| `%%metro section_x_gap: <pixels>` | Horizontal gap between sections (default: 50) |
-| `%%metro section_y_gap: <pixels>` | Vertical gap between sections (default: 50) |
-| `%%metro label_angle: <degrees>` | Station-label angle (0 = horizontal). Overrides the theme default |
-| `%%metro font_scale: <factor>` | Scale every text size and the label-width metrics that drive layout spacing (`1.0` = default) |
-| `%%metro legend_logo_gap: <pixels>` | Horizontal gap between the logo and the legend entries |
-| `%%metro width: <pixels>` | Output width in pixels (default: auto from content) |
-| `%%metro height: <pixels>` | Output height in pixels (default: auto from content) |
-| `%%metro animate: true` | Add animated balls traveling along the metro lines |
-| `%%metro directional: true` | Draw static chevrons along each route pointing in the flow direction (source to target). Off by default; CLI equivalent `--directional`. Marker size, spacing, opacity, and colour are theme knobs (`directional_marker_*`). |
-| `%%metro strict: true` | Treat a layout-invariant violation on the rendered geometry (e.g. a station pushed outside its section box) as an error that aborts the render, instead of a warning. Off by default; CLI equivalent `--strict`. See [When a layout is broken](#when-a-layout-is-broken). |
-| `%%metro file: <station> \| <label> [\| <name>] [\| banner]` | Mark a station as a file terminus with a document icon. Optional `name` renders as a caption below the icon; optional `banner` draws the label on a dark strip across the icon. |
-| `%%metro files: <station> \| <label> [\| <name>] [\| banner]` | Mark a station with a stacked-documents icon (e.g. paired files). Optional `name` caption; optional `banner` strip. |
-| `%%metro dir: <station> \| <label> [\| <name>]` | Mark a station with a folder icon (e.g. output directory). Optional `name` caption. |
-| `%%metro off_track: <station>[, <station>...]` | Lift the listed stations above the section's main track, anchored to their consumer (inputs) or producer (output artefacts) (see below) |
-| `%%metro compact_offsets: true` | Compact line offsets within stations (see below) |
-| `%%metro center_ports: true` | Centre inter-section ports on the shorter of the two connected sections, so lines enter/exit at the visual midpoint. |
-| `%%metro line_spread: <mode>[ \| <id>...]` | How lines sharing a station relate vertically (see below). `<mode>` is `bundle` (default), `centered`, or `rails`. The bare form sets the graph default; `<mode> \| sectionA, sectionB` overrides those sections. |
-| `%%metro interchange: <node> \| <rail-1 lines> \| <rail-2 lines> [\| ...]` | Render a shared step as a cross-track interchange instead of a convergence point (see below). Each pipe-group is one rail (comma-separated lines bundle on it). Auto-layout infers this for fully-parallel lanes, so the directive is only needed to pin a grouping. |
-| `%%metro legend_min_height: <pixels>` | Minimum legend content height in pixels (useful for single-line maps where the logo would otherwise be tiny) |
-| `%%metro process: <station> \| <regex>` | Tie a station to the Nextflow process(es) it represents, for live progress (see [Live progress](/nf-metro/live/)). The regex matches the fully-qualified process name; repeat the directive to attach several patterns to one station. Pure metadata - it never affects the rendered map. |
-| `%%metro manifest: <bool>` | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `%%metro manifest: false` (or `--no-manifest`) emits the drawn map only. |
+| Directive                                                                  | Description                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `%%metro title: <text>`                                                    | Map title                                                                                                                                                                                                                                                                                                                                                                                              |
+| `%%metro caption: <text>`                                                  | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`).                                                                                                                                                                                                                                                                             |
+| `%%metro logo: <path>`                                                     | Logo image, bundled into the legend (or top-left if there is no legend).                                                                                                                                                                                                                                                                                                                               |
+| `%%metro logo_scale: <factor>`                                             | Scale the logo within the legend block (`1.0` = default auto-size). Values above 1 grow the legend box to contain the logo.                                                                                                                                                                                                                                                                            |
+| `%%metro style: <name>`                                                    | Theme: `dark` (default, the nfcore theme) or `light`. Selects the render theme unless `--theme` is passed.                                                                                                                                                                                                                                                                                             |
+| `%%metro line: <id> \| <name> \| <color> [\| <style>]`                     | Define a metro line. Optional style: `solid` (default), `dashed`, or `dotted`                                                                                                                                                                                                                                                                                                                          |
+| `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]`           | Pin a section to a grid position                                                                                                                                                                                                                                                                                                                                                                       |
+| `%%metro legend: <position>`                                               | Position the legend (and its embedded logo). Keyword: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` (a bare keyword auto-relocates if it would overlap a section or route). Add `\| canvas` to anchor the keyword to the canvas margin, or `\| <dx>,<dy>` to nudge it; both pin the block exactly (warning on overlap rather than relocating). Use `<x>,<y>` for absolute top-left coordinates. |
+| `%%metro line_order: <strategy>`                                           | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks)                                                                                                                                                                                                                                                                 |
+| `%%metro diamond_style: <mode>`                                            | Fork-join (diamond) layout: `straight` (default) keeps the top branch on the main track; `symmetric` fans the branches evenly                                                                                                                                                                                                                                                                          |
+| `%%metro fold_threshold: <columns>`                                        | Max station-columns a section row may reach before the auto-layout wraps it onto the next row (default 15). Raise it to keep a long horizontal trunk of sections on a single row.                                                                                                                                                                                                                      |
+| `%%metro x_spacing: <pixels>`                                              | Horizontal spacing between layers (default: auto - widened from 60 only when wide labels would collide)                                                                                                                                                                                                                                                                                                |
+| `%%metro y_spacing: <pixels>`                                              | Vertical spacing between tracks (default: auto - derived from the map's content)                                                                                                                                                                                                                                                                                                                       |
+| `%%metro section_x_gap: <pixels>`                                          | Horizontal gap between sections (default: 50)                                                                                                                                                                                                                                                                                                                                                          |
+| `%%metro section_y_gap: <pixels>`                                          | Vertical gap between sections (default: 50)                                                                                                                                                                                                                                                                                                                                                            |
+| `%%metro label_angle: <degrees>`                                           | Station-label angle (0 = horizontal). Overrides the theme default                                                                                                                                                                                                                                                                                                                                      |
+| `%%metro font_scale: <factor>`                                             | Scale every text size and the label-width metrics that drive layout spacing (`1.0` = default)                                                                                                                                                                                                                                                                                                          |
+| `%%metro legend_logo_gap: <pixels>`                                        | Horizontal gap between the logo and the legend entries                                                                                                                                                                                                                                                                                                                                                 |
+| `%%metro width: <pixels>`                                                  | Output width in pixels (default: auto from content)                                                                                                                                                                                                                                                                                                                                                    |
+| `%%metro height: <pixels>`                                                 | Output height in pixels (default: auto from content)                                                                                                                                                                                                                                                                                                                                                   |
+| `%%metro animate: true`                                                    | Add animated balls traveling along the metro lines                                                                                                                                                                                                                                                                                                                                                     |
+| `%%metro directional: true`                                                | Draw static chevrons along each route pointing in the flow direction (source to target). Off by default; CLI equivalent `--directional`. Marker size, spacing, opacity, and colour are theme knobs (`directional_marker_*`).                                                                                                                                                                           |
+| `%%metro strict: true`                                                     | Treat a layout-invariant violation on the rendered geometry (e.g. a station pushed outside its section box) as an error that aborts the render, instead of a warning. Off by default; CLI equivalent `--strict`. See [When a layout is broken](#when-a-layout-is-broken).                                                                                                                              |
+| `%%metro file: <station> \| <label> [\| <name>] [\| banner]`               | Mark a station as a file terminus with a document icon. Optional `name` renders as a caption below the icon; optional `banner` draws the label on a dark strip across the icon.                                                                                                                                                                                                                        |
+| `%%metro files: <station> \| <label> [\| <name>] [\| banner]`              | Mark a station with a stacked-documents icon (e.g. paired files). Optional `name` caption; optional `banner` strip.                                                                                                                                                                                                                                                                                    |
+| `%%metro dir: <station> \| <label> [\| <name>]`                            | Mark a station with a folder icon (e.g. output directory). Optional `name` caption.                                                                                                                                                                                                                                                                                                                    |
+| `%%metro off_track: <station>[, <station>...]`                             | Lift the listed stations above the section's main track, anchored to their consumer (inputs) or producer (output artefacts) (see below)                                                                                                                                                                                                                                                                |
+| `%%metro compact_offsets: true`                                            | Compact line offsets within stations (see below)                                                                                                                                                                                                                                                                                                                                                       |
+| `%%metro center_ports: true`                                               | Centre inter-section ports on the shorter of the two connected sections, so lines enter/exit at the visual midpoint.                                                                                                                                                                                                                                                                                   |
+| `%%metro line_spread: <mode>[ \| <id>...]`                                 | How lines sharing a station relate vertically (see below). `<mode>` is `bundle` (default), `centered`, or `rails`. The bare form sets the graph default; `<mode> \| sectionA, sectionB` overrides those sections.                                                                                                                                                                                      |
+| `%%metro interchange: <node> \| <rail-1 lines> \| <rail-2 lines> [\| ...]` | Render a shared step as a cross-track interchange instead of a convergence point (see below). Each pipe-group is one rail (comma-separated lines bundle on it). Auto-layout infers this for fully-parallel lanes, so the directive is only needed to pin a grouping.                                                                                                                                   |
+| `%%metro legend_min_height: <pixels>`                                      | Minimum legend content height in pixels (useful for single-line maps where the logo would otherwise be tiny)                                                                                                                                                                                                                                                                                           |
+| `%%metro process: <station> \| <regex>`                                    | Tie a station to the Nextflow process(es) it represents, for live progress (see [Live progress](/nf-metro/live/)). The regex matches the fully-qualified process name; repeat the directive to attach several patterns to one station. Pure metadata - it never affects the rendered map.                                                                                                              |
+| `%%metro manifest: <bool>`                                                 | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `%%metro manifest: false` (or `--no-manifest`) emits the drawn map only.                                                                                                                                                                                            |
 
 **Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.
 
 With `%%metro compact_offsets: true`, stations are only as wide as the lines actually passing through them. A station where one line enters and a different line exits renders as a dot (zero offset) rather than a pill. This works well for maps with few lines but many stations, like the [variantbenchmarking](https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking.mmd) example.
 
-**Off-track inputs.** Pipelines often have reference or auxiliary inputs (a FASTA, a GTF, a known-variants VCF) that feed *into* a processing step partway through a section rather than flowing along the main route. By default such an input station would claim a line-track slot on the trunk, pushing the layout around. List its station ID in `%%metro off_track:` and nf-metro lifts it above the section's main track, dropping it down into its consumer:
+**Off-track inputs.** Pipelines often have reference or auxiliary inputs (a FASTA, a GTF, a known-variants VCF) that feed _into_ a processing step partway through a section rather than flowing along the main route. By default such an input station would claim a line-track slot on the trunk, pushing the layout around. List its station ID in `%%metro off_track:` and nf-metro lifts it above the section's main track, dropping it down into its consumer:
 
 ```metro
 %%metro file: ref_in | FASTA | Reference
@@ -561,7 +561,7 @@ With `%%metro compact_offsets: true`, stations are only as wide as the lines act
 
 This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the lifted stations are usually file terminals. The [`off_track_convergence`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/off_track_convergence.mmd) topology and the [differentialabundance](https://github.com/pinin4fjords/nf-metro/blob/main/examples/differentialabundance.mmd) example both use it.
 
-**Off-track outputs.** The same directive works for file *artefacts* written part-way through a section (a `bam`/`cram` dumped after a mapping step, say). A producer-fed sink - a station with an incoming edge from an on-track step and no on-track consumer - is anchored above its **producer** rather than the section top, so the artefact hangs off the trunk right where it is written:
+**Off-track outputs.** The same directive works for file _artefacts_ written part-way through a section (a `bam`/`cram` dumped after a mapping step, say). A producer-fed sink - a station with an incoming edge from an on-track step and no on-track consumer - is anchored above its **producer** rather than the section top, so the artefact hangs off the trunk right where it is written:
 
 ```metro
 %%metro file: bam_mapped | BAM
@@ -574,7 +574,7 @@ The [off_track_outputs](https://github.com/pinin4fjords/nf-metro/blob/main/examp
 
 - **`bundle`** (the default) merges every line sharing a station onto a single trunk track; a line that detours to its own station dips off the trunk and back. Line base-tracks stack downward from the first line, so the shared trunk sits at the top and detours cascade below it.
 - **`centered`** also merges lines onto one trunk, but balances that bundle about the midline: the shared trunk sits on the vertical centre and each line's exclusive stations distribute symmetrically above and below it, instead of the top-anchored downward cascade.
-- **`rails`** keeps co-travelling lines on separate parallel rails rather than bundling them onto a trunk. Each line gets a fixed, evenly-spaced horizontal rail, and a station several lines *pass through* renders as the classic metro interchange: a white circle on each rail the station uses, joined by a straight connector segment (the nf-core/sarek "Example analysis pathways" subway idiom). Lines converge only at a genuine single-node fan-in/out - e.g. a file terminus all lines reach - where the rails ease together with 45-degree diagonals. Station labels alternate above and below the rails so dense runs stay readable.
+- **`rails`** keeps co-travelling lines on separate parallel rails rather than bundling them onto a trunk. Each line gets a fixed, evenly-spaced horizontal rail, and a station several lines _pass through_ renders as the classic metro interchange: a white circle on each rail the station uses, joined by a straight connector segment (the nf-core/sarek "Example analysis pathways" subway idiom). Lines converge only at a genuine single-node fan-in/out - e.g. a file terminus all lines reach - where the rails ease together with 45-degree diagonals. Station labels alternate above and below the rails so dense runs stay readable.
 
 The bare directive sets the graph-wide default:
 
@@ -591,11 +591,11 @@ Append `| <section>, ...` to override individual sections, so one map can mix mo
 
 Here every section defaults to `centered` while `pathways` is laid out as parallel rails; ordinary section placement positions both. The [`line_spread`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/line_spread.mmd) example shows all three modes in one map via per-section overrides. For `rails`, inter-section edges into or out of a rail section are not yet supported - a rail section should be self-contained.
 
-**Cross-track interchanges.** Sometimes a single step is shared by lines that otherwise run as separate parallel lanes - a tumour and a normal lane both running MarkDuplicates, say - but the lanes never actually merge. In `bundle` mode each lane has to dip off its track to touch that shared node and dip back, pinching the lines together at a point that isn't really a join. An *interchange* renders the shared step the way a real metro map would: each lane stays straight on its own track, and the step is drawn as a connector (a knob on each rail joined by a link bar) spanning them.
+**Cross-track interchanges.** Sometimes a single step is shared by lines that otherwise run as separate parallel lanes - a tumour and a normal lane both running MarkDuplicates, say - but the lanes never actually merge. In `bundle` mode each lane has to dip off its track to touch that shared node and dip back, pinching the lines together at a point that isn't really a join. An _interchange_ renders the shared step the way a real metro map would: each lane stays straight on its own track, and the step is drawn as a connector (a knob on each rail joined by a link bar) spanning them.
 
 Unlike `line_spread: rails`, this is per-node and works in ordinary `bundle`/`centered` layout - only the one shared step becomes an interchange; everything else stays as it was. Internally the node is expanded into one ordinary sub-station per rail, so the normal layout engine keeps each lane straight and routes it; only the glyph is special.
 
-Auto-layout infers an interchange automatically wherever the lanes are *fully parallel* - every line through the node has its own predecessor and its own successor, so converging them buys nothing. You only need the directive to pin a specific rail grouping (e.g. bundling two lines onto one rail), or to force an interchange where lines share a neighbour:
+Auto-layout infers an interchange automatically wherever the lanes are _fully parallel_ - every line through the node has its own predecessor and its own successor, so converging them buys nothing. You only need the directive to pin a specific rail grouping (e.g. bundling two lines onto one rail), or to force an interchange where lines share a neighbour:
 
 ```metro
 %%metro interchange: markduplicates | tumor | normal
@@ -607,11 +607,11 @@ The lanes are listed one rail per pipe-group; commas bundle several lines onto t
 
 These go inside `subgraph` blocks.
 
-| Directive | Description |
-|-----------|-------------|
+| Directive                          | Description                                              |
+| ---------------------------------- | -------------------------------------------------------- |
 | `%%metro entry: <side> \| <lines>` | Entry port hint. Sides: `left`, `right`, `top`, `bottom` |
-| `%%metro exit: <side> \| <lines>` | Exit port hint. Sides: `left`, `right`, `top`, `bottom` |
-| `%%metro direction: <dir>` | Internal flow direction: `LR`, `RL`, or `TB` |
+| `%%metro exit: <side> \| <lines>`  | Exit port hint. Sides: `left`, `right`, `top`, `bottom`  |
+| `%%metro direction: <dir>`         | Internal flow direction: `LR`, `RL`, or `TB`             |
 
 Entry/exit hints tell the layout engine which side of the section box lines should enter or leave from. Most of the time you can **omit these entirely** and let the auto-layout engine figure it out. They are useful when you want lines to exit from different sides of the same section (e.g., right for some lines, bottom for others).
 
@@ -623,31 +623,31 @@ Every layout and render option can be set two ways: a `%%metro` directive in the
 
 Set the directive in your committed `.mmd` so the map reproduces from the file alone, and reach for the flag only to tweak a single render without editing the file. The two planes always use the same name (the flag is the kebab-cased directive); a directive and its flag are defined from one registry, so they cannot drift apart.
 
-| Directive | CLI flag | Default |
-|-----------|----------|---------|
-| `title:` | `--title` | (none) |
-| `style:` | `--theme` | `nfcore` |
-| `logo:` | `--logo` | (none) |
-| `x_spacing:` | `--x-spacing` | auto |
-| `y_spacing:` | `--y-spacing` | auto |
-| `section_x_gap:` | `--section-x-gap` | 50 |
-| `section_y_gap:` | `--section-y-gap` | 50 |
-| `fold_threshold:` | `--fold-threshold` | auto (15) |
-| `diamond_style:` | `--diamond-style` | `straight` |
-| `line_order:` | `--line-order` | `definition` |
-| `center_ports:` | `--center-ports` / `--no-center-ports` | false |
-| `compact_offsets:` | `--compact-offsets` / `--no-compact-offsets` | false |
-| `line_spread:` | `--line-spread` | `bundle` |
-| `label_angle:` | `--label-angle` | theme default (0) |
-| `font_scale:` | `--font-scale` | 1.0 |
-| `logo_scale:` | `--logo-scale` | 1.0 |
-| `legend:` | `--legend` | auto |
-| `legend_min_height:` | `--legend-min-height` | 0 |
-| `legend_logo_gap:` | `--legend-logo-gap` | auto |
-| `width:` | `--width` | auto |
-| `height:` | `--height` | auto |
-| `animate:` | `--animate` / `--no-animate` | off |
-| `strict:` | `--strict` / `--no-strict` | off |
+| Directive            | CLI flag                                     | Default           |
+| -------------------- | -------------------------------------------- | ----------------- |
+| `title:`             | `--title`                                    | (none)            |
+| `style:`             | `--theme`                                    | `nfcore`          |
+| `logo:`              | `--logo`                                     | (none)            |
+| `x_spacing:`         | `--x-spacing`                                | auto              |
+| `y_spacing:`         | `--y-spacing`                                | auto              |
+| `section_x_gap:`     | `--section-x-gap`                            | 50                |
+| `section_y_gap:`     | `--section-y-gap`                            | 50                |
+| `fold_threshold:`    | `--fold-threshold`                           | auto (15)         |
+| `diamond_style:`     | `--diamond-style`                            | `straight`        |
+| `line_order:`        | `--line-order`                               | `definition`      |
+| `center_ports:`      | `--center-ports` / `--no-center-ports`       | false             |
+| `compact_offsets:`   | `--compact-offsets` / `--no-compact-offsets` | false             |
+| `line_spread:`       | `--line-spread`                              | `bundle`          |
+| `label_angle:`       | `--label-angle`                              | theme default (0) |
+| `font_scale:`        | `--font-scale`                               | 1.0               |
+| `logo_scale:`        | `--logo-scale`                               | 1.0               |
+| `legend:`            | `--legend`                                   | auto              |
+| `legend_min_height:` | `--legend-min-height`                        | 0                 |
+| `legend_logo_gap:`   | `--legend-logo-gap`                          | auto              |
+| `width:`             | `--width`                                    | auto              |
+| `height:`            | `--height`                                   | auto              |
+| `animate:`           | `--animate` / `--no-animate`                 | off               |
+| `strict:`            | `--strict` / `--no-strict`                   | off               |
 
 `--output`, `--format`, `--from-nextflow`, and `--debug` have no directive: they select the output target or a diagnostic overlay rather than describing the diagram.
 
@@ -682,13 +682,13 @@ checks a map without rendering it.
 
 When two distinct lines cross at a point that is neither a shared station nor a
 merge/junction, nf-metro automatically draws a **bridge glyph**: a short gap in
-the under-route where it passes beneath the over-route.  This disambiguates a
+the under-route where it passes beneath the over-route. This disambiguates a
 crossing from an interchange (where a gap would mean the lines genuinely share a
 node).
 
 Bridge glyphs are computed automatically — there is no directive to enable them.
 If your diagram has a visual crossing that you do not expect, check whether the
-two lines genuinely share an endpoint.  If they should converge, connect them
+two lines genuinely share an endpoint. If they should converge, connect them
 with a shared station; if the crossing is unavoidable layout-wise, the bridge
 glyph is the correct rendering.
 
@@ -712,12 +712,12 @@ nf-metro render --debug pipeline.mmd -o debug.svg
 
 The overlay shows:
 
-| Element | Appearance | What it tells you |
-|---------|-----------|-------------------|
-| **Entry ports** | Green diamonds | Where lines enter a section, with port ID and side |
-| **Exit ports** | Red diamonds | Where lines leave a section, with port ID and side |
-| **Hidden stations** | Dashed circles | Branch points created with `[hidden]` - invisible in normal rendering |
-| **Edge waypoints** | Small filled circles | Intermediate routing points along each edge path |
-| **Grid lines** | Yellow dashed lines | Boundaries between grid columns and rows, labeled with column/row indices |
+| Element             | Appearance           | What it tells you                                                         |
+| ------------------- | -------------------- | ------------------------------------------------------------------------- |
+| **Entry ports**     | Green diamonds       | Where lines enter a section, with port ID and side                        |
+| **Exit ports**      | Red diamonds         | Where lines leave a section, with port ID and side                        |
+| **Hidden stations** | Dashed circles       | Branch points created with `[hidden]` - invisible in normal rendering     |
+| **Edge waypoints**  | Small filled circles | Intermediate routing points along each edge path                          |
+| **Grid lines**      | Yellow dashed lines  | Boundaries between grid columns and rows, labeled with column/row indices |
 
 This is useful for diagnosing routing issues, understanding why lines take a particular path, or verifying that port sides and grid positions are what you expect.

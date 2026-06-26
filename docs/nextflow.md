@@ -250,24 +250,24 @@ Starting from the hand-tuned variant calling example above, here is what changes
 
 1. Add `%%metro file:` directives at the top of the file, one per file terminus:
 
-    ```metro
-    %%metro file: fastq_in | FASTQ
-    %%metro file: ref_in | FASTA
-    %%metro file: vcf_out | VCF
-    %%metro file: report_out | HTML
-    ```
+   ```metro
+   %%metro file: fastq_in | FASTQ
+   %%metro file: ref_in | FASTA
+   %%metro file: vcf_out | VCF
+   %%metro file: report_out | HTML
+   ```
 
 2. Add blank terminus stations (`[ ]`) at the input and output points of your pipeline. The station ID must match the `%%metro file:` directive:
 
-    ```text
-    fastq_in[ ]
-    ```
+   ```text
+   fastq_in[ ]
+   ```
 
 3. Connect them to the pipeline with normal edges:
 
-    ```text
-    fastq_in -->|main,qc| fastp
-    ```
+   ```text
+   fastq_in -->|main,qc| fastp
+   ```
 
 Here is the full `.mmd` with file icons added:
 

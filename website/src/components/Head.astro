@@ -3,8 +3,9 @@
    live in <head>, and Starlight only allows head *components* through an
    override — hence this thin wrapper. preload ensures the heading font is
    fetched before first paint, avoiding the page-title FOUT. */
-import Default from '@astrojs/starlight/components/Head.astro';
-import { Font } from 'astro:assets';
+import Default from "@astrojs/starlight/components/Head.astro";
+import { Font } from "astro:assets";
 ---
+
 <Default />
 <Font cssVariable="--nfm-degular" preload />

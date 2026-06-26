@@ -85,22 +85,24 @@ nf-metro render examples/rnaseq_sections.mmd --debug -o /tmp/rnaseq.svg
 python scripts/build_gallery.py --debug
 ```
 
-### Pre-commit hooks
+### Git hooks
 
-A `.pre-commit-config.yaml` is provided that runs the same `ruff check`, `ruff format`, and `mypy` checks as CI. Install once after creating your dev environment:
+A `prek.toml` is provided that runs the same `ruff check`, `ruff format`, and `mypy` checks as CI, plus `prettier` over the Astro docs site in `website/`. It uses [prek](https://prek.j178.dev), a fast, drop-in replacement for `pre-commit` that reads the same hook definitions. Install once after creating your dev environment:
 
 ```bash
-pip install pre-commit
-pre-commit install
+# Install prek (pick one): brew install prek | uv tool install prek | pip install prek
+prek install
 ```
 
 Hooks run automatically on `git commit`. To run them manually against all files:
 
 ```bash
-pre-commit run --all-files
+prek run --all-files
 ```
 
 The `mypy` hook uses `language: system`, so it relies on the mypy installed in your active environment (`pip install -e ".[dev]"`). Activate that environment before committing.
+
+The `prettier` hook formats the web/docs files across the repo (markdown, YAML, JSON, CSS, HTML, JS/TS, and `.astro` via `prettier-plugin-astro`, configured in `.prettierrc.js`). Python is left to ruff — prettier skips it. Programmatically generated and golden outputs (build artifacts, generated docs, lockfiles, `tests/data/` baselines) are excluded in `.prettierignore`.
 
 ### Parallel branches
 

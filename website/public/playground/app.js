@@ -283,7 +283,9 @@ const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 8;
 
 function viewBoxWidth(svg) {
-  const m = (svg.getAttribute("viewBox") || "").match(/[-\d.]+ [-\d.]+ ([-\d.]+) [-\d.]+/);
+  const m = (svg.getAttribute("viewBox") || "").match(
+    /[-\d.]+ [-\d.]+ ([-\d.]+) [-\d.]+/,
+  );
   return m ? parseFloat(m[1]) : svg.getBoundingClientRect().width;
 }
 
@@ -346,7 +348,9 @@ const DIRECTIVE_CONTROLS = [
 ];
 
 function readDirective(key) {
-  const m = editor.getValue().match(new RegExp(`^\\s*%%metro\\s+${key}:\\s*(.+?)\\s*$`, "m"));
+  const m = editor
+    .getValue()
+    .match(new RegExp(`^\\s*%%metro\\s+${key}:\\s*(.+?)\\s*$`, "m"));
   return m ? m[1] : null;
 }
 
@@ -355,12 +359,22 @@ function readDirective(key) {
 // precede the graph block).
 function setDirective(key, value) {
   const lines = editor.getValue().split("\n");
-  const idx = lines.findIndex((l) => new RegExp(`^\\s*%%metro\\s+${key}:`).test(l));
+  const idx = lines.findIndex((l) =>
+    new RegExp(`^\\s*%%metro\\s+${key}:`).test(l),
+  );
   if (value === null) {
-    if (idx >= 0) editor.replaceRange("", { line: idx, ch: 0 }, { line: idx + 1, ch: 0 });
+    if (idx >= 0)
+      editor.replaceRange("", { line: idx, ch: 0 }, { line: idx + 1, ch: 0 });
   } else if (idx >= 0) {
-    const updated = lines[idx].replace(new RegExp(`(%%metro\\s+${key}:\\s*).*`), `$1${value}`);
-    editor.replaceRange(updated, { line: idx, ch: 0 }, { line: idx, ch: lines[idx].length });
+    const updated = lines[idx].replace(
+      new RegExp(`(%%metro\\s+${key}:\\s*).*`),
+      `$1${value}`,
+    );
+    editor.replaceRange(
+      updated,
+      { line: idx, ch: 0 },
+      { line: idx, ch: lines[idx].length },
+    );
   } else {
     const titleIdx = lines.findIndex((l) => /^\s*%%metro\s+title:/.test(l));
     const at = titleIdx >= 0 ? titleIdx + 1 : 0;
@@ -398,14 +412,16 @@ function syncDirectiveControls() {
   el("opt-theme").value = themeKeyFromSource();
   for (const [id, key, kind] of DIRECTIVE_CONTROLS) {
     const value = readDirective(key);
-    if (kind === "bool") el(id).checked = _TRUE.has((value || "").toLowerCase());
+    if (kind === "bool")
+      el(id).checked = _TRUE.has((value || "").toLowerCase());
     else el(id).value = value ?? "";
   }
 }
 
 /* ----------------------------- line colors ---------------------------- */
 
-const LINE_RE = /^\s*%%metro\s+line:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(#[0-9a-fA-F]{3,8})/;
+const LINE_RE =
+  /^\s*%%metro\s+line:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(#[0-9a-fA-F]{3,8})/;
 
 function expandHex(hex) {
   if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
@@ -461,7 +477,7 @@ function setLineColor(lineNo, hex) {
   editor.replaceRange(
     updated,
     { line: lineNo, ch: 0 },
-    { line: lineNo, ch: text.length }
+    { line: lineNo, ch: text.length },
   );
   doRender();
 }
@@ -497,9 +513,18 @@ let pendingSource = null; // source station id chosen in connect mode
 
 const ID_PART = "[A-Za-z0-9_]+";
 const ARROW = "(?:--+>|--+|==+>|-\\.->)";
-const SHAPE = "(?:\\[\\[[^\\]]*\\]\\]|\\(\\([^)]*\\)\\)|\\(\\[[^\\]]*\\]\\)|\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\})";
+const SHAPE =
+  "(?:\\[\\[[^\\]]*\\]\\]|\\(\\([^)]*\\)\\)|\\(\\[[^\\]]*\\]\\)|\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\})";
 const EDGE_RE = new RegExp(
-  "^(\\s*)(" + ID_PART + ")\\s*" + SHAPE + "?\\s*" + ARROW + "\\s*\\|([^|]*)\\|\\s*(" + ID_PART + ")"
+  "^(\\s*)(" +
+    ID_PART +
+    ")\\s*" +
+    SHAPE +
+    "?\\s*" +
+    ARROW +
+    "\\s*\\|([^|]*)\\|\\s*(" +
+    ID_PART +
+    ")",
 );
 const DECL_RE = new RegExp("^\\s*(" + ID_PART + ")\\s*" + SHAPE + "?\\s*$");
 const HAS_ARROW = /--+>|--+|==+>|-\.->/;
@@ -526,7 +551,10 @@ function parseEdges() {
       lineNo: n,
       src: m[2],
       tgt: m[4],
-      lines: m[3].split(",").map((s) => s.trim()).filter(Boolean),
+      lines: m[3]
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
     });
   });
   return out;
@@ -538,7 +566,9 @@ function sectionBlocks() {
   const stack = [];
   const blocks = [];
   lines.forEach((line, n) => {
-    const open = line.match(/^\s*subgraph\s+("[^"]*"|[A-Za-z0-9_]+)\s*(?:\[(.*)\])?/);
+    const open = line.match(
+      /^\s*subgraph\s+("[^"]*"|[A-Za-z0-9_]+)\s*(?:\[(.*)\])?/,
+    );
     if (open) {
       const id = open[1].startsWith('"') ? open[1].slice(1, -1) : open[1];
       stack.push({ id, name: open[2] != null ? open[2] : id, start: n });
@@ -570,7 +600,9 @@ function findStationDecl(id) {
 function stationLabel(id) {
   const n = findStationDecl(id);
   if (n < 0) return id;
-  const m = editor.getLine(n).match(/^\s*[A-Za-z0-9_]+\s*[[({]+(.*?)[\])}]+\s*$/);
+  const m = editor
+    .getLine(n)
+    .match(/^\s*[A-Za-z0-9_]+\s*[[({]+(.*?)[\])}]+\s*$/);
   return m ? m[1].trim() : id;
 }
 
@@ -598,7 +630,9 @@ function uniqueId(prefix) {
 }
 
 function findEdgeLineNo(src, tgt, line) {
-  const e = parseEdges().find((x) => x.src === src && x.tgt === tgt && x.lines.includes(line));
+  const e = parseEdges().find(
+    (x) => x.src === src && x.tgt === tgt && x.lines.includes(line),
+  );
   return e ? e.lineNo : -1;
 }
 
@@ -661,7 +695,7 @@ function resolveEdge(elm, lineId) {
   const edge = parseEdges().find(
     (e) =>
       e.lines.includes(lineId) &&
-      ((e.src === a && e.tgt === b) || (e.src === b && e.tgt === a))
+      ((e.src === a && e.tgt === b) || (e.src === b && e.tgt === a)),
   );
   return edge ? { src: edge.src, tgt: edge.tgt, line: lineId } : null;
 }
@@ -682,7 +716,11 @@ function sectionOf(id) {
 /* ---------------------------- text mutations -------------------------- */
 
 function replaceLine(n, text) {
-  editor.replaceRange(text, { line: n, ch: 0 }, { line: n, ch: editor.getLine(n).length });
+  editor.replaceRange(
+    text,
+    { line: n, ch: 0 },
+    { line: n, ch: editor.getLine(n).length },
+  );
 }
 
 function insertLineAt(n, text) {
@@ -692,7 +730,9 @@ function insertLineAt(n, text) {
 function removeLines(indices) {
   [...new Set(indices)]
     .sort((a, b) => b - a)
-    .forEach((n) => editor.replaceRange("", { line: n, ch: 0 }, { line: n + 1, ch: 0 }));
+    .forEach((n) =>
+      editor.replaceRange("", { line: n, ch: 0 }, { line: n + 1, ch: 0 }),
+    );
 }
 
 function addStationToSection(sectionId, label) {
@@ -718,10 +758,16 @@ function addSection(name) {
     at = g >= 0 ? g + 1 : lines.length;
   }
   editor.replaceRange(
-    "    subgraph " + id + " [" + (name || "New Section") + "]\n" +
-      "        " + nodeId + "[New node]\n" +
+    "    subgraph " +
+      id +
+      " [" +
+      (name || "New Section") +
+      "]\n" +
+      "        " +
+      nodeId +
+      "[New node]\n" +
       "    end\n",
-    { line: at, ch: 0 }
+    { line: at, ch: 0 },
   );
   doRender();
   setSelection({ kind: "section", id });
@@ -738,10 +784,13 @@ function connect(src, tgt, line) {
     const last = editor.lineCount() - 1;
     const tail = editor.getLine(last);
     const lead = tail.trim() === "" ? "" : "\n";
-    editor.replaceRange(lead + "    " + src + " -->|" + line + "| " + tgt + "\n", {
-      line: last,
-      ch: tail.length,
-    });
+    editor.replaceRange(
+      lead + "    " + src + " -->|" + line + "| " + tgt + "\n",
+      {
+        line: last,
+        ch: tail.length,
+      },
+    );
   }
   doRender();
   return true;
@@ -758,12 +807,14 @@ function renameStation(id, label) {
   const n = findStationDecl(id);
   if (n < 0) return false;
   const line = editor.getLine(n);
-  const shaped = line.match(/^(\s*[A-Za-z0-9_]+\s*)([[({]+)(.*?)([\])}]+)(\s*)$/);
+  const shaped = line.match(
+    /^(\s*[A-Za-z0-9_]+\s*)([[({]+)(.*?)([\])}]+)(\s*)$/,
+  );
   replaceLine(
     n,
     shaped
       ? shaped[1] + shaped[2] + label + shaped[4] + shaped[5]
-      : line.replace(/^(\s*[A-Za-z0-9_]+)\s*$/, "$1[" + label + "]")
+      : line.replace(/^(\s*[A-Za-z0-9_]+)\s*$/, "$1[" + label + "]"),
   );
   doRender();
   return true;
@@ -777,7 +828,10 @@ function renameSection(id, name) {
     b.start,
     /\[.*\]\s*$/.test(line)
       ? line.replace(/\[.*\]\s*$/, "[" + name + "]")
-      : line.replace(/(subgraph\s+(?:"[^"]*"|[A-Za-z0-9_]+))\s*$/, "$1 [" + name + "]")
+      : line.replace(
+          /(subgraph\s+(?:"[^"]*"|[A-Za-z0-9_]+))\s*$/,
+          "$1 [" + name + "]",
+        ),
   );
   doRender();
   return true;
@@ -787,7 +841,7 @@ function renameSection(id, name) {
 function setSectionGrid(id, col, row) {
   const lines = docLines();
   const idx = lines.findIndex((l) =>
-    new RegExp("^\\s*%%metro\\s+grid:\\s*" + escapeRe(id) + "\\s*\\|").test(l)
+    new RegExp("^\\s*%%metro\\s+grid:\\s*" + escapeRe(id) + "\\s*\\|").test(l),
   );
   if (col === null) {
     if (idx >= 0) removeLines([idx]);
@@ -839,7 +893,10 @@ function deleteSection(id) {
     }
   });
   parseEdges().forEach((e) => {
-    if ((e.lineNo < b.start || e.lineNo > b.end) && (inside.has(e.src) || inside.has(e.tgt)))
+    if (
+      (e.lineNo < b.start || e.lineNo > b.end) &&
+      (inside.has(e.src) || inside.has(e.tgt))
+    )
       remove.add(e.lineNo);
   });
   removeLines([...remove]);
@@ -875,8 +932,12 @@ function splitEdge(src, tgt, line) {
 
 function selectorFor(sel) {
   if (!sel) return null;
-  if (sel.kind === "station") return '[data-station-id="' + cssEsc(sel.id) + '"]';
-  if (sel.kind === "section") return 'rect.nf-metro-section-box[data-section-id="' + cssEsc(sel.id) + '"]';
+  if (sel.kind === "station")
+    return '[data-station-id="' + cssEsc(sel.id) + '"]';
+  if (sel.kind === "section")
+    return (
+      'rect.nf-metro-section-box[data-section-id="' + cssEsc(sel.id) + '"]'
+    );
   if (sel.kind === "line") return '[data-line-id="' + cssEsc(sel.id) + '"]';
   return null;
 }
@@ -900,7 +961,8 @@ function clearSelection() {
 function reapplySelection() {
   if (selection) {
     if (selection.kind === "edge") {
-      if (findEdgeLineNo(selection.src, selection.tgt, selection.line) < 0) selection = null;
+      if (findEdgeLineNo(selection.src, selection.tgt, selection.line) < 0)
+        selection = null;
     } else {
       const sel = selectorFor(selection);
       if (sel && !el("preview").querySelector(sel)) selection = null;
@@ -912,11 +974,12 @@ function reapplySelection() {
 
 function highlightSelection() {
   const preview = el("preview");
-  preview.querySelectorAll(".nfm-sel, .nfm-edge-src").forEach((n) =>
-    n.classList.remove("nfm-sel", "nfm-edge-src")
-  );
+  preview
+    .querySelectorAll(".nfm-sel, .nfm-edge-src")
+    .forEach((n) => n.classList.remove("nfm-sel", "nfm-edge-src"));
   const sel = selectorFor(selection);
-  if (sel) preview.querySelectorAll(sel).forEach((n) => n.classList.add("nfm-sel"));
+  if (sel)
+    preview.querySelectorAll(sel).forEach((n) => n.classList.add("nfm-sel"));
   if (pendingSource) {
     preview
       .querySelectorAll('[data-station-id="' + cssEsc(pendingSource) + '"]')
@@ -937,9 +1000,11 @@ function setMode(mode) {
   editMode = mode;
   pendingSource = null;
   closeLinePicker();
-  document.querySelectorAll(".mode-btn").forEach((b) =>
-    b.setAttribute("aria-pressed", String(b.dataset.mode === mode))
-  );
+  document
+    .querySelectorAll(".mode-btn")
+    .forEach((b) =>
+      b.setAttribute("aria-pressed", String(b.dataset.mode === mode)),
+    );
   const preview = el("preview");
   preview.classList.toggle("mode-add-station", mode === "add-station");
   preview.classList.toggle("mode-add-edge", mode === "add-edge");
@@ -949,7 +1014,7 @@ function setMode(mode) {
       ? "Click a section to add a station."
       : mode === "add-edge"
         ? "Click a source station, then a target."
-        : "Click an element to select it."
+        : "Click an element to select it.",
   );
 }
 
@@ -959,11 +1024,13 @@ function setEditHint(text) {
 
 function hitTest(target) {
   const station = target.closest("[data-station-id]");
-  if (station) return { kind: "station", id: station.getAttribute("data-station-id") };
+  if (station)
+    return { kind: "station", id: station.getAttribute("data-station-id") };
   const line = target.closest("[data-line-id]");
   if (line) return { kind: "line", id: line.getAttribute("data-line-id") };
   const section = target.closest("[data-section-id]");
-  if (section) return { kind: "section", id: section.getAttribute("data-section-id") };
+  if (section)
+    return { kind: "section", id: section.getAttribute("data-section-id") };
   return null;
 }
 
@@ -996,7 +1063,10 @@ function onPreviewClick(e) {
   // specific edge when its endpoints sit on stations, else selects the line.
   const stationEl = e.target.closest("[data-station-id]");
   if (stationEl) {
-    setSelection({ kind: "station", id: stationEl.getAttribute("data-station-id") });
+    setSelection({
+      kind: "station",
+      id: stationEl.getAttribute("data-station-id"),
+    });
     return;
   }
   const lineEl = e.target.closest("[data-line-id]");
@@ -1004,7 +1074,12 @@ function onPreviewClick(e) {
     const lineId = lineEl.getAttribute("data-line-id");
     const edge = resolveEdge(lineEl, lineId);
     if (edge) {
-      setSelection({ kind: "edge", src: edge.src, tgt: edge.tgt, line: edge.line });
+      setSelection({
+        kind: "edge",
+        src: edge.src,
+        tgt: edge.tgt,
+        line: edge.line,
+      });
       lineEl.classList.add("nfm-sel");
     } else {
       setSelection({ kind: "line", id: lineId });
@@ -1013,7 +1088,10 @@ function onPreviewClick(e) {
   }
   const sectionEl = e.target.closest("[data-section-id]");
   if (sectionEl) {
-    setSelection({ kind: "section", id: sectionEl.getAttribute("data-section-id") });
+    setSelection({
+      kind: "section",
+      id: sectionEl.getAttribute("data-section-id"),
+    });
     return;
   }
   clearSelection();
@@ -1129,20 +1207,29 @@ function renderPropPanel() {
 
 function renderEdgeProps(body, sel) {
   body.append(idRow(sel.src + " →|" + sel.line + "| " + sel.tgt));
-  body.append(actionControl("Add station on this edge", () => splitEdge(sel.src, sel.tgt, sel.line)));
+  body.append(
+    actionControl("Add station on this edge", () =>
+      splitEdge(sel.src, sel.tgt, sel.line),
+    ),
+  );
   body.append(
     deleteControl("Delete edge", () => {
       const lineNo = findEdgeLineNo(sel.src, sel.tgt, sel.line);
       if (lineNo >= 0) deleteEdge(lineNo);
       clearSelection();
-    })
+    }),
   );
 }
 
 function renderStationProps(body, id) {
   body.append(idRow("id: " + id));
   if (findStationDecl(id) >= 0) {
-    body.append(propRow("Label", textControl(stationLabel(id), (v) => renameStation(id, v.trim() || id))));
+    body.append(
+      propRow(
+        "Label",
+        textControl(stationLabel(id), (v) => renameStation(id, v.trim() || id)),
+      ),
+    );
   } else {
     const note = document.createElement("div");
     note.className = "prop-empty";
@@ -1156,7 +1243,14 @@ function renderSectionProps(body, id) {
   const block = findSectionBlock(id);
   body.append(idRow("id: " + id));
   if (block) {
-    body.append(propRow("Name", textControl((block.name || "").trim(), (v) => renameSection(id, v.trim() || id))));
+    body.append(
+      propRow(
+        "Name",
+        textControl((block.name || "").trim(), (v) =>
+          renameSection(id, v.trim() || id),
+        ),
+      ),
+    );
     const grid = currentGrid(id);
     const wrap = document.createElement("div");
     wrap.className = "prop-grid";
@@ -1181,7 +1275,12 @@ function renderLineProps(body, id) {
   const def = defs.find((d) => d.id === id);
   body.append(idRow("line: " + id));
   if (def) {
-    body.append(propRow("Display name", textControl(def.name, (v) => renameLine(def.line, v.trim() || id))));
+    body.append(
+      propRow(
+        "Display name",
+        textControl(def.name, (v) => renameLine(def.line, v.trim() || id)),
+      ),
+    );
     const color = document.createElement("input");
     color.type = "color";
     const hex = expandHex(def.color);
@@ -1223,7 +1322,9 @@ function edgeRow(edge, lineId, defs) {
       if (d.id === lineId) opt.selected = true;
       select.append(opt);
     });
-    select.addEventListener("change", () => reassignEdgeLine(edge.lineNo, select.value));
+    select.addEventListener("change", () =>
+      reassignEdgeLine(edge.lineNo, select.value),
+    );
     row.append(select);
   }
   const add = document.createElement("button");
@@ -1253,21 +1354,34 @@ function numControl(value) {
 function currentGrid(id) {
   const m = editor
     .getValue()
-    .match(new RegExp("^\\s*%%metro\\s+grid:\\s*" + escapeRe(id) + "\\s*\\|\\s*(\\d+)\\s*,\\s*(\\d+)", "m"));
+    .match(
+      new RegExp(
+        "^\\s*%%metro\\s+grid:\\s*" +
+          escapeRe(id) +
+          "\\s*\\|\\s*(\\d+)\\s*,\\s*(\\d+)",
+        "m",
+      ),
+    );
   return m ? { col: m[1], row: m[2] } : null;
 }
 
 function renameLine(lineNo, name) {
   const text = editor.getLine(lineNo);
   if (text == null) return;
-  replaceLine(lineNo, text.replace(/^(\s*%%metro\s+line:\s*[^|]+\|\s*)([^|]+?)(\s*\|)/, "$1" + name + "$3"));
+  replaceLine(
+    lineNo,
+    text.replace(
+      /^(\s*%%metro\s+line:\s*[^|]+\|\s*)([^|]+?)(\s*\|)/,
+      "$1" + name + "$3",
+    ),
+  );
   doRender();
 }
 
 function wireEditTools() {
-  document.querySelectorAll(".mode-btn").forEach((b) =>
-    b.addEventListener("click", () => setMode(b.dataset.mode))
-  );
+  document
+    .querySelectorAll(".mode-btn")
+    .forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   el("btn-add-section").addEventListener("click", () => {
     setMode("select");
     addSection();
@@ -1291,7 +1405,8 @@ function wireEditTools() {
   document.addEventListener("click", (e) => {
     const picker = el("line-picker");
     if (picker.classList.contains("hidden")) return;
-    if (!picker.contains(e.target) && !e.target.closest("#preview")) closeLinePicker();
+    if (!picker.contains(e.target) && !e.target.closest("#preview"))
+      closeLinePicker();
   });
 }
 
@@ -1329,7 +1444,9 @@ async function exportPng() {
   if (!lastSvg) return;
   const scale = 2;
   const { svg, w, h } = svgWithIntrinsicSize(lastSvg);
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  const url = URL.createObjectURL(
+    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+  );
   try {
     const img = new Image();
     await new Promise((resolve, reject) => {
@@ -1343,7 +1460,9 @@ async function exportPng() {
     const ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
     ctx.drawImage(img, 0, 0);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
     if (!blob) throw new Error("canvas produced no image");
     downloadBlob(blob, "metro_map.png");
   } catch (err) {
@@ -1551,15 +1670,23 @@ function loadExample(value) {
 }
 
 function wireControls() {
-  el("example-select").addEventListener("change", (e) => loadExample(e.target.value));
-  el("opt-theme").addEventListener("change", (e) => setThemeDirective(e.target.value));
+  el("example-select").addEventListener("change", (e) =>
+    loadExample(e.target.value),
+  );
+  el("opt-theme").addEventListener("change", (e) =>
+    setThemeDirective(e.target.value),
+  );
   DIRECTIVE_CONTROLS.forEach(([id, key, kind]) =>
-    el(id).addEventListener("change", () => applyDirectiveControl(id, key, kind))
+    el(id).addEventListener("change", () =>
+      applyDirectiveControl(id, key, kind),
+    ),
   );
   ["opt-animate", "opt-directional", "opt-debug"].forEach((id) =>
-    el(id).addEventListener("change", doRender)
+    el(id).addEventListener("change", doRender),
   );
-  Object.keys(SNIPPETS).forEach((id) => el(id).addEventListener("click", () => insertSnippet(id)));
+  Object.keys(SNIPPETS).forEach((id) =>
+    el(id).addEventListener("click", () => insertSnippet(id)),
+  );
   el("btn-svg").addEventListener("click", exportSvg);
   el("btn-png").addEventListener("click", exportPng);
   el("btn-share").addEventListener("click", shareLink);

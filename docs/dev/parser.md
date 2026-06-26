@@ -31,7 +31,7 @@ The work splits in two:
 
 1. **Front-end** - recognise each line's shape (a node? an edge? a
    directive?) and pull out its pieces. The grammar recognises statement
-   *shapes and boundaries*; directive *payloads* and graph *semantics* are
+   _shapes and boundaries_; directive _payloads_ and graph _semantics_ are
    handled by Python (see [Directives](#directives) and
    [Parse-then-resolve flow](#parse-then-resolve-flow)).
 2. **Post-parse** - rewrite the raw graph into the form layout expects:
@@ -75,14 +75,14 @@ graph LR
 ## What a grammar is, and why we use one
 
 The naive way to read a line-oriented format is to write the
-*instructions* for recognising each line: "does this line start with
+_instructions_ for recognising each line: "does this line start with
 `graph`? else is it a `subgraph`? else does it contain an arrow? else
 try these six node-shape patterns in this exact order...". That works,
 but the order of the checks becomes load-bearing, and every new shape or
 directive means finding the right slot in the chain.
 
 A **grammar** flips this around: instead of writing the recognising
-instructions, you write down *the rules of what a valid line is* and let
+instructions, you write down _the rules of what a valid line is_ and let
 a library do the recognising. nf-metro uses [`lark`](https://lark-parser.readthedocs.io/)
 for this. The grammar lives as a string in `grammar.py` (`_GRAMMAR`),
 and reads roughly:
@@ -126,8 +126,8 @@ Three steps:
    the section id from its display name, `_Directive` splits the body on
    the first colon into `key`/`value`, and `_Edge` carries its line ids
    as a list plus any inline endpoint labels.
-3. **Drive.** `parse_metro_mermaid` iterates those statements *in source
-   order* and dispatches each by `isinstance`, applying it to the graph
+3. **Drive.** `parse_metro_mermaid` iterates those statements _in source
+   order_ and dispatches each by `isinstance`, applying it to the graph
    while tracking which `subgraph` it's currently inside
    (`current_section_id`). A `_Subgraph` opens a section, an `_End`
    closes it, and the nodes/edges/directives in between are attached to
@@ -140,8 +140,8 @@ routed to a handler, and so on.
 
 Keeping the driver a simple in-order loop is deliberate: source order
 matters (e.g. dictionary insertion order of stations affects downstream
-layout), so the grammar handles *recognising* lines while the driver
-handles *applying* them in sequence.
+layout), so the grammar handles _recognising_ lines while the driver
+handles _applying_ them in sequence.
 
 ### One simplification worth knowing
 
@@ -153,7 +153,7 @@ order.
 
 ## Directives
 
-The `%%metro` directive *bodies* are not described by the grammar - they
+The `%%metro` directive _bodies_ are not described by the grammar - they
 keep their own handler functions, because a grammar can't express
 behaviour like "warn about this and ignore it", which several directives
 need. What the grammar gives us is the directive line as a unit; the
@@ -185,28 +185,28 @@ grammar (fields, sections, coordinates) the generic registry can't express.
 
 The directives `_apply_directive` recognises:
 
-| Directive | Effect |
-| --- | --- |
-| `title:` / `style:` | graph title and theme name |
-| `line: id \| name \| #color \| style` | declare a `MetroLine` (style is `solid` / `dashed` / `dotted`) |
-| `line_order:` | `definition` or `span` line ordering |
-| `entry:` / `exit:` (inside a subgraph) | stored as port **hints** on the section |
-| `direction:` | section flow `LR` / `RL` / `TB` |
-| `grid:` | manual section grid placement |
-| `compact_offsets:` / `center_ports:` | bundle layout toggles |
-| `diamond_style:` | fork-join layout `straight` / `symmetric` |
-| `line_spread:` | how shared lines relate vertically (`bundle` / `centered` / `rails`), graph-wide or per-section |
-| `fold_threshold:` | station count at which long chains wrap into serpentine rows |
-| `x_spacing:` / `y_spacing:` / `section_x_gap:` / `section_y_gap:` | layout spacing and section gaps |
-| `width:` / `height:` / `animate:` | render output size and animation toggle |
-| `off_track:` | mark stations to lift above the section's top track |
-| `label_angle:` | diagonal station-label angle |
-| `legend:` / `legend_min_height:` / `legend_combo:` / `legend_logo_gap:` | legend block |
-| `logo:` / `logo_scale:` | logo path and scaling |
-| `font_scale:` | global font scaling |
-| `group:` | annotative caption spanning stations |
-| `marker:` / `marker_legend:` | per-station marker shape/fill styling and its legend caption |
-| `file:` / `files:` / `dir:` | terminus file-icon designation |
+| Directive                                                               | Effect                                                                                          |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `title:` / `style:`                                                     | graph title and theme name                                                                      |
+| `line: id \| name \| #color \| style`                                   | declare a `MetroLine` (style is `solid` / `dashed` / `dotted`)                                  |
+| `line_order:`                                                           | `definition` or `span` line ordering                                                            |
+| `entry:` / `exit:` (inside a subgraph)                                  | stored as port **hints** on the section                                                         |
+| `direction:`                                                            | section flow `LR` / `RL` / `TB`                                                                 |
+| `grid:`                                                                 | manual section grid placement                                                                   |
+| `compact_offsets:` / `center_ports:`                                    | bundle layout toggles                                                                           |
+| `diamond_style:`                                                        | fork-join layout `straight` / `symmetric`                                                       |
+| `line_spread:`                                                          | how shared lines relate vertically (`bundle` / `centered` / `rails`), graph-wide or per-section |
+| `fold_threshold:`                                                       | station count at which long chains wrap into serpentine rows                                    |
+| `x_spacing:` / `y_spacing:` / `section_x_gap:` / `section_y_gap:`       | layout spacing and section gaps                                                                 |
+| `width:` / `height:` / `animate:`                                       | render output size and animation toggle                                                         |
+| `off_track:`                                                            | mark stations to lift above the section's top track                                             |
+| `label_angle:`                                                          | diagonal station-label angle                                                                    |
+| `legend:` / `legend_min_height:` / `legend_combo:` / `legend_logo_gap:` | legend block                                                                                    |
+| `logo:` / `logo_scale:`                                                 | logo path and scaling                                                                           |
+| `font_scale:`                                                           | global font scaling                                                                             |
+| `group:`                                                                | annotative caption spanning stations                                                            |
+| `marker:` / `marker_legend:`                                            | per-station marker shape/fill styling and its legend caption                                    |
+| `file:` / `files:` / `dir:`                                             | terminus file-icon designation                                                                  |
 
 Note that `entry:` / `exit:` do **not** create `Port` objects at parse
 time. `_parse_port_hint` records them as `entry_hints` / `exit_hints`
@@ -221,14 +221,14 @@ syntax it doesn't recognise (it warns rather than crashing), while
 line should not abort a render of an otherwise-fine diagram, but an edge
 that names no metro line is a real modelling error.
 
-| Input | Outcome |
-| --- | --- |
-| Blank line, `%%` comment, or `%%metro` line with no colon | ignored silently |
-| Unrecognised non-blank line (the grammar `junk` rule) | dropped, with a `UserWarning` ("Ignored unrecognised line: ...") |
-| Unknown `%%metro` directive key | ignored, with a `UserWarning` ("Ignored unknown %%metro directive: ...") |
-| Malformed directive *payload* (too few `\|` fields, an unusable enum/number/bool, a section-scoped directive outside a subgraph) | warned about and ignored, uniformly across handlers (`_warn_directive`) |
-| Foreign/unsupported syntax (Mermaid `flowchart`) | raises `ValueError` with guidance, via `_check_unsupported_input`, before the grammar runs |
-| Edge with no line annotation, or an undeclared line id | raised by `_validate_edge_annotations` after parsing |
+| Input                                                                                                                            | Outcome                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Blank line, `%%` comment, or `%%metro` line with no colon                                                                        | ignored silently                                                                           |
+| Unrecognised non-blank line (the grammar `junk` rule)                                                                            | dropped, with a `UserWarning` ("Ignored unrecognised line: ...")                           |
+| Unknown `%%metro` directive key                                                                                                  | ignored, with a `UserWarning` ("Ignored unknown %%metro directive: ...")                   |
+| Malformed directive _payload_ (too few `\|` fields, an unusable enum/number/bool, a section-scoped directive outside a subgraph) | warned about and ignored, uniformly across handlers (`_warn_directive`)                    |
+| Foreign/unsupported syntax (Mermaid `flowchart`)                                                                                 | raises `ValueError` with guidance, via `_check_unsupported_input`, before the grammar runs |
+| Edge with no line annotation, or an undeclared line id                                                                           | raised by `_validate_edge_annotations` after parsing                                       |
 
 Broader graph-semantic checks (beyond edge annotations) live in the
 separate `validate` phase, `nf_metro.parser.validate.validate_graph`.
@@ -246,7 +246,7 @@ when nothing more specific does. The transformer turns the match into a
 
 This `junk` fallback is why the parser is configured as
 `Lark(..., parser="earley", lexer="dynamic")` rather than the faster
-`lalr`. A line that *begins* like a valid statement but then hits an
+`lalr`. A line that _begins_ like a valid statement but then hits an
 unexpected token must be able to fall back to `junk` and be dropped. An
 earley parser can explore that fallback; a committing `lalr` parser
 cannot backtrack a partly-matched line, so it would turn such a line
@@ -287,7 +287,7 @@ chains. It is split into three helpers:
   `internal_edges`.
 - `_create_ports_and_junctions` - create `Port` objects and rewrite each
   inter-section edge into a chain: `source -> exit_port -> entry_port ->
-  target`. The design rule is **one exit port per source section** (all
+target`. The design rule is **one exit port per source section** (all
   lines leave together for consistent ordering) and **one entry port per
   target section per side**; junction stations handle fan-out to multiple
   target sections.

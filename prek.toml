@@ -1,0 +1,60 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v5.0.0"
+hooks = [
+  { id = "trailing-whitespace" },
+  {
+    id = "end-of-file-fixer",
+    exclude = '\.svg$'
+  },
+  { id = "check-yaml" }
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+# Keep rev in sync with ruff>=0.4 in pyproject.toml [project.optional-dependencies.dev]
+rev = "v0.15.17"
+hooks = [
+  {
+    id = "ruff",
+    files = "^(src|tests)/",
+    args = ["--fix"]
+  },
+  {
+    id = "ruff-format",
+    files = "^(src|tests)/"
+  }
+]
+
+[[repos]]
+# Prettier formats the web/docs files across the repo (markdown, YAML, JSON, CSS,
+# HTML, JS/TS and Astro). Python is left to ruff: prettier has no Python parser and
+# `--ignore-unknown` skips it. The astro parser is supplied via `prettier-plugin-astro`
+# and enabled in .prettierrc.js; generated and golden outputs are excluded in
+# .prettierignore. The original pre-commit/mirrors-prettier is archived, so this uses
+# the maintained rbubley fork.
+repo = "https://github.com/rbubley/mirrors-prettier"
+rev = "v3.8.4"
+hooks = [
+  {
+    id = "prettier",
+    additional_dependencies = ["prettier@3.8.4", "prettier-plugin-astro@0.14.1"]
+  }
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "mypy",
+    name = "mypy",
+    entry = "mypy",
+    language = "system",
+    pass_filenames = false,
+    types = ["python"]
+  }
+]

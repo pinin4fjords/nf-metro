@@ -24,11 +24,11 @@ pipeline, read on to [Interactive and progress embeds](#interactive-and-progress
 
 nf-metro renders two shapes, and the right one depends on what the host needs.
 
-| You want | Use | Why |
-|----------|-----|-----|
-| A static picture (thumbnail, README, slide) | `render` → **SVG** | One self-contained file; scales crisply; no scripts. |
-| A live, interactive panel (pan/zoom, line filtering, hover) | `render --format html` | A self-contained page with the driver and styling already wired. |
-| A progress overlay driven by your own app | **SVG** + the [manifest](/nf-metro/manifest/) | You read the embedded manifest and draw your own status layer. |
+| You want                                                    | Use                                           | Why                                                              |
+| ----------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
+| A static picture (thumbnail, README, slide)                 | `render` → **SVG**                            | One self-contained file; scales crisply; no scripts.             |
+| A live, interactive panel (pan/zoom, line filtering, hover) | `render --format html`                        | A self-contained page with the driver and styling already wired. |
+| A progress overlay driven by your own app                   | **SVG** + the [manifest](/nf-metro/manifest/) | You read the embedded manifest and draw your own status layer.   |
 
 The SVG carries a machine-readable [manifest](/nf-metro/manifest/) and a stable
 [`data-*` contract](/nf-metro/embed/) either way, so a static embed can later become an
@@ -51,7 +51,10 @@ nf-metro render pipeline.mmd -o pipeline.svg --responsive
 ```
 
 ```css
-.metro-map svg { width: 100%; height: auto; }
+.metro-map svg {
+  width: 100%;
+  height: auto;
+}
 ```
 
 Use this for any fluid layout. The `viewBox` stays `0 0 <width> <height>`, so
@@ -63,10 +66,10 @@ overlays built from the manifest still line up (see
 By default the SVG references a system font family, which renders differently
 (or falls back) on a host without that font. Two flags make it self-contained:
 
-| Flag | What it does | Keeps selectable text? | Trade-off |
-|------|--------------|------------------------|-----------|
-| `--embed-font` | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file. |
-| `--text-to-paths` | Converts every glyph to a vector `<path>`. | No. | Smallest dependency surface; needs `fonttools[woff]`. |
+| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                             |
+| ----------------- | --------------------------------------------------------- | ----------------------------- | ----------------------------------------------------- |
+| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                          |
+| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `fonttools[woff]`. |
 
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg --embed-font      # portable, still selectable
@@ -110,14 +113,14 @@ by setting these on a wrapping element:
 }
 ```
 
-| Property | Recolors |
-|----------|----------|
-| `--nfm-bg` | Background rectangle |
-| `--nfm-title-color` | Title text |
-| `--nfm-label-color` | Station labels |
-| `--nfm-section-fill` / `--nfm-section-stroke` | Section box fill / border |
-| `--nfm-section-label-color` | Section names and group labels |
-| `--nfm-legend-bg` / `--nfm-legend-text-color` | Legend background / text |
+| Property                                      | Recolors                       |
+| --------------------------------------------- | ------------------------------ |
+| `--nfm-bg`                                    | Background rectangle           |
+| `--nfm-title-color`                           | Title text                     |
+| `--nfm-label-color`                           | Station labels                 |
+| `--nfm-section-fill` / `--nfm-section-stroke` | Section box fill / border      |
+| `--nfm-section-label-color`                   | Section names and group labels |
+| `--nfm-legend-bg` / `--nfm-legend-text-color` | Legend background / text       |
 
 Line and route colors are **not** recolorable - they carry meaning, so they
 stay baked as presentation attributes.
@@ -181,8 +184,10 @@ with no outer transform. That is what makes the host's job simple:
   <!-- base render, sized by CSS -->
   <object data="pipeline.svg" type="image/svg+xml" style="width:100%;"></object>
   <!-- overlay, same viewBox, on top -->
-  <svg viewBox="0 0 1509 759"
-       style="position:absolute; inset:0; width:100%; pointer-events:none;">
+  <svg
+    viewBox="0 0 1509 759"
+    style="position:absolute; inset:0; width:100%; pointer-events:none;"
+  >
     <!-- status markers at manifest coordinates -->
   </svg>
 </div>

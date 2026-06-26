@@ -2,10 +2,7 @@
   "displayName": "Mermaid / nf-metro",
   "name": "metro",
   "scopeName": "source.metro",
-  "aliases": [
-    "mmd",
-    "metro-map"
-  ],
+  "aliases": ["mmd", "metro-map"],
   "patterns": [
     {
       "include": "#metro-directive"
