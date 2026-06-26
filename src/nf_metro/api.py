@@ -80,9 +80,13 @@ def prepare_graph(
         text = convert_nextflow_dag(text, title=title or "")
 
     fold = opts.get("fold_threshold")
+    auto_process = opts.get("auto_process")
+    process_scope = opts.get("process_scope")
     graph = parse_metro_mermaid(
         text,
         max_station_columns=fold if isinstance(fold, int) else None,
+        auto_process=auto_process if isinstance(auto_process, bool) else None,
+        process_scope=process_scope if isinstance(process_scope, str) else None,
     )
 
     apply_layout_overrides(graph, opts)

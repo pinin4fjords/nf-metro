@@ -67,6 +67,103 @@ def test_process_directive_malformed_warns():
     assert graph.process_mapping == {}
 
 
+def test_auto_process_off_by_default_leaves_mapping_empty():
+    graph = parse_metro_mermaid(BASE)
+    assert graph.process_mapping == {}
+
+
+def test_auto_process_derives_id_pattern_for_every_real_station():
+    graph = parse_metro_mermaid("%%metro auto_process: true\n" + BASE)
+    assert set(graph.process_mapping) == {"input", "trim", "out"}
+    from nf_metro.live.mapping import stations_for_process
+
+    m = graph.process_mapping
+    assert stations_for_process("NFCORE:PIPE:TRIM", m) == ["trim"]
+    # The id matches as a prefix of the final segment, so an abstraction id
+    # lights up its tool's process (e.g. 'star' -> STAR_ALIGN).
+    assert stations_for_process("NFCORE:PIPE:TRIM_GALORE", m) == ["trim"]
+
+
+def test_auto_process_anchors_to_final_segment_not_scope_path():
+    """A station id must not match a tool name buried in the scope path."""
+    from nf_metro.live.mapping import stations_for_process
+
+    graph = parse_metro_mermaid("%%metro auto_process: true\n" + BASE)
+    m = graph.process_mapping
+    assert stations_for_process("NFCORE:TRIM_SUBWF:SAMTOOLS", m) == []
+
+
+def test_auto_process_explicit_directive_overrides_default():
+    text = "%%metro auto_process: true\n%%metro process: trim | ^FASTP$\n" + BASE
+    graph = parse_metro_mermaid(text)
+    assert graph.process_mapping["trim"] == ["^FASTP$"]
+    assert graph.process_mapping["input"] == [r"(?:^|:)input[^:]*$"]
+
+
+def test_process_scope_requires_prefix_and_tail():
+    from nf_metro.live.mapping import stations_for_process
+
+    text = (
+        "%%metro process_scope: NFCORE:PIPE\n"
+        "%%metro process: trim | SUBWF:TRIMGALORE\n" + BASE
+    )
+    m = parse_metro_mermaid(text).process_mapping
+    assert stations_for_process("NFCORE:PIPE:SUBWF:TRIMGALORE", m) == ["trim"]
+    # the scope prefix is required
+    assert stations_for_process("OTHER:SUBWF:TRIMGALORE", m) == []
+
+
+def test_process_scope_tolerates_intermediate_nesting():
+    """The tail need not sit directly under the scope: any subworkflow nesting
+    between the prefix and the tail is tolerated, so the author need not know
+    the full path."""
+    from nf_metro.live.mapping import stations_for_process
+
+    text = (
+        "%%metro process_scope: NFCORE:PIPE\n"
+        "%%metro process: trim | SUBWF:TRIMGALORE\n" + BASE
+    )
+    m = parse_metro_mermaid(text).process_mapping
+    nested = "NFCORE:PIPE:QC_TRIM_SETSTRANDEDNESS:SUBWF:TRIMGALORE"
+    assert stations_for_process(nested, m) == ["trim"]
+
+
+def test_process_scope_value_is_literal_not_regex():
+    """A scoped tail is matched literally, so a '.' is a dot, not a wildcard."""
+    from nf_metro.live.mapping import stations_for_process
+
+    text = "%%metro process_scope: NFCORE\n%%metro process: trim | A.C\n" + BASE
+    m = parse_metro_mermaid(text).process_mapping
+    assert stations_for_process("NFCORE:A.C", m) == ["trim"]
+    assert stations_for_process("NFCORE:AXC", m) == []
+
+
+def test_process_scope_disambiguates_same_leaf_under_two_scopes():
+    from nf_metro.live.mapping import stations_for_process
+
+    text = (
+        "%%metro line: a | A | #ff0000\n"
+        "%%metro process_scope: NFCORE:PIPE\n"
+        "%%metro process: q_star   | STAR:QUANT\n"
+        "%%metro process: q_pseudo | PSEUDO:QUANT\n"
+        "graph LR\n"
+        "    in[In] -->|a| q_star[Q1]\n"
+        "    in -->|a| q_pseudo[Q2]\n"
+    )
+    graph = parse_metro_mermaid(text)
+    m = graph.process_mapping
+    assert stations_for_process("NFCORE:PIPE:STAR:QUANT", m) == ["q_star"]
+    assert stations_for_process("NFCORE:PIPE:PSEUDO:QUANT", m) == ["q_pseudo"]
+
+
+def test_process_scope_absent_keeps_regex_semantics():
+    from nf_metro.live.mapping import stations_for_process
+
+    graph = parse_metro_mermaid("%%metro process: trim | TRIM.*\n" + BASE)
+    assert graph.process_mapping["trim"] == ["TRIM.*"]
+    assert stations_for_process("NFCORE:TRIMGALORE", graph.process_mapping) == ["trim"]
+
+
 def test_process_directive_does_not_change_visual_render():
     """The directive must not perturb layout or the drawn SVG output.
 
