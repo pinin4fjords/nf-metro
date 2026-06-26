@@ -13,9 +13,11 @@ import { pluginColorChips } from "expressive-code-color-chips";
 // This companion plugin runs the same idea for those languages and emits the
 // official plugin's chip class ("ec-css-color-chip") + CSS var, so its baseStyles
 // and the borderRadius override below style these chips too — no CSS duplication.
-// (Upstream feature request: an option to choose which languages get chips.)
 // The only coupling is that class name; if it ever changes, metro chips lose
 // their styling until this string is updated to match.
+//
+// TODO: remove this companion plugin once the upstream plugin supports choosing
+// which languages get chips — https://github.com/delucis/expressive-code-color-chips/issues/150
 const CHIP_CLASS = "ec-css-color-chip";
 const CHIP_VAR = "--ec-css-color-chip";
 const METRO_LANGS = new Set(["metro", "mmd"]);
