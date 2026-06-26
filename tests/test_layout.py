@@ -1065,13 +1065,15 @@ def test_symmetric_diamond_both_branches_deviate():
     assert (b_y - a_y) == -(c_y - a_y)
 
 
-def _diamond_split_exit_text(n_lines=6):
-    """A many-line 2-way diamond in a section that also peels one line off to
-    a bottom exit.
+def _symmetric_diamond_section_text(extra_body="", n_lines=6):
+    """A many-line 2-way diamond (umi -> {fastp, tg} -> fqt) in a section that
+    peels one line off to a bottom exit.
 
-    The split exit drags the section trunk to a fractional grid offset and the
+    The split exit drags the section trunk to a fractional grid offset while the
     bundle width inflates the row pitch; both branches share a layer so the
     grid-snap treats them as the kept rows and the trunk as an isolated hub.
+    ``extra_body`` appends further section rows (e.g. a wider fan) that redefine
+    the section's grid.
     """
     lines = [f"L{i}" for i in range(n_lines)]
     spec = "".join(
@@ -1094,13 +1096,26 @@ def _diamond_split_exit_text(n_lines=6):
         f"        umi -->|{joined}| fastp\n"
         f"        umi -->|{joined}| tg\n"
         f"        fastp -->|{joined}| fqt\n"
-        f"        tg -->|{joined}| fqt\n"
-        "    end\n"
+        f"        tg -->|{joined}| fqt\n" + extra_body + "    end\n"
         "    subgraph s2 [Down]\n"
         f"        %%metro entry: top | {bottom}\n"
         "        sal[Salmon]\n"
         "    end\n"
         f"    umi -->|{bottom}| sal\n"
+    )
+
+
+def _wide_fan_body(n_lines=6):
+    """A 3-way fan downstream of the diamond join, the nf-core/rnaseq
+    BBSplit/SortMeRNA/RiboDetector shape whose rows define the section grid."""
+    joined = ",".join(f"L{i}" for i in range(n_lines))
+    return (
+        "        bb[BBSplit]\n        smr[SortMeRNA]\n        rd[RiboDetector]\n"
+        "        fqf[FastQC2]\n"
+        f"        fqt -->|{joined}| bb\n        fqt -->|{joined}| smr\n"
+        f"        fqt -->|{joined}| rd\n"
+        f"        bb -->|{joined}| fqf\n        smr -->|{joined}| fqf\n"
+        f"        rd -->|{joined}| fqf\n"
     )
 
 
@@ -1113,55 +1128,13 @@ def test_symmetric_diamond_survives_offset_trunk(n_lines):
     branch (umi == fastp), collapsing the diamond.  The branches must straddle
     the trunk by equal and opposite offsets.
     """
-    graph = parse_metro_mermaid(_diamond_split_exit_text(n_lines))
+    graph = parse_metro_mermaid(_symmetric_diamond_section_text(n_lines=n_lines))
     compute_layout(graph)
     umi = graph.stations["umi"].y
     top = graph.stations["fastp"].y
     bottom = graph.stations["tg"].y
     assert top != umi and bottom != umi, "a branch collapsed onto the trunk"
     assert (top - umi) == -(bottom - umi), "branches not symmetric about trunk"
-
-
-def _diamond_then_wide_fan_text(n_lines=6):
-    """A 2-way diamond sharing a section grid with a wider 3-way fan, plus a
-    split exit.
-
-    The 3-way fan's rows become the section's kept grid; the narrower diamond's
-    branches bracket the trunk row from above and below.  This is the
-    nf-core/rnaseq pre-processing shape (fastp/Trim Galore then
-    BBSplit/SortMeRNA/RiboDetector).
-    """
-    lines = [f"L{i}" for i in range(n_lines)]
-    spec = "".join(
-        f"%%metro line: {lid} | {lid} | #{(i * 41) % 256:02x}80a0\n"
-        for i, lid in enumerate(lines)
-    )
-    joined = ",".join(lines)
-    top = ", ".join(lines[1:])
-    bottom = lines[0]
-    return (
-        spec + "%%metro diamond_style: symmetric\n"
-        "graph LR\n"
-        "    subgraph s1 [Pre]\n"
-        f"        %%metro exit: right | {top}\n"
-        f"        %%metro exit: bottom | {bottom}\n"
-        "        umi[UMI]\n"
-        "        fastp[fastp]\n        tg[TrimGalore]\n        fqt[FastQC]\n"
-        "        bb[BBSplit]\n        smr[SortMeRNA]\n        rd[RiboDetector]\n"
-        "        fqf[FastQC2]\n"
-        f"        umi -->|{joined}| fastp\n        umi -->|{joined}| tg\n"
-        f"        fastp -->|{joined}| fqt\n        tg -->|{joined}| fqt\n"
-        f"        fqt -->|{joined}| bb\n        fqt -->|{joined}| smr\n"
-        f"        fqt -->|{joined}| rd\n"
-        f"        bb -->|{joined}| fqf\n        smr -->|{joined}| fqf\n"
-        f"        rd -->|{joined}| fqf\n"
-        "    end\n"
-        "    subgraph s2 [Down]\n"
-        f"        %%metro entry: top | {bottom}\n"
-        "        sal[Salmon]\n"
-        "    end\n"
-        f"    umi -->|{bottom}| sal\n"
-    )
 
 
 @pytest.mark.parametrize("n_lines", [3, 6])
@@ -1173,7 +1146,9 @@ def test_symmetric_diamond_symmetric_beside_wider_fan(n_lines):
     (umi == tg) because the slot packer only forced same-layer rows apart, so
     the diamond's lower branch could share the trunk's slot.
     """
-    graph = parse_metro_mermaid(_diamond_then_wide_fan_text(n_lines))
+    graph = parse_metro_mermaid(
+        _symmetric_diamond_section_text(_wide_fan_body(n_lines), n_lines)
+    )
     compute_layout(graph)
     umi = graph.stations["umi"].y
     top = graph.stations["fastp"].y

@@ -128,7 +128,7 @@ def _separate_branches_across_trunk(
         for m in remap_ys:
             if (
                 a < m < b
-                and abs(m - midpoint) <= 1.0
+                and abs(m - midpoint) <= SAME_COORD_TOLERANCE
                 and layer_span[m] > layer_span[a]
                 and layer_span[m] > layer_span[b]
             ):

@@ -9,6 +9,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import networkx as nx
+
 from nf_metro.layout.constants import (
     COLLINEAR_AXIS_TOL,
     COMPONENT_BAND_OVERLAP_TOLERANCE,
@@ -560,25 +562,22 @@ def _guard_symmetric_diamond_branches_straddle_trunk(
     """
     if graph.diamond_style != "symmetric":
         return
-    succ: dict[str, list[str]] = defaultdict(list)
-    pred: dict[str, list[str]] = defaultdict(list)
+    g: nx.DiGraph[str] = nx.DiGraph()
     for edge in graph.edges:
-        s, t = edge.source, edge.target
-        if s in graph.stations and t in graph.stations:
-            if t not in succ[s]:
-                succ[s].append(t)
-            if s not in pred[t]:
-                pred[t].append(s)
+        if edge.source in graph.stations and edge.target in graph.stations:
+            g.add_edge(edge.source, edge.target)
     tol = SAME_COORD_TOLERANCE
-    for fork, branches in succ.items():
+    for fork in g:
+        branches = list(g.successors(fork))
         if len(branches) != 2 or graph.stations[fork].is_port:
             continue
         b1, b2 = branches
-        if pred[b1] != [fork] or pred[b2] != [fork]:
+        if list(g.predecessors(b1)) != [fork] or list(g.predecessors(b2)) != [fork]:
             continue
-        if len(succ[b1]) != 1 or succ[b1] != succ[b2]:
+        joins = list(g.successors(b1))
+        if len(joins) != 1 or joins != list(g.successors(b2)):
             continue
-        join = succ[b1][0]
+        join = joins[0]
         if graph.stations[join].is_port:
             continue
         trunk_y = graph.stations[fork].y
