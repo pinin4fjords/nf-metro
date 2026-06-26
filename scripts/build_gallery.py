@@ -453,6 +453,15 @@ GALLERY_ENTRIES: list[tuple[str, Path, str]] = [
         "to the left. The four lines keep distinct channels through the jog "
         "instead of collapsing onto one (issue #1074).",
     ),
+    (
+        "branch_fold_forward",
+        TOPOLOGIES_DIR,
+        "A side branch (Aux) shares a topo column with the spine (Genome). At a "
+        "low fold threshold the serpentine packer skips that branch column as a "
+        "fold point - folding it would strand Genome's consumer (Post) behind "
+        "it - and folds the spine instead, so every inter-section edge flows "
+        "forward and Genome's exit faces Post (issue #1080).",
+    ),
     # --- Offset and bypass ---
     (
         "bypass_fan_in_outer_slot",

@@ -1,0 +1,48 @@
+%%metro title: Branch fold stays forward
+%%metro fold_threshold: 6
+%%metro line: main | Main | #0570b0
+%%metro line: side | Side | #e63946
+
+graph LR
+    subgraph intake [Intake]
+        i0[ ]
+        i1[Trim]
+        i2[Filter]
+        i3[QC]
+        i0 -->|main,side| i1
+        i1 -->|main,side| i2
+        i2 -->|main,side| i3
+    end
+    subgraph genome [Genome]
+        %%metro entry: left | main
+        %%metro exit: right | main
+        g0[Align]
+        g1[Dedup]
+        g2[Quant]
+        g0 -->|main| g1
+        g1 -->|main| g2
+    end
+    subgraph aux [Aux]
+        %%metro entry: left | side
+        a0[Pseudo]
+        a1[Count]
+        a0 -->|side| a1
+    end
+    subgraph post [Post]
+        %%metro entry: left | main
+        %%metro exit: bottom | main
+        p0[Mark]
+        p1[Track]
+        p0 -->|main| p1
+    end
+    subgraph report [Report]
+        %%metro direction: RL
+        %%metro entry: top | main
+        r0[Collect]
+        r1[ ]
+        r0 -->|main| r1
+    end
+    i3 -->|main| g0
+    i3 -->|side| a0
+    g2 -->|main| p0
+    p1 -->|main| r0
