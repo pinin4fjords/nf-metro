@@ -16,7 +16,10 @@ const links = [
   { label: "Guide", href: `${base}guide/` },
   { label: "Gallery", href: `${base}gallery/` },
   { label: "Pipelines", href: `${base}pipelines/` },
-  { label: "Playground", href: `${base}playground/` },
+  // The playground is a standalone static app (public/playground/), not an Astro
+  // route — reload:true forces a full navigation so ClientRouter doesn't try to
+  // swap it in like a doc page.
+  { label: "Playground", href: `${base}playground/`, reload: true },
 ];
 
 // Resolve the latest GitHub release at build time (cached once per build).
@@ -67,8 +70,8 @@ const { label: versionLabel, url: versionUrl } = await g.__nfmRelease;
   <div class="nfm-nav sl-hidden md:sl-flex print:hidden">
     <nav class="nfm-topnav" aria-label="Primary">
       {
-        links.map(({ label, href }) => (
-          <a class="link" href={href}>
+        links.map(({ label, href, reload }) => (
+          <a class="link" href={href} data-astro-reload={reload ? true : undefined}>
             {label}
           </a>
         ))

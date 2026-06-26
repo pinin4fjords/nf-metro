@@ -148,7 +148,10 @@ export default defineConfig({
             {
               label: "Playground (beta)",
               link: "/playground/",
-              attrs: { target: "_self" },
+              // The playground is a standalone static app in public/playground/,
+              // not an Astro route — data-astro-reload forces a full navigation
+              // so ClientRouter doesn't try to swap it in like a doc page.
+              attrs: { target: "_self", "data-astro-reload": true },
             },
           ],
         },
