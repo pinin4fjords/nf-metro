@@ -129,3 +129,58 @@ def test_chokepoint_runs_the_migrated_bbox_guard() -> None:
     the render chokepoint set."""
     names = {spec.name for spec in render_layout_invariant_specs()}
     assert "_guard_stations_within_bbox" in names
+
+
+# The inter-section backtrack/wrap guards run on the always-on render path so a
+# wrapped/backtracking bundle is a visible warning, not a silently-broken map.
+# The last is the detector for the away-facing wrap the first three exempt as a
+# legitimate reverse-flow route.
+BACKTRACK_RENDER_GUARDS = [
+    "_guard_inter_section_route_no_backtrack",
+    "_guard_inter_section_route_no_full_width_backtrack",
+    "_guard_serpentine_no_backtrack",
+    "_guard_inter_section_route_clears_own_section_interior",
+]
+
+# Forced-grid fixtures placing a consumer section so its producer's exit side
+# faces away from it: the inter-section bundle wraps and claws back through a
+# section interior (the #1078 / #1074 shape reduced to a stable repro).
+WRAP_DEFECT_FIXTURES = [
+    "away_exit_wrap_interior_left.mmd",
+    "away_exit_wrap_interior_right.mmd",
+]
+
+# Kept under ``regressions/`` (not the auto-discovered corpus root): a defect
+# fixture raises under ``validate=True``, so the corpus-wide idempotence and
+# manifest tests must not pick it up.
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "regressions"
+
+
+@pytest.mark.parametrize("guard_name", BACKTRACK_RENDER_GUARDS)
+def test_backtrack_guards_on_render_path(guard_name: str) -> None:
+    """The backtrack/wrap guards are part of the always-on render chokepoint set
+    (Tier A), not the validate-only set."""
+    names = {spec.name for spec in render_layout_invariant_specs()}
+    assert guard_name in names
+
+
+def _render_fixture(name: str, *, strict: bool = False) -> None:
+    graph = parse_metro_mermaid((FIXTURES / name).read_text())
+    graph.strict = strict
+    compute_layout(graph)
+    render_svg(graph, THEMES["nfcore"])
+
+
+@pytest.mark.parametrize("name", WRAP_DEFECT_FIXTURES)
+def test_interior_wrap_warns_by_default(name: str) -> None:
+    """A bundle that wraps back through its own section interior warns on the
+    default render path (it would render a silently-broken map otherwise)."""
+    with pytest.warns(UserWarning, match="Tier-A invariants"):
+        _render_fixture(name)
+
+
+@pytest.mark.parametrize("name", WRAP_DEFECT_FIXTURES)
+def test_interior_wrap_raises_under_strict(name: str) -> None:
+    """The same wrap raises ``LayoutInvariantError`` under ``--strict``."""
+    with pytest.raises(LayoutInvariantError, match="clears_own_section_interior"):
+        _render_fixture(name, strict=True)

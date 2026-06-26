@@ -50,6 +50,7 @@ from nf_metro.layout.phases._common import (
     is_loop_side_branch_station,
     iter_sole_trunk_continuations,
     marker_cross_exempt,
+    routes_through_own_section_interior,
     routes_through_unrelated_sections,
 )
 from nf_metro.layout.phases.bbox import _section_fit_top
@@ -2705,6 +2706,43 @@ def _guard_no_route_through_section(
         )
 
 
+def _guard_inter_section_route_clears_own_section_interior(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """After routing: an inter-section route must not run back through the
+    interior of its own source or target section box.
+
+    A route connects a source section's exit port to a target section's entry
+    port, both on the box boundary; reaching between them means travelling the
+    inter-section gaps and routing *around* the boxes.  A segment whose
+    interior lies inside its own source or target bbox has clawed back through
+    the box -- the symptom of an exit side that faces away from the consumer,
+    which renders as a silent wrapped/backtracking bundle (#1078, surfaced by
+    #1074).  ``_guard_no_route_through_section`` exempts a route's own
+    sections; this guard covers exactly that gap.
+
+    This guard makes the wrap *visible* on the render path; choosing an exit
+    side that faces the consumer (#1081) and routing around the boxes (#1083)
+    is what removes it.
+    """
+    offenders = routes_through_own_section_interior(
+        graph, routes=routes, offsets=offsets
+    )
+    if offenders:
+        rp, sid = offenders[0]
+        raise PhaseInvariantError(
+            f"{phase}: inter-section route {rp.edge.source!r}->"
+            f"{rp.edge.target!r} line {rp.line_id!r} runs back through the "
+            f"interior of its own section {sid!r} instead of routing around it "
+            f"({len(offenders)} interior crossing(s) total); the exit side "
+            f"faces away from the target and the bundle wraps"
+        )
+
+
 def _guard_feeder_exits_section_through_side(
     graph: MetroGraph,
     phase: str,
@@ -4336,7 +4374,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_inter_section_route_no_backtrack,
-        "B",
+        "A",
         needs=frozenset({"routes"}),
         issue_pin=("#386",),
         narrow_reason=(
@@ -4347,7 +4385,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_inter_section_route_no_full_width_backtrack,
-        "B",
+        "A",
         needs=frozenset({"routes"}),
     ),
     GuardSpec(
@@ -4375,6 +4413,19 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "A route may occupy a section's bbox only where it has a station "
             "there (its source or port-entered target); exempting those is "
             "what stops it flagging legitimate occupancy."
+        ),
+    ),
+    GuardSpec(
+        _guard_inter_section_route_clears_own_section_interior,
+        "A",
+        needs=frozenset({"routes", "offsets"}),
+        issue_pin=("#1074", "#1078", "#1081", "#1083"),
+        narrow_reason=(
+            "Fires only on a route through its OWN source/target box interior "
+            "(the gap _guard_no_route_through_section leaves by exempting those "
+            "sections); a clean route grazes only their boundary ports and an "
+            "own-line trunk overlay is exempt, so it stays silent on legitimate "
+            "wraps and is the always-on detector for the #1078 backtrack."
         ),
     ),
     GuardSpec(
@@ -4410,7 +4461,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "channel are not flagged."
         ),
     ),
-    GuardSpec(_guard_serpentine_no_backtrack, "B", needs=frozenset({"routes"})),
+    GuardSpec(_guard_serpentine_no_backtrack, "A", needs=frozenset({"routes"})),
     GuardSpec(
         _guard_no_artefactual_counter_flow,
         "B",
