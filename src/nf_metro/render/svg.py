@@ -623,10 +623,10 @@ def _render_svg_scaled(
         for _s in graph.stations.values():
             if _s.is_port or _s.is_hidden:
                 continue
-            _, _, _w, _h, _rx = station_marker_box(
+            _cx, _cy, _w, _h, _rx = station_marker_box(
                 graph, theme, _s, station_offsets, _pf
             )
-            _boxes[_s.id] = {"w": _w, "h": _h, "rx": _rx}
+            _boxes[_s.id] = {"x": _cx, "y": _cy, "w": _w, "h": _h, "rx": _rx}
         manifest = build_manifest(
             graph,
             width=svg_width,
@@ -1722,19 +1722,21 @@ def _station_group_attrs(
     section_id = (
         station.section_id if section is not None and not section.is_implicit else None
     )
+    cx: float = station.x
+    cy: float = station.y
     w: float | None = None
     h: float | None = None
     rx: float | None = None
     if station_offsets is not None:
-        _, _, w, h, rx = station_marker_box(
+        cx, cy, w, h, rx = station_marker_box(
             graph, theme, station, station_offsets, positive_fan
         )
     return {
         "class_": _ns("nf-metro-station-group"),
         **node_data_attrs(
             id=station.id,
-            x=station.x,
-            y=station.y,
+            x=cx,
+            y=cy,
             r=theme.station_radius,
             groups=graph.station_lines(station.id),
             region=section_id,
