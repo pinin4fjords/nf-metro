@@ -454,7 +454,8 @@ def _section_interior_crossings(
         }
         pts = apply_route_offsets(rp, offsets)
         for sid, x0, y0, x1, y1 in boxes:
-            if (sid in own_sections) != own:
+            is_own_section = sid in own_sections
+            if is_own_section != own:
                 continue
             if any(
                 segment_intersects_bbox(
