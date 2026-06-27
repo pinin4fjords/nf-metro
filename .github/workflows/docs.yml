@@ -107,19 +107,21 @@ jobs:
               --manifest gh-pages/versions.json --version dev
           fi
 
-          # Root redirects to the latest release.
+          # Root redirects to dev/ while the Astro site lives only there. Revert
+          # the three dev/ references below to latest/ once the first Astro
+          # release is cut, so the root tracks the latest stable docs again.
           cat > gh-pages/index.html <<'HTML'
           <!doctype html>
           <html>
             <head>
               <meta charset="utf-8" />
               <title>Redirecting</title>
-              <noscript><meta http-equiv="refresh" content="1; url=latest/" /></noscript>
+              <noscript><meta http-equiv="refresh" content="1; url=dev/" /></noscript>
               <script>
-                window.location.replace("latest/" + location.search + location.hash);
+                window.location.replace("dev/" + location.search + location.hash);
               </script>
             </head>
-            <body>Redirecting to <a href="latest/">latest/</a>...</body>
+            <body>Redirecting to <a href="dev/">dev/</a>...</body>
           </html>
           HTML
 
