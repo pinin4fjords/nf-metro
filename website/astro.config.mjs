@@ -111,9 +111,6 @@ export default defineConfig({
     },
   ],
   integrations: [
-    // Renders %%metro fenced blocks as inline SVG before astro-mermaid sees
-    // them, so regular mermaid blocks pass through to astro-mermaid intact.
-    // Must be listed first so its satteri plugin is registered before mermaid's.
     metroPlugin(),
     // Renders ```mermaid fences as diagrams. Must come BEFORE starlight so its
     // transform runs before Expressive Code claims the code block. autoTheme

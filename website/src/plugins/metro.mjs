@@ -18,7 +18,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,132 +26,79 @@ import { satteri, isSatteriProcessor } from '@astrojs/markdown-satteri';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = join(__dirname, '../../.metro-cache');
+mkdirSync(CACHE_DIR, { recursive: true });
 
-/** XML prolog that drawsvg emits; strip it before inlining into HTML. */
+/** drawsvg emits an XML prolog; strip it before inlining into HTML. */
 const XML_PROLOG_RE = /^<\?xml.*?>\s*/;
 
-/**
- * Render a %%metro block, using the content-hash cache when available.
- * Returns the SVG string (prolog stripped).
- */
 function renderMetro(content) {
   const hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
   const cacheFile = join(CACHE_DIR, `${hash}.svg`);
 
-  if (existsSync(cacheFile)) {
+  try {
     return readFileSync(cacheFile, 'utf-8');
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
   }
-
-  mkdirSync(CACHE_DIR, { recursive: true });
 
   const tmpInput = join(tmpdir(), `metro-${hash}.mmd`);
   const tmpOutput = join(tmpdir(), `metro-${hash}.svg`);
-
   writeFileSync(tmpInput, content, 'utf-8');
-
   try {
-    execFileSync('nf-metro', ['render', tmpInput, '-o', tmpOutput], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    execFileSync(
+      'nf-metro',
+      ['render', tmpInput, '-o', tmpOutput, '--no-self-color-scheme'],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
   } catch (err) {
     const stderr = err.stderr?.toString().trim() || '';
     throw new Error(
       `nf-metro render failed for %%metro block:\n${stderr}\n\n` +
-        `Make sure 'nf-metro' is on PATH (activate the nf-core micromamba env).`
+        `Make sure 'nf-metro' is on PATH (activate the nf-core micromamba env).`,
     );
+  } finally {
+    try { unlinkSync(tmpInput); } catch {}
   }
 
   const svg = readFileSync(tmpOutput, 'utf-8').replace(XML_PROLOG_RE, '');
+  try { unlinkSync(tmpOutput); } catch {}
   writeFileSync(cacheFile, svg, 'utf-8');
   return svg;
 }
 
 /**
- * Satteri mdast plugin (Astro 7+): intercepts mermaid code nodes that contain
- * %%metro directives and replaces them with inline SVG HTML nodes.
- *
- * Must be registered BEFORE astro-mermaid's satteri plugin so that %%metro
- * blocks are claimed first and regular mermaid blocks pass through intact.
+ * Must be listed before astro-mermaid's plugin so %%metro blocks are claimed
+ * first and regular mermaid blocks pass through intact.
  */
 export const satteriMetroPlugin = {
   name: 'nf-metro',
   code(node) {
     if (node.lang !== 'mermaid' || !node.value.includes('%%metro')) return;
-    const svg = renderMetro(node.value);
-    return { type: 'html', value: svg };
+    return { type: 'html', value: renderMetro(node.value) };
   },
 };
 
-/**
- * Legacy remark plugin fallback for Astro < 7 (unified processor).
- * Walks the MDAST and replaces matching code nodes in-place.
- */
-function remarkMetroPlugin() {
-  return function transformer(tree) {
-    /** @type {{ node: any; index: number; parent: any }[]} */
-    const targets = [];
-    function walk(node) {
-      if (!node.children) return;
-      node.children.forEach((child, i) => {
-        if (
-          child.type === 'code' &&
-          child.lang === 'mermaid' &&
-          child.value.includes('%%metro')
-        ) {
-          targets.push({ node: child, index: i, parent: node });
-        }
-        walk(child);
-      });
-    }
-    walk(tree);
-    for (const { index, parent, node } of targets) {
-      const svg = renderMetro(node.value);
-      parent.children[index] = { type: 'html', value: svg };
-    }
-  };
-}
-
-/**
- * Astro integration.  Add this to `integrations` in astro.config.mjs,
- * BEFORE the astro-mermaid integration so the %%metro satteri plugin is
- * registered first in the mdastPlugins array.
- *
- * @returns {import('astro').AstroIntegration}
- */
+/** @returns {import('astro').AstroIntegration} */
 export function metroPlugin() {
   return {
     name: 'nf-metro',
     hooks: {
       'astro:config:setup'({ config, updateConfig, logger }) {
         const existingProcessor = config.markdown?.processor;
-
-        if (isSatteriProcessor(existingProcessor)) {
-          const existingOptions = existingProcessor.options ?? {};
-          updateConfig({
-            markdown: {
-              processor: satteri({
-                ...existingOptions,
-                mdastPlugins: [
-                  ...(existingOptions.mdastPlugins ?? []),
-                  satteriMetroPlugin,
-                ],
-              }),
-            },
-          });
-          logger.info('nf-metro: registered satteri mdast plugin');
+        if (!isSatteriProcessor(existingProcessor)) {
+          logger.warn('nf-metro: markdown processor is not satteri; %%metro blocks will not render');
           return;
         }
-
-        // Fallback for Astro < 7 (unified processor or no processor).
+        const existingOptions = existingProcessor.options ?? {};
         updateConfig({
           markdown: {
-            remarkPlugins: [
-              ...(config.markdown?.remarkPlugins ?? []),
-              remarkMetroPlugin,
-            ],
+            processor: satteri({
+              ...existingOptions,
+              mdastPlugins: [...(existingOptions.mdastPlugins ?? []), satteriMetroPlugin],
+            }),
           },
         });
-        logger.info('nf-metro: registered remark plugin (legacy path)');
+        logger.info('nf-metro: registered satteri mdast plugin');
       },
     },
   };
