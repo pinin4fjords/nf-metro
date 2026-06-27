@@ -281,7 +281,7 @@ def test_issue484_same_colour_crossover_is_bridged():
 def _motion_paths(svg: str) -> list[str]:
     import re
 
-    return re.findall(r'<path id="motion-path-[^"]*" d="([^"]*)"', svg)
+    return re.findall(r"offset-path: path\('([^']*)'\)", svg)
 
 
 def _perp_distance(pt, a, b):
