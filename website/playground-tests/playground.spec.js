@@ -30,9 +30,7 @@ test.afterAll(async () => {
 });
 
 test("service worker precaches pyodide.js during install", async () => {
-  // The SW precaches pyodide.js in its install event so subsequent navigations
-  // serve it from cache. By the time Pyodide has fully booted, the SW install
-  // has long since completed.
+  // By the time Pyodide has fully booted, the SW install has long since completed.
   const cached = await page.evaluate(async () => {
     const keys = await caches.keys();
     const name = keys.find((k) => k.startsWith("nfm-playground-"));

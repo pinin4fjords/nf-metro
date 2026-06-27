@@ -8,30 +8,23 @@ const PYODIDE_BASE = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`
 const CACHE_NAME = `nfm-playground-${PYODIDE_VERSION}`;
 
 function shouldCache(url) {
-  // Cache Pyodide CDN assets and the local wheel file.
-  // wheels/index.json is always fetched fresh by app.js (cache: "no-store")
-  // so we leave it out of the SW cache entirely.
+  // wheels/index.json is fetched with cache: "no-store" by app.js for wheel
+  // discovery, so exclude it; .whl files are content-addressed and safe to cache.
   if (url.startsWith(PYODIDE_BASE)) return true;
-  try {
-    const path = new URL(url).pathname;
-    if (/\/wheels\/[^/]+\.whl$/.test(path)) return true;
-  } catch (_) {}
-  return false;
+  return /\/wheels\/[^/]+\.whl$/.test(url);
 }
 
 self.addEventListener("install", (event) => {
-  // Activate immediately without waiting for existing clients to close.
   self.skipWaiting();
-  // Precache the Pyodide entry script so the next navigation serves it from
-  // the SW cache without a CDN round-trip. The WASM and other large assets are
-  // cached on their first fetch once the SW is controlling the page.
+  // WASM and other large assets are lazily cached on first fetch once the SW
+  // controls the page; only the entry script is precached here.
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       try {
         await cache.add(`${PYODIDE_BASE}pyodide.js`);
       } catch (_) {
-        // Don't fail install when the CDN is unreachable (offline / first-visit).
+        // Don't fail install when the CDN is unreachable.
       }
     })(),
   );
@@ -46,8 +39,6 @@ self.addEventListener("activate", (event) => {
           .filter((k) => k.startsWith("nfm-playground-") && k !== CACHE_NAME)
           .map((k) => caches.delete(k)),
       );
-      // Take control of all open clients so the cache is active on first
-      // load without requiring a page reload.
       await self.clients.claim();
     })(),
   );
@@ -60,11 +51,11 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(event.request);
+      const cached = await cache.match(url);
       if (cached) return cached;
       const response = await fetch(event.request);
       if (response.ok) {
-        cache.put(event.request, response.clone());
+        cache.put(url, response.clone());
       }
       return response;
     })(),
