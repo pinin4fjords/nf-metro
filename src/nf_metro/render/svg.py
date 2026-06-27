@@ -959,6 +959,16 @@ def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
             f"fill: {_prop('--nfm-map-legend-text-color', 'legend_text_color')}",
         ),
     ]
+    # The label halo is a knockout of the background, so it tracks --nfm-map-bg
+    # and must flip with the mode too; otherwise a dark-baked halo blots out
+    # labels in light mode. Disabled-halo themes draw no halo, so emit nothing.
+    halo_light, halo_dark = _label_halo_color(light), _label_halo_color(dark)
+    if halo_light is not None and halo_dark is not None:
+        halo = halo_light if light is dark else f"light-dark({halo_light}, {halo_dark})"
+        halo_val = f"var(--nfm-map-bg, {halo})"
+        lines.append(
+            _rule("nf-metro-label-halo", f"fill: {halo_val}; stroke: {halo_val}")
+        )
     d.append(draw.Raw(f"<style>{chr(10).join(lines)}</style>"))
 
 
@@ -2244,6 +2254,7 @@ def _render_labels(
                     font_weight=theme.label_font_weight,
                     line_height=LABEL_LINE_HEIGHT,
                     aria_hidden="true",
+                    class_=_ns("nf-metro-label-halo"),
                     **style,
                 )
             )

@@ -112,11 +112,12 @@ def test_self_color_scheme_false_omits_root_color_scheme():
 def test_chrome_css_fallbacks_single_value_for_unfamilied_theme():
     """A theme with no light/dark family falls back to its single baked value.
 
-    The bg rule is omitted for transparent themes (background_color='none').
+    Transparent themes (background_color='none') emit no ``.nf-metro-bg`` fill
+    rule; the halo knockout references --nfm-map-bg with a solid fallback.
     """
     theme = LIGHT_THEME
     svg = render_svg(_make_graph(), theme)
-    assert "--nfm-map-bg" not in svg
+    assert ".nf-metro-bg {" not in svg
     assert "light-dark(" not in svg
     assert f"--nfm-map-label-color, {theme.label_color}" in svg
     assert f"--nfm-map-title-color, {theme.title_color}" in svg
