@@ -133,6 +133,7 @@ export default defineConfig({
         ThemeSelect: "./src/components/ThemeSelect.astro",
         PageFrame: "./src/components/PageFrame.astro",
         PageTitle: "./src/components/PageTitle.astro",
+        EditLink: "./src/components/EditLink.astro",
       },
       customCss: ["./src/styles/custom.css"],
       // The docs-nav sidebar. Identical on every page (including the custom home).

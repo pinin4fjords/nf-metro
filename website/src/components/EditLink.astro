@@ -1,0 +1,17 @@
+---
+/* docs/ is symlinked into src/content/docs, so Starlight derives each page's
+   filePath as src/content/docs/<file> and editLink.baseUrl concatenates to a
+   path that doesn't exist on GitHub (the symlinked path isn't editable either).
+   Rewrite the edit URL to the real repo file (docs/<file>) before the default
+   link renders; pages outside the docs collection keep Starlight's own URL. */
+import Default from "@astrojs/starlight/components/EditLink.astro";
+import { GITHUB_URL } from "../site";
+
+const route = Astro.locals.starlightRoute;
+const match = route.entry.filePath.match(/src\/content\/docs\/(.+)$/);
+if (route.editUrl && match) {
+  route.editUrl = new URL(`${GITHUB_URL}/edit/main/docs/${match[1]}`);
+}
+---
+
+<Default />
