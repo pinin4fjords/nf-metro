@@ -24,10 +24,12 @@ from nf_metro.layout.phases._common import routes_through_own_section_interior
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     PhaseInvariantError,
+    _guard_inter_section_route_clears_own_section_interior,
     assert_render_layout_invariants,
     render_layout_invariant_specs,
 )
 from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render import render_svg
@@ -213,9 +215,7 @@ def test_away_facing_exit_renders_without_wrap_warning(
 ) -> None:
     """The around-the-box route leaves every render-path Tier-A wrap guard
     silent (the route is correct, not merely tolerated)."""
-    base = FIXTURES if fixture_dir == "regressions" else EXAMPLES
-    graph = parse_metro_mermaid((base / name).read_text(), max_station_columns=fold)
-    compute_layout(graph)
+    graph = _laid_out_repro(fixture_dir, name, fold)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         render_svg(graph, THEMES["nfcore"])
@@ -228,11 +228,6 @@ def test_away_facing_exit_renders_without_wrap_warning(
 def test_interior_wrap_guard_fires_on_an_injected_crossing() -> None:
     """The interior-clearance guard raises when a route *does* run through its
     own target box -- the backstop that proves the around-the-box guarantee."""
-    from nf_metro.layout.phases.guards import (
-        _guard_inter_section_route_clears_own_section_interior,
-    )
-    from nf_metro.layout.routing.common import RoutedPath
-
     graph = parse_metro_mermaid(
         (FIXTURES / "away_exit_wrap_interior_left.mmd").read_text()
     )
