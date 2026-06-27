@@ -21,7 +21,7 @@ async function openAdvanced() {
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
-  await page.goto("/index.html");
+  await page.goto("/harness.html");
   await waitReady(page);
 });
 

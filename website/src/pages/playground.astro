@@ -1,0 +1,1144 @@
+---
+/* playground.astro - Interactive nf-metro diagram editor, promoted from
+   public/playground/index.html into the Astro build so it inherits
+   Starlight's header, sidebar, and theme switching automatically.
+
+   The playground JS/HTML logic is ported as-is. Key structural changes:
+   - The old standalone <header id="bar"> is removed; Starlight provides nav.
+   - btn-report is moved into the preview-pane toolbar.
+   - CSS is adapted: scoped to .nfm-playground to avoid leaking into Starlight.
+   - Starlight layout is overridden via :has(#split) so the split pane fills
+     the viewport (footer hidden, content chain made flex end-to-end).
+   - app.js and style.css stay in public/playground/ (relative URLs resolve
+     identically since the page is still served from /playground/).
+*/
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { base } from "../site";
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Playground",
+    description:
+      "Interactive nf-metro diagram editor — write metro map definitions and see them rendered live in the browser.",
+    template: "doc",
+    tableOfContents: false,
+    pagefind: false,
+    prev: false,
+    next: false,
+    head: [
+      {
+        tag: "link",
+        attrs: {
+          rel: "stylesheet",
+          href: "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css",
+        },
+      },
+    ],
+  }}
+>
+  <div class="nfm-playground not-content">
+    <main id="split">
+      <section id="editor-pane">
+        <div class="pane-toolbar">
+          <label
+            >Load
+            <select id="example-select">
+              <option value="" selected>example…</option>
+              <option value="__seed__">Starter pipeline</option>
+            </select>
+          </label>
+          <button
+            id="btn-convert"
+            title="Convert a Nextflow -with-dag Mermaid into a metro map"
+          >
+            Import Nextflow DAG
+          </button>
+          <span class="sep"></span>
+          <span class="group-label">Insert</span>
+          <button id="btn-section" title="Insert a section block">
+            + Section
+          </button>
+          <button id="btn-line" title="Insert a line definition">+ Line</button>
+          <button id="btn-edge" title="Insert an edge">+ Edge</button>
+          <span class="sep"></span>
+          <span class="group-label">Lines</span>
+          <div id="line-colors" class="swatches"></div>
+        </div>
+        <textarea id="editor"></textarea>
+        <div id="error" class="hidden" role="alert"></div>
+      </section>
+
+      <section id="preview-pane">
+        <div class="pane-toolbar">
+          <label
+            >Brand
+            <select id="opt-theme">
+              <option value="nfcore">nf-core</option>
+              <option value="seqera">Seqera</option>
+            </select>
+          </label>
+          <label
+            >Mode
+            <select id="opt-mode">
+              <option value="dark">dark</option>
+              <option value="light">light</option>
+            </select>
+          </label>
+          <label class="check"
+            ><input type="checkbox" id="opt-animate" /> Animate</label
+          >
+          <label class="check"
+            ><input type="checkbox" id="opt-directional" /> Chevrons</label
+          >
+          <label class="check"
+            ><input type="checkbox" id="opt-debug" /> Debug</label
+          >
+          <label class="check"
+            ><input type="checkbox" id="opt-center-ports" /> Centre ports</label
+          >
+        </div>
+
+        <div class="pane-toolbar">
+          <span class="group-label">Export</span>
+          <button id="btn-svg">SVG</button>
+          <button id="btn-png">PNG</button>
+          <button id="btn-share">Share link</button>
+          <button
+            id="btn-report"
+            class="report-btn"
+            title="Report a bug with this map"
+          >
+            Report a bug
+          </button>
+        </div>
+
+        <details id="advanced" class="advanced">
+          <summary>Advanced options</summary>
+          <div class="pane-toolbar advanced-controls">
+            <span class="group-label">Layout</span>
+            <label
+              >Line spread
+              <select id="opt-line-spread">
+                <option value="">auto</option>
+                <option value="bundle">bundle</option>
+                <option value="centered">centered</option>
+                <option value="rails">rails</option>
+              </select>
+            </label>
+            <label
+              >Diamonds
+              <select id="opt-diamond-style">
+                <option value="">auto</option>
+                <option value="straight">straight</option>
+                <option value="symmetric">symmetric</option>
+              </select>
+            </label>
+            <label
+              >Line order
+              <select id="opt-line-order">
+                <option value="">auto</option>
+                <option value="definition">definition</option>
+                <option value="span">span</option>
+              </select>
+            </label>
+            <label class="check"
+              ><input type="checkbox" id="opt-compact-offsets" /> Compact offsets</label
+            >
+            <label
+              >Font scale
+              <input
+                type="number"
+                id="opt-font-scale"
+                min="0.1"
+                step="0.1"
+                placeholder="1.0"
+              />
+            </label>
+            <label
+              >Fold cols
+              <input
+                type="number"
+                id="opt-fold-threshold"
+                min="1"
+                step="1"
+                placeholder="auto"
+              />
+            </label>
+            <label
+              >X-spacing
+              <input
+                type="number"
+                id="opt-x-spacing"
+                min="1"
+                step="10"
+                placeholder="auto"
+              />
+            </label>
+            <label
+              >Y-spacing
+              <input
+                type="number"
+                id="opt-y-spacing"
+                min="1"
+                step="10"
+                placeholder="auto"
+              />
+            </label>
+          </div>
+        </details>
+
+        <div class="pane-toolbar edit-toolbar">
+          <span class="group-label">Edit map</span>
+          <button
+            class="mode-btn"
+            data-mode="select"
+            aria-pressed="true"
+            title="Select an element to inspect or edit it"
+          >
+            Select
+          </button>
+          <button
+            class="mode-btn"
+            data-mode="add-station"
+            aria-pressed="false"
+            title="Click a section to add a station to it"
+          >
+            + Station
+          </button>
+          <button
+            class="mode-btn"
+            data-mode="add-edge"
+            aria-pressed="false"
+            title="Click a source station, then a target, to connect them"
+          >
+            Connect
+          </button>
+          <span class="sep"></span>
+          <button id="btn-add-section" title="Add a new section">
+            + Section
+          </button>
+          <span class="sep"></span>
+          <span id="edit-hint" class="muted small"
+            >Click an element to select it.</span
+          >
+        </div>
+
+        <div id="preview"></div>
+
+        <div id="zoom-controls">
+          <button id="zoom-out" title="Zoom out" aria-label="Zoom out">
+            &minus;
+          </button>
+          <button id="zoom-fit" title="Fit to view" aria-label="Fit to view">
+            Fit
+          </button>
+          <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+        </div>
+
+        <aside
+          id="prop-panel"
+          class="prop-panel hidden"
+          aria-label="Selected element"
+        >
+          <div class="prop-head">
+            <span id="prop-kind" class="prop-kind"></span>
+            <button id="prop-close" class="ghost" title="Deselect">×</button>
+          </div>
+          <div id="prop-body"></div>
+        </aside>
+
+        <div
+          id="line-picker"
+          class="line-picker hidden"
+          role="menu"
+          aria-label="Choose a line"
+        >
+        </div>
+
+        <div id="boot" class="overlay">
+          <div class="spinner"></div>
+          <p id="boot-msg">Starting Python runtime…</p>
+          <p class="muted small">
+            First load fetches the WASM runtime (~10&nbsp;MB); subsequent loads
+            are cached.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="hidden"></div>
+
+    <div
+      id="report-modal"
+      class="modal-overlay hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="report-title"
+    >
+      <div class="modal">
+        <h2 id="report-title">Report a bug</h2>
+        <p class="muted small">
+          This opens a pre-filled GitHub issue in a new tab with your current
+          map, options, and description. You review and submit it there (a
+          GitHub account and sign-in are required).
+        </p>
+        <label for="report-text"
+          >What's wrong? <span class="req">required</span></label
+        >
+        <textarea
+          id="report-text"
+          rows="5"
+          placeholder="What did you expect, and what happened instead?"
+        ></textarea>
+        <div class="modal-actions">
+          <button id="report-cancel" class="ghost">Cancel</button>
+          <button id="report-submit" disabled>Open GitHub issue</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="convert-modal"
+      class="modal-overlay hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="convert-title"
+    >
+      <div class="modal">
+        <h2 id="convert-title">Import Nextflow DAG</h2>
+        <p class="muted small">
+          Paste a Nextflow <code>-with-dag</code> Mermaid file to convert it into
+          a starting metro map. Generate one with
+          <code>nextflow run &lt;pipeline&gt; -preview -with-dag dag.mmd</code>
+          — see the
+          <a href={`${base}nextflow/`} target="_blank" rel="noopener"
+            >Nextflow import guide</a
+          >.
+        </p>
+        <label for="convert-text">Nextflow DAG Mermaid</label>
+        <textarea
+          id="convert-text"
+          rows="8"
+          placeholder="flowchart TB
+    subgraph ..."></textarea>
+        <div id="convert-error" class="hidden modal-error"></div>
+        <div class="modal-actions">
+          <button id="convert-cancel" class="ghost">Cancel</button>
+          <button id="convert-submit">Convert</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    CDN scripts and app.js are loaded as inline (unprocessed) script tags so
+    Vite does not try to bundle them. CodeMirror 5 and Pyodide expose globals
+    (CodeMirror, loadPyodide) that app.js depends on; load order matters.
+  -->
+  <script
+    is:inline
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"
+  ></script>
+  <script
+    is:inline
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/simple.min.js"
+  ></script>
+  <script
+    is:inline
+    src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
+  <!--
+    app.js lives in public/playground/ and is served at /playground/app.js.
+    Its relative fetch calls (wheels/index.json, examples.json) resolve against
+    the page URL (/playground/) just as they did with the old index.html.
+  -->
+  <script is:inline src={`${base}playground/app.js`}></script>
+</StarlightPage>
+
+<style is:global>
+  /* ===================================================================
+     Starlight layout overrides — active only on the playground page
+     (scoped via :has(#split) which is present only here).
+     =================================================================== */
+
+  /* Constrain page height so the split pane fills without overflowing */
+  html:has(#split) .page {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Hide the site footer; the playground is a full-height interactive tool */
+  html:has(#split) .nfm-site-footer {
+    display: none;
+  }
+
+  /* Hide the auto-generated page <h1>; the playground has no prose title */
+  html:has(#split) h1#_top {
+    display: none;
+  }
+
+  /* Hide Starlight's in-content footer (pagination / edit link / built-with);
+     the playground is a full-height tool, so it would only strand a gap. */
+  html:has(#split) .content-panel footer {
+    display: none;
+  }
+
+  /* Expand .main-frame into a flex column so .nfm-playground can fill it */
+  html:has(#split) .main-frame {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /*
+    Grow exactly the wrapper chain that contains #split into a flex column.
+    :has(#split) matches only that branch, so the Starlight-injected <script>
+    sibling and the page-title panel (neither contains #split) keep their
+    natural size instead of each claiming flex:1 and halving the column. It
+    also excludes #split itself (a <main>), so the editor/preview panes keep
+    their own side-by-side row layout.
+  */
+  html:has(#split) .main-frame *:has(#split) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* The playground supplies no prose title; drop Starlight's empty title panel. */
+  html:has(#split) main > .content-panel:not(:has(#split)) {
+    display: none;
+  }
+
+  /* Strip content padding/max-width so .nfm-playground spans the full area */
+  html:has(#split) .content-panel {
+    padding: 0 !important;
+  }
+  html:has(#split) .sl-container {
+    max-width: unset !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  html:has(#split) .sl-markdown-content {
+    overflow: hidden;
+  }
+
+  /*
+    #split is a CSS grid whose single implicit row is `auto`, so the tall
+    preview render would stretch the row (and the editor pane / CodeMirror)
+    to its content height. Pinning the row to minmax(0, 1fr) keeps it bounded
+    by the viewport-filled column; each pane scrolls its own overflow instead.
+  */
+  html:has(#split) #split {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /*
+    CodeMirror is a flex:1 child of the editor pane. Its default min-height:auto
+    refuses to shrink below the intrinsic content height, so inside Starlight's
+    nested flex/grid chain the wrapper overflows the pane instead of scrolling.
+    min-height:0 lets it fill the pane and scroll its own overflow.
+  */
+  .nfm-playground .CodeMirror,
+  .nfm-playground .CodeMirror-scroll {
+    min-height: 0;
+  }
+
+  /* ===================================================================
+     Playground CSS — adapted from public/playground/style.css.
+     General element selectors (button, select, input) are scoped to
+     .nfm-playground to avoid overriding Starlight's own chrome.
+     Utility classes (.hidden, .muted, .small) are scoped likewise.
+     =================================================================== */
+
+  /* Custom properties and flex fill */
+  .nfm-playground {
+    color-scheme: dark;
+    --pg-bg: #0b0e14;
+    --pg-panel: #11161f;
+    --pg-panel-2: #161c27;
+    --pg-border: #232b39;
+    --pg-text: #c9d1d9;
+    --pg-muted: #7d8794;
+    --pg-accent: #2dd4bf;
+    --pg-accent-press: #14b8a6;
+    --pg-danger: #f0716f;
+    --pg-danger-bg: #2a1414;
+
+    /* Expose the short names used throughout app.js-generated HTML */
+    --bg: var(--pg-bg);
+    --panel: var(--pg-panel);
+    --panel-2: var(--pg-panel-2);
+    --border: var(--pg-border);
+    --text: var(--pg-text);
+    --muted: var(--pg-muted);
+    --accent: var(--pg-accent);
+    --accent-press: var(--pg-accent-press);
+    --danger: var(--pg-danger);
+    --danger-bg: var(--pg-danger-bg);
+
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font:
+      14px/1.45 -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+  }
+
+  /*
+    Follow Starlight's theme toggle, which sets data-theme on <html>. Only the
+    --pg-* values change; color-scheme also drives the inlined preview SVG's
+    light-dark() chrome, so the rendered map tracks the toggle with no re-render.
+  */
+  :root[data-theme="light"] .nfm-playground {
+    color-scheme: light;
+    --pg-bg: #ffffff;
+    --pg-panel: #f6f7f9;
+    --pg-panel-2: #eceef1;
+    --pg-border: #d8dde4;
+    --pg-text: #1f2530;
+    --pg-muted: #5a6472;
+    --pg-accent: #0d9488;
+    --pg-accent-press: #0f766e;
+    --pg-danger: #c0392b;
+    --pg-danger-bg: #fdeaea;
+  }
+
+  .nfm-playground * {
+    box-sizing: border-box;
+  }
+
+  .pane-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    min-height: 41px;
+  }
+  .pane-toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .pane-toolbar label.check {
+    gap: 5px;
+  }
+
+  .advanced {
+    border-bottom: 1px solid var(--border);
+  }
+  .advanced > summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .advanced > summary::-webkit-details-marker {
+    display: none;
+  }
+  .advanced > summary::before {
+    content: "▸";
+    font-size: 10px;
+    transition: transform 0.12s ease;
+  }
+  .advanced[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .advanced > summary:hover {
+    color: var(--text);
+  }
+  .advanced .advanced-controls {
+    border-bottom: none;
+  }
+
+  .swatches {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .swatch {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .swatch input[type="color"] {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+  }
+  .swatch input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 2px;
+  }
+  .swatch input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 2px;
+  }
+  .swatches:empty::after {
+    content: "none defined";
+    color: var(--muted);
+    font-size: 11px;
+    font-style: italic;
+  }
+
+  .group-label {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+    margin: 2px 4px;
+  }
+
+  /* Scope general element styles to the playground wrapper */
+  .nfm-playground select,
+  .nfm-playground input[type="number"] {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 12px;
+  }
+  .nfm-playground input[type="number"] {
+    width: 68px;
+  }
+  .nfm-playground input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
+  .nfm-playground button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .nfm-playground button:hover {
+    border-color: var(--accent);
+  }
+  .nfm-playground button:active {
+    background: var(--accent-press);
+    border-color: var(--accent-press);
+    color: #02120f;
+  }
+  .nfm-playground button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  #split {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(280px, 38%) 1fr;
+    min-height: 0;
+  }
+
+  #editor-pane,
+  #preview-pane {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #editor-pane {
+    border-right: 1px solid var(--border);
+  }
+
+  /* CodeMirror theme */
+  .nfm-playground .CodeMirror {
+    flex: 1;
+    height: auto;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .nfm-playground .CodeMirror-gutters {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+  }
+  .nfm-playground .CodeMirror-cursor {
+    border-left: 2px solid var(--text);
+  }
+  .nfm-playground .CodeMirror-focused .CodeMirror-cursor {
+    border-left: 2px solid var(--accent);
+  }
+  .nfm-playground .CodeMirror-selected {
+    background: #2a3344 !important;
+  }
+  .nfm-playground .CodeMirror-focused .CodeMirror-selected {
+    background: #31507a !important;
+  }
+  :root[data-theme="light"] .nfm-playground .CodeMirror-selected {
+    background: #d5dbe6 !important;
+  }
+  :root[data-theme="light"]
+    .nfm-playground
+    .CodeMirror-focused
+    .CodeMirror-selected {
+    background: #b9cdf0 !important;
+  }
+  .nfm-playground .CodeMirror-line::selection,
+  .nfm-playground .CodeMirror-line > span::selection {
+    background: #31507a;
+  }
+  .nfm-playground .cm-s-default .cm-comment {
+    color: #5c6b7a;
+  }
+  .nfm-playground .cm-metro-directive {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .nfm-playground .cm-metro-keyword {
+    color: #c792ea;
+  }
+  .nfm-playground .cm-metro-line {
+    color: #ffcb6b;
+  }
+  .nfm-playground .cm-metro-arrow {
+    color: #82aaff;
+  }
+
+  #error {
+    background: var(--danger-bg);
+    color: var(--danger);
+    border-top: 1px solid var(--danger);
+    padding: 8px 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    max-height: 30%;
+    overflow: auto;
+  }
+
+  #preview-pane {
+    background: var(--bg);
+  }
+  #preview {
+    flex: 1;
+    overflow: auto;
+    padding: 18px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  /* When zoomed past the viewport, left-align so the start stays scrollable. */
+  #preview.zoomed {
+    justify-content: flex-start;
+  }
+  /* flex-shrink:0 so an explicit zoom width isn't shrunk back to the container. */
+  #preview svg {
+    max-width: 100%;
+    height: auto;
+    flex-shrink: 0;
+  }
+  /* Dim the preview while the Python renderer is running. */
+  #preview.rendering {
+    opacity: 0.45;
+    cursor: wait;
+  }
+
+  #zoom-controls {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    z-index: 5;
+  }
+  #zoom-controls button {
+    border: none;
+    border-radius: 0;
+    background: var(--panel-2);
+    color: var(--text);
+    min-width: 34px;
+    height: 30px;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #zoom-controls button#zoom-fit {
+    font-size: 12px;
+  }
+  #zoom-controls button:hover {
+    background: var(--accent-press);
+    color: #02120f;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    padding: 24px;
+  }
+  .spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: nfm-playground-spin 0.8s linear infinite;
+  }
+  @keyframes nfm-playground-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Utility classes scoped to playground so they don't leak into Starlight */
+  .nfm-playground .muted {
+    color: var(--muted);
+  }
+  .nfm-playground .small {
+    font-size: 12px;
+  }
+  .nfm-playground .hidden {
+    display: none !important;
+  }
+
+  #toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel-2);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+    z-index: 20;
+  }
+
+  .report-btn {
+    margin-left: auto;
+    color: var(--muted) !important;
+  }
+  .report-btn:hover {
+    color: var(--text) !important;
+    border-color: var(--muted) !important;
+    background: var(--panel) !important;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 6, 10, 0.66);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 30;
+  }
+  .nfm-playground .modal {
+    width: min(560px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  }
+  .nfm-playground .modal h2 {
+    margin: 0 0 8px;
+    font-size: 17px;
+  }
+  .nfm-playground .modal p {
+    margin: 0 0 14px;
+  }
+  .nfm-playground .modal label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .nfm-playground .modal label .req {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--danger);
+  }
+  .nfm-playground .modal textarea {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font: inherit;
+    font-size: 13px;
+    resize: vertical;
+  }
+  .nfm-playground .modal textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .modal-actions button.ghost {
+    color: var(--muted);
+  }
+  .nfm-playground .modal a {
+    color: var(--accent);
+  }
+  .nfm-playground .modal code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 12px;
+  }
+  .modal-error {
+    margin-top: 12px;
+    color: var(--danger);
+    background: var(--danger-bg);
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  .mode-btn[aria-pressed="true"] {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #02120f !important;
+  }
+  .mode-btn[aria-pressed="true"]:hover {
+    border-color: var(--accent) !important;
+  }
+
+  /* Hit-target affordance while a build mode is active */
+  #preview.mode-add-station [data-section-id],
+  #preview.mode-add-edge [data-station-id] {
+    cursor: crosshair;
+  }
+  #preview.mode-add-station svg,
+  #preview.mode-add-edge svg {
+    cursor: default;
+  }
+
+  /* Selection + connect-source highlight */
+  #preview .nfm-sel {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  #preview .nfm-edge-src {
+    outline: 2px dashed #ffcb6b;
+    outline-offset: 3px;
+  }
+
+  .prop-panel {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    width: 248px;
+    max-height: calc(100% - 110px);
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+    padding: 12px 14px;
+    z-index: 15;
+  }
+  .prop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .prop-kind {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--accent);
+  }
+  .prop-head button.ghost {
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .prop-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .prop-row label {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .prop-row input[type="text"] {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: 12px;
+  }
+  .prop-row input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .prop-grid {
+    display: flex;
+    gap: 8px;
+  }
+  .prop-grid input[type="number"] {
+    width: 100%;
+  }
+  .prop-edges {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .prop-edge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .prop-edge .ends {
+    flex: 1;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .prop-edge select {
+    flex: 0 0 auto;
+  }
+  .prop-edge button.add {
+    padding: 2px 7px;
+  }
+  .prop-edge button.del {
+    color: var(--danger);
+    border-color: var(--danger);
+    padding: 2px 7px;
+  }
+  .prop-empty {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 12px;
+  }
+  .prop-delete {
+    width: 100%;
+    margin-top: 4px;
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+  .prop-delete:hover {
+    background: var(--danger-bg);
+    border-color: var(--danger);
+  }
+  .prop-action {
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .line-picker {
+    position: absolute;
+    z-index: 18;
+    min-width: 140px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+    padding: 6px;
+  }
+  .line-picker .picker-title {
+    font-size: 11px;
+    color: var(--muted);
+    padding: 2px 6px 6px;
+  }
+  .line-picker button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: none;
+    background: none;
+    text-align: left;
+    padding: 5px 6px;
+    border-radius: 6px;
+  }
+  .line-picker button:hover {
+    background: var(--panel-2);
+  }
+  .line-picker .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+  }
+
+  @media (max-width: 720px) {
+    #split {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr 1fr;
+    }
+    #editor-pane {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+  }
+</style>

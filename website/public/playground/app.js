@@ -143,6 +143,13 @@ function initEditor() {
   editor.setValue(loadFromHash() || SEED);
   editor.on("change", debounce(doRender, 300));
 
+  // CodeMirror measures gutter and line geometry once at creation and never
+  // re-measures when its container resizes; refresh() re-runs that measurement.
+  if (window.ResizeObserver) {
+    const refresh = debounce(() => editor.refresh(), 100);
+    new ResizeObserver(refresh).observe(el("editor-pane"));
+  }
+
   // Test hook: drive the editor and renderer from automated trials.
   window.__nfMetro = {
     getValue: () => editor.getValue(),
@@ -1773,9 +1780,10 @@ function wireTheme() {
   try {
     stored = localStorage.getItem(KEY);
   } catch {}
+  const btn = el("btn-theme");
   const apply = (theme) => {
     document.documentElement.dataset.theme = theme;
-    el("btn-theme").textContent = theme === "dark" ? "☀️" : "☾";
+    if (btn) btn.textContent = theme === "dark" ? "☀️" : "☾";
   };
   apply(
     stored === "light" || stored === "dark"
@@ -1784,14 +1792,16 @@ function wireTheme() {
         ? "dark"
         : "light",
   );
-  el("btn-theme").addEventListener("click", () => {
-    const next =
-      document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    try {
-      localStorage.setItem(KEY, next);
-    } catch {}
-    apply(next);
-  });
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const next =
+        document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      try {
+        localStorage.setItem(KEY, next);
+      } catch {}
+      apply(next);
+    });
+  }
 }
 
 wireTheme();
