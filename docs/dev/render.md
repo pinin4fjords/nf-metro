@@ -197,7 +197,7 @@ selectable via `%%metro style: <key>` or `--style`.
 | `html.py`      | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                       |
 | `manifest.py`  | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                     |
 | `validate.py`  | `validate_render` - render-geometry guards that read the drawn SVG (markers, route ink, label ink) as their own oracle             |
-| `animate.py`   | `render_animation` - animated balls via CSS `offset-path` + `@keyframes`                                                            |
+| `animate.py`   | `render_animation` - animated balls via CSS `offset-path` + `@keyframes`                                                           |
 | `style.py`     | `Theme` dataclass                                                                                                                  |
 | `legend.py`    | `render_legend`, `compute_legend_dimensions`                                                                                       |
 | `icons.py`     | `render_file_icon`, `render_files_icon`, `render_folder_icon`                                                                      |
