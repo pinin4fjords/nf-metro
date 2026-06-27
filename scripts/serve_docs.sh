@@ -67,14 +67,20 @@ if [[ -n "$BRANCH" ]]; then
 
   echo "==> Preparing worktree for '$BRANCH' at $WT"
   git -C "$REPO_ROOT" fetch origin --quiet || true
+  # Serve a detached HEAD at the resolved ref: this is a read-only preview, and
+  # detaching lets the worktree coexist with the same branch checked out
+  # elsewhere (e.g. a dev worktree). Prefer the remote-tracking ref so PR
+  # branches reflect what's pushed.
+  if git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/$BRANCH" >/dev/null; then
+    SERVE_REF="origin/$BRANCH"
+  else
+    SERVE_REF="$BRANCH"
+  fi
   if [[ -d "$WT" ]]; then
     git -C "$WT" fetch origin --quiet || true
-    git -C "$WT" checkout "$BRANCH" --quiet 2>/dev/null \
-      || git -C "$WT" checkout -B "$BRANCH" "origin/$BRANCH" --quiet
-    git -C "$WT" pull --ff-only --quiet 2>/dev/null || true
+    git -C "$WT" checkout --detach --quiet "$SERVE_REF"
   else
-    git -C "$REPO_ROOT" worktree add "$WT" "$BRANCH" 2>/dev/null \
-      || git -C "$REPO_ROOT" worktree add -B "$BRANCH" "$WT" "origin/$BRANCH"
+    git -C "$REPO_ROOT" worktree add --detach "$WT" "$SERVE_REF"
   fi
 
   REPO_ROOT="$(cd "$WT" && pwd)"

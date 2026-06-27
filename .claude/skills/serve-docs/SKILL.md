@@ -75,6 +75,8 @@ edits to `website/` and `docs/`. Stop it with `Ctrl-C`.
 
 ## Notes
 
+- `--branch` serves a **detached** checkout of the ref, so it works even when
+  that branch is already checked out in another worktree (e.g. a dev worktree).
 - Content (gallery/pipelines/playground) is regenerated, not hot-reloaded:
   re-run with `--rebuild` after changing `examples/` or the rendering code.
 - For a visual regression diff of renders against `origin/main`, that's a
