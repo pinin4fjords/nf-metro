@@ -69,13 +69,12 @@ test("live edit re-renders with the new station", async () => {
 });
 
 test("animate toggle adds motion elements", async () => {
-  await expect(page.locator("#preview animateMotion")).toHaveCount(0);
+  const balls = page.locator('#preview circle[style*="offset-path"]');
+  await expect(balls).toHaveCount(0);
   await page.locator("#opt-animate").check();
-  await expect
-    .poll(async () => page.locator("#preview animateMotion").count())
-    .toBeGreaterThan(0);
+  await expect.poll(async () => balls.count()).toBeGreaterThan(0);
   await page.locator("#opt-animate").uncheck();
-  await expect(page.locator("#preview animateMotion")).toHaveCount(0);
+  await expect(balls).toHaveCount(0);
 });
 
 test("advanced options are collapsed by default and toggle open", async () => {
