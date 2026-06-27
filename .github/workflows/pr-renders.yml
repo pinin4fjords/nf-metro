@@ -18,46 +18,67 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      # --- Render with PR branch code ---
-      - name: Install (PR branch)
+      # Incremental only when every changed file is a fixture .mmd; any other
+      # change (engine code, build scripts, deps, docs) renders the full corpus,
+      # so an engine change can never hide behind a reused base SVG.
+      - name: Determine render strategy
+        id: strategy
+        run: |
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
+          echo "render_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          changed="$(git diff --name-only "$base" "$head")"
+          echo "Changed files:"; echo "$changed"
+          allowed='^(examples/|tests/fixtures/).*\.mmd$'
+          if [ -n "$changed" ] && [ -z "$(printf '%s\n' "$changed" | grep -vE "$allowed" || true)" ]; then
+            echo "mode=incremental" >> "$GITHUB_OUTPUT"
+            echo "Render mode: INCREMENTAL"
+          else
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "Render mode: FULL"
+          fi
+          printf '%s\n' "$changed" > /tmp/changed_mmd.txt
+
+      # Base renders depend only on the base SHA, so cache them. Re-pushes to a
+      # PR share the same base SHA and reuse this instead of re-rendering.
+      - name: Cache base renders
+        id: base-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/base_renders
+          key: render-base-${{ github.event.pull_request.base.sha }}
+
+      - name: Install (PR head)
         run: pip install -e ".[docs]"
 
-      - name: Render gallery (PR branch)
-        run: python scripts/build_gallery.py --debug
-
-      - name: Save PR renders
+      - name: Render base
+        if: steps.base-cache.outputs.cache-hit != 'true'
         run: |
+          git checkout '${{ github.event.pull_request.base.sha }}'
+          pip install -e ".[docs]"
+          python scripts/build_gallery.py --debug
+          mkdir -p /tmp/base_renders
+          cp docs/assets/renders/*.svg docs/assets/renders/manifest.json /tmp/base_renders/
+          cp docs/assets/renders/metrics.json /tmp/base_renders/ 2>/dev/null || true
+          git checkout '${{ steps.strategy.outputs.render_ref }}'
+          pip install -e ".[docs]"
+
+      - name: Render PR head
+        run: |
+          rm -rf docs/assets/renders
+          mkdir -p docs/assets/renders
+          if [ "${{ steps.strategy.outputs.mode }}" = "incremental" ]; then
+            cp -r /tmp/base_renders/. docs/assets/renders/
+            python scripts/build_gallery.py --debug --changed-list /tmp/changed_mmd.txt
+          else
+            python scripts/build_gallery.py --debug
+          fi
           mkdir -p /tmp/pr_renders
           cp docs/assets/renders/*.svg docs/assets/renders/manifest.json /tmp/pr_renders/
           cp docs/assets/renders/metrics.json /tmp/pr_renders/ 2>/dev/null || true
-
-      # --- Render with base branch code ---
-      - name: Clean renders before base render
-        run: rm -f docs/assets/renders/*.svg
-
-      - name: Checkout base branch
-        run: git checkout ${{ github.event.pull_request.base.sha }}
-
-      - name: Install (base branch)
-        run: pip install -e ".[docs]"
-
-      - name: Render gallery (base branch)
-        run: python scripts/build_gallery.py --debug
-
-      - name: Save base renders
-        run: |
-          mkdir -p /tmp/base_renders
-          cp docs/assets/renders/*.svg /tmp/base_renders/
-          cp docs/assets/renders/manifest.json /tmp/base_renders/ 2>/dev/null || true
-          cp docs/assets/renders/metrics.json /tmp/base_renders/ 2>/dev/null || true
-
-      # --- Generate diff ---
-      - name: Checkout PR branch (for diff script)
-        run: git checkout ${{ github.event.pull_request.head.sha }}
-
-      - name: Install (PR branch, for diff script)
-        run: pip install -e ".[docs]"
 
       - name: Generate render diff
         id: diff
