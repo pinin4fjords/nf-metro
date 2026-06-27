@@ -10,7 +10,9 @@ import mermaid from "astro-mermaid";
 
 // Project GitHub Pages site: https://pinin4fjords.github.io/nf-metro/
 const site = "https://pinin4fjords.github.io";
-const base = "/nf-metro/";
+// Versioned deploys live at /nf-metro/<latest|dev|x.y.z>/; the deploy workflow
+// passes the target path via DOCS_BASE so each build's links self-resolve.
+const base = process.env.DOCS_BASE ?? "/nf-metro/";
 
 // The committed example .mmd files live at the repo root (../examples), one
 // level above this Astro project. The guide imports them as raw strings so its

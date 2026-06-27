@@ -1,10 +1,11 @@
 ---
 import config from "virtual:starlight/user-config";
 import Search from "virtual:starlight/components/Search";
-import SocialIcons from "virtual:starlight/components/SocialIcons";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import Logo from "../assets/logo.svg";
-import { base, REPO, GITHUB_URL } from "../site";
+import VersionSwitcher from "./VersionSwitcher.astro";
+import GitHubLink from "./GitHubLink.astro";
+import { base } from "../site";
 
 const { siteTitleHref } = Astro.locals.starlightRoute;
 
@@ -21,39 +22,6 @@ const links = [
   // swap it in like a doc page.
   { label: "Playground", href: `${base}playground/`, reload: true },
 ];
-
-// Resolve the latest GitHub release at build time (cached once per build).
-const g = globalThis as {
-  __nfmRelease?: Promise<{ label: string; url: string }>;
-};
-g.__nfmRelease ??= (async () => {
-  const fallback = { label: "Releases", url: `${GITHUB_URL}/releases` };
-  try {
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github+json",
-    };
-    if (process.env.GITHUB_TOKEN)
-      headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-    // Bounded timeout so a slow/hanging API degrades to the fallback, never stalls the build.
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO}/releases?per_page=1`,
-      {
-        headers,
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    if (!res.ok) return fallback;
-    const releases = (await res.json()) as Array<{
-      tag_name: string;
-      html_url: string;
-    }>;
-    if (!Array.isArray(releases) || releases.length === 0) return fallback;
-    return { label: releases[0].tag_name, url: releases[0].html_url };
-  } catch {
-    return fallback;
-  }
-})();
-const { label: versionLabel, url: versionUrl } = await g.__nfmRelease;
 ---
 
 <div class="header nfm-header">
@@ -77,9 +45,9 @@ const { label: versionLabel, url: versionUrl } = await g.__nfmRelease;
         ))
       }
     </nav>
-    <a class="nfm-ver" href={versionUrl}>{versionLabel}</a>
+    <VersionSwitcher />
     {shouldRenderSearch && <Search />}
-    <div class="sl-flex social-icons"><SocialIcons /></div>
+    <div class="sl-flex social-icons"><GitHubLink /></div>
     <ThemeSelect />
   </div>
 

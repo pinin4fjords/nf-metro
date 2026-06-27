@@ -192,22 +192,42 @@ nav.sidebar a[aria-current="page"]:hover {
   background: var(--nfm-surface-2);
 }
 
-.nfm-ver {
+.nfm-ver-select {
   font-family: var(--sl-font-system-mono);
   font-size: 12px;
   color: var(--nfm-ink-dim);
-  padding: 4px 10px;
+  padding: 4px 26px 4px 10px;
   border: 1px solid var(--nfm-line);
   border-radius: 999px;
   white-space: nowrap;
-  text-decoration: none;
+  cursor: pointer;
+  appearance: none;
+  background-color: transparent;
+  /* Caret chevron drawn inline so no external asset is needed. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
   transition:
     color 0.2s var(--nfm-ease),
     border-color 0.2s var(--nfm-ease);
 }
-.nfm-ver:hover {
+.nfm-ver-select:hover {
   color: var(--nfm-ink);
   border-color: var(--nfm-accent);
+}
+.nfm-ver-select option {
+  color: var(--nfm-ink);
+  background: var(--nfm-surface-2);
+}
+
+.nfm-github {
+  display: inline-flex;
+  align-items: center;
+  color: var(--nfm-ink-dim);
+  transition: color 0.2s var(--nfm-ease);
+}
+.nfm-github:hover {
+  color: var(--nfm-ink);
 }
 
 .nfm-theme-toggle {

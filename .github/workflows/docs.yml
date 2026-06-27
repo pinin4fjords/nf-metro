@@ -54,32 +54,34 @@ jobs:
         working-directory: website
         run: npm ci
 
-      - name: Build site
-        working-directory: website
-        # GITHUB_TOKEN lets the Header release-pill query avoid rate limits.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: npm run build
-
-      # --- Publish to the gh-pages branch root, preserving PR previews (_pr/) ---
-      - name: Resolve deploy version label
+      # --- Resolve deploy target ---
+      # main push -> dev/ ; tagged release -> latest/ plus a frozen <version>/.
+      - name: Resolve deploy target
         id: ver
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
           else
             echo "version=dev" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # --- Publish to gh-pages ---
+      # Each version is its own directory, built with a matching `base` (via
+      # DOCS_BASE) so its asset and link URLs self-resolve. The deploy only
+      # replaces its own target directory, leaving PR previews (_pr/), other
+      # versions, and the frozen pre-Astro MkDocs builds untouched. versions.json
+      # at the root drives the in-page version switcher.
       - name: Publish to gh-pages
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          IS_RELEASE: ${{ steps.ver.outputs.is_release }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Worktree on the gh-pages branch (create it if missing).
           if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
             git fetch origin gh-pages --depth=1
             git worktree add gh-pages origin/gh-pages
@@ -87,17 +89,39 @@ jobs:
             git worktree add --orphan -b gh-pages gh-pages
           fi
 
-          # Replace the site root but keep PR previews (_pr/) and version archives.
-          find gh-pages -mindepth 1 -maxdepth 1 \
-            ! -name '.git' ! -name '_pr' ! -name '_versions' -exec rm -rf {} +
-          cp -a website/dist/. gh-pages/
+          build_into() {
+            (cd website && DOCS_BASE="$1" npm run build)
+            rm -rf "$2"
+            mkdir -p "$2"
+            cp -a website/dist/. "$2/"
+          }
 
-          # Archive an immutable copy of tagged releases under _versions/<x.y.z>/.
-          if [ "${{ github.event_name }}" = "release" ]; then
-            rm -rf "gh-pages/_versions/$VERSION"
-            mkdir -p "gh-pages/_versions/$VERSION"
-            cp -a website/dist/. "gh-pages/_versions/$VERSION/"
+          if [ "$IS_RELEASE" = "true" ]; then
+            build_into "/nf-metro/latest/"   "gh-pages/latest"
+            build_into "/nf-metro/$VERSION/" "gh-pages/$VERSION"
+            python scripts/update_versions_manifest.py \
+              --manifest gh-pages/versions.json --version "$VERSION" --latest
+          else
+            build_into "/nf-metro/dev/" "gh-pages/dev"
+            python scripts/update_versions_manifest.py \
+              --manifest gh-pages/versions.json --version dev
           fi
+
+          # Root redirects to the latest release.
+          cat > gh-pages/index.html <<'HTML'
+          <!doctype html>
+          <html>
+            <head>
+              <meta charset="utf-8" />
+              <title>Redirecting</title>
+              <noscript><meta http-equiv="refresh" content="1; url=latest/" /></noscript>
+              <script>
+                window.location.replace("latest/" + location.search + location.hash);
+              </script>
+            </head>
+            <body>Redirecting to <a href="latest/">latest/</a>...</body>
+          </html>
+          HTML
 
           touch gh-pages/.nojekyll
           cd gh-pages
