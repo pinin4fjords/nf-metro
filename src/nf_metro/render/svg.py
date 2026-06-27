@@ -123,6 +123,7 @@ from nf_metro.render.legend import (
     render_legend,
 )
 from nf_metro.render.manifest import build_manifest, manifest_metadata_svg
+from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.ns import ns as _ns
 from nf_metro.render.section_header import (
@@ -566,10 +567,8 @@ def _render_svg_scaled(
         max_y = max(max_y, g_max_y)
 
     # Compute legend and logo dimensions
-    logo_w, logo_h = (0.0, 0.0)
-    show_logo = bool(graph.logo_path) and Path(graph.logo_path).is_file()
-    if show_logo:
-        logo_w, logo_h = compute_logo_dimensions(graph.logo_path)
+    adaptive_logo = chrome_css and _is_adaptive_mode(graph)
+    show_logo, logo_w, logo_h, effective_logo = _resolve_logo(graph, adaptive_logo)
 
     logo_in_legend = show_logo and effective_legend_position != "none"
     legend_logo_size = (logo_w, logo_h) if logo_in_legend else None
@@ -683,7 +682,18 @@ def _render_svg_scaled(
     # Title / Logo (omitted in bare mode; standalone logo only when not in legend)
     if not bare:
         if show_logo and not logo_in_legend:
-            _render_logo(d, graph.logo_path, logo_x, logo_y, logo_w, logo_h)
+            if adaptive_logo:
+                _render_adaptive_logo(
+                    d,
+                    graph.logo_path_light,
+                    graph.logo_path_dark,
+                    logo_x,
+                    logo_y,
+                    logo_w,
+                    logo_h,
+                )
+            else:
+                _render_logo(d, effective_logo, logo_x, logo_y, logo_w, logo_h)
         elif graph.title and not logo_in_legend:
             d.append(
                 draw.Text(
@@ -731,13 +741,20 @@ def _render_svg_scaled(
 
     # Legend (with embedded logo if present)
     if show_legend:
+        _in_legend = logo_in_legend
         render_legend(
             d,
             graph,
             theme,
             legend_x,
             legend_y,
-            logo_path=graph.logo_path if logo_in_legend else None,
+            logo_path=effective_logo if (_in_legend and not adaptive_logo) else None,
+            logo_path_light=(
+                graph.logo_path_light if (adaptive_logo and _in_legend) else None
+            ),
+            logo_path_dark=(
+                graph.logo_path_dark if (adaptive_logo and _in_legend) else None
+            ),
             logo_size=legend_logo_size,
         )
 
@@ -859,6 +876,58 @@ def _version_string() -> str:
     return f"v{__version__}"
 
 
+def _effective_logo_path(graph: MetroGraph) -> str:
+    """Return the logo path appropriate for the graph's style.
+
+    Used for non-adaptive (static) rendering such as PNG export.  When the
+    directive was ``%%metro logo: light.png | dark.png``, the light variant is
+    returned for ``style: light`` and the dark variant otherwise.  Falls back
+    to the single-path ``logo_path`` for backwards compatibility.
+    """
+    is_light = graph.style.strip().lower() == "light"
+    if is_light and graph.logo_path_light:
+        return graph.logo_path_light
+    if not is_light and graph.logo_path_dark:
+        return graph.logo_path_dark
+    return graph.logo_path
+
+
+def _is_adaptive_mode(graph: MetroGraph) -> bool:
+    """True when the %%metro logo: directive used pipe syntax (one or both variants)."""
+    return bool(graph.logo_path_light) or bool(graph.logo_path_dark)
+
+
+def _has_adaptive_logos(graph: MetroGraph) -> bool:
+    """Return True when both logo variants are set and their files exist."""
+    return (
+        bool(graph.logo_path_light)
+        and Path(graph.logo_path_light).is_file()
+        and bool(graph.logo_path_dark)
+        and Path(graph.logo_path_dark).is_file()
+    )
+
+
+def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float, str]:
+    """Return (show_logo, logo_w, logo_h, effective_logo_path).
+
+    ``adaptive`` is True when the %%metro logo: directive used pipe syntax.
+    In adaptive mode the dimensions come from whichever variant file exists.
+    In single-path mode ``effective_logo`` is the path to render.
+    """
+    if adaptive:
+        candidates = (graph.logo_path_dark, graph.logo_path_light)
+        dim_path = next((p for p in candidates if p and Path(p).is_file()), "")
+        if dim_path:
+            w, h = compute_logo_dimensions(dim_path)
+            return True, w, h, ""
+        return False, 0.0, 0.0, ""
+    effective = _effective_logo_path(graph)
+    if effective and Path(effective).is_file():
+        w, h = compute_logo_dimensions(effective)
+        return True, w, h, effective
+    return False, 0.0, 0.0, effective
+
+
 def compute_logo_dimensions(
     logo_path: str,
     logo_height: float = 80.0,
@@ -892,6 +961,68 @@ def _render_logo(
     )
 
 
+def _render_adaptive_logo(
+    d: draw.Drawing,
+    light_path: str,
+    dark_path: str,
+    x: float,
+    y: float,
+    logo_w: float,
+    logo_h: float,
+) -> None:
+    """Embed logo variant(s) using SVG masks driven by light-dark().
+
+    Either path may be absent; only variants whose files exist are rendered,
+    each masked to its respective mode. ``light-dark()`` inherits color-scheme
+    from the host document so logos follow a page's dark/light toggle, not
+    only the OS media preference.
+    """
+    key_path = dark_path or light_path
+    dark_mask_id, light_mask_id = _adaptive_logo_mask_ids(key_path)
+    has_dark = bool(dark_path) and Path(dark_path).is_file()
+    has_light = bool(light_path) and Path(light_path).is_file()
+    defs_parts = []
+    if has_dark:
+        defs_parts.append(
+            f'<mask id="{dark_mask_id}" maskContentUnits="objectBoundingBox">'
+            f'<rect width="1" height="1" fill="light-dark(#000,#fff)"/>'
+            f"</mask>"
+        )
+    if has_light:
+        defs_parts.append(
+            f'<mask id="{light_mask_id}" maskContentUnits="objectBoundingBox">'
+            f'<rect width="1" height="1" fill="light-dark(#fff,#000)"/>'
+            f"</mask>"
+        )
+    if not defs_parts:
+        return
+    d.append(draw.Raw(f"<defs>{''.join(defs_parts)}</defs>"))
+    if has_dark:
+        d.append(
+            draw.Image(
+                x,
+                y,
+                logo_w,
+                logo_h,
+                path=dark_path,
+                embed=True,
+                mask=f"url(#{dark_mask_id})",
+            )
+        )
+    if has_light:
+        d.append(
+            draw.Image(
+                x,
+                y,
+                logo_w,
+                logo_h,
+                path=light_path,
+                embed=True,
+                mask=f"url(#{light_mask_id})",
+            )
+        )
+
+
 def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
     """Inject CSS custom properties for chrome colors.
 
@@ -909,12 +1040,11 @@ def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
     pair = mode_pair(theme)
     light, dark = pair if pair is not None else (theme, theme)
 
+    def _adapt(light_val: str, dark_val: str) -> str:
+        return light_val if light is dark else f"light-dark({light_val}, {dark_val})"
+
     def _prop(var: str, attr: str) -> str:
-        light_val, dark_val = getattr(light, attr), getattr(dark, attr)
-        fallback = (
-            light_val if light is dark else f"light-dark({light_val}, {dark_val})"
-        )
-        return f"var({var}, {fallback})"
+        return f"var({var}, {_adapt(getattr(light, attr), getattr(dark, attr))})"
 
     def _rule(cls: str, props: str) -> str:
         return f".{_ns(cls)} {{ {props}; }}"
@@ -959,13 +1089,22 @@ def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
             f"fill: {_prop('--nfm-map-legend-text-color', 'legend_text_color')}",
         ),
     ]
+    _ms_adapt = _adapt(
+        light.marker_stroke or light.station_stroke,
+        dark.marker_stroke or dark.station_stroke,
+    )
+    lines.append(
+        _rule(
+            "nf-metro-marker-stroke",
+            f"stroke: var(--nfm-map-marker-stroke, {_ms_adapt})",
+        )
+    )
     # The label halo is a knockout of the background, so it tracks --nfm-map-bg
     # and must flip with the mode too; otherwise a dark-baked halo blots out
     # labels in light mode. Disabled-halo themes draw no halo, so emit nothing.
     halo_light, halo_dark = _label_halo_color(light), _label_halo_color(dark)
     if halo_light is not None and halo_dark is not None:
-        halo = halo_light if light is dark else f"light-dark({halo_light}, {halo_dark})"
-        halo_val = f"var(--nfm-map-bg, {halo})"
+        halo_val = f"var(--nfm-map-bg, {_adapt(halo_light, halo_dark)})"
         lines.append(
             _rule("nf-metro-label-halo", f"fill: {halo_val}; stroke: {halo_val}")
         )
@@ -1500,6 +1639,10 @@ def _render_marker_station(
     )
     x, y, w, h = _pill_box(station, r, min_off, max_off, is_tb_vert, flow_len=flow_len)
     rx = marker_corner_radius(marker.shape, r)
+    marker_data = {
+        **station_data,
+        "class_": f"{station_data['class_']} {_ns('nf-metro-marker-stroke')}",
+    }
     d.append(
         draw.Rectangle(
             x,
@@ -1511,7 +1654,7 @@ def _render_marker_station(
             fill=marker_fill_color(marker.fill, theme),
             stroke=marker_stroke_color(theme),
             stroke_width=theme.station_stroke_width,
-            **station_data,
+            **marker_data,
         )
     )
 

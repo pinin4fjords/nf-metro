@@ -54,6 +54,7 @@ nf-metro = "nf_metro.cli:cli"
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-split>=0.9",
     "pytest-xdist>=3.0",
     "ruff>=0.4",
     "mypy>=1.8",
