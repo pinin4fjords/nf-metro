@@ -1,7 +1,9 @@
 ---
-// Wraps an inline SVG slot with a click-to-expand lightbox using a native <dialog>.
-// SVGs must stay inline (not <img>) for light-dark() CSS theming to work in WebKit,
-// so standard lightbox plugins that target <img> cannot be used here.
+// Click-to-expand lightbox for an inline SVG: a native <dialog> shell wrapping
+// svg-pan-zoom for scroll-zoom and drag-pan. The SVG stays inline (not an <img>)
+// so its light-dark() chrome follows the page color-scheme in WebKit; the
+// off-the-shelf SVG lightboxes (e.g. starlight-image-zoom) only fit-to-viewport
+// and don't pan/zoom into detail, which is why the dialog shell is local.
 ---
 
 <div class="zoomable-svg" data-zoomable>
@@ -14,29 +16,26 @@
 </div>
 
 <script>
+  import svgPanZoom from "svg-pan-zoom";
+
+  // The bundled types declare the default export as an Instance; the runtime
+  // export is the factory function. Cast to its real call signature.
+  type PanZoom = { reset: () => void; destroy: () => void };
+  const createPanZoom = svgPanZoom as unknown as (
+    el: SVGElement,
+    opts?: Record<string, unknown>,
+  ) => PanZoom;
+
   let dlg: HTMLDialogElement | null = null;
   let dlgBody: HTMLElement | null = null;
-  let dlgStage: HTMLElement | null = null;
-  const cloneCache = new WeakMap<Element, SVGElement>();
+  let panZoom: PanZoom | null = null;
 
-  // Pan/zoom state - reset on every open
-  let scale = 1;
-  let tx = 0;
-  let ty = 0;
-  let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
-
-  const MIN_SCALE = 0.5;
-  const MAX_SCALE = 10;
-
-  function applyTransform() {
-    if (dlgStage) dlgStage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-  }
-
-  function resetTransform() {
-    scale = 1; tx = 0; ty = 0;
-    applyTransform();
+  function teardown() {
+    if (panZoom) {
+      panZoom.destroy();
+      panZoom = null;
+    }
+    dlgBody?.replaceChildren();
   }
 
   function ensureDialog(): void {
@@ -51,77 +50,45 @@
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
       </button>
-      <div id="nfm-svg-zoom-body">
-        <div id="nfm-svg-zoom-stage"></div>
-      </div>
+      <div id="nfm-svg-zoom-body"></div>
     `;
     document.body.appendChild(dlg);
     dlgBody = dlg.querySelector("#nfm-svg-zoom-body");
-    dlgStage = dlg.querySelector("#nfm-svg-zoom-stage");
 
     dlg.querySelector("#nfm-svg-zoom-close")!.addEventListener("click", () => dlg!.close());
     // Close on backdrop click (target is the dialog itself, not its content)
     dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg!.close(); });
-    dlg.addEventListener("close", resetTransform);
-
-    // Wheel: zoom toward cursor. With transform-origin:0 0 on the stage, a cursor
-    // at body coords (bx, by) maps to stage coords sx=(bx-tx)/scale, sy=(by-ty)/scale.
-    // After rescaling to ns, we solve tx_new = bx - sx*ns to keep that point fixed.
-    dlgBody!.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const rect = dlgBody!.getBoundingClientRect();
-      const bx = e.clientX - rect.left;
-      const by = e.clientY - rect.top;
-      const ns = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (e.deltaY < 0 ? 1.1 : 0.9)));
-      tx = bx - (bx - tx) * (ns / scale);
-      ty = by - (by - ty) * (ns / scale);
-      scale = ns;
-      applyTransform();
-    }, { passive: false });
-
-    // Drag to pan
-    dlgBody!.addEventListener("pointerdown", (e) => {
-      dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      dlgBody!.style.cursor = "grabbing";
-      dlgBody!.setPointerCapture(e.pointerId);
-    });
-
-    dlgBody!.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      tx += e.clientX - lastX;
-      ty += e.clientY - lastY;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      applyTransform();
-    });
-
-    dlgBody!.addEventListener("pointerup", () => {
-      dragging = false;
-      dlgBody!.style.cursor = "grab";
-    });
-
-    // Double-click to reset
-    dlgBody!.addEventListener("dblclick", resetTransform);
+    dlg.addEventListener("close", teardown);
+    // Double-click resets to the fitted view (svg-pan-zoom's own dblclick zoom is off)
+    dlgBody!.addEventListener("dblclick", () => panZoom?.reset());
   }
 
   function openZoom(wrap: Element) {
     const svg = wrap.querySelector("svg");
     if (!svg) return;
     ensureDialog();
-    resetTransform();
+    teardown();
 
-    if (!cloneCache.has(wrap)) {
-      const clone = svg.cloneNode(true) as SVGElement;
-      clone.removeAttribute("width");
-      clone.removeAttribute("height");
-      cloneCache.set(wrap, clone);
-    }
-
-    dlgStage!.innerHTML = "";
-    dlgStage!.appendChild(cloneCache.get(wrap)!);
+    const clone = svg.cloneNode(true) as SVGElement;
+    clone.removeAttribute("width");
+    clone.removeAttribute("height");
+    dlgBody!.replaceChildren(clone);
     dlg!.showModal();
+
+    // svg-pan-zoom measures the SVG's rendered box, so it must run after the
+    // dialog is open and the clone has been laid out.
+    requestAnimationFrame(() => {
+      panZoom = createPanZoom(clone, {
+        zoomEnabled: true,
+        panEnabled: true,
+        controlIconsEnabled: false,
+        dblClickZoomEnabled: false,
+        fit: true,
+        center: true,
+        minZoom: 0.5,
+        maxZoom: 10,
+      });
+    });
   }
 
   document.querySelectorAll<HTMLElement>("[data-zoomable]").forEach((wrap) => {
@@ -184,10 +151,11 @@
     border-radius: 8px;
     background: var(--sl-color-bg);
     color: var(--sl-color-text);
-    /* Explicit width gives SVG's width:100% a containing block to resolve against;
-       without it, fit-content and width:100% form a circular dependency. */
+    /* Definite width and height give svg-pan-zoom a stable viewport to fit into;
+       without them the SVG's 100% sizing and the dialog's fit-content size form
+       a circular dependency. */
     width: min(90vw, 1400px);
-    max-height: 90vh;
+    height: min(90vh, 900px);
     overflow: hidden;
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
     /* Re-state UA centering - display:flex on [open] can break margin:auto. */
@@ -216,21 +184,18 @@
   }
 
   :global(#nfm-svg-zoom-body) {
-    overflow: hidden;
     flex: 1;
+    min-height: 0;
+    padding: 2rem;
+    box-sizing: border-box;
+    overflow: hidden;
     cursor: grab;
     user-select: none;
   }
 
-  :global(#nfm-svg-zoom-stage) {
-    padding: 2rem;
-    transform-origin: 0 0;
+  :global(#nfm-svg-zoom-body svg) {
     width: 100%;
-  }
-
-  :global(#nfm-svg-zoom-stage svg) {
-    width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
   }
 </style>
