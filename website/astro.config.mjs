@@ -4,12 +4,13 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, fontProviders } from "astro/config";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
+import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
 // ec.config.mjs — the <Code> component requires them to be loadable separately.
 
-// Project GitHub Pages site: https://pinin4fjords.github.io/nf-metro/
-const site = "https://pinin4fjords.github.io";
+// Canonical Pages origin (owner-specific value lives in src/repo).
+const site = PAGES_ORIGIN;
 // Versioned deploys live at /nf-metro/<latest|dev|x.y.z>/; the deploy workflow
 // passes the target path via DOCS_BASE so each build's links self-resolve.
 const base = process.env.DOCS_BASE ?? "/nf-metro/";
@@ -121,11 +122,11 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/pinin4fjords/nf-metro",
+          href: GITHUB_URL,
         },
       ],
       editLink: {
-        baseUrl: "https://github.com/pinin4fjords/nf-metro/edit/main/docs/",
+        baseUrl: `${GITHUB_URL}/edit/main/docs/`,
       },
       components: {
         Head: "./src/components/Head.astro",
