@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "website/public/playground/**"
+      - "website/src/pages/playground.astro"
       - "website/playground-tests/**"
       - "src/nf_metro/**"
       - ".github/workflows/playground-e2e.yml"

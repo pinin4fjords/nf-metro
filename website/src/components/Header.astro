@@ -17,9 +17,8 @@ const links = [
   { label: "Guide", href: `${base}guide/` },
   { label: "Gallery", href: `${base}gallery/` },
   { label: "Pipelines", href: `${base}pipelines/` },
-  // The playground is a standalone static app (public/playground/), not an Astro
-  // route - reload:true forces a full navigation so ClientRouter doesn't try to
-  // swap it in like a doc page.
+  // reload:true forces a full navigation so CDN scripts (CodeMirror, Pyodide)
+  // and app.js re-initialise from scratch instead of being skipped by ClientRouter.
   { label: "Playground", href: `${base}playground/`, reload: true },
 ];
 ---

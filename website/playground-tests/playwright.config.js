@@ -17,9 +17,12 @@ module.exports = defineConfig({
   },
   webServer: {
     command: "python3 -m http.server 8765",
-    // Serve the static playground app (lives under the Astro project's public/).
+    // Serve from public/playground/ so wheels/ and examples.json are reachable
+    // at their relative paths (app.js resolves them against the page URL).
+    // harness.html is a standalone test fixture; the deployed site uses the
+    // Astro page at website/src/pages/playground.astro instead.
     cwd: path.join(__dirname, "..", "public", "playground"),
-    url: "http://127.0.0.1:8765/index.html",
+    url: "http://127.0.0.1:8765/harness.html",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
