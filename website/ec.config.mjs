@@ -17,8 +17,11 @@ import { pluginColorChips } from "expressive-code-color-chips";
 import metroGrammar from "./src/grammars/metro.tmLanguage.json" with { type: "json" };
 import larkGrammar from "./src/grammars/lark.tmLanguage.json" with { type: "json" };
 
-// expressive-code-color-chips v≥0.2 supports a `languages` option so we can
-// include metro/mmd fences alongside the default CSS dialects.
+// pluginColorChips's `languages` option REPLACES its built-in defaults rather
+// than extending them, so the CSS dialects are repeated here to keep chips on
+// CSS blocks; "metro"/"mmd" are the only additions. Keep the CSS entries in
+// sync if the plugin ever adds a dialect (its default: css, scss, sass, less,
+// stylus).
 const COLOR_CHIP_LANGS = [
   "css",
   "scss",

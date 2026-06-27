@@ -3,7 +3,11 @@
    filePath as src/content/docs/<file> and editLink.baseUrl concatenates to a
    path that doesn't exist on GitHub (the symlinked path isn't editable either).
    Rewrite the edit URL to the real repo file (docs/<file>) before the default
-   link renders; pages outside the docs collection keep Starlight's own URL. */
+   link renders; pages outside the docs collection keep Starlight's own URL.
+
+   This reads Starlight route internals (starlightRoute.entry.filePath and
+   editUrl). Re-check on a Starlight major upgrade: if either is renamed or
+   editUrl becomes a getter, the rewrite would silently stop applying. */
 import Default from "@astrojs/starlight/components/EditLink.astro";
 import { GITHUB_URL } from "../site";
 
