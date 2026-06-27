@@ -1,5 +1,5 @@
 /* ============================================================
-   nf-metro docs — Seqera brand theme for Starlight.
+   nf-metro docs - Seqera brand theme for Starlight.
    Light is the default Seqera canvas (pure white, brand-dark text);
    dark is a fully-neutral grey scene. Single green voltage (#31C9AC)
    used sparingly on CTAs, active state, and the logo mark.
@@ -14,17 +14,17 @@
 @import "@fontsource/jetbrains-mono/latin-400.css";
 @import "@fontsource/jetbrains-mono/latin-700.css";
 
-/* Degular (Seqera display face) is provided by Astro's Fonts API — see the
+/* Degular (Seqera display face) is provided by Astro's Fonts API - see the
    `fonts` config in astro.config.mjs and the <Font> in src/components/Head.astro,
    which emit the @font-face (+ a metric-matched fallback) and preload it.
    `--nfm-degular` is the cssVariable it exposes. */
 
 /* ---- Seqera tokens: LIGHT (default canvas) ---- */
 :root {
-  --nfm-accent: #31c9ac; /* Seqera Green — the single brand voltage  */
+  --nfm-accent: #31c9ac; /* Seqera Green - the single brand voltage  */
   --nfm-accent-hover: #0cae8e; /* Green/700                                */
-  --nfm-accent-text: #065647; /* Green/1000 — WCAG-safe green text/links  */
-  --nfm-accent-soft: #e2f7f3; /* Green/100 — soft brand tint surface      */
+  --nfm-accent-text: #065647; /* Green/1000 - WCAG-safe green text/links  */
+  --nfm-accent-soft: #e2f7f3; /* Green/100 - soft brand tint surface      */
   --nfm-brand: #201637; /* Brand dark                               */
 
   --nfm-bg: #ffffff; /* surface-page                            */
@@ -52,7 +52,7 @@
   --nfm-accent-soft: #065647; /* surface-brand dark = deep green          */
   --nfm-brand: #201637;
 
-  --nfm-bg: #242424; /* Grey/1100 — page floor                  */
+  --nfm-bg: #242424; /* Grey/1100 - page floor                  */
   --nfm-bg-deep: #1a1a1a; /* recessed code wells                     */
   --nfm-surface: #2b2b2b; /* elevated cards / panels                 */
   --nfm-surface-2: #333333; /* inline code / higher elevation          */
@@ -110,8 +110,8 @@
 :root,
 :root[data-theme="light"],
 :root[data-theme="dark"] {
-  --nfm-line-a: #31c9ac; /* Nextflow Green/500 — light line */
-  --nfm-line-b: #0a967b; /* Nextflow Green/800 — dark line  */
+  --nfm-line-a: #31c9ac; /* Nextflow Green/500 - light line */
+  --nfm-line-b: #0a967b; /* Nextflow Green/800 - dark line  */
 }
 
 /* very subtle brand glow behind the page */
@@ -309,7 +309,7 @@ nav.sidebar a[aria-current="page"]:hover {
 .home .hero {
   padding: 4px 0 56px;
 }
-/* project name writ large — the hero wordmark (~2× size, capped to the column) */
+/* project name writ large - the hero wordmark (~2× size, capped to the column) */
 .home .hero-name {
   margin: 0 0 26px;
   padding: 0;

@@ -34,14 +34,14 @@ The topology suite parametrizes over every `.mmd` in `examples/topologies/` and 
 
 ## Before opening a PR
 
-1. Run `pytest` and `ruff format --check` — CI runs both and will fail on either.
-2. For any layout or rendering change, do a [visual review](#visual-review) — the automated checks confirm the geometry is valid, not that it looks right.
+1. Run `pytest` and `ruff format --check` - CI runs both and will fail on either.
+2. For any layout or rendering change, do a [visual review](#visual-review) - the automated checks confirm the geometry is valid, not that it looks right.
 3. If you added behaviour, add a topology fixture that covers it (see below).
 4. If you fixed a bug that had an `xfail` marker, remove the marker so the fix is locked in.
 
 ## Adding a topology test
 
-`examples/topologies/` holds `.mmd` fixtures, each isolating a specific graph shape (fan-out, fan-in, diamond, fold, and so on). Adding a fixture is the main way to extend test coverage, and no wiring is needed — the suite picks up every file in the directory automatically.
+`examples/topologies/` holds `.mmd` fixtures, each isolating a specific graph shape (fan-out, fan-in, diamond, fold, and so on). Adding a fixture is the main way to extend test coverage, and no wiring is needed - the suite picks up every file in the directory automatically.
 
 1. Write a minimal `.mmd` that exercises the topology.
 2. Drop it in `examples/topologies/`.
@@ -59,7 +59,7 @@ def test_something():
 
 While the bug is present, `xfail` keeps CI green and the test documents what is wrong. When someone fixes it, the test flips to `XPASS` and CI turns red, prompting them to drop the marker and lock the correct behaviour in. The floor can't slip backwards by accident.
 
-The corollary: once a check is in, it stays in. If a check fires incorrectly, fix the check or the code — don't delete a check to make CI pass.
+The corollary: once a check is in, it stays in. If a check fires incorrectly, fix the check or the code - don't delete a check to make CI pass.
 
 ## Visual review
 
@@ -86,7 +86,7 @@ Batch-render the whole topology library with `python scripts/render_topologies.p
 ## Commit and CI conventions
 
 - Append `[skip ci]` to the commit subject for work-in-progress pushes. Omit it for the final commit before requesting review, and for any commit that fixes a CI failure.
-- Don't write the literal `[skip ci]` marker in the commit body — GitHub Actions scans the whole message, not just the subject.
+- Don't write the literal `[skip ci]` marker in the commit body - GitHub Actions scans the whole message, not just the subject.
 
 ## Filing issues
 
@@ -94,6 +94,6 @@ When you trip over a bug mid-task, file a detailed issue rather than trying to f
 
 ## Changing the layout engine
 
-The engine assigns coordinates through a sequence of ~40 ordered phases and then routes the edges, so a change in one place often has effects elsewhere. Before modifying it, read the relevant Internals page — [Architecture](/nf-metro/dev/architecture/), [Layout pipeline](/nf-metro/dev/layout_pipeline/), [Routing](/nf-metro/dev/routing/) — and the per-phase contracts in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
+The engine assigns coordinates through a sequence of ~40 ordered phases and then routes the edges, so a change in one place often has effects elsewhere. Before modifying it, read the relevant Internals page - [Architecture](/nf-metro/dev/architecture/), [Layout pipeline](/nf-metro/dev/layout_pipeline/), [Routing](/nf-metro/dev/routing/) - and the per-phase contracts in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
 
-Invariants are enforced in two places, and new ones should go there rather than as one-off assertions: **phase guards** (`src/nf_metro/layout/phases/guards.py`, which name the failing phase so a regression localises immediately) and the **layout oracle** (the `check_*` functions in `tests/layout_validator.py`). Some are hard rules the oracle will not let you break — for example, a station must never sit on the corner of a curve. Don't work around a failing check by relaxing it; fix the cause.
+Invariants are enforced in two places, and new ones should go there rather than as one-off assertions: **phase guards** (`src/nf_metro/layout/phases/guards.py`, which name the failing phase so a regression localises immediately) and the **layout oracle** (the `check_*` functions in `tests/layout_validator.py`). Some are hard rules the oracle will not let you break - for example, a station must never sit on the corner of a curve. Don't work around a failing check by relaxing it; fix the cause.

@@ -9,7 +9,7 @@ nf-metro is created and maintained by **[Jonathan Manning](https://github.com/pi
 
 ## Design
 
-The documentation site and visual identity are the work of **[Phil Ewels](https://github.com/ewels)** — the web design of this site, the nf-metro logo, and the overall look and feel.
+The documentation site and visual identity are the work of **[Phil Ewels](https://github.com/ewels)** - the web design of this site, the nf-metro logo, and the overall look and feel.
 
 ## Home
 

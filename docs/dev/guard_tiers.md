@@ -6,9 +6,9 @@ sidebar:
 
 nf-metro defends its layout output with two families of runtime invariant:
 
-- **`_guard_*` functions** in `src/nf_metro/layout/phases/guards.py` — raise
+- **`_guard_*` functions** in `src/nf_metro/layout/phases/guards.py` - raise
   `PhaseInvariantError` on a violation.
-- **`check_*` functions** in `src/nf_metro/layout/routing/invariants.py` —
+- **`check_*` functions** in `src/nf_metro/layout/routing/invariants.py` -
   return a list of violation objects; a caller decides whether to raise.
 
 The render path runs the cheap **Tier-A** subset of both families on the
@@ -55,14 +55,14 @@ or the render chokepoint.
 
 The classification is data, not prose:
 
-- **`GUARD_REGISTRY`** (`phases/guards.py`) — the single ordered source of
+- **`GUARD_REGISTRY`** (`phases/guards.py`) - the single ordered source of
   truth for the `validate=True` guard call sequence. Its order _is_ the call
   order; `run_validate_guards` iterates it. Each entry is a `GuardSpec` with
   `tier`, the `needs` set (which of `offsets` / `routes` / `section_y_*` the
   guard takes), `bisection_safe` (runs at every Pass C checkpoint, gated by
   `first_valid_stage`) vs final-only, and the `_BISECTION_FIRST_VALID` data
   derived back out for the engine re-export.
-- **`INLINE_GUARD_REGISTRY`** (`phases/guards.py`) — the same `GuardSpec`
+- **`INLINE_GUARD_REGISTRY`** (`phases/guards.py`) - the same `GuardSpec`
   schema applied to the guards `engine.py` invokes directly at a specific
   pipeline stage rather than through the Pass C / final runner. Like
   `CHECK_REGISTRY` it is _classification_ only (no `needs` / `bisection_safe`
@@ -77,7 +77,7 @@ except `_RENDER_CHOKEPOINT_AUTHORING_GUARDS`, the two authoring-error guards
 raise a `ValueError` on un-renderable input and stay always-on hard fails in
 the engine rather than joining the warn-by-default chokepoint.
 
-- **`CHECK_REGISTRY`** (`routing/invariants.py`) — the same `GuardSpec` schema
+- **`CHECK_REGISTRY`** (`routing/invariants.py`) - the same `GuardSpec` schema
   applied to the routing checks. Because checks return lists rather than
   raising, this is a _classification_ registry, not a dispatcher; the runtime
   chokepoint stays `assert_render_curve_invariants`. The registries are
@@ -194,7 +194,7 @@ python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 
 These `_guard_*` functions are invoked directly at specific pipeline stages
 rather than through the Pass C / final dispatch, so they carry no `needs` /
-`bisection_safe` dispatch data — only their tier and any `issue_pin` /
+`bisection_safe` dispatch data - only their tier and any `issue_pin` /
 `narrow_reason`. Costs are not separately measured; each is a single structural
 pass.
 
@@ -228,7 +228,7 @@ pass.
 ## Consolidation
 
 The consolidation pass (#922) removed the validate-only `_guard_*` wrappers
-that only raised around a check already in the always-on render chokepoint —
+that only raised around a check already in the always-on render chokepoint -
 `_guard_bundle_order_preserved`, `_guard_concentric_bundle_corners`,
 `_guard_no_collinear_distinct_lines`,
 `_guard_no_intra_section_collinear_distinct_lines`, and

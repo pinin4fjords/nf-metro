@@ -47,7 +47,7 @@ function pluginChipVerticalAlign() {
 
 export default defineEcConfig({
   shiki: { langs: [metroGrammar, larkGrammar] },
-  // Render a color swatch next to hex/rgb values — handy for the `#hex` line
+  // Render a color swatch next to hex/rgb values - handy for the `#hex` line
   // colors in %%metro directives. Square-ish chips (15%) rather than the
   // plugin's default circle (50%).
   plugins: [

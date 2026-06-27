@@ -7,7 +7,7 @@ import mermaid from "astro-mermaid";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
-// ec.config.mjs — the <Code> component requires them to be loadable separately.
+// ec.config.mjs - the <Code> component requires them to be loadable separately.
 
 // Canonical Pages origin (owner-specific value lives in src/repo).
 const site = PAGES_ORIGIN;
@@ -17,7 +17,7 @@ const base = process.env.DOCS_BASE ?? "/nf-metro/";
 
 // The committed example .mmd files live at the repo root (../examples), one
 // level above this Astro project. The guide imports them as raw strings so its
-// code blocks stay in lockstep with the renders they document — single source
+// code blocks stay in lockstep with the renders they document - single source
 // of truth, no copy-paste drift. `@examples` aliases that dir; `fs.allow` opens
 // it to the dev server (which otherwise restricts /@fs/ to the project root).
 const examplesDir = fileURLToPath(new URL("../examples", import.meta.url));
@@ -38,7 +38,7 @@ function compareVersionsDesc(a, b) {
 
 // Build the Releases sidebar group from the release Markdown files on disk:
 // an "Overview" link followed by `v<major>.<minor>.x` sub-groups, newest first.
-// New release pages appear automatically — no manual sidebar edits needed.
+// New release pages appear automatically - no manual sidebar edits needed.
 function buildReleasesSidebar() {
   const dir = new URL("./src/content/docs/releases", import.meta.url);
   const versions = readdirSync(dir)
@@ -115,7 +115,7 @@ export default defineConfig({
     starlight({
       title: "nf-metro",
       description:
-        "Metro-map-style SVG diagrams from Mermaid graph definitions with %%metro directives — for visualizing bioinformatics pipeline workflows.",
+        "Metro-map-style SVG diagrams from Mermaid graph definitions with %%metro directives - for visualizing bioinformatics pipeline workflows.",
       favicon: "/favicon.svg",
       // Expressive Code options (grammars + color-chips plugin) are in ec.config.mjs.
       social: [
@@ -153,7 +153,7 @@ export default defineConfig({
               label: "Playground (beta)",
               link: "/playground/",
               // The playground is a standalone static app in public/playground/,
-              // not an Astro route — data-astro-reload forces a full navigation
+              // not an Astro route - data-astro-reload forces a full navigation
               // so ClientRouter doesn't try to swap it in like a doc page.
               attrs: { target: "_self", "data-astro-reload": true },
             },

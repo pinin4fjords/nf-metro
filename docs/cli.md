@@ -3,7 +3,7 @@ title: "CLI reference"
 description: "Full reference for the nf-metro command-line interface: render, convert, validate, and info."
 ---
 
-nf-metro ships four commands — `render`, `convert`, `validate`, and `info`. This page documents every option. Most `render` flags also have a `%%metro` directive twin; an explicitly-passed flag overrides the directive.
+nf-metro ships four commands - `render`, `convert`, `validate`, and `info`. This page documents every option. Most `render` flags also have a `%%metro` directive twin; an explicitly-passed flag overrides the directive.
 
 ## `nf-metro render`
 

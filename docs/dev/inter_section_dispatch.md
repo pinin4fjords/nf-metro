@@ -23,15 +23,15 @@ mechanism that keeps the routes correct.
 
 `_InterFacts` resolves the geometry and topology each rule keys on:
 
-- **Relative position** — the source and target grid columns and rows
+- **Relative position** - the source and target grid columns and rows
   (`src_col/row`, `tgt_col/row`), and the derived `same_y`, `same_x`,
   `same_col`, `cross_row`, and `needs_bypass` (a multi-column hop with an
   intervening section in the source _or_ target row).
-- **Exit side** — whether the source is a LEFT/RIGHT exit port, a TOP/BOTTOM
+- **Exit side** - whether the source is a LEFT/RIGHT exit port, a TOP/BOTTOM
   perpendicular exit (`is_perp_exit`), a TB BOTTOM exit (`is_tb_bottom_exit`,
   or `is_tb_perp_exit_to_side` when it feeds a not-below side entry), or a
   junction.
-- **Entry side** — `entry_side` is the target entry port's side
+- **Entry side** - `entry_side` is the target entry port's side
   (LEFT/RIGHT/TOP/BOTTOM) or `None` when the target is a junction; `merge_ep`
   is the resolved entry-port station when the target is a merge junction.
 
@@ -57,7 +57,7 @@ match, the **standard L-shape** is the fall-through.
 | 12  | `serpentine LEFT exit -> LEFT entry` | LEFT exit into a LEFT entry stacked in the same column                                  | `_route_left_exit_left_entry_drop`                                                                                                                                                                                                                                |
 | 13  | `merge entry family`                 | `merge_ep is not None`                                                                  | `_route_merge_entry_family`: straight (near-collinear), corridor / around-below (LEFT entry crossing a section), else L-shape into the entry port                                                                                                                 |
 | 14  | `RIGHT entry plough -> bypass`       | a higher-row L-shape to a RIGHT entry that would plough an intervening same-row section | `_route_bypass`                                                                                                                                                                                                                                                   |
-| —   | _fall-through_                       | no rule matched                                                                         | `_route_l_shape`                                                                                                                                                                                                                                                  |
+| -   | _fall-through_                       | no rule matched                                                                         | `_route_l_shape`                                                                                                                                                                                                                                                  |
 
 The three rules whose handlers carry their own residual decisions (8, 11, 13)
 own that logic inside the named handler, so the top-level table stays a single
@@ -69,8 +69,9 @@ declarative pass.
 ([`routing/invariants.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/invariants.py))
 runs on every render and the stage-boundary checks run under `validate=True`.
 Because every rule above builds its route through the centreline bundle builder
-— which makes a flipped, pinched, or collinear bundle impossible by
-construction — these checks are a thin safety net. In normal operation they
-never fire; a failure means a genuinely new, un-tabled shape reached the
-renderer built some other way, and the fix is to route it through the builder
-too, not to relax the guard.
+
+- which makes a flipped, pinched, or collinear bundle impossible by
+  construction - these checks are a thin safety net. In normal operation they
+  never fire; a failure means a genuinely new, un-tabled shape reached the
+  renderer built some other way, and the fix is to route it through the builder
+  too, not to relax the guard.

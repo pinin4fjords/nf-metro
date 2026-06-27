@@ -8,5 +8,5 @@ export const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
  */
 export const SITE_BASE = "/nf-metro/";
 
-/** GitHub owner/repo and URL — single source of truth lives in ./repo. */
+/** GitHub owner/repo and URL - single source of truth lives in ./repo. */
 export { REPO, GITHUB_URL } from "./repo";

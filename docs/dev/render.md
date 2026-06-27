@@ -92,7 +92,7 @@ The HTML output has two delivery modes:
   else and zoom to visible), station tooltips, and an embed modal that
   generates copy-paste snippets.
 - **Inline embed snippet** (`_INLINE_TEMPLATE`, via `_build_inline_snippet`):
-  a `<div>` with scoped CSS and an IIFE — paste into any HTML host (MkDocs,
+  a `<div>` with scoped CSS and an IIFE - paste into any HTML host (MkDocs,
   Confluence, blog templates) without hosting a separate file.
 
 Both modes share a single `_SHARED_JS` block (`attachMetroMap`) so the
@@ -120,16 +120,16 @@ for cases where the caller assembles the SVG element manually.
 ## Render-geometry validation (`validate.py`)
 
 The layout guards and routing invariants validate geometry _before_ the
-render-time regimes run — the per-line offsets `apply_route_offsets` applies,
+render-time regimes run - the per-line offsets `apply_route_offsets` applies,
 the multi-line label Y-shifts, and the wrapped-label lift. The picture the
 user sees only exists in the emitted SVG, so a class of defect (a line drawn
 through a label only after the offsets shift it) is invisible to them.
 
 `validate_render(svg)` closes that gap from the other side. It reads the
-finished artifact back into geometry — node markers from the embedded
+finished artifact back into geometry - node markers from the embedded
 manifest, route polylines from the drawn `<path data-line-id>` ink (splitting
 at each `M` so a bridge-hop gap is a real break, and collapsing each smoothing
-`Q` to its corner), and label ink boxes from the drawn `<text>` ink — then
+`Q` to its corner), and label ink boxes from the drawn `<text>` ink - then
 runs render-geometry checks on what was drawn. Three checks run:
 
 - **label-strike** reuses the authoritative `segment_strikes_label` predicate
@@ -137,8 +137,8 @@ runs render-geometry checks on what was drawn. Three checks run:
   wrong, not that a re-derivation diverged.
 - **marker-cross** flags a route segment through a non-consumer station's
   marker (a line the station carries, via the manifest `groups`, is exempt).
-  Rail-interchange stations are exempt too — a line threading an interchange
-  knob is the intended rail idiom — and their ids are read back from the drawn
+  Rail-interchange stations are exempt too - a line threading an interchange
+  knob is the intended rail idiom - and their ids are read back from the drawn
   `...-rail-...` markers, since the manifest carries no rail flag.
 - **offset-collapse** flags two distinct lines drawn flush where the offset
   regime assigned them a full `OFFSET_STEP` apart. Two lines on the same
@@ -150,7 +150,7 @@ enough), so they run on a produced file in CI, via `validate-svg --geometry`,
 and behind `render --validate`. offset-collapse needs the engine's assigned
 offsets to tell an intended same-slot bundle from a real merge, so
 `validate_render(svg, *, graph=...)` runs it only when the laid-out graph is
-supplied — the `render --validate` path and the CI corpus test, not the
+supplied - the `render --validate` path and the CI corpus test, not the
 standalone SVG path.
 
 ## Animation (`animate.py`)
@@ -172,8 +172,8 @@ line widths, station radii, animation speed, and legend layout.
 
 Built-in themes live in `src/nf_metro/themes/`:
 
-- `nfcore.py` — dark theme (default), matching nf-core visual style.
-- `light.py` — light theme variant.
+- `nfcore.py` - dark theme (default), matching nf-core visual style.
+- `light.py` - light theme variant.
 
 To add a theme: create a `Theme` instance and register it in
 `themes/__init__.py`'s `THEMES` dict under a string key; it then becomes
@@ -184,11 +184,11 @@ selectable via `%%metro style: <key>` or `--style`.
 | Module         | Responsibility                                                                                                                     |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `svg.py`       | `render_svg` entry point; `apply_route_offsets`; all drawing passes (sections, edges, stations, icons, labels, legend)             |
-| `bridges.py`   | `compute_bridges` — detects genuine non-merging crossings and returns `BridgeBreak` gap spans; drawing is in `svg.py`              |
-| `html.py`      | `render_html` — standalone HTML page and inline embed snippet around the SVG                                                       |
+| `bridges.py`   | `compute_bridges` - detects genuine non-merging crossings and returns `BridgeBreak` gap spans; drawing is in `svg.py`              |
+| `html.py`      | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                       |
 | `manifest.py`  | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                     |
-| `validate.py`  | `validate_render` — render-geometry guards that read the drawn SVG (markers, route ink, label ink) as their own oracle             |
-| `animate.py`   | `render_animation` — animated balls via `<animateMotion>`                                                                          |
+| `validate.py`  | `validate_render` - render-geometry guards that read the drawn SVG (markers, route ink, label ink) as their own oracle             |
+| `animate.py`   | `render_animation` - animated balls via `<animateMotion>`                                                                          |
 | `style.py`     | `Theme` dataclass                                                                                                                  |
 | `legend.py`    | `render_legend`, `compute_legend_dimensions`                                                                                       |
 | `icons.py`     | `render_file_icon`, `render_files_icon`, `render_folder_icon`                                                                      |
