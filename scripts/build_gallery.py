@@ -1647,7 +1647,7 @@ def build_pipelines_page() -> None:
             continue
 
         try:
-            render_mmd(mmd_path, svg_path, debug=True, self_color_scheme=False)
+            render_mmd(mmd_path, svg_path, debug=DEBUG_RENDERS, self_color_scheme=False)
             status = "OK"
         except Exception as e:
             status = f"FAIL: {e}"

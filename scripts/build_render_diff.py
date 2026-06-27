@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -42,15 +42,18 @@ HTML_TEMPLATE = """\
 <title>Render diff{title_suffix}</title>
 <style>
   :root {{
-    --bg: #1e1e2e;
-    --surface: #2a2a3c;
-    --border: #3a3a4c;
-    --text: #e0e0e0;
-    --muted: #888;
-    --accent: #4ec9b0;
-    --added: #2ea04370;
-    --removed: #da363470;
+    color-scheme: light dark;
+    --bg: light-dark(#f5f5f7, #1e1e2e);
+    --surface: light-dark(#eaeaef, #2a2a3c);
+    --border: light-dark(#c9c9d4, #3a3a4c);
+    --text: light-dark(#1e1e2e, #e0e0e0);
+    --muted: light-dark(#666, #888);
+    --accent: light-dark(#1a8575, #4ec9b0);
+    --added: light-dark(rgba(46,160,67,.25), rgba(46,160,67,.44));
+    --removed: light-dark(rgba(218,54,52,.25), rgba(218,54,52,.44));
   }}
+  [data-scheme="dark"] {{ color-scheme: dark; }}
+  [data-scheme="light"] {{ color-scheme: light; }}
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -59,11 +62,27 @@ HTML_TEMPLATE = """\
     padding: 2rem;
     line-height: 1.5;
   }}
+  .page-header {{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }}
   h1 {{
     font-size: 1.5rem;
-    margin-bottom: 0.5rem;
     color: var(--accent);
   }}
+  .scheme-btn {{
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }}
+  .scheme-btn:hover {{ background: var(--border); }}
   .summary {{
     color: var(--muted);
     margin-bottom: 2rem;
@@ -155,18 +174,15 @@ HTML_TEMPLATE = """\
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }}
-  .side img {{
+  .svg-wrapper {{ overflow-x: auto; }}
+  .svg-wrapper svg, .side img, .side-only img {{
     max-width: 100%;
     height: auto;
+    display: block;
     border-radius: 4px;
   }}
   .side-only {{
     padding: 1rem;
-  }}
-  .side-only img {{
-    max-width: 100%;
-    height: auto;
-    border-radius: 4px;
   }}
   .empty {{
     color: var(--muted);
@@ -267,12 +283,15 @@ HTML_TEMPLATE = """\
   .metrics td a {{ color: var(--text); text-decoration: none; }}
   .metrics td a:hover {{ color: var(--accent); }}
   .m-flat {{ color: var(--muted); }}
-  .m-better {{ color: #4ec9b0; font-weight: 600; }}
-  .m-worse {{ color: #f38ba8; font-weight: 600; }}
+  .m-better {{ color: light-dark(#1a8575, #4ec9b0); font-weight: 600; }}
+  .m-worse {{ color: light-dark(#c0392b, #f38ba8); font-weight: 600; }}
 </style>
 </head>
 <body>
-<h1>Render diff{title_suffix}</h1>
+<div class="page-header">
+  <h1>Render diff{title_suffix}</h1>
+  <button id="scheme-toggle" class="scheme-btn">System</button>
+</div>
 <p class="summary">{summary}</p>
 <details class="intro">
 <summary>What is this page?</summary>
@@ -303,6 +322,27 @@ switch between side-by-side, base-only, and PR-only views.
 {toc}
 {entries}
 <script>
+(function() {{
+  const root = document.documentElement;
+  const btn = document.getElementById('scheme-toggle');
+  const schemes = ['auto', 'dark', 'light'];
+  const labels = {{'auto': 'System', 'dark': 'Dark', 'light': 'Light'}};
+  let idx = 0;
+  function apply() {{
+    const s = schemes[idx];
+    if (s === 'auto') {{
+      root.removeAttribute('data-scheme');
+    }} else {{
+      root.setAttribute('data-scheme', s);
+    }}
+    btn.textContent = labels[s];
+  }}
+  apply();
+  btn.addEventListener('click', function() {{
+    idx = (idx + 1) % schemes.length;
+    apply();
+  }});
+}})();
 document.querySelectorAll('.toggle-bar button').forEach(btn => {{
   btn.addEventListener('click', () => {{
     const entry = btn.closest('.diff-entry');
@@ -332,6 +372,39 @@ document.querySelectorAll('.toggle-bar button').forEach(btn => {{
 </body>
 </html>
 """
+
+_SVG_ROOT_RE = re.compile(r"(<svg)(\s[^>]*)(>)", re.DOTALL)
+_SELF_SCHEME_RE = re.compile(r'\s+style="color-scheme:\s*light\s+dark"')
+_WIDTH_RE = re.compile(r'\bwidth="(\d+)"')
+_HEIGHT_RE = re.compile(r'\bheight="(\d+)"')
+
+
+def _inline_svg(path: Path) -> str:
+    """Read SVG; strip self-declared color-scheme and add viewBox for CSS scaling.
+
+    SVGs rendered with self_color_scheme=True carry style="color-scheme: light dark"
+    on their root element. When inlined into a host page, that self-declaration
+    overrides the page's color-scheme. Stripping it lets light-dark() values inside
+    the SVG resolve against the host page's color-scheme instead, so the page-level
+    toggle controls the renders.
+
+    Adding viewBox (when absent) enables proportional CSS scaling via max-width/height.
+    """
+    content = path.read_text()
+    m = _SVG_ROOT_RE.search(content)
+    if not m:
+        return content
+    tag_open, attrs, tag_close = m.group(1), m.group(2), m.group(3)
+
+    attrs = _SELF_SCHEME_RE.sub("", attrs)
+
+    if "viewBox" not in attrs:
+        w = _WIDTH_RE.search(attrs)
+        h = _HEIGHT_RE.search(attrs)
+        if w and h:
+            attrs += f' viewBox="0 0 {w.group(1)} {h.group(1)}"'
+
+    return content[: m.start()] + tag_open + attrs + tag_close + content[m.end() :]
 
 
 def _load_json(render_dir: Path, filename: str) -> dict:
@@ -441,19 +514,7 @@ def build_diff(
             section_order.append(section)
         by_section[section].append((name, kind))
 
-    # Set up output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_base = output_dir / "base"
-    out_pr = output_dir / "pr"
-    out_base.mkdir(exist_ok=True)
-    out_pr.mkdir(exist_ok=True)
-
-    # Copy changed SVGs
-    for name, kind in changed:
-        if kind in ("changed", "removed"):
-            shutil.copy2(base_dir / name, out_base / name)
-        if kind in ("changed", "added"):
-            shutil.copy2(pr_dir / name, out_pr / name)
 
     # Build HTML
     title_suffix = f" - PR #{pr_number}" if pr_number else ""
@@ -505,45 +566,39 @@ def build_diff(
             div_open = f'<div class="diff-entry" id="{stem}">'
 
             if kind == "changed":
+                base_svg = _inline_svg(base_dir / name)
+                pr_svg = _inline_svg(pr_dir / name)
                 toggle = (
                     '<div class="toggle-bar">'
-                    '<button class="active" '
-                    'data-mode="side-by-side">'
+                    '<button class="active" data-mode="side-by-side">'
                     "Side by side</button>"
-                    '<button data-mode="base">'
-                    "Base only</button>"
-                    '<button data-mode="pr">'
-                    "PR only</button></div>"
+                    '<button data-mode="base">Base only</button>'
+                    '<button data-mode="pr">PR only</button>'
+                    "</div>"
                 )
                 entry = (
                     f"{div_open}\n{h3}\n{toggle}\n"
                     f'<div class="comparison">\n'
-                    f'<div class="side side-base">'
-                    f"<h4>Base (main)</h4>"
-                    f'<img src="base/{name}" '
-                    f'alt="Base: {stem}"></div>\n'
-                    f'<div class="side side-pr">'
-                    f"<h4>PR</h4>"
-                    f'<img src="pr/{name}" '
-                    f'alt="PR: {stem}"></div>\n'
+                    f'<div class="side side-base"><h4>Base (main)</h4>'
+                    f'<div class="svg-wrapper">{base_svg}</div></div>\n'
+                    f'<div class="side side-pr"><h4>PR</h4>'
+                    f'<div class="svg-wrapper">{pr_svg}</div></div>\n'
                     f"</div>\n</div>"
                 )
             elif kind == "added":
+                pr_svg = _inline_svg(pr_dir / name)
                 entry = (
                     f"{div_open}\n{h3}\n"
-                    f'<div class="side-only">'
-                    f"<h4>New in PR</h4>"
-                    f'<img src="pr/{name}" '
-                    f'alt="PR: {stem}"></div>\n'
+                    f'<div class="side-only"><h4>New in PR</h4>'
+                    f'<div class="svg-wrapper">{pr_svg}</div></div>\n'
                     f"</div>"
                 )
             else:  # removed
+                base_svg = _inline_svg(base_dir / name)
                 entry = (
                     f"{div_open}\n{h3}\n"
-                    f'<div class="side-only">'
-                    f"<h4>Removed (was in base)</h4>"
-                    f'<img src="base/{name}" '
-                    f'alt="Base: {stem}"></div>\n'
+                    f'<div class="side-only"><h4>Removed (was in base)</h4>'
+                    f'<div class="svg-wrapper">{base_svg}</div></div>\n'
                     f"</div>"
                 )
             entries_html.append(entry)
