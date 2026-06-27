@@ -1,68 +1,20 @@
 // @ts-check
 import { readFileSync } from "node:fs";
-import {
-  defineEcConfig,
-  definePlugin,
-  ExpressiveCodeAnnotation,
-} from "@astrojs/starlight/expressive-code";
-import { h } from "@expressive-code/core/hast";
+import { defineEcConfig, definePlugin } from "@astrojs/starlight/expressive-code";
 import { pluginColorChips } from "expressive-code-color-chips";
 
-// expressive-code-color-chips only annotates CSS-family languages, but our
-// colourful content is the `#hex` values in ```metro / ```mmd line directives.
-// This companion plugin runs the same idea for those languages and emits the
-// official plugin's chip class ("ec-css-color-chip") + CSS var, so its baseStyles
-// and the borderRadius override below style these chips too — no CSS duplication.
-// The only coupling is that class name; if it ever changes, metro chips lose
-// their styling until this string is updated to match.
-//
-// TODO: remove this companion plugin once the upstream plugin supports choosing
-// which languages get chips — https://github.com/delucis/expressive-code-color-chips/issues/150
-const CHIP_CLASS = "ec-css-color-chip";
-const CHIP_VAR = "--ec-css-color-chip";
-const METRO_LANGS = new Set(["metro", "mmd"]);
-// metro colours are always hex (#rgb / #rrggbb [/aa]); no rgb()/hsl() in the dialect.
-const HEX_COLOR = /#[0-9a-fA-F]{3,8}\b/g;
+// expressive-code-color-chips v≥0.2 supports a `languages` option so we can
+// include metro/mmd fences alongside the default CSS dialects.
+const COLOR_CHIP_LANGS = ["css", "scss", "sass", "less", "stylus", "metro", "mmd"];
 
-class MetroColorChipAnnotation extends ExpressiveCodeAnnotation {
-  constructor({ color, inlineRange }) {
-    super({ inlineRange });
-    this.color = color;
-  }
-  render({ nodesToTransform }) {
-    return nodesToTransform.map((node) =>
-      h(`span.${CHIP_CLASS}`, { style: `${CHIP_VAR}: ${this.color}` }, node),
-    );
-  }
-}
-
-function pluginMetroColorChips() {
+// The official plugin hardcodes `vertical-align: text-bottom`, which sits the
+// chip too low against the line text. This plugin, loaded after
+// pluginColorChips(), nudges all chips up to the text midline.
+function pluginChipVerticalAlign() {
   return definePlugin({
-    name: "MetroColorChips",
-    hooks: {
-      postprocessAnalyzedCode({ codeBlock }) {
-        if (!METRO_LANGS.has(codeBlock.language)) return;
-        for (const line of codeBlock.getLines()) {
-          for (const match of line.text.matchAll(HEX_COLOR)) {
-            const columnStart = match.index;
-            line.addAnnotation(
-              new MetroColorChipAnnotation({
-                color: match[0],
-                inlineRange: {
-                  columnStart,
-                  columnEnd: columnStart + match[0].length,
-                },
-              }),
-            );
-          }
-        }
-      },
-    },
-    // The official plugin hardcodes `vertical-align: text-bottom`, which sits the
-    // chip too low against the line text. Nudge all chips (CSS + metro) up to the
-    // text midline. Loaded after pluginColorChips() so this wins.
+    name: "ChipVerticalAlign",
     baseStyles() {
-      return `.${CHIP_CLASS}::before { vertical-align: middle; margin-bottom: 2px; }`;
+      return `.ec-css-color-chip::before { vertical-align: middle; margin-bottom: 2px; }`;
     },
   });
 }
@@ -97,7 +49,7 @@ export default defineEcConfig({
   // Render a color swatch next to hex/rgb values — handy for the `#hex` line
   // colors in %%metro directives. Square-ish chips (15%) rather than the
   // plugin's default circle (50%).
-  plugins: [pluginColorChips(), pluginMetroColorChips()],
+  plugins: [pluginColorChips({ languages: COLOR_CHIP_LANGS }), pluginChipVerticalAlign()],
   styleOverrides: {
     colorChips: {
       borderRadius: "15%",
