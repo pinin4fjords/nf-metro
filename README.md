@@ -428,7 +428,7 @@ CLI (or `python -m nf_metro`) for stable behaviour.
 
 ## Contributing
 
-See the [Contributing guide](https://pinin4fjords.github.io/nf-metro/latest/dev/contributing/) for setup, testing, how to add topology fixtures, working with layout invariants, and the visual review process.
+See the [Contributing guide](https://pinin4fjords.github.io/nf-metro/latest/contributing/) for setup, testing, how to add topology fixtures, working with layout invariants, and the visual review process.
 
 ## License
 

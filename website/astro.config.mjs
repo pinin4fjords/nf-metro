@@ -176,6 +176,8 @@ export default defineConfig({
           // Labels + order come from each page's `sidebar` frontmatter in dev/.
           items: [{ autogenerate: { directory: "dev" } }],
         },
+        { label: "Contributing", slug: "contributing" },
+        { label: "Credits", slug: "credits" },
         {
           label: "Releases",
           collapsed: true,

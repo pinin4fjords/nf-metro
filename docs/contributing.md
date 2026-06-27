@@ -1,7 +1,5 @@
 ---
 title: "Contributing"
-sidebar:
-  order: 11
 ---
 
 This page covers the development workflow for nf-metro: how to set up, run checks, add tests, and submit changes.
