@@ -15,6 +15,9 @@ docs/gallery/
 docs/pipelines/
 docs/assets/renders/
 
+# Build-time SVG render cache for the remark-metro docs plugin.
+website/.metro-cache/
+
 # Claude Code per-session scratch state (prompts, locks, worktrees)
 .claude/prompts/
 .claude/scheduled_tasks.lock

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, fontProviders } from "astro/config";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
+import { metroPlugin } from "./src/plugins/metro.mjs";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
@@ -110,6 +111,10 @@ export default defineConfig({
     },
   ],
   integrations: [
+    // Renders %%metro fenced blocks as inline SVG before astro-mermaid sees
+    // them, so regular mermaid blocks pass through to astro-mermaid intact.
+    // Must be listed first so its satteri plugin is registered before mermaid's.
+    metroPlugin(),
     // Renders ```mermaid fences as diagrams. Must come BEFORE starlight so its
     // transform runs before Expressive Code claims the code block. autoTheme
     // follows Starlight's `data-theme` toggle (dark <-> light/neutral).
