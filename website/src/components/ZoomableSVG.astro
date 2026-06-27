@@ -6,7 +6,7 @@
 
 <div class="zoomable-svg" data-zoomable>
   <slot />
-  <button class="zoom-btn" aria-label="View full size" title="View full size">
+  <button class="zoom-btn nfm-icon-btn" aria-label="View full size" title="View full size">
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
     </svg>
@@ -14,21 +14,18 @@
 </div>
 
 <script>
-  // Astro deduplicates this script tag - it runs once per page even when
-  // ZoomableSVG is used many times.
+  let dlg: HTMLDialogElement | null = null;
+  let dlgBody: HTMLElement | null = null;
+  const cloneCache = new WeakMap<Element, SVGElement>();
 
-  const DIALOG_ID = "nfm-svg-zoom";
-
-  function getOrCreateDialog(): HTMLDialogElement {
-    const existing = document.getElementById(DIALOG_ID);
-    if (existing) return existing as HTMLDialogElement;
-
-    const dlg = document.createElement("dialog");
-    dlg.id = DIALOG_ID;
+  function ensureDialog(): void {
+    if (dlg) return;
+    dlg = document.createElement("dialog");
+    dlg.id = "nfm-svg-zoom";
     dlg.setAttribute("aria-modal", "true");
     dlg.setAttribute("aria-label", "Diagram viewer");
     dlg.innerHTML = `
-      <button id="nfm-svg-zoom-close" aria-label="Close diagram">
+      <button id="nfm-svg-zoom-close" class="nfm-icon-btn" aria-label="Close diagram">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
@@ -36,22 +33,28 @@
       <div id="nfm-svg-zoom-body"></div>
     `;
     document.body.appendChild(dlg);
+    dlgBody = dlg.querySelector("#nfm-svg-zoom-body");
 
-    dlg.querySelector("#nfm-svg-zoom-close")!.addEventListener("click", () => dlg.close());
-    // Close on backdrop click (target is the dialog element itself, not its content)
-    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
-
-    return dlg;
+    dlg.querySelector("#nfm-svg-zoom-close")!.addEventListener("click", () => dlg!.close());
+    // Close on backdrop click (target is the dialog itself, not its content)
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg!.close(); });
   }
 
   function openZoom(wrap: Element) {
     const svg = wrap.querySelector("svg");
     if (!svg) return;
-    const dlg = getOrCreateDialog();
-    const body = dlg.querySelector<HTMLElement>("#nfm-svg-zoom-body")!;
-    body.innerHTML = "";
-    body.appendChild(svg.cloneNode(true));
-    dlg.showModal();
+    ensureDialog();
+
+    if (!cloneCache.has(wrap)) {
+      const clone = svg.cloneNode(true) as SVGElement;
+      clone.removeAttribute("width");
+      clone.removeAttribute("height");
+      cloneCache.set(wrap, clone);
+    }
+
+    dlgBody!.innerHTML = "";
+    dlgBody!.appendChild(cloneCache.get(wrap)!);
+    dlg!.showModal();
   }
 
   document.querySelectorAll<HTMLElement>("[data-zoomable]").forEach((wrap) => {
@@ -73,18 +76,9 @@
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: 1px solid var(--sl-color-hairline-light);
-    border-radius: 4px;
-    background: var(--sl-color-bg);
     color: var(--sl-color-text-accent);
     opacity: 0;
-    transition: opacity 0.15s ease, background 0.15s ease;
+    transition: opacity 0.2s var(--nfm-ease), background 0.2s var(--nfm-ease);
     cursor: zoom-in;
     z-index: 1;
   }
@@ -94,37 +88,8 @@
     opacity: 1;
   }
 
-  .zoom-btn:hover {
-    background: var(--nfm-accent-soft);
-    color: var(--nfm-accent-text);
-    border-color: var(--nfm-accent);
-  }
-
-  /* Dialog and its contents are appended to <body> dynamically, so styles
-     must escape the component scope. */
-  :global(#nfm-svg-zoom) {
-    padding: 0;
-    border: none;
-    border-radius: 8px;
-    background: var(--sl-color-bg);
-    color: var(--sl-color-text);
-    max-width: min(90vw, 1400px);
-    max-height: 90vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
-  }
-
-  :global(#nfm-svg-zoom::backdrop) {
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(2px);
-  }
-
-  :global(#nfm-svg-zoom-close) {
-    position: absolute;
-    top: 0.6rem;
-    right: 0.6rem;
+  /* Shared icon button base: used by .zoom-btn and #nfm-svg-zoom-close */
+  :global(.nfm-icon-btn) {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -136,14 +101,51 @@
     background: var(--sl-color-bg);
     color: var(--sl-color-text);
     cursor: pointer;
-    z-index: 1;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background 0.2s var(--nfm-ease), color 0.2s var(--nfm-ease), border-color 0.2s var(--nfm-ease);
   }
 
-  :global(#nfm-svg-zoom-close:hover) {
+  :global(.nfm-icon-btn:hover) {
     background: var(--nfm-accent-soft);
     color: var(--nfm-accent-text);
     border-color: var(--nfm-accent);
+  }
+
+  /* Dialog styles must be :global - the element is appended to <body> dynamically. */
+  :global(#nfm-svg-zoom) {
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: var(--sl-color-bg);
+    color: var(--sl-color-text);
+    /* Explicit width gives SVG's width:100% a containing block to resolve against;
+       without it, fit-content and width:100% form a circular dependency. */
+    width: min(90vw, 1400px);
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+    /* Re-state UA centering - display:flex on [open] can break margin:auto. */
+    position: fixed;
+    inset: 0;
+    margin: auto;
+  }
+
+  /* Scoped to [open]: unconditional display:flex overrides the browser's
+     display:none on close, keeping the dialog visible after closing. */
+  :global(#nfm-svg-zoom[open]) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(#nfm-svg-zoom::backdrop) {
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(2px);
+  }
+
+  :global(#nfm-svg-zoom-close) {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    z-index: 1;
   }
 
   :global(#nfm-svg-zoom-body) {
@@ -156,7 +158,7 @@
   }
 
   :global(#nfm-svg-zoom-body svg) {
-    max-width: 100%;
+    width: 100%;
     height: auto;
     display: block;
   }
