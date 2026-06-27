@@ -1,10 +1,21 @@
 // @ts-check
-import { readFileSync } from "node:fs";
 import {
   defineEcConfig,
   definePlugin,
 } from "@astrojs/starlight/expressive-code";
 import { pluginColorChips } from "expressive-code-color-chips";
+// Custom TextMate grammars, imported as JSON so they resolve at bundle/load
+// time. A runtime fs read keyed on import.meta.url breaks when this config is
+// bundled for the <Code> component (the URL points at the emitted chunk, not
+// the source), which silently drops every option from that render path.
+//
+// `metro` highlights nf-metro's dialect in ```metro / ```mmd fences and <Code>
+// blocks (%%metro directives, graph/subgraph keywords, edges, labels, hex
+// colors); real Mermaid lives in ```mermaid fences, rendered as diagrams by the
+// astro-mermaid integration. `lark` covers the Lark grammar in the parser docs,
+// which Shiki has no bundled language for.
+import metroGrammar from "./src/grammars/metro.tmLanguage.json" with { type: "json" };
+import larkGrammar from "./src/grammars/lark.tmLanguage.json" with { type: "json" };
 
 // expressive-code-color-chips v≥0.2 supports a `languages` option so we can
 // include metro/mmd fences alongside the default CSS dialects.
@@ -33,27 +44,6 @@ function pluginChipVerticalAlign() {
 // Expressive Code config lives here (rather than inline in astro.config.mjs)
 // because the <Code> component requires these options to be loadable on their
 // own, and a plugin instance like pluginColorChips() is not JSON-serializable.
-
-// Custom TextMate grammar so ```metro / ```mmd blocks highlight nf-metro's
-// dialect (%%metro directives, graph/subgraph keywords, edges, node labels,
-// hex colors). Real Mermaid lives in ```mermaid fences, rendered as diagrams
-// by the astro-mermaid integration in astro.config.mjs.
-const metroGrammar = JSON.parse(
-  readFileSync(
-    new URL("./src/grammars/metro.tmLanguage.json", import.meta.url),
-    "utf8",
-  ),
-);
-
-// Shiki has no bundled Lark grammar, so ```lark fences in the parser docs would
-// render unhighlighted. This custom TextMate grammar covers Lark's rule/terminal
-// definitions, priorities, regex/string literals, and %directives.
-const larkGrammar = JSON.parse(
-  readFileSync(
-    new URL("./src/grammars/lark.tmLanguage.json", import.meta.url),
-    "utf8",
-  ),
-);
 
 export default defineEcConfig({
   shiki: { langs: [metroGrammar, larkGrammar] },
