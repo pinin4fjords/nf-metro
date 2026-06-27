@@ -22,6 +22,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { satteri, isSatteriProcessor } from '@astrojs/markdown-satteri';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = join(__dirname, '../../.metro-cache');
@@ -121,35 +122,24 @@ export function metroPlugin() {
   return {
     name: 'nf-metro',
     hooks: {
-      async 'astro:config:setup'({ config, updateConfig, logger }) {
+      'astro:config:setup'({ config, updateConfig, logger }) {
         const existingProcessor = config.markdown?.processor;
 
-        if (existingProcessor?.name === 'satteri') {
-          try {
-            const { satteri, isSatteriProcessor } = await import(
-              '@astrojs/markdown-satteri'
-            );
-            if (isSatteriProcessor(existingProcessor)) {
-              const existingOptions = existingProcessor.options ?? {};
-              updateConfig({
-                markdown: {
-                  processor: satteri({
-                    ...existingOptions,
-                    mdastPlugins: [
-                      ...(existingOptions.mdastPlugins ?? []),
-                      satteriMetroPlugin,
-                    ],
-                  }),
-                },
-              });
-              logger.info('nf-metro: registered satteri mdast plugin');
-              return;
-            }
-          } catch (err) {
-            logger.warn(
-              `nf-metro: could not configure satteri processor, falling back to remarkPlugins: ${err.message}`
-            );
-          }
+        if (isSatteriProcessor(existingProcessor)) {
+          const existingOptions = existingProcessor.options ?? {};
+          updateConfig({
+            markdown: {
+              processor: satteri({
+                ...existingOptions,
+                mdastPlugins: [
+                  ...(existingOptions.mdastPlugins ?? []),
+                  satteriMetroPlugin,
+                ],
+              }),
+            },
+          });
+          logger.info('nf-metro: registered satteri mdast plugin');
+          return;
         }
 
         // Fallback for Astro < 7 (unified processor or no processor).
