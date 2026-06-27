@@ -29,9 +29,9 @@ re-flows as state changes.
 
 <video controls autoplay loop muted playsinline
        style="width: 100%; max-width: 760px; border-radius: 6px"
-       src="/nf-metro/assets/live_demo.mp4">
+       src="../assets/live_demo.mp4">
 Your browser can't play the embedded video -
-<a href="/nf-metro/assets/live_demo.mp4">download it here</a>.
+<a href="../assets/live_demo.mp4">download it here</a>.
 </video>
 
 _A pipeline run lighting up the map in real time._
@@ -73,7 +73,7 @@ Set `%%metro auto_process: true` (or pass `--auto-process`) and each station
 with no explicit directive gets its own id as a default pattern, anchored to the
 final segment of the process name:
 
-```
+```metro
 %%metro auto_process: true
 ```
 
@@ -101,7 +101,7 @@ regexes. Set `%%metro process_scope:` (or pass `--process-scope`) to the shared
 prefix and each `process:` value becomes the **tail** under that scope, joined
 as `<scope>:<tail>` and matched **literally**:
 
-```
+```metro
 %%metro process_scope: NFCORE_RNASEQ:RNASEQ
 %%metro auto_process: true
 
