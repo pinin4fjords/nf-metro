@@ -26,18 +26,18 @@ import { base } from "../site";
     pagefind: false,
     prev: false,
     next: false,
-  }}
-  head={[
-    {
-      tag: "link",
-      attrs: {
-        rel: "stylesheet",
-        href: "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css",
+    head: [
+      {
+        tag: "link",
+        attrs: {
+          rel: "stylesheet",
+          href: "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css",
+        },
       },
-    },
-  ]}
+    ],
+  }}
 >
-  <div class="nfm-playground">
+  <div class="nfm-playground not-content">
     <main id="split">
       <section id="editor-pane">
         <div class="pane-toolbar">
@@ -72,9 +72,16 @@ import { base } from "../site";
       <section id="preview-pane">
         <div class="pane-toolbar">
           <label
-            >Theme
+            >Brand
             <select id="opt-theme">
-              <option value="nfcore">nfcore (dark)</option>
+              <option value="nfcore">nf-core</option>
+              <option value="seqera">Seqera</option>
+            </select>
+          </label>
+          <label
+            >Mode
+            <select id="opt-mode">
+              <option value="dark">dark</option>
               <option value="light">light</option>
             </select>
           </label>
@@ -90,7 +97,9 @@ import { base } from "../site";
           <label class="check"
             ><input type="checkbox" id="opt-center-ports" /> Centre ports</label
           >
-          <span class="sep"></span>
+        </div>
+
+        <div class="pane-toolbar">
           <span class="group-label">Export</span>
           <button id="btn-svg">SVG</button>
           <button id="btn-png">PNG</button>
@@ -134,8 +143,7 @@ import { base } from "../site";
               </select>
             </label>
             <label class="check"
-              ><input type="checkbox" id="opt-compact-offsets" /> Compact
-              offsets</label
+              ><input type="checkbox" id="opt-compact-offsets" /> Compact offsets</label
             >
             <label
               >Font scale
@@ -245,7 +253,8 @@ import { base } from "../site";
           class="line-picker hidden"
           role="menu"
           aria-label="Choose a line"
-        ></div>
+        >
+        </div>
 
         <div id="boot" class="overlay">
           <div class="spinner"></div>
@@ -299,8 +308,8 @@ import { base } from "../site";
       <div class="modal">
         <h2 id="convert-title">Import Nextflow DAG</h2>
         <p class="muted small">
-          Paste a Nextflow <code>-with-dag</code> Mermaid file to convert it
-          into a starting metro map. Generate one with
+          Paste a Nextflow <code>-with-dag</code> Mermaid file to convert it into
+          a starting metro map. Generate one with
           <code>nextflow run &lt;pipeline&gt; -preview -with-dag dag.mmd</code>
           — see the
           <a href={`${base}nextflow/`} target="_blank" rel="noopener"
@@ -311,8 +320,8 @@ import { base } from "../site";
         <textarea
           id="convert-text"
           rows="8"
-          placeholder="flowchart TB&#10;    subgraph ..."
-        ></textarea>
+          placeholder="flowchart TB
+    subgraph ..."></textarea>
         <div id="convert-error" class="hidden modal-error"></div>
         <div class="modal-actions">
           <button id="convert-cancel" class="ghost">Cancel</button>
@@ -337,8 +346,7 @@ import { base } from "../site";
   ></script>
   <script
     is:inline
-    src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"
-  ></script>
+    src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
   <!--
     app.js lives in public/playground/ and is served at /playground/app.js.
     Its relative fetch calls (wheels/index.json, examples.json) resolve against
@@ -369,6 +377,12 @@ import { base } from "../site";
     display: none;
   }
 
+  /* Hide Starlight's in-content footer (pagination / edit link / built-with);
+     the playground is a full-height tool, so it would only strand a gap. */
+  html:has(#split) .content-panel footer {
+    display: none;
+  }
+
   /* Expand .main-frame into a flex column so .nfm-playground can fill it */
   html:has(#split) .main-frame {
     flex: 1;
@@ -379,18 +393,23 @@ import { base } from "../site";
   }
 
   /*
-    Pass flex through every Starlight wrapper between .main-frame and the
-    article (.main-frame > * catches TwoColumnContent; the named classes
-    catch ContentPanel, sl-container, and the article wrapper).
+    Grow exactly the wrapper chain that contains #split into a flex column.
+    :has(#split) matches only that branch, so the Starlight-injected <script>
+    sibling and the page-title panel (neither contains #split) keep their
+    natural size instead of each claiming flex:1 and halving the column. It
+    also excludes #split itself (a <main>), so the editor/preview panes keep
+    their own side-by-side row layout.
   */
-  html:has(#split) .main-frame > *,
-  html:has(#split) .content-panel,
-  html:has(#split) .sl-container,
-  html:has(#split) .sl-markdown-content {
+  html:has(#split) .main-frame *:has(#split) {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  /* The playground supplies no prose title; drop Starlight's empty title panel. */
+  html:has(#split) main > .content-panel:not(:has(#split)) {
+    display: none;
   }
 
   /* Strip content padding/max-width so .nfm-playground spans the full area */
@@ -406,6 +425,27 @@ import { base } from "../site";
     overflow: hidden;
   }
 
+  /*
+    #split is a CSS grid whose single implicit row is `auto`, so the tall
+    preview render would stretch the row (and the editor pane / CodeMirror)
+    to its content height. Pinning the row to minmax(0, 1fr) keeps it bounded
+    by the viewport-filled column; each pane scrolls its own overflow instead.
+  */
+  html:has(#split) #split {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /*
+    CodeMirror is a flex:1 child of the editor pane. Its default min-height:auto
+    refuses to shrink below the intrinsic content height, so inside Starlight's
+    nested flex/grid chain the wrapper overflows the pane instead of scrolling.
+    min-height:0 lets it fill the pane and scroll its own overflow.
+  */
+  .nfm-playground .CodeMirror,
+  .nfm-playground .CodeMirror-scroll {
+    min-height: 0;
+  }
+
   /* ===================================================================
      Playground CSS — adapted from public/playground/style.css.
      General element selectors (button, select, input) are scoped to
@@ -415,6 +455,7 @@ import { base } from "../site";
 
   /* Custom properties and flex fill */
   .nfm-playground {
+    color-scheme: dark;
     --pg-bg: #0b0e14;
     --pg-panel: #11161f;
     --pg-panel-2: #161c27;
@@ -453,6 +494,25 @@ import { base } from "../site";
       Helvetica,
       Arial,
       sans-serif;
+  }
+
+  /*
+    Follow Starlight's theme toggle, which sets data-theme on <html>. Only the
+    --pg-* values change; color-scheme also drives the inlined preview SVG's
+    light-dark() chrome, so the rendered map tracks the toggle with no re-render.
+  */
+  :root[data-theme="light"] .nfm-playground {
+    color-scheme: light;
+    --pg-bg: #ffffff;
+    --pg-panel: #f6f7f9;
+    --pg-panel-2: #eceef1;
+    --pg-border: #d8dde4;
+    --pg-text: #1f2530;
+    --pg-muted: #5a6472;
+    --pg-accent: #0d9488;
+    --pg-accent-press: #0f766e;
+    --pg-danger: #c0392b;
+    --pg-danger-bg: #fdeaea;
   }
 
   .nfm-playground * {
@@ -647,6 +707,15 @@ import { base } from "../site";
   .nfm-playground .CodeMirror-focused .CodeMirror-selected {
     background: #31507a !important;
   }
+  :root[data-theme="light"] .nfm-playground .CodeMirror-selected {
+    background: #d5dbe6 !important;
+  }
+  :root[data-theme="light"]
+    .nfm-playground
+    .CodeMirror-focused
+    .CodeMirror-selected {
+    background: #b9cdf0 !important;
+  }
   .nfm-playground .CodeMirror-line::selection,
   .nfm-playground .CodeMirror-line > span::selection {
     background: #31507a;
@@ -681,7 +750,7 @@ import { base } from "../site";
   }
 
   #preview-pane {
-    background: #0e1219;
+    background: var(--bg);
   }
   #preview {
     flex: 1;
@@ -742,7 +811,7 @@ import { base } from "../site";
   .overlay {
     position: absolute;
     inset: 0;
-    background: rgba(11, 14, 20, 0.92);
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -793,12 +862,12 @@ import { base } from "../site";
 
   .report-btn {
     margin-left: auto;
-    border-color: var(--danger) !important;
-    color: var(--danger) !important;
+    color: var(--muted) !important;
   }
   .report-btn:hover {
-    border-color: var(--danger) !important;
-    background: var(--danger-bg) !important;
+    color: var(--text) !important;
+    border-color: var(--muted) !important;
+    background: var(--panel) !important;
   }
 
   .modal-overlay {

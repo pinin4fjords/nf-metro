@@ -69,9 +69,16 @@
         <section id="preview-pane">
           <div class="pane-toolbar">
             <label
-              >Theme
+              >Brand
               <select id="opt-theme">
-                <option value="nfcore">nfcore (dark)</option>
+                <option value="nfcore">nf-core</option>
+                <option value="seqera">Seqera</option>
+              </select>
+            </label>
+            <label
+              >Mode
+              <select id="opt-mode">
+                <option value="dark">dark</option>
                 <option value="light">light</option>
               </select>
             </label>
@@ -88,7 +95,9 @@
               ><input type="checkbox" id="opt-center-ports" /> Centre
               ports</label
             >
-            <span class="sep"></span>
+          </div>
+
+          <div class="pane-toolbar">
             <span class="group-label">Export</span>
             <button id="btn-svg">SVG</button>
             <button id="btn-png">PNG</button>
