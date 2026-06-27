@@ -1,0 +1,584 @@
+/* ============================================================
+   nf-metro docs - Seqera brand theme for Starlight.
+   Light is the default Seqera canvas (pure white, brand-dark text);
+   dark is a fully-neutral grey scene. Single green voltage (#31C9AC)
+   used sparingly on CTAs, active state, and the logo mark.
+   Fonts: Degular (display/headings/wordmark), Inter (body),
+          JetBrains Mono (code).
+   Tokens sourced from seqeralabs/web DESIGN.md.
+   ============================================================ */
+
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-700.css";
+
+/* Degular (Seqera display face) is provided by Astro's Fonts API - see the
+   `fonts` config in astro.config.mjs and the <Font> in src/components/Head.astro,
+   which emit the @font-face (+ a metric-matched fallback) and preload it.
+   `--nfm-degular` is the cssVariable it exposes. */
+
+/* ---- Seqera tokens: LIGHT (default canvas) ---- */
+:root {
+  --nfm-accent: #31c9ac; /* Seqera Green - the single brand voltage  */
+  --nfm-accent-hover: #0cae8e; /* Green/700                                */
+  --nfm-accent-text: #065647; /* Green/1000 - WCAG-safe green text/links  */
+  --nfm-accent-soft: #e2f7f3; /* Green/100 - soft brand tint surface      */
+  --nfm-brand: #201637; /* Brand dark                               */
+
+  --nfm-bg: #ffffff; /* surface-page                            */
+  --nfm-bg-deep: #f7f7f7; /* code blocks / inset wells               */
+  --nfm-surface: #f7f7f7; /* elevated cards / panels                 */
+  --nfm-surface-2: #eaebeb; /* higher elevation / inline code          */
+  --nfm-line: #dddede; /* border-default                          */
+  --nfm-line-soft: #eaebeb; /* border-muted                            */
+  --nfm-ink: #201637; /* text-default (headlines, strong)        */
+  --nfm-ink-dim: #545555; /* body copy                               */
+  --nfm-ink-mute: #919393; /* metadata, helper text                   */
+
+  --nfm-glow: rgba(49, 201, 172, 0.05);
+  --nfm-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --nfm-display: var(
+    --nfm-degular
+  ); /* Degular + metric-matched fallback, from the Fonts API */
+}
+
+/* ---- Seqera tokens: DARK (fully-neutral grey, no purple tint) ---- */
+:root[data-theme="dark"] {
+  --nfm-accent: #31c9ac; /* constant across modes                    */
+  --nfm-accent-hover: #56d3ba; /* Green/400                                */
+  --nfm-accent-text: #56d3ba; /* green text reads on dark                 */
+  --nfm-accent-soft: #065647; /* surface-brand dark = deep green          */
+  --nfm-brand: #201637;
+
+  --nfm-bg: #242424; /* Grey/1100 - page floor                  */
+  --nfm-bg-deep: #1a1a1a; /* recessed code wells                     */
+  --nfm-surface: #2b2b2b; /* elevated cards / panels                 */
+  --nfm-surface-2: #333333; /* inline code / higher elevation          */
+  --nfm-line: #3a3a3a;
+  --nfm-line-soft: #2e2e2e;
+  --nfm-ink: #ffffff;
+  --nfm-ink-dim: #cfd0d1; /* Grey/400                                */
+  --nfm-ink-mute: #919393; /* Grey/800                                */
+
+  --nfm-glow: rgba(49, 201, 172, 0.07);
+}
+
+/* ---- Drive Starlight tokens from the brand ---- */
+:root,
+:root[data-theme="light"] {
+  --sl-color-bg: var(--nfm-bg);
+  --sl-color-bg-nav: var(--nfm-bg);
+  --sl-color-bg-sidebar: var(--nfm-bg);
+  --sl-color-bg-inline-code: var(--nfm-surface-2);
+  --sl-color-bg-accent: var(--nfm-accent);
+
+  --sl-color-text: var(--nfm-ink-dim);
+  --sl-color-text-accent: var(--nfm-accent-text);
+  --sl-color-text-invert: var(--nfm-brand);
+
+  --sl-color-white: var(--nfm-ink);
+  --sl-color-gray-1: var(--nfm-ink);
+  --sl-color-gray-2: var(--nfm-ink-dim);
+  --sl-color-gray-3: var(--nfm-ink-mute);
+  --sl-color-gray-4: var(--nfm-ink-mute);
+  --sl-color-gray-5: var(--nfm-line);
+  --sl-color-gray-6: var(--nfm-surface);
+  --sl-color-gray-7: var(--nfm-surface-2);
+  --sl-color-black: var(--nfm-bg);
+
+  --sl-color-hairline-light: var(--nfm-line-soft);
+  --sl-color-hairline: var(--nfm-line-soft);
+  --sl-color-hairline-shade: var(--nfm-line);
+
+  --sl-color-accent-low: var(--nfm-accent-soft);
+  --sl-color-accent: var(--nfm-accent-text);
+  --sl-color-accent-high: var(--nfm-ink);
+
+  --sl-color-bg-codeblock: var(--nfm-bg-deep);
+
+  --sl-font:
+    "Inter", -apple-system, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --sl-font-system-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+}
+
+/* wordmark metro-line colours: light + dark variants of the Nextflow green */
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  --nfm-line-a: #31c9ac; /* Nextflow Green/500 - light line */
+  --nfm-line-b: #0a967b; /* Nextflow Green/800 - dark line  */
+}
+
+/* very subtle brand glow behind the page */
+body {
+  background:
+    radial-gradient(1100px 560px at 82% -10%, var(--nfm-glow), transparent 60%),
+    var(--sl-color-bg);
+}
+
+/* ---- Headings in Degular, Seqera negative tracking ---- */
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6),
+.content-panel h1#_top {
+  font-family: var(--nfm-display);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.sidebar-content .group-label > span,
+summary .group-label span {
+  letter-spacing: 0.02em;
+}
+
+/* inline code inside headings reads large at the heading font-size; nudge down */
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code,
+.content-panel h1#_top code {
+  font-size: 90%;
+}
+
+/* active sidebar link: green tint + green text */
+nav.sidebar a[aria-current="page"],
+nav.sidebar a[aria-current="page"]:hover {
+  color: var(--nfm-accent-text);
+  background-color: var(--nfm-accent-soft);
+}
+
+/* links in prose carry the brand green */
+.sl-markdown-content a {
+  color: var(--nfm-accent-text);
+}
+
+/* ============================================================
+   Logo wordmark (SiteTitle + hero).
+   ============================================================ */
+.nfm-logo {
+  display: block;
+}
+
+.site-title.nfm {
+  display: inline-flex;
+  align-items: center;
+}
+.site-title.nfm .nfm-logo {
+  height: 40px;
+  width: auto;
+}
+
+/* ============================================================
+   Custom top navbar (Header.astro)
+   ============================================================ */
+.nfm-topnav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.nfm-topnav a.link {
+  font-family: var(--sl-font-system-mono);
+  font-size: 13px;
+  color: var(--nfm-ink-dim);
+  padding: 7px 11px;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    color 0.2s var(--nfm-ease),
+    background 0.2s var(--nfm-ease);
+}
+.nfm-topnav a.link:hover {
+  color: var(--nfm-ink);
+  background: var(--nfm-surface-2);
+}
+
+.nfm-ver-select {
+  font-family: var(--sl-font-system-mono);
+  font-size: 12px;
+  color: var(--nfm-ink-dim);
+  padding: 4px 26px 4px 10px;
+  border: 1px solid var(--nfm-line);
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  appearance: none;
+  background-color: transparent;
+  /* Caret chevron drawn inline so no external asset is needed. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  transition:
+    color 0.2s var(--nfm-ease),
+    border-color 0.2s var(--nfm-ease);
+}
+.nfm-ver-select:hover {
+  color: var(--nfm-ink);
+  border-color: var(--nfm-accent);
+}
+.nfm-ver-select option {
+  color: var(--nfm-ink);
+  background: var(--nfm-surface-2);
+}
+
+.nfm-github {
+  display: inline-flex;
+  align-items: center;
+  color: var(--nfm-ink-dim);
+  transition: color 0.2s var(--nfm-ease);
+}
+.nfm-github:hover {
+  color: var(--nfm-ink);
+}
+
+.nfm-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--nfm-ink-dim);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.2s var(--nfm-ease),
+    background 0.2s var(--nfm-ease);
+}
+.nfm-theme-toggle:hover {
+  color: var(--nfm-ink);
+  background: var(--nfm-surface-2);
+}
+.nfm-theme-toggle svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+.nfm-theme-toggle .moon {
+  display: none;
+}
+:root[data-theme="dark"] .nfm-theme-toggle .sun {
+  display: none;
+}
+:root[data-theme="dark"] .nfm-theme-toggle .moon {
+  display: block;
+}
+
+/* ============================================================
+   Wider content column.
+   Starlight's default is 45rem, which squeezes the multi-column
+   CLI/option tables. Widen the whole content column to 56rem.
+   https://github.com/withastro/starlight/discussions/2180
+   ============================================================ */
+:root {
+  --sl-content-width: 56rem;
+}
+
+/* ============================================================
+   HOME PAGE  (rendered by src/pages/index.astro, scoped under .home)
+   ============================================================ */
+.home {
+  color: var(--nfm-ink-dim);
+  font-size: 16px;
+  line-height: 1.6;
+}
+.home a {
+  color: inherit;
+  text-decoration: none;
+}
+.home .mono {
+  font-family: var(--sl-font-system-mono);
+}
+.home code {
+  font-family: var(--sl-font-system-mono);
+  font-size: 0.88em;
+  background: var(--nfm-surface-2);
+  color: var(--nfm-ink);
+  padding: 0.12em 0.4em;
+  border-radius: 4px;
+}
+
+/* left-aligned home, wider than the prose column */
+.sl-container:has(.home) {
+  max-width: 64rem;
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+}
+
+.home .hero {
+  padding: 4px 0 56px;
+}
+/* project name writ large - the hero wordmark (~2× size, capped to the column) */
+.home .hero-name {
+  margin: 0 0 26px;
+  padding: 0;
+  border: 0;
+  line-height: 1;
+}
+.home .hero .nfm-logo.big {
+  width: 100%;
+  max-width: 860px;
+  height: auto;
+  display: block;
+}
+.home .hero-sub {
+  max-width: 60ch;
+  font-size: 19px;
+  color: var(--nfm-ink-dim);
+  margin: 0 0 28px;
+}
+
+.home .cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.home .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--sl-font-system-mono);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 18px;
+  border-radius: 4px;
+  border: 1px solid;
+  cursor: pointer;
+  transition:
+    background 0.2s var(--nfm-ease),
+    color 0.2s var(--nfm-ease),
+    border-color 0.2s var(--nfm-ease);
+}
+.home .btn .arr {
+  transition: transform 0.2s var(--nfm-ease);
+}
+.home .btn:hover .arr {
+  transform: translateX(3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .home .btn:hover .arr {
+    transform: none;
+  }
+}
+.home .btn-primary {
+  background: var(--nfm-accent);
+  color: var(--nfm-brand);
+  border-color: var(--nfm-accent-hover);
+}
+.home .btn-primary:hover {
+  background: var(--nfm-accent-hover);
+  color: #fff;
+}
+.home .btn-ghost {
+  background: transparent;
+  color: var(--nfm-ink);
+  border-color: var(--nfm-line);
+}
+.home .btn-ghost:hover {
+  border-color: var(--nfm-accent);
+}
+.home .btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* hero map figure */
+.home .hero-map {
+  margin-top: 40px;
+  border: 1px solid var(--nfm-line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--nfm-surface);
+  box-shadow: 0 25px 50px -22px rgba(32, 22, 55, 0.25);
+}
+.home .hero-map img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* code block */
+.home .code {
+  border: 1px solid var(--nfm-line-soft);
+  border-radius: 4px;
+  background: var(--nfm-bg-deep);
+  font-family: var(--sl-font-system-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow: hidden;
+}
+.home .code pre {
+  margin: 0;
+  padding: 13px 16px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.home .code .ps {
+  color: var(--nfm-accent-text);
+}
+.home .code .flag {
+  color: var(--nfm-accent-text);
+}
+.home .code .arg {
+  color: var(--nfm-ink-dim);
+}
+.home .code .cmt {
+  color: var(--nfm-ink-mute);
+}
+
+/* sections */
+.home section {
+  padding-bottom: 56px;
+}
+.home .section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.home h2 {
+  font-family: var(--nfm-display);
+  font-weight: 600;
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.025em;
+  margin: 0;
+  color: var(--nfm-ink);
+  border: 0;
+  padding: 0;
+}
+.home .lede {
+  max-width: 68ch;
+  color: var(--nfm-ink-dim);
+  font-size: 16.5px;
+  margin: 6px 0 0;
+}
+
+/* install: tabbed card */
+.home .install-card {
+  margin-top: 24px;
+  border: 1px solid var(--nfm-line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--nfm-bg);
+}
+.home .tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--nfm-line);
+  background: var(--nfm-surface);
+}
+.home .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: var(--sl-font-system-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--nfm-ink-mute);
+  padding: 12px 18px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition:
+    color 0.15s var(--nfm-ease),
+    border-color 0.15s var(--nfm-ease),
+    background 0.15s var(--nfm-ease);
+}
+.home .tab svg {
+  width: 16px;
+  height: 16px;
+  opacity: 0.85;
+}
+.home .tab:hover {
+  color: var(--nfm-ink);
+  background: var(--nfm-bg);
+}
+.home .tab.is-active {
+  color: var(--nfm-ink);
+  background: var(--nfm-bg);
+  border-bottom-color: var(--nfm-accent);
+}
+.home .tab-panel {
+  padding: 18px 20px;
+}
+.home .tab-panel[hidden] {
+  display: none;
+}
+.home .tab-panel p {
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  color: var(--nfm-ink-dim);
+}
+.home .tab-panel .code {
+  font-size: 13px;
+}
+
+/* multi-line code block (quick start) */
+.home .code.block {
+  margin-top: 22px;
+}
+
+/* explore cards */
+.home .explore {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.home .ex-card {
+  display: block;
+  border: 1px solid var(--nfm-line);
+  padding: 18px 20px;
+  background: var(--nfm-bg);
+  transition:
+    border-color 0.15s var(--nfm-ease),
+    background 0.15s var(--nfm-ease);
+}
+.home .ex-card:hover {
+  border-color: var(--nfm-accent);
+  background: var(--nfm-surface);
+}
+.home .ex-card h3 {
+  font-family: var(--nfm-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+  color: var(--nfm-ink);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.home .ex-card .arr {
+  color: var(--nfm-accent-text);
+  transition: transform 0.2s var(--nfm-ease);
+}
+.home .ex-card:hover .arr {
+  transform: translateX(3px);
+}
+.home .ex-card p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--nfm-ink-mute);
+}
+.home .explore-sec {
+  border-bottom: 0;
+}
+
+@media (max-width: 720px) {
+  .home .explore {
+    grid-template-columns: 1fr;
+  }
+  .home .tabs {
+    overflow-x: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home .ex-card:hover .arr {
+    transform: none;
+  }
+}

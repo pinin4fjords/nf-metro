@@ -2,7 +2,7 @@
 """Generate the playground's grouped example manifest.
 
 The browser playground is a static page, so it cannot read the repo's example
-maps directly. This writes their contents to ``docs/playground/examples.json``
+maps directly. This writes their contents to ``website/public/playground/examples.json``
 (an ordered list of ``{"label", "entries": [{"name", "mmd"}]}`` groups) for the
 "load example" dropdown to fetch.
 
@@ -26,7 +26,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import build_gallery as gallery  # noqa: E402  (path set above)
 
-OUTPUT = ROOT / "docs" / "playground" / "examples.json"
+OUTPUT = ROOT / "website" / "public" / "playground" / "examples.json"
 
 # Mirrors render_test_fixtures() in build_gallery.py.
 TEST_FIXTURE_STEMS = ("multiline_labels", "rnaseq_simple", "genomeassembly_organellar")

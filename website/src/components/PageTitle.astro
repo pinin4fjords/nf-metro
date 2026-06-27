@@ -1,0 +1,28 @@
+---
+/* Override of Starlight's PageTitle so the page title can carry inline code.
+   Starlight renders the frontmatter `title` as plain text, so backtick-wrapped
+   segments (e.g. `data-*`) would otherwise show their literal backticks. We
+   split the title on backticks and render the odd segments as <code>. */
+const title = Astro.locals.starlightRoute.entry.data.title;
+const segments = title.split("`");
+---
+
+<h1 id="_top">
+  {
+    segments.map((segment, i) =>
+      i % 2 === 1 ? <code>{segment}</code> : segment,
+    )
+  }
+</h1>
+
+<style>
+  @layer starlight.core {
+    h1 {
+      margin-top: 1rem;
+      font-size: var(--sl-text-h1);
+      line-height: var(--sl-line-height-headings);
+      font-weight: 600;
+      color: var(--sl-color-white);
+    }
+  }
+</style>

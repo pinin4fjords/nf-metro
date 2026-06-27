@@ -6,19 +6,19 @@ Platform, no plugin. Stock Nextflow `-with-weblog` posts task events to
 stations go pending -> queued -> running -> done (or failed) with a per-sample
 count.
 
-```
+```text
 nextflow run --with-weblog ──HTTP──> nf-metro serve ──SSE──> browser overlay
    (task events)                   (map + process mapping)   (stations light up)
 ```
 
 ## Files
 
-| File | Role |
-|------|------|
-| `pipeline.mmd` | The metro map. `%%metro process:` directives tie each station to a Nextflow process name. |
-| `workflow/main.nf` | A toy RNA-seq-shaped workflow whose processes only `sleep` over 4 samples. Three branches (QC / alignment / quantification) reconverging at MultiQC. |
-| `workflow/nextflow.config` | Local executor, throttled so RUNNING states are visible. |
-| `processes.txt` | The process names this map should cover, for `check-mapping`. |
+| File                       | Role                                                                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pipeline.mmd`             | The metro map. `%%metro process:` directives tie each station to a Nextflow process name.                                                            |
+| `workflow/main.nf`         | A toy RNA-seq-shaped workflow whose processes only `sleep` over 4 samples. Three branches (QC / alignment / quantification) reconverging at MultiQC. |
+| `workflow/nextflow.config` | Local executor, throttled so RUNNING states are visible.                                                                                             |
+| `processes.txt`            | The process names this map should cover, for `check-mapping`.                                                                                        |
 
 ## Run it
 

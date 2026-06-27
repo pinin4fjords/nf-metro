@@ -14,54 +14,54 @@ nf-metro render examples/topologies/wide_fan_out.mmd -o /tmp/wide_fan_out.svg
 
 Each fixture is tagged with the layout class(es) it primarily exercises. Use this table to find a fixture that stresses a specific engine subsystem.
 
-| Fixture | Structural class(es) |
-|---|---|
-| `single_section.mmd` | minimal / no-port edge case |
-| `deep_linear.mmd` | linear chain / fold threshold |
-| `parallel_independent.mmd` | disconnected components / row stacking |
-| `wide_fan_out.mmd` | wide fan-out / junction creation |
-| `wide_fan_in.mmd` | wide fan-in / bundle ordering at L-corners |
-| `fan_in_merge.mmd` | same-line fan-in / merge-junction routing |
-| `multi_input_convergence.mmd` | single-line multi-source convergence |
-| `section_diamond.mmd` | section-level fork-join |
-| `uneven_diamond.mmd` | fork-join with unequal-length branches / distinct track per branch (issue #610) |
-| `symmetric_diamond_beside_wide_fan.mmd` | symmetric 2-way diamond sharing a section with a wider fan; straddles its trunk evenly but at full pitch (issue #1076) |
-| `shared_sink_parallel.mmd` | parallel multi-line branches with shared source and sink |
-| `asymmetric_tree.mmd` | unbalanced branching / variable branch depth |
-| `complex_multipath.mmd` | per-line route variation / bundle slot reservation |
-| `trunk_through_fan.mmd` | trunk bundle entering and exiting a section that has an internal fork-join diamond |
-| `terminal_symmetric_fan.mmd` | two-line bundle fanning out to three terminal nodes in a reporting section (no inter-terminal edges) |
-| `multi_line_bundle.mmd` | dense bundle / tall station pills |
-| `interchange_lane_reorder.mmd` | auto-interchange / interleaving-lane reorder (issue #779) |
-| `mismatched_tracks.mmd` | per-line track mismatch between sections |
-| `mixed_bundle_column.mmd` | mixed-cardinality fan-out into stacked column |
-| `mixed_port_sides.mmd` | multi-side exit ports (RIGHT + BOTTOM) |
-| `off_track_convergence.mmd` | multiple off-track inputs converging on one consumer |
-| `off_track_convergence_multiline.mmd` | multiple off-track inputs converging on one consumer, carrying multiple lines |
-| `upward_bypass.mmd` | tall section bypass (upward gap) |
-| `bypass_label_rake.mmd` | bypass V climbs clear of a wide bypassed-station label |
-| `rnaseq_lite.mmd` | realistic pipeline / TB+LR mix / diamond |
-| `variant_calling.mmd` | realistic pipeline / asymmetric fork-join / 4-way fan-in |
-| `funcprofiler_upstream.mmd` | dense fan-out + fan-in / known almost-horizontal defect |
-| `fold_fan_across.mmd` | fan-in/out across fold boundary / rowspan optimization |
-| `fold_double.mmd` | double-fold serpentine (LR -> RL -> LR) |
-| `fold_stacked_branch.mmd` | stacked branches feeding through fold |
-| `u_turn_fold.mmd` | fold with side line joining mid-trunk and leaving pre-end |
-| `branch_fold_stability.mmd` | wide side branch at its fold threshold / intra-section edit must not re-grid the downstream consumer (issue #1082) |
-| `wide_label_fan.mmd` | wide station labels / auto label-wrap + column-spread (issue #405) |
-| `wrapped_label_trunk.mmd` | wrapped label on a lower track pulled off the metro line above (issue #617) |
-| `route_around_intervening.mmd` | inter-section line detouring around an intervening section box (issue #484) |
-| `self_crossing_bridge.mmd` | same-colour self-crossing bridge glyph (issue #484) |
-| `convergence_stacked_sink.mmd` | convergence return-row stacked-sibling migration (issue #484) |
-| `cross_row_gap_wrap.mmd` | cross-row feed wrapping via the inter-row gap, no counter-flow (issue #484) |
-| `stacked_lr_serpentine.mmd` | tall rowspan section alongside stacked single-row sections in the same column |
-| `around_section_below.mmd` | inter-section edge routing around a section that sits below and between source and target |
-| `inter_row_wrap_clearance.mmd` | three-line bundle exiting a top section right and entering a bottom section left via the inter-row gap |
-| `tb_bottom_entry_flow_start.mmd` | flow-axis entry declared opposite its consumer (TB `entry: bottom` feeding the top station) re-anchored so the line does not fold back through the trunk (issue #885) |
-| `tb_lr_exit_left.mmd` | TB section leaving through a LEFT exit into a section below-left (`_route_tb_lr_exit` LEFT arm) (issue #917) |
-| `tb_left_exit_step.mmd` | TB section LEFT exit into a lower right-entry section: the exit bundle steps west-down-west and is routed as a parallel staircase that keeps the feed order (issue #671) |
-| `tb_lr_exit_right.mmd` | TB section leaving through a RIGHT exit into the next forward section (`_route_tb_lr_exit` RIGHT arm) (issue #917) |
-| `tb_internal_diagonal.mmd` | symmetric fan-out inside a TB section onto X tracks either side of the hub, routing both internal edges as 45-degree diagonals (`_route_tb_internal` diagonal arm) (issue #917) |
+| Fixture                                 | Structural class(es)                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `single_section.mmd`                    | minimal / no-port edge case                                                                                                                                                     |
+| `deep_linear.mmd`                       | linear chain / fold threshold                                                                                                                                                   |
+| `parallel_independent.mmd`              | disconnected components / row stacking                                                                                                                                          |
+| `wide_fan_out.mmd`                      | wide fan-out / junction creation                                                                                                                                                |
+| `wide_fan_in.mmd`                       | wide fan-in / bundle ordering at L-corners                                                                                                                                      |
+| `fan_in_merge.mmd`                      | same-line fan-in / merge-junction routing                                                                                                                                       |
+| `multi_input_convergence.mmd`           | single-line multi-source convergence                                                                                                                                            |
+| `section_diamond.mmd`                   | section-level fork-join                                                                                                                                                         |
+| `uneven_diamond.mmd`                    | fork-join with unequal-length branches / distinct track per branch (issue #610)                                                                                                 |
+| `symmetric_diamond_beside_wide_fan.mmd` | symmetric 2-way diamond sharing a section with a wider fan; straddles its trunk evenly but at full pitch (issue #1076)                                                          |
+| `shared_sink_parallel.mmd`              | parallel multi-line branches with shared source and sink                                                                                                                        |
+| `asymmetric_tree.mmd`                   | unbalanced branching / variable branch depth                                                                                                                                    |
+| `complex_multipath.mmd`                 | per-line route variation / bundle slot reservation                                                                                                                              |
+| `trunk_through_fan.mmd`                 | trunk bundle entering and exiting a section that has an internal fork-join diamond                                                                                              |
+| `terminal_symmetric_fan.mmd`            | two-line bundle fanning out to three terminal nodes in a reporting section (no inter-terminal edges)                                                                            |
+| `multi_line_bundle.mmd`                 | dense bundle / tall station pills                                                                                                                                               |
+| `interchange_lane_reorder.mmd`          | auto-interchange / interleaving-lane reorder (issue #779)                                                                                                                       |
+| `mismatched_tracks.mmd`                 | per-line track mismatch between sections                                                                                                                                        |
+| `mixed_bundle_column.mmd`               | mixed-cardinality fan-out into stacked column                                                                                                                                   |
+| `mixed_port_sides.mmd`                  | multi-side exit ports (RIGHT + BOTTOM)                                                                                                                                          |
+| `off_track_convergence.mmd`             | multiple off-track inputs converging on one consumer                                                                                                                            |
+| `off_track_convergence_multiline.mmd`   | multiple off-track inputs converging on one consumer, carrying multiple lines                                                                                                   |
+| `upward_bypass.mmd`                     | tall section bypass (upward gap)                                                                                                                                                |
+| `bypass_label_rake.mmd`                 | bypass V climbs clear of a wide bypassed-station label                                                                                                                          |
+| `rnaseq_lite.mmd`                       | realistic pipeline / TB+LR mix / diamond                                                                                                                                        |
+| `variant_calling.mmd`                   | realistic pipeline / asymmetric fork-join / 4-way fan-in                                                                                                                        |
+| `funcprofiler_upstream.mmd`             | dense fan-out + fan-in / known almost-horizontal defect                                                                                                                         |
+| `fold_fan_across.mmd`                   | fan-in/out across fold boundary / rowspan optimization                                                                                                                          |
+| `fold_double.mmd`                       | double-fold serpentine (LR -> RL -> LR)                                                                                                                                         |
+| `fold_stacked_branch.mmd`               | stacked branches feeding through fold                                                                                                                                           |
+| `u_turn_fold.mmd`                       | fold with side line joining mid-trunk and leaving pre-end                                                                                                                       |
+| `branch_fold_stability.mmd`             | wide side branch at its fold threshold / intra-section edit must not re-grid the downstream consumer (issue #1082)                                                              |
+| `wide_label_fan.mmd`                    | wide station labels / auto label-wrap + column-spread (issue #405)                                                                                                              |
+| `wrapped_label_trunk.mmd`               | wrapped label on a lower track pulled off the metro line above (issue #617)                                                                                                     |
+| `route_around_intervening.mmd`          | inter-section line detouring around an intervening section box (issue #484)                                                                                                     |
+| `self_crossing_bridge.mmd`              | same-colour self-crossing bridge glyph (issue #484)                                                                                                                             |
+| `convergence_stacked_sink.mmd`          | convergence return-row stacked-sibling migration (issue #484)                                                                                                                   |
+| `cross_row_gap_wrap.mmd`                | cross-row feed wrapping via the inter-row gap, no counter-flow (issue #484)                                                                                                     |
+| `stacked_lr_serpentine.mmd`             | tall rowspan section alongside stacked single-row sections in the same column                                                                                                   |
+| `around_section_below.mmd`              | inter-section edge routing around a section that sits below and between source and target                                                                                       |
+| `inter_row_wrap_clearance.mmd`          | three-line bundle exiting a top section right and entering a bottom section left via the inter-row gap                                                                          |
+| `tb_bottom_entry_flow_start.mmd`        | flow-axis entry declared opposite its consumer (TB `entry: bottom` feeding the top station) re-anchored so the line does not fold back through the trunk (issue #885)           |
+| `tb_lr_exit_left.mmd`                   | TB section leaving through a LEFT exit into a section below-left (`_route_tb_lr_exit` LEFT arm) (issue #917)                                                                    |
+| `tb_left_exit_step.mmd`                 | TB section LEFT exit into a lower right-entry section: the exit bundle steps west-down-west and is routed as a parallel staircase that keeps the feed order (issue #671)        |
+| `tb_lr_exit_right.mmd`                  | TB section leaving through a RIGHT exit into the next forward section (`_route_tb_lr_exit` RIGHT arm) (issue #917)                                                              |
+| `tb_internal_diagonal.mmd`              | symmetric fan-out inside a TB section onto X tracks either side of the hub, routing both internal edges as 45-degree diagonals (`_route_tb_internal` diagonal arm) (issue #917) |
 
 ---
 
@@ -243,7 +243,7 @@ These minimal fixtures each isolate one layout/routing mechanism that was fixed 
 
 ### Route Around Intervening
 
-Three sections in a row (Source, Middle, Target). The `skip` line runs Source to Target directly, skipping Middle. Tests that the inter-section edge detours *around* Middle's box (dropping into the inter-row band below it) rather than slicing through its interior. Backs `test_no_route_passes_through_unrelated_section` and the `_guard_no_route_through_section` guard.
+Three sections in a row (Source, Middle, Target). The `skip` line runs Source to Target directly, skipping Middle. Tests that the inter-section edge detours _around_ Middle's box (dropping into the inter-row band below it) rather than slicing through its interior. Backs `test_no_route_passes_through_unrelated_section` and the `_guard_no_route_through_section` guard.
 
 ### Self-Crossing Bridge
 
@@ -299,122 +299,122 @@ python scripts/list_topology_fixtures.py
 
 ### Bypass variants
 
-| Fixture | What it tests |
-|---|---|
-| `bypass_fan_in_outer_slot.mmd` | Fan-in where the outermost bypass V lands in a slot beyond the inner bypasses - tests bypass slot reservation under mixed cardinality |
-| `bypass_gap2_rightward_overflow.mmd` | Seven-line rightward bypass gap2 overflow clamp - tests that a wide bundle does not push bypass geometry off the canvas edge |
+| Fixture                              | What it tests                                                                                                                                                                                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bypass_fan_in_outer_slot.mmd`       | Fan-in where the outermost bypass V lands in a slot beyond the inner bypasses - tests bypass slot reservation under mixed cardinality                                                                                                                                                            |
+| `bypass_gap2_rightward_overflow.mmd` | Seven-line rightward bypass gap2 overflow clamp - tests that a wide bundle does not push bypass geometry off the canvas edge                                                                                                                                                                     |
 | `bypass_leftward_far_side_entry.mmd` | Seven-line reverse-flow bypass into a far-side LEFT entry (source LEFT-exit to the right, target entry on its own far edge) - the bundle wraps around below into the port; the half-turn transposes it, so the target section's line order is reversed to match and no line crosses (issue #974) |
-| `bypass_label_rake_left.mmd` | Bypass V climbing past a wide station label on the left side - extends `bypass_label_rake` for the left-overrun direction |
-| `bypass_label_rake_wide.mmd` | Bypass V past an extra-wide label - tests the rake shift under maximal label width |
-| `bypass_v_tight.mmd` | Two-line bypass V with minimal x-spacing - tests bypass geometry under the tightest legal x-spacing |
+| `bypass_label_rake_left.mmd`         | Bypass V climbing past a wide station label on the left side - extends `bypass_label_rake` for the left-overrun direction                                                                                                                                                                        |
+| `bypass_label_rake_wide.mmd`         | Bypass V past an extra-wide label - tests the rake shift under maximal label width                                                                                                                                                                                                               |
+| `bypass_v_tight.mmd`                 | Two-line bypass V with minimal x-spacing - tests bypass geometry under the tightest legal x-spacing                                                                                                                                                                                              |
 
 ### Compact layout / gap heuristics
 
-| Fixture | What it tests |
-|---|---|
-| `compact_gap_peer_conflict.mmd` | Compaction gap peer conflict - two peer sections compete for the same gap; tests that compact offsets resolve without overlap |
-| `compact_hidden_passthrough.mmd` | Hidden pass-through compact - a hidden station sits in the compact gap; tests that compaction skips hidden-station rows correctly |
-| `corridor_narrow_gap_fallback.mmd` | Corridor narrow gap fallback - an inter-section corridor is too narrow to route cleanly; tests the fallback routing path |
-| `divergent_fanout_split.mmd` | Divergent fanout split - a fan-out where targets diverge immediately after the junction; tests that no false-positive overlap guard fires |
-| `fan_bypass_nesting.mmd` | Fan-out combined with a nested bypass - tests that bypass nesting under a fan-out does not violate the crossing invariant |
+| Fixture                            | What it tests                                                                                                                             |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `compact_gap_peer_conflict.mmd`    | Compaction gap peer conflict - two peer sections compete for the same gap; tests that compact offsets resolve without overlap             |
+| `compact_hidden_passthrough.mmd`   | Hidden pass-through compact - a hidden station sits in the compact gap; tests that compaction skips hidden-station rows correctly         |
+| `corridor_narrow_gap_fallback.mmd` | Corridor narrow gap fallback - an inter-section corridor is too narrow to route cleanly; tests the fallback routing path                  |
+| `divergent_fanout_split.mmd`       | Divergent fanout split - a fan-out where targets diverge immediately after the junction; tests that no false-positive overlap guard fires |
+| `fan_bypass_nesting.mmd`           | Fan-out combined with a nested bypass - tests that bypass nesting under a fan-out does not violate the crossing invariant                 |
 
 ### Cross-column perpendicular drop / perp entry
 
-| Fixture | What it tests |
-|---|---|
-| `cross_col_top_entry.mmd` | Cross-column top entry - an LR section's TOP-entry port receiving from a horizontally-offset source; tests the dead-room removal fix (#890) |
-| `cross_column_perp_drop.mmd` | Cross-column perpendicular drop - a line dropping from an LR section into a section below and to one side (#879) |
-| `cross_column_perp_drop_far_exit.mmd` | Cross-column perp drop with a far-side exit - the source exits from the far face, requiring the lead-in to span only the source column (#892) |
-| `lr_perp_bottom_exit_perp_entry.mmd` | LR section exiting via a BOTTOM port into a BOTTOM-entry section below - tests the perpendicular-to-perpendicular drop path |
-| `lr_perp_bottom_exit_side_entry.mmd` | LR section BOTTOM exit into a side-entry section below - tests the BOTTOM-exit / side-entry routing arm |
-| `lr_perp_top_exit_perp_entry.mmd` | LR section TOP exit into a TOP-entry section above - tests the perpendicular-to-perpendicular upward drop |
-| `lr_perp_top_exit_perp_entry_diverging.mmd` | LR section TOP exit into a diverging TOP-entry target - tests the same path with multiple lines diverging at the entry port |
-| `lr_perp_top_exit_side_entry.mmd` | LR section TOP exit into a side-entry section - tests the TOP-exit / side-entry routing arm |
+| Fixture                                     | What it tests                                                                                                                                 |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cross_col_top_entry.mmd`                   | Cross-column top entry - an LR section's TOP-entry port receiving from a horizontally-offset source; tests the dead-room removal fix (#890)   |
+| `cross_column_perp_drop.mmd`                | Cross-column perpendicular drop - a line dropping from an LR section into a section below and to one side (#879)                              |
+| `cross_column_perp_drop_far_exit.mmd`       | Cross-column perp drop with a far-side exit - the source exits from the far face, requiring the lead-in to span only the source column (#892) |
+| `lr_perp_bottom_exit_perp_entry.mmd`        | LR section exiting via a BOTTOM port into a BOTTOM-entry section below - tests the perpendicular-to-perpendicular drop path                   |
+| `lr_perp_bottom_exit_side_entry.mmd`        | LR section BOTTOM exit into a side-entry section below - tests the BOTTOM-exit / side-entry routing arm                                       |
+| `lr_perp_top_exit_perp_entry.mmd`           | LR section TOP exit into a TOP-entry section above - tests the perpendicular-to-perpendicular upward drop                                     |
+| `lr_perp_top_exit_perp_entry_diverging.mmd` | LR section TOP exit into a diverging TOP-entry target - tests the same path with multiple lines diverging at the entry port                   |
+| `lr_perp_top_exit_side_entry.mmd`           | LR section TOP exit into a side-entry section - tests the TOP-exit / side-entry routing arm                                                   |
 
 ### LR-to-TB top-entry routing
 
-| Fixture | What it tests |
-|---|---|
-| `lr_to_tb_top_drop.mmd` | Single line from an LR section dropping into a TB section's TOP port - tests the clean vertical drop path |
-| `lr_to_tb_top_drop_two_lines.mmd` | Two-line bundle dropping into a TB TOP port - tests bundle ordering at the drop |
-| `lr_to_tb_top_cross_col.mmd` | LR-to-TB top drop where source and target are in different columns - tests the horizontal lead-in to the vertical drop |
-| `lr_to_tb_top_near_vertical.mmd` | LR-to-TB near-vertical source - the source section is almost directly above the TB target; tests the near-vertical arm |
-| `lr_to_tb_top_two_lines.mmd` | Two lines entering a TB top port from two separate source sections - tests independent drop routing under shared port alignment |
+| Fixture                           | What it tests                                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `lr_to_tb_top_drop.mmd`           | Single line from an LR section dropping into a TB section's TOP port - tests the clean vertical drop path                       |
+| `lr_to_tb_top_drop_two_lines.mmd` | Two-line bundle dropping into a TB TOP port - tests bundle ordering at the drop                                                 |
+| `lr_to_tb_top_cross_col.mmd`      | LR-to-TB top drop where source and target are in different columns - tests the horizontal lead-in to the vertical drop          |
+| `lr_to_tb_top_near_vertical.mmd`  | LR-to-TB near-vertical source - the source section is almost directly above the TB target; tests the near-vertical arm          |
+| `lr_to_tb_top_two_lines.mmd`      | Two lines entering a TB top port from two separate source sections - tests independent drop routing under shared port alignment |
 
 ### Dogleg routing
 
-| Fixture | What it tests |
-|---|---|
-| `dogleg_exempt_distinct.mmd` | Dogleg exemption under the distinct-line regime - a dogleg that should be suppressed when lines do not share a trunk (#939) |
-| `dogleg_exempt_sameline.mmd` | Dogleg exemption under the same-line regime - the same topology with a shared line; tests that the same dogleg is correctly permitted |
-| `dogleg_twoline_fanout.mmd` | Two-line fan-out producing a dogleg - tests that the dogleg guard fires correctly on a minimal fan-out case |
-| `exit_corner_offset_dogleg.mmd` | Exit-corner offset dogleg (#939) - an off-grid exit corner produces a cosmetic jog; pinned as a known defect |
+| Fixture                         | What it tests                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `dogleg_exempt_distinct.mmd`    | Dogleg exemption under the distinct-line regime - a dogleg that should be suppressed when lines do not share a trunk (#939)           |
+| `dogleg_exempt_sameline.mmd`    | Dogleg exemption under the same-line regime - the same topology with a shared line; tests that the same dogleg is correctly permitted |
+| `dogleg_twoline_fanout.mmd`     | Two-line fan-out producing a dogleg - tests that the dogleg guard fires correctly on a minimal fan-out case                           |
+| `exit_corner_offset_dogleg.mmd` | Exit-corner offset dogleg (#939) - an off-grid exit corner produces a cosmetic jog; pinned as a known defect                          |
 
 ### Section-header placement
 
-| Fixture | What it tests |
-|---|---|
-| `header_nudge.mmd` | Header nudged past a trunk route - tests the nudge-right fallback when the default above-section placement clashes with a route (#774) |
-| `header_side_rotated.mmd` | Header rotated to a side face - tests the rotated-side placement arm of the header-placement chain (#774) |
+| Fixture                      | What it tests                                                                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `header_nudge.mmd`           | Header nudged past a trunk route - tests the nudge-right fallback when the default above-section placement clashes with a route (#774)         |
+| `header_side_rotated.mmd`    | Header rotated to a side face - tests the rotated-side placement arm of the header-placement chain (#774)                                      |
 | `top_entry_header_clash.mmd` | TOP-entry route clips the section header in its default position - tests that header placement relocates the badge clear of the incoming route |
 
 ### Junction entry
 
-| Fixture | What it tests |
-|---|---|
-| `junction_entry_align.mmd` | Junction entry port alignment - tests that a multi-line bundle entering via a junction port aligns concentrically at the corner |
-| `junction_entry_collision.mmd` | Junction entry collision skip - two lines enter the same junction with conflicting offsets; tests that the collision-skip logic produces a valid concentric order |
-| `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760) |
+| Fixture                            | What it tests                                                                                                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `junction_entry_align.mmd`         | Junction entry port alignment - tests that a multi-line bundle entering via a junction port aligns concentrically at the corner                                   |
+| `junction_entry_collision.mmd`     | Junction entry collision skip - two lines enter the same junction with conflicting offsets; tests that the collision-skip logic produces a valid concentric order |
+| `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760)                        |
 
 ### Left- and right-entry routing
 
-| Fixture | What it tests |
-|---|---|
-| `around_below_ep_col_gt0.mmd` | Around-below routing when the entry point's column is > 0 - extends `around_section_below` to non-zero column positions |
-| `bottom_row_climb_clear_corridor.mmd` | Bottom-row section receiving a line that must climb over a clear corridor - tests the corridor-clear climb path |
-| `left_entry_up_wrap.mmd` | Left-entry bundle arriving via an upward wrap (source is below-right) - tests that bundle order is preserved through the up-then-left wrap corner (#758) |
-| `right_entry_from_above.mmd` | RIGHT-entry section fed from a section in the row above - tests the drop-in path (#889) |
-| `right_entry_from_above_far.mmd` | RIGHT-entry from above with the source far to the right - tests the drop-in path when the source is beyond the target's right edge (#889) |
-| `right_entry_gap_above_empty_row.mmd` | RIGHT-entry with an empty row above the target - tests that the gap-above fallback fires when the drop-in is blocked by an empty row |
-| `right_entry_wrap_no_fan.mmd` | RIGHT-entry wrap with a single line (no fan) - tests the wrap path without fan geometry |
-| `rl_entry_runway.mmd` | RL-section entry runway - a section in RL direction requiring an extended approach runway; tests runway-length calculation |
-| `stacked_left_exit_drop.mmd` | Stacked sections sharing a LEFT exit drop - tests that multiple stacked sections can share the same exit drop column without overlap |
+| Fixture                               | What it tests                                                                                                                                            |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `around_below_ep_col_gt0.mmd`         | Around-below routing when the entry point's column is > 0 - extends `around_section_below` to non-zero column positions                                  |
+| `bottom_row_climb_clear_corridor.mmd` | Bottom-row section receiving a line that must climb over a clear corridor - tests the corridor-clear climb path                                          |
+| `left_entry_up_wrap.mmd`              | Left-entry bundle arriving via an upward wrap (source is below-right) - tests that bundle order is preserved through the up-then-left wrap corner (#758) |
+| `right_entry_from_above.mmd`          | RIGHT-entry section fed from a section in the row above - tests the drop-in path (#889)                                                                  |
+| `right_entry_from_above_far.mmd`      | RIGHT-entry from above with the source far to the right - tests the drop-in path when the source is beyond the target's right edge (#889)                |
+| `right_entry_gap_above_empty_row.mmd` | RIGHT-entry with an empty row above the target - tests that the gap-above fallback fires when the drop-in is blocked by an empty row                     |
+| `right_entry_wrap_no_fan.mmd`         | RIGHT-entry wrap with a single line (no fan) - tests the wrap path without fan geometry                                                                  |
+| `rl_entry_runway.mmd`                 | RL-section entry runway - a section in RL direction requiring an extended approach runway; tests runway-length calculation                               |
+| `stacked_left_exit_drop.mmd`          | Stacked sections sharing a LEFT exit drop - tests that multiple stacked sections can share the same exit drop column without overlap                     |
 
 ### Merge / reconvergence routing
 
-| Fixture | What it tests |
-|---|---|
-| `merge_around_below_leftmost.mmd` | Merge where the continuation must route around a section sitting below and to the left of the leftmost source |
-| `merge_bottom_row_bypass.mmd` | Merge on the bottom row where one branch arrives via an inter-row bypass |
-| `merge_leftmost_sink_branch.mmd` | Merge where the sink section is the leftmost section in its row - tests that the merge trunk does not overshoot left |
-| `merge_offrow_continuation.mmd` | Merge continuation that lands off the trunk row - tests that the continuation trunk is re-anchored to the correct row |
-| `merge_port_above_approach.mmd` | Merge port approached from above - tests the above-approach routing arm for a merge entry |
-| `merge_pullaway.mmd` | Merge trunk pull-away across a cross-row sibling - tests that the trunk stays clear of the sibling section's bounding box |
-| `merge_right_entry.mmd` | Merge feeder arriving via a cross-row RIGHT entry - tests the interaction of RIGHT-entry routing with merge-trunk continuation |
-| `merge_trunk_out_of_range_section.mmd` | Merge trunk passing over a section outside its x-range - tests that the trunk does not clip sections it should not cross |
-| `merge_trunk_over_low_section.mmd` | Merge trunk passing over a lower section - tests clear-corridor routing for trunks that cross over shorter sections |
-| `post_convergence_trunk.mmd` | Trunk continuation after a convergence fold - tests that the post-convergence section inherits the correct trunk row and bundle offsets |
-| `reconverge_reversed_fold.mmd` | Reconvergence from a reversed fold (#705) - tests that the back-run after a reversed fold stays level and the fan/merge order is preserved |
+| Fixture                                | What it tests                                                                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `merge_around_below_leftmost.mmd`      | Merge where the continuation must route around a section sitting below and to the left of the leftmost source                              |
+| `merge_bottom_row_bypass.mmd`          | Merge on the bottom row where one branch arrives via an inter-row bypass                                                                   |
+| `merge_leftmost_sink_branch.mmd`       | Merge where the sink section is the leftmost section in its row - tests that the merge trunk does not overshoot left                       |
+| `merge_offrow_continuation.mmd`        | Merge continuation that lands off the trunk row - tests that the continuation trunk is re-anchored to the correct row                      |
+| `merge_port_above_approach.mmd`        | Merge port approached from above - tests the above-approach routing arm for a merge entry                                                  |
+| `merge_pullaway.mmd`                   | Merge trunk pull-away across a cross-row sibling - tests that the trunk stays clear of the sibling section's bounding box                  |
+| `merge_right_entry.mmd`                | Merge feeder arriving via a cross-row RIGHT entry - tests the interaction of RIGHT-entry routing with merge-trunk continuation             |
+| `merge_trunk_out_of_range_section.mmd` | Merge trunk passing over a section outside its x-range - tests that the trunk does not clip sections it should not cross                   |
+| `merge_trunk_over_low_section.mmd`     | Merge trunk passing over a lower section - tests clear-corridor routing for trunks that cross over shorter sections                        |
+| `post_convergence_trunk.mmd`           | Trunk continuation after a convergence fold - tests that the post-convergence section inherits the correct trunk row and bundle offsets    |
+| `reconverge_reversed_fold.mmd`         | Reconvergence from a reversed fold (#705) - tests that the back-run after a reversed fold stays level and the fan/merge order is preserved |
 
 ### Off-track / rail-mode / misc routing
 
-| Fixture | What it tests |
-|---|---|
-| `clear_channel_target_aware_push.mmd` | Fan-descent target-aware channel push - the pushed descent lands on the target's side of the grazed section (#736) |
-| `disjoint_sameline_trunks.mmd` | Two separate trunks for the same line in disjoint sections - tests that same-line bypass trunks do not falsely merge |
-| `off_track_input_above_consumer.mmd` | Off-track file input positioned above its consumer - tests the above-consumer routing arm for off-track inputs |
-| `peeloff_extra_line_consumer.mmd` | Peel-off where an extra line has its own consumer in the target section - tests that the extra-consumer line peels correctly from the bundle |
-| `peeloff_riser_respace.mmd` | Peel-off riser respacing - tests that risers are re-spaced after a peel-off to maintain visual separation |
-| `terminus_join.mmd` | Terminus join - two lines converging at a file terminus node; tests that the join routes cleanly when the terminus has a `%%metro file:` directive |
-| `rail_offtrack_fan.mmd` | Rail-mode off-track fan-out - tests fan-out geometry under the `line_spread: rails` directive |
-| `rail_offtrack_io.mmd` | Rail-mode off-track file input and output nodes - tests that rail-mode does not disturb off-track I/O node placement |
-| `rail_offtrack_plain_io.mmd` | Rail-mode with plain (non-file) off-track I/O - tests the same path without the `%%metro file:` directive |
+| Fixture                               | What it tests                                                                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clear_channel_target_aware_push.mmd` | Fan-descent target-aware channel push - the pushed descent lands on the target's side of the grazed section (#736)                                 |
+| `disjoint_sameline_trunks.mmd`        | Two separate trunks for the same line in disjoint sections - tests that same-line bypass trunks do not falsely merge                               |
+| `off_track_input_above_consumer.mmd`  | Off-track file input positioned above its consumer - tests the above-consumer routing arm for off-track inputs                                     |
+| `peeloff_extra_line_consumer.mmd`     | Peel-off where an extra line has its own consumer in the target section - tests that the extra-consumer line peels correctly from the bundle       |
+| `peeloff_riser_respace.mmd`           | Peel-off riser respacing - tests that risers are re-spaced after a peel-off to maintain visual separation                                          |
+| `terminus_join.mmd`                   | Terminus join - two lines converging at a file terminus node; tests that the join routes cleanly when the terminus has a `%%metro file:` directive |
+| `rail_offtrack_fan.mmd`               | Rail-mode off-track fan-out - tests fan-out geometry under the `line_spread: rails` directive                                                      |
+| `rail_offtrack_io.mmd`                | Rail-mode off-track file input and output nodes - tests that rail-mode does not disturb off-track I/O node placement                               |
+| `rail_offtrack_plain_io.mmd`          | Rail-mode with plain (non-file) off-track I/O - tests the same path without the `%%metro file:` directive                                          |
 
 ### TB section routing variants
 
-| Fixture | What it tests |
-|---|---|
-| `tb_passthrough_trunk.mmd` | TB section acting as a pass-through trunk (no internal fork) - tests that a TB section with a straight trunk routes cleanly end to end |
-| `tb_right_entry_stack.mmd` | TB section with a stacked RIGHT-entry - multiple lines entering a TB section from the right in a stacked configuration |
-| `tb_trunk_through_fan.mmd` | TB section with an internal fan-out where the trunk continues through - tests the TB analogue of `trunk_through_fan` |
+| Fixture                    | What it tests                                                                                                                                                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tb_passthrough_trunk.mmd` | TB section acting as a pass-through trunk (no internal fork) - tests that a TB section with a straight trunk routes cleanly end to end                                                                                                          |
+| `tb_right_entry_stack.mmd` | TB section with a stacked RIGHT-entry - multiple lines entering a TB section from the right in a stacked configuration                                                                                                                          |
+| `tb_trunk_through_fan.mmd` | TB section with an internal fan-out where the trunk continues through - tests the TB analogue of `trunk_through_fan`                                                                                                                            |
 | `left_exit_sink_below.mmd` | A TB bridge's LEFT exit feeds a LEFT-entry sink one row below and to the left - the bundle leads out left and drops straight down a channel clear of both boxes, routing around the bridge instead of clawing back through its interior (#1083) |

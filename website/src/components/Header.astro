@@ -1,0 +1,87 @@
+---
+import config from "virtual:starlight/user-config";
+import Search from "virtual:starlight/components/Search";
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+import Logo from "../assets/logo.svg";
+import VersionSwitcher from "./VersionSwitcher.astro";
+import GitHubLink from "./GitHubLink.astro";
+import { base } from "../site";
+
+const { siteTitleHref } = Astro.locals.starlightRoute;
+
+const shouldRenderSearch =
+  config.pagefind ||
+  config.components.Search !== "@astrojs/starlight/components/Search.astro";
+
+const links = [
+  { label: "Guide", href: `${base}guide/` },
+  { label: "Gallery", href: `${base}gallery/` },
+  { label: "Pipelines", href: `${base}pipelines/` },
+  // The playground is a standalone static app (public/playground/), not an Astro
+  // route - reload:true forces a full navigation so ClientRouter doesn't try to
+  // swap it in like a doc page.
+  { label: "Playground", href: `${base}playground/`, reload: true },
+];
+---
+
+<div class="header nfm-header">
+  <div class="title-wrapper sl-flex">
+    <a
+      href={siteTitleHref}
+      class="site-title nfm sl-flex"
+      aria-label="nf-metro home"
+    >
+      <Logo class="nfm-logo" />
+    </a>
+  </div>
+
+  <div class="nfm-nav sl-hidden md:sl-flex print:hidden">
+    <nav class="nfm-topnav" aria-label="Primary">
+      {
+        links.map(({ label, href, reload }) => (
+          <a class="link" href={href} data-astro-reload={reload ? true : undefined}>
+            {label}
+          </a>
+        ))
+      }
+    </nav>
+    <VersionSwitcher />
+    {shouldRenderSearch && <Search />}
+    <div class="sl-flex social-icons"><GitHubLink /></div>
+    <ThemeSelect />
+  </div>
+
+  <div class="nfm-nav-mobile sl-flex md:sl-hidden print:hidden">
+    {shouldRenderSearch && <Search />}
+    <ThemeSelect />
+  </div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .header {
+      display: flex;
+      gap: var(--sl-nav-gap);
+      justify-content: space-between;
+      align-items: center;
+      height: 100%;
+    }
+    .title-wrapper {
+      overflow: clip;
+      padding: 0;
+      margin: 0;
+      min-width: 0;
+    }
+    .nfm-nav,
+    .nfm-nav-mobile,
+    .social-icons {
+      gap: 0.7rem;
+      align-items: center;
+    }
+    .social-icons::after {
+      content: "";
+      height: 1.8rem;
+      border-inline-end: 1px solid var(--sl-color-gray-5);
+    }
+  }
+</style>

@@ -1,0 +1,99 @@
+---
+title: "Contributing"
+---
+
+How to set up nf-metro for development, run the same checks CI runs, and get a change merged.
+
+## Setup
+
+```bash
+git clone https://github.com/pinin4fjords/nf-metro
+cd nf-metro
+pip install -e ".[dev]"
+```
+
+Required Python: 3.10+. Dependencies: `click`, `drawsvg`, `networkx`, `pillow`. Dev extras add `pytest`, `ruff`, `mypy`.
+
+## Running checks
+
+```bash
+# All tests
+pytest
+
+# Single test file or case
+pytest tests/test_topology_validation.py
+pytest tests/test_parser.py::test_parse_title
+
+# Lint and types (match CI exactly)
+ruff check src/ tests/
+ruff format --check src/ tests/
+mypy src/
+```
+
+The topology suite parametrizes over every `.mmd` in `examples/topologies/` and runs the full layout oracle against each one. It is the most sensitive regression check, so it is worth running after any layout change.
+
+## Before opening a PR
+
+1. Run `pytest` and `ruff format --check` - CI runs both and will fail on either.
+2. For any layout or rendering change, do a [visual review](#visual-review) - the automated checks confirm the geometry is valid, not that it looks right.
+3. If you added behaviour, add a topology fixture that covers it (see below).
+4. If you fixed a bug that had an `xfail` marker, remove the marker so the fix is locked in.
+
+## Adding a topology test
+
+`examples/topologies/` holds `.mmd` fixtures, each isolating a specific graph shape (fan-out, fan-in, diamond, fold, and so on). Adding a fixture is the main way to extend test coverage, and no wiring is needed - the suite picks up every file in the directory automatically.
+
+1. Write a minimal `.mmd` that exercises the topology.
+2. Drop it in `examples/topologies/`.
+3. Run `pytest tests/test_topology_validation.py` to confirm it passes (or fails, if you are pinning a known issue).
+
+## Bugs you can't fix yet
+
+When you find a bug that will take time to fix, don't ignore it. Write a test for the _correct_ behaviour and mark it `xfail`:
+
+```python
+@pytest.mark.xfail(strict=True, reason="issue #NNN: what should happen")
+def test_something():
+    ...
+```
+
+While the bug is present, `xfail` keeps CI green and the test documents what is wrong. When someone fixes it, the test flips to `XPASS` and CI turns red, prompting them to drop the marker and lock the correct behaviour in. The floor can't slip backwards by accident.
+
+The corollary: once a check is in, it stays in. If a check fires incorrectly, fix the check or the code - don't delete a check to make CI pass.
+
+## Visual review
+
+Automated geometry checks verify the coordinates are correct; they can't verify the result _looks_ right. For layout or rendering changes, visual review is essential.
+
+**Via CI (preferred):** push to a PR. `.github/workflows/pr-renders.yml` renders the gallery on both the PR branch and the base, builds a side-by-side before/after for every SVG that changed, and publishes the diff (the comment on your PR links to it). Scroll through and confirm nothing regressed.
+
+**Locally:** render individual examples directly:
+
+```bash
+# Activate the nf-metro dev environment if using micromamba
+source ~/.local/bin/mm-activate nf-metro
+
+# Render an SVG (--no-chrome-css bakes concrete colours for cairosvg)
+python -m nf_metro render examples/rnaseq_sections.mmd -o /tmp/out.svg --no-chrome-css
+
+# Convert to PNG for easier review
+python -c "import cairosvg; cairosvg.svg2png(url='/tmp/out.svg', write_to='/tmp/out.png', scale=2)"
+open /tmp/out.png
+```
+
+Batch-render the whole topology library with `python scripts/render_topologies.py` (output in `/tmp/nf_metro_topology_renders/`).
+
+## Commit and CI conventions
+
+- Append `[skip ci]` to the commit subject for work-in-progress pushes. Omit it for the final commit before requesting review, and for any commit that fixes a CI failure.
+- Don't write the literal `[skip ci]` marker in the commit body - GitHub Actions scans the whole message, not just the subject.
+
+## Filing issues
+
+When you trip over a bug mid-task, file a detailed issue rather than trying to fix it on the spot. Include a minimal `.mmd` that reproduces it, what the output looks like versus what you expected, and the topology category if you know it. That record is what makes the bug fixable by someone with no context on the original task.
+
+## Changing the layout engine
+
+The engine assigns coordinates through a sequence of ~40 ordered phases and then routes the edges, so a change in one place often has effects elsewhere. Before modifying it, read the relevant Internals page - [Architecture](/nf-metro/dev/architecture/), [Layout pipeline](/nf-metro/dev/layout_pipeline/), [Routing](/nf-metro/dev/routing/) - and the per-phase contracts in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
+
+Invariants are enforced in two places, and new ones should go there rather than as one-off assertions: **phase guards** (`src/nf_metro/layout/phases/guards.py`, which name the failing phase so a regression localises immediately) and the **layout oracle** (the `check_*` functions in `tests/layout_validator.py`). Some are hard rules the oracle will not let you break - for example, a station must never sit on the corner of a curve. Don't work around a failing check by relaxing it; fix the cause.

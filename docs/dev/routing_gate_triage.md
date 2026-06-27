@@ -1,13 +1,18 @@
-# Routing gate-arm triage
+---
+title: "Routing gate-arm triage"
+sidebar:
+  label: "Routing gate triage"
+  order: 6
+---
 
 How to run a campaign that gives every un-exercised branch in `layout/routing/`
-a verdict. This is the *process* doc; the auto-generated matrix it operates on
-is [`routing_gate_coverage.md`](routing_gate_coverage.md), and the tool that
+a verdict. This is the _process_ doc; the auto-generated matrix it operates on
+is [`routing_gate_coverage.md`](/nf-metro/dev/routing_gate_coverage/), and the tool that
 produces it is `scripts/routing_gate_coverage.py`.
 
 ## Why this exists
 
-Every `if`/`while` in the routing subpackage is a *gate* with two or more arms.
+Every `if`/`while` in the routing subpackage is a _gate_ with two or more arms.
 A gate written for the topologies in hand can fire (or fail to fire) on a novel
 pipeline and produce a visual defect - that is the fragility the engine is prone
 to. An arm reached by **zero corpus fixtures** is an untested assumption. The
@@ -15,20 +20,20 @@ coverage matrix turns "every new pipeline stress-tests every implicit
 assumption" into a finite, enumerated checklist; triage is the act of working
 that checklist to zero open gaps.
 
-The payoff is twofold: the campaign hardens the engine (each *reachable* arm
+The payoff is twofold: the campaign hardens the engine (each _reachable_ arm
 gets a fixture, and arms that only reach via a defective render spawn bug
 reports), and it documents the rest (defensive guards and dead code get a
 recorded reason so no future reader re-investigates them cold).
 
 ## Artifacts
 
-| File | Role |
-|---|---|
-| `scripts/routing_gate_coverage.py` | The tool. Renders the whole `examples/` corpus under per-fixture branch coverage, restricted to routing modules, and maps each gate arm to the fixtures reaching it. `--write` regenerates the doc + baseline; `--json` dumps machine-readable. |
-| `docs/dev/routing_gate_coverage.md` | Generated matrix. One row per gap gate, with a **Triage** column carrying the verdict. Do not hand-edit; regenerate. |
-| `tests/data/routing_gate_triage.json` | The verdict sidecar. One keyed entry per triaged arm (`module.py::<gate text>::#<n>`) with `status` + `note`. |
-| `tests/data/routing_gate_coverage_baseline.json` | The ratchet baseline (the frozen gap set). |
-| `tests/test_routing_gate_coverage.py` | The ratchet. Three tests gate the program (below). |
+| File                                             | Role                                                                                                                                                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/routing_gate_coverage.py`               | The tool. Renders the whole `examples/` corpus under per-fixture branch coverage, restricted to routing modules, and maps each gate arm to the fixtures reaching it. `--write` regenerates the doc + baseline; `--json` dumps machine-readable. |
+| `docs/dev/routing_gate_coverage.md`              | Generated matrix. One row per gap gate, with a **Triage** column carrying the verdict. Do not hand-edit; regenerate.                                                                                                                            |
+| `tests/data/routing_gate_triage.json`            | The verdict sidecar. One keyed entry per triaged arm (`module.py::<gate text>::#<n>`) with `status` + `note`.                                                                                                                                   |
+| `tests/data/routing_gate_coverage_baseline.json` | The ratchet baseline (the frozen gap set).                                                                                                                                                                                                      |
+| `tests/test_routing_gate_coverage.py`            | The ratchet. Three tests gate the program (below).                                                                                                                                                                                              |
 
 The ratchet (skipped off the pinned interpreter):
 
@@ -51,7 +56,7 @@ the methodology - apply it per arm.
   flipped** un-exercised -> exercised by re-running the coverage script. The
   script is the oracle that makes this lane safe to delegate. If it didn't flip,
   the fixture is wrong - iterate, don't commit.
-- **reachable-but-defective** (the #688 pattern) - the *only* topology that
+- **reachable-but-defective** (the #688 pattern) - the _only_ topology that
   reaches the arm exposes a render you would not ship (curve through a label,
   bypass-V collision, kink, overlap, route through a section box). Do **not**
   commit the fixture, and do **not** distort it (shrunk labels, hacked spacing)
@@ -59,14 +64,14 @@ the methodology - apply it per arm.
   the arm reference, and the expected clean behaviour, then park the arm as
   `needs-review` linked to that issue.
 - **defensive** - a guard clause no valid topology can violate (null/contract
-  checks, empty-collection skips, coincidence guards). Annotate with *why* a
+  checks, empty-collection skips, coincidence guards). Annotate with _why_ a
   valid graph never takes it. No code deletion.
 - **candidate-dead** - no constructible topology reaches it, but it is live code.
   Flag it `candidate-dead` **with reachability evidence**; do **not** delete it
   here. Deletion is a separate, deliberate pass (#689), because byte-identical
   renders are not proof of deadness.
 
-`needs-review` is a *holding* status, not a final verdict: an arm waiting on a
+`needs-review` is a _holding_ status, not a final verdict: an arm waiting on a
 filed bug, or one not yet classified. A campaign is not done while any arm is
 `needs-review`.
 
@@ -85,8 +90,8 @@ filed bug, or one not yet classified. A campaign is not done while any arm is
 4. **Classify every arm** into one of the four verdicts. Append a card per new
    fixture to a shared triage JSON.
 5. **Human visual verdict before PR-open.** Build the review page and get a
-   verdict on *every* new fixture:
-   ```
+   verdict on _every_ new fixture:
+   ```bash
    source ~/.local/bin/mm-activate nf-metro && export PYTHONPATH="$PWD/src"
    python .claude/skills/nf-metro-layout-triage/build_review.py --worktree "$PWD" \
        --output-dir /tmp/gate-triage-out --violations /tmp/gate-triage-<module>.json
@@ -109,14 +114,14 @@ needs-review-linked.
 ## Gotchas (hard-won)
 
 - **Phantom arcs inflate the backlog (#746).** `FileReporter.arcs()` attributes a
-  branch arc to the *opening* line of a multi-line `if (`, list/tuple literal, or
-  ternary, while CPython records the executed arc from an *operand* line. The
+  branch arc to the _opening_ line of a multi-line `if (`, list/tuple literal, or
+  ternary, while CPython records the executed arc from an _operand_ line. The
   matrix then reports a gap on a gate whose arms both actually run. These are
   tooling noise - do not hand-classify them as `defensive`; fix the detector in
   the script instead (an un-exercised arc `(src, dst)` is phantom when `dst` is
   reached by an executed arc from a different source line in the same construct).
 - **A collapsed phantom gate can hide a real operand gap (#741).** When a wrapped
-  `and`/`or` condition's opening line carries *no* branch bytecode at all (every
+  `and`/`or` condition's opening line carries _no_ branch bytecode at all (every
   arc originates on an operand line), the matrix re-attributes the decision to its
   operand lines: each operand short-circuit becomes its own gate. This is what
   keeps a `defensive` verdict on the collapsed opening line from masking an
@@ -125,8 +130,8 @@ needs-review-linked.
   operand (`x is not None`) is `defensive`, a reachable-but-untested one wants a
   fixture. Only conditions whose operands are each single-line and non-nested are
   expanded; tangled ones stay collapsed.
-- **"Corpus doesn't hit it" is not "no valid topology reaches it."** A *correction
-  pass* arm with zero corpus hits is usually **reachable** (author a fixture that
+- **"Corpus doesn't hit it" is not "no valid topology reaches it."** A _correction
+  pass_ arm with zero corpus hits is usually **reachable** (author a fixture that
   triggers the correction), not **defensive**. Labeling such an arm defensive on a
   "never fires across N corpus calls" basis loses a regression fixture for a real
   defect class - this is exactly how the `clear_channel_of_section_edge` graze arm
@@ -134,7 +139,7 @@ needs-review-linked.
 - **Validators have blind spots; the human eyeball is load-bearing.**
   `probe_layout.py` only sees `validate=True`-block guards, and route crossings are
   warnings, not failures. Neither the validator nor the suite caught the
-  eager-bundling violations (#702) or the graze (#736). Always run the *full* suite
+  eager-bundling violations (#702) or the graze (#736). Always run the _full_ suite
   **and** put the new fixtures in front of a human via the review page.
 - **The arc model is CPython-version-specific.** The script pins
   `BASELINE_PYTHON = (3, 11)`; the ratchet tests skip on any other interpreter.
@@ -172,7 +177,7 @@ pass and a tooling-quality issue:
   wrapped `and`/`or` into per-operand gates so a hidden short-circuit gap surfaces
   as its own row.
 
-The triage program is also a bug *finder*: the `reachable-but-defective` lane has
+The triage program is also a bug _finder_: the `reachable-but-defective` lane has
 spawned engine fixes (#688, #695, #696, #698, #736, ...). Those are filed and
 fixed on their own, outside the triage PRs - a triage slice ships verdicts and
 fixtures, never engine behaviour changes.
@@ -183,12 +188,12 @@ The distinction matters, because it answers "do I have to babysit this?":
 
 - **The infra is permanent and self-maintaining.** The tool, the matrix doc, the
   baseline, the triage JSON, and the three ratchet tests live in the repo forever
-  and are kept honest by CI on *every* routing change - not by a standing owner.
+  and are kept honest by CI on _every_ routing change - not by a standing owner.
 - **A campaign is episodic.** "Drive the open gaps down to zero verdicts" is a
   finite project you run when the backlog has grown. Between campaigns the ratchet
   holds the line; it does not require a campaign to be running.
 
-What the ratchet does *not* do is force a pre-existing open gap to get a verdict.
+What the ratchet does _not_ do is force a pre-existing open gap to get a verdict.
 So the open-gap backlog drifts slowly upward as gates are added and acknowledged
 (see below), and a campaign is what pays it back down. That is the intended
 rhythm, not a leak.
@@ -199,7 +204,7 @@ Three CI-enforced events keep everything in sync; each is handled in the PR that
 causes it, by whoever touches `layout/routing/`:
 
 1. **A new gate gains an un-exercised arm** -> `test_no_new_un_exercised_routing_gate_arm`
-   reds. Resolve it *consciously*: either author a fixture that hits both arms
+   reds. Resolve it _consciously_: either author a fixture that hits both arms
    (close it), or - if the arm is genuinely unreachable - confirm that and
    regenerate the baseline (`--write`) to acknowledge it as a new open gap. The
    baseline diff makes the acknowledgement visible to a reviewer; gaps cannot slip
@@ -215,7 +220,7 @@ causes it, by whoever touches `layout/routing/`:
 The reason this is low-friction in practice: **triage keys are
 `module.py::<gate text>::#<ordinal>`, not line numbers.** The most common churn -
 code shifting up or down - does not touch any key; the matrix doc's line numbers
-simply regenerate. Only *semantic* edits (changing a gate's condition, deleting a
+simply regenerate. Only _semantic_ edits (changing a gate's condition, deleting a
 gate, reordering identical-text gates) disturb a key, and the stale-key test
 catches exactly those.
 
@@ -229,7 +234,7 @@ A `needs-review` arm filed via the **reachable-but-defective** lane is parked on
 bug issue: the arm is only reached by a topology that renders defectively, so no
 fixture was shippable yet. When that bug is fixed and merged, the arm does **not**
 resolve itself - it stays a `needs-review` gap until someone reconciles it against
-*how* the bug was fixed. Three outcomes, by fix shape:
+_how_ the bug was fixed. Three outcomes, by fix shape:
 
 - **Fixed by rendering the topology cleanly** -> the blocker is gone; author the
   clean fixture now (the standard `reachable` lane), verify the arm flips via the
@@ -237,7 +242,7 @@ resolve itself - it stays a `needs-review` gap until someone reconciles it again
   and the bulk of finalising a campaign.
 - **Fixed by rejecting or reshaping the topology** (e.g. the fix adds a new
   `BackwardFlowError` or forces a different port side) -> the route that reached
-  the arm may no longer be constructible. Check whether *another* valid topology
+  the arm may no longer be constructible. Check whether _another_ valid topology
   still reaches it: if not, reclassify **defensive**/**candidate-dead** with the
   rejection as evidence; if so, it stays `reachable` and still wants a fixture by
   the surviving route.
@@ -245,14 +250,14 @@ resolve itself - it stays a `needs-review` gap until someone reconciles it again
   a sibling opened) -> the arm is still reachable-but-defective; re-point its note
   to the open follow-up issue. It stays parked, now correctly attributed.
 
-Watch the distinction between *parked on* a closed bug and *citing* a closed bug
+Watch the distinction between _parked on_ a closed bug and _citing_ a closed bug
 **as the pattern** while parked on an open follow-up - only the former is
 actionable when the bug closes. A note that reads "the #688 pattern, filed as
 \#740" is parked on #740 (open), not #688 (closed).
 
 **Where this reconciliation should happen:** ideally inside the bug-fix PR itself.
 If a fix ships the fixture that flips its parked arm, the stale-key ratchet
-*forces* that PR to remove the `needs-review` entry in the same change (the arm
+_forces_ that PR to remove the `needs-review` entry in the same change (the arm
 leaves the gap set, so its triage key goes stale). So the cleanest path is for
 each engine fix to retire its own parked arm; a later finalisation sweep then only
 mops up the arms whose fix PRs did not, plus the reject/reshape reclassifications.
@@ -261,5 +266,5 @@ mops up the arms whose fix PRs did not, plus the reject/reshape reclassification
 
 Run a fresh campaign when the open-gap backlog has grown enough to be worth a
 sweep - typically after a routing module has accreted new gates over several PRs,
-or after a refactor changes the dispatch structure. Start at step 1 of *Running a
-slice* per module; the four verdicts and the gotchas above do not change.
+or after a refactor changes the dispatch structure. Start at step 1 of _Running a
+slice_ per module; the four verdicts and the gotchas above do not change.

@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
 
 concurrency:
   group: gh-pages
@@ -27,45 +26,111 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -e ".[docs]" build
+      - name: Install nf-metro (gallery generator + wheel build)
+        run: pip install -e "." build
 
+      # --- Generate dynamic content into the Astro project ---
       - name: Build playground wheel
         run: |
-          rm -rf docs/playground/wheels
-          python -m build --wheel -o docs/playground/wheels
-          WHEEL=$(basename docs/playground/wheels/*.whl)
-          printf '{"wheel": "%s"}\n' "$WHEEL" > docs/playground/wheels/index.json
+          rm -rf website/public/playground/wheels
+          python -m build --wheel -o website/public/playground/wheels
+          WHEEL=$(basename website/public/playground/wheels/*.whl)
+          printf '{"wheel": "%s"}\n' "$WHEEL" > website/public/playground/wheels/index.json
 
       - name: Build playground example manifest
         run: python scripts/build_playground_examples.py
 
-      - name: Configure git for mike
+      - name: Build gallery + pipelines (render SVGs, generate pages)
+        run: python scripts/build_gallery.py
+
+      # --- Build the Astro / Starlight site ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: website
+        run: npm ci
+
+      # --- Resolve deploy target ---
+      # main push -> dev/ ; tagged release -> latest/ plus a frozen <version>/.
+      - name: Resolve deploy target
+        id: ver
         run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- Publish to gh-pages ---
+      # Each version is its own directory, built with a matching `base` (via
+      # DOCS_BASE) so its asset and link URLs self-resolve. The deploy only
+      # replaces its own target directory, leaving PR previews (_pr/), other
+      # versions, and the frozen pre-Astro MkDocs builds untouched. versions.json
+      # at the root drives the in-page version switcher.
+      - name: Publish to gh-pages
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          IS_RELEASE: ${{ steps.ver.outputs.is_release }}
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Build gallery (render SVGs + generate markdown)
-        run: python scripts/build_gallery.py
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages --depth=1
+            git worktree add gh-pages origin/gh-pages
+          else
+            git worktree add --orphan -b gh-pages gh-pages
+          fi
 
-      - name: Deploy dev docs (on push to main)
-        if: github.event_name == 'push'
-        run: mike deploy --push dev
+          build_into() {
+            (cd website && DOCS_BASE="$1" npm run build)
+            rm -rf "$2"
+            mkdir -p "$2"
+            cp -a website/dist/. "$2/"
+          }
 
-      - name: Deploy release docs (on release)
-        if: github.event_name == 'release'
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mike deploy --push --update-aliases "$VERSION" latest
-          mike set-default --push latest
+          if [ "$IS_RELEASE" = "true" ]; then
+            build_into "/nf-metro/latest/"   "gh-pages/latest"
+            build_into "/nf-metro/$VERSION/" "gh-pages/$VERSION"
+            python scripts/update_versions_manifest.py \
+              --manifest gh-pages/versions.json --version "$VERSION" --latest
+          else
+            build_into "/nf-metro/dev/" "gh-pages/dev"
+            python scripts/update_versions_manifest.py \
+              --manifest gh-pages/versions.json --version dev
+          fi
 
-      - name: Deploy dev docs (manual trigger)
-        if: github.event_name == 'workflow_dispatch'
-        run: mike deploy --push dev
+          # Root redirects to dev/ while the Astro site lives only there. Revert
+          # the three dev/ references below to latest/ once the first Astro
+          # release is cut, so the root tracks the latest stable docs again.
+          cat > gh-pages/index.html <<'HTML'
+          <!doctype html>
+          <html>
+            <head>
+              <meta charset="utf-8" />
+              <title>Redirecting</title>
+              <noscript><meta http-equiv="refresh" content="1; url=dev/" /></noscript>
+              <script>
+                window.location.replace("dev/" + location.search + location.hash);
+              </script>
+            </head>
+            <body>Redirecting to <a href="dev/">dev/</a>...</body>
+          </html>
+          HTML
 
-      - name: Trigger GitHub Pages build
-        run: |
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/pages/builds"
+          touch gh-pages/.nojekyll
+          cd gh-pages
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to publish."
+          else
+            git commit -m "docs: deploy ${VERSION} (${GITHUB_SHA::8})"
+            git push origin gh-pages
+          fi

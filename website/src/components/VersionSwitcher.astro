@@ -1,0 +1,90 @@
+---
+/* Documentation version picker. Each version is a separately-deployed directory
+   under SITE_BASE (/nf-metro/latest/, /nf-metro/dev/, /nf-metro/0.7.2/, plus the
+   frozen pre-Astro MkDocs builds). The list comes from versions.json at the
+   gh-pages root, maintained by the deploy workflow; selecting an entry navigates
+   to the equivalent page under that version. The server renders the current
+   version as a single option so there's no layout shift before the script runs;
+   the script fills in the rest and degrades to that static label if the manifest
+   is absent (e.g. local `astro dev`, where versions.json isn't served). */
+import { base, SITE_BASE } from "../site";
+
+const segment = base.startsWith(SITE_BASE)
+  ? base.slice(SITE_BASE.length).replace(/\/$/, "")
+  : "";
+const current = segment || "dev";
+---
+
+<nfm-version-switcher data-site-base={SITE_BASE}>
+  <select class="nfm-ver-select" aria-label="Documentation version">
+    <option>{current}</option>
+  </select>
+</nfm-version-switcher>
+
+<script>
+  class NfmVersionSwitcher extends HTMLElement {
+    async connectedCallback() {
+      const select = this.querySelector("select");
+      const siteBase = this.dataset.siteBase || "/nf-metro/";
+      if (!select) return;
+
+      const win = window as unknown as { __nfmVersions?: Promise<unknown> };
+      win.__nfmVersions ??= fetch(siteBase + "versions.json")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const versions = (await win.__nfmVersions) as
+        | Array<{ version: string; title?: string; aliases?: string[] }>
+        | null;
+      if (!Array.isArray(versions) || versions.length === 0) return;
+
+      const path = location.pathname;
+      const rest = path.startsWith(siteBase) ? path.slice(siteBase.length) : "";
+      const segs = rest.split("/").filter(Boolean);
+      const known = new Set(
+        versions.flatMap((v) => [v.version, ...(v.aliases ?? [])]),
+      );
+
+      // First segment is the version only if it matches a known one; otherwise
+      // the whole remainder is the in-version page path (e.g. local dev).
+      let current: string | null = null;
+      let pagePath = rest;
+      if (segs.length > 0 && known.has(segs[0])) {
+        current = segs[0];
+        pagePath = segs.slice(1).join("/");
+        if (pagePath) pagePath += "/";
+      }
+
+      select.replaceChildren();
+      for (const v of versions) {
+        const opt = document.createElement("option");
+        const aliases = v.aliases ?? [];
+        opt.value = v.version;
+        opt.textContent = aliases.includes("latest")
+          ? `${v.title ?? v.version} (latest)`
+          : (v.title ?? v.version);
+        if (current === v.version || aliases.includes(current ?? ""))
+          opt.selected = true;
+        select.append(opt);
+      }
+
+      select.addEventListener("change", async () => {
+        const home = siteBase + select.value + "/";
+        const target = home + pagePath;
+        // Pages renamed/added between versions won't exist in the target, so
+        // probe the equivalent path and fall back to the version's home on a
+        // miss rather than dropping the reader on a 404.
+        let dest = target;
+        if (pagePath) {
+          try {
+            const res = await fetch(target, { method: "HEAD" });
+            if (!res.ok) dest = home;
+          } catch {
+            dest = home;
+          }
+        }
+        location.href = dest;
+      });
+    }
+  }
+  customElements.define("nfm-version-switcher", NfmVersionSwitcher);
+</script>

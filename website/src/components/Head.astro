@@ -1,0 +1,34 @@
+---
+/* Emit the Degular @font-face + preload via Astro's Fonts API. `<Font>` must
+   live in <head>, and Starlight only allows head *components* through an
+   override - hence this thin wrapper. preload ensures the heading font is
+   fetched before first paint, avoiding the page-title FOUT. */
+import Default from "@astrojs/starlight/components/Head.astro";
+import { Font } from "astro:assets";
+import { ClientRouter } from "astro:transitions";
+---
+
+<Default />
+<Font cssVariable="--nfm-degular" preload />
+{/* SPA-style navigation: fetch + swap the DOM in place instead of a full
+    reload, so clicks feel instant. Enabling <ClientRouter /> also turns on
+    Astro's link prefetching (defaults to `hover`), so the next page is usually
+    already cached by the time it's clicked. astro-mermaid re-runs on
+    astro:after-swap, so diagrams survive navigation. */}
+<ClientRouter />
+{/* A swap copies the incoming document's `data-theme` (the server default,
+    "dark") onto <html>, and Starlight's pre-paint theme script only runs on a
+    full load, so the visitor's resolved theme is lost on client-side navigation.
+    Re-resolve and re-apply it after each swap. The listener is on `document`,
+    which survives swaps, so registering once holds. */}
+<script is:inline>
+  document.addEventListener("astro:after-swap", () => {
+    const stored = localStorage.getItem("starlight-theme");
+    document.documentElement.dataset.theme =
+      stored === "light" || stored === "dark"
+        ? stored
+        : matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
+  });
+</script>

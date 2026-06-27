@@ -1,0 +1,16 @@
+# build output
+dist/
+# generated types
+.astro/
+# dependencies
+node_modules/
+# playground build artifacts
+public/playground/wheels/
+public/playground/examples.json
+# environment
+.env
+
+# Playwright local artifacts
+playground-tests/node_modules/
+playground-tests/test-results/
+playground-tests/playwright-report/

@@ -78,7 +78,7 @@ jobs:
           number: ${{ steps.meta.outputs.pr }}
           message: |
             **Render preview** is ready for review:
-            :framed_picture: https://pinin4fjords.github.io/nf-metro/_pr/${{ steps.meta.outputs.pr }}/
+            :framed_picture: https://${{ github.repository_owner }}.github.io/nf-metro/_pr/${{ steps.meta.outputs.pr }}/
 
             This preview shows only the renders that changed compared to `main`.
 

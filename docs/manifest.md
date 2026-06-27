@@ -1,10 +1,13 @@
-# The data manifest
+---
+title: "The data manifest"
+---
 
-!!! note "Stable since 1.0"
-    The manifest schema, `diagram-manifest` element id, and `data-node-*`
-    attribute names are stable as of nf-metro 1.0 and covered by semantic
-    versioning. Incompatible schema changes will bump the `version` field and
-    the nf-metro major version together.
+:::note[Stable since 1.0]
+The manifest schema, `diagram-manifest` element id, and `data-node-*`
+attribute names are stable as of nf-metro 1.0 and covered by semantic
+versioning. Incompatible schema changes will bump the `version` field and
+the nf-metro major version together.
+:::
 
 Every SVG nf-metro renders is a **self-describing, addressable artifact**: a
 downstream tool can drive it - position overlays, restyle nodes, look up which
@@ -16,31 +19,33 @@ standalone standard and the tooling nf-metro ships to produce and consume it, so
 **any** diagram tool can emit a conforming SVG. nf-metro is just the first
 producer.
 
-!!! tip "Just want to make one? Start with the tutorial"
-    If your goal is simply to produce an SVG and drive it from events, skip the
-    spec and jump to the [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs):
-    it builds one end to end and finishes with a single script you can copy and
-    run. The sections in between are the format reference, aimed at implementers.
+:::tip[Just want to make one? Start with the tutorial]
+If your goal is simply to produce an SVG and drive it from events, skip the
+spec and jump to the [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs):
+it builds one end to end and finishes with a single script you can copy and
+run. The sections in between are the format reference, aimed at implementers.
+:::
 
-!!! note "Headed for its own package"
-    The tooling lives in `nf_metro.manifest`, a dependency-free module (Python
-    standard library only, no other nf-metro imports). It is structured so it can
-    later be lifted into its own distribution as-is; until then, import it from
-    nf-metro.
+:::note[Headed for its own package]
+The tooling lives in `nf_metro.manifest`, a dependency-free module (Python
+standard library only, no other nf-metro imports). It is structured so it can
+later be lifted into its own distribution as-is; until then, import it from
+nf-metro.
+:::
 
 ## Terminology
 
 The format is **tool-neutral**, so its vocabulary is generic rather than
 metro-flavoured:
 
-| Term | Meaning |
-|------|---------|
-| **manifest** | The JSON description of the diagram, embedded in the SVG. |
-| **node** | An addressable point on the diagram - the thing a consumer locates, restyles, or lights up. Has an `id`, a centre (`x`/`y`), a radius (`r`), and an optional label. |
-| **group** | An optional **multi-membership** category a node can belong to several of, each with a display `color` (e.g. a colour-coded series). |
-| **region** | An optional **single-membership** container a node sits inside (e.g. a labelled box). |
-| **pattern** | A regex on a node that identifies it against a runtime string. A node carries zero or more. |
-| **target** | What the patterns are matched against, named in the manifest's `match` block (for a Nextflow run, the fully-qualified process name). |
+| Term         | Meaning                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **manifest** | The JSON description of the diagram, embedded in the SVG.                                                                                                           |
+| **node**     | An addressable point on the diagram - the thing a consumer locates, restyles, or lights up. Has an `id`, a centre (`x`/`y`), a radius (`r`), and an optional label. |
+| **group**    | An optional **multi-membership** category a node can belong to several of, each with a display `color` (e.g. a colour-coded series).                                |
+| **region**   | An optional **single-membership** container a node sits inside (e.g. a labelled box).                                                                               |
+| **pattern**  | A regex on a node that identifies it against a runtime string. A node carries zero or more.                                                                         |
+| **target**   | What the patterns are matched against, named in the manifest's `match` block (for a Nextflow run, the fully-qualified process name).                                |
 
 A producer with no grouping concept uses `nodes` alone and leaves `groups` and
 `regions` empty.
@@ -52,12 +57,12 @@ metro: **stations, lines, sections, processes**. The renderer's adapter
 translates those into the neutral wire vocabulary, so the SVG you get is in the
 generic terms above:
 
-| nf-metro (metro) | Manifest (neutral) |
-|------------------|--------------------|
-| station          | node               |
-| line             | group              |
-| section          | region             |
-| `%%metro process:` patterns | node `patterns` |
+| nf-metro (metro)            | Manifest (neutral) |
+| --------------------------- | ------------------ |
+| station                     | node               |
+| line                        | group              |
+| section                     | region             |
+| `%%metro process:` patterns | node `patterns`    |
 
 So if you author a metro map but read the rendered SVG, you'll find `nodes`, not
 `stations` - that is expected, and it's what makes the file portable.
@@ -83,13 +88,17 @@ guessing.
   "title": "nf-core/rnaseq",
   "width": 1829,
   "height": 724,
-  "groups":  [ { "id": "star_salmon", "label": "STAR + Salmon", "color": "#e64949" } ],
-  "regions": [ { "id": "preprocessing", "label": "Pre-processing" } ],
+  "groups": [
+    { "id": "star_salmon", "label": "STAR + Salmon", "color": "#e64949" }
+  ],
+  "regions": [{ "id": "preprocessing", "label": "Pre-processing" }],
   "nodes": [
     {
       "id": "fastqc",
       "label": "FastQC",
-      "x": 120.0, "y": 80.0, "r": 5.0,
+      "x": 120.0,
+      "y": 80.0,
+      "r": 5.0,
       "groups": ["star_salmon", "star_rsem"],
       "region": "preprocessing",
       "patterns": ["FASTQC", "MULTIQC"]
@@ -139,10 +148,10 @@ nf-metro validate-svg pipeline.svg
 (`validate-svg` uses `jsonschema`; install it with `pip install jsonschema` if it
 isn't already present.)
 
-Add `--geometry` to also check the *drawn* picture, not just the schema: it flags
+Add `--geometry` to also check the _drawn_ picture, not just the schema: it flags
 a route drawn through a station's label or marker (rail interchanges excepted).
 The offset-collapse check (distinct lines merging into one stroke) needs the
-engine's assigned offsets, so it runs only via [`render --validate`](index.md#validating-the-rendered-geometry).
+engine's assigned offsets, so it runs only via [`render --validate`](/nf-metro/#validating-the-rendered-geometry).
 
 ```bash
 nf-metro validate-svg pipeline.svg --geometry
@@ -155,10 +164,14 @@ validator.
 ### Per-node attributes
 
 ```html
-<g data-node-id="fastqc"
-   data-node-cx="120.0" data-node-cy="80.0" data-node-r="5.0"
-   data-node-groups="star_salmon,star_rsem"
-   data-node-region="preprocessing">
+<g
+  data-node-id="fastqc"
+  data-node-cx="120.0"
+  data-node-cy="80.0"
+  data-node-r="5.0"
+  data-node-groups="star_salmon,star_rsem"
+  data-node-region="preprocessing"
+>
   ...the node's drawn glyph...
 </g>
 ```
@@ -202,7 +215,7 @@ The shortest path to a file a consumer can drive:
 - The `match` block (`target`/`type`/`flags`) and a `patterns` list on each node
   that represents something.
 
-**Recommended** - lets a consumer find and restyle the *drawn* node in place
+**Recommended** - lets a consumer find and restyle the _drawn_ node in place
 (rather than only overlaying on top):
 
 - Wrap each node's glyph in a `<g>` with `data-node-id="<id>"` (matching the
@@ -216,18 +229,18 @@ optional.
 The whole toolkit is a handful of small functions, all importable from
 `nf_metro.manifest` (and re-exported from `nf_metro.render`). Grouped by job:
 
-| Function | What it does |
-|----------|--------------|
-| `build_manifest_data(*, title, width, height, nodes, groups=(), regions=(), match_target="fqProcessName")` | Assemble the manifest dict from plain node data. Rounds coordinates; fills the `match` block. |
-| `node_data_attrs(*, id, x, y, r, groups=(), region=None)` | Return the `data-node-*` attributes for one node's element, as a dict to spread onto your `<g>`. |
-| `manifest_metadata_svg(manifest)` | Return just the `<metadata>` element (as a string) - use it when you assemble the SVG yourself. |
-| `inject_manifest(svg, manifest)` | Insert that `<metadata>` into an existing SVG string, right after the opening `<svg>` tag. Returns the new SVG. |
-| `read_manifest(svg)` | Parse the embedded manifest back out of an SVG string; returns the dict, or `None` if there's no manifest. |
-| `match_node_ids(manifest, target)` | Node ids whose `patterns` match `target` (case-insensitive) - "which node does this runtime name light up?". |
-| `matching_node_ids(target, patterns_by_id)` | The same matcher over a plain `{id: [pattern]}` map, when your data isn't a full manifest. |
-| `overlay_svg(manifest, body="", *, extra_attrs="")` | A transparent overlay `<svg>` sized to the manifest's `viewBox`, to stack over the base so coordinates line up. |
-| `manifest_json(manifest)` | Deterministic JSON serialization of a manifest (sorted keys); rarely needed directly. |
-| `manifest_schema()` | Return the JSON Schema (draft 2020-12) for a manifest, to validate a producer's output in any language. |
+| Function                                                                                                   | What it does                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `build_manifest_data(*, title, width, height, nodes, groups=(), regions=(), match_target="fqProcessName")` | Assemble the manifest dict from plain node data. Rounds coordinates; fills the `match` block.                   |
+| `node_data_attrs(*, id, x, y, r, groups=(), region=None)`                                                  | Return the `data-node-*` attributes for one node's element, as a dict to spread onto your `<g>`.                |
+| `manifest_metadata_svg(manifest)`                                                                          | Return just the `<metadata>` element (as a string) - use it when you assemble the SVG yourself.                 |
+| `inject_manifest(svg, manifest)`                                                                           | Insert that `<metadata>` into an existing SVG string, right after the opening `<svg>` tag. Returns the new SVG. |
+| `read_manifest(svg)`                                                                                       | Parse the embedded manifest back out of an SVG string; returns the dict, or `None` if there's no manifest.      |
+| `match_node_ids(manifest, target)`                                                                         | Node ids whose `patterns` match `target` (case-insensitive) - "which node does this runtime name light up?".    |
+| `matching_node_ids(target, patterns_by_id)`                                                                | The same matcher over a plain `{id: [pattern]}` map, when your data isn't a full manifest.                      |
+| `overlay_svg(manifest, body="", *, extra_attrs="")`                                                        | A transparent overlay `<svg>` sized to the manifest's `viewBox`, to stack over the base so coordinates line up. |
+| `manifest_json(manifest)`                                                                                  | Deterministic JSON serialization of a manifest (sorted keys); rarely needed directly.                           |
+| `manifest_schema()`                                                                                        | Return the JSON Schema (draft 2020-12) for a manifest, to validate a producer's output in any language.         |
 
 Producing a file uses the first four; consuming one uses `read_manifest` +
 `match_node_ids`; a live overlay adds `overlay_svg`. The two constants
@@ -290,7 +303,7 @@ directly:
 2. Insert a `<metadata id="diagram-manifest">` element holding the JSON above as
    CDATA. (CDATA cannot contain `]]>`; if a regex does, split it as
    `]]]]><![CDATA[>`.)
-3. *(Recommended)* For each node, wrap its glyph in a `<g>` carrying
+3. _(Recommended)_ For each node, wrap its glyph in a `<g>` carrying
    `data-node-id` (a stable id) and `data-node-cx`/`-cy`/`-r` (its centre and
    radius, 1dp). Keep this geometry in agreement with the manifest - `id` is the
    join key between them.
@@ -320,10 +333,11 @@ for a producer whose data isn't manifest-shaped.
 Everything above defines the compatibility contract; the state model below is
 optional convention. A consumer that only needs static addressing can stop here.
 
-!!! tip "Worked example"
-    The [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs) at the end of this
-    page builds a tiny pipeline diagram and lights it up from a progress snapshot,
-    end to end, in ~40 lines.
+:::tip[Worked example]
+The [tutorial](#tutorial-light-up-a-diagram-as-a-job-runs) at the end of this
+page builds a tiny pipeline diagram and lights it up from a progress snapshot,
+end to end, in ~40 lines.
+:::
 
 The manifest gives an overlay everything it needs without a re-render: the
 `viewBox` to share, and each node's `id`, centre, and radius. **The standard
@@ -332,23 +346,23 @@ fixes the geometry and the addressing, not the visual style** - how you draw
 
 A common shape for progress is a small per-node state model:
 
-| Field | Meaning |
-|-------|---------|
-| `state` | One of `pending`, `queued`, `running`, `done`, `failed`. |
+| Field            | Meaning                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state`          | One of `pending`, `queued`, `running`, `done`, `failed`.                                                                                     |
 | `done` / `total` | Tasks finished vs seen so far for that node. Nextflow's task count is dynamic, so this is "done / submitted so far", not a fixed percentage. |
 
 plus a run-level `{ name, state }` where `state` is `idle` / `running` /
 `complete` / `error`.
 
 nf-metro's `serve` is **one reference implementation** of this: it draws a glowing
-LED halo per node and recolours it by state (see [Live progress](live.md)). A
+LED halo per node and recolours it by state (see [Live progress](/nf-metro/live/)). A
 host application is free to map the same state vocabulary onto its own visual
 language - filled badges, a progress bar, a colour change on the node itself.
 Take the geometry and the state model from the standard; bring your own paint.
 
 To turn a specific runtime's events into that state model, write a binding.
 nf-metro ships one for Nextflow's `-with-weblog` stream; that path, the server,
-and the Nextflow plugin are documented under [Live progress](live.md).
+and the Nextflow plugin are documented under [Live progress](/nf-metro/live/).
 
 ## Tutorial: light up a diagram as a job runs
 
@@ -357,7 +371,7 @@ end you'll have a small pipeline diagram that shows progress as work happens -
 and you can run every snippet here as-is, with **no pipeline, no server, and no
 Nextflow** (we'll fake the progress). About 50 lines, only `nf_metro.manifest`.
 
-**The idea.** Draw the diagram *once* and embed a manifest in it. Then, whenever
+**The idea.** Draw the diagram _once_ and embed a manifest in it. Then, whenever
 progress changes, draw a thin **overlay** of status markers on top. The diagram
 itself never re-flows; only the lightweight overlay updates. The mental model:
 the base SVG is the **map** - drawn once and durable - and the overlay is a
@@ -436,14 +450,14 @@ you like; everything below works from that file alone.
 
 ### Step 2 - connect the diagram to the work
 
-Something has to actually *run* your pipeline's steps - a workflow engine, a CI
+Something has to actually _run_ your pipeline's steps - a workflow engine, a CI
 job, a plain script. Call it the **runtime**. As it works, it announces each step
 by a **name**: it might log that a step called `BWA_MEM` has started, then that it
 finished, and so on.
 
 Two snags: you usually don't choose those names (a tool may call your "Align" step
 `BWA_MEM` or `STAR_ALIGN`), and they rarely equal your node ids. That's exactly
-what each node's `patterns` are for - regexes that match the names *your* runtime
+what each node's `patterns` are for - regexes that match the names _your_ runtime
 uses. `match_node_ids` answers the question "which node does this name belong
 to?":
 
@@ -461,7 +475,7 @@ Nothing is running yet - this just queries the file. Matching is the bridge from
 
 Give each node a **state** - one of `pending`, `queued`, `running`, `done`,
 `failed` - and draw a coloured ring per node at its manifest position. The colours
-are your choice; the standard only tells you *where* each node is:
+are your choice; the standard only tells you _where_ each node is:
 
 ```python
 COLORS = {
@@ -481,7 +495,7 @@ def progress_halos(manifest, states):
 We have no real runtime in a tutorial, so let's **simulate** one. Here is a list
 of `(step_name, new_state)` announcements - the kind of thing a real engine sends
 as a run progresses. We fold each into a `{node_id: state}` map (using Step 2's
-matcher) and redraw the overlay; that sequence of redraws *is* the animation:
+matcher) and redraw the overlay; that sequence of redraws _is_ the animation:
 
 ```python
 # A real runtime would send these live; we hard-code them so the tutorial runs
@@ -545,7 +559,7 @@ server, so you don't write any of the Python yourself:
 ![Data flow: nextflow run POSTs name and status to nf-metro serve, which matches and folds into per-node state (Steps 2 and 3) and streams it over Server-Sent Events to the browser, which recolours the overlay](assets/manifest_serve_flow.svg)
 
 So `nf-metro serve` is the tutorial wired to a live event source and a browser.
-See [Live progress](live.md) to actually run it (it also has a multi-run
+See [Live progress](/nf-metro/live/) to actually run it (it also has a multi-run
 dashboard and an optional Nextflow plugin), and note the glowing-LED styling
 there is just its choice - yours can differ.
 

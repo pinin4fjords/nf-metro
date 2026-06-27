@@ -1,9 +1,12 @@
-# Live progress
+---
+title: "Live progress"
+---
 
-!!! note "Stable since 1.0"
-    The `%%metro process:` directive, `nf-metro serve` / `nf-metro check-mapping`
-    commands, and the event/overlay formats are stable as of 1.0 and covered by
-    semantic versioning.
+:::note[Stable since 1.0]
+The `%%metro process:` directive, `nf-metro serve` / `nf-metro check-mapping`
+commands, and the event/overlay formats are stable as of 1.0 and covered by
+semantic versioning.
+:::
 
 nf-metro can light up a metro map in real time as a Nextflow pipeline runs.
 Stock Nextflow `-with-weblog` posts task events to `nf-metro serve`, which draws
@@ -11,9 +14,14 @@ a status overlay on top of the static map - stations go pending → queued →
 running → done (or failed) with a per-sample count. No Seqera Platform, no
 plugin.
 
-```
-nextflow run --with-weblog ──HTTP──> nf-metro serve ──SSE──> browser overlay
-   (task events)                   (map + process mapping)   (stations light up)
+```mermaid
+flowchart TD
+    A["<code style='white-space:nowrap'>nextflow run --with-weblog</code><br/>(task events)"]
+    B["<code style='white-space:nowrap'>nf-metro serve</code><br/>(map + process mapping)"]
+    C["browser overlay<br/>(stations light up)"]
+
+    A -->|HTTP| B
+    B -->|SSE| C
 ```
 
 The layout is computed once and the overlay is drawn on top, so the map never
@@ -21,12 +29,12 @@ re-flows as state changes.
 
 <video controls autoplay loop muted playsinline
        style="width: 100%; max-width: 760px; border-radius: 6px"
-       src="../assets/live_demo.mp4">
-  Your browser can't play the embedded video -
-  <a href="../assets/live_demo.mp4">download it here</a>.
+       src="/nf-metro/assets/live_demo.mp4">
+Your browser can't play the embedded video -
+<a href="/nf-metro/assets/live_demo.mp4">download it here</a>.
 </video>
 
-*A pipeline run lighting up the map in real time.*
+_A pipeline run lighting up the map in real time._
 
 ## 1. Map stations to processes
 
@@ -35,7 +43,7 @@ Nextflow processes (often a whole subworkflow), so the mapping is many-to-one.
 Declare it with `%%metro process:` directives - a station id and a regex
 matched against the **fully-qualified** process name:
 
-```text
+```metro
 %%metro process: align | NFCORE_RNASEQ:RNASEQ:.*ALIGN.*
 %%metro process: qc    | FASTQC
 %%metro process: qc    | MULTIQC
@@ -124,15 +132,15 @@ manifest: a JSON block in a `<metadata id="diagram-manifest">` element plus
 positioned, stations restyled, and process mappings looked up with no
 re-render.
 
-The manifest format is tool-neutral (a station is a *node*, a line a *group*, a
-section a *region*); its schema, matching semantics, and reader/matcher tooling
-are a standalone contract documented on the [Data manifest](manifest.md) page -
+The manifest format is tool-neutral (a station is a _node_, a line a _group_, a
+section a _region_); its schema, matching semantics, and reader/matcher tooling
+are a standalone contract documented on the [Data manifest](/nf-metro/manifest/) page -
 the same standard any non-metro tool can emit. Set `%%metro manifest: false`
 (or `--no-manifest`) to emit the drawn map only, with no manifest, no
 `data-node-*` attributes, and no station-group wrapper.
 
 `serve` is one ready-made consumer of that manifest. To drive the overlay from
-your **own** application instead, see the [Embedding guide](embedding.md).
+your **own** application instead, see the [Embedding guide](/nf-metro/embedding/).
 
 ## 2. Serve the map
 
@@ -155,9 +163,9 @@ or runs side by side, use the dashboard in §2b instead.
   already drawn).
 
 !!! tip "SVG must carry a manifest"
-    The SVG path requires the manifest embedded in the file. `nf-metro render`
-    embeds it by default. If you opted out with `--no-manifest`, re-render
-    without that flag before serving.
+The SVG path requires the manifest embedded in the file. `nf-metro render`
+embeds it by default. If you opted out with `--no-manifest`, re-render
+without that flag before serving.
 
 ### One-liner (recommended)
 
@@ -193,16 +201,16 @@ Stations light up as tasks are submitted, run, and complete. A browser that
 connects mid-run receives the current state immediately, so you never see a
 blank map.
 
-| Option | Meaning |
-|--------|---------|
-| `--port` | Port to listen on (default 8080). |
-| `--host` | Interface to bind. Default `127.0.0.1` (local only); use `0.0.0.0` to accept connections from other hosts. |
-| `--theme` | Theme name (`nfcore`, `light`, `seqera`). The page chrome (background, text) follows the theme, so a light theme gives a light page. |
-| `--overlay` | Status-overlay style: `ring` (default), `pulse`, `dot`, or `led`. Sets the style shown until a viewer picks another. |
-| `--open` | Open the live page in the default browser when the server starts. |
-| `--shutdown-after-complete` | Stop the server shortly after the run's `completed` or `error` event (or after the launched command exits). |
-| `--shutdown-grace` | Seconds to keep the map up after the run finishes before shutting down (used with `--shutdown-after-complete`; default 5). |
-| `--token` | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header. |
+| Option                      | Meaning                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `--port`                    | Port to listen on (default 8080).                                                                                                    |
+| `--host`                    | Interface to bind. Default `127.0.0.1` (local only); use `0.0.0.0` to accept connections from other hosts.                           |
+| `--theme`                   | Theme name (`nfcore`, `light`, `seqera`). The page chrome (background, text) follows the theme, so a light theme gives a light page. |
+| `--overlay`                 | Status-overlay style: `ring` (default), `pulse`, `dot`, or `led`. Sets the style shown until a viewer picks another.                 |
+| `--open`                    | Open the live page in the default browser when the server starts.                                                                    |
+| `--shutdown-after-complete` | Stop the server shortly after the run's `completed` or `error` event (or after the launched command exits).                          |
+| `--shutdown-grace`          | Seconds to keep the map up after the run finishes before shutting down (used with `--shutdown-after-complete`; default 5).           |
+| `--token`                   | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header.                                                       |
 
 ### Overlay styles
 
@@ -229,12 +237,12 @@ switching style never re-renders the map. Animations respect
 
 ### Endpoints
 
-| Path | Purpose |
-|------|---------|
-| `GET /` | The live page (static SVG + status overlay). |
-| `GET /stream` | Server-sent events; the page subscribes to this. |
-| `GET /state` | Current state as JSON (handy for scripting/debugging). |
-| `POST /events` | Nextflow weblog receiver. |
+| Path           | Purpose                                                |
+| -------------- | ------------------------------------------------------ |
+| `GET /`        | The live page (static SVG + status overlay).           |
+| `GET /stream`  | Server-sent events; the page subscribes to this.       |
+| `GET /state`   | Current state as JSON (handy for scripting/debugging). |
+| `POST /events` | Nextflow weblog receiver.                              |
 
 ## 2b. Persistent server (many runs)
 
@@ -293,31 +301,33 @@ the plumbing handled for you. The Python tooling here never depends on it.
 
 ### Installing the plugin
 
-!!! warning "Not yet on the Nextflow plugin registry"
-    The plugin is not yet published to the Nextflow plugin registry, so the
-    normal `plugins { id 'nf-metro@0.1.0' }` auto-download does not work yet.
-    Build and install it locally first:
+:::caution[Not yet on the Nextflow plugin registry]
+The plugin is not yet published to the Nextflow plugin registry, so the
+normal `plugins { id 'nf-metro@0.1.0' }` auto-download does not work yet.
+Build and install it locally first:
 
-    ```bash
-    git clone https://github.com/pinin4fjords/nf-metro-plugin
-    cd nf-metro-plugin
-    make install        # installs to ~/.nextflow/plugins
-    ```
+```bash
+git clone https://github.com/pinin4fjords/nf-metro-plugin
+cd nf-metro-plugin
+make install        # installs to ~/.nextflow/plugins
+```
 
-    Requires Java 17+ and Nextflow 25.10.0+. Once installed, the `plugins {}`
-    block in the config examples below will find it.
+Requires Java 17+ and Nextflow 25.10.0+. Once installed, the `plugins {}`
+block in the config examples below will find it.
 
-    Alternatively, run against the build tree without installing (build first,
-    then set `NXF_PLUGINS_DEV`; still requires `-plugins` on the command line):
+Alternatively, run against the build tree without installing (build first,
+then set `NXF_PLUGINS_DEV`; still requires `-plugins` on the command line):
 
-    ```bash
-    git clone https://github.com/pinin4fjords/nf-metro-plugin
-    cd nf-metro-plugin
-    make assemble       # build but do not install
-    # then, from anywhere:
-    NXF_PLUGINS_DEV=/path/to/nf-metro-plugin \
-      nextflow run my/pipeline -plugins nf-metro@0.1.0
-    ```
+```bash
+git clone https://github.com/pinin4fjords/nf-metro-plugin
+cd nf-metro-plugin
+make assemble       # build but do not install
+# then, from anywhere:
+NXF_PLUGINS_DEV=/path/to/nf-metro-plugin \
+  nextflow run my/pipeline -plugins nf-metro@0.1.0
+```
+
+:::
 
 ### Plugin demo: shared dashboard
 
@@ -349,12 +359,12 @@ Each run prints `registered on ...; live map: http://localhost:8080/r/<id>/`.
 Open `http://localhost:8080/` to watch every run light up on one page; the
 server stays up across runs.
 
-| Task | Without the plugin | With the plugin |
-|------|--------------------|-----------------|
-| Wiring | `-with-weblog <url>` on every run | One `plugins { id 'nf-metro' }` + a `metro {}` block in `nextflow.config` |
-| Run the server | Start `nf-metro serve` yourself in another shell | **Managed mode** spawns and stops it for the run (and can open the browser) |
+| Task             | Without the plugin                                                                        | With the plugin                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Wiring           | `-with-weblog <url>` on every run                                                         | One `plugins { id 'nf-metro' }` + a `metro {}` block in `nextflow.config`       |
+| Run the server   | Start `nf-metro serve` yourself in another shell                                          | **Managed mode** spawns and stops it for the run (and can open the browser)     |
 | Shared dashboard | `curl` the map to `/maps`, read the run id, then point `-with-weblog` at `/r/<id>/events` | **Central mode** registers the map and wires the per-run endpoint automatically |
-| Find the map | - | Prints the live URL in the run log |
+| Find the map     | -                                                                                         | Prints the live URL in the run log                                              |
 
 So the standalone path is fine for a quick look; the plugin is worth it when you
 want the integration to live in the pipeline's config, want the server started
@@ -363,12 +373,13 @@ register-then-emit step is awkward to do by hand). The plugin has three modes -
 attach, managed, central - documented in its
 [README](https://github.com/pinin4fjords/nf-metro-plugin#three-modes).
 
-!!! note "Managed mode requires `nf-metro` on PATH"
-    Managed mode spawns `nf-metro serve` as a subprocess, so the `nf-metro`
-    command must be on the PATH when Nextflow runs. If it is not found the
-    plugin logs a warning and the pipeline continues without the live map.
-    Use `metro.binary = '/absolute/path/to/nf-metro'` in the config to point
-    to a specific installation.
+:::note[Managed mode requires `nf-metro` on PATH]
+Managed mode spawns `nf-metro serve` as a subprocess, so the `nf-metro`
+command must be on the PATH when Nextflow runs. If it is not found the
+plugin logs a warning and the pipeline continues without the live map.
+Use `metro.binary = '/absolute/path/to/nf-metro'` in the config to point
+to a specific installation.
+:::
 
 ## 3. Keep the mapping honest
 
@@ -394,11 +405,11 @@ Processes matching more than one station (duplicates progress): 1
 
 It exits non-zero when it finds drift. Options:
 
-| Option | Meaning |
-|--------|---------|
-| `--dag <file>` | A `nextflow -with-dag` Mermaid export; process names are read from its stadium nodes. |
+| Option               | Meaning                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `--dag <file>`       | A `nextflow -with-dag` Mermaid export; process names are read from its stadium nodes.                           |
 | `--processes <file>` | A newline-delimited list of process names (e.g. captured from a run) - an authoritative alternative to `--dag`. |
-| `--ignore <regex>` | Processes deliberately left unmapped (plumbing such as `.*:DUMPSOFTWAREVERSIONS`). Repeatable. |
+| `--ignore <regex>`   | Processes deliberately left unmapped (plumbing such as `.*:DUMPSOFTWAREVERSIONS`). Repeatable.                  |
 
 Stations with no mapping at all are reported as a note (they never light up),
 but are not treated as failures since they may be intentional.
@@ -416,8 +427,7 @@ but are not treated as failures since they may be intentional.
   can, since a URL with the token lands in shell history and process listings.
 - **Run lifecycle.** A `started` event resets the map, so re-running a pipeline
   re-animates a fresh map. The server tracks one run at a time. Unrecognised or
-  malformed event payloads are accepted and ignored (the endpoint always returns
-  200) so a Nextflow version emitting extra event types can't stall a run.
+  malformed event payloads are accepted and ignored (the endpoint always returns 200) so a Nextflow version emitting extra event types can't stall a run.
 - **No denominator.** Nextflow's task count is dynamic, so the per-station
   count is "done / submitted so far", not a fixed percentage.
 

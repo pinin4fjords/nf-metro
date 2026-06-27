@@ -61,9 +61,10 @@ dev = [
     "numpy<2.5",
     "jsonschema>=4.0",
 ]
+# Docs site is Astro/Starlight (see docs/package.json). This extra only provides
+# cairosvg, used by scripts/build_render_diff.py and the PR render-diff workflow
+# to rasterise gallery SVGs to PNG.
 docs = [
-    "mkdocs-material>=9.0",
-    "mike>=2.0",
     "cairosvg>=2.5",
 ]
 font = [
