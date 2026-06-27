@@ -16,7 +16,28 @@
 <script>
   let dlg: HTMLDialogElement | null = null;
   let dlgBody: HTMLElement | null = null;
+  let dlgStage: HTMLElement | null = null;
   const cloneCache = new WeakMap<Element, SVGElement>();
+
+  // Pan/zoom state - reset on every open
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  const MIN_SCALE = 0.5;
+  const MAX_SCALE = 10;
+
+  function applyTransform() {
+    if (dlgStage) dlgStage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  }
+
+  function resetTransform() {
+    scale = 1; tx = 0; ty = 0;
+    applyTransform();
+  }
 
   function ensureDialog(): void {
     if (dlg) return;
@@ -30,20 +51,66 @@
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
       </button>
-      <div id="nfm-svg-zoom-body"></div>
+      <div id="nfm-svg-zoom-body">
+        <div id="nfm-svg-zoom-stage"></div>
+      </div>
     `;
     document.body.appendChild(dlg);
     dlgBody = dlg.querySelector("#nfm-svg-zoom-body");
+    dlgStage = dlg.querySelector("#nfm-svg-zoom-stage");
 
     dlg.querySelector("#nfm-svg-zoom-close")!.addEventListener("click", () => dlg!.close());
     // Close on backdrop click (target is the dialog itself, not its content)
     dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg!.close(); });
+    dlg.addEventListener("close", resetTransform);
+
+    // Wheel: zoom toward cursor. With transform-origin:0 0 on the stage, a cursor
+    // at body coords (bx, by) maps to stage coords sx=(bx-tx)/scale, sy=(by-ty)/scale.
+    // After rescaling to ns, we solve tx_new = bx - sx*ns to keep that point fixed.
+    dlgBody!.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const rect = dlgBody!.getBoundingClientRect();
+      const bx = e.clientX - rect.left;
+      const by = e.clientY - rect.top;
+      const ns = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+      tx = bx - (bx - tx) * (ns / scale);
+      ty = by - (by - ty) * (ns / scale);
+      scale = ns;
+      applyTransform();
+    }, { passive: false });
+
+    // Drag to pan
+    dlgBody!.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      dlgBody!.style.cursor = "grabbing";
+      dlgBody!.setPointerCapture(e.pointerId);
+    });
+
+    dlgBody!.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      tx += e.clientX - lastX;
+      ty += e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      applyTransform();
+    });
+
+    dlgBody!.addEventListener("pointerup", () => {
+      dragging = false;
+      dlgBody!.style.cursor = "grab";
+    });
+
+    // Double-click to reset
+    dlgBody!.addEventListener("dblclick", resetTransform);
   }
 
   function openZoom(wrap: Element) {
     const svg = wrap.querySelector("svg");
     if (!svg) return;
     ensureDialog();
+    resetTransform();
 
     if (!cloneCache.has(wrap)) {
       const clone = svg.cloneNode(true) as SVGElement;
@@ -52,8 +119,8 @@
       cloneCache.set(wrap, clone);
     }
 
-    dlgBody!.innerHTML = "";
-    dlgBody!.appendChild(cloneCache.get(wrap)!);
+    dlgStage!.innerHTML = "";
+    dlgStage!.appendChild(cloneCache.get(wrap)!);
     dlg!.showModal();
   }
 
@@ -149,15 +216,19 @@
   }
 
   :global(#nfm-svg-zoom-body) {
-    overflow: auto;
-    padding: 2rem;
+    overflow: hidden;
     flex: 1;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
+    cursor: grab;
+    user-select: none;
   }
 
-  :global(#nfm-svg-zoom-body svg) {
+  :global(#nfm-svg-zoom-stage) {
+    padding: 2rem;
+    transform-origin: 0 0;
+    width: 100%;
+  }
+
+  :global(#nfm-svg-zoom-stage svg) {
     width: 100%;
     height: auto;
     display: block;
