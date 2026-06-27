@@ -16,6 +16,7 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.animate import _build_line_motion_paths
+from nf_metro.render.svg import render_svg
 from nf_metro.themes import THEMES
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
@@ -150,3 +151,53 @@ def test_motion_path_segments_lie_on_rendered_geometry(fixture: Path):
         f"{fixture.name}: motion path contains off-piste segments not on "
         f"any rendered metro-line edge:\n  " + "\n  ".join(offences[:5])
     )
+
+
+def _render_animated(fixture: Path, theme_key: str = "nfcore") -> str:
+    graph = parse_metro_mermaid(fixture.read_text())
+    compute_layout(graph)
+    return render_svg(graph, THEMES[theme_key], animate=True)
+
+
+@pytest.mark.parametrize("fixture", ANIMATION_FIXTURES, ids=ANIMATION_FIXTURE_IDS)
+def test_animation_uses_css_offset_path_not_smil(fixture: Path):
+    """Animated balls must be driven by CSS ``offset-path``, not SMIL.
+
+    SMIL ``<animateMotion>`` freezes when an SVG is injected into a host
+    page via ``innerHTML`` (the playground preview, the inline embed
+    snippet): the timeline advances but the motion is never sampled, so
+    every ball sits at its path start.  CSS ``offset-path`` animates in
+    every embedding context, so the rendered animation must use it and
+    carry no SMIL motion elements.
+    """
+    svg = _render_animated(fixture)
+    assert "<animateMotion" not in svg
+    assert "<mpath" not in svg
+    assert "offset-path:" in svg
+    assert "@keyframes" in svg
+
+
+@pytest.mark.parametrize("fixture", ANIMATION_FIXTURES, ids=ANIMATION_FIXTURE_IDS)
+def test_every_ball_animation_resolves_to_a_keyframes(fixture: Path):
+    """Each ball's ``animation`` names a ``@keyframes`` defined in the SVG.
+
+    A dangling animation name silently produces a motionless ball, the same
+    frozen-at-start symptom the CSS switch fixes.
+    """
+    svg = _render_animated(fixture)
+    referenced = set(re.findall(r"animation:\s*([\w-]+)", svg))
+    defined = set(re.findall(r"@keyframes\s+([\w-]+)", svg))
+    assert referenced, f"{fixture.name}: no ball animations emitted"
+    assert referenced <= defined, (
+        f"{fixture.name}: ball animations reference undefined keyframes: "
+        f"{sorted(referenced - defined)}"
+    )
+
+
+def test_nfcore_balls_carry_a_stroke():
+    """nf-core balls render with a dark stroke so the white fill stays
+    visible on both light and dark backgrounds."""
+    svg = _render_animated(EXAMPLES_DIR / "rnaseq_sections.mmd", "nfcore")
+    theme = THEMES["nfcore"]
+    assert theme.animation_ball_stroke
+    assert f'stroke="{theme.animation_ball_stroke}"' in svg

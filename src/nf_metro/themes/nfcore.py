@@ -32,6 +32,9 @@ NFCORE_DARK_THEME = Theme(
     legend_background="rgba(0, 0, 0, 0.3)",
     legend_text_color="#e0e0e0",
     legend_font_size=14.0,
+    animation_ball_color="#ffffff",
+    animation_ball_stroke="#333333",
+    animation_ball_stroke_width=1.5,
 )
 
 NFCORE_LIGHT_THEME = replace(

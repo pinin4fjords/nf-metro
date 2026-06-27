@@ -156,14 +156,23 @@ standalone SVG path.
 ## Animation (`animate.py`)
 
 `render_animation(d, graph, routes, station_offsets, theme)` appends
-animated `<circle>` elements with `<animateMotion>` to an existing
-`drawsvg.Drawing`. It is called by `_render_svg_scaled` when `animate` is
-`True`.
+animated `<circle>` elements to an existing `drawsvg.Drawing`, each driven
+along its line by a CSS `offset-path` animation plus a shared `<style>`
+block of `@keyframes`. It is called by `_render_svg_scaled` when `animate`
+is `True`.
+
+CSS animation is used rather than SMIL `<animateMotion>` because SMIL does
+not run when an SVG is injected into a host page via `innerHTML` (the
+playground preview, the inline embed snippet, any host inlining an exported
+map): the timeline advances but the motion is never sampled, freezing every
+ball at its path start. CSS `offset-path` animates whether the SVG is opened
+standalone, referenced from `<img>`, or inlined.
 
 Each metro line gets one ball. All balls are synchronised to the same
 cycle duration (`max_dur`, chosen so the slowest ball just finishes one
-lap per cycle) via `keyTimes`/`keyPoints`, so no ball restarts while
-another is still mid-track.
+lap per cycle): a shorter line covers its path in the first `move_frac` of
+the cycle and holds at the terminus for the rest (a 3-stop `@keyframes`),
+so no ball restarts while another is mid-track.
 
 ## Theming (`style.py`)
 
@@ -188,7 +197,7 @@ selectable via `%%metro style: <key>` or `--style`.
 | `html.py`      | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                       |
 | `manifest.py`  | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                     |
 | `validate.py`  | `validate_render` - render-geometry guards that read the drawn SVG (markers, route ink, label ink) as their own oracle             |
-| `animate.py`   | `render_animation` - animated balls via `<animateMotion>`                                                                          |
+| `animate.py`   | `render_animation` - animated balls via CSS `offset-path` + `@keyframes`                                                            |
 | `style.py`     | `Theme` dataclass                                                                                                                  |
 | `legend.py`    | `render_legend`, `compute_legend_dimensions`                                                                                       |
 | `icons.py`     | `render_file_icon`, `render_files_icon`, `render_folder_icon`                                                                      |

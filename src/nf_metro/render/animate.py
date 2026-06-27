@@ -19,8 +19,13 @@ from nf_metro.render.constants import (
     EDGE_CONNECT_TOLERANCE,
     MIN_ANIMATION_DURATION,
 )
+from nf_metro.render.ns import ns
 from nf_metro.render.style import Theme
 from nf_metro.render.svg import apply_route_offsets
+
+# A line whose travel fraction is within this of a full cycle gets a plain
+# two-stop keyframe (no terminus hold), avoiding a degenerate hold of ~0s.
+_FULL_CYCLE_EPSILON = 0.001
 
 
 def render_animation(
@@ -34,8 +39,16 @@ def render_animation(
     """Add animated balls traveling along each metro line.
 
     For each metro line, builds a continuous SVG path from its chained
-    edges, then injects invisible <path> elements and <circle> elements
-    with <animateMotion> to create the traveling ball effect.
+    edges, then emits a <circle> per ball driven along that path by a CSS
+    ``offset-path`` animation.
+
+    CSS animation is used rather than SMIL ``<animateMotion>`` because SMIL
+    does not run when an SVG is injected into a host page via ``innerHTML``
+    (the playground preview, the embeddable inline snippet, any host that
+    inlines an exported map): the SMIL timeline advances but the motion is
+    never sampled onto the element, freezing every ball at its path start.
+    CSS ``offset-path`` animates reliably whether the SVG is opened
+    standalone, referenced from ``<img>``, or inlined into a document.
     """
     line_paths = _build_line_motion_paths(
         graph,
@@ -45,70 +58,74 @@ def render_animation(
         curve_radius,
     )
 
-    # Compute a global animation cycle duration so all balls loop in
-    # sync.  Without this, short lines restart while long lines are
-    # still mid-track, making it look like some lines lose their balls
-    # on alternating cycles.  Each ball travels at the same speed
-    # (theme.animation_speed px/s) and then holds at the endpoint
-    # until the cycle restarts, using keyTimes/keyPoints.
-    max_dur = MIN_ANIMATION_DURATION
-    for _, d_attr in line_paths:
-        path_length = _compute_path_length(d_attr)
-        dur = max(path_length / theme.animation_speed, MIN_ANIMATION_DURATION)
-        if dur > max_dur:
-            max_dur = dur
-
-    for idx, (line_id, d_attr) in enumerate(line_paths):
-        path_id = f"motion-path-{line_id}-{idx}"
-
-        # Invisible path for animateMotion to follow
-        d.append(
-            draw.Raw(f'<path id="{path_id}" d="{d_attr}" fill="none" stroke="none"/>')
+    # All balls share one cycle (the longest line's at-speed duration) so they
+    # stay in sync; a shorter line covers its path in the first part of the
+    # cycle and holds at the terminus for the rest (see _travel_keyframes),
+    # rather than restarting mid-track while a longer line runs on.
+    durations = [
+        max(
+            _compute_path_length(d_attr) / theme.animation_speed, MIN_ANIMATION_DURATION
         )
+        for _, d_attr in line_paths
+    ]
+    max_dur = max(durations, default=MIN_ANIMATION_DURATION)
 
-        # Natural duration at constant speed
-        path_length = _compute_path_length(d_attr)
-        natural_dur = max(path_length / theme.animation_speed, MIN_ANIMATION_DURATION)
+    stroke_attr = ""
+    if theme.animation_ball_stroke:
+        stroke_attr = (
+            f' stroke="{theme.animation_ball_stroke}"'
+            f' stroke-width="{theme.animation_ball_stroke_width}"'
+        )
+    ball_prefix = (
+        f'<circle r="{theme.animation_ball_radius}" '
+        f'fill="{theme.animation_ball_color}" '
+        f'opacity="{ANIMATION_BALL_OPACITY}"{stroke_attr} '
+    )
 
-        # Fraction of the global cycle spent moving vs holding at end
-        move_frac = natural_dur / max_dur if max_dur > 0 else 1.0
-        move_frac = min(move_frac, 1.0)
+    n_balls = theme.animation_balls_per_line
+    keyframes: dict[str, str] = {}
+    balls: list[str] = []
 
-        # keyPoints: travel 0->1 during move phase, hold at 1 for rest
-        # keyTimes: timestamps matching the keyPoints
-        if move_frac < 0.999:
-            key_times = f"0;{move_frac:.4f};1"
-            key_points = "0;1;1"
-            kp_attrs = (
-                f'keyPoints="{key_points}" keyTimes="{key_times}" calcMode="linear" '
+    for (_, d_attr), natural_dur in zip(line_paths, durations):
+        move_frac = min(natural_dur / max_dur, 1.0) if max_dur > 0 else 1.0
+        kf_name = _travel_keyframes(move_frac, keyframes)
+        for i in range(n_balls):
+            delay = -i * max_dur / n_balls
+            motion = (
+                f"offset-path: path('{d_attr}'); offset-rotate: 0deg; "
+                f"animation: {kf_name} {max_dur:.2f}s linear infinite; "
+                f"animation-delay: {delay:.2f}s;"
+            )
+            balls.append(f'{ball_prefix}style="{motion}"/>')
+
+    # @keyframes must precede the inline animations that reference them.
+    if keyframes:
+        d.append(draw.Raw("<style>" + "".join(keyframes.values()) + "</style>"))
+    for ball in balls:
+        d.append(draw.Raw(ball))
+
+
+def _travel_keyframes(move_frac: float, registry: dict[str, str]) -> str:
+    """Return the @keyframes name for a ball that travels for *move_frac* of
+    the shared cycle then holds at the terminus, registering its CSS in
+    *registry*.  Lines sharing a *move_frac* reuse one block; the name is
+    namespaced (``ns``) so maps inlined on the same page don't collide.
+    """
+    name = ns("nfm-travel-" + f"{move_frac:.4f}".replace(".", "_"))
+    if name not in registry:
+        if move_frac < 1.0 - _FULL_CYCLE_EPSILON:
+            registry[name] = (
+                f"@keyframes {name}{{"
+                f"0%{{offset-distance:0%}}"
+                f"{move_frac * 100:.2f}%{{offset-distance:100%}}"
+                f"100%{{offset-distance:100%}}}}"
             )
         else:
-            kp_attrs = ""
-
-        n_balls = theme.animation_balls_per_line
-        for i in range(n_balls):
-            begin_offset = -i * max_dur / n_balls
-            stroke_attr = ""
-            if theme.animation_ball_stroke:
-                stroke_attr = (
-                    f' stroke="{theme.animation_ball_stroke}"'
-                    f' stroke-width="{theme.animation_ball_stroke_width}"'
-                )
-            d.append(
-                draw.Raw(
-                    f'<circle r="{theme.animation_ball_radius}" '
-                    f'fill="{theme.animation_ball_color}" '
-                    f'opacity="{ANIMATION_BALL_OPACITY}"'
-                    f"{stroke_attr}>"
-                    f'<animateMotion dur="{max_dur:.2f}s" '
-                    f"{kp_attrs}"
-                    f'repeatCount="indefinite" '
-                    f'begin="{begin_offset:.2f}s">'
-                    f'<mpath href="#{path_id}"/>'
-                    f"</animateMotion>"
-                    f"</circle>"
-                )
+            registry[name] = (
+                f"@keyframes {name}{{"
+                f"from{{offset-distance:0%}}to{{offset-distance:100%}}}}"
             )
+    return name
 
 
 def _build_line_motion_paths(
