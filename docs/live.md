@@ -29,9 +29,9 @@ re-flows as state changes.
 
 <video controls autoplay loop muted playsinline
        style="width: 100%; max-width: 760px; border-radius: 6px"
-       src="/nf-metro/assets/live_demo.mp4">
+       src="../assets/live_demo.mp4">
 Your browser can't play the embedded video -
-<a href="/nf-metro/assets/live_demo.mp4">download it here</a>.
+<a href="../assets/live_demo.mp4">download it here</a>.
 </video>
 
 _A pipeline run lighting up the map in real time._
