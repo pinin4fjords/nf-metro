@@ -5,7 +5,7 @@ sidebar:
   order: 4
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside } from "@astrojs/starlight/components";
 
 Inter-section edges (port/junction to port/junction) are routed by
 `_route_inter_section` in
@@ -79,5 +79,8 @@ Because every rule above builds its route through the centreline bundle builder
   too, not to relax the guard.
 
 <Aside type="note">
-If `assert_render_curve_invariants` fires, the fix is always to route the new shape through the centreline bundle builder — not to widen tolerances or add exceptions to the guard. A guard failure means a route was assembled outside the builder, bypassing the construction that keeps bundles correct by design.
+  If `assert_render_curve_invariants` fires, the fix is always to route the new
+  shape through the centreline bundle builder — not to widen tolerances or add
+  exceptions to the guard. A guard failure means a route was assembled outside
+  the builder, bypassing the construction that keeps bundles correct by design.
 </Aside>

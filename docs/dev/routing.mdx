@@ -5,7 +5,7 @@ sidebar:
 ---
 
 import Metro from "@components/Metro.astro";
-import { Aside } from '@astrojs/starlight/components';
+import { Aside } from "@astrojs/starlight/components";
 
 Routing turns the laid-out `MetroGraph` (stations, ports, and junctions
 with coordinates) into a list of `RoutedPath` polylines, one per edge.
@@ -127,6 +127,7 @@ Never position a port at the same coordinate as an internal station (within the 
 - LEFT/RIGHT ports on TB sections must not share Y with any internal station.
 
 When fixing a routing kink, **do not** move a port onto a station's coordinate to make the line appear straight. That creates a station-as-elbow violation where the routed line visually passes through the station marker. Instead, accept a small offset between port and station and handle the geometry via routing (near-vertical drops, gentle curves, etc.).
+
 </Aside>
 
 ## The descriptor catalogue (`WRAP_TABLE`)
