@@ -54,7 +54,9 @@
   }
 
   function ensureDialog(): void {
-    if (dlg) return;
+    // Astro's ClientRouter swaps the <body> on navigation, removing this
+    // body-appended dialog; re-create it when the previous one is detached.
+    if (dlg?.isConnected) return;
     dlg = document.createElement("dialog");
     dlg.id = "nfm-svg-zoom";
     dlg.setAttribute("aria-modal", "true");
@@ -110,15 +112,20 @@
     });
   }
 
-  document.querySelectorAll<HTMLElement>("[data-zoomable]").forEach((wrap) => {
-    const btn = wrap.querySelector<HTMLButtonElement>(".zoom-btn");
-    if (!btn) return;
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openZoom(wrap);
-    });
-    wrap.addEventListener("click", () => openZoom(wrap));
-  });
+  // One delegated listener on document (which ClientRouter never replaces), so
+  // click-to-zoom keeps working after client-side navigation - a per-element
+  // listener bound on initial load is lost when the DOM is swapped.
+  function onDocumentClick(e: MouseEvent) {
+    const target = e.target as Element | null;
+    const wrap = target?.closest<HTMLElement>("[data-zoomable]");
+    if (wrap) openZoom(wrap);
+  }
+  document.addEventListener("click", onDocumentClick);
+  // In Vite's dev HMR the module is re-evaluated on edit; drop the previous
+  // listener so clicks don't stack. No-op in production (hot is undefined).
+  import.meta.hot?.dispose(() =>
+    document.removeEventListener("click", onDocumentClick),
+  );
 </script>
 
 <style>

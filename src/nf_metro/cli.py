@@ -200,6 +200,18 @@ def _echo_issues(
     ),
 )
 @click.option(
+    "--no-self-color-scheme",
+    is_flag=True,
+    default=False,
+    help=(
+        "Omit the color-scheme: light dark attribute from the root <svg> "
+        "element. Use when inlining the SVG into a host page that owns the "
+        "theme (e.g. the docs site): the SVG then inherits the page's "
+        "color-scheme so a manual light/dark toggle drives light-dark() "
+        "resolution rather than the viewer's OS preference."
+    ),
+)
+@click.option(
     "--no-dark-mode-css",
     is_flag=True,
     default=False,
@@ -257,6 +269,7 @@ def render(
     embed_font: bool,
     text_to_paths: bool,
     svg_class_prefix: str,
+    no_self_color_scheme: bool,
     no_dark_mode_css: bool,
     no_chrome_css: bool,
     bare: bool,
@@ -337,6 +350,7 @@ def render(
                 responsive=responsive,
                 font_portability=font_portability,
                 svg_class_prefix=svg_class_prefix,
+                self_color_scheme=not no_self_color_scheme,
                 inject_dark_mode_css=not no_dark_mode_css,
                 chrome_css=not no_chrome_css,
                 bare=bare,
