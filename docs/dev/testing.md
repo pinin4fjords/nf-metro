@@ -8,7 +8,7 @@ The test suite has four complementary validation layers, each checking a
 different artifact at a different point in the pipeline. Run everything
 with `pytest`; run one file or test with the usual selectors:
 
-```bash
+```bash frame="terminal"
 pytest                                   # all tests
 pytest tests/test_topology_validation.py # one file
 pytest tests/test_parser.py::test_parse_title
@@ -85,7 +85,7 @@ gallery (no diff page). The preview is published at
 To reproduce locally, render the gallery on each branch into separate
 directories and run the diff script the same way:
 
-```bash
+```bash frame="terminal"
 python scripts/build_gallery.py            # writes docs/assets/renders/*.svg
 python scripts/build_render_diff.py /tmp/base /tmp/pr /tmp/diff_site
 ```
