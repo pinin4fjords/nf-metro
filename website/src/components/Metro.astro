@@ -146,41 +146,14 @@ const codeTitle = title ?? src;
 </div>
 
 <style>
+  /* The three sections inherit Starlight's native <details> styling (the
+     full-height left accent bar + rotating chevron marker); this only spaces
+     them apart, since they are nested in a wrapper rather than direct children
+     of the markdown content. */
   .metro {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     margin: 1rem 0;
-  }
-
-  .metro-part {
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 0.5rem;
-    overflow: hidden;
-    background: var(--sl-color-black);
-  }
-
-  .metro-part > summary {
-    cursor: pointer;
-    padding: 0.4rem 0.75rem;
-    font-size: var(--sl-text-sm);
-    font-weight: 600;
-    color: var(--sl-color-gray-2);
-    list-style-position: inside;
-    user-select: none;
-  }
-
-  .metro-part > summary:hover {
-    color: var(--sl-color-white);
-  }
-
-  /* The source/command blocks bring their own Expressive Code frame; drop its
-     top margin so it sits flush under the summary. */
-  .metro-part > :global(.expressive-code) {
-    margin-top: 0;
-  }
-
-  .metro-render > :global(.zoomable-svg) {
-    padding: 0.5rem 0.75rem 0.75rem;
   }
 </style>
