@@ -95,7 +95,7 @@ const svgSources = {
   ...import.meta.glob("../../../examples/**/*.mmd", { query: "?metro", import: "default" }),
   ...import.meta.glob("../../../tests/fixtures/*.mmd", { query: "?metro", import: "default" }),
 };
-const svgDebugSources = import.meta.glob("../../../examples/*.mmd", {
+const svgDebugSources = import.meta.glob("../../../examples/**/*.mmd", {
   query: "?metro&debug",
   import: "default",
 });
@@ -112,7 +112,7 @@ const RENDER_MODES: Record<string, { mods: Sources; scope: string }> = {
     mods: svgSources,
     scope: "examples/** and tests/fixtures/*.mmd (top level only)",
   },
-  debug: { mods: svgDebugSources, scope: "examples/*.mmd (top level only)" },
+  debug: { mods: svgDebugSources, scope: "examples/**" },
   nextflow: { mods: svgNextflowSources, scope: "tests/fixtures/nextflow/**" },
 };
 const renderMode = fromNextflow ? "nextflow" : debug ? "debug" : "plain";
