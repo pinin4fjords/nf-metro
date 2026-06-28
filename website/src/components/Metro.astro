@@ -96,13 +96,22 @@ const svgNextflowSources = import.meta.glob(
   { query: "?metro&nextflow", import: "default" },
 );
 
+// Each render mode pairs its source map with the scope named in the not-found
+// error, so the selection and the message can't drift apart.
+type Sources = Record<string, () => Promise<unknown>>;
+const RENDER_MODES: Record<string, { mods: Sources; scope: string }> = {
+  plain: {
+    mods: svgSources,
+    scope: "examples/** and tests/fixtures/*.mmd (top level only)",
+  },
+  debug: { mods: svgDebugSources, scope: "examples/*.mmd (top level only)" },
+  nextflow: { mods: svgNextflowSources, scope: "tests/fixtures/nextflow/**" },
+};
+const renderMode = fromNextflow ? "nextflow" : debug ? "debug" : "plain";
+
 const key = `../../../${src}`;
 
-function resolve(
-  mods: Record<string, () => Promise<unknown>>,
-  what: string,
-  scope: string,
-) {
+function resolve(mods: Sources, what: string, scope: string) {
   const loader = mods[key];
   if (!loader) {
     throw new Error(
@@ -121,18 +130,10 @@ const source =
         "examples/** and tests/fixtures/**",
       )) as string)
     : null;
-const renderScope = fromNextflow
-  ? "tests/fixtures/nextflow/**"
-  : debug
-    ? "examples/*.mmd (top level only)"
-    : "examples/** and tests/fixtures/*.mmd (top level only)";
+const { mods: renderMods, scope: renderScope } = RENDER_MODES[renderMode];
 const svg =
   renderState !== false
-    ? ((await resolve(
-        fromNextflow ? svgNextflowSources : debug ? svgDebugSources : svgSources,
-        "render",
-        renderScope,
-      )) as string)
+    ? ((await resolve(renderMods, "render", renderScope)) as string)
     : null;
 
 const stem = src.split("/").pop()?.replace(/\.mmd$/, "") ?? "map";
