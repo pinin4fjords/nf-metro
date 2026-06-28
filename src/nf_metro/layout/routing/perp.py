@@ -31,6 +31,7 @@ side for any other feeder.
 from __future__ import annotations
 
 from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.routing.common import needs_perp_approach_fan
 from nf_metro.layout.routing.context import (
     _get_offset,
     _max_offset_at,
@@ -43,6 +44,29 @@ from nf_metro.parser.model import (
 )
 
 
+def _perp_approach_fan_x(
+    ctx: _RoutingCtx, entry_port_id: str, line_id: str, port_x: float
+) -> float:
+    """Per-line X channel a line takes into a distinct-line perp entry port.
+
+    Where distinct lines share a perpendicular entry (:func:`needs_perp_approach_fan`)
+    the single-line feeders all sit on one column trunk, so each must fan onto its
+    own approach channel rather than share the trunk X.  Spread them by each
+    line's index in the cross-boundary bundle, widening toward the turn side
+    (``-x``).  The inter-section feeder drop and the intra-section drop both
+    anchor on this one X, so the line passes straight through the boundary.  Lines
+    without a bundled feeder stay on the trunk (index 0).
+    """
+    indices = [
+        info[0]
+        for edge in ctx.graph.edges_to(entry_port_id)
+        if edge.line_id == line_id
+        and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
+        is not None
+    ]
+    return port_x - max(indices, default=0) * ctx.offset_step
+
+
 def _perp_entry_crossing_x(
     ctx: _RoutingCtx, entry_port_id: str, line_id: str, port_x: float
 ) -> float | None:
@@ -52,7 +76,13 @@ def _perp_entry_crossing_x(
     this one X so the line passes straight through the boundary rather than
     converging on the port marker and re-fanning.
 
-    A vertical-flow (TB/BT) feeder drops on its own section lane -- the exact X
+    A distinct-line perp entry (:func:`needs_perp_approach_fan`) fans its
+    single-line feeders onto parallel approach channels by bundle index --
+    :func:`_perp_approach_fan_x` -- since their feeder lanes all collapse onto
+    one column trunk.
+
+    Otherwise, a vertical-flow (TB/BT) feeder dropping a *single* bundle crosses
+    on its own section lane -- the exact X
     :func:`inter_section_handlers._route_tb_bottom_exit` lands at,
     :func:`context._tb_x_offset` -- so the crossing tracks that lane.  Its
     per-line lane width (one offset step per distinct line) is narrower than the
@@ -66,6 +96,8 @@ def _perp_entry_crossing_x(
     index on that side.  Returns ``None`` when no bundled inter-section feeder
     reaches the port for this line (nothing to align to).
     """
+    if needs_perp_approach_fan(ctx.graph, entry_port_id):
+        return _perp_approach_fan_x(ctx, entry_port_id, line_id, port_x)
     feeders = [
         (info[0], edge.source)
         for edge in ctx.graph.edges_to(entry_port_id)

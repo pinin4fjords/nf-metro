@@ -14,6 +14,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
+    needs_perp_approach_fan,
     tb_right_entry_sections,
     vertical_flow_sections,
 )
@@ -1340,10 +1341,18 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
     In both cases the 0.0 default for lines absent from the exit port is
     intentional: it collapses lines from other feeders onto one slot, so each
     can drop vertically to its consumer rather than jogging horizontally first.
+
+    A distinct-line perp entry (:func:`needs_perp_approach_fan` -- disjoint
+    single-line feeders into a horizontal section) is exempt: collapsing its lines
+    onto one slot would draw any shared run as a zero-offset collinear bundle.
+    Its lines keep their distinct base/priority slots so the bundle separates,
+    and the per-line approach channels are fanned at routing time.
     """
     graph = ctx.graph
     for port_id, port_obj in graph.ports.items():
         if not port_obj.is_entry or port_obj.side != PortSide.TOP:
+            continue
+        if needs_perp_approach_fan(graph, port_id):
             continue
         entry_section = graph.sections.get(port_obj.section_id)
         if entry_section is None:
