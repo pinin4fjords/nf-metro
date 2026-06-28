@@ -33,6 +33,21 @@ mkdirSync(CACHE_DIR, { recursive: true });
 // working directory, so renders must run from here or the logo is dropped.
 const REPO_ROOT = join(__dirname, "../../..");
 
+// Part of the cache key, so a released layout change invalidates cached SVGs
+// instead of silently serving stale renders for unchanged sources. (An editable
+// install whose code changed without a version bump still needs the cache
+// cleared - `serve_docs.sh --rebuild` does that.)
+let NF_METRO_VERSION = "unknown";
+try {
+  NF_METRO_VERSION = execFileSync("nf-metro", ["--version"], {
+    cwd: REPO_ROOT,
+  })
+    .toString()
+    .trim();
+} catch {
+  /* nf-metro absent at init; renderMetroFile reports it clearly on first use */
+}
+
 /** drawsvg emits an XML prolog; strip it before inlining into HTML. */
 const XML_PROLOG_RE = /^<\?xml.*?\?>\s*/;
 
@@ -46,7 +61,7 @@ export function renderMetroFile(file, { debug = false, fromNextflow = false } = 
   const source = readFileSync(file, "utf-8");
   const mode = `${debug ? "d" : ""}${fromNextflow ? "n" : ""}`;
   const hash = createHash("sha256")
-    .update(`${mode}\n${source}`)
+    .update(`${NF_METRO_VERSION}\n${mode}\n${source}`)
     .digest("hex")
     .slice(0, 16);
   const cacheFile = join(CACHE_DIR, `${hash}.svg`);
