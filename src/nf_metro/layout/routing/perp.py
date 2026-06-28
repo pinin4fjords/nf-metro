@@ -80,8 +80,8 @@ def _perp_approach_fan_x(
     do not cross.  The inter-section feeder drop and the intra-section drop both
     anchor on this one X.  Lines without a bundled feeder stay on the trunk.
     """
-    index, count, _source = max(
-        _bundled_feeders(ctx, entry_port_id, line_id), default=(0, 1, "")
+    index, count, _source = next(
+        iter(_bundled_feeders(ctx, entry_port_id, line_id)), (0, 1, "")
     )
     return port_x - (count - 1 - index) * ctx.offset_step
 
