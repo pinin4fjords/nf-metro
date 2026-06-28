@@ -65,10 +65,7 @@ def test_aggressive_fold_raises_authoring_error_not_internal(
 ) -> None:
     with pytest.raises(FoldThresholdError) as exc:
         _render_at(name, fold)
-    # The authoring error must name the offending directive and point at the fix.
-    msg = str(exc.value).lower()
-    assert "fold" in msg
-    # It is an authoring error (ValueError), not an internal engine self-check.
+    assert "fold" in str(exc.value).lower()
     assert isinstance(exc.value, ValueError)
     assert not isinstance(exc.value, (CurveInvariantError, SectionHeaderClashError))
 
