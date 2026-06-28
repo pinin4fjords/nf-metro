@@ -4,6 +4,8 @@ sidebar:
   order: 3
 ---
 
+import Metro from "@components/Metro.astro";
+
 Routing turns the laid-out `MetroGraph` (stations, ports, and junctions
 with coordinates) into a list of `RoutedPath` polylines, one per edge.
 The entry point is `route_edges` in
@@ -30,6 +32,8 @@ Rail routing does not bundle: each line runs along a single fixed
 horizontal rail Y (assigned in `layout/rail_mode.py`), so each edge is a
 straight horizontal run at its line's rail Y, and shared stations render
 as interchange pills bridging the rails.
+
+<Metro src="examples/rail_mode.mmd" purpose="reference" />
 
 ## Dispatch order
 
@@ -65,6 +69,14 @@ The order in `route_edges` is:
    fallback for port/junction-to-port/junction edges that the inter-
    section family did not claim.
 
+The fan-out below illustrates all four handler families at once:
+inter-section L-shapes connect the sections, TB-section routing applies
+inside the vertical connector, entry runways compress the diagonal at
+each section's input port, and intra-section diagonals handle the
+station-to-station edges within each horizontal section.
+
+<Metro src="examples/guide/04_directions.mmd" purpose="reference" />
+
 After all edges are routed, `route_edges` runs a series of post-passes
 that adjust the assembled polylines as a set (for example
 `_spread_diagonal_bundles`, `_materialize_gap_slots`,
@@ -81,6 +93,11 @@ offset propagation at each corner (the corner-radius helpers live in
 `routing/corners.py`). The runtime guard
 `check_bundle_order_preserved` (in `routing/invariants.py`) catches any
 regression where a line crosses over its bundle-mates.
+
+The debug overlay below makes the offset geometry visible: each line's
+parallel track and the station markers it must pass through.
+
+<Metro src="examples/guide/03_fan_out.mmd" debug mmd={false} />
 
 ## Render-time guards
 
