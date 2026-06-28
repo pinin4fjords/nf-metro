@@ -91,7 +91,7 @@ filed bug, or one not yet classified. A campaign is not done while any arm is
    fixture to a shared triage JSON.
 5. **Human visual verdict before PR-open.** Build the review page and get a
    verdict on _every_ new fixture:
-   ```bash
+   ```bash frame="terminal"
    source ~/.local/bin/mm-activate nf-metro && export PYTHONPATH="$PWD/src"
    python .claude/skills/nf-metro-layout-triage/build_review.py --worktree "$PWD" \
        --output-dir /tmp/gate-triage-out --violations /tmp/gate-triage-<module>.json

@@ -101,7 +101,7 @@ an always-on check, and every issue-pinned guard records its issue and a
 the final geometry. Mean microseconds-per-fixture below are from that run;
 regenerate with:
 
-```bash
+```bash frame="terminal"
 python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 ```
 
