@@ -1,0 +1,52 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { getCollection } from "astro:content";
+import Metro from "@components/Metro.astro";
+import { base } from "../../site";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("gallery");
+  return entries.map((entry) => ({
+    params: { entry: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { title, src, description, category } = entry.data;
+---
+
+<StarlightPage
+  frontmatter={{
+    title,
+    description,
+    template: "doc",
+    tableOfContents: false,
+    pagefind: true,
+    prev: false,
+    next: false,
+  }}
+>
+  <p class="nfm-entry-meta">
+    <a href={`${base}gallery/`}>Gallery</a> / {category}
+  </p>
+  <p>{description}</p>
+  <Metro src={src} purpose="showcase" />
+</StarlightPage>
+
+<style>
+  .nfm-entry-meta {
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-3);
+    margin-bottom: 1.25rem;
+  }
+
+  .nfm-entry-meta a {
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+  }
+
+  .nfm-entry-meta a:hover {
+    text-decoration: underline;
+  }
+</style>

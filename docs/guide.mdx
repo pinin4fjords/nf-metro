@@ -178,7 +178,7 @@ Here is a pipeline with a visible `branch` station that serves only as a fork po
 
 The "Branch" station is real in the graph but meaningless in the pipeline. Renaming it to `_branch` hides it:
 
-```metro
+```metro ins={2,5,6,9}
     subgraph processing [Processing]
         _branch
         align[Alignment]
@@ -263,7 +263,7 @@ With `%%metro compact_offsets: true`, stations are only as wide as the lines act
 
 **Off-track inputs.** Pipelines often have reference or auxiliary inputs (a FASTA, a GTF, a known-variants VCF) that feed _into_ a processing step partway through a section rather than flowing along the main route. By default such an input station would claim a line-track slot on the trunk, pushing the layout around. List its station ID in `%%metro off_track:` and nf-metro lifts it above the section's main track, dropping it down into its consumer:
 
-```metro
+```metro {3}
 %%metro file: ref_in | FASTA | Reference
 %%metro file: gtf_in | GTF | Annotation
 %%metro off_track: ref_in, gtf_in
@@ -273,7 +273,7 @@ This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the 
 
 **Off-track outputs.** The same directive works for file _artefacts_ written part-way through a section (a `bam`/`cram` dumped after a mapping step, say). A producer-fed sink - a station with an incoming edge from an on-track step and no on-track consumer - is anchored above its **producer** rather than the section top, so the artefact hangs off the trunk right where it is written:
 
-```metro
+```metro {2}
 %%metro file: bam_mapped | BAM
 %%metro off_track: bam_mapped
 ```
@@ -294,7 +294,7 @@ The bare directive sets the graph-wide default:
 
 Append `| <section>, ...` to override individual sections, so one map can mix modes - a `bundle` trunk feeding a `rails` analysis panel, say:
 
-```metro
+```metro {2}
 %%metro line_spread: centered
 %%metro line_spread: rails | pathways
 ```
@@ -416,7 +416,7 @@ glyph is the correct rendering.
 
 Add `--debug` to any render command to overlay layout internals on the diagram:
 
-```bash
+```bash frame="terminal"
 nf-metro render --debug pipeline.mmd -o debug.svg
 ```
 

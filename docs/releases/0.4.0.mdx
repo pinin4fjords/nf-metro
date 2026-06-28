@@ -11,7 +11,7 @@ _2026-02-19_ · [GitHub release](https://github.com/pinin4fjords/nf-metro/releas
 
 nf-metro can now import Mermaid files produced by Nextflow's `--with-dag` flag directly, without manual editing. The importer detects unsupported DAG constructs and reports them clearly.
 
-```bash
+```bash frame="terminal"
 nextflow run mypipeline.nf --with-dag dag.mmd
 nf-metro render dag.mmd -o pipeline.svg
 ```

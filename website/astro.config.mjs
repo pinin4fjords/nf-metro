@@ -156,8 +156,8 @@ export default defineConfig({
             { label: "Home", link: "/" },
             { label: "Guide", slug: "guide" },
             { label: "CLI reference", slug: "cli" },
-            { label: "Gallery", slug: "gallery" },
-            { label: "nf-core pipelines", slug: "pipelines" },
+            { label: "Gallery", link: "/gallery/" },
+            { label: "nf-core pipelines", link: "/pipelines/" },
             {
               label: "Playground (beta)",
               link: "/playground/",

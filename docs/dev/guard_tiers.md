@@ -24,16 +24,13 @@ The **Tier-B** remainder of the `_guard_*` suite is gated behind
 `compute_layout(validate=True)`, which the `nf-metro render` path never sets;
 it is costlier or depends on a mid-pipeline reroute.
 
-This page is the cost-tier classification that the always-on promotion
-(#923) and the consolidation pass (#922) build on. It is **descriptive of the
-current tree**: Tier A is the always-on render-path set, Tier B is the
-`validate=True` set.
+Tier A is the always-on render-path set; Tier B is the `validate=True` set.
 
 ## Tiers
 
 | Tier  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Promotion intent                                                                        |
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| **A** | Cheap, observational structural checks: placement (finite coords, bbox containment with marker overhang, station overlap, ports on boundaries) **plus** `_guard_stations_within_bbox`, the inter-section backtrack/wrap guards (`_guard_inter_section_route_no_backtrack`, `_guard_inter_section_route_no_full_width_backtrack`, `_guard_serpentine_no_backtrack`, `_guard_inter_section_route_clears_own_section_interior`), and the routing `check_*` invariants already always-on via the render chokepoint. | Run on the default render path (#923), warning by default with a `--strict` escalation. |
+| **A** | Cheap, observational structural checks: placement (finite coords, bbox containment with marker overhang, station overlap, ports on boundaries) **plus** `_guard_stations_within_bbox`, the inter-section backtrack/wrap guards (`_guard_inter_section_route_no_backtrack`, `_guard_inter_section_route_no_full_width_backtrack`, `_guard_serpentine_no_backtrack`, `_guard_inter_section_route_clears_own_section_interior`), and the routing `check_*` invariants already always-on via the render chokepoint. | Run on the default render path, warning by default with a `--strict` escalation. |
 | **B** | The remaining `validate=True` set: route-shape, bundle-order, label, rail, and merge-port geometry. Correct but either costlier or dependent on a mid-pipeline reroute (they consume `route_edges` output), so not cheap-always-on.                                                                                                                                                                                                                                                                             | Stay behind `validate=True` / `--strict`.                                               |
 | **C** | Test-only oracles: too slow, too fixture-specific, or non-observational.                                                                                                                                                                                                                                                                                                                                                                                                                                        | Live in the test suite, not the runtime suite.                                          |
 
@@ -44,12 +41,14 @@ inter-section backtrack/wrap guards (which read the routed geometry but are
 cheap sweeps, the dearest ~11 us) join it too. Tier B holds everything that is
 materially more expensive; the most expensive members
 (`check_no_hanging_routes` ~470 us, `_guard_no_route_through_section` ~93 us,
-the collinear-distinct checks ~100 us) are routed-geometry sweeps. **Tier C holds one check**,
-`check_seam_approach_equals_departure`: a seam oracle that TB/BT sections fail
-today (they draw the lane fan by reflection, not rotation), so it runs from the
-test suite rather than the runtime suite until #1041 migrates the section draw
-onto `lane_x`. Every other guard and check is reachable from `compute_layout`
-or the render chokepoint.
+the collinear-distinct checks ~100 us) are routed-geometry sweeps. **Tier C**
+holds the two seam oracle checks - `check_seam_approach_equals_departure` and
+`check_seam_segments_meet_at_port` - which verify the rotation-unification
+property: at every inter-section seam the approach must place each line on the
+lane coordinate that `lane_x` assigns it. Both are correctness oracles for the
+rotation series rather than runtime guards, so they live in the test suite
+(`tests/test_seam_lane_x.py`). Every other guard and check is reachable from
+`compute_layout` or the render chokepoint.
 
 ## Registries
 
@@ -101,7 +100,7 @@ an always-on check, and every issue-pinned guard records its issue and a
 the final geometry. Mean microseconds-per-fixture below are from that run;
 regenerate with:
 
-```bash
+```bash frame="terminal"
 python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 ```
 
@@ -189,6 +188,7 @@ python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 | `check_perp_exit_over_leadin_clears_only_spanned_sections` | B    |     2.5 | via `_guard_*` wrapper                        |
 | `check_right_entry_drop_in_when_clear`                     | B    |     2.1 | via `_guard_*` wrapper                        |
 | `check_seam_approach_equals_departure`                     | C    |       - | test suite only (`tests/test_seam_lane_x.py`) |
+| `check_seam_segments_meet_at_port`                         | C    |       - | test suite only (`tests/test_seam_lane_x.py`) |
 
 ### Inline guards (`INLINE_GUARD_REGISTRY`)
 

@@ -9,14 +9,18 @@ build/
 .env
 site/
 
-# Generated docs content (scripts/build_gallery.py): markdown + rendered SVGs.
+# Generated docs content (scripts/build_gallery.py): SVGs + content collection manifests.
 # docs/ holds the hand-written markdown; the Astro site in website/ symlinks it.
-docs/gallery/
-docs/pipelines/
 docs/assets/renders/
+website/src/content/gallery.json
+website/src/content/pipelines.json
 
 # Build-time SVG render cache for the remark-metro docs plugin.
 website/.metro-cache/
+
+# Root-level node_modules if prettier or other npm tools are run at repo root.
+node_modules/
+package-lock.json
 
 # Claude Code per-session scratch state (prompts, locks, worktrees)
 .claude/prompts/

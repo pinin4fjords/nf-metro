@@ -46,7 +46,7 @@ The work splits in two:
 
 `.mmd` files use a subset of Mermaid `graph LR` syntax:
 
-```metro
+```metro title="example.mmd"
 %%metro title: Pipeline Name
 %%metro line: line_id | Display Name | #hexcolor | style
 
@@ -89,7 +89,7 @@ a library do the recognising. nf-metro uses [`lark`](https://lark-parser.readthe
 for this. The grammar lives as a string in `grammar.py` (`_GRAMMAR`),
 and reads roughly:
 
-```lark
+```lark title="src/nf_metro/parser/grammar.py"
 node:  NAME SHAPE?
 edge:  NAME SHAPE? ARROW EDGELABEL? NAME SHAPE?
 
@@ -238,7 +238,7 @@ separate `validate` phase, `nf_metro.parser.validate.validate_graph`.
 The unrecognised-line case is handled in the grammar by a low-priority
 catch-all:
 
-```lark
+```lark title="src/nf_metro/parser/grammar.py"
 JUNK.-10: /[^\n]+/
 ```
 
