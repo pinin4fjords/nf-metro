@@ -22,7 +22,7 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_ROUTE_CLEARANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
 
 
@@ -121,7 +121,7 @@ def needs_perp_approach_fan(graph: MetroGraph, port_id: str) -> bool:
     ):
         return False
     section = graph.sections.get(port.section_id)
-    if section is None or section.direction not in ("LR", "RL"):
+    if section is None or not lanes_run_along_y(section.direction):
         return False
     feeders_by_line: dict[str, set[str]] = {}
     for edge in graph.edges_to(port_id):
