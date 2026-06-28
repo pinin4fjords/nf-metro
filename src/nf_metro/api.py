@@ -14,7 +14,9 @@ string.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Literal
 
 from nf_metro.layout import compute_layout
@@ -29,6 +31,28 @@ from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 
 # `style: dark` predates theme names; alias it onto the nfcore brand.
 _STYLE_THEME_ALIASES = {"dark": "nfcore"}
+
+
+@dataclass
+class RenderConfig:
+    """Render-side options that control SVG/HTML output format and appearance.
+
+    Pass as ``config=RenderConfig(...)`` to :func:`render_string` instead of
+    the individual keyword arguments.  When *config* is supplied to
+    ``render_string``, the matching flat keyword arguments are ignored.
+    """
+
+    output_format: Literal["svg", "html"] = "svg"
+    debug: bool = False
+    responsive: bool = False
+    embed_font: bool = False
+    text_to_paths: bool = False
+    svg_class_prefix: str = ""
+    inject_dark_mode_css: bool = True
+    chrome_css: bool = True
+    self_color_scheme: bool = True
+    bare: bool = False
+    embed_basename: str = "metro_map.html"
 
 
 def apply_layout_overrides(graph: MetroGraph, opts: Mapping[str, object]) -> None:
@@ -68,6 +92,39 @@ def resolve_theme(
         return family[resolved_mode]
 
     return THEMES.get(brand, THEMES["nfcore"])
+
+
+def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
+    """Route a settled graph to the appropriate renderer using *cfg*.
+
+    Use this when you already hold a laid-out graph (e.g. from
+    :func:`prepare_graph`) and want the render half of :func:`render_string`
+    without re-parsing.
+    """
+    font_portability: Literal["embed", "paths"] | None = (
+        "paths" if cfg.text_to_paths else "embed" if cfg.embed_font else None
+    )
+    if cfg.output_format == "html":
+        return render_html(
+            graph,
+            theme_obj,
+            debug=cfg.debug,
+            embed_basename=cfg.embed_basename,
+            font_portability=font_portability,
+            inject_dark_mode_css=cfg.inject_dark_mode_css,
+        )
+    return render_svg(
+        graph,
+        theme_obj,
+        debug=cfg.debug,
+        responsive=cfg.responsive,
+        font_portability=font_portability,
+        svg_class_prefix=cfg.svg_class_prefix,
+        inject_dark_mode_css=cfg.inject_dark_mode_css,
+        chrome_css=cfg.chrome_css,
+        self_color_scheme=cfg.self_color_scheme,
+        bare=cfg.bare,
+    )
 
 
 def prepare_graph(
@@ -124,6 +181,7 @@ def prepare_graph(
 def render_string(
     text: str,
     *,
+    config: RenderConfig | None = None,
     theme: str | None = None,
     mode: str | None = None,
     output_format: Literal["svg", "html"] = "svg",
@@ -140,14 +198,30 @@ def render_string(
     svg_class_prefix: str = "",
     inject_dark_mode_css: bool = True,
     chrome_css: bool = True,
+    self_color_scheme: bool = True,
     bare: bool = False,
     embed_basename: str = "metro_map.html",
 ) -> str:
     """Render *text* to an SVG (default) or interactive HTML string.
 
-    A one-call wrapper over :func:`prepare_graph` plus the renderer. Callers
-    that also need the graph (e.g. to run :func:`nf_metro.render.validate_render`
-    on the output) should call :func:`prepare_graph` and the renderer directly.
+    A one-call wrapper over :func:`prepare_graph` plus :func:`render_graph`.
+    Callers that also need the graph (e.g. to run
+    :func:`nf_metro.render.validate_render` on the output) should call
+    :func:`prepare_graph` and :func:`render_graph` directly.
+
+    *config* groups all render-side options into a :class:`RenderConfig` bundle.
+    When supplied, the individual render-side keyword arguments (``output_format``,
+    ``debug``, ``responsive``, ``embed_font``, ``text_to_paths``,
+    ``svg_class_prefix``, ``inject_dark_mode_css``, ``chrome_css``,
+    ``self_color_scheme``, ``bare``, ``embed_basename``) are ignored in favour of
+    *config*, and passing any of them with a non-default value alongside
+    *config* warns. Pass one or the other, not both.
+
+    *self_color_scheme* — when ``True`` (default) the root ``<svg>`` element
+    declares ``color-scheme: light dark`` so ``light-dark()`` custom properties
+    resolve against the viewer's OS preference. Set ``False`` when inlining the
+    SVG into a host page that owns the color-scheme (matches ``--no-self-color-scheme``
+    on the CLI).
     """
     graph = prepare_graph(
         text,
@@ -159,27 +233,30 @@ def render_string(
         layout_options=layout_options,
     )
     theme_obj = resolve_theme(theme, graph, mode=mode)
-    font_portability: Literal["embed", "paths"] | None = (
-        "paths" if text_to_paths else "embed" if embed_font else None
-    )
-
-    if output_format == "html":
-        return render_html(
-            graph,
-            theme_obj,
-            debug=debug,
-            embed_basename=embed_basename,
-            font_portability=font_portability,
-            inject_dark_mode_css=inject_dark_mode_css,
-        )
-    return render_svg(
-        graph,
-        theme_obj,
+    flat = RenderConfig(
+        output_format=output_format,
         debug=debug,
         responsive=responsive,
-        font_portability=font_portability,
+        embed_font=embed_font,
+        text_to_paths=text_to_paths,
         svg_class_prefix=svg_class_prefix,
         inject_dark_mode_css=inject_dark_mode_css,
         chrome_css=chrome_css,
+        self_color_scheme=self_color_scheme,
         bare=bare,
+        embed_basename=embed_basename,
     )
+    if config is not None:
+        defaults = RenderConfig()
+        shadowed = sorted(
+            name
+            for name, value in vars(flat).items()
+            if value != getattr(defaults, name)
+        )
+        if shadowed:
+            warnings.warn(
+                f"render_string: config= supersedes the flat render kwargs; "
+                f"ignoring {shadowed}",
+                stacklevel=2,
+            )
+    return render_graph(graph, theme_obj, config or flat)
