@@ -30,7 +30,7 @@ edges, plus the `%%metro` directive extensions. After the line scan it
 runs a post-parse pass that auto-infers layout, then rewrites
 inter-section edges into port/junction chains via `_resolve_sections`.
 
-See [Parser](../parser/) for the directive model and the
+See [Parser](/nf-metro/dev/parser/) for the directive model and the
 parse-then-resolve flow.
 
 ### Layout (`src/nf_metro/layout/`)
@@ -46,8 +46,8 @@ in
 Edge routing (horizontal runs plus 45-degree diagonal transitions, with
 L-shaped inter-section routing) lives in `layout/routing/`.
 
-See [Layout pipeline](../layout_pipeline/) for the full phase-by-phase
-walkthrough and [Routing](../routing/) for the route families.
+See [Layout pipeline](/nf-metro/dev/layout_pipeline/) for the full phase-by-phase
+walkthrough and [Routing](/nf-metro/dev/routing/) for the route families.
 
 ### Render (`src/nf_metro/render/`)
 
@@ -63,42 +63,42 @@ using the `drawsvg` library. Visual properties come from a `Theme`
 <CardGrid>
   <LinkCard
     title="Layout pipeline"
-    href="../layout_pipeline/"
+    href="/nf-metro/dev/layout_pipeline/"
     description="Phase-by-phase walkthrough of how coordinates are assigned."
   />
   <LinkCard
     title="Routing"
-    href="../routing/"
+    href="/nf-metro/dev/routing/"
     description="Edge routing families, dispatch order, bundles, and runtime guards."
   />
   <LinkCard
     title="Parser"
-    href="../parser/"
+    href="/nf-metro/dev/parser/"
     description="The Lark grammar, directive model, and post-parse rewrites."
   />
   <LinkCard
     title="Render"
-    href="../render/"
+    href="/nf-metro/dev/render/"
     description="SVG, HTML, bridges, manifest, legend, and animation."
   />
   <LinkCard
     title="Inter-section dispatch"
-    href="../inter_section_dispatch/"
+    href="/nf-metro/dev/inter_section_dispatch/"
     description="The declarative dispatch table for inter-section route shapes."
   />
   <LinkCard
     title="Routing gate coverage"
-    href="../routing_gate_coverage/"
+    href="/nf-metro/dev/routing_gate_coverage/"
     description="Auto-generated matrix of which handler arms are exercised by the corpus."
   />
   <LinkCard
     title="Routing gate triage"
-    href="../routing_gate_triage/"
+    href="/nf-metro/dev/routing_gate_triage/"
     description="Process for triaging un-exercised or needs-review gate arms."
   />
   <LinkCard
     title="Testing"
-    href="../testing/"
+    href="/nf-metro/dev/testing/"
     description="Test structure, the four validation layers, and adding fixtures."
   />
 </CardGrid>

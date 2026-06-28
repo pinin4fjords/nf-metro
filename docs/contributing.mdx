@@ -141,6 +141,6 @@ When you trip over a bug mid-task, file a detailed issue rather than trying to f
 
 ## Changing the layout engine
 
-The engine assigns coordinates through a sequence of ~40 ordered phases and then routes the edges, so a change in one place often has effects elsewhere. Before modifying it, read the relevant Internals page - [Architecture](../dev/architecture/), [Layout pipeline](../dev/layout_pipeline/), [Routing](../dev/routing/) - and the per-phase contracts in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
+The engine assigns coordinates through a sequence of ~40 ordered phases and then routes the edges, so a change in one place often has effects elsewhere. Before modifying it, read the relevant Internals page - [Architecture](/nf-metro/dev/architecture/), [Layout pipeline](/nf-metro/dev/layout_pipeline/), [Routing](/nf-metro/dev/routing/) - and the per-phase contracts in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
 
 Invariants are enforced in two places, and new ones should go there rather than as one-off assertions: **phase guards** (`src/nf_metro/layout/phases/guards.py`, which name the failing phase so a regression localises immediately) and the **layout oracle** (the `check_*` functions in `tests/layout_validator.py`). Some are hard rules the oracle will not let you break - for example, a station must never sit on the corner of a curve. Don't work around a failing check by relaxing it; fix the cause.
