@@ -1,0 +1,228 @@
+---
+// Click-to-expand lightbox for an inline SVG: a native <dialog> shell wrapping
+// svg-pan-zoom for scroll-zoom and drag-pan. The SVG stays inline (not an <img>)
+// so its light-dark() chrome follows the page color-scheme in WebKit; the
+// off-the-shelf SVG lightboxes (e.g. starlight-image-zoom) only fit-to-viewport
+// and don't pan/zoom into detail, which is why the dialog shell is local.
+---
+
+<div class="zoomable-svg" data-zoomable>
+  <slot />
+  <button
+    class="zoom-btn nfm-icon-btn"
+    aria-label="View full size"
+    title="View full size"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"></path>
+    </svg>
+  </button>
+</div>
+
+<script>
+  import svgPanZoom from "svg-pan-zoom";
+
+  // The bundled types declare the default export as an Instance; the runtime
+  // export is the factory function. Cast to its real call signature.
+  type PanZoom = { reset: () => void; destroy: () => void };
+  const createPanZoom = svgPanZoom as unknown as (
+    el: SVGElement,
+    opts?: Record<string, unknown>,
+  ) => PanZoom;
+
+  let dlg: HTMLDialogElement | null = null;
+  let dlgBody: HTMLElement | null = null;
+  let panZoom: PanZoom | null = null;
+
+  function teardown() {
+    if (panZoom) {
+      panZoom.destroy();
+      panZoom = null;
+    }
+    dlgBody?.replaceChildren();
+  }
+
+  function ensureDialog(): void {
+    if (dlg) return;
+    dlg = document.createElement("dialog");
+    dlg.id = "nfm-svg-zoom";
+    dlg.setAttribute("aria-modal", "true");
+    dlg.setAttribute("aria-label", "Diagram viewer");
+    dlg.innerHTML = `
+      <button id="nfm-svg-zoom-close" class="nfm-icon-btn" aria-label="Close diagram">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+      <div id="nfm-svg-zoom-body"></div>
+    `;
+    document.body.appendChild(dlg);
+    dlgBody = dlg.querySelector("#nfm-svg-zoom-body");
+
+    dlg
+      .querySelector("#nfm-svg-zoom-close")!
+      .addEventListener("click", () => dlg!.close());
+    // Close on backdrop click (target is the dialog itself, not its content)
+    dlg.addEventListener("click", (e) => {
+      if (e.target === dlg) dlg!.close();
+    });
+    dlg.addEventListener("close", teardown);
+    // Double-click resets to the fitted view (svg-pan-zoom's own dblclick zoom is off)
+    dlgBody!.addEventListener("dblclick", () => panZoom?.reset());
+  }
+
+  function openZoom(wrap: Element) {
+    const svg = wrap.querySelector("svg");
+    if (!svg) return;
+    ensureDialog();
+    teardown();
+
+    const clone = svg.cloneNode(true) as SVGElement;
+    clone.removeAttribute("width");
+    clone.removeAttribute("height");
+    dlgBody!.replaceChildren(clone);
+    dlg!.showModal();
+
+    // svg-pan-zoom measures the SVG's rendered box, so it must run after the
+    // dialog is open and the clone has been laid out.
+    requestAnimationFrame(() => {
+      panZoom = createPanZoom(clone, {
+        zoomEnabled: true,
+        panEnabled: true,
+        controlIconsEnabled: false,
+        dblClickZoomEnabled: false,
+        fit: true,
+        center: true,
+        minZoom: 0.5,
+        maxZoom: 10,
+      });
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>("[data-zoomable]").forEach((wrap) => {
+    const btn = wrap.querySelector<HTMLButtonElement>(".zoom-btn");
+    if (!btn) return;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openZoom(wrap);
+    });
+    wrap.addEventListener("click", () => openZoom(wrap));
+  });
+</script>
+
+<style>
+  .zoomable-svg {
+    position: relative;
+    cursor: zoom-in;
+    display: block;
+  }
+
+  .zoom-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    color: var(--sl-color-text-accent);
+    opacity: 0;
+    transition:
+      opacity 0.2s var(--nfm-ease),
+      background 0.2s var(--nfm-ease);
+    cursor: zoom-in;
+    z-index: 1;
+  }
+
+  .zoomable-svg:hover .zoom-btn,
+  .zoom-btn:focus-visible {
+    opacity: 1;
+  }
+
+  /* Shared icon button base: used by .zoom-btn and #nfm-svg-zoom-close */
+  :global(.nfm-icon-btn) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 4px;
+    background: var(--sl-color-bg);
+    color: var(--sl-color-text);
+    cursor: pointer;
+    transition:
+      background 0.2s var(--nfm-ease),
+      color 0.2s var(--nfm-ease),
+      border-color 0.2s var(--nfm-ease);
+  }
+
+  :global(.nfm-icon-btn:hover) {
+    background: var(--nfm-accent-soft);
+    color: var(--nfm-accent-text);
+    border-color: var(--nfm-accent);
+  }
+
+  /* Dialog styles must be :global - the element is appended to <body> dynamically. */
+  :global(#nfm-svg-zoom) {
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: var(--sl-color-bg);
+    color: var(--sl-color-text);
+    /* Definite width and height give svg-pan-zoom a stable viewport to fit into;
+       without them the SVG's 100% sizing and the dialog's fit-content size form
+       a circular dependency. */
+    width: min(90vw, 1400px);
+    height: min(90vh, 900px);
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+    /* Re-state UA centering - display:flex on [open] can break margin:auto. */
+    position: fixed;
+    inset: 0;
+    margin: auto;
+  }
+
+  /* Scoped to [open]: unconditional display:flex overrides the browser's
+     display:none on close, keeping the dialog visible after closing. */
+  :global(#nfm-svg-zoom[open]) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(#nfm-svg-zoom::backdrop) {
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(2px);
+  }
+
+  :global(#nfm-svg-zoom-close) {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    z-index: 1;
+  }
+
+  :global(#nfm-svg-zoom-body) {
+    flex: 1;
+    min-height: 0;
+    padding: 2rem;
+    box-sizing: border-box;
+    overflow: hidden;
+    cursor: grab;
+    user-select: none;
+  }
+
+  :global(#nfm-svg-zoom-body svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>

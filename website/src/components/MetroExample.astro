@@ -1,6 +1,7 @@
 ---
 import { Code } from "@astrojs/starlight/components";
 import { renderMetro } from "../plugins/metro.mjs";
+import ZoomableSVG from "@components/ZoomableSVG.astro";
 
 interface Props {
   src: string;
@@ -13,4 +14,6 @@ const svg = renderMetro(src);
 ---
 
 {showCode && <Code code={src} lang="metro" title={title} />}
-<Fragment set:html={svg} />
+<ZoomableSVG>
+  <Fragment set:html={svg} />
+</ZoomableSVG>
