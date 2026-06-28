@@ -128,15 +128,18 @@ export default defineConfig({
     starlight({
       plugins: [
         starlightLinksValidator({
-          // gallery/ and pipelines/ are served by custom Astro page routes
-          // (website/src/pages/{gallery,pipelines}/), not Starlight content
-          // collection entries, so the validator cannot resolve them.
-          // releases/ are frozen versioned deploys on gh-pages; they exist at
-          // /nf-metro/releases/X.Y.Z/ but are not part of the current Astro
-          // build, so the validator cannot verify them.
-          // live_demo.mp4 is a website/public/ static asset; the relative
-          // src path is valid at HTML render time but is not a page link.
+          // Docs use /nf-metro/ (production-base) absolute links. Versioned
+          // builds (dev, releases) use a different base, so those same pages
+          // sit under a different prefix and the validator cannot find them.
+          // Skipping cross-base links here is safe: the release/production
+          // build (base="/nf-metro/") validates them normally.
+          // gallery/ and pipelines/ are custom Astro routes (not Starlight
+          // content entries) so the validator can never resolve them.
+          // releases/ are frozen versioned deploys on gh-pages; not present
+          // in the current Astro build.
+          // live_demo.mp4 is a public/ static asset, not a navigable page.
           exclude: ({ link }) =>
+            (link.startsWith("/nf-metro/") && !link.startsWith(base)) ||
             link.startsWith("/nf-metro/gallery") ||
             link.startsWith("/nf-metro/pipelines") ||
             link.startsWith("/nf-metro/releases") ||

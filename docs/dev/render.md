@@ -104,7 +104,7 @@ page.
 ## Manifest (`manifest.py`)
 
 `build_manifest(graph)` maps the laid-out `MetroGraph` onto the
-[embedded-manifest standard](../../manifest/): stations become nodes,
+[embedded-manifest standard](/nf-metro/manifest/): stations become nodes,
 sections become groups, and visual regions (section bboxes) become regions.
 The manifest is serialised to JSON and injected as a `<metadata>` element
 inside the SVG, keyed by `MANIFEST_ELEMENT_ID`.

@@ -13,7 +13,7 @@ Render a Mermaid metro map definition to SVG or interactive HTML.
 nf-metro render [OPTIONS] INPUT_FILE
 ```
 
-Every layout/render option below also has a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](../guide/#cli-flags-and-directive-precedence) in the guide).
+Every layout/render option below also has a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide).
 
 | Option                                     | Default                      | Description                                                                       |
 | ------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------- |
@@ -46,7 +46,7 @@ Every layout/render option below also has a `%%metro` directive twin; an explici
 
 ### Embedding options
 
-Flags for producing an SVG to embed in another page or application. The [Embedding guide](../embedding/) explains when to use each.
+Flags for producing an SVG to embed in another page or application. The [Embedding guide](/nf-metro/embedding/) explains when to use each.
 
 | Option                                 | Default | Description                                                                                        |
 | -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
@@ -68,7 +68,7 @@ nf-metro render pipeline.mmd --format html -o pipeline.html
 
 The page supports drag-to-pan, scroll-to-zoom, station hover tooltips, and a clickable line legend. Clicking a line isolates it: stations and sections not carrying that line are hidden and the view zooms to the bounding box of what remains. Click again, hit `Esc`, or use the Reset button to restore.
 
-The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, and static-SVG snippets. The [Embedding guide](../embedding/) explains when to reach for each, plus responsive sizing, font portability, host theming, and progress overlays.
+The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, and static-SVG snippets. The [Embedding guide](/nf-metro/embedding/) explains when to reach for each, plus responsive sizing, font portability, host theming, and progress overlays.
 
 ### Validating the rendered geometry
 
@@ -78,7 +78,7 @@ Pass `--validate` to check the _drawn_ SVG after rendering and fail (non-zero ex
 nf-metro render pipeline.mmd -o pipeline.svg --validate
 ```
 
-To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](../manifest/#manifest-schema).
+To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](/nf-metro/manifest/#manifest-schema).
 
 ## `nf-metro convert`
 
@@ -93,7 +93,7 @@ nf-metro convert [OPTIONS] INPUT_FILE
 | `-o`, `--output PATH` | stdout  | Output `.mmd` file path |
 | `--title TEXT`        | auto    | Pipeline title          |
 
-See [Importing from Nextflow](../nextflow/) for details and examples.
+See [Importing from Nextflow](/nf-metro/nextflow/) for details and examples.
 
 ## `nf-metro validate`
 
