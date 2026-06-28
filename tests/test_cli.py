@@ -400,7 +400,14 @@ def test_render_many_empty_manifest(tmp_path):
 
 
 def test_render_many_output_matches_single_render(tmp_path):
-    """render-many SVG output is identical to nf-metro render for same options."""
+    """render-many SVG body is identical to nf-metro render for same options.
+
+    render-many strips the leading XML prolog (<?xml…?>) so SVGs are safe to
+    inline in HTML; render keeps it.  The comparison is made on the prolog-free
+    body so the test is insensitive to that intentional difference.
+    """
+    import re
+
     single_out = tmp_path / "single.svg"
     batch_out = tmp_path / "batch.svg"
 
@@ -430,7 +437,10 @@ def test_render_many_output_matches_single_render(tmp_path):
     )
     runner.invoke(cli, ["render-many", str(manifest)])
 
-    assert single_out.read_text() == batch_out.read_text()
+    def strip_prolog(s: str) -> str:
+        return re.sub(r"^<\?xml[^?]*\?>\s*", "", s, flags=re.DOTALL)
+
+    assert strip_prolog(single_out.read_text()) == batch_out.read_text()
 
 
 def test_render_many_partial_failure_continues(tmp_path):
@@ -479,6 +489,24 @@ def test_render_many_no_manifest_option(tmp_path):
     result = CliRunner().invoke(cli, ["render-many", str(manifest)])
     assert result.exit_code == 0, result.output
     assert "<metadata" not in out.read_text()
+
+
+def test_render_many_output_starts_with_svg(tmp_path):
+    """render-many output starts with <svg, not an XML prolog.
+
+    The Vite plugin reads render-many cache entries with a bare readFileSync
+    and inlines them into HTML.  An <?xml ...?> prolog would produce invalid
+    HTML, so it must be absent from the written file.
+    """
+    out = tmp_path / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(RNASEQ_MMD), "output": str(out)}],
+    )
+    CliRunner().invoke(cli, ["render-many", str(manifest)])
+    content = out.read_text()
+    assert not content.startswith("<?xml"), "render-many must not write an XML prolog"
+    assert content.lstrip().startswith("<svg")
 
 
 def test_render_many_trailing_newline(tmp_path):

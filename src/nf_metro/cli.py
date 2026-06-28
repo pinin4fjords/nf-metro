@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -450,6 +451,9 @@ def render_many(manifest_file: Path) -> None:
                 debug=debug_flag,
                 self_color_scheme=not no_self_cs,
             )
+            # Strip the XML prolog so the SVG is safe to inline in HTML
+            # without an <?xml …?> declaration appearing inside <body>.
+            content = re.sub(r"^<\?xml[^?]*\?>\s*", "", content, flags=re.DOTALL)
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(content if content.endswith("\n") else content + "\n")
             click.echo(f"[{idx}/{total}] OK    {in_path.name}")

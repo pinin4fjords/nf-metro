@@ -200,7 +200,7 @@ export function renderMetroFile(file, { debug = false, fromNextflow = false } = 
   const cacheFile = join(CACHE_DIR, `${hash}.svg`);
 
   try {
-    return readFileSync(cacheFile, "utf-8");
+    return readFileSync(cacheFile, "utf-8").replace(XML_PROLOG_RE, "");
   } catch (e) {
     if (e.code !== "ENOENT") throw e;
   }
