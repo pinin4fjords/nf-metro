@@ -1314,6 +1314,32 @@ def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     return False
 
 
+def _slot_perp_fan_bundle(ctx: _OffsetCtx, port_id: str) -> None:
+    """Slot a distinct-line perp-entry bundle by feeder approach order.
+
+    At a fan port (:func:`needs_perp_approach_fan`) the lines arrive on disjoint
+    single-line feeders stacked above the section.  Order them by approach -- the
+    feeder descending from furthest away (smallest source Y) takes the top slot --
+    and carry that order through the section.  This is the order
+    :func:`perp._perp_approach_fan_x` fans the approach channels into (outermost
+    feeder on the outside of the bend), so the descent, the turn, and the shared
+    run all agree and the distinct lines never cross.
+    """
+    graph = ctx.graph
+    feeders = sorted(
+        (
+            (src.y, ctx.line_priority.get(edge.line_id, 0), edge.line_id)
+            for edge in graph.edges_to(port_id)
+            if (src := graph.stations.get(edge.source)) is not None and src.is_port
+        ),
+    )
+    new_offs = {
+        line_id: rank * ctx.offset_step
+        for rank, (_y, _priority, line_id) in enumerate(feeders)
+    }
+    _apply_offsets_along_bundle(ctx, port_id, graph.ports[port_id].section_id, new_offs)
+
+
 def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
     """Match TOP entry ports to the offsets of feeding TB BOTTOM exits.
 
@@ -1353,6 +1379,7 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
         if not port_obj.is_entry or port_obj.side != PortSide.TOP:
             continue
         if needs_perp_approach_fan(graph, port_id):
+            _slot_perp_fan_bundle(ctx, port_id)
             continue
         entry_section = graph.sections.get(port_obj.section_id)
         if entry_section is None:

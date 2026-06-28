@@ -48,15 +48,15 @@ from nf_metro.parser.model import (
 
 def _bundled_feeders(
     ctx: _RoutingCtx, entry_port_id: str, line_id: str
-) -> list[tuple[int, str]]:
-    """``(bundle index, source)`` for each inter-section feeder of *line_id*.
+) -> list[tuple[int, int, str]]:
+    """``(bundle index, bundle size, source)`` for each feeder of *line_id*.
 
-    The feeders reaching *entry_port_id* on *line_id* that carry a cross-boundary
-    bundle index, paired with their source port.  Empty when the line reaches the
-    port with no bundled feeder.
+    The inter-section feeders reaching *entry_port_id* on *line_id* that carry a
+    cross-boundary bundle index, each with its bundle size and source port.  Empty
+    when the line reaches the port with no bundled feeder.
     """
     return [
-        (info[0], edge.source)
+        (info[0], info[1], edge.source)
         for edge in ctx.graph.edges_to(entry_port_id)
         if edge.line_id == line_id
         and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
@@ -71,16 +71,19 @@ def _perp_approach_fan_x(
 
     Where distinct lines share a perpendicular entry (:func:`needs_perp_approach_fan`)
     the single-line feeders all sit on one column trunk, so each must fan onto its
-    own approach channel rather than share the trunk X.  Spread them by each
-    line's index in the cross-boundary bundle, widening toward the turn side
-    (``-x``).  The inter-section feeder drop and the intra-section drop both
-    anchor on this one X, so the line passes straight through the boundary.  Lines
-    without a bundled feeder stay on the trunk (index 0).
+    own approach channel rather than share the trunk X.  The bundle index orders
+    the feeders by approach: index 0 is the outermost feeder (the one descending
+    from furthest away, which wraps around the intervening boxes), so it takes the
+    channel furthest toward the turn side (``-x``) and the trunk-near feeder
+    (highest index) stays on ``port_x``.  This keeps the outermost approach on the
+    outside of the bend, matching the intra-section bundle order, so the feeders
+    do not cross.  The inter-section feeder drop and the intra-section drop both
+    anchor on this one X.  Lines without a bundled feeder stay on the trunk.
     """
-    indices = [
-        index for index, _source in _bundled_feeders(ctx, entry_port_id, line_id)
-    ]
-    return port_x - max(indices, default=0) * ctx.offset_step
+    index, count, _source = max(
+        _bundled_feeders(ctx, entry_port_id, line_id), default=(0, 1, "")
+    )
+    return port_x - (count - 1 - index) * ctx.offset_step
 
 
 def _perp_entry_crossing_x(
@@ -117,7 +120,7 @@ def _perp_entry_crossing_x(
     feeders = _bundled_feeders(ctx, entry_port_id, line_id)
     if not feeders:
         return None
-    max_index, source = max(feeders)
+    max_index, _count, source = max(feeders)
     feeder_st = ctx.graph.stations.get(source)
     section_id = feeder_st.section_id if feeder_st else None
     feeder_sec = ctx.graph.sections.get(section_id) if section_id else None
