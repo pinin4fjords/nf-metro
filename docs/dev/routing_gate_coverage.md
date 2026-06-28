@@ -1,5 +1,6 @@
 ---
 title: "Routing gate coverage matrix"
+description: Coverage matrix tracking which routing families have invariant gate-arm tests and their current pass/fail status.
 sidebar:
   label: "Routing gate coverage"
   order: 5

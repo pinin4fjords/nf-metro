@@ -1,5 +1,6 @@
 ---
 title: "Render"
+description: The render subsystem — how a laid-out MetroGraph becomes an SVG, including animation, bridges, legends, and themes.
 sidebar:
   order: 9
 ---

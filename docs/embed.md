@@ -1,5 +1,6 @@
 ---
 title: "Embed contract: `data-*` attributes and driver API"
+description: Reference for the stable data-* attribute vocabulary and driver API surface that host applications depend on.
 ---
 
 This is the **reference** for the stable surface a host depends on. If you are
