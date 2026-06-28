@@ -400,14 +400,7 @@ def test_render_many_empty_manifest(tmp_path):
 
 
 def test_render_many_output_matches_single_render(tmp_path):
-    """render-many SVG body is identical to nf-metro render for same options.
-
-    render-many strips the leading XML prolog (<?xml…?>) so SVGs are safe to
-    inline in HTML; render keeps it.  The comparison is made on the prolog-free
-    body so the test is insensitive to that intentional difference.
-    """
-    import re
-
+    """render-many SVG output is byte-identical to nf-metro render with same options."""
     single_out = tmp_path / "single.svg"
     batch_out = tmp_path / "batch.svg"
 
@@ -431,16 +424,13 @@ def test_render_many_output_matches_single_render(tmp_path):
                 "input": str(RNASEQ_MMD),
                 "output": str(batch_out),
                 "no_self_color_scheme": True,
-                "no_manifest": True,
+                "layout_options": {"manifest": False},
             }
         ],
     )
     runner.invoke(cli, ["render-many", str(manifest)])
 
-    def strip_prolog(s: str) -> str:
-        return re.sub(r"^<\?xml[^?]*\?>\s*", "", s, flags=re.DOTALL)
-
-    assert strip_prolog(single_out.read_text()) == batch_out.read_text()
+    assert single_out.read_text() == batch_out.read_text()
 
 
 def test_render_many_partial_failure_continues(tmp_path):
@@ -479,34 +469,66 @@ def test_render_many_manifest_not_array(tmp_path):
     assert "JSON array" in result.output
 
 
-def test_render_many_no_manifest_option(tmp_path):
-    """no_manifest: true produces SVG without an embedded <metadata> block."""
+def test_render_many_layout_options_dict(tmp_path):
+    """layout_options dict passes arbitrary layout overrides to the engine."""
     out = tmp_path / "out.svg"
     manifest = _write_manifest(
         tmp_path,
-        [{"input": str(RNASEQ_MMD), "output": str(out), "no_manifest": True}],
+        [
+            {
+                "input": str(RNASEQ_MMD),
+                "output": str(out),
+                "layout_options": {"manifest": False},
+            }
+        ],
     )
     result = CliRunner().invoke(cli, ["render-many", str(manifest)])
     assert result.exit_code == 0, result.output
     assert "<metadata" not in out.read_text()
 
 
-def test_render_many_output_starts_with_svg(tmp_path):
-    """render-many output starts with <svg, not an XML prolog.
-
-    The Vite plugin reads render-many cache entries with a bare readFileSync
-    and inlines them into HTML.  An <?xml ...?> prolog would produce invalid
-    HTML, so it must be absent from the written file.
-    """
+def test_render_many_theme_option(tmp_path):
+    """theme key selects an alternate brand theme."""
     out = tmp_path / "out.svg"
     manifest = _write_manifest(
         tmp_path,
-        [{"input": str(RNASEQ_MMD), "output": str(out)}],
+        [{"input": str(RNASEQ_MMD), "output": str(out), "theme": "light"}],
     )
-    CliRunner().invoke(cli, ["render-many", str(manifest)])
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_render_many_html_format(tmp_path):
+    """format: html produces a self-contained HTML page."""
+    out = tmp_path / "out.html"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(RNASEQ_MMD), "output": str(out), "format": "html"}],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
     content = out.read_text()
-    assert not content.startswith("<?xml"), "render-many must not write an XML prolog"
-    assert content.lstrip().startswith("<svg")
+    assert "<!DOCTYPE html" in content or "<html" in content
+    assert "<svg" in content
+
+
+def test_render_many_svg_class_prefix(tmp_path):
+    """svg_class_prefix is applied to SVG presentation class names."""
+    out = tmp_path / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [
+            {
+                "input": str(RNASEQ_MMD),
+                "output": str(out),
+                "svg_class_prefix": "myapp",
+            }
+        ],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    assert "myapp-nf-metro-" in out.read_text()
 
 
 def test_render_many_trailing_newline(tmp_path):

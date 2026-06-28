@@ -135,7 +135,7 @@ function prewarmMetroCache() {
         debug: mode === "d",
         from_nextflow: mode === "n",
         no_self_color_scheme: true,
-        no_manifest: true,
+        layout_options: { manifest: false },
       });
     }
   }
