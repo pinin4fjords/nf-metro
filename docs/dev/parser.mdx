@@ -4,6 +4,8 @@ sidebar:
   order: 8
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 A walkthrough of how nf-metro turns `.mmd` text into a `MetroGraph`. If
 you're adding a node shape, a `%%metro` directive, or a new statement
 form - or just trying to understand the grammar - start here.
@@ -250,9 +252,11 @@ This `junk` fallback is why the parser is configured as
 unexpected token must be able to fall back to `junk` and be dropped. An
 earley parser can explore that fallback; a committing `lalr` parser
 cannot backtrack a partly-matched line, so it would turn such a line
-into a fatal error instead. **Do not switch the parser to `lalr`**
-without accepting that behaviour change. The parse runs once per render,
-so earley's extra cost over `lalr` is not worth optimising away.
+into a fatal error instead.
+
+<Aside type="danger" title="Do not switch the parser to lalr">
+Switching to `lalr` would turn any partly-matched unrecognised line into a fatal parse error instead of a dropped `junk` statement. The leniency policy (warn, don't crash) depends on Earley's ability to backtrack. The parse runs once per render, so Earley's extra cost over `lalr` is not worth trading away for this behaviour change.
+</Aside>
 
 ## Parse-then-resolve flow
 

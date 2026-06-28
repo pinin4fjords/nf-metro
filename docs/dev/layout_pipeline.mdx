@@ -4,6 +4,8 @@ sidebar:
   order: 2
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 A reader-friendly walkthrough of how nf-metro turns a parsed metro graph
 into placed coordinates. If you're hunting a layout bug, fixing a
 visual regression, or adding a new transformation pass, start here.
@@ -55,6 +57,10 @@ whole pipeline:
   band-fill (6.1, 6.2), the symfan half-grid (6.3), full-bundle
   recenter (6.7), balance-around-trunk (6.11), loop-side recenter
   (6.12). A content phase must **never** move an anchor.
+
+<Aside type="caution" title="Anchor invariant">
+Content-placement phases must never move an anchor (a port station on a section boundary). Only the structural phases — port positioning, trunk-Y alignment (Stage 4.8), grid snapping, inter-row cascade, and canvas translation — are permitted to do so. A content phase that moves an anchor breaks the forward-resolvability guarantee and will fire `_guard_anchors_frozen_during_placement` under `validate=True`.
+</Aside>
 
 This split is what makes the layout **forward-resolvable**: once the
 structural phases have frozen the anchors, every content-placement

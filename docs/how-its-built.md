@@ -77,7 +77,7 @@ The full tier taxonomy and rationale is in [`docs/dev/guard_tiers.md`](/nf-metro
 
 ## Routing dispatch
 
-The routing module uses a [first-match dispatcher](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/core.py) over a table of handler families. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The dispatch table and the full handler inventory are documented in [`docs/dev/inter_section_dispatch.md`](/nf-metro/inter_section_dispatch/) and [`docs/dev/routing_gate_coverage.md`](/nf-metro/routing_gate_coverage/).
+The routing module uses a [first-match dispatcher](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/core.py) over a table of handler families. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The dispatch table and the full handler inventory are documented in [`docs/dev/inter_section_dispatch.mdx`](/nf-metro/inter_section_dispatch/) and [`docs/dev/routing_gate_coverage.md`](/nf-metro/routing_gate_coverage/).
 
 When adding a new routing case, the pattern is:
 
@@ -90,12 +90,12 @@ When adding a new routing case, the pattern is:
 
 The `docs/dev/` tree covers the internals in detail:
 
-- [`architecture.md`](/nf-metro/architecture/) - system overview and data flow
-- [`layout_pipeline.md`](/nf-metro/layout_pipeline/) - the phase sequence with entry/exit contracts
-- [`routing.md`](/nf-metro/routing/) - edge routing mechanics and the centreline/offset model
-- [`inter_section_dispatch.md`](/nf-metro/inter_section_dispatch/) - the dispatch table for inter-section routes
+- [`architecture.mdx`](/nf-metro/architecture/) - system overview and data flow
+- [`layout_pipeline.mdx`](/nf-metro/layout_pipeline/) - the phase sequence with entry/exit contracts
+- [`routing.mdx`](/nf-metro/routing/) - edge routing mechanics and the centreline/offset model
+- [`inter_section_dispatch.mdx`](/nf-metro/inter_section_dispatch/) - the dispatch table for inter-section routes
 - [`routing_gate_coverage.md`](/nf-metro/routing_gate_coverage/) - which handler arms are covered by corpus tests
-- [`parser.md`](/nf-metro/parser/) - the Lark grammar and post-parse rewrites
+- [`parser.mdx`](/nf-metro/parser/) - the Lark grammar and post-parse rewrites
 - [`testing.md`](/nf-metro/testing/) - test structure and validation layers in detail
 
 The `CONTRACT.md` at [`src/nf_metro/layout/CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md) is the per-phase lifecycle specification: what each phase receives, modifies, and guarantees.

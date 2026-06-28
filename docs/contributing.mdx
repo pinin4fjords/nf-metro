@@ -2,6 +2,8 @@
 title: "Contributing"
 ---
 
+import { Steps } from '@astrojs/starlight/components';
+
 How to set up nf-metro for development, run the same checks CI runs, and get a change merged.
 
 ## Setup
@@ -34,18 +36,22 @@ The topology suite parametrizes over every `.mmd` in `examples/topologies/` and 
 
 ## Before opening a PR
 
+<Steps>
 1. Run `pytest` and `ruff format --check` - CI runs both and will fail on either.
 2. For any layout or rendering change, do a [visual review](#visual-review) - the automated checks confirm the geometry is valid, not that it looks right.
 3. If you added behaviour, add a topology fixture that covers it (see below).
 4. If you fixed a bug that had an `xfail` marker, remove the marker so the fix is locked in.
+</Steps>
 
 ## Adding a topology test
 
 `examples/topologies/` holds `.mmd` fixtures, each isolating a specific graph shape (fan-out, fan-in, diamond, fold, and so on). Adding a fixture is the main way to extend test coverage, and no wiring is needed - the suite picks up every file in the directory automatically.
 
+<Steps>
 1. Write a minimal `.mmd` that exercises the topology.
 2. Drop it in `examples/topologies/`.
 3. Run `pytest tests/test_topology_validation.py` to confirm it passes (or fails, if you are pinning a known issue).
+</Steps>
 
 ## Adding a map to a docs page
 

@@ -1158,7 +1158,7 @@ def _compute_section_layout(
 
     Quick map of the pipeline's structure.  See ``CONTRACT.md`` for the
     full per-sub-stage table with pre/postconditions and invariant
-    coverage, and ``docs/dev/layout_pipeline.md`` for the human-facing
+    coverage, and ``docs/dev/layout_pipeline.mdx`` for the human-facing
     overview.
 
     Parsing & partition is already done by the parser.  Six stages

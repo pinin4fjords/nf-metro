@@ -4,6 +4,8 @@ sidebar:
   order: 1
 ---
 
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
 nf-metro turns a Mermaid `graph LR` definition (augmented with `%%metro`
 directives) into a metro-map-style SVG. The pipeline has three stages:
 
@@ -57,17 +59,18 @@ using the `drawsvg` library. Visual properties come from a `Theme`
 
 ## Reference docs
 
-| Topic                                                        | Where                                                                                                               |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Layout phase-by-phase                                        | [layout_pipeline.md](/nf-metro/dev/layout_pipeline/)                                                                |
-| Per-phase contract (preconditions/postconditions/invariants) | [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md)                 |
-| Edge routing families                                        | [routing.md](/nf-metro/dev/routing/)                                                                                |
-| Routing gate-arm coverage matrix (auto-generated)            | [routing_gate_coverage.md](/nf-metro/dev/routing_gate_coverage/)                                                    |
-| Routing gate-arm triage process                              | [routing_gate_triage.md](/nf-metro/dev/routing_gate_triage/)                                                        |
-| Parser and `%%metro` model                                   | [parser.md](/nf-metro/dev/parser/)                                                                                  |
-| SVG, HTML, bridges, manifest, animation                      | [render.md](/nf-metro/dev/render/)                                                                                  |
-| Adding fixtures, tests, invariants                           | [testing.md](/nf-metro/dev/testing/)                                                                                |
-| Topology stress fixtures (inventory + known issues)          | [`examples/topologies/README.md`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/README.md) |
+<CardGrid>
+  <LinkCard title="Layout pipeline" href="/nf-metro/dev/layout_pipeline/" description="Phase-by-phase walkthrough of how coordinates are assigned." />
+  <LinkCard title="Routing" href="/nf-metro/dev/routing/" description="Edge routing families, dispatch order, bundles, and runtime guards." />
+  <LinkCard title="Parser" href="/nf-metro/dev/parser/" description="The Lark grammar, directive model, and post-parse rewrites." />
+  <LinkCard title="Render" href="/nf-metro/dev/render/" description="SVG, HTML, bridges, manifest, legend, and animation." />
+  <LinkCard title="Inter-section dispatch" href="/nf-metro/dev/inter_section_dispatch/" description="The declarative dispatch table for inter-section route shapes." />
+  <LinkCard title="Routing gate coverage" href="/nf-metro/dev/routing_gate_coverage/" description="Auto-generated matrix of which handler arms are exercised by the corpus." />
+  <LinkCard title="Routing gate triage" href="/nf-metro/dev/routing_gate_triage/" description="Process for triaging un-exercised or needs-review gate arms." />
+  <LinkCard title="Testing" href="/nf-metro/dev/testing/" description="Test structure, the four validation layers, and adding fixtures." />
+</CardGrid>
+
+The per-phase preconditions, postconditions, and invariants are in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md). The topology stress fixture inventory is in [`examples/topologies/README.md`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/README.md).
 
 ## Data model
 

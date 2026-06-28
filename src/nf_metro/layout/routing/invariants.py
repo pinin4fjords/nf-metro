@@ -3538,7 +3538,7 @@ def assert_render_curve_invariants(
 
     It is a **backstop**, not the primary correctness mechanism.  Every
     inter-section route is built from a centreline through the bundle builder
-    (see ``docs/dev/inter_section_dispatch.md``), which makes a flip, a pinch,
+    (see ``docs/dev/inter_section_dispatch.mdx``), which makes a flip, a pinch,
     or a collinear overlay impossible by construction.  In normal operation
     these checks never fire; a failure means a genuinely new, un-tabled shape
     reached the renderer built some other way, and the fix is to route it
