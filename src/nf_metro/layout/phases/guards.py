@@ -29,7 +29,6 @@ from nf_metro.layout.constants import (
     X_SPACING,
 )
 from nf_metro.layout.geometry import (
-    AxisFrame,
     BBoxXIndex,
     lanes_run_along_x,
     lanes_run_along_y,
@@ -38,8 +37,6 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
-    _is_fold_section,
-    _lr_exit_aligned_target,
     _restoring_layout_geometry,
     _route_crosses_section_boundary,
     _section_bundle_lines,
@@ -49,6 +46,7 @@ from nf_metro.layout.phases._common import (
     first_vertical_leg_x,
     flow_exit_carrier_anchor,
     is_loop_side_branch_station,
+    iter_fold_lr_exits_short_of_target,
     iter_sole_trunk_continuations,
     marker_cross_exempt,
     routes_through_own_section_interior,
@@ -869,37 +867,17 @@ def _guard_flow_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
 
 
 def _guard_fold_lr_exit_follows_target(graph: MetroGraph, phase: str) -> None:
-    """A fold's LEFT/RIGHT exit must not sit against the flow above its target.
+    """A fold's LEFT/RIGHT exit must reach a target settled along its flow.
 
-    A vertical-flow (TB/BT) fold aligns its exit port to a bbox-contained
-    LEFT/RIGHT entry target.  When that target settles further along the flow
-    (a multi-sub-row target whose entry Y descends as its sub-rows settle), the
-    exit must follow it down; an exit left a sub-row short renders as a jog in
-    the inter-section run.  A target seated against the flow keeps its own
-    descent (an intentional staircase) and is not a violation.
+    A target seated against the flow keeps its own descent (an intentional
+    staircase) and is exempt; see :func:`iter_fold_lr_exits_short_of_target`.
     """
-    junction_ids = graph.junction_ids
-    for pid, port in graph.ports.items():
-        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
-        sec = graph.sections.get(port.section_id)
-        if (
-            sec is None
-            or not _is_fold_section(sec)
-            or not lanes_run_along_x(sec.direction)
-        ):
-            continue
-        tgt = _lr_exit_aligned_target(graph, pid, sec, junction_ids)
-        if tgt is None:
-            continue
-        flow = AxisFrame.flow_sign(sec.direction)
-        port_y = graph.stations[pid].y
-        if flow * (tgt.y - port_y) > GUARD_TOLERANCE:
-            raise PhaseInvariantError(
-                f"{phase}: fold exit port {pid!r} at y={port_y:.1f} sits a "
-                f"sub-row short of its target entry {tgt.id!r} at y={tgt.y:.1f} "
-                f"(flow {flow:+.0f}); the inter-section run will render with a jog"
-            )
+    for pid, tgt in iter_fold_lr_exits_short_of_target(graph, GUARD_TOLERANCE):
+        raise PhaseInvariantError(
+            f"{phase}: fold exit port {pid!r} at y={graph.stations[pid].y:.1f} "
+            f"sits a sub-row short of its target entry {tgt.id!r} at "
+            f"y={tgt.y:.1f}; the inter-section run will render with a jog"
+        )
 
 
 def _exit_perp_to_flow(src_port: Port, src_section: Section) -> bool:

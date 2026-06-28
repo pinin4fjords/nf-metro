@@ -21,6 +21,7 @@ from nf_metro.layout.phases._common import (
     _is_fold_section,
     _lr_exit_aligned_target,
     flow_exit_carrier_anchor,
+    iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.guards import (
     _exit_off_consumer_trunk,
@@ -1091,36 +1092,14 @@ def _align_lr_exit_port(
 
 
 def _realign_fold_lr_exit_ports(graph: MetroGraph) -> None:
-    """Follow a fold exit onto a target the late settling dropped below it.
+    """Snap each fold LEFT/RIGHT exit down onto a target settled below it.
 
-    Stage 3.4 aligns a fold's LEFT/RIGHT exit port to its target entry Y, but a
-    target spanning several sub-rows keeps descending as those sub-rows settle
-    (Stages 6.13-6.15), leaving the exit a sub-row above the final entry -- a
-    visible jog in the inter-section run.  Snap the exit onto the now-settled
-    entry to straighten it.
-
-    Only a vertical-flow (TB/BT) target that settled *along the flow* from the
-    exit is followed; one seated against the flow keeps its own descent (an
-    intentional long-descent staircase), and the bbox-contained alignment
-    target guarantees the snapped exit stays inside its section.
+    The bbox-contained alignment target keeps the snapped exit inside its
+    section; see :func:`iter_fold_lr_exits_short_of_target` for which exits
+    qualify.
     """
-    junction_ids = graph.junction_ids
-    for port_id, port in graph.ports.items():
-        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
-        exit_section = graph.sections.get(port.section_id)
-        if (
-            not exit_section
-            or not _is_fold_section(exit_section)
-            or not lanes_run_along_x(exit_section.direction)
-        ):
-            continue
-        tgt = _lr_exit_aligned_target(graph, port_id, exit_section, junction_ids)
-        if tgt is None:
-            continue
-        flow = AxisFrame.flow_sign(exit_section.direction)
-        if flow * (tgt.y - graph.stations[port_id].y) > SAME_COORD_TOLERANCE:
-            _set_port_y(graph, port_id, tgt.y)
+    for port_id, tgt in iter_fold_lr_exits_short_of_target(graph, SAME_COORD_TOLERANCE):
+        _set_port_y(graph, port_id, tgt.y)
 
 
 def _resolve_tb_exit_y(

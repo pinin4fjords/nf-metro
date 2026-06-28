@@ -13,7 +13,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_PADDING,
     STATION_RADIUS_APPROX,
 )
-from nf_metro.layout.geometry import lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.parser.model import (
     Edge,
@@ -113,6 +113,41 @@ def _lr_exit_aligned_target(
             return None
         return tgt
     return None
+
+
+def iter_fold_lr_exits_short_of_target(
+    graph: MetroGraph, tolerance: float
+) -> Iterator[tuple[str, Station]]:
+    """Yield ``(exit_port_id, target_entry)`` for fold exits short of their target.
+
+    A vertical-flow (TB/BT) fold's LEFT/RIGHT exit aligns to a bbox-contained
+    entry target.  Only a target seated *along the flow* from the exit is
+    yielded -- by more than ``tolerance`` -- meaning the exit must follow it to
+    that Y for a straight inter-section run.  A target seated against the flow
+    keeps its own descent (an intentional staircase) and is not yielded.
+
+    The single source of "which fold exit is short of its target" shared by the
+    re-alignment that fixes it (:func:`_realign_fold_lr_exit_ports`), the guard
+    that flags it (``_guard_fold_lr_exit_follows_target``), and the layout
+    invariant test -- so the three cannot drift on scope or predicate.
+    """
+    junction_ids = graph.junction_ids
+    for port_id, port in graph.ports.items():
+        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        section = graph.sections.get(port.section_id)
+        if (
+            section is None
+            or not _is_fold_section(section)
+            or not lanes_run_along_x(section.direction)
+        ):
+            continue
+        tgt = _lr_exit_aligned_target(graph, port_id, section, junction_ids)
+        if tgt is None:
+            continue
+        flow = AxisFrame.flow_sign(section.direction)
+        if flow * (tgt.y - graph.stations[port_id].y) > tolerance:
+            yield port_id, tgt
 
 
 @contextmanager
