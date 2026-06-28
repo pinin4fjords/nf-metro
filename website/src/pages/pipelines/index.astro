@@ -5,6 +5,16 @@ import Metro from "@components/Metro.astro";
 import { base } from "../../site";
 
 const entries = await getCollection("pipelines");
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+const headings = entries.map((entry) => ({
+  depth: 2,
+  slug: slugify(entry.data.title),
+  text: entry.data.title,
+}));
 ---
 
 <StarlightPage
@@ -13,11 +23,12 @@ const entries = await getCollection("pipelines");
     description:
       "Real-world nf-core pipelines rendered as metro-style SVG diagrams using nf-metro.",
     template: "doc",
-    tableOfContents: false,
+    tableOfContents: true,
     pagefind: true,
     prev: false,
     next: false,
   }}
+  headings={headings}
 >
   <p>
     Real-world pipelines rendered with nf-metro. See the{" "}
@@ -30,7 +41,7 @@ const entries = await getCollection("pipelines");
   {
     entries.map((entry) => (
       <div class="nfm-pipeline-entry">
-        <h2>
+        <h2 id={slugify(entry.data.title)}>
           <a href={`${base}pipelines/${entry.id}/`}>{entry.data.title}</a>
         </h2>
         <p class="nfm-entry-desc">

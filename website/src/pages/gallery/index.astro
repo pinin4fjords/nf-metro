@@ -13,6 +13,16 @@ for (const entry of entries) {
   if (!byCategory.has(cat)) byCategory.set(cat, []);
   byCategory.get(cat)!.push(entry);
 }
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+const headings = Array.from(byCategory.keys()).map((cat) => ({
+  depth: 2,
+  slug: slugify(cat),
+  text: cat,
+}));
 ---
 
 <StarlightPage
@@ -21,11 +31,12 @@ for (const entry of entries) {
     description:
       "Rendered examples covering fan-outs, folds, diamonds, and realistic bioinformatics workflows.",
     template: "doc",
-    tableOfContents: false,
+    tableOfContents: true,
     pagefind: true,
     prev: false,
     next: false,
   }}
+  headings={headings}
 >
   <p>
     Examples covering the full range of layout patterns.
@@ -34,7 +45,7 @@ for (const entry of entries) {
   {
     Array.from(byCategory.entries()).map(([category, items]) => (
       <section class="nfm-gallery-section">
-        <h2>{category}</h2>
+        <h2 id={slugify(category)}>{category}</h2>
         {items.map((entry) => (
           <div class="nfm-gallery-entry">
             <h3>
