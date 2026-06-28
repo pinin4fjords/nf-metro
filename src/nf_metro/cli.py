@@ -5,12 +5,12 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, TypeVar
 
 import click
 
 from nf_metro import __version__
-from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.api import RenderConfig, _render_graph, prepare_graph, resolve_theme
 from nf_metro.explain import build_explain, format_explain_json, format_explain_text
 from nf_metro.introspect import build_info, format_info_json, format_info_text
 from nf_metro.layout import (
@@ -30,8 +30,7 @@ from nf_metro.parser import (
     validate_graph,
 )
 from nf_metro.parser.model import LineSpread
-from nf_metro.render import render_svg, validate_render
-from nf_metro.render.html import render_html
+from nf_metro.render import validate_render
 from nf_metro.themes import THEMES
 
 
@@ -303,10 +302,6 @@ def render(
     if output is None:
         output = input_file.with_suffix(f".{format_}")
 
-    font_portability: Literal["embed", "paths"] | None = (
-        "paths" if text_to_paths else "embed" if embed_font else None
-    )
-
     if format_ == "html":
         # The interactive page supplies its own responsive frame, chrome, and
         # per-map class scoping, so the SVG-only sizing/namespacing flags have
@@ -333,28 +328,23 @@ def render(
     # under --strict (LayoutInvariantError is a PhaseInvariantError); without
     # --strict they are warnings the default handler prints to stderr.
     try:
-        if format_ == "html":
-            content = render_html(
-                graph,
-                theme_obj,
-                debug=debug,
-                embed_basename=output.name,
-                font_portability=font_portability,
-                inject_dark_mode_css=not no_dark_mode_css,
-            )
-        else:
-            content = render_svg(
-                graph,
-                theme_obj,
+        content = _render_graph(
+            graph,
+            theme_obj,
+            RenderConfig(
+                output_format=format_,
                 debug=debug,
                 responsive=responsive,
-                font_portability=font_portability,
+                embed_font=embed_font,
+                text_to_paths=text_to_paths,
                 svg_class_prefix=svg_class_prefix,
-                self_color_scheme=not no_self_color_scheme,
                 inject_dark_mode_css=not no_dark_mode_css,
                 chrome_css=not no_chrome_css,
+                self_color_scheme=not no_self_color_scheme,
                 bare=bare,
-            )
+                embed_basename=output.name,
+            ),
+        )
     except PhaseInvariantError as e:
         raise click.ClickException(str(e))
 
@@ -488,32 +478,23 @@ def render_many(manifest_file: Path) -> None:
             )
             theme_obj = resolve_theme(theme, graph, mode=mode)
 
-            font_portability: Literal["embed", "paths"] | None = (
-                "paths" if text_to_paths else "embed" if embed_font else None
-            )
-
-            if format_ == "html":
-                content = render_html(
-                    graph,
-                    theme_obj,
-                    debug=debug_flag,
-                    embed_basename=out_path.name,
-                    font_portability=font_portability,
-                    inject_dark_mode_css=not no_dark_mode_css,
-                )
-            else:
-                content = render_svg(
-                    graph,
-                    theme_obj,
+            content = _render_graph(
+                graph,
+                theme_obj,
+                RenderConfig(
+                    output_format=format_,
                     debug=debug_flag,
                     responsive=responsive,
-                    font_portability=font_portability,
+                    embed_font=embed_font,
+                    text_to_paths=text_to_paths,
                     svg_class_prefix=svg_class_prefix,
-                    self_color_scheme=not no_self_cs,
                     inject_dark_mode_css=not no_dark_mode_css,
                     chrome_css=not no_chrome_css,
+                    self_color_scheme=not no_self_cs,
                     bare=bare,
-                )
+                    embed_basename=out_path.name,
+                ),
+            )
 
             if validate_geometry:
                 if format_ == "html":
