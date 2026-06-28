@@ -7,6 +7,7 @@ import starlightLinksValidator from "starlight-links-validator";
 import sitemap from "@astrojs/sitemap";
 import mermaid from "astro-mermaid";
 import { metroVitePlugin } from "./src/lib/render-metro.mjs";
+import { starlightGitFix } from "./src/lib/starlight-git-fix.mjs";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
@@ -81,7 +82,7 @@ export default defineConfig({
   base,
   vite: {
     // Renders `<path>.mmd?metro` imports to inline SVG via the nf-metro CLI.
-    plugins: [metroVitePlugin()],
+    plugins: [starlightGitFix(), metroVitePlugin()],
     resolve: {
       alias: {
         "@examples": examplesDir,
