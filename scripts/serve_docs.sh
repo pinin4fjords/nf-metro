@@ -95,8 +95,8 @@ fi
 WEBSITE_DIR="$REPO_ROOT/website"
 
 # --- Dynamic content (gallery, pipelines, playground manifest) ---------------
-# The gallery markdown is the marker for "content already generated".
-GALLERY_MARKER="$REPO_ROOT/docs/gallery/index.md"
+# The gallery manifest JSON is the marker for "content already generated".
+GALLERY_MARKER="$REPO_ROOT/website/src/content/gallery.json"
 
 generate_content() {
   if ! python -c "import nf_metro" >/dev/null 2>&1; then
