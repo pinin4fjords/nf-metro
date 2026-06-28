@@ -1,6 +1,7 @@
 ---
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { getCollection } from "astro:content";
+import Metro from "@components/Metro.astro";
 import { base } from "../../site";
 
 const entries = await getCollection("pipelines");
@@ -26,56 +27,46 @@ const entries = await getCollection("pipelines");
     <a href={`${base}guide/`}>Guide</a> for how to write your own.
   </p>
 
-  <ul class="nfm-pipeline-list">
-    {
-      entries.map((entry) => (
-        <li>
-          <a href={`${base}pipelines/${entry.id}/`}>
-            <strong>{entry.data.title}</strong>
-            <span>{entry.data.description}</span>
-          </a>
-        </li>
-      ))
-    }
-  </ul>
+  {
+    entries.map((entry) => (
+      <div class="nfm-pipeline-entry">
+        <h2>
+          <a href={`${base}pipelines/${entry.id}/`}>{entry.data.title}</a>
+        </h2>
+        <p class="nfm-entry-desc">
+          {entry.data.description}{" "}
+          <a href={entry.data.repo_url} target="_blank" rel="noopener">GitHub</a>
+        </p>
+        <Metro src={entry.data.src} purpose="showcase" />
+      </div>
+    ))
+  }
 </StarlightPage>
 
 <style>
-  .nfm-pipeline-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    list-style: none;
-    padding: 0;
-    margin-block: 1.5rem;
+  .nfm-pipeline-entry {
+    margin-bottom: 3rem;
   }
 
-  .nfm-pipeline-list li a {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.85rem 1rem;
-    border: 1px solid var(--sl-color-hairline);
-    border-radius: 6px;
-    text-decoration: none;
-    color: inherit;
-    background: var(--sl-color-bg);
-    transition: border-color 0.12s ease, background 0.12s ease;
+  .nfm-pipeline-entry h2 {
+    font-size: var(--sl-text-h4);
+    border-bottom: 1px solid var(--sl-color-hairline);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.5rem;
   }
 
-  .nfm-pipeline-list li a:hover {
-    border-color: var(--sl-color-accent);
-    background: var(--sl-color-bg-nav);
-  }
-
-  .nfm-pipeline-list li a strong {
-    font-size: 0.9rem;
+  .nfm-pipeline-entry h2 a {
     color: var(--sl-color-text-accent);
+    text-decoration: none;
   }
 
-  .nfm-pipeline-list li a span {
-    font-size: 0.82rem;
+  .nfm-pipeline-entry h2 a:hover {
+    text-decoration: underline;
+  }
+
+  .nfm-entry-desc {
+    font-size: 0.85rem;
     color: var(--sl-color-gray-3);
-    line-height: 1.4;
+    margin-bottom: 0.75rem;
   }
 </style>
