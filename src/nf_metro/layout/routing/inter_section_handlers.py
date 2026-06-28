@@ -5,7 +5,7 @@ inter-row corridors, stepped descent, and L-shape handlers.
 (``_INTER_SECTION_RULES``): one :class:`_InterFacts` snapshot of the edge's
 geometry and topology is matched against an ordered list of named rules, and
 the first whose predicate holds owns the route.  The rule order is the
-combinatorial space documented in ``docs/dev/inter_section_dispatch.md``.
+combinatorial space documented in ``docs/dev/inter_section_dispatch.mdx``.
 """
 
 from __future__ import annotations
@@ -858,7 +858,7 @@ class _Rule:
 # route; order is significant (earlier rules shadow later ones).  The
 # combinatorial space (relative position x exit side x entry side) and why each
 # rule sits where it does are documented in
-# docs/dev/inter_section_dispatch.md.
+# docs/dev/inter_section_dispatch.mdx.
 _INTER_SECTION_RULES: list[_Rule] = [
     # A perpendicular (TOP/BOTTOM) exit leaves vertically: route it before the
     # same-Y shortcut, which would graze both boxes when exit and entry share an

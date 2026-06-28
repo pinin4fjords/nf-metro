@@ -18,6 +18,10 @@ website/src/content/pipelines.json
 # Build-time SVG render cache for the remark-metro docs plugin.
 website/.metro-cache/
 
+# Root-level node_modules if prettier or other npm tools are run at repo root.
+node_modules/
+package-lock.json
+
 # Claude Code per-session scratch state (prompts, locks, worktrees)
 .claude/prompts/
 .claude/scheduled_tasks.lock

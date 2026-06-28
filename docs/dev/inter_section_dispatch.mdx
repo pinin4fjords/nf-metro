@@ -5,6 +5,8 @@ sidebar:
   order: 4
 ---
 
+import { Aside } from "@astrojs/starlight/components";
+
 Inter-section edges (port/junction to port/junction) are routed by
 `_route_inter_section` in
 [`routing/inter_section_handlers.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/inter_section_handlers.py).
@@ -75,3 +77,10 @@ Because every rule above builds its route through the centreline bundle builder
   never fire; a failure means a genuinely new, un-tabled shape reached the
   renderer built some other way, and the fix is to route it through the builder
   too, not to relax the guard.
+
+<Aside type="note">
+  If `assert_render_curve_invariants` fires, the fix is always to route the new
+  shape through the centreline bundle builder — not to widen tolerances or add
+  exceptions to the guard. A guard failure means a route was assembled outside
+  the builder, bypassing the construction that keeps bundles correct by design.
+</Aside>
