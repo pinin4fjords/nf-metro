@@ -19,6 +19,7 @@ from nf_metro.layout.phases._common import (
     _expand_bbox_for_y,
     _grid_group_section_ids,
     _is_fold_section,
+    _lr_exit_aligned_target,
     flow_exit_carrier_anchor,
 )
 from nf_metro.layout.phases.guards import (
@@ -1077,36 +1078,49 @@ def _align_lr_exit_port(
     junction_ids: set[str],
 ) -> None:
     """Align a LEFT/RIGHT exit port's Y with its target entry port."""
-    for edge in graph.edges_from(port_id):
-        tgt = graph.stations.get(edge.target)
-        if not tgt:
+    tgt = _lr_exit_aligned_target(graph, port_id, exit_section, junction_ids)
+    if tgt is None:
+        return
+
+    if lanes_run_along_x(exit_section.direction):
+        tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
+    else:
+        tgt_y = tgt.y
+
+    _set_port_y(graph, port_id, tgt_y)
+
+
+def _realign_fold_lr_exit_ports(graph: MetroGraph) -> None:
+    """Follow a fold exit onto a target the late settling dropped below it.
+
+    Stage 3.4 aligns a fold's LEFT/RIGHT exit port to its target entry Y, but a
+    target spanning several sub-rows keeps descending as those sub-rows settle
+    (Stages 6.13-6.15), leaving the exit a sub-row above the final entry -- a
+    visible jog in the inter-section run.  Snap the exit onto the now-settled
+    entry to straighten it.
+
+    Only a vertical-flow (TB/BT) target that settled *along the flow* from the
+    exit is followed; one seated against the flow keeps its own descent (an
+    intentional long-descent staircase), and the bbox-contained alignment
+    target guarantees the snapped exit stays inside its section.
+    """
+    junction_ids = graph.junction_ids
+    for port_id, port in graph.ports.items():
+        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
             continue
-
-        # Don't align with fan-out junctions
-        if edge.target in junction_ids:
-            break
-
-        if not tgt.is_port:
+        exit_section = graph.sections.get(port.section_id)
+        if (
+            not exit_section
+            or not _is_fold_section(exit_section)
+            or not lanes_run_along_x(exit_section.direction)
+        ):
             continue
-
-        # Don't align with perpendicular target ports (cross-axis)
-        tgt_port_obj = graph.ports.get(tgt.id)
-        if tgt_port_obj and tgt_port_obj.side in (PortSide.TOP, PortSide.BOTTOM):
-            break
-
-        # Don't pull exit port outside its section bbox
-        bbox_top = exit_section.bbox_y
-        bbox_bot = exit_section.bbox_y + exit_section.bbox_h
-        if not (bbox_top <= tgt.y <= bbox_bot):
-            break
-
-        if lanes_run_along_x(exit_section.direction):
-            tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
-        else:
-            tgt_y = tgt.y
-
-        _set_port_y(graph, port_id, tgt_y)
-        break
+        tgt = _lr_exit_aligned_target(graph, port_id, exit_section, junction_ids)
+        if tgt is None:
+            continue
+        flow = AxisFrame.flow_sign(exit_section.direction)
+        if flow * (tgt.y - graph.stations[port_id].y) > SAME_COORD_TOLERANCE:
+            _set_port_y(graph, port_id, tgt.y)
 
 
 def _resolve_tb_exit_y(

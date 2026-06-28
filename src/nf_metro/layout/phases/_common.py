@@ -84,6 +84,37 @@ def _is_fold_section(section: Section) -> bool:
     return section.grid_row_span > 1 or not lanes_run_along_y(section.direction)
 
 
+def _lr_exit_aligned_target(
+    graph: MetroGraph,
+    port_id: str,
+    exit_section: Section,
+    junction_ids: set[str],
+) -> Station | None:
+    """Return the entry port a LEFT/RIGHT exit aligns its Y to, or ``None``.
+
+    The exit aligns to a directly-connected LEFT/RIGHT entry port lying within
+    the exit section's bbox.  A fan-out junction, a perpendicular (cross-axis)
+    target port, or a target outside the bbox is not an alignment target.
+    """
+    bbox_top = exit_section.bbox_y
+    bbox_bot = exit_section.bbox_y + exit_section.bbox_h
+    for edge in graph.edges_from(port_id):
+        tgt = graph.stations.get(edge.target)
+        if not tgt:
+            continue
+        if edge.target in junction_ids:
+            return None
+        if not tgt.is_port:
+            continue
+        tgt_port_obj = graph.ports.get(tgt.id)
+        if tgt_port_obj and tgt_port_obj.side in (PortSide.TOP, PortSide.BOTTOM):
+            return None
+        if not (bbox_top <= tgt.y <= bbox_bot):
+            return None
+        return tgt
+    return None
+
+
 @contextmanager
 def _scoped_sections(graph: MetroGraph, section_ids: list[str]) -> Iterator[None]:
     """Temporarily restrict ``graph.sections`` to ``section_ids``.

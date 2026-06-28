@@ -42,7 +42,12 @@ from nf_metro.layout.engine import (
     compute_min_y_spacing,
     is_loop_side_branch_station,
 )
-from nf_metro.layout.geometry import lanes_run_along_y, segment_intersects_bbox
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    lanes_run_along_x,
+    lanes_run_along_y,
+    segment_intersects_bbox,
+)
 from nf_metro.layout.labels import (
     _label_bbox,
     find_wrapped_label_trunk_strikes,
@@ -51,6 +56,8 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
+    _is_fold_section,
+    _lr_exit_aligned_target,
     flow_exit_carrier_anchor,
 )
 from nf_metro.layout.phases.bbox import (
@@ -3646,6 +3653,45 @@ def test_no_kink_at_section_boundary(fixture):
                         f"Row {row}: exit port {pid} cy={exit_cy} != "
                         f"entry port {npid} cy={entry_cy}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# A folded LEFT/RIGHT exit must follow its target's settled entry Y
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_MULTI_SECTION)
+def test_fold_lr_exit_follows_settled_target(fixture):
+    """A fold's LEFT/RIGHT exit must not end a sub-row above its entry target.
+
+    A vertical-flow (TB/BT) fold aligns its exit port to a bbox-contained
+    LEFT/RIGHT entry, but a target spanning several sub-rows keeps descending as
+    those sub-rows settle after the first alignment.  The exit must follow the
+    target down so the inter-section run is straight; an exit left short renders
+    as a jog (the ``fold_left_exit_right_entry`` defect).  A target seated
+    against the flow keeps its own descent and is exempt.
+    """
+    graph = _layout(fixture)
+    junction_ids = graph.junction_ids
+    for pid, port in graph.ports.items():
+        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        sec = graph.sections.get(port.section_id)
+        if (
+            sec is None
+            or not _is_fold_section(sec)
+            or not lanes_run_along_x(sec.direction)
+        ):
+            continue
+        tgt = _lr_exit_aligned_target(graph, pid, sec, junction_ids)
+        if tgt is None:
+            continue
+        flow = AxisFrame.flow_sign(sec.direction)
+        exit_y = graph.stations[pid].y
+        assert flow * (tgt.y - exit_y) <= _Y_TOL, (
+            f"{fixture}: fold exit {pid} at y={exit_y:.1f} sits a sub-row short "
+            f"of target entry {tgt.id} at y={tgt.y:.1f} (flow {flow:+.0f})"
+        )
 
 
 # ---------------------------------------------------------------------------
