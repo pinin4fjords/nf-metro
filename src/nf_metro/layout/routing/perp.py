@@ -69,13 +69,21 @@ def _perp_entry_crossing_x(
 
     The inter-section approach lands, and the intra-section drop departs, at
     this one X so the line passes straight through the boundary rather than
-    converging on the port marker and re-fanning.  It is the marker X offset by
-    the line's inter-section feeder bundle index times the offset step, fanned
-    to the side the feeder approaches from (:func:`_feeder_fan_sign`): the
-    reference feeder (index 0, e.g. a column-aligned vertical drop) sits on the
-    marker, later-index lines fan one consistent side.  Returns ``None`` when no
-    bundled inter-section feeder reaches the port for this line (nothing to
-    align a crossing X to).
+    converging on the port marker and re-fanning.
+
+    A vertical-flow (TB/BT) feeder drops on its section lane -- the exact X
+    :func:`inter_section_handlers._route_tb_bottom_exit` lands at,
+    ``port_x + _tb_x_offset(feeder, line)`` -- so the crossing tracks that lane.
+    The per-line lane width (one offset step per distinct line) is narrower than
+    the feeder's index in the *whole* cross-boundary bundle, which counts every
+    converging feeder's every line: anchoring on the bundle index instead would
+    splay the few descending lines across the wider fan and straddle the target
+    station, pinching the drop's turn-in corner.
+
+    For any other feeder the crossing falls back to the marker X offset by the
+    feeder's bundle index times the offset step, fanned to the side the feeder
+    approaches from (:func:`_feeder_fan_sign`).  Returns ``None`` when no bundled
+    inter-section feeder reaches the port for this line (nothing to align to).
     """
     feeders = [
         (info[0], edge.source)
@@ -87,7 +95,19 @@ def _perp_entry_crossing_x(
     if not feeders:
         return None
     max_index, source = max(feeders)
-    return port_x + _feeder_fan_sign(ctx, source) * max_index * ctx.offset_step
+    feeder_st = ctx.graph.stations.get(source)
+    feeder_sec = (
+        ctx.graph.sections.get(feeder_st.section_id)
+        if feeder_st and feeder_st.section_id
+        else None
+    )
+    if feeder_sec is not None and lanes_run_along_x(feeder_sec.direction):
+        # The feeder's own per-line lane width (one step per distinct line),
+        # equivalent to _tb_x_offset once the lane sign is applied below.
+        fan = _get_offset(ctx, source, line_id)
+    else:
+        fan = max_index * ctx.offset_step
+    return port_x + _feeder_fan_sign(ctx, source) * fan
 
 
 def _perp_riser_lateral(
