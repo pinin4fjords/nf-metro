@@ -446,16 +446,21 @@ def render_many(manifest_file: Path) -> None:
 
         in_path = Path(raw_input)
         out_path = Path(raw_output)
+
+        def _str_or_none(key: str) -> str | None:
+            v = job.get(key)
+            return str(v) if v else None
+
         format_ = str(job.get("format", "svg"))
-        theme = job.get("theme") or None
-        mode = job.get("mode") or None
+        theme = _str_or_none("theme")
+        mode = _str_or_none("mode")
         debug_flag = bool(job.get("debug", False))
         logo_raw = job.get("logo")
         logo = Path(str(logo_raw)) if logo_raw else None
-        line_spread = job.get("line_spread") or None
-        legend = job.get("legend") or None
+        line_spread = _str_or_none("line_spread")
+        legend = _str_or_none("legend")
         from_nextflow_flag = bool(job.get("from_nextflow", False))
-        title = job.get("title") or None
+        title = _str_or_none("title")
         responsive = bool(job.get("responsive", False))
         embed_font = bool(job.get("embed_font", False))
         text_to_paths = bool(job.get("text_to_paths", False))
@@ -465,7 +470,10 @@ def render_many(manifest_file: Path) -> None:
         no_chrome_css = bool(job.get("no_chrome_css", False))
         bare = bool(job.get("bare", False))
         validate_geometry = bool(job.get("validate", False))
-        layout_opts: dict[str, object] = dict(job.get("layout_options") or {})
+        lo_raw = job.get("layout_options")
+        layout_opts: dict[str, object] = (
+            dict(lo_raw) if isinstance(lo_raw, dict) else {}
+        )
 
         try:
             text = in_path.read_text()
