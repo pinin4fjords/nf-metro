@@ -3,6 +3,7 @@ import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, fontProviders } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLinksValidator from "starlight-links-validator";
 import mermaid from "astro-mermaid";
 import { metroVitePlugin } from "./src/lib/render-metro.mjs";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
@@ -122,6 +123,19 @@ export default defineConfig({
       mermaidConfig: { securityLevel: "loose" },
     }),
     starlight({
+      plugins: [
+        starlightLinksValidator({
+          // gallery/ and pipelines/ are served by custom Astro page routes
+          // (website/src/pages/{gallery,pipelines}/), not Starlight content
+          // collection entries, so the validator cannot resolve them.
+          // live_demo.mp4 is a website/public/ static asset; the relative
+          // src path is valid at HTML render time but is not a page link.
+          exclude: ({ link }) =>
+            link.startsWith("/nf-metro/gallery") ||
+            link.startsWith("/nf-metro/pipelines") ||
+            link === "../assets/live_demo.mp4",
+        }),
+      ],
       title: "nf-metro",
       description:
         "Metro-map-style SVG diagrams from Mermaid graph definitions with %%metro directives - for visualizing bioinformatics pipeline workflows.",
