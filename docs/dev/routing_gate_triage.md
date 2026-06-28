@@ -56,7 +56,7 @@ the methodology - apply it per arm.
   flipped** un-exercised -> exercised by re-running the coverage script. The
   script is the oracle that makes this lane safe to delegate. If it didn't flip,
   the fixture is wrong - iterate, don't commit.
-- **reachable-but-defective** (the #688 pattern) - the _only_ topology that
+- **reachable-but-defective** - the _only_ topology that
   reaches the arm exposes a render you would not ship (curve through a label,
   bypass-V collision, kink, overlap, route through a section box). Do **not**
   commit the fixture, and do **not** distort it (shrunk labels, hacked spacing)
@@ -68,7 +68,7 @@ the methodology - apply it per arm.
   valid graph never takes it. No code deletion.
 - **candidate-dead** - no constructible topology reaches it, but it is live code.
   Flag it `candidate-dead` **with reachability evidence**; do **not** delete it
-  here. Deletion is a separate, deliberate pass (#689), because byte-identical
+  here. Deletion is a separate, deliberate pass, because byte-identical
   renders are not proof of deadness.
 
 `needs-review` is a _holding_ status, not a final verdict: an arm waiting on a
@@ -83,10 +83,11 @@ filed bug, or one not yet classified. A campaign is not done while any arm is
 2. **One PR per module** (cluster the tiny modules - e.g.
    `core.py` + `inter_section.py` + `corners.py` - into one PR). Keeps each
    reviewable and mergeable.
-3. **Opus drives; fan the reachable lane out to sonnet sub-agents.** Each sonnet
-   agent reads one gate condition, authors a candidate fixture, and confirms the
-   flip via the coverage script. The script being the oracle is what makes the
-   fan-out safe.
+3. **Fan reachable arms out concurrently.** Work through multiple gate conditions
+   in parallel: each worker reads one gate condition, authors a candidate fixture,
+   and confirms the arm flipped via the coverage script. The script being the
+   oracle is what makes parallel work safe - each worker's result is independently
+   verifiable.
 4. **Classify every arm** into one of the four verdicts. Append a card per new
    fixture to a shared triage JSON.
 5. **Human visual verdict before PR-open.** Build the review page and get a
@@ -113,14 +114,14 @@ needs-review-linked.
 
 ## Gotchas (hard-won)
 
-- **Phantom arcs inflate the backlog (#746).** `FileReporter.arcs()` attributes a
+- **Phantom arcs inflate the backlog.** `FileReporter.arcs()` attributes a
   branch arc to the _opening_ line of a multi-line `if (`, list/tuple literal, or
   ternary, while CPython records the executed arc from an _operand_ line. The
   matrix then reports a gap on a gate whose arms both actually run. These are
   tooling noise - do not hand-classify them as `defensive`; fix the detector in
   the script instead (an un-exercised arc `(src, dst)` is phantom when `dst` is
   reached by an executed arc from a different source line in the same construct).
-- **A collapsed phantom gate can hide a real operand gap (#741).** When a wrapped
+- **A collapsed phantom gate can hide a real operand gap.** When a wrapped
   `and`/`or` condition's opening line carries _no_ branch bytecode at all (every
   arc originates on an operand line), the matrix re-attributes the decision to its
   operand lines: each operand short-circuit becomes its own gate. This is what
@@ -135,12 +136,12 @@ needs-review-linked.
   triggers the correction), not **defensive**. Labeling such an arm defensive on a
   "never fires across N corpus calls" basis loses a regression fixture for a real
   defect class - this is exactly how the `clear_channel_of_section_edge` graze arm
-  was misjudged before #736 was filed.
+  was once misjudged.
 - **Validators have blind spots; the human eyeball is load-bearing.**
   `probe_layout.py` only sees `validate=True`-block guards, and route crossings are
-  warnings, not failures. Neither the validator nor the suite caught the
-  eager-bundling violations (#702) or the graze (#736). Always run the _full_ suite
-  **and** put the new fixtures in front of a human via the review page.
+  warnings, not failures. The validator and the test suite cannot catch every class
+  of defect. Always run the _full_ suite **and** put the new fixtures in front of a
+  human via the review page.
 - **The arc model is CPython-version-specific.** The script pins
   `BASELINE_PYTHON = (3, 11)`; the ratchet tests skip on any other interpreter.
   Regenerate the baseline only under the pinned version.
@@ -160,27 +161,6 @@ needs-review-linked.
   resolve the shared coverage files by **union**: start from `main`'s triage JSON,
   add only your module's keys, then regenerate the doc + baseline. Do not
   hand-merge the generated files.
-
-## Program structure
-
-The campaign is sliced by module under one umbrella, with a separate deletion
-pass and a tooling-quality issue:
-
-- **#677** built the coverage matrix (tool + doc + ratchet).
-- **#687** is the umbrella: triage and close every un-exercised arm.
-- Module slices: #690 `intra_handlers`, #691 `offsets`, #692
-  `inter_section_handlers`, #701 `normalize` (with #748 for its tail), and
-  #727-#733 the long-tail modules.
-- **#689** is the deferred **deletion** pass over the `candidate-dead` arms.
-- **#746** fixes the phantom-arc tooling defect so future slices triage only real
-  gaps; **#741** extends it to operand granularity, expanding a fully-phantom
-  wrapped `and`/`or` into per-operand gates so a hidden short-circuit gap surfaces
-  as its own row.
-
-The triage program is also a bug _finder_: the `reachable-but-defective` lane has
-spawned engine fixes (#688, #695, #696, #698, #736, ...). Those are filed and
-fixed on their own, outside the triage PRs - a triage slice ships verdicts and
-fixtures, never engine behaviour changes.
 
 ## Lifecycle: permanent infra vs episodic campaign
 
@@ -252,8 +232,8 @@ _how_ the bug was fixed. Three outcomes, by fix shape:
 
 Watch the distinction between _parked on_ a closed bug and _citing_ a closed bug
 **as the pattern** while parked on an open follow-up - only the former is
-actionable when the bug closes. A note that reads "the #688 pattern, filed as
-\#740" is parked on #740 (open), not #688 (closed).
+actionable when the bug closes. A note reading "the same pattern as #NNN,
+filed as #MMM" is parked on #MMM (open), not #NNN (closed).
 
 **Where this reconciliation should happen:** ideally inside the bug-fix PR itself.
 If a fix ships the fixture that flips its parked arm, the stale-key ratchet
