@@ -25,10 +25,10 @@ Skip straight to [Static embed](#a-static-embed). If you want a panel that react
 
 nf-metro renders two shapes, and the right one depends on what the host needs.
 
-| You want                                                    | Use                                           | Why                                                              |
-| ----------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
-| A static picture (thumbnail, README, slide)                 | `render` → **SVG**                            | One self-contained file; scales crisply; no scripts.             |
-| A live, interactive panel (pan/zoom, line filtering, hover) | `render --format html`                        | A self-contained page with the driver and styling already wired. |
+| You want                                                    | Use                                    | Why                                                              |
+| ----------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| A static picture (thumbnail, README, slide)                 | `render` → **SVG**                     | One self-contained file; scales crisply; no scripts.             |
+| A live, interactive panel (pan/zoom, line filtering, hover) | `render --format html`                 | A self-contained page with the driver and styling already wired. |
 | A progress overlay driven by your own app                   | **SVG** + the [manifest](../manifest/) | You read the embedded manifest and draw your own status layer.   |
 
 The SVG carries a machine-readable [manifest](../manifest/) and a stable
