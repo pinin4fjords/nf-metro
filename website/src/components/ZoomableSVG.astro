@@ -54,7 +54,9 @@
   }
 
   function ensureDialog(): void {
-    if (dlg) return;
+    // Astro's ClientRouter swaps the <body> on navigation, removing this
+    // body-appended dialog; re-create it when the previous one is detached.
+    if (dlg?.isConnected) return;
     dlg = document.createElement("dialog");
     dlg.id = "nfm-svg-zoom";
     dlg.setAttribute("aria-modal", "true");
@@ -110,14 +112,13 @@
     });
   }
 
-  document.querySelectorAll<HTMLElement>("[data-zoomable]").forEach((wrap) => {
-    const btn = wrap.querySelector<HTMLButtonElement>(".zoom-btn");
-    if (!btn) return;
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openZoom(wrap);
-    });
-    wrap.addEventListener("click", () => openZoom(wrap));
+  // One delegated listener on document (which ClientRouter never replaces), so
+  // click-to-zoom keeps working after client-side navigation - a per-element
+  // listener bound on initial load is lost when the DOM is swapped.
+  document.addEventListener("click", (e) => {
+    const target = e.target as Element | null;
+    const wrap = target?.closest<HTMLElement>("[data-zoomable]");
+    if (wrap) openZoom(wrap);
   });
 </script>
 
