@@ -7,6 +7,7 @@ import starlightLinksValidator from "starlight-links-validator";
 import sitemap from "@astrojs/sitemap";
 import mermaid from "astro-mermaid";
 import { metroVitePlugin } from "./src/lib/render-metro.mjs";
+import { starlightGitFix } from "./src/lib/starlight-git-fix.mjs";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
@@ -81,7 +82,7 @@ export default defineConfig({
   base,
   vite: {
     // Renders `<path>.mmd?metro` imports to inline SVG via the nf-metro CLI.
-    plugins: [metroVitePlugin()],
+    plugins: [starlightGitFix(), metroVitePlugin()],
     resolve: {
       alias: {
         "@examples": examplesDir,
@@ -127,14 +128,21 @@ export default defineConfig({
     starlight({
       plugins: [
         starlightLinksValidator({
-          // gallery/ and pipelines/ are served by custom Astro page routes
-          // (website/src/pages/{gallery,pipelines}/), not Starlight content
-          // collection entries, so the validator cannot resolve them.
-          // live_demo.mp4 is a website/public/ static asset; the relative
-          // src path is valid at HTML render time but is not a page link.
+          // Docs use /nf-metro/ (production-base) absolute links. Versioned
+          // builds (dev, releases) use a different base, so those same pages
+          // sit under a different prefix and the validator cannot find them.
+          // Skipping cross-base links here is safe: the release/production
+          // build (base="/nf-metro/") validates them normally.
+          // gallery/ and pipelines/ are custom Astro routes (not Starlight
+          // content entries) so the validator can never resolve them.
+          // releases/ are frozen versioned deploys on gh-pages; not present
+          // in the current Astro build.
+          // live_demo.mp4 is a public/ static asset, not a navigable page.
           exclude: ({ link }) =>
+            (link.startsWith("/nf-metro/") && !link.startsWith(base)) ||
             link.startsWith("/nf-metro/gallery") ||
             link.startsWith("/nf-metro/pipelines") ||
+            link.startsWith("/nf-metro/releases") ||
             link === "../assets/live_demo.mp4",
         }),
       ],
@@ -176,8 +184,9 @@ export default defineConfig({
             { label: "Gallery", link: "/gallery/" },
             { label: "nf-core pipelines", link: "/pipelines/" },
             {
-              label: "Playground (beta)",
+              label: "Playground",
               link: "/playground/",
+              badge: { text: "beta", variant: "caution" },
               // data-astro-reload forces a full navigation so the CDN scripts
               // (CodeMirror, Pyodide) and app.js re-initialise from scratch
               // instead of being skipped by Astro's ClientRouter.

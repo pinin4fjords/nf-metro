@@ -1,5 +1,6 @@
 ---
 title: "Guard tiers"
+description: The layered guard system in nf-metro — pre/post invariant checks, ratchets, and how violations surface during development.
 sidebar:
   order: 7
 ---

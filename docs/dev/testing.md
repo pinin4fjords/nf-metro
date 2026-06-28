@@ -1,5 +1,6 @@
 ---
 title: "Testing"
+description: Testing strategy for nf-metro — unit tests, topology stress fixtures, layout validators, and the visual review loop.
 sidebar:
   order: 10
 ---
