@@ -1403,88 +1403,18 @@ def clean_name(stem: str) -> str:
     return stem.replace("_", " ").title()
 
 
-def _raw_import(prefix: str, ident_key: str, alias: str, path: str) -> tuple[str, str]:
-    """Return ``(identifier, import_statement)`` for a Vite ``?raw`` MDX import.
+def metro_src(stem: str, source_dir: Path) -> str:
+    """Repo-relative path to a committed ``.mmd``, for a ``<Metro src=…>`` tag.
 
-    The identifier slugifies *ident_key* into a valid JS name; the statement
-    pulls *path* in as a raw string through the *alias* import alias.
+    The gallery and pipelines pages render each example live through the
+    ``<Metro>`` component, which reads the source itself, so the page only names
+    the file rather than importing it.
     """
-    identifier = prefix + re.sub(r"\W", "_", ident_key)
-    return identifier, f'import {identifier} from "@{alias}/{path}?raw";'
+    return (source_dir.relative_to(project_root) / f"{stem}.mmd").as_posix()
 
 
-def mmd_import(stem: str, source_dir: Path) -> tuple[str, str, str]:
-    """Describe how to embed a committed ``.mmd`` as imported source in an ``.mdx``
-    page. Returns ``(identifier, import_statement, source_label)``.
-
-    The generated pages render the example with Starlight's ``<Code>`` component
-    fed by a Vite ``?raw`` import (via the ``@examples`` alias) rather than pasting
-    the source inline. That keeps the page in lockstep with ``examples/`` and stops
-    the generated Markdown from carrying a second copy of every fixture.
-    """
-    if source_dir == TOPOLOGIES_DIR:
-        rel = f"topologies/{stem}"
-        prefix = "topo_"
-    else:
-        rel = stem
-        prefix = "mmd_"
-    identifier, import_statement = _raw_import(prefix, stem, "examples", f"{rel}.mmd")
-    source_label = f"examples/{rel}.mmd"
-    return identifier, import_statement, source_label
-
-
-def svg_import(svg_stem: str) -> tuple[str, str]:
-    """Describe how to inline a rendered SVG into an ``.mdx`` page.
-
-    Returns ``(identifier, import_statement)``. The SVG is pulled in as a raw
-    string (via the ``@renders`` alias) and injected with ``set:html`` so the
-    real SVG markup lands in the page DOM. Inlining (rather than ``<img>``) is
-    what lets the map's ``light-dark()`` chrome inherit the page's color-scheme
-    and follow the light/dark toggle - an ``<img>``-referenced SVG ignores the
-    embedding page's scheme in WebKit.
-    """
-    return _raw_import("svg_", svg_stem, "renders", f"{svg_stem}.svg")
-
-
-def _inline_svg(identifier: str) -> list[str]:
-    """MDX lines that inline an imported raw SVG string into the page DOM.
-
-    The XML prolog is stripped (it renders as a stray bogus comment in an HTML
-    body), and blank lines around the element keep MDX parsing it as a child
-    expression rather than literal text. The SVG is wrapped in ZoomableSVG so
-    users can click to expand in a dialog lightbox.
-    """
-    expr = f'{identifier}.replace(/^<\\?xml.*?\\?>\\s*/, "")'
-    return [
-        "",
-        "<ZoomableSVG>",
-        f"<Fragment set:html={{{expr}}} />",
-        "</ZoomableSVG>",
-        "",
-    ]
-
-
-def _details_code(identifier: str, source_label: str) -> list[str]:
-    """Markdown lines for a collapsed <details> wrapping an imported <Code> block.
-
-    Blank lines around the component are required so MDX parses it as a child
-    expression of the <details> element rather than literal text.
-    """
-    return [
-        "<details>",
-        "<summary>Mermaid source</summary>",
-        "",
-        f'<Code code={{{identifier}}} lang="metro" title="{source_label}" />',
-        "",
-        "</details>\n",
-    ]
-
-
-def mdx_page(
-    title: str, imports: list[str], body: list[str], description: str = ""
-) -> list[str]:
-    """Assemble an .mdx page: frontmatter, the <Code> import + per-example raw
-    imports (deduped, order-preserved), then the body lines."""
+def mdx_page(title: str, body: list[str], description: str = "") -> list[str]:
+    """Assemble an .mdx page: frontmatter, the <Metro> import, then body lines."""
     fm: list[str] = [f"title: {title}"]
     if description:
         fm.append(f"description: {description}")
@@ -1493,19 +1423,23 @@ def mdx_page(
         *fm,
         "---",
         "",
-        'import { Code } from "@astrojs/starlight/components";',
-        'import ZoomableSVG from "@components/ZoomableSVG.astro";',
-        *dict.fromkeys(imports),
+        'import Metro from "@components/Metro.astro";',
         "",
         *body,
     ]
 
 
 def render_guide_examples() -> None:
-    """Render all guide examples to docs/assets/renders/."""
+    """Render guide examples to docs/assets/renders/ for the CI render-diff.
+
+    The docs render these live from source through the ``<Metro>`` component;
+    these SVGs exist only so the render-diff and the layout-metrics scorecard
+    cover the guide's examples. Pages never reference them.
+    """
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
     section = "Guide Examples"
     print("Guide examples:")
+
     for mmd_path in sorted(GUIDE_DIR.glob("*.mmd")):
         svg_path = RENDERS_DIR / f"{mmd_path.stem}.svg"
         if _skip_render(mmd_path):
@@ -1518,7 +1452,6 @@ def render_guide_examples() -> None:
         except Exception as e:
             print(f"  {mmd_path.stem}: FAIL - {e}")
 
-    # Top-level examples referenced directly from the guide
     for stem in (
         "rnaseq_auto",
         "variantbenchmarking",
@@ -1539,7 +1472,6 @@ def render_guide_examples() -> None:
         except Exception as e:
             print(f"  {stem}: FAIL - {e}")
 
-    # Debug overlay render for the guide
     debug_src = EXAMPLES_DIR / "rnaseq_auto.mmd"
     debug_svg = RENDERS_DIR / "rnaseq_auto_debug.svg"
     if debug_src.exists() and _skip_render(debug_src):
@@ -1558,7 +1490,6 @@ def render_guide_examples() -> None:
             print("  rnaseq_auto_debug: OK")
         except Exception as e:
             print(f"  rnaseq_auto_debug: FAIL - {e}")
-
     print()
 
 
@@ -1567,9 +1498,6 @@ def build_gallery() -> None:
     GALLERY_DIR.mkdir(parents=True, exist_ok=True)
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Collected `import … from "@examples/…?raw"` statements, one per example,
-    # spliced in below the frontmatter once the body is built.
-    imports: list[str] = []
     lines: list[str] = [
         "Rendered examples covering a range of layout patterns. "
         "Click any heading in the right-hand table of contents to jump to an example.",
@@ -1591,8 +1519,9 @@ def build_gallery() -> None:
             lines.append("---\n")
             lines.append(f"## {current_category}\n")
 
-        # Guards the render call, not the loop body: every entry needs its MDX
-        # block below regardless of whether its SVG was re-rendered.
+        # The SVG feeds the CI render-diff only (the page renders live via
+        # <Metro>); a reused entry keeps its pre-seeded base SVG. The <Metro>
+        # block below is emitted for every entry regardless.
         if _skip_render(mmd_path):
             status = "REUSED"
         else:
@@ -1608,23 +1537,15 @@ def build_gallery() -> None:
         print(f"  {stem}: {status}")
 
         heading = clean_name(stem)
-        identifier, import_statement, source_label = mmd_import(stem, source_dir)
-        imports.append(import_statement)
-        svg_id, svg_import_stmt = svg_import(stem)
-        imports.append(svg_import_stmt)
+        src = metro_src(stem, source_dir)
 
         lines.append(f"### {heading}\n")
         lines.append(f"{description}\n")
-        lines.append("**CLI command:**\n")
-        lines.append(f"```bash\nnf-metro render {source_label} -o {stem}.svg\n```\n")
-        lines.extend(_details_code(identifier, source_label))
-        lines.append("**Rendered output:**\n")
-        lines.extend(_inline_svg(svg_id))
+        lines.append(f'<Metro src="{src}" purpose="showcase" />\n')
 
     gallery_md = "\n".join(
         mdx_page(
             "Gallery",
-            imports,
             lines,
             description=(
                 "Rendered examples covering fan-outs, folds, diamonds, and realistic "
@@ -1702,7 +1623,6 @@ def build_pipelines_page() -> None:
     section = "nf-core Pipelines"
     print("nf-core pipelines:")
 
-    imports: list[str] = []
     lines: list[str] = [
         "Real-world pipelines rendered with nf-metro. These are maintained as "
         "`.mmd` files alongside the pipeline source code and rendered automatically.",
@@ -1720,6 +1640,8 @@ def build_pipelines_page() -> None:
             print(f"  WARNING: {mmd_path} not found, skipping")
             continue
 
+        # The SVG feeds the CI render-diff only (the page renders live via
+        # <Metro>); a reused entry keeps its pre-seeded base SVG.
         if _skip_render(mmd_path):
             status = "REUSED"
         else:
@@ -1736,20 +1658,15 @@ def build_pipelines_page() -> None:
         _manifest[svg_path.name] = section
         print(f"  {stem}: {status}")
 
-        identifier, import_statement, source_label = mmd_import(stem, EXAMPLES_DIR)
-        imports.append(import_statement)
-        svg_id, svg_import_stmt = svg_import(f"pipeline_{stem}")
-        imports.append(svg_import_stmt)
+        src = metro_src(stem, EXAMPLES_DIR)
 
         lines.append(f"## [{display_name}]({repo_url})\n")
         lines.append(f"{description}\n")
-        lines.extend(_inline_svg(svg_id))
-        lines.extend(_details_code(identifier, source_label))
+        lines.append(f'<Metro src="{src}" purpose="showcase" />\n')
 
     pipelines_md = "\n".join(
         mdx_page(
             "nf-core pipelines",
-            imports,
             lines,
             description=(
                 "Real-world nf-core pipelines rendered as metro-style SVG diagrams "

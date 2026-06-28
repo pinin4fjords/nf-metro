@@ -1,0 +1,187 @@
+---
+import { Code } from "@astrojs/starlight/components";
+import ZoomableSVG from "@components/ZoomableSVG.astro";
+
+// One primitive for every nf-metro map in the docs. It renders up to three
+// uniformly-framed sections for a committed `.mmd` source - the Mermaid source,
+// the CLI command, and the live map - at build time (no pre-generated SVGs).
+//
+// `purpose` is a shorthand that sets all three at once for a common intent;
+// the `mmd` / `command` / `render` props override individual sections. Each
+// section state is "open" (shown, expanded), "collapsed" (shown, folded), or
+// false (hidden).
+//
+// The rendered SVG arrives through the `?metro` Vite plugin as an imported
+// module string. Importing it (rather than rendering to a runtime string and
+// using set:html) is what lets its `light-dark()` chrome follow the page theme
+// and keeps its embedded `<image>` logo through the production HTML build.
+
+type SectionState = "open" | "collapsed" | false;
+
+interface Props {
+  // Repo-relative path to the source, e.g. "examples/guide/01_minimal.mmd".
+  src: string;
+  // Intent preset for the three sections (overridden by the per-section props).
+  //   teach     - source + map open, no command (the default; guide examples).
+  //   showcase  - map open, source and command available but folded (gallery).
+  //   reference - command + map open, source folded.
+  purpose?: "teach" | "showcase" | "reference";
+  // Per-section overrides.
+  mmd?: SectionState;
+  command?: SectionState;
+  render?: SectionState;
+  // Render with the --debug layout overlay.
+  debug?: boolean;
+  // Treat the source as a Nextflow DAG and convert it (--from-nextflow).
+  fromNextflow?: boolean;
+  // <Code> title for the source block; defaults to the src path.
+  title?: string;
+}
+
+const PURPOSES: Record<
+  NonNullable<Props["purpose"]>,
+  { mmd: SectionState; command: SectionState; render: SectionState }
+> = {
+  teach: { mmd: "open", command: false, render: "open" },
+  showcase: { mmd: "collapsed", command: "collapsed", render: "open" },
+  reference: { mmd: "collapsed", command: "open", render: "open" },
+};
+
+const {
+  src,
+  purpose = "teach",
+  mmd,
+  command,
+  render,
+  debug = false,
+  fromNextflow = false,
+  title,
+} = Astro.props;
+
+const preset = PURPOSES[purpose];
+const mmdState = mmd ?? preset.mmd;
+const commandState = command ?? preset.command;
+const renderState = render ?? preset.render;
+
+if (fromNextflow && debug) {
+  // No combined `?metro&nextflow&debug` glob exists; fail loudly rather than
+  // silently render one mode and drop the other.
+  throw new Error(
+    `<Metro src="${src}">: \`debug\` and \`fromNextflow\` cannot be combined.`,
+  );
+}
+
+// Committed source files live one level above the Astro project. Each glob is
+// scoped to what its render mode can consume, so the build only shells out to
+// nf-metro for maps a page can actually request:
+//   - raw source: any committed .mmd (cheap, just text).
+//   - plain render: metro maps under examples/ and the top-level test fixtures
+//     (NOT tests/fixtures/nextflow, whose DAGs are not valid metro).
+//   - debug overlay: only the top-level examples that the guide demonstrates it on.
+//   - Nextflow conversion: only the DAG fixtures.
+const rawSources = {
+  ...import.meta.glob("../../../examples/**/*.mmd", { query: "?raw", import: "default" }),
+  ...import.meta.glob("../../../tests/fixtures/**/*.mmd", { query: "?raw", import: "default" }),
+};
+const svgSources = {
+  ...import.meta.glob("../../../examples/**/*.mmd", { query: "?metro", import: "default" }),
+  ...import.meta.glob("../../../tests/fixtures/*.mmd", { query: "?metro", import: "default" }),
+};
+const svgDebugSources = import.meta.glob("../../../examples/*.mmd", {
+  query: "?metro&debug",
+  import: "default",
+});
+const svgNextflowSources = import.meta.glob(
+  "../../../tests/fixtures/nextflow/**/*.mmd",
+  { query: "?metro&nextflow", import: "default" },
+);
+
+// Each render mode pairs its source map with the scope named in the not-found
+// error, so the selection and the message can't drift apart.
+type Sources = Record<string, () => Promise<unknown>>;
+const RENDER_MODES: Record<string, { mods: Sources; scope: string }> = {
+  plain: {
+    mods: svgSources,
+    scope: "examples/** and tests/fixtures/*.mmd (top level only)",
+  },
+  debug: { mods: svgDebugSources, scope: "examples/*.mmd (top level only)" },
+  nextflow: { mods: svgNextflowSources, scope: "tests/fixtures/nextflow/**" },
+};
+const renderMode = fromNextflow ? "nextflow" : debug ? "debug" : "plain";
+
+const key = `../../../${src}`;
+
+function resolve(mods: Sources, what: string, scope: string) {
+  const loader = mods[key];
+  if (!loader) {
+    throw new Error(
+      `<Metro src="${src}">: no ${what} found. Globbed: ${scope}. ` +
+        `If this is a .mmd in a new subdirectory, extend the matching glob in Metro.astro.`,
+    );
+  }
+  return loader();
+}
+
+const source =
+  mmdState !== false
+    ? ((await resolve(
+        rawSources,
+        "source",
+        "examples/** and tests/fixtures/**",
+      )) as string)
+    : null;
+const { mods: renderMods, scope: renderScope } = RENDER_MODES[renderMode];
+const svg =
+  renderState !== false
+    ? ((await resolve(renderMods, "render", renderScope)) as string)
+    : null;
+
+const stem = src.split("/").pop()?.replace(/\.mmd$/, "") ?? "map";
+const cliCommand =
+  `nf-metro render ${src} -o ${stem}.svg` +
+  (debug ? " --debug" : "") +
+  (fromNextflow ? " --from-nextflow" : "");
+const codeTitle = title ?? src;
+---
+
+<div class="metro">
+  {
+    mmdState !== false && (
+      <details class="metro-part" open={mmdState === "open"}>
+        <summary>Mermaid source</summary>
+        <Code code={source} lang="metro" title={codeTitle} />
+      </details>
+    )
+  }
+  {
+    commandState !== false && (
+      <details class="metro-part" open={commandState === "open"}>
+        <summary>CLI command</summary>
+        <Code code={cliCommand} lang="bash" />
+      </details>
+    )
+  }
+  {
+    renderState !== false && (
+      <details class="metro-part metro-render" open={renderState === "open"}>
+        <summary>Rendered map</summary>
+        <ZoomableSVG>
+          <Fragment set:html={svg} />
+        </ZoomableSVG>
+      </details>
+    )
+  }
+</div>
+
+<style>
+  /* The three sections inherit Starlight's native <details> styling (the
+     full-height left accent bar + rotating chevron marker); this only spaces
+     them apart, since they are nested in a wrapper rather than direct children
+     of the markdown content. */
+  .metro {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 1rem 0;
+  }
+</style>

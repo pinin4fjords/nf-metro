@@ -110,6 +110,9 @@ generate_content() {
   python "$REPO_ROOT/scripts/build_playground_examples.py"
   echo "==> Generating gallery + pipelines pages and render SVGs (slow on first run)"
   python "$REPO_ROOT/scripts/build_gallery.py"
+  # Drop the <Metro> live-render cache so served maps reflect the current engine
+  # (the content-hash key won't change for an editable-install code edit).
+  rm -rf "$WEBSITE_DIR/.metro-cache"
 }
 
 if [[ "$SKIP_CONTENT" == true ]]; then
