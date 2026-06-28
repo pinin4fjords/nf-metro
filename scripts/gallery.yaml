@@ -330,6 +330,23 @@ gallery:
       fed through a TOP entry. Each upper branch's bottom-exit feeder routes around
       the intervening branch boxes through the clear left-side gap rather than
       ploughing straight down through them."
+  - id: convergence_fold_diamond
+    source_dir: examples/topologies
+    category: Fold Topologies
+    description:
+      "Two distinct lines converging into a sink folded below its branches: a
+      `fold_threshold` stacks both branches in one column and drops the shared sink
+      onto a lower row, fed through a TOP entry. The two feeders, and the run through
+      the merge, ride parallel approach channels rather than collapsing onto one
+      vertical channel."
+  - id: fold_split_targets
+    source_dir: examples/topologies
+    category: Fold Topologies
+    description:
+      "Two folded branches dropping into one section through a shared TOP entry,
+      each line continuing to its own separate sink (a fan, not a merge). The
+      distinct-line drops stay collapsed onto the column trunk, since they part to
+      different stations rather than bundling along a shared run."
   - id: stacked_lr_serpentine
     source_dir: examples/topologies
     category: Fold Topologies

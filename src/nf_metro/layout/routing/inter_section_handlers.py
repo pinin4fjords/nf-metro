@@ -61,6 +61,7 @@ from nf_metro.layout.routing.common import (
     iter_vertical_segments,
     max_grid_row_with_content,
     merge_trunk_force_cross_row,
+    needs_perp_approach_fan,
     resolve_section,
     row_bottom_edge,
     row_top_edge,
@@ -89,6 +90,7 @@ from nf_metro.layout.routing.normalize import (
     _v_segment_crosses_other_section,
 )
 from nf_metro.layout.routing.perp import (
+    _perp_approach_fan_x,
     _perp_riser_lateral,
 )
 from nf_metro.parser.model import (
@@ -1058,6 +1060,9 @@ def _route_tb_bottom_exit(
     drop / jog / drop with curved corners instead: down out of the BOTTOM
     port, across the inter-row gap, then down into the target.
     """
+    if needs_perp_approach_fan(ctx.graph, edge.target):
+        return _route_tb_bottom_exit_approach_fan(edge, src, tgt, ctx)
+
     # The drop continues the source section's own rotation lane (x - off) out of
     # the BOTTOM port, so the trunk and its outgoing bundle share one lane.  A
     # horizontal-flow target's perp-entry drop aligns to this feeder lane (via
@@ -1118,6 +1123,38 @@ def _route_tb_bottom_exit(
     )
 
 
+def _route_tb_bottom_exit_approach_fan(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Drop from a TB BOTTOM exit onto a distinct-line port's approach channel.
+
+    At a distinct-line perp entry (:func:`needs_perp_approach_fan`) the feeders
+    each carry one line and all leave the same column trunk, so their feeder
+    lanes coincide on one X.  Land each on its own approach channel instead --
+    the per-line X :func:`perp._perp_approach_fan_x` pins the intra-section
+    drop to -- so the distinct lines ride parallel channels into the port rather
+    than overlaying one vertical channel.
+
+    A feeder leaves the BOTTOM port downward, jogs across the inter-row gap onto
+    its channel, then drops in, so any lateral step turns through bounded corners
+    rather than a raw diagonal.  A feeder already on its channel has a zero-width
+    jog, which the bundle builder collapses to a clean straight drop.
+    """
+    land_x = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
+    sy, ty = src.y, tgt.y
+
+    dy = ty - sy
+    hy = inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+    lo, hi = (sy, ty) if dy >= 0 else (ty, sy)
+    hy = min(max(hy, lo + ctx.curve_radius), hi - ctx.curve_radius)
+    return route_along(
+        edge,
+        [(edge, edge.line_id, 0.0)],
+        [(src.x, sy), (src.x, hy), (land_x, hy), (land_x, ty)],
+        base_radius=ctx.curve_radius,
+    )
+
+
 def _around_stack_channel_x(f: _InterFacts) -> float:
     """X of a descent channel just left of the feeder's stacked column.
 
@@ -1147,7 +1184,10 @@ def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
 
     Each co-travelling line rides the source section's rotation lane, fanned off
     one centreline so the final drop lands on the same per-line X as the
-    adjacent straight-drop feeders converging on the shared port.
+    adjacent straight-drop feeders converging on the shared port.  Where distinct
+    lines share the entry (:func:`needs_perp_approach_fan`) that shared X is the
+    per-line approach channel (:func:`perp._perp_approach_fan_x`) instead of the
+    feeder lane, since every feeder sits on one column trunk.
     """
     edge, src, tgt, ctx, graph = f.edge, f.src, f.tgt, f.ctx, f.graph
     sx, sy, tx, ty = f.sx, f.sy, f.tx, f.ty
@@ -1158,9 +1198,16 @@ def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
 
     _members, line_ids, _edge_by_line = gather_member_edges(graph, edge)
 
+    fans_distinct = needs_perp_approach_fan(graph, edge.target)
+    if fans_distinct:
+        tx = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
+
     def lane_offset(line_id: str) -> float:
         # Negated so the down-leg's right-hand normal lands each riser on its
-        # own trunk X.
+        # own trunk X.  Where distinct lines fan, the per-line channel is baked
+        # into ``tx`` (each feeder carries one line), so the lane fan is zero.
+        if fans_distinct:
+            return 0.0
         return -_tb_x_offset(ctx, edge.source, line_id, src.section_id)
 
     # The bundle fan lifts the jog's innermost line toward the source box, so

@@ -25,12 +25,15 @@ cross the port, so the line passes straight through the boundary instead of
 converging on the marker and re-fanning.  It tracks the feeder's own section
 lane (``_tb_x_offset``) for a vertical-flow feeder -- a ``-x`` downward (TB)
 drop and its ``+x`` upward (BT) image alike -- and the ``-x`` up-and-over riser
-side for any other feeder.
+side for any other feeder.  Where distinct lines share the entry on disjoint
+feeders (``needs_perp_approach_fan``), ``_perp_approach_fan_x`` instead fans them
+by bundle index, since those feeders share one column trunk.
 """
 
 from __future__ import annotations
 
 from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.routing.common import needs_perp_approach_fan
 from nf_metro.layout.routing.context import (
     _get_offset,
     _max_offset_at,
@@ -43,6 +46,46 @@ from nf_metro.parser.model import (
 )
 
 
+def _bundled_feeders(
+    ctx: _RoutingCtx, entry_port_id: str, line_id: str
+) -> list[tuple[int, int, str]]:
+    """``(bundle index, bundle size, source)`` for each feeder of *line_id*.
+
+    The inter-section feeders reaching *entry_port_id* on *line_id* that carry a
+    cross-boundary bundle index, each with its bundle size and source port.  Empty
+    when the line reaches the port with no bundled feeder.
+    """
+    return [
+        (info[0], info[1], edge.source)
+        for edge in ctx.graph.edges_to(entry_port_id)
+        if edge.line_id == line_id
+        and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
+        is not None
+    ]
+
+
+def _perp_approach_fan_x(
+    ctx: _RoutingCtx, entry_port_id: str, line_id: str, port_x: float
+) -> float:
+    """Per-line X channel a line takes into a distinct-line perp entry port.
+
+    Where distinct lines share a perpendicular entry (:func:`needs_perp_approach_fan`)
+    the single-line feeders all sit on one column trunk, so each must fan onto its
+    own approach channel rather than share the trunk X.  The bundle index orders
+    the feeders by approach: index 0 is the outermost feeder (the one descending
+    from furthest away, which wraps around the intervening boxes), so it takes the
+    channel furthest toward the turn side (``-x``) and the trunk-near feeder
+    (highest index) stays on ``port_x``.  This keeps the outermost approach on the
+    outside of the bend, matching the intra-section bundle order, so the feeders
+    do not cross.  The inter-section feeder drop and the intra-section drop both
+    anchor on this one X.  Lines without a bundled feeder stay on the trunk.
+    """
+    index, count, _source = next(
+        iter(_bundled_feeders(ctx, entry_port_id, line_id)), (0, 1, "")
+    )
+    return port_x - (count - 1 - index) * ctx.offset_step
+
+
 def _perp_entry_crossing_x(
     ctx: _RoutingCtx, entry_port_id: str, line_id: str, port_x: float
 ) -> float | None:
@@ -52,7 +95,13 @@ def _perp_entry_crossing_x(
     this one X so the line passes straight through the boundary rather than
     converging on the port marker and re-fanning.
 
-    A vertical-flow (TB/BT) feeder drops on its own section lane -- the exact X
+    A distinct-line perp entry (:func:`needs_perp_approach_fan`) fans its
+    single-line feeders onto parallel approach channels by bundle index --
+    :func:`_perp_approach_fan_x` -- since their feeder lanes all collapse onto
+    one column trunk.
+
+    Otherwise, a vertical-flow (TB/BT) feeder dropping a *single* bundle crosses
+    on its own section lane -- the exact X
     :func:`inter_section_handlers._route_tb_bottom_exit` lands at,
     :func:`context._tb_x_offset` -- so the crossing tracks that lane.  Its
     per-line lane width (one offset step per distinct line) is narrower than the
@@ -66,16 +115,12 @@ def _perp_entry_crossing_x(
     index on that side.  Returns ``None`` when no bundled inter-section feeder
     reaches the port for this line (nothing to align to).
     """
-    feeders = [
-        (info[0], edge.source)
-        for edge in ctx.graph.edges_to(entry_port_id)
-        if edge.line_id == line_id
-        and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
-        is not None
-    ]
+    if needs_perp_approach_fan(ctx.graph, entry_port_id):
+        return _perp_approach_fan_x(ctx, entry_port_id, line_id, port_x)
+    feeders = _bundled_feeders(ctx, entry_port_id, line_id)
     if not feeders:
         return None
-    max_index, source = max(feeders)
+    max_index, _count, source = max(feeders)
     feeder_st = ctx.graph.stations.get(source)
     section_id = feeder_st.section_id if feeder_st else None
     feeder_sec = ctx.graph.sections.get(section_id) if section_id else None
