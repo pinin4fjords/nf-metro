@@ -17,7 +17,7 @@ matched against an ordered list of named rules, and the first whose predicate
 holds owns the route.
 
 Every rule's handler builds its route from a centreline through the
-[bundle builder](/nf-metro/dev/routing/) (`build_concentric_bundle` /
+[bundle builder](../routing/) (`build_concentric_bundle` /
 `build_tapered_bundle`), so no handler assembles per-line points or corner
 radii by hand. The runtime curve guard (below) is a backstop, not the
 mechanism that keeps the routes correct.
