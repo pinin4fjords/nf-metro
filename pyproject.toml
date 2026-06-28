@@ -67,6 +67,7 @@ dev = [
 # to rasterise gallery SVGs to PNG.
 docs = [
     "cairosvg>=2.5",
+    "pyyaml>=6.0",
 ]
 font = [
     "fonttools[woff]>=4.0",
