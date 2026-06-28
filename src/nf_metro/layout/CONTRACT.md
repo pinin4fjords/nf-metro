@@ -263,7 +263,7 @@ when `y_spacing` is auto-resolved).
 
 The pipeline groups into six stages aligned with the coord-regime
 transitions and the Pass A / Pass B / Pass C divisions used throughout
-this doc.  See [`docs/dev/layout_pipeline.md`](../../../docs/dev/layout_pipeline.md)
+this doc.  See [`docs/dev/layout_pipeline.mdx`](../../../docs/dev/layout_pipeline.mdx)
 for a prose walkthrough of each stage; the matching
 `# ---- Stage N - ... ----` comment dividers in `_compute_section_layout`
 mark each stage's start in the source.  Stage-table entries below appear

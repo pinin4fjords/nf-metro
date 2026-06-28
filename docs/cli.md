@@ -9,7 +9,7 @@ nf-metro ships four commands - `render`, `convert`, `validate`, and `info`. This
 
 Render a Mermaid metro map definition to SVG or interactive HTML.
 
-```bash
+```bash frame="terminal"
 nf-metro render [OPTIONS] INPUT_FILE
 ```
 
@@ -62,7 +62,7 @@ Flags for producing an SVG to embed in another page or application. The [Embeddi
 
 `--format html` produces a self-contained `.html` file with the SVG inlined plus a small JS/CSS layer (no external dependencies, no network):
 
-```bash
+```bash frame="terminal"
 nf-metro render pipeline.mmd --format html -o pipeline.html
 ```
 
@@ -74,7 +74,7 @@ The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, an
 
 Pass `--validate` to check the _drawn_ SVG after rendering and fail (non-zero exit) if a route is drawn through a station's label or marker, or two distinct lines collapse into one stroke where they should run parallel. This reads the geometry as it ends up on the page (after the per-line offsets and label shifts the layout applies), catching defects the pre-render checks cannot see:
 
-```bash
+```bash frame="terminal"
 nf-metro render pipeline.mmd -o pipeline.svg --validate
 ```
 
@@ -84,7 +84,7 @@ To run the same geometry checks on an already-rendered SVG, use [`nf-metro valid
 
 Convert a Nextflow `-with-dag` mermaid file to nf-metro format.
 
-```bash
+```bash frame="terminal"
 nf-metro convert [OPTIONS] INPUT_FILE
 ```
 
@@ -99,7 +99,7 @@ See [Importing from Nextflow](/nf-metro/nextflow/) for details and examples.
 
 Check a `.mmd` file for errors without producing output.
 
-```bash
+```bash frame="terminal"
 nf-metro validate INPUT_FILE
 ```
 
@@ -107,6 +107,6 @@ nf-metro validate INPUT_FILE
 
 Print a summary of the parsed map: sections, lines, stations, and edges.
 
-```bash
+```bash frame="terminal"
 nf-metro info INPUT_FILE
 ```

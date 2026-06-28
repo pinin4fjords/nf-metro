@@ -2,11 +2,13 @@
 title: "Contributing"
 ---
 
+import { Steps } from "@astrojs/starlight/components";
+
 How to set up nf-metro for development, run the same checks CI runs, and get a change merged.
 
 ## Setup
 
-```bash
+```bash frame="terminal"
 git clone https://github.com/pinin4fjords/nf-metro
 cd nf-metro
 pip install -e ".[dev]"
@@ -16,7 +18,7 @@ Required Python: 3.10+. Dependencies: `click`, `drawsvg`, `networkx`, `pillow`. 
 
 ## Running checks
 
-```bash
+```bash frame="terminal"
 # All tests
 pytest
 
@@ -34,24 +36,30 @@ The topology suite parametrizes over every `.mmd` in `examples/topologies/` and 
 
 ## Before opening a PR
 
-1. Run `pytest` and `ruff format --check` - CI runs both and will fail on either.
-2. For any layout or rendering change, do a [visual review](#visual-review) - the automated checks confirm the geometry is valid, not that it looks right.
-3. If you added behaviour, add a topology fixture that covers it (see below).
-4. If you fixed a bug that had an `xfail` marker, remove the marker so the fix is locked in.
+<Steps>
+  1. Run `pytest` and `ruff format --check` - CI runs both and will fail on
+  either. 2. For any layout or rendering change, do a [visual
+  review](#visual-review) - the automated checks confirm the geometry is valid,
+  not that it looks right. 3. If you added behaviour, add a topology fixture
+  that covers it (see below). 4. If you fixed a bug that had an `xfail` marker,
+  remove the marker so the fix is locked in.
+</Steps>
 
 ## Adding a topology test
 
 `examples/topologies/` holds `.mmd` fixtures, each isolating a specific graph shape (fan-out, fan-in, diamond, fold, and so on). Adding a fixture is the main way to extend test coverage, and no wiring is needed - the suite picks up every file in the directory automatically.
 
-1. Write a minimal `.mmd` that exercises the topology.
-2. Drop it in `examples/topologies/`.
-3. Run `pytest tests/test_topology_validation.py` to confirm it passes (or fails, if you are pinning a known issue).
+<Steps>
+  1. Write a minimal `.mmd` that exercises the topology. 2. Drop it in
+  `examples/topologies/`. 3. Run `pytest tests/test_topology_validation.py` to
+  confirm it passes (or fails, if you are pinning a known issue).
+</Steps>
 
 ## Adding a map to a docs page
 
 Docs pages render metro maps live from their committed `.mmd` source with the `<Metro>` component - there is nothing to pre-render or commit. In an `.mdx` page, import it once and point `src` at a repo-relative path:
 
-```mdx
+```mdx title="docs/mypage.mdx"
 import Metro from "@components/Metro.astro";
 
 <Metro src="examples/guide/01_minimal.mmd" />
@@ -65,7 +73,7 @@ That shows the Mermaid source, the CLI command, and the rendered map as three to
 | `showcase`        | collapsed | collapsed | open |
 | `reference`       | collapsed | open      | open |
 
-```mdx
+```mdx title="docs/mypage.mdx"
 {/* map only, no source block */}
 
 <Metro src="examples/rnaseq_auto.mmd" mmd={false} />
@@ -89,7 +97,7 @@ The page must be `.mdx` (not `.md`). Plain ` ```metro ` fences are untouched - u
 
 When you find a bug that will take time to fix, don't ignore it. Write a test for the _correct_ behaviour and mark it `xfail`:
 
-```python
+```python title="tests/test_example.py"
 @pytest.mark.xfail(strict=True, reason="issue #NNN: what should happen")
 def test_something():
     ...
@@ -107,7 +115,7 @@ Automated geometry checks verify the coordinates are correct; they can't verify 
 
 **Locally:** render individual examples directly:
 
-```bash
+```bash frame="terminal"
 # Activate the nf-metro dev environment if using micromamba
 source ~/.local/bin/mm-activate nf-metro
 
