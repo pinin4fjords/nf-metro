@@ -1,0 +1,81 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { getCollection } from "astro:content";
+import { base } from "../../site";
+
+const entries = await getCollection("pipelines");
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "nf-core pipelines",
+    description:
+      "Real-world nf-core pipelines rendered as metro-style SVG diagrams using nf-metro.",
+    template: "doc",
+    tableOfContents: false,
+    pagefind: true,
+    prev: false,
+    next: false,
+  }}
+>
+  <p>
+    Real-world pipelines rendered with nf-metro. See the{" "}
+    <a href={`${base}gallery/`}>Gallery</a> for layout pattern examples and the{
+      " "
+    }
+    <a href={`${base}guide/`}>Guide</a> for how to write your own.
+  </p>
+
+  <ul class="nfm-pipeline-list">
+    {
+      entries.map((entry) => (
+        <li>
+          <a href={`${base}pipelines/${entry.id}/`}>
+            <strong>{entry.data.title}</strong>
+            <span>{entry.data.description}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</StarlightPage>
+
+<style>
+  .nfm-pipeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    list-style: none;
+    padding: 0;
+    margin-block: 1.5rem;
+  }
+
+  .nfm-pipeline-list li a {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 6px;
+    text-decoration: none;
+    color: inherit;
+    background: var(--sl-color-bg);
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+
+  .nfm-pipeline-list li a:hover {
+    border-color: var(--sl-color-accent);
+    background: var(--sl-color-bg-nav);
+  }
+
+  .nfm-pipeline-list li a strong {
+    font-size: 0.9rem;
+    color: var(--sl-color-text-accent);
+  }
+
+  .nfm-pipeline-list li a span {
+    font-size: 0.82rem;
+    color: var(--sl-color-gray-3);
+    line-height: 1.4;
+  }
+</style>
