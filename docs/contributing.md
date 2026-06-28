@@ -47,6 +47,44 @@ The topology suite parametrizes over every `.mmd` in `examples/topologies/` and 
 2. Drop it in `examples/topologies/`.
 3. Run `pytest tests/test_topology_validation.py` to confirm it passes (or fails, if you are pinning a known issue).
 
+## Adding a map to a docs page
+
+Docs pages render metro maps live from their committed `.mmd` source with the `<Metro>` component - there is nothing to pre-render or commit. In an `.mdx` page, import it once and point `src` at a repo-relative path:
+
+```mdx
+import Metro from "@components/Metro.astro";
+
+<Metro src="examples/guide/01_minimal.mmd" />
+```
+
+That shows the Mermaid source, the CLI command, and the rendered map as three toggle sections. Pick the mix with `purpose`, or override any single section with `mmd` / `command` / `render` set to `"open"`, `"collapsed"`, or `false`:
+
+| `purpose`         | source    | command   | map  |
+| ----------------- | --------- | --------- | ---- |
+| `teach` (default) | open      | hidden    | open |
+| `showcase`        | collapsed | collapsed | open |
+| `reference`       | collapsed | open      | open |
+
+```mdx
+{/* map only, no source block */}
+
+<Metro src="examples/rnaseq_auto.mmd" mmd={false} />
+
+{/* the --debug layout overlay */}
+
+<Metro src="examples/rnaseq_auto.mmd" debug mmd={false} />
+
+{/* a Nextflow DAG, converted on the way in */}
+
+<Metro
+  src="tests/fixtures/nextflow/flat_pipeline.mmd"
+  fromNextflow
+  mmd={false}
+/>
+```
+
+The page must be `.mdx` (not `.md`). Plain ` ```metro ` fences are untouched - use them for highlight-only snippets that don't need a render. The Gallery and nf-core pipelines pages emit `<Metro>` automatically from `scripts/build_gallery.py`, so you don't hand-author those.
+
 ## Bugs you can't fix yet
 
 When you find a bug that will take time to fix, don't ignore it. Write a test for the _correct_ behaviour and mark it `xfail`:
