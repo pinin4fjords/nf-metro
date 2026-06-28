@@ -104,7 +104,7 @@ When a station represents paired input files (e.g. paired-end FASTQ reads), use 
 %%metro files: reads_in | FASTQ
 ```
 
-<Metro src="examples/guide/05c_files_icon.mmd" code={false} />
+<Metro src="examples/guide/05c_files_icon.mmd" mmd={false} />
 
 ### Folder icons
 
@@ -114,7 +114,7 @@ For stations that represent a directory of output files rather than a single fil
 %%metro dir: results_out | Results
 ```
 
-<Metro src="examples/guide/05d_folder_icon.mmd" code={false} />
+<Metro src="examples/guide/05d_folder_icon.mmd" mmd={false} />
 
 All three directives (`file:`, `files:`, `dir:`) work the same way: pair a station ID with a label, give the station a blank label (`[ ]`), and connect it with normal edges. The only difference is the rendered icon shape.
 
@@ -137,7 +137,7 @@ To make a format stand out, add `banner` as a fourth field to a `file:` or `file
 %%metro files: aln_out | BAM | Alignments | banner
 ```
 
-<Metro src="examples/guide/05f_banner_labels.mmd" code={false} />
+<Metro src="examples/guide/05f_banner_labels.mmd" mmd={false} />
 
 Any `name` caption (third field) still renders below the icon, so `| <name> | banner` keeps the caption and `| | banner` applies the strip with no caption. `banner` is not supported on `dir:` (folder) icons.
 
@@ -190,7 +190,7 @@ The "Branch" station is real in the graph but meaningless in the pipeline. Renam
     validate -->|dna,rna,prot| _branch
 ```
 
-<Metro src="examples/guide/06b_with_hidden.mmd" code={false} />
+<Metro src="examples/guide/06b_with_hidden.mmd" mmd={false} />
 
 The lines still fork at the same point, but there is no marker or label. This gives you fine control over where splits happen without adding a fake step to the diagram.
 
@@ -200,13 +200,13 @@ Use `--debug` to see hidden stations as dashed circles: `nf-metro render --debug
 
 The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
 
-<Metro src="examples/rnaseq_auto.mmd" code={false} />
+<Metro src="examples/rnaseq_auto.mmd" mmd={false} />
 
 Five analysis routes share preprocessing, fan out to different aligners, reconverge at post-processing (a `TB` section), and fold back through QC (an `RL` section that creates a serpentine return path). The layout engine infers section directions, grid positions, and port sides automatically from the graph topology.
 
 The nf-core/variantbenchmarking example at [`examples/variantbenchmarking_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking_auto.mmd) shows a different topology pattern - seven lines converging at a benchmarking section, with the layout engine automatically splitting into two rows:
 
-<Metro src="examples/variantbenchmarking_auto.mmd" code={false} />
+<Metro src="examples/variantbenchmarking_auto.mmd" mmd={false} />
 
 See the [Gallery](/nf-metro/gallery/) for more rendered examples.
 
@@ -418,7 +418,7 @@ Add `--debug` to any render command to overlay layout internals on the diagram:
 nf-metro render --debug pipeline.mmd -o debug.svg
 ```
 
-<Metro src="examples/rnaseq_auto.mmd" debug code={false} />
+<Metro src="examples/rnaseq_auto.mmd" debug mmd={false} />
 
 The overlay shows:
 

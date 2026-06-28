@@ -2,41 +2,66 @@
 import { Code } from "@astrojs/starlight/components";
 import ZoomableSVG from "@components/ZoomableSVG.astro";
 
-// One primitive for every nf-metro map in the docs: it reads a committed source
-// file by repo-relative path, optionally shows the highlighted source, and
-// renders the map at build time (no pre-generated SVG assets). `code` and
-// `render` pick which halves appear; both default on.
+// One primitive for every nf-metro map in the docs. It renders up to three
+// uniformly-framed sections for a committed `.mmd` source - the Mermaid source,
+// the CLI command, and the live map - at build time (no pre-generated SVGs).
+//
+// `purpose` is a shorthand that sets all three at once for a common intent;
+// the `mmd` / `command` / `render` props override individual sections. Each
+// section state is "open" (shown, expanded), "collapsed" (shown, folded), or
+// false (hidden).
 //
 // The rendered SVG arrives through the `?metro` Vite plugin as an imported
 // module string. Importing it (rather than rendering to a runtime string and
 // using set:html) is what lets its `light-dark()` chrome follow the page theme
 // and keeps its embedded `<image>` logo through the production HTML build.
+
+type SectionState = "open" | "collapsed" | false;
+
 interface Props {
   // Repo-relative path to the source, e.g. "examples/guide/01_minimal.mmd".
   src: string;
-  // Show the highlighted source block.
-  code?: boolean;
-  // Show the rendered SVG.
-  render?: boolean;
-  // Wrap the source block in a collapsed <details> (used by the dense gallery).
-  collapsed?: boolean;
+  // Intent preset for the three sections (overridden by the per-section props).
+  //   teach     - source + map open, no command (the default; guide examples).
+  //   showcase  - map open, source and command available but folded (gallery).
+  //   reference - command + map open, source folded.
+  purpose?: "teach" | "showcase" | "reference";
+  // Per-section overrides.
+  mmd?: SectionState;
+  command?: SectionState;
+  render?: SectionState;
   // Render with the --debug layout overlay.
   debug?: boolean;
   // Treat the source as a Nextflow DAG and convert it (--from-nextflow).
   fromNextflow?: boolean;
-  // <Code> title; defaults to the src path.
+  // <Code> title for the source block; defaults to the src path.
   title?: string;
 }
 
+const PURPOSES: Record<
+  NonNullable<Props["purpose"]>,
+  { mmd: SectionState; command: SectionState; render: SectionState }
+> = {
+  teach: { mmd: "open", command: false, render: "open" },
+  showcase: { mmd: "collapsed", command: "collapsed", render: "open" },
+  reference: { mmd: "collapsed", command: "open", render: "open" },
+};
+
 const {
   src,
-  code = true,
-  render = true,
-  collapsed = false,
+  purpose = "teach",
+  mmd,
+  command,
+  render,
   debug = false,
   fromNextflow = false,
   title,
 } = Astro.props;
+
+const preset = PURPOSES[purpose];
+const mmdState = mmd ?? preset.mmd;
+const commandState = command ?? preset.command;
+const renderState = render ?? preset.render;
 
 // Committed source files live one level above the Astro project. Each glob is
 // scoped to what its render mode can consume, so the build only shells out to
@@ -68,38 +93,94 @@ const key = `../../../${src}`;
 function resolve(mods: Record<string, () => Promise<unknown>>, what: string) {
   const loader = mods[key];
   if (!loader) {
-    throw new Error(
-      `<Metro src="${src}">: no ${what} available for that path.`,
-    );
+    throw new Error(`<Metro src="${src}">: no ${what} available for that path.`);
   }
   return loader();
 }
 
-const source = code ? ((await resolve(rawSources, "source")) as string) : null;
-const svg = render
-  ? ((await resolve(
-      fromNextflow ? svgNextflowSources : debug ? svgDebugSources : svgSources,
-      "render",
-    )) as string)
-  : null;
+const source =
+  mmdState !== false ? ((await resolve(rawSources, "source")) as string) : null;
+const svg =
+  renderState !== false
+    ? ((await resolve(
+        fromNextflow ? svgNextflowSources : debug ? svgDebugSources : svgSources,
+        "render",
+      )) as string)
+    : null;
+
+const stem = src.split("/").pop()?.replace(/\.mmd$/, "") ?? "map";
+const cliCommand =
+  `nf-metro render ${src} -o ${stem}.svg` +
+  (debug ? " --debug" : "") +
+  (fromNextflow ? " --from-nextflow" : "");
 const codeTitle = title ?? src;
 ---
 
-{
-  code &&
-    (collapsed ? (
-      <details>
+<div class="metro">
+  {
+    mmdState !== false && (
+      <details class="metro-part" open={mmdState === "open"}>
         <summary>Mermaid source</summary>
         <Code code={source} lang="metro" title={codeTitle} />
       </details>
-    ) : (
-      <Code code={source} lang="metro" title={codeTitle} />
-    ))
-}
-{
-  render && (
-    <ZoomableSVG>
-      <Fragment set:html={svg} />
-    </ZoomableSVG>
-  )
-}
+    )
+  }
+  {
+    commandState !== false && (
+      <details class="metro-part" open={commandState === "open"}>
+        <summary>CLI command</summary>
+        <Code code={cliCommand} lang="bash" />
+      </details>
+    )
+  }
+  {
+    renderState !== false && (
+      <details class="metro-part metro-render" open={renderState === "open"}>
+        <summary>Rendered map</summary>
+        <ZoomableSVG>
+          <Fragment set:html={svg} />
+        </ZoomableSVG>
+      </details>
+    )
+  }
+</div>
+
+<style>
+  .metro {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 1rem 0;
+  }
+
+  .metro-part {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: var(--sl-color-black);
+  }
+
+  .metro-part > summary {
+    cursor: pointer;
+    padding: 0.4rem 0.75rem;
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    color: var(--sl-color-gray-2);
+    list-style-position: inside;
+    user-select: none;
+  }
+
+  .metro-part > summary:hover {
+    color: var(--sl-color-white);
+  }
+
+  /* The source/command blocks bring their own Expressive Code frame; drop its
+     top margin so it sits flush under the summary. */
+  .metro-part > :global(.expressive-code) {
+    margin-top: 0;
+  }
+
+  .metro-render > :global(.zoomable-svg) {
+    padding: 0.5rem 0.75rem 0.75rem;
+  }
+</style>

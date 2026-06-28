@@ -1484,9 +1484,7 @@ def build_gallery() -> None:
 
         lines.append(f"### {heading}\n")
         lines.append(f"{description}\n")
-        lines.append("**CLI command:**\n")
-        lines.append(f"```bash\nnf-metro render {src} -o {stem}.svg\n```\n")
-        lines.append(f'<Metro src="{src}" collapsed />\n')
+        lines.append(f'<Metro src="{src}" purpose="showcase" />\n')
 
     gallery_md = "\n".join(
         mdx_page(
@@ -1593,7 +1591,7 @@ def build_pipelines_page() -> None:
 
         lines.append(f"## [{display_name}]({repo_url})\n")
         lines.append(f"{description}\n")
-        lines.append(f'<Metro src="{src}" collapsed />\n')
+        lines.append(f'<Metro src="{src}" purpose="showcase" />\n')
 
     pipelines_md = "\n".join(
         mdx_page(

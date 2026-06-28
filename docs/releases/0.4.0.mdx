@@ -21,20 +21,20 @@ Nextflow DAG files use a flat graph (no subgraphs), so the auto-layout engine pl
 <Metro
   src="tests/fixtures/nextflow/variant_calling.mmd"
   fromNextflow
-  code={false}
+  mmd={false}
 />
 
 <Metro
   src="tests/fixtures/nextflow/with_subworkflows.mmd"
   fromNextflow
-  code={false}
+  mmd={false}
 />
 
 ## Bypass routing below intervening sections
 
 Lines that skip over one or more sections now route _below_ those sections rather than diagonally through them, keeping bypasses visually separate from the section content they skip.
 
-<Metro src="examples/topologies/around_section_below.mmd" code={false} />
+<Metro src="examples/topologies/around_section_below.mmd" mmd={false} />
 
 ## Span-based line ordering
 

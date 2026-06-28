@@ -45,7 +45,7 @@ nf-metro render dag.mmd -o pipeline.svg --from-nextflow
 <Metro
   src="tests/fixtures/nextflow/flat_pipeline.mmd"
   fromNextflow
-  code={false}
+  mmd={false}
 />
 
 With no subworkflows everything lands in a single section. The converter assigns one "main" line following the longest path. This is about as clean as it gets.
@@ -102,7 +102,7 @@ nf-metro render dag.mmd -o pipeline.svg --from-nextflow
 <Metro
   src="tests/fixtures/nextflow/with_subworkflows.mmd"
   fromNextflow
-  code={false}
+  mmd={false}
 />
 
 The converter maps each subworkflow to a section and auto-creates a "Reporting" section for the standalone MultiQC. It detects bypass lines (edges skipping sections, like QC metrics going from Preprocess directly to Reporting) and spur lines (dead-end processes like Samtools Index).
@@ -139,7 +139,7 @@ nf-metro render dag.mmd -o pipeline.svg --from-nextflow
 <Metro
   src="tests/fixtures/nextflow/variant_calling.mmd"
   fromNextflow
-  code={false}
+  mmd={false}
 />
 
 The diamond fan-out/fan-in in the Variant Calling section renders cleanly.
