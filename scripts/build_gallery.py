@@ -4,6 +4,13 @@
 Usage:
     python scripts/build_gallery.py
     python scripts/build_gallery.py --debug   # include debug overlay
+    python scripts/build_gallery.py --changed-list FILE   # incremental rebuild
+
+In ``--changed-list`` mode, FILE holds newline-separated repo-relative paths of
+the source ``.mmd`` files that changed; the renders directory is expected to be
+pre-seeded with the base SVGs/manifest/metrics, and only entries whose source
+appears in FILE are re-rendered. Every other entry reuses its base SVG. Only
+safe when no rendering code changed.
 """
 
 from __future__ import annotations
@@ -27,6 +34,35 @@ from nf_metro.render.svg import render_svg  # noqa: E402
 from nf_metro.themes import THEMES  # noqa: E402
 
 DEBUG_RENDERS = "--debug" in sys.argv
+
+
+def _parse_changed_list(argv: list[str]) -> set[Path] | None:
+    """Parse ``--changed-list FILE`` into a set of resolved source ``.mmd`` paths.
+
+    Returns ``None`` when the flag is absent, selecting a full-corpus render.
+    When present, FILE holds newline-separated repo-relative paths of the source
+    files that changed; only entries rendered from those sources are re-rendered
+    and every other entry reuses its pre-seeded base SVG. The caller MUST
+    guarantee no rendering code changed before enabling this, since an engine
+    change can alter any render and reused base SVGs would mask it.
+    """
+    if "--changed-list" not in argv:
+        return None
+    list_path = Path(argv[argv.index("--changed-list") + 1])
+    return {
+        (project_root / line.strip()).resolve()
+        for line in list_path.read_text().splitlines()
+        if line.strip()
+    }
+
+
+ONLY_CHANGED = _parse_changed_list(sys.argv)
+
+
+def _skip_render(mmd_path: Path) -> bool:
+    """True when an incremental build can reuse *mmd_path*'s pre-seeded base SVG."""
+    return ONLY_CHANGED is not None and mmd_path.resolve() not in ONLY_CHANGED
+
 
 EXAMPLES_DIR = project_root / "examples"
 NEXTFLOW_FIXTURES_DIR = project_root / "tests" / "fixtures" / "nextflow"
@@ -1302,6 +1338,15 @@ _metrics: dict[str, dict[str, float]] = {}
 _SVG_DIMS_RE = re.compile(r'<svg[^>]*\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"')
 
 
+def _seed_from_base() -> None:
+    """Load the pre-seeded base manifest/metrics in an incremental build so reused
+    entries keep their section grouping and layout scorecard in the written JSON."""
+    for name, target in (("manifest.json", _manifest), ("metrics.json", _metrics)):
+        path = RENDERS_DIR / name
+        if path.exists():
+            target.update(json.loads(path.read_text()))
+
+
 def render_drawn_svg(graph, theme, **kwargs) -> str:
     """Render the drawn map only, with the embedded data manifest disabled.
 
@@ -1397,6 +1442,9 @@ def render_guide_examples() -> None:
 
     for mmd_path in sorted(GUIDE_DIR.glob("*.mmd")):
         svg_path = RENDERS_DIR / f"{mmd_path.stem}.svg"
+        if _skip_render(mmd_path):
+            _manifest[svg_path.name] = section
+            continue
         try:
             render_mmd(mmd_path, svg_path)
             _manifest[svg_path.name] = section
@@ -1414,6 +1462,9 @@ def render_guide_examples() -> None:
         if not mmd_path.exists():
             continue
         svg_path = RENDERS_DIR / f"{stem}.svg"
+        if _skip_render(mmd_path):
+            _manifest[svg_path.name] = section
+            continue
         try:
             render_mmd(mmd_path, svg_path)
             _manifest[svg_path.name] = section
@@ -1423,7 +1474,9 @@ def render_guide_examples() -> None:
 
     debug_src = EXAMPLES_DIR / "rnaseq_auto.mmd"
     debug_svg = RENDERS_DIR / "rnaseq_auto_debug.svg"
-    if debug_src.exists():
+    if debug_src.exists() and _skip_render(debug_src):
+        _manifest[debug_svg.name] = section
+    elif debug_src.exists():
         try:
             text = debug_src.read_text()
             graph = parse_metro_mermaid(text)
@@ -1466,15 +1519,19 @@ def build_gallery() -> None:
             lines.append("---\n")
             lines.append(f"## {current_category}\n")
 
-        # Render to RENDERS_DIR for the CI render-diff; the page itself renders
-        # this example live through <Metro>.
-        try:
-            render_mmd(mmd_path, svg_path, self_color_scheme=False)
-            status = "OK"
-        except Exception as e:
-            status = f"FAIL: {e}"
-            print(f"  {stem}: {status}")
-            continue
+        # The SVG feeds the CI render-diff only (the page renders live via
+        # <Metro>); a reused entry keeps its pre-seeded base SVG. The <Metro>
+        # block below is emitted for every entry regardless.
+        if _skip_render(mmd_path):
+            status = "REUSED"
+        else:
+            try:
+                render_mmd(mmd_path, svg_path, self_color_scheme=False)
+                status = "OK"
+            except Exception as e:
+                status = f"FAIL: {e}"
+                print(f"  {stem}: {status}")
+                continue
 
         _manifest[svg_path.name] = current_category
         print(f"  {stem}: {status}")
@@ -1511,6 +1568,9 @@ def render_nextflow_examples() -> None:
     # Auto-converted renders from Nextflow DAG fixtures
     for mmd_path in sorted(NEXTFLOW_FIXTURES_DIR.glob("*.mmd")):
         svg_path = RENDERS_DIR / f"nf_{mmd_path.stem}.svg"
+        if _skip_render(mmd_path):
+            _manifest[svg_path.name] = section
+            continue
         try:
             text = mmd_path.read_text()
             converted = convert_nextflow_dag(text)
@@ -1529,23 +1589,29 @@ def render_nextflow_examples() -> None:
     tuned_path = EXAMPLES_DIR / "variant_calling.mmd"
     if tuned_path.exists():
         svg_path = RENDERS_DIR / "nf_variant_calling_tuned.svg"
-        try:
-            render_mmd(tuned_path, svg_path)
+        if _skip_render(tuned_path):
             _manifest[svg_path.name] = section
-            print("  nf_variant_calling_tuned: OK")
-        except Exception as e:
-            print(f"  nf_variant_calling_tuned: FAIL - {e}")
+        else:
+            try:
+                render_mmd(tuned_path, svg_path)
+                _manifest[svg_path.name] = section
+                print("  nf_variant_calling_tuned: OK")
+            except Exception as e:
+                print(f"  nf_variant_calling_tuned: FAIL - {e}")
 
     # Hand-tuned variant calling with file icons
     tuned_icons_path = EXAMPLES_DIR / "variant_calling_tuned.mmd"
     if tuned_icons_path.exists():
         svg_path = RENDERS_DIR / "nf_variant_calling_tuned_icons.svg"
-        try:
-            render_mmd(tuned_icons_path, svg_path)
+        if _skip_render(tuned_icons_path):
             _manifest[svg_path.name] = section
-            print("  nf_variant_calling_tuned_icons: OK")
-        except Exception as e:
-            print(f"  nf_variant_calling_tuned_icons: FAIL - {e}")
+        else:
+            try:
+                render_mmd(tuned_icons_path, svg_path)
+                _manifest[svg_path.name] = section
+                print("  nf_variant_calling_tuned_icons: OK")
+            except Exception as e:
+                print(f"  nf_variant_calling_tuned_icons: FAIL - {e}")
 
     print()
 
@@ -1574,15 +1640,20 @@ def build_pipelines_page() -> None:
             print(f"  WARNING: {mmd_path} not found, skipping")
             continue
 
-        # Render to RENDERS_DIR for the CI render-diff; the page renders this
-        # pipeline live through <Metro>.
-        try:
-            render_mmd(mmd_path, svg_path, debug=DEBUG_RENDERS, self_color_scheme=False)
-            status = "OK"
-        except Exception as e:
-            status = f"FAIL: {e}"
-            print(f"  {stem}: {status}")
-            continue
+        # The SVG feeds the CI render-diff only (the page renders live via
+        # <Metro>); a reused entry keeps its pre-seeded base SVG.
+        if _skip_render(mmd_path):
+            status = "REUSED"
+        else:
+            try:
+                render_mmd(
+                    mmd_path, svg_path, debug=DEBUG_RENDERS, self_color_scheme=False
+                )
+                status = "OK"
+            except Exception as e:
+                status = f"FAIL: {e}"
+                print(f"  {stem}: {status}")
+                continue
 
         _manifest[svg_path.name] = section
         print(f"  {stem}: {status}")
@@ -1614,6 +1685,9 @@ def build_pipelines_page() -> None:
         if not mmd_path.exists():
             continue
         svg_path = RENDERS_DIR / f"{stem}.svg"
+        if _skip_render(mmd_path):
+            _manifest[svg_path.name] = "Guide Examples"
+            continue
         try:
             render_mmd(mmd_path, svg_path)
             _manifest[svg_path.name] = "Guide Examples"
@@ -1632,6 +1706,9 @@ def render_test_fixtures() -> None:
         if not mmd_path.exists():
             continue
         svg_path = RENDERS_DIR / f"{stem}.svg"
+        if _skip_render(mmd_path):
+            _manifest[svg_path.name] = section
+            continue
         try:
             render_mmd(mmd_path, svg_path)
             _manifest[svg_path.name] = section
@@ -1656,10 +1733,15 @@ def write_metrics() -> None:
 
 
 if __name__ == "__main__":
-    # Clean stale renders so removed gallery entries don't persist
-    if RENDERS_DIR.exists():
-        for old_svg in RENDERS_DIR.glob("*.svg"):
-            old_svg.unlink()
+    if ONLY_CHANGED is None:
+        # Clean stale renders so removed gallery entries don't persist
+        if RENDERS_DIR.exists():
+            for old_svg in RENDERS_DIR.glob("*.svg"):
+                old_svg.unlink()
+    else:
+        # Incremental build: keep the pre-seeded base SVGs and carry their
+        # section/metrics through into the written JSON.
+        _seed_from_base()
     render_guide_examples()
     render_nextflow_examples()
     build_pipelines_page()
