@@ -8,9 +8,24 @@
 
 <div class="zoomable-svg" data-zoomable>
   <slot />
-  <button class="zoom-btn nfm-icon-btn" aria-label="View full size" title="View full size">
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+  <button
+    class="zoom-btn nfm-icon-btn"
+    aria-label="View full size"
+    title="View full size"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"></path>
     </svg>
   </button>
 </div>
@@ -55,9 +70,13 @@
     document.body.appendChild(dlg);
     dlgBody = dlg.querySelector("#nfm-svg-zoom-body");
 
-    dlg.querySelector("#nfm-svg-zoom-close")!.addEventListener("click", () => dlg!.close());
+    dlg
+      .querySelector("#nfm-svg-zoom-close")!
+      .addEventListener("click", () => dlg!.close());
     // Close on backdrop click (target is the dialog itself, not its content)
-    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg!.close(); });
+    dlg.addEventListener("click", (e) => {
+      if (e.target === dlg) dlg!.close();
+    });
     dlg.addEventListener("close", teardown);
     // Double-click resets to the fitted view (svg-pan-zoom's own dblclick zoom is off)
     dlgBody!.addEventListener("dblclick", () => panZoom?.reset());
@@ -94,7 +113,10 @@
   document.querySelectorAll<HTMLElement>("[data-zoomable]").forEach((wrap) => {
     const btn = wrap.querySelector<HTMLButtonElement>(".zoom-btn");
     if (!btn) return;
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openZoom(wrap); });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openZoom(wrap);
+    });
     wrap.addEventListener("click", () => openZoom(wrap));
   });
 </script>
@@ -112,7 +134,9 @@
     right: 0.5rem;
     color: var(--sl-color-text-accent);
     opacity: 0;
-    transition: opacity 0.2s var(--nfm-ease), background 0.2s var(--nfm-ease);
+    transition:
+      opacity 0.2s var(--nfm-ease),
+      background 0.2s var(--nfm-ease);
     cursor: zoom-in;
     z-index: 1;
   }
@@ -135,7 +159,10 @@
     background: var(--sl-color-bg);
     color: var(--sl-color-text);
     cursor: pointer;
-    transition: background 0.2s var(--nfm-ease), color 0.2s var(--nfm-ease), border-color 0.2s var(--nfm-ease);
+    transition:
+      background 0.2s var(--nfm-ease),
+      color 0.2s var(--nfm-ease),
+      border-color 0.2s var(--nfm-ease);
   }
 
   :global(.nfm-icon-btn:hover) {
