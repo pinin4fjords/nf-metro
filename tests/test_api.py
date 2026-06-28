@@ -121,7 +121,7 @@ def test_render_string_accepts_render_config() -> None:
 
 def test_render_string_warns_when_config_shadows_flat_kwargs() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    with pytest.warns(UserWarning, match="responsive"):
+    with pytest.warns(UserWarning, match=r"ignoring \[.*'responsive'"):
         out = render_string(src, config=RenderConfig(), responsive=True)
     # config wins: the flat responsive=True is ignored.
     assert out == render_string(src)
