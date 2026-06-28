@@ -151,7 +151,7 @@ isn't already present.)
 Add `--geometry` to also check the _drawn_ picture, not just the schema: it flags
 a route drawn through a station's label or marker (rail interchanges excepted).
 The offset-collapse check (distinct lines merging into one stroke) needs the
-engine's assigned offsets, so it runs only via [`render --validate`](/nf-metro/#validating-the-rendered-geometry).
+engine's assigned offsets, so it runs only via [`render --validate`](/nf-metro/cli/#validating-the-rendered-geometry).
 
 ```bash
 nf-metro validate-svg pipeline.svg --geometry
