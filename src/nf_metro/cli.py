@@ -377,6 +377,93 @@ def render(
     )
 
 
+@cli.command(name="render-many")
+@click.argument("manifest_file", type=click.Path(exists=True, path_type=Path))
+def render_many(manifest_file: Path) -> None:
+    """Render multiple metro maps from a JSON manifest in one process.
+
+    MANIFEST_FILE is a JSON array of render jobs, each with the keys:
+
+    \b
+      input               Absolute path to the source .mmd file (required).
+      output              Absolute path for the output SVG file (required).
+      debug               Show debug overlay (default: false).
+      from_nextflow       Convert from Nextflow DAG first (default: false).
+      no_self_color_scheme  Omit color-scheme attribute from root <svg>
+                          (default: false).
+      no_manifest         Omit the embedded data manifest (default: false).
+
+    All maps are rendered within the same Python process, amortising
+    interpreter and import startup across the whole corpus.  Output
+    directories are created as needed.  On partial failure, successful
+    outputs are kept and a non-zero exit is returned.
+    """
+    import json
+
+    try:
+        jobs: list[dict[str, object]] = json.loads(manifest_file.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        raise click.ClickException(f"cannot read manifest: {e}")
+
+    if not isinstance(jobs, list):
+        raise click.ClickException("manifest must be a JSON array")
+
+    total = len(jobs)
+    if total == 0:
+        click.echo("render-many: empty manifest, nothing to do")
+        return
+
+    failures: list[str] = []
+    for idx, job in enumerate(jobs, 1):
+        if not isinstance(job, dict):
+            failures.append(f"job {idx}: not an object")
+            click.echo(f"[{idx}/{total}] SKIP  (not an object)", err=True)
+            continue
+
+        raw_input = job.get("input")
+        raw_output = job.get("output")
+        if not isinstance(raw_input, str) or not isinstance(raw_output, str):
+            failures.append(f"job {idx}: missing or non-string 'input'/'output'")
+            click.echo(f"[{idx}/{total}] SKIP  (bad input/output)", err=True)
+            continue
+
+        in_path = Path(raw_input)
+        out_path = Path(raw_output)
+        debug_flag = bool(job.get("debug", False))
+        from_nextflow_flag = bool(job.get("from_nextflow", False))
+        no_self_cs = bool(job.get("no_self_color_scheme", False))
+        layout_opts: dict[str, object] = {}
+        if job.get("no_manifest", False):
+            layout_opts["manifest"] = False
+
+        try:
+            text = in_path.read_text()
+            graph = prepare_graph(
+                text,
+                from_nextflow=from_nextflow_flag,
+                layout_options=layout_opts if layout_opts else None,
+            )
+            theme_obj = resolve_theme(None, graph)
+            content = render_svg(
+                graph,
+                theme_obj,
+                debug=debug_flag,
+                self_color_scheme=not no_self_cs,
+            )
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(content if content.endswith("\n") else content + "\n")
+            click.echo(f"[{idx}/{total}] OK    {in_path.name}")
+        except Exception as e:
+            failures.append(f"{in_path}: {e}")
+            click.echo(f"[{idx}/{total}] FAIL  {in_path.name}: {e}", err=True)
+
+    if failures:
+        raise click.ClickException(
+            f"{len(failures)}/{total} render(s) failed; "
+            "see stderr output above for details"
+        )
+
+
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True, path_type=Path))
 @click.option(

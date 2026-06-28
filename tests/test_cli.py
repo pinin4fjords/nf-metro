@@ -338,3 +338,155 @@ def test_validate_svg_rejects_nonconforming(tmp_path):
     out.write_text(re.sub(r'"r":[0-9.]+,', "", out.read_text(), count=1))
     result = runner.invoke(cli, ["validate-svg", str(out)])
     assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# render-many tests
+# ---------------------------------------------------------------------------
+
+SIMPLE_MMD = Path(__file__).resolve().parent / "fixtures" / "da_pipeline.mmd"
+
+
+def _write_manifest(tmp_path: Path, jobs: list[dict]) -> Path:
+    import json
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(jobs))
+    return manifest
+
+
+def test_render_many_single_job(tmp_path):
+    """render-many with one job produces a valid SVG."""
+    out = tmp_path / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(RNASEQ_MMD), "output": str(out)}],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    assert "<svg" in out.read_text()
+
+
+def test_render_many_multiple_jobs(tmp_path):
+    """render-many processes multiple jobs in one invocation."""
+    outs = [tmp_path / f"out{i}.svg" for i in range(3)]
+    jobs = [{"input": str(RNASEQ_MMD), "output": str(out)} for out in outs]
+    manifest = _write_manifest(tmp_path, jobs)
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    for out in outs:
+        assert out.exists()
+        assert "<svg" in out.read_text()
+
+
+def test_render_many_creates_output_dirs(tmp_path):
+    """render-many creates missing parent directories for output paths."""
+    out = tmp_path / "nested" / "dir" / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(RNASEQ_MMD), "output": str(out)}],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+
+def test_render_many_empty_manifest(tmp_path):
+    """render-many with an empty manifest exits zero and does nothing."""
+    manifest = _write_manifest(tmp_path, [])
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+
+
+def test_render_many_output_matches_single_render(tmp_path):
+    """render-many SVG output is identical to nf-metro render for same options."""
+    single_out = tmp_path / "single.svg"
+    batch_out = tmp_path / "batch.svg"
+
+    runner = CliRunner()
+    runner.invoke(
+        cli,
+        [
+            "render",
+            str(RNASEQ_MMD),
+            "-o",
+            str(single_out),
+            "--no-self-color-scheme",
+            "--no-manifest",
+        ],
+    )
+
+    manifest = _write_manifest(
+        tmp_path,
+        [
+            {
+                "input": str(RNASEQ_MMD),
+                "output": str(batch_out),
+                "no_self_color_scheme": True,
+                "no_manifest": True,
+            }
+        ],
+    )
+    runner.invoke(cli, ["render-many", str(manifest)])
+
+    assert single_out.read_text() == batch_out.read_text()
+
+
+def test_render_many_partial_failure_continues(tmp_path):
+    """render-many continues past a bad job and reports the failure count."""
+    good_out = tmp_path / "good.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [
+            {"input": "/nonexistent/missing.mmd", "output": str(tmp_path / "bad.svg")},
+            {"input": str(RNASEQ_MMD), "output": str(good_out)},
+        ],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code != 0
+    assert good_out.exists(), "successful job must still produce output"
+    assert "1/2" in result.output
+
+
+def test_render_many_bad_manifest_json(tmp_path):
+    """render-many fails cleanly on unparseable manifest JSON."""
+    manifest = tmp_path / "bad.json"
+    manifest.write_text("{not valid json")
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code != 0
+    assert "cannot read manifest" in result.output
+
+
+def test_render_many_manifest_not_array(tmp_path):
+    """render-many fails cleanly when the manifest is not a JSON array."""
+    import json
+
+    manifest = tmp_path / "obj.json"
+    manifest.write_text(json.dumps({"input": "foo", "output": "bar"}))
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code != 0
+    assert "JSON array" in result.output
+
+
+def test_render_many_no_manifest_option(tmp_path):
+    """no_manifest: true produces SVG without an embedded <metadata> block."""
+    out = tmp_path / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(RNASEQ_MMD), "output": str(out), "no_manifest": True}],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    assert "<metadata" not in out.read_text()
+
+
+def test_render_many_trailing_newline(tmp_path):
+    """render-many output ends with a trailing newline."""
+    out = tmp_path / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(RNASEQ_MMD), "output": str(out)}],
+    )
+    CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert out.read_text().endswith("\n")
