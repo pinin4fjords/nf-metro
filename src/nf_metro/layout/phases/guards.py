@@ -74,6 +74,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.resolve import _expected_flow_side
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -800,12 +801,9 @@ def _guard_fold_relocated_flow_ports_face_connections(
             (section.entry_ports, producer_cols[sec_id], True),
             (section.exit_ports, consumer_cols[sec_id], False),
         ):
-            if all(c < col for c in cols) and cols:
-                expected = PortSide.LEFT
-            elif all(c > col for c in cols) and cols:
-                expected = PortSide.RIGHT
-            else:
-                continue  # no connections, or they straddle the section
+            expected = _expected_flow_side(cols, col)
+            if expected is None:
+                continue
             for pid in ports:
                 port = graph.ports.get(pid)
                 if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):

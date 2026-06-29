@@ -561,6 +561,21 @@ def _port_fold_target(
     return None
 
 
+def _expected_flow_side(cols: set[int], col: int) -> PortSide | None:
+    """The horizontal side a flow-axis port should face for its connections.
+
+    ``LEFT``/``RIGHT`` when every connecting section sits strictly to one side of
+    column ``col``; ``None`` when there are no connections or they straddle it.
+    """
+    if not cols:
+        return None
+    if all(c < col for c in cols):
+        return PortSide.LEFT
+    if all(c > col for c in cols):
+        return PortSide.RIGHT
+    return None
+
+
 def _reside_folded_flow_ports_to_grid(
     graph: MetroGraph, inter_section_edges: list[Edge]
 ) -> None:
@@ -603,15 +618,8 @@ def _reside_folded_flow_ports_to_grid(
                 if side not in (PortSide.LEFT, PortSide.RIGHT):
                     continue  # cross-axis port, not on the flow axis
                 cols = {c for lid in lines for c in cols_by_line.get((sec_id, lid), ())}
-                if not cols:
-                    continue
-                if all(c < col for c in cols):
-                    target = PortSide.LEFT
-                elif all(c > col for c in cols):
-                    target = PortSide.RIGHT
-                else:
-                    continue  # connecting sections straddle this section
-                if side == target:
+                target = _expected_flow_side(cols, col)
+                if target is None or side == target:
                     continue
                 hints[idx] = (target, lines)
                 warnings.warn(

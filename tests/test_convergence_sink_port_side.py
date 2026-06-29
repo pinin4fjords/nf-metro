@@ -21,13 +21,10 @@ import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import PortSide
+from nf_metro.parser.resolve import _expected_flow_side
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-
-
-def _port_side(port_id: str) -> str:
-    # Port ids are "{section}__{entry|exit}_{side}_{n}".
-    return port_id.split("__", 1)[1].split("_")[1]
 
 
 def _connecting_cols(graph, sec_id: str, *, as_exit: bool) -> set[int]:
@@ -49,8 +46,7 @@ def _connecting_cols(graph, sec_id: str, *, as_exit: bool) -> set[int]:
 
 
 def _assert_flow_ports_face_connections(graph) -> None:
-    relocated = graph._fold_compressed_sections
-    for sec_id in relocated:
+    for sec_id in graph._fold_compressed_sections:
         section = graph.sections[sec_id]
         if section.direction not in ("LR", "RL"):
             continue
@@ -60,21 +56,18 @@ def _assert_flow_ports_face_connections(graph) -> None:
             (section.entry_ports, False),
         ):
             other_cols = _connecting_cols(graph, sec_id, as_exit=as_exit)
-            if not other_cols:
-                continue
-            all_left = all(c < col for c in other_cols)
-            all_right = all(c > col for c in other_cols)
-            if not (all_left or all_right):
-                continue  # connections straddle the section: no single side
-            expected = "left" if all_left else "right"
+            expected = _expected_flow_side(other_cols, col)
+            if expected is None:
+                continue  # no connections, or they straddle the section
             for pid in ports:
-                side = _port_side(pid)
-                if side not in ("left", "right"):
+                side = graph.ports[pid].side
+                if side not in (PortSide.LEFT, PortSide.RIGHT):
                     continue  # cross-axis port, not on the flow axis
                 assert side == expected, (
                     f"{sec_id}: flow-axis {'exit' if as_exit else 'entry'} "
-                    f"port {pid!r} faces {side} but its connecting sections all "
-                    f"sit to the {expected} (cols {sorted(other_cols)} vs {col})"
+                    f"port {pid!r} faces {side.value} but its connecting sections "
+                    f"all sit to the {expected.value} "
+                    f"(cols {sorted(other_cols)} vs {col})"
                 )
 
 
@@ -92,8 +85,6 @@ def _layout(name: str, fold: int, *, validate: bool = False):
 )
 @pytest.mark.parametrize("fold", [3, 5, 7, 9, 11])
 def test_genomeassembly_renders_clean_under_lowered_fold(fold: int) -> None:
-    # Ports face the convergence sink inward, but the same-side hairpin
-    # fold-back (#1182) still aborts the full validate pass.
     _layout("genomeassembly", fold, validate=True)
 
 
@@ -104,9 +95,11 @@ def test_genomeassembly_sink_exit_and_entry_face_inward() -> None:
     # genome_statistics is the leftmost sink; scaffolding sits to its right.
     assert genome_statistics.grid_col < scaffolding.grid_col
     # scaffolding's only consumer (genome_statistics) is to its left.
-    assert all(_port_side(p) == "left" for p in scaffolding.exit_ports)
+    assert all(graph.ports[p].side == PortSide.LEFT for p in scaffolding.exit_ports)
     # genome_statistics' feeders all sit to its right.
-    assert all(_port_side(p) == "right" for p in genome_statistics.entry_ports)
+    assert all(
+        graph.ports[p].side == PortSide.RIGHT for p in genome_statistics.entry_ports
+    )
 
 
 @pytest.mark.parametrize(
