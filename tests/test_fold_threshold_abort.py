@@ -44,18 +44,19 @@ def _render_at(name: str, fold: int | None) -> None:
     render_svg(graph, THEMES["nfcore"])
 
 
-# (fixture, aggressive fold) - each renders at its default width but aborts on
-# the internal invariant once the fold compresses its section grid.  A spread
-# of failure shapes: collinear V/H overlay, bundle-order flip, non-concentric
-# corner, and the section-header clash.
+# (fixture, aggressive fold) - each renders at its default width but, folded to
+# one station column, is genuinely infeasible: parallel branches collapse onto a
+# shared channel (collinear overlay) or a section header cannot clear a route.
+# Both internal abort paths (CurveInvariantError, SectionHeaderClashError) are
+# represented; off_track_input_above_consumer is the header-clash case.
 COMPRESSED_ABORTS = [
-    ("section_diamond", 1),
-    ("fold_fan_across", 2),
+    ("fold_fan_across", 1),
+    ("fold_stacked_branch", 1),
+    ("reconverge_reversed_fold", 1),
     ("off_track_input_above_consumer", 1),
-    ("upward_bypass", 1),
-    ("shared_sink_parallel", 1),
     ("mixed_bundle_column", 1),
-    ("epitopeprediction", 3),
+    ("upward_bypass", 1),
+    ("funcprofiler_upstream", 1),
 ]
 
 
