@@ -503,6 +503,27 @@ def _right_entry_drop_in_is_clear(
     return not _h_segment_crosses_other_section(graph, corner_x, ex, ey, exclude)
 
 
+def _right_entry_corridor_drop_in_is_clear(
+    graph: MetroGraph, src: Station, entry_port: Station, descent_x: float
+) -> bool:
+    """Whether a source LEFT of a RIGHT entry can drop straight down *descent_x*.
+
+    The wrap variant of :func:`_right_entry_drop_in_is_clear`: here the source
+    sits to the LEFT of the port, so reaching the corridor (right of the
+    target's edge) means a rightward lead-in across to ``descent_x`` before the
+    drop.  On top of the straight-descent and inward-turn clearances, that
+    lead-in horizontal at the source Y must clear every other section too.  When
+    all three hold the wrap's inter-row staging channel is redundant and the
+    descent reads as one straight run from the top corner.
+    """
+    exclude = {
+        sid for sid in (src.section_id, entry_port.section_id) if sid is not None
+    }
+    return _right_entry_drop_in_is_clear(
+        graph, src, entry_port, descent_x
+    ) and not _h_segment_crosses_other_section(graph, src.x, descent_x, src.y, exclude)
+
+
 def _route_right_entry_drop_in(
     edge: Edge,
     src: Station,
@@ -3204,6 +3225,17 @@ def _route_right_entry_wrap(
     # V2 descent channel centre, just past the entry port in the gap to the
     # right of the target column.
     vx = _right_entry_descent_x(ctx, tx, pos_n)
+
+    # Same-column source (stacked directly above) drops straight down the
+    # corridor when clear, leading to it at the top corner rather than down the
+    # wrap's inter-row staging channel.  An adjacent-column source keeps the wrap
+    # so its band traverse runs through the inter-row channel between the boxes.
+    if src_col == tgt_col and _right_entry_corridor_drop_in_is_clear(
+        ctx.graph, src, tgt, vx
+    ):
+        return _route_right_entry_drop_in(
+            edge, src, tgt, ctx, pos_n=pos_n, delta=delta, corner_x=vx
+        )
 
     route = _route_entry_wrap(
         edge,

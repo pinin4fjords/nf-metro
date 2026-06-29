@@ -181,6 +181,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_rail_connector_ports_no_stub,
     _guard_rail_one_station_per_column,
     _guard_rail_stations_seat_on_rails,
+    _guard_right_entry_corridor_descent_no_jog,
     _guard_right_entry_drop_in_when_clear,
     _guard_routes_enter_sections_at_ports,
     _guard_row_gaps,
@@ -502,14 +503,14 @@ def compute_layout(
         changed, residual_breeze = apply_geometric_bypass(graph, _layout_pass)
         graph._defer_breeze_guard = False
 
-        # A kept fix is re-validated in full; a crossing the pass could not fix
-        # is surfaced by the active guard on the final geometry.  A clean graph
-        # was already validated under the deferred guard in pass one.
-        if validate:
-            if changed:
-                _layout_pass(validate)
-            elif residual_breeze:
-                _guard_no_line_crosses_non_consumer(graph, "after final")
+        # Bypass helpers re-feed the bypassed section's height into downstream
+        # placement, which lags by one pass, so a kept fix needs one more settling
+        # pass to reach its fixed point.  The active guard surfaces a residual
+        # crossing the bypass idiom could not express.
+        if changed:
+            _layout_pass(validate)
+        elif validate and residual_breeze:
+            _guard_no_line_crosses_non_consumer(graph, "after final")
 
 
 def _compute_layout_scaled(

@@ -3911,6 +3911,42 @@ def _guard_right_entry_drop_in_when_clear(
     raise PhaseInvariantError(f"{phase}: {first.message()}{extra}")
 
 
+def _guard_right_entry_corridor_descent_no_jog(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float] | None = None,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """Final-phase: a RIGHT entry fed from the left must reach a clear descent
+    corridor at the top corner, not step onto it partway down the descent.
+
+    See
+    :func:`nf_metro.layout.routing.invariants.check_right_entry_corridor_descent_no_jog`
+    for the semantic definition.
+    """
+    from nf_metro.layout.routing.invariants import (
+        check_right_entry_corridor_descent_no_jog,
+    )
+
+    if routes is None:
+        from nf_metro.layout.routing import compute_station_offsets, route_edges
+
+        if offsets is None:
+            offsets = compute_station_offsets(graph)
+        try:
+            routes = route_edges(graph, station_offsets=offsets)
+        except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
+            return
+
+    violations = check_right_entry_corridor_descent_no_jog(graph, routes)
+    if not violations:
+        return
+    first = violations[0]
+    extra = f" (+{len(violations) - 1} more)" if len(violations) > 1 else ""
+    raise PhaseInvariantError(f"{phase}: {first.message()}{extra}")
+
+
 def _guard_off_track_clear_of_anchor(graph: MetroGraph, phase: str) -> None:
     """At final: every off-track station must sit at least ``GUARD_TOLERANCE``
     clear of its anchor on the expected side.
@@ -4502,6 +4538,11 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_right_entry_drop_in_when_clear,
+        "B",
+        needs=frozenset({"offsets", "routes"}),
+    ),
+    GuardSpec(
+        _guard_right_entry_corridor_descent_no_jog,
         "B",
         needs=frozenset({"offsets", "routes"}),
     ),
