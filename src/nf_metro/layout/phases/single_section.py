@@ -350,18 +350,24 @@ def _layout_single_section(
 def _align_bypass_v_to_lane_side(
     sub: MetroGraph, section: Section, graph: MetroGraph, frame: AxisFrame
 ) -> None:
-    """Reflect a bypass V onto its section's lane side of the trunk.
+    """Seat a bypass V on its section's lane side of the trunk.
 
     A bypass V (``__bypass_`` helper) carries one line around the station it
     bypasses.  In a vertical-flow (TB/BT) section every lane is drawn on the
     section's lane-sign side of the trunk -- left for a downward (TB) section,
     right for an upward (BT) one or a positive-fan section.  But
     :func:`assign_tracks` slots the V by its line's priority index, which for a
-    TB section is the mirror of that side, so the fork from the bypassed
-    station's feeder to a V on the wrong side crosses the trunk lane (#1163).
-    Reflect such a V across its bypassed station's lane coordinate so it leaves
-    on the side its line is drawn.  Horizontal (LR/RL) sections stack lanes on Y
-    in the same order :func:`assign_tracks` uses, so they never transpose.
+    TB section is the mirror of that side, so a V left on the priority slot
+    lands on the wrong side and the fork from the bypassed station's feeder
+    crosses the trunk lane (#1163).
+
+    Snap the V onto the lane-side grid column its bypass run should share with
+    section content (the nearest real-station column on that side), so the run
+    sits on the section's grid rather than drifting to an off-grid lane.  With
+    no lane-side station to share, reflect the V across the bypassed station so
+    it at least leaves on the side its line is drawn.  Horizontal (LR/RL)
+    sections stack lanes on Y in the same order :func:`assign_tracks` uses, so
+    they never transpose.
     """
     if not lanes_run_along_x(section.direction):
         return
@@ -374,6 +380,11 @@ def _align_bypass_v_to_lane_side(
     lane_sign = (
         1.0 if section.id in tb_positive_fan_sections(graph) else frame.secondary_sign
     )
+    real_xs = [
+        s.x
+        for s in sub.stations.values()
+        if not is_bypass_v(s.id) and not s.is_port and not s.off_track
+    ]
     for v in bypass_vs:
         # The subgraph station is a coordinate-only copy; the bypassed-station
         # link lives on the full-graph station.
@@ -382,10 +393,13 @@ def _align_bypass_v_to_lane_side(
         anchor = sub.stations.get(bypassed_id) if bypassed_id else None
         if anchor is None:
             continue
-        delta = v.x - anchor.x
-        on_wrong_side = (delta > 0.0) != (lane_sign > 0.0)
-        if delta != 0.0 and on_wrong_side:
-            v.x = anchor.x - delta
+        side_cols = [
+            x for x in real_xs if (x - anchor.x) * lane_sign > SAME_COORD_TOLERANCE
+        ]
+        if side_cols:
+            v.x = min(side_cols, key=lambda x: abs(x - v.x))
+        elif (v.x - anchor.x) * lane_sign < 0.0:
+            v.x = anchor.x - (v.x - anchor.x)
 
 
 def _resolve_station_collisions(
