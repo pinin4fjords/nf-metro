@@ -544,19 +544,21 @@ def _port_fold_target(
     """The flow-axis edge a port should sit on, or ``None`` if it doesn't fold.
 
     The connecting leg runs from an entry port toward its consumer, or from a
-    producer toward an exit port.  It folds only against the flow: an entry on
-    the trailing edge whose consumer is the flow-source (enter at the back,
-    reach to the front), or an exit on the leading edge whose producer is the
-    flow-sink (leave at the front having started at the back).  Either returns
-    the opposite flow-axis edge; everything that runs with the flow, is
-    cross-axis, or straddles ranks returns ``None``.
+    producer toward an exit port.  It folds against the flow whenever the
+    connecting station is not the one adjacent to the port's edge: an entry on
+    the trailing edge whose consumer is any station other than the flow-sink
+    must reach inward past it and the line doubles back, and symmetrically an
+    exit on the leading edge whose producer is any station other than the
+    flow-source.  Either returns the opposite flow-axis edge, where the leg
+    arrives with the flow (and wraps over the section to get there); everything
+    that runs with the flow, is cross-axis, or straddles ranks returns ``None``.
     """
     if side not in (leading, trailing) or not endpoints:
         return None
     lo, hi = min(ranks.values()), max(ranks.values())
-    if is_entry and side == trailing and all(ranks[s] == lo for s in endpoints):
+    if is_entry and side == trailing and all(ranks[s] < hi for s in endpoints):
         return leading
-    if not is_entry and side == leading and all(ranks[s] == hi for s in endpoints):
+    if not is_entry and side == leading and all(ranks[s] > lo for s in endpoints):
         return trailing
     return None
 

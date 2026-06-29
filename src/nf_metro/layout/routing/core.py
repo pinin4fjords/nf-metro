@@ -63,7 +63,6 @@ from nf_metro.layout.routing.inter_section_handlers import (  # noqa: F401
 )
 from nf_metro.layout.routing.intra_handlers import (  # noqa: F401
     _is_side_branch_ascent,
-    _route_culdesac_entry,
     _route_diagonal,
     _route_entry_runway,
     _route_intra_section,
@@ -186,8 +185,6 @@ def _route_edges(
             result = _route_tb_section(edge, src, tgt, ctx)
         if result is None:
             result = _route_entry_runway(edge, src, tgt, ctx)
-        if result is None:
-            result = _route_culdesac_entry(edge, src, tgt, ctx)
         if result is None:
             result = _route_intra_section(edge, src, tgt, ctx)
 

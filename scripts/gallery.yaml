@@ -563,12 +563,12 @@ gallery:
     source_dir: examples/topologies
     category: Inter-section Routing
     description:
-      "A line enters a reversed (RL) section on its flow-trailing edge, the same
-      edge the section flows out of, but its first consumer is an interior station
-      held off the leading end by a file terminus. The entry leg lifts onto a track
-      clear of the trunk and drops perpendicular onto the consumer, so it and the
-      return trunk leg ride two separate tracks (a cul-de-sac U) instead of folding
-      the line back over itself."
+      "A line declares its entry on a reversed (RL) section's flow-trailing edge,
+      the edge the section flows out of, but its consumer is an interior station
+      held off the leading end by a file terminus. Rather than fold the line back
+      over the trunk to reach it, the entry re-anchors to the section's leading
+      edge; the producer then reaches it by wrapping over the section top, so the
+      line reads as a clean loop and the consumer is a straight pass-through."
   - id: convergence_fold_diamond
     source_dir: examples/topologies
     category: Serpentine Layout
