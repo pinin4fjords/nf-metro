@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import DIAGONAL_SLOPE_RATIO, MIN_STATION_FLAT_LENGTH
-from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.geometry import lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.phases._common import _restoring_layout_geometry
 from nf_metro.parser.model import MetroGraph, is_bypass_v
 
@@ -253,7 +253,7 @@ def _bypass_v_flat_gaps_from(
         if (
             v is None
             or sec is None
-            or sec.direction not in ("LR", "RL")
+            or not lanes_run_along_y(sec.direction)
             or graph.is_rail_section(sec.id)
         ):
             continue
@@ -267,7 +267,7 @@ def _bypass_v_flat_gaps_from(
     return gaps
 
 
-def _tb_bypass_v_short_runouts(
+def _vertical_bypass_v_short_runouts(
     graph: MetroGraph, routes: list[RoutedPath]
 ) -> set[tuple[str, int]]:
     """Vertical-flow (TB/BT) bypass V's whose run-out flat is too short.
@@ -320,7 +320,7 @@ def _bypass_v_collapsed_flat_gaps(graph: MetroGraph) -> set[tuple[str, int]]:
     through :func:`_probe_label_placements`, which restores the in-place
     geometry mutations, so this never perturbs the live layout.  Covers both the
     horizontal grid-column gaps (:func:`_bypass_v_flat_gaps_from`) and the
-    vertical-flow short run-outs (:func:`_tb_bypass_v_short_runouts`).
+    vertical-flow short run-outs (:func:`_vertical_bypass_v_short_runouts`).
     """
     if not any(is_bypass_v(e.source) or is_bypass_v(e.target) for e in graph.edges):
         return set()
@@ -328,7 +328,7 @@ def _bypass_v_collapsed_flat_gaps(graph: MetroGraph) -> set[tuple[str, int]]:
     if probe is None:
         return set()
     _offsets, routes, _placements = probe
-    return _bypass_v_flat_gaps_from(graph, routes) | _tb_bypass_v_short_runouts(
+    return _bypass_v_flat_gaps_from(graph, routes) | _vertical_bypass_v_short_runouts(
         graph, routes
     )
 
