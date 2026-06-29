@@ -734,6 +734,14 @@ gallery:
       feeds the bridge's height into the downstream section's placement, which settles one pass
       later, so the report section seats at its converged Y in both validated and unvalidated
       renders.
+  - id: fold_bypass_creep_tight
+    source_dir: examples/topologies
+    category: Bypass Routing
+    description:
+      The tight variant of the fold bypass: the file terminus sits one row below the
+      forking station, so the qc bypass V seats on the trailing row. The folded section's
+      perpendicular exit corridor clears the V by a full station-flat length, so the bypass
+      run-out reads as a visible flat rather than collapsing onto the curve apex.
 
   # ── Merge & Convergence ────────────────────────────────────────────────────
   - id: merge_offrow_continuation

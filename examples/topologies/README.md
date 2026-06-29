@@ -65,6 +65,7 @@ Each fixture is tagged with the layout class(es) it primarily exercises. Use thi
 | `tb_lr_exit_right.mmd`                  | TB section leaving through a RIGHT exit into the next forward section (`_route_tb_lr_exit` RIGHT arm) (issue #917)                                                              |
 | `tb_internal_diagonal.mmd`              | symmetric fan-out inside a TB section onto X tracks either side of the hub, routing both internal edges as 45-degree diagonals (`_route_tb_internal` diagonal arm) (issue #917) |
 | `fold_bypass_creep.mmd`                 | folded vertical bridge; a forking qc line bypasses a file terminus into a downstream section, whose placement converges in both validate modes (issue #1171)                    |
+| `fold_bypass_creep_tight.mmd`           | tight fold bypass; the file terminus is one row below the fork so the bypass V seats on the trailing row, and the perp exit corridor must clear it by a full station flat (issue #1177) |
 
 ---
 
