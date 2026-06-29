@@ -510,6 +510,7 @@ def place_sections(
     # left-aligned to that edge and stacked below.
     origin_left = 0.0
     stack_y = 0.0
+    next_grid_row = 0
     for idx, comp in enumerate(ordered):
         _place_section_group(graph, section_edges, section_x_gap, section_y_gap, comp)
         # Sort members so the translation never depends on set hash order.
@@ -524,6 +525,20 @@ def place_sections(
             s.offset_y += dy
             s.offset_x += dx
         stack_y += (bottom - top) + section_y_gap
+
+        # Each component lays out in its own local grid, so its rows start at
+        # the component's own minimum -- two components can share grid rows
+        # even though they are stacked into disjoint vertical bands.  The
+        # downstream inter-row cascade reasons by ``grid_row`` and assumes it
+        # increases monotonically with Y, so renormalise each component onto a
+        # contiguous global row band matching the physical stack order.
+        comp_min_row = min(s.grid_row for s in comp_secs)
+        row_shift = next_grid_row - comp_min_row
+        comp_max_end = 0
+        for s in comp_secs:
+            s.grid_row += row_shift
+            comp_max_end = max(comp_max_end, s.grid_row + s.grid_row_span - 1)
+        next_grid_row = comp_max_end + 1
     _reserve_over_top_headroom(graph)
 
 
