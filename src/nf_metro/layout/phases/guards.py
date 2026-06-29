@@ -769,6 +769,58 @@ def _section_has_exit_on_side(
     )
 
 
+def _guard_fold_relocated_flow_ports_face_connections(
+    graph: MetroGraph, phase: str
+) -> None:
+    """A fold-relocated section's flow-axis port faces its connecting sections.
+
+    A lowered fold threshold relocates sections onto a return row, where a
+    left/right entry/exit authored for the unfolded grid can land on the edge
+    opposite the column its connecting sections occupy; the connecting leg then
+    wraps back across the section's own box.  For a section the fold compressed,
+    a left/right entry must sit on the side its producer sections do and an exit
+    on the side its consumers do, whenever those all lie strictly to one side.
+    """
+    dag = graph.section_dag
+    if dag is None or not graph._fold_compressed_sections:
+        return
+    producer_cols: dict[str, set[int]] = defaultdict(set)
+    consumer_cols: dict[str, set[int]] = defaultdict(set)
+    for src_id, tgt_id in dag.section_edges:
+        if src_id in graph.sections and tgt_id in graph.sections:
+            consumer_cols[src_id].add(graph.sections[tgt_id].grid_col)
+            producer_cols[tgt_id].add(graph.sections[src_id].grid_col)
+
+    for sec_id in graph._fold_compressed_sections:
+        section = graph.sections.get(sec_id)
+        if section is None or section.direction not in ("LR", "RL"):
+            continue
+        col = section.grid_col
+        for ports, cols, is_entry in (
+            (section.entry_ports, producer_cols[sec_id], True),
+            (section.exit_ports, consumer_cols[sec_id], False),
+        ):
+            if all(c < col for c in cols) and cols:
+                expected = PortSide.LEFT
+            elif all(c > col for c in cols) and cols:
+                expected = PortSide.RIGHT
+            else:
+                continue  # no connections, or they straddle the section
+            for pid in ports:
+                port = graph.ports.get(pid)
+                if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                    continue  # cross-axis port, not on the flow axis
+                if port.side != expected:
+                    raise PhaseInvariantError(
+                        f"{phase}: fold-relocated section {sec_id!r} has a "
+                        f"flow-axis {'entry' if is_entry else 'exit'} port "
+                        f"{pid!r} on the {port.side.value} edge, but its "
+                        f"connecting sections all sit to the {expected.value} "
+                        f"(cols {sorted(cols)} vs {col}); the connecting leg "
+                        f"wraps back across the section"
+                    )
+
+
 def _guard_no_same_row_backward_feed(graph: MetroGraph) -> None:
     """Reject a same-row inter-section edge that runs against the source
     section's flow direction with no exit facing the target.
@@ -4683,6 +4735,7 @@ INLINE_GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_bypass_v_flat_visible, "B"),
     GuardSpec(_guard_centered_line_spread_balanced, "B"),
     GuardSpec(_guard_file_icon_no_name_label, "B"),
+    GuardSpec(_guard_fold_relocated_flow_ports_face_connections, "B"),
     GuardSpec(_guard_interchange_bar_clears_non_members, "B"),
     GuardSpec(_guard_no_diagonal_strikes_horizontal_label, "B"),
     GuardSpec(_guard_no_label_overlap, "B"),

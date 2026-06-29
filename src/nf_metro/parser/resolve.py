@@ -481,6 +481,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
     (side from hints or LEFT default).
     """
     internal_edges, inter_section_edges = _classify_edges(graph)
+    _reside_folded_flow_ports_to_grid(graph, inter_section_edges)
     _reanchor_flow_axis_ports(graph, inter_section_edges)
     entry_side_for_line = _build_entry_side_mapping(graph)
 
@@ -558,6 +559,69 @@ def _port_fold_target(
     if not is_entry and side == leading and all(ranks[s] == hi for s in endpoints):
         return trailing
     return None
+
+
+def _reside_folded_flow_ports_to_grid(
+    graph: MetroGraph, inter_section_edges: list[Edge]
+) -> None:
+    """Turn a fold-relocated section's flow-axis port toward its connecting sections.
+
+    A lowered fold threshold relocates sections onto a return row, which can
+    leave a left/right port -- authored for the unfolded grid -- facing away from
+    the column its connecting sections occupy; the connecting leg then doubles
+    back across the section's own box.  For each section the fold compressed, a
+    left/right entry is turned toward the column its producers sit in and a
+    left/right exit toward its consumers, but only when those connecting sections
+    all sit strictly to one horizontal side.  Running before the intra-section
+    re-anchor (:func:`_reanchor_flow_axis_ports`) lets that pass see the corrected
+    side and stop mistaking the relocated geometry for an internal fold.
+    """
+    relocated = graph._fold_compressed_sections
+    if not relocated:
+        return
+
+    exit_cols: dict[tuple[str, str], set[int]] = defaultdict(set)
+    entry_cols: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for e in inter_section_edges:
+        src = graph.section_for_station(e.source)
+        tgt = graph.section_for_station(e.target)
+        if not src or not tgt or src == tgt:
+            continue
+        exit_cols[(src, e.line_id)].add(graph.sections[tgt].grid_col)
+        entry_cols[(tgt, e.line_id)].add(graph.sections[src].grid_col)
+
+    for sec_id in relocated:
+        section = graph.sections[sec_id]
+        if section.direction not in _FLIP_HORIZONTAL:  # LR/RL carry flow on x
+            continue
+        col = section.grid_col
+        for hints, cols_by_line, is_entry in (
+            (section.entry_hints, entry_cols, True),
+            (section.exit_hints, exit_cols, False),
+        ):
+            for idx, (side, lines) in enumerate(hints):
+                if side not in (PortSide.LEFT, PortSide.RIGHT):
+                    continue  # cross-axis port, not on the flow axis
+                cols = {c for lid in lines for c in cols_by_line.get((sec_id, lid), ())}
+                if not cols:
+                    continue
+                if all(c < col for c in cols):
+                    target = PortSide.LEFT
+                elif all(c > col for c in cols):
+                    target = PortSide.RIGHT
+                else:
+                    continue  # connecting sections straddle this section
+                if side == target:
+                    continue
+                hints[idx] = (target, lines)
+                warnings.warn(
+                    f"Section '{sec_id}': {'entry' if is_entry else 'exit'} port "
+                    f"declared on {side.value} but the fold placed its connecting "
+                    f"sections to the {target.value}; re-anchored to "
+                    f"{target.value} so the line does not wrap back across the "
+                    f"section.",
+                    stacklevel=2,
+                )
 
 
 def _reanchor_flow_axis_ports(
