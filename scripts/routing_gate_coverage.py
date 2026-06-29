@@ -478,6 +478,17 @@ def _render_markdown(gates: list[Gate], triage: dict[str, dict[str, str]]) -> st
     gaps = total - covered
 
     out: list[str] = []
+    out.append("---")
+    out.append('title: "Routing gate coverage matrix"')
+    out.append(
+        "description: Coverage matrix tracking which routing families have "
+        "invariant gate-arm tests and their current pass/fail status."
+    )
+    out.append("sidebar:")
+    out.append('  label: "Routing gate coverage"')
+    out.append("  order: 5")
+    out.append("---")
+    out.append("")
     out.append("# Routing gate coverage matrix")
     out.append("")
     out.append(

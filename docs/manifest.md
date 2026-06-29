@@ -1,5 +1,6 @@
 ---
 title: "The data manifest"
+description: The JSON manifest embedded in every nf-metro SVG — schema, node attributes, and how to read it from JavaScript.
 ---
 
 :::note[Stable since 1.0]

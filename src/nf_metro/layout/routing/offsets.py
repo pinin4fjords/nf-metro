@@ -14,6 +14,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
+    needs_perp_approach_fan,
     tb_right_entry_sections,
     vertical_flow_sections,
 )
@@ -708,6 +709,17 @@ def _reorder_reconvergence(
             feeder_off = _section_line_offsets(ctx, primary_fid)
             if not all(lid in feeder_off for lid in primary_lines):
                 continue
+            # ``_section_line_offsets`` reports each line's offset from the first
+            # feeder station carrying it.  When the feeder's lines originate at
+            # separate single-line producers that never share a station, those
+            # offsets are each a local slot 0, not a unified bundle order, so two
+            # lines can collide on one offset.  The delivered order is then
+            # ambiguous (it resolves only at the feeder's exit port): leave the
+            # section on its priority order rather than on an arbitrary tie-break.
+            if len(
+                distinct_offset_levels(feeder_off[lid] for lid in primary_lines)
+            ) < len(primary_lines):
+                continue
             delivered = sorted(primary_lines, key=lambda lid: feeder_off[lid])
             if reverse:
                 delivered = list(reversed(delivered))
@@ -1313,6 +1325,31 @@ def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     return False
 
 
+def _slot_perp_fan_bundle(ctx: _OffsetCtx, port_id: str) -> None:
+    """Slot a distinct-line perp-entry bundle by feeder approach order.
+
+    At a fan port (:func:`needs_perp_approach_fan`) the lines arrive on disjoint
+    single-line feeders stacked above the section.  Order them by approach -- the
+    feeder descending from furthest away (smallest source Y) takes the top slot --
+    and carry that order through the section.  This must match the source-Y
+    fan-in order :func:`common.compute_bundle_info` assigns, since
+    :func:`perp._perp_approach_fan_x` fans the approach channels by that bundle
+    index; agreeing keeps the descent, the turn, and the shared run consistent so
+    the distinct lines never cross.
+    """
+    graph = ctx.graph
+    feeders = sorted(
+        (src.y, ctx.line_priority.get(edge.line_id, 0), edge.line_id)
+        for edge in graph.edges_to(port_id)
+        if (src := graph.stations.get(edge.source)) is not None and src.is_port
+    )
+    new_offs = {
+        line_id: rank * ctx.offset_step
+        for rank, (_y, _priority, line_id) in enumerate(feeders)
+    }
+    _apply_offsets_along_bundle(ctx, port_id, graph.ports[port_id].section_id, new_offs)
+
+
 def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
     """Match TOP entry ports to the offsets of feeding TB BOTTOM exits.
 
@@ -1340,10 +1377,19 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
     In both cases the 0.0 default for lines absent from the exit port is
     intentional: it collapses lines from other feeders onto one slot, so each
     can drop vertically to its consumer rather than jogging horizontally first.
+
+    A distinct-line perp entry (:func:`needs_perp_approach_fan` -- disjoint
+    single-line feeders into a horizontal section) is exempt: collapsing its lines
+    onto one slot would draw any shared run as a zero-offset collinear bundle.
+    Its lines keep their distinct base/priority slots so the bundle separates,
+    and the per-line approach channels are fanned at routing time.
     """
     graph = ctx.graph
     for port_id, port_obj in graph.ports.items():
         if not port_obj.is_entry or port_obj.side != PortSide.TOP:
+            continue
+        if needs_perp_approach_fan(graph, port_id):
+            _slot_perp_fan_bundle(ctx, port_id)
             continue
         entry_section = graph.sections.get(port_obj.section_id)
         if entry_section is None:

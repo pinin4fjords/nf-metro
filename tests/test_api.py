@@ -7,12 +7,13 @@ a map looks different in the editor than on the command line.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from nf_metro.api import prepare_graph, render_string
+from nf_metro.api import RenderConfig, prepare_graph, render_string
 from nf_metro.cli import cli
 from nf_metro.parser import CyclicGraphError
 
@@ -101,3 +102,34 @@ def test_render_string_propagates_layout_error() -> None:
     )
     with pytest.raises(CyclicGraphError):
         render_string(cyclic)
+
+
+def test_render_string_self_color_scheme_parity() -> None:
+    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
+    with_cs = render_string(src)
+    without_cs = render_string(src, self_color_scheme=False)
+    assert "color-scheme" in with_cs
+    assert "color-scheme" not in without_cs
+
+
+def test_render_string_accepts_render_config() -> None:
+    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
+    via_config = render_string(src, config=RenderConfig(responsive=True))
+    via_kwargs = render_string(src, responsive=True)
+    assert via_config == via_kwargs
+
+
+def test_render_string_warns_when_config_shadows_flat_kwargs() -> None:
+    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
+    with pytest.warns(UserWarning, match=r"ignoring \[.*'responsive'"):
+        out = render_string(src, config=RenderConfig(), responsive=True)
+    # config wins: the flat responsive=True is ignored.
+    assert out == render_string(src)
+
+
+def test_render_string_no_shadow_warning_when_only_config() -> None:
+    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        render_string(src, config=RenderConfig(responsive=True))
+    assert not [w for w in caught if "supersedes" in str(w.message)]

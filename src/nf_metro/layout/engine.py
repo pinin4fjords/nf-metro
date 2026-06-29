@@ -98,8 +98,10 @@ from nf_metro.layout.phases.canvas import (  # noqa: F401
 )
 from nf_metro.layout.phases.fan_bundles import (  # noqa: F401
     _apply_half_grid_2branch_symfan,
+    _apply_half_grid_symmetric_diamonds,
     _convergence_source_ys,
     _divergence_target_ys,
+    _iter_symmetric_diamonds,
     _recenter_full_bundle_columns,
     _redistribute_fanout_siblings,
     _redistribute_full_bundle_columns,
@@ -189,6 +191,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_single_trunk_off_track_step,
     _guard_station_x_column_drift,
     _guard_stations_in_sections,
+    _guard_symmetric_diamond_branches_half_pitch,
     _guard_symmetric_diamond_branches_straddle_trunk,
     _guard_tall_anchor_stack_well_formed,
     _guard_tb_exit_corner_column_order,
@@ -240,6 +243,7 @@ from nf_metro.layout.phases.ports import (  # noqa: F401
     _propagate_through_junctions,
     _push_ports_from_termini,
     _push_termini_from_port,
+    _realign_fold_lr_exit_ports,
     _resolve_downstream_entry_y,
     _resolve_tb_exit_y,
     _set_port_x,
@@ -704,6 +708,7 @@ def _compute_layout_scaled(
         _guard_interchange_bar_clears_non_members(graph, "final")
         _guard_tb_top_entry_drop_hugs_top(graph, "final")
         _guard_symmetric_diamond_branches_straddle_trunk(graph, "final")
+        _guard_symmetric_diamond_branches_half_pitch(graph, "final")
 
 
 def _bypass_label_rakes(graph: MetroGraph) -> set[str]:
@@ -1780,6 +1785,9 @@ def _finalize_layout(
     # canvas snap below.
     _fit_bboxes_to_content_top(graph, section_y_padding, section_y_gap)
     _shift_graph_into_canvas(graph, section_y_padding)
+    # Must precede the structural snapshot: the extent counts the exit port and
+    # the next relay's inter-row cascade reads it, so both need the lowered Y.
+    _realign_fold_lr_exit_ports(graph)
     _snap(graph, "6.15a")
     # Refresh the structural extent snapshot to reflect Stage 6.15a's bbox
     # adjustments.  The cascade (Stage 6.13) already ran using Phase 1's
@@ -1819,6 +1827,14 @@ def _finalize_layout(
     _snap(graph, "6.16")
     if validate:
         _run_pass_c_guards(graph, "after Stage 6.16")
+
+    # Stage 6.17: Compact symmetric 2-way fork-join diamonds onto
+    # half-pitch offsets (see _apply_half_grid_symmetric_diamonds and
+    # CONTRACT.md Stage 6.17).  Run last so the branches straddle the
+    # section trunk's settled Y exactly.
+    if graph.diamond_style == "symmetric":
+        _apply_half_grid_symmetric_diamonds(graph, y_spacing)
+        _snap(graph, "6.17")
 
     if validate:
         run_validate_guards(

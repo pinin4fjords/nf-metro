@@ -61,6 +61,7 @@ from nf_metro.layout.routing.common import (
     iter_vertical_segments,
     max_grid_row_with_content,
     merge_trunk_force_cross_row,
+    needs_perp_approach_fan,
     resolve_section,
     row_bottom_edge,
     row_top_edge,
@@ -89,6 +90,7 @@ from nf_metro.layout.routing.normalize import (
     _v_segment_crosses_other_section,
 )
 from nf_metro.layout.routing.perp import (
+    _perp_approach_fan_x,
     _perp_riser_lateral,
 )
 from nf_metro.parser.model import (
@@ -203,6 +205,26 @@ class _InterFacts:
         section = self.graph.sections.get(self.src.section_id)
         return section is not None and self.src_port.side == trailing_perp_side(
             section.direction
+        )
+
+    @property
+    def tb_bottom_exit_drops_through_stack(self) -> bool:
+        """A TB bottom-exit straight drop would plough an intervening section.
+
+        The flow-direction drop (:func:`_route_tb_bottom_exit`) descends the
+        exit column straight to the target.  When other sections are stacked in
+        that column between the source and the target -- a convergence sink
+        folded below its branches, fed through a TOP entry -- the drop crosses
+        their boxes away from any port.  Such a feeder diverts through a clear
+        inter-column gap instead (:func:`_route_tb_bottom_exit_around_stack`).
+        """
+        if not self.is_tb_bottom_exit:
+            return False
+        exclude = {
+            sid for sid in (self.src.section_id, self.tgt.section_id) if sid is not None
+        }
+        return _v_segment_crosses_other_section(
+            self.graph, self.sx, self.sy, self.ty, exclude
         )
 
     @property
@@ -885,6 +907,15 @@ _INTER_SECTION_RULES: list[_Rule] = [
         lambda f: f.same_y and not f.needs_bypass and not f.right_entry_from_left,
         _route_straight_connector,
     ),
+    # A TB bottom-exit drop whose column has sections stacked between the source
+    # and the (folded-below) target diverts around them through a clear gap; the
+    # plain straight drop below would plough those boxes.  Checked first so only
+    # the obstructed feeders divert and adjacent ones keep the straight drop.
+    _Rule(
+        "TB bottom exit around stack",
+        lambda f: f.tb_bottom_exit_drops_through_stack,
+        lambda f: _route_tb_bottom_exit_around_stack(f),
+    ),
     _Rule(
         "TB bottom exit",
         lambda f: f.is_tb_bottom_exit,
@@ -1029,6 +1060,9 @@ def _route_tb_bottom_exit(
     drop / jog / drop with curved corners instead: down out of the BOTTOM
     port, across the inter-row gap, then down into the target.
     """
+    if needs_perp_approach_fan(ctx.graph, edge.target):
+        return _route_tb_bottom_exit_approach_fan(edge, src, tgt, ctx)
+
     # The drop continues the source section's own rotation lane (x - off) out of
     # the BOTTOM port, so the trunk and its outgoing bundle share one lane.  A
     # horizontal-flow target's perp-entry drop aligns to this feeder lane (via
@@ -1087,6 +1121,131 @@ def _route_tb_bottom_exit(
         base_radius=ctx.curve_radius,
         bundle_offsets=[lane_offset(lid) for lid in line_ids],
     )
+
+
+def _route_tb_bottom_exit_approach_fan(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Drop from a TB BOTTOM exit onto a distinct-line port's approach channel.
+
+    At a distinct-line perp entry (:func:`needs_perp_approach_fan`) the feeders
+    each carry one line and all leave the same column trunk, so their feeder
+    lanes coincide on one X.  Land each on its own approach channel instead --
+    the per-line X :func:`perp._perp_approach_fan_x` pins the intra-section
+    drop to -- so the distinct lines ride parallel channels into the port rather
+    than overlaying one vertical channel.
+
+    A feeder leaves the BOTTOM port downward, jogs across the inter-row gap onto
+    its channel, then drops in, so any lateral step turns through bounded corners
+    rather than a raw diagonal.  A feeder already on its channel has a zero-width
+    jog, which the bundle builder collapses to a clean straight drop.
+    """
+    land_x = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
+    sy, ty = src.y, tgt.y
+
+    dy = ty - sy
+    hy = inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
+    lo, hi = (sy, ty) if dy >= 0 else (ty, sy)
+    hy = min(max(hy, lo + ctx.curve_radius), hi - ctx.curve_radius)
+    return route_along(
+        edge,
+        [(edge, edge.line_id, 0.0)],
+        [(src.x, sy), (src.x, hy), (land_x, hy), (land_x, ty)],
+        base_radius=ctx.curve_radius,
+    )
+
+
+def _around_stack_channel_x(f: _InterFacts) -> float:
+    """X of a descent channel just left of the feeder's stacked column.
+
+    Seated a corner-and-step left of the column's leftmost edge -- so the
+    descent runs in the gap to the column's left, clearing every box stacked in
+    it (the section headers sit on the right, so the left gap is the open side).
+    Mirrors :func:`_route_left_exit_left_entry_drop`, which places its channel
+    the same way for a folded TB bridge feeding a convergence sink.
+    """
+    left_edge = col_left_edge(f.graph, f.src_col, default=f.sx)
+    return left_edge - f.ctx.curve_radius - f.ctx.offset_step
+
+
+def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
+    """Route a TB bottom-exit feeder around sections stacked below it.
+
+    The flow-direction drop would plough the branch boxes stacked between this
+    feeder and a convergence sink folded onto a lower row of the same column.
+    Divert through the clear inter-column gap beside the column instead::
+
+        (sx, sy)             leave the BOTTOM port
+        (sx, cy_down)        drop into the gap below the source row
+        (vx, cy_down)        jog out to the clear gap channel
+        (vx, cy_entry)       descend past every intervening box
+        (tx, cy_entry)       jog back over the target in the gap above it
+        (tx, ty)             drop into the TOP entry port
+
+    Each co-travelling line rides the source section's rotation lane, fanned off
+    one centreline so the final drop lands on the same per-line X as the
+    adjacent straight-drop feeders converging on the shared port.  Where distinct
+    lines share the entry (:func:`needs_perp_approach_fan`) that shared X is the
+    per-line approach channel (:func:`perp._perp_approach_fan_x`) instead of the
+    feeder lane, since every feeder sits on one column trunk.
+    """
+    edge, src, tgt, ctx, graph = f.edge, f.src, f.tgt, f.ctx, f.graph
+    sx, sy, tx, ty = f.sx, f.sy, f.tx, f.ty
+    src_sec = resolve_section(graph, src)
+    tgt_sec = resolve_section(graph, tgt)
+    # Guaranteed by the predicate, which fires only for a vertical-flow exit.
+    assert src_sec is not None and tgt_sec is not None and f.src_col is not None
+
+    _members, line_ids, _edge_by_line = gather_member_edges(graph, edge)
+
+    fans_distinct = needs_perp_approach_fan(graph, edge.target)
+    if fans_distinct:
+        tx = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
+
+    def lane_offset(line_id: str) -> float:
+        # Negated so the down-leg's right-hand normal lands each riser on its
+        # own trunk X.  Where distinct lines fan, the per-line channel is baked
+        # into ``tx`` (each feeder carries one line), so the lane fan is zero.
+        if fans_distinct:
+            return 0.0
+        return -_tb_x_offset(ctx, edge.source, line_id, src.section_id)
+
+    # The bundle fan lifts the jog's innermost line toward the source box, so
+    # seat its corridor a fan width below the bottom edge to hold the clearance.
+    src_bottom = src_sec.bbox_y + src_sec.bbox_h
+    fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
+    cy_down = max(
+        header_corridor_y(
+            graph,
+            src_sec.grid_row,
+            below=True,
+            base_radius=ctx.curve_radius,
+            default=sy,
+            col=f.src_col,
+        ),
+        src_bottom + fan_clearance + ctx.curve_radius,
+    )
+    cy_entry = header_corridor_y(
+        graph, tgt_sec.grid_row, below=False, base_radius=ctx.curve_radius, default=ty
+    )
+    vx = _around_stack_channel_x(f)
+
+    route = route_along(
+        edge,
+        [(edge, edge.line_id, lane_offset(edge.line_id))],
+        [
+            (sx, sy),
+            (sx, cy_down),
+            (vx, cy_down),
+            (vx, cy_entry),
+            (tx, cy_entry),
+            (tx, ty),
+        ],
+        base_radius=ctx.curve_radius,
+        bundle_offsets=[lane_offset(lid) for lid in line_ids],
+    )
+    _declare_channel(route, ctx, vx, Direction.D)
+    return route
 
 
 def _route_bottom_exit_junction(

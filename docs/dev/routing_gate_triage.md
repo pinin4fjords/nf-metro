@@ -1,5 +1,6 @@
 ---
 title: "Routing gate-arm triage"
+description: Triage process and findings for routing gate-arm invariant failures — root causes, fixes, and resolution status.
 sidebar:
   label: "Routing gate triage"
   order: 6

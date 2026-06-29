@@ -1,5 +1,6 @@
 ---
 title: "Embedding guide"
+description: How to embed nf-metro SVG maps in host applications — sizing, theming, and driving maps at runtime.
 ---
 
 :::note[Stable as of nf-metro 1.0]

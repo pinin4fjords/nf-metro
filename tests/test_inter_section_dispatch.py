@@ -102,12 +102,44 @@ _CASES = [
                 station_offsets={"x": 1.0},
                 merge=SimpleNamespace(trunk_source={}),
                 graph=SimpleNamespace(
-                    sections={"src_sec": SimpleNamespace(direction="TB")}
+                    sections={"src_sec": SimpleNamespace(direction="TB", bbox_w=0.0)}
                 ),
             ),
         ),
         "TB bottom exit",
         id="tb-bottom-exit",
+    ),
+    pytest.param(
+        # A TB bottom-exit drop whose column has a section stacked between source
+        # and target diverts around it; this rule must win over the plain drop.
+        dict(
+            src_port=_port(PortSide.BOTTOM, is_entry=False),
+            sx=0.0,
+            sy=0.0,
+            tx=0.0,
+            ty=100.0,
+            ctx=SimpleNamespace(
+                junction_ids=set(),
+                bottom_exit_junctions=set(),
+                tb_sections={"src_sec"},
+                station_offsets={"x": 1.0},
+                merge=SimpleNamespace(trunk_source={}),
+                graph=SimpleNamespace(
+                    sections={
+                        "src_sec": SimpleNamespace(direction="TB", bbox_w=0.0),
+                        "mid": SimpleNamespace(
+                            id="mid",
+                            bbox_x=-10.0,
+                            bbox_w=20.0,
+                            bbox_y=40.0,
+                            bbox_h=20.0,
+                        ),
+                    }
+                ),
+            ),
+        ),
+        "TB bottom exit around stack",
+        id="tb-bottom-exit-around-stack",
     ),
     pytest.param(
         # A BT section's trailing exit is its TOP (the rotation image of TB's
@@ -121,7 +153,7 @@ _CASES = [
                 station_offsets={"x": 1.0},
                 merge=SimpleNamespace(trunk_source={}),
                 graph=SimpleNamespace(
-                    sections={"src_sec": SimpleNamespace(direction="BT")}
+                    sections={"src_sec": SimpleNamespace(direction="BT", bbox_w=0.0)}
                 ),
             ),
         ),

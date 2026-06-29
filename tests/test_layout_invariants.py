@@ -52,6 +52,7 @@ from nf_metro.layout.labels import (
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
     flow_exit_carrier_anchor,
+    iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.bbox import (
     _section_band_is_empty,
@@ -3649,6 +3650,28 @@ def test_no_kink_at_section_boundary(fixture):
 
 
 # ---------------------------------------------------------------------------
+# A folded LEFT/RIGHT exit must follow its target's settled entry Y
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_MULTI_SECTION)
+def test_fold_lr_exit_follows_settled_target(fixture):
+    """A fold's LEFT/RIGHT exit must not end a sub-row above its entry target.
+
+    A vertical-flow (TB/BT) fold aligns its exit port to a bbox-contained
+    LEFT/RIGHT entry.  When the target spans several sub-rows its entry Y keeps
+    descending as those sub-rows settle; an exit left short of it renders as a
+    jog.  A target seated against the flow keeps its own descent and is exempt.
+    """
+    graph = _layout(fixture)
+    short = [
+        f"{pid} -> {tgt.id} at y={tgt.y:.1f} (exit y={graph.stations[pid].y:.1f})"
+        for pid, tgt in iter_fold_lr_exits_short_of_target(graph, _Y_TOL)
+    ]
+    assert not short, f"{fixture}: fold exits short of their target: {short}"
+
+
+# ---------------------------------------------------------------------------
 # A line must cross a perpendicular entry port at one consistent X
 # ---------------------------------------------------------------------------
 
@@ -5669,12 +5692,22 @@ def test_all_stations_snap_to_grid(fixture):
     for some integer ``k``.
 
     Half-grid placement (``trunk_y +/- 0.5 * y_spacing``) is reserved
-    for the auto-half-grid 2-branch symmetric fan feature: stations
-    registered in ``graph.half_grid_station_ids`` whose section
-    satisfies ``_section_symfan_uses_half_grid`` and has exactly two
-    on-track branches.  Any other half-grid station is a regression.
+    for two features, both of which register the affected stations in
+    ``graph.half_grid_station_ids``:
+
+    - the auto-half-grid 2-branch symmetric fan (sections satisfying
+      ``_section_symfan_uses_half_grid`` with exactly two on-track
+      branches), and
+    - the per-diamond symmetric fork-join compaction (branches of a
+      diamond yielded by ``_iter_symmetric_diamonds``, which may sit in a
+      mixed-fan section that does not satisfy the section-level trigger).
+
+    Any other half-grid station is a regression.
     """
-    from nf_metro.layout.engine import _section_symfan_uses_half_grid
+    from nf_metro.layout.engine import (
+        _iter_symmetric_diamonds,
+        _section_symfan_uses_half_grid,
+    )
 
     y_spacing = 55.0
     tol = 1.0
@@ -5705,6 +5738,11 @@ def test_all_stations_snap_to_grid(fixture):
         and _section_symfan_uses_half_grid(graph, sec)
     }
 
+    # Branches of symmetric fork-join diamonds compacted per-diamond.
+    diamond_branch_ids = {
+        b.id for _f, lo, hi, _j in _iter_symmetric_diamonds(graph) for b in (lo, hi)
+    }
+
     offenders: list[str] = []
     for sid, st in graph.stations.items():
         if (
@@ -5731,7 +5769,11 @@ def test_all_stations_snap_to_grid(fixture):
             abs(offset - (nearest_int - 0.5)) * y_spacing <= tol
             or abs(offset - (nearest_int + 0.5)) * y_spacing <= tol
         )
-        if is_half and sid in half_grid_ids and st.section_id in half_grid_sections:
+        if (
+            is_half
+            and sid in half_grid_ids
+            and (st.section_id in half_grid_sections or sid in diamond_branch_ids)
+        ):
             continue
         offenders.append(
             f"{sid!r} cy={st.y:.2f} trunk_y={trunk_y:.2f} "
@@ -5746,6 +5788,50 @@ def test_all_stations_snap_to_grid(fixture):
         f"without a legitimate half-grid 2-branch fan exception: "
         + "; ".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# Symmetric fork-join diamonds compact to half pitch (issue #1076)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    ["topologies/symmetric_diamond_beside_wide_fan.mmd"],
+)
+def test_symmetric_diamond_compacts_to_half_pitch(fixture):
+    """A symmetric 2-way fork-join diamond straddles its trunk at half
+    pitch (``trunk_y +/- 0.5 * y_spacing``), so its bubble is one grid
+    unit tall rather than two.
+
+    Regression for #1076: a diamond sharing a section with a wider fan
+    must compact to half pitch even though the section's full height is
+    set by that wider fan, which keeps its own full-pitch slots.  A
+    diamond at full pitch (``trunk_y +/- 1`` slot) reads as tall as a
+    3-way fan with an empty trunk row between its two branches.
+    """
+    from nf_metro.layout.engine import _iter_symmetric_diamonds
+
+    y_spacing = 55.0
+    graph = _layout(fixture, y_spacing=y_spacing)
+
+    diamonds = list(_iter_symmetric_diamonds(graph))
+    assert diamonds, f"{fixture}: expected at least one symmetric diamond"
+
+    for fork, lo, hi, _join in diamonds:
+        trunk_y = fork.y
+        # Branches straddle the trunk symmetrically.
+        assert abs((trunk_y - lo.y) - (hi.y - trunk_y)) <= 1.0, (
+            f"{fixture}: diamond {lo.id!r}/{hi.id!r} is not symmetric about "
+            f"trunk {trunk_y:.1f}: lo={lo.y:.1f}, hi={hi.y:.1f}"
+        )
+        # At half pitch, not the wider fan's full pitch.
+        half_spread = (hi.y - lo.y) / 2.0
+        assert abs(half_spread - 0.5 * y_spacing) <= 1.0, (
+            f"{fixture}: diamond {lo.id!r}/{hi.id!r} half-spread "
+            f"{half_spread:.1f} should be half pitch {0.5 * y_spacing:.1f}; "
+            f"full pitch {y_spacing:.1f} is the #1076 bug"
+        )
 
 
 # ---------------------------------------------------------------------------

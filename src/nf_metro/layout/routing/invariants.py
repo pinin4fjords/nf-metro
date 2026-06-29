@@ -3093,6 +3093,17 @@ def check_perp_exit_over_leadin_clears_only_spanned_sections(
             s_lo, s_hi = s.bbox_x, s.bbox_x + s.bbox_w
             if leg_hi > s_lo + tol and s_hi > leg_lo + tol:
                 continue  # leg passes under this section; clearing it is expected
+            # The corridor must clear the source section's own depth; a same-row
+            # section no deeper (BOTTOM exit) or no higher (TOP exit) than the
+            # source never pushes it past where the source already does, so
+            # dipping past such a section is incidental, not a loop around it.
+            if (
+                is_bottom
+                and s.bbox_y + s.bbox_h <= src_sec.bbox_y + src_sec.bbox_h + tol
+            ):
+                continue
+            if not is_bottom and s.bbox_y >= src_sec.bbox_y - tol:
+                continue
             if is_bottom and cy > s.bbox_y + s.bbox_h + tol:
                 violations.append(
                     PerpExitLeadInOverdip(

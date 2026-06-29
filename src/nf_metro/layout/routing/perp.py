@@ -22,19 +22,23 @@ identical lateral for a given line and side.
 ``_perp_entry_crossing_x`` expresses the matching X for the *aligned* case: the
 single X at which a bundled inter-section feeder and its intra-section drop both
 cross the port, so the line passes straight through the boundary instead of
-converging on the marker and re-fanning.  It fans to the side the feeder
-approaches from (``_feeder_fan_sign``) so the crossing tracks a ``-x`` downward
-(TB) feeder and its ``+x`` upward (BT) image alike.
+converging on the marker and re-fanning.  It tracks the feeder's own section
+lane (``_tb_x_offset``) for a vertical-flow feeder -- a ``-x`` downward (TB)
+drop and its ``+x`` upward (BT) image alike -- and the ``-x`` up-and-over riser
+side for any other feeder.  Where distinct lines share the entry on disjoint
+feeders (``needs_perp_approach_fan``), ``_perp_approach_fan_x`` instead fans them
+by bundle index, since those feeders share one column trunk.
 """
 
 from __future__ import annotations
 
 from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.routing.common import needs_perp_approach_fan
 from nf_metro.layout.routing.context import (
     _get_offset,
     _max_offset_at,
     _RoutingCtx,
-    _section_lane_frame,
+    _tb_x_offset,
 )
 from nf_metro.layout.routing.corners import reversed_offset
 from nf_metro.parser.model import (
@@ -42,24 +46,44 @@ from nf_metro.parser.model import (
 )
 
 
-def _feeder_fan_sign(ctx: _RoutingCtx, source_id: str) -> float:
-    """Lateral fan sign of the inter-section feeder leaving *source_id*.
+def _bundled_feeders(
+    ctx: _RoutingCtx, entry_port_id: str, line_id: str
+) -> list[tuple[int, int, str]]:
+    """``(bundle index, bundle size, source)`` for each feeder of *line_id*.
 
-    A vertical-flow (TB/BT) feeder rides its section's lane, so it fans to the
-    side its :attr:`~AxisFrame.secondary_sign` names: a downward TB feeder to
-    ``-x``, its upward BT image to ``+x``.  A horizontal feeder reaching the
-    drop instead arrives via the up-and-over riser, whose reference leg fans to
-    ``-x`` (the legacy left-fan).
+    The inter-section feeders reaching *entry_port_id* on *line_id* that carry a
+    cross-boundary bundle index, each with its bundle size and source port.  Empty
+    when the line reaches the port with no bundled feeder.
     """
-    station = ctx.graph.stations.get(source_id)
-    section = (
-        ctx.graph.sections.get(station.section_id)
-        if station and station.section_id
-        else None
+    return [
+        (info[0], info[1], edge.source)
+        for edge in ctx.graph.edges_to(entry_port_id)
+        if edge.line_id == line_id
+        and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
+        is not None
+    ]
+
+
+def _perp_approach_fan_x(
+    ctx: _RoutingCtx, entry_port_id: str, line_id: str, port_x: float
+) -> float:
+    """Per-line X channel a line takes into a distinct-line perp entry port.
+
+    Where distinct lines share a perpendicular entry (:func:`needs_perp_approach_fan`)
+    the single-line feeders all sit on one column trunk, so each must fan onto its
+    own approach channel rather than share the trunk X.  The bundle index orders
+    the feeders by approach: index 0 is the outermost feeder (the one descending
+    from furthest away, which wraps around the intervening boxes), so it takes the
+    channel furthest toward the turn side (``-x``) and the trunk-near feeder
+    (highest index) stays on ``port_x``.  This keeps the outermost approach on the
+    outside of the bend, matching the intra-section bundle order, so the feeders
+    do not cross.  The inter-section feeder drop and the intra-section drop both
+    anchor on this one X.  Lines without a bundled feeder stay on the trunk.
+    """
+    index, count, _source = next(
+        iter(_bundled_feeders(ctx, entry_port_id, line_id)), (0, 1, "")
     )
-    if section is not None and lanes_run_along_x(section.direction):
-        return _section_lane_frame(ctx.graph, section, ctx.positive_fan).secondary_sign
-    return -1.0
+    return port_x - (count - 1 - index) * ctx.offset_step
 
 
 def _perp_entry_crossing_x(
@@ -69,25 +93,40 @@ def _perp_entry_crossing_x(
 
     The inter-section approach lands, and the intra-section drop departs, at
     this one X so the line passes straight through the boundary rather than
-    converging on the port marker and re-fanning.  It is the marker X offset by
-    the line's inter-section feeder bundle index times the offset step, fanned
-    to the side the feeder approaches from (:func:`_feeder_fan_sign`): the
-    reference feeder (index 0, e.g. a column-aligned vertical drop) sits on the
-    marker, later-index lines fan one consistent side.  Returns ``None`` when no
-    bundled inter-section feeder reaches the port for this line (nothing to
-    align a crossing X to).
+    converging on the port marker and re-fanning.
+
+    A distinct-line perp entry (:func:`needs_perp_approach_fan`) fans its
+    single-line feeders onto parallel approach channels by bundle index --
+    :func:`_perp_approach_fan_x` -- since their feeder lanes all collapse onto
+    one column trunk.
+
+    Otherwise, a vertical-flow (TB/BT) feeder dropping a *single* bundle crosses
+    on its own section lane -- the exact X
+    :func:`inter_section_handlers._route_tb_bottom_exit` lands at,
+    :func:`context._tb_x_offset` -- so the crossing tracks that lane.  Its
+    per-line lane width (one offset step per distinct line) is narrower than the
+    feeder's index in the *whole* cross-boundary bundle, which counts every
+    converging feeder's every line: anchoring on the bundle index instead would
+    splay the few descending lines across the wider fan and straddle the target
+    station, pinching the drop's turn-in corner.
+
+    Any other feeder reaches the drop via the up-and-over riser, whose reference
+    leg fans to ``-x``, so its crossing offsets the marker by the feeder's bundle
+    index on that side.  Returns ``None`` when no bundled inter-section feeder
+    reaches the port for this line (nothing to align to).
     """
-    feeders = [
-        (info[0], edge.source)
-        for edge in ctx.graph.edges_to(entry_port_id)
-        if edge.line_id == line_id
-        and (info := ctx.bundle_info.get((edge.source, entry_port_id, line_id)))
-        is not None
-    ]
+    if needs_perp_approach_fan(ctx.graph, entry_port_id):
+        return _perp_approach_fan_x(ctx, entry_port_id, line_id, port_x)
+    feeders = _bundled_feeders(ctx, entry_port_id, line_id)
     if not feeders:
         return None
-    max_index, source = max(feeders)
-    return port_x + _feeder_fan_sign(ctx, source) * max_index * ctx.offset_step
+    max_index, _count, source = max(feeders)
+    feeder_st = ctx.graph.stations.get(source)
+    section_id = feeder_st.section_id if feeder_st else None
+    feeder_sec = ctx.graph.sections.get(section_id) if section_id else None
+    if feeder_sec is not None and lanes_run_along_x(feeder_sec.direction):
+        return port_x + _tb_x_offset(ctx, source, line_id, section_id)
+    return port_x - max_index * ctx.offset_step
 
 
 def _perp_riser_lateral(

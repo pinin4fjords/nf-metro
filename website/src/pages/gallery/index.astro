@@ -1,6 +1,7 @@
 ---
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { getCollection } from "astro:content";
+import Metro from "@components/Metro.astro";
 import { base } from "../../site";
 
 const entries = await getCollection("gallery");
@@ -12,6 +13,16 @@ for (const entry of entries) {
   if (!byCategory.has(cat)) byCategory.set(cat, []);
   byCategory.get(cat)!.push(entry);
 }
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+const headings = Array.from(byCategory.keys()).map((cat) => ({
+  depth: 2,
+  slug: slugify(cat),
+  text: cat,
+}));
 ---
 
 <StarlightPage
@@ -20,31 +31,30 @@ for (const entry of entries) {
     description:
       "Rendered examples covering fan-outs, folds, diamonds, and realistic bioinformatics workflows.",
     template: "doc",
-    tableOfContents: false,
+    tableOfContents: true,
     pagefind: true,
     prev: false,
     next: false,
   }}
+  headings={headings}
 >
   <p>
-    Examples covering the full range of layout patterns. Click any entry to see
-    the rendered map, Mermaid source, and CLI command.
+    Examples covering the full range of layout patterns.
   </p>
 
   {
     Array.from(byCategory.entries()).map(([category, items]) => (
       <section class="nfm-gallery-section">
-        <h2>{category}</h2>
-        <ul class="nfm-gallery-grid">
-          {items.map((entry) => (
-            <li>
-              <a href={`${base}gallery/${entry.id}/`}>
-                <strong>{entry.data.title}</strong>
-                <span>{entry.data.description}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
+        <h2 id={slugify(category)}>{category}</h2>
+        {items.map((entry) => (
+          <div class="nfm-gallery-entry">
+            <h3>
+              <a href={`${base}gallery/${entry.id}/`}>{entry.data.title}</a>
+            </h3>
+            <p class="nfm-entry-desc">{entry.data.description}</p>
+            <Metro src={entry.data.src} purpose="showcase" />
+          </div>
+        ))}
       </section>
     ))
   }
@@ -59,49 +69,30 @@ for (const entry of entries) {
     font-size: var(--sl-text-h4);
     border-bottom: 1px solid var(--sl-color-hairline);
     padding-bottom: 0.4rem;
-    margin-bottom: 1rem;
+    margin-bottom: 1.5rem;
   }
 
-  .nfm-gallery-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
-    gap: 0.75rem;
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .nfm-gallery-entry {
+    margin-bottom: 2.5rem;
   }
 
-  .nfm-gallery-grid li a {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--sl-color-hairline);
-    border-radius: 6px;
-    text-decoration: none;
-    color: inherit;
-    background: var(--sl-color-bg);
-    transition: border-color 0.12s ease, background 0.12s ease;
+  .nfm-gallery-entry h3 {
+    font-size: var(--sl-text-h5);
+    margin-bottom: 0.25rem;
   }
 
-  .nfm-gallery-grid li a:hover {
-    border-color: var(--sl-color-accent);
-    background: var(--sl-color-bg-nav);
-  }
-
-  .nfm-gallery-grid li a strong {
-    font-size: 0.875rem;
+  .nfm-gallery-entry h3 a {
     color: var(--sl-color-text-accent);
-    font-family: var(--sl-font-mono, monospace);
+    text-decoration: none;
   }
 
-  .nfm-gallery-grid li a span {
-    font-size: 0.8rem;
+  .nfm-gallery-entry h3 a:hover {
+    text-decoration: underline;
+  }
+
+  .nfm-entry-desc {
+    font-size: 0.85rem;
     color: var(--sl-color-gray-3);
-    line-height: 1.4;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    margin-bottom: 0.75rem;
   }
 </style>

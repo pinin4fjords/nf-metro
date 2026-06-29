@@ -7,6 +7,8 @@ import starlightLinksValidator from "starlight-links-validator";
 import sitemap from "@astrojs/sitemap";
 import mermaid from "astro-mermaid";
 import { metroVitePlugin } from "./src/lib/render-metro.mjs";
+import { starlightGitFix } from "./src/lib/starlight-git-fix.mjs";
+import { remarkRebaseLinks } from "./src/lib/rebase-links.mjs";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
@@ -79,9 +81,12 @@ function buildReleasesSidebar() {
 export default defineConfig({
   site,
   base,
+  markdown: {
+    remarkPlugins: [[remarkRebaseLinks, { base }]],
+  },
   vite: {
     // Renders `<path>.mmd?metro` imports to inline SVG via the nf-metro CLI.
-    plugins: [metroVitePlugin()],
+    plugins: [starlightGitFix(), metroVitePlugin()],
     resolve: {
       alias: {
         "@examples": examplesDir,
@@ -127,14 +132,18 @@ export default defineConfig({
     starlight({
       plugins: [
         starlightLinksValidator({
-          // gallery/ and pipelines/ are served by custom Astro page routes
-          // (website/src/pages/{gallery,pipelines}/), not Starlight content
-          // collection entries, so the validator cannot resolve them.
-          // live_demo.mp4 is a website/public/ static asset; the relative
-          // src path is valid at HTML render time but is not a page link.
+          // Docs author internal links with the production `/nf-metro/` base;
+          // remarkRebaseLinks rewrites that prefix to the active build base
+          // before this validator runs, so cross-references validate against
+          // real pages on every base. Only links the validator structurally
+          // cannot resolve are excluded:
+          // - gallery/ and pipelines/ are custom Astro routes, not Starlight
+          //   content entries, so the validator can only see them as opaque
+          //   custom pages.
+          // - live_demo.mp4 is a public/ static asset, not a navigable page.
           exclude: ({ link }) =>
-            link.startsWith("/nf-metro/gallery") ||
-            link.startsWith("/nf-metro/pipelines") ||
+            link.startsWith(`${base}gallery`) ||
+            link.startsWith(`${base}pipelines`) ||
             link === "../assets/live_demo.mp4",
         }),
       ],
@@ -176,8 +185,9 @@ export default defineConfig({
             { label: "Gallery", link: "/gallery/" },
             { label: "nf-core pipelines", link: "/pipelines/" },
             {
-              label: "Playground (beta)",
+              label: "Playground",
               link: "/playground/",
+              badge: { text: "beta", variant: "caution" },
               // data-astro-reload forces a full navigation so the CDN scripts
               // (CodeMirror, Pyodide) and app.js re-initialise from scratch
               // instead of being skipped by Astro's ClientRouter.

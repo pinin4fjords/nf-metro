@@ -321,6 +321,42 @@ gallery:
     description:
       "Serpentine-fold reconvergence: a multi-modal pipeline fanning out to stacked
       analysis sections and reconverging onto a reversed return row."
+  - id: convergence_sink_fold
+    source_dir: examples/topologies
+    category: Fold Topologies
+    description:
+      "Convergence sink folded below its branches: a `fold_threshold` stacks the
+      parallel branches in one column and drops the shared sink onto a lower row,
+      fed through a TOP entry. Each upper branch's bottom-exit feeder routes around
+      the intervening branch boxes through the clear left-side gap rather than
+      ploughing straight down through them."
+  - id: convergence_fold_diamond
+    source_dir: examples/topologies
+    category: Fold Topologies
+    description:
+      "Two distinct lines converging into a sink folded below its branches: a
+      `fold_threshold` stacks both branches in one column and drops the shared sink
+      onto a lower row, fed through a TOP entry. The two feeders, and the run through
+      the merge, ride parallel approach channels rather than collapsing onto one
+      vertical channel."
+  - id: fold_split_targets
+    source_dir: examples/topologies
+    category: Fold Topologies
+    description:
+      "Two folded branches dropping into one section through a shared TOP entry,
+      each line continuing to its own separate sink (a fan, not a merge). The
+      distinct-line drops stay collapsed onto the column trunk, since they part to
+      different stations rather than bundling along a shared run."
+  - id: fold_left_exit_right_entry
+    source_dir: examples/topologies
+    category: Fold Topologies
+    description:
+      "A reconvergence section fed by three separately-originating inputs, folded
+      so it exits LEFT into a relocated section's RIGHT entry one row below: the
+      bundle steps west-down-west as a staircase. The exit and entry ports stack
+      the bundle in the same order, so the lines keep their feed order through the
+      two opposite-handed corners and each corner is sized as one concentric fan
+      (issue #1143)."
   - id: stacked_lr_serpentine
     source_dir: examples/topologies
     category: Fold Topologies

@@ -22,7 +22,7 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_ROUTE_CLEARANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
 
 
@@ -91,6 +91,49 @@ def trailing_perp_side(direction: str) -> PortSide:
     Only meaningful for a vertical-flow (TB/BT) section.
     """
     return PortSide.BOTTOM if AxisFrame.flow_sign(direction) > 0 else PortSide.TOP
+
+
+def needs_perp_approach_fan(graph: MetroGraph, port_id: str) -> bool:
+    """Whether *port_id* needs its distinct lines fanned onto parallel channels.
+
+    True for a perpendicular (TOP/BOTTOM) entry into a *horizontal-flow* (LR/RL)
+    section where two or more exit ports each contribute a *disjoint* line set --
+    every line crosses the port via exactly one feeder.  Under a fold the feeders
+    all sit on one column trunk, so without intervention each line drops on the
+    port's single trunk X and the distinct lines overlay one vertical channel
+    (and, where they bundle along a shared run, draw it as a zero-offset collinear
+    bundle).  Each must instead fan onto its own approach channel by bundle index.
+
+    Excludes the cases where collapsing onto one channel is correct or harmless:
+
+    * redundant feeders each carrying the *same* full bundle (a parallel fan
+      reconverging -- a line shared across feeders has no unique approach
+      channel; each whole bundle drops on its feeder lane);
+    * a single feeder (nothing to separate);
+    * a vertical-flow (TB/BT) consumer, whose shared run is the perpendicular
+      drop and so separates in X off the per-station offsets regardless.
+    """
+    port = graph.ports.get(port_id)
+    if (
+        port is None
+        or not port.is_entry
+        or port.side not in (PortSide.TOP, PortSide.BOTTOM)
+    ):
+        return False
+    section = graph.sections.get(port.section_id)
+    if section is None or not lanes_run_along_y(section.direction):
+        return False
+    feeders_by_line: dict[str, set[str]] = {}
+    for edge in graph.edges_to(port_id):
+        src = graph.stations.get(edge.source)
+        sp = graph.ports.get(edge.source)
+        if src is None or not src.is_port or sp is None or sp.is_entry:
+            continue
+        feeders_by_line.setdefault(edge.line_id, set()).add(edge.source)
+    feeder_sources = {fid for sources in feeders_by_line.values() for fid in sources}
+    if len(feeder_sources) < 2:
+        return False
+    return all(len(sources) == 1 for sources in feeders_by_line.values())
 
 
 def tb_right_entry_sections(graph: MetroGraph) -> set[str]:
