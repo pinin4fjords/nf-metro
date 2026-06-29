@@ -15,6 +15,7 @@ from nf_metro.explain import build_explain, format_explain_json, format_explain_
 from nf_metro.introspect import build_info, format_info_json, format_info_text
 from nf_metro.layout import (
     BackwardFlowError,
+    FoldThresholdError,
     MixedEntryDirectionError,
     PhaseInvariantError,
     compute_layout,
@@ -345,7 +346,7 @@ def render(
                 embed_basename=output.name,
             ),
         )
-    except PhaseInvariantError as e:
+    except (FoldThresholdError, PhaseInvariantError) as e:
         raise click.ClickException(str(e))
 
     if validate_geometry:
