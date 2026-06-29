@@ -31,6 +31,7 @@ from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
     MIN_STATION_FLAT_LENGTH,
     ROW_BAND_SLACK,
+    SAME_Y_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
@@ -52,6 +53,7 @@ from nf_metro.layout.labels import (
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
     flow_exit_carrier_anchor,
+    iter_corridor_fed_solo_entries,
     iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.bbox import (
@@ -957,39 +959,6 @@ def test_flat_frame_boundary_run_stays_level(fixture, src_sec, dst_sec, line_id)
 # ---------------------------------------------------------------------------
 
 
-def _single_line_corridor_entries(graph: MetroGraph):
-    """Yield ``(section_id, entry_port_id, line_id)`` for corridor-fed solos.
-
-    A LEFT/RIGHT entry port of an LR/RL section that carries a single present
-    line, where every feeder reaches the port on a different base Y (a vertical
-    corridor), so the lone consumer has no bundle pinning it off the trunk and
-    must ride offset 0.  Flat (same-Y) seams are excluded: re-basing there would
-    slope the straight-through run.
-    """
-    present: dict[str, set[str]] = defaultdict(set)
-    for sid, st in graph.stations.items():
-        if not st.is_port and st.section_id is not None:
-            present[st.section_id].update(graph.station_lines(sid))
-    for sec_id, sec in graph.sections.items():
-        if not lanes_run_along_y(sec.direction):
-            continue
-        if len(present.get(sec_id, set())) != 1:
-            continue
-        line_id = next(iter(present[sec_id]))
-        for pid in sec.entry_ports:
-            port = graph.ports.get(pid)
-            if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
-                continue
-            port_y = graph.stations[pid].y
-            feeders = [
-                graph.stations[e.source]
-                for e in graph.edges_to(pid)
-                if e.source in graph.stations
-            ]
-            if feeders and all(abs(f.y - port_y) > _Y_TOL for f in feeders):
-                yield sec_id, pid, line_id
-
-
 def _fixtures_with_corridor_solo() -> list[str]:
     """Corpus fixtures with at least one corridor-fed single-line section."""
     out: list[str] = []
@@ -998,7 +967,10 @@ def _fixtures_with_corridor_solo() -> list[str]:
             graph = _layout(fixture)
         except Exception:
             continue
-        if next(_single_line_corridor_entries(graph), None) is not None:
+        if (
+            next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None)
+            is not None
+        ):
             out.append(fixture)
     return out
 
@@ -1018,7 +990,9 @@ def test_single_line_corridor_section_rides_trunk(fixture):
     """
     graph = _layout(fixture)
     offsets = compute_station_offsets(graph)
-    for sec_id, port_id, line_id in _single_line_corridor_entries(graph):
+    for sec_id, port_id, line_id in iter_corridor_fed_solo_entries(
+        graph, SAME_Y_TOLERANCE
+    ):
         port_off = round(offsets.get((port_id, line_id), 0.0), 1)
         assert port_off == 0.0, (
             f"{fixture}: section {sec_id} entry port {port_id} sits at offset "

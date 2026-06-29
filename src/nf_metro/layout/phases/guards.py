@@ -23,6 +23,7 @@ from nf_metro.layout.constants import (
     OFFSET_STEP,
     ROW_BAND_SLACK,
     SAME_COORD_TOLERANCE,
+    SAME_Y_TOLERANCE,
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
     STATION_RADIUS_APPROX,
@@ -1015,7 +1016,7 @@ def _guard_corridor_fed_solo_rides_trunk(
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
-    for sec_id, pid, line_id in iter_corridor_fed_solo_entries(graph, COORD_TOLERANCE):
+    for sec_id, pid, line_id in iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE):
         port_off = offsets.get((pid, line_id), 0.0)
         if abs(port_off) > COORD_TOLERANCE:
             raise PhaseInvariantError(
