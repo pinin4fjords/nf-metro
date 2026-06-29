@@ -4,7 +4,7 @@ nf-metro accepts contributions via pull requests against `main`. The project rel
 
 ## Visual review is the contract
 
-For any change that touches `src/nf_metro/layout/`, `src/nf_metro/render/`, or routing, the authoritative review is the visual diff produced by `.github/workflows/pr-renders.yml`. The workflow renders the gallery on both the PR branch and `main`, and posts a link to a before/after preview site at `https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/`. Open the link and look at every changed render before requesting human review. If you cannot defend a delta as an improvement or a neutral consequence, narrow the change.
+For any change that touches `src/nf_metro/layout/`, `src/nf_metro/render/`, or routing, the authoritative review is the visual diff produced by `.github/workflows/pr-renders.yml`. The workflow renders the gallery on both the PR branch and `main`, and posts a link to a before/after preview site at `https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/`. Open the link and look at every changed render before requesting human review. If you cannot defend a delta as an improvement or a neutral consequence, narrow the change.
 
 For purely additive changes (new tests, new fixtures, new documentation), the render diff should be empty. Verify locally with:
 

@@ -17,8 +17,8 @@ the workflow, and the hard-won gotchas. This skill is the thin operational
 wrapper; it does not restate the detail.
 
 **Conventions** (substitute if your setup differs):
-- Local nf-metro checkout: `~/projects/nf-metro`; upstream `pinin4fjords/nf-metro`.
-- Render preview: `pinin4fjords.github.io/nf-metro/_pr/<N>/`.
+- Local nf-metro checkout: `~/projects/nf-metro`; upstream `seqeralabs/nf-metro`.
+- Render preview: `seqeralabs.github.io/nf-metro/_pr/<N>/`.
 - This skill builds on `fix-issue` for worktree/env/PR hygiene - follow that
   skill's setup and additive-only rules.
 

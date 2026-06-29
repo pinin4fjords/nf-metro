@@ -5,6 +5,6 @@
  * the canonical site URL, edit links, the header GitHub icon, and the version
  * switcher's release links all derive from these.
  */
-export const REPO = "pinin4fjords/nf-metro";
+export const REPO = "seqeralabs/nf-metro";
 export const GITHUB_URL = `https://github.com/${REPO}`;
-export const PAGES_ORIGIN = "https://pinin4fjords.github.io";
+export const PAGES_ORIGIN = "https://seqeralabs.github.io";

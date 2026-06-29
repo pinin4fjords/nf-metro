@@ -11,7 +11,7 @@ import { Aside } from "@astrojs/starlight/components";
 Routing turns the laid-out `MetroGraph` (stations, ports, and junctions
 with coordinates) into a list of `RoutedPath` polylines, one per edge.
 The entry point is `route_edges` in
-[`src/nf_metro/layout/routing/core.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/core.py).
+[`src/nf_metro/layout/routing/core.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/routing/core.py).
 
 Lines are drawn as horizontal runs joined by 45-degree diagonal
 transitions; inter-section edges use L-shaped (horizontal + vertical)
@@ -24,7 +24,7 @@ Before the normal dispatch, `route_edges` checks the graph's
 
 - When `line_spread is LineSpread.RAILS`, the whole graph is routed by
   `route_rail_edges` in
-  [`routing/rail.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/rail.py)
+  [`routing/rail.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/routing/rail.py)
   and `route_edges` returns early.
 - When only some sections opt into rails (`has_rail_sections`), the
   edges internal to those rail sections are routed by `route_rail_edges`
@@ -133,7 +133,7 @@ When fixing a routing kink, **do not** move a port onto a station's coordinate t
 
 ## The descriptor catalogue (`WRAP_TABLE`)
 
-[`routing/inter_section.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/routing/inter_section.py)
+[`routing/inter_section.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/routing/inter_section.py)
 defines `WRAP_TABLE`, a declarative mirror of the inter-section
 if-cascade. It is a **documentation reference only**: nothing in
 routing consumes it at runtime. Each entry is keyed by
@@ -152,7 +152,7 @@ list of `Corner`s (each an `(incoming, outgoing)` `Direction` pair).
 
 `TurnSequence.parity` counts how many times the corner handedness
 (`CW` / `CCW`) flips along the path; it is the contract pinned by
-[`tests/test_inter_section_descriptor.py`](https://github.com/pinin4fjords/nf-metro/blob/main/tests/test_inter_section_descriptor.py),
+[`tests/test_inter_section_descriptor.py`](https://github.com/seqeralabs/nf-metro/blob/main/tests/test_inter_section_descriptor.py),
 which also sanity-checks that every key is well-formed and that the
 table stays non-empty. Same-row L-shapes and the straight TB
 `(BOTTOM, TOP, 1, 0)` drop are intentionally absent because the

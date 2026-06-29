@@ -95,7 +95,7 @@ The blank label tells nf-metro to render the document icon (with the label from 
 
 The FASTQ icon at the start of the Analysis section shows the pipeline input. The HTML icon at the end of Reporting shows where the QC report is written. Common labels include FASTQ, BAM, VCF, HTML, and CSV, but you can use any short string.
 
-For a complex real-world example using file icons, see [`examples/rnaseq_sections.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_sections.mmd).
+For a complex real-world example using file icons, see [`examples/rnaseq_sections.mmd`](https://github.com/seqeralabs/nf-metro/blob/main/examples/rnaseq_sections.mmd).
 
 ### Paired/multiple files
 
@@ -199,13 +199,13 @@ Use `--debug` to see hidden stations as dashed circles: `nf-metro render --debug
 
 ## 8. Putting it all together
 
-The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
+The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/seqeralabs/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
 
 <Metro src="examples/rnaseq_auto.mmd" mmd={false} />
 
 Five analysis routes share preprocessing, fan out to different aligners, reconverge at post-processing (a `TB` section), and fold back through QC (an `RL` section that creates a serpentine return path). The layout engine infers section directions, grid positions, and port sides automatically from the graph topology.
 
-The nf-core/variantbenchmarking example at [`examples/variantbenchmarking_auto.mmd`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking_auto.mmd) shows a different topology pattern - seven lines converging at a benchmarking section, with the layout engine automatically splitting into two rows:
+The nf-core/variantbenchmarking example at [`examples/variantbenchmarking_auto.mmd`](https://github.com/seqeralabs/nf-metro/blob/main/examples/variantbenchmarking_auto.mmd) shows a different topology pattern - seven lines converging at a benchmarking section, with the layout engine automatically splitting into two rows:
 
 <Metro src="examples/variantbenchmarking_auto.mmd" mmd={false} />
 
@@ -260,7 +260,7 @@ These go at the top of the file, before `graph LR`.
 
 **Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.
 
-With `%%metro compact_offsets: true`, stations are only as wide as the lines actually passing through them. A station where one line enters and a different line exits renders as a dot (zero offset) rather than a pill. This works well for maps with few lines but many stations, like the [variantbenchmarking](https://github.com/pinin4fjords/nf-metro/blob/main/examples/variantbenchmarking.mmd) example.
+With `%%metro compact_offsets: true`, stations are only as wide as the lines actually passing through them. A station where one line enters and a different line exits renders as a dot (zero offset) rather than a pill. This works well for maps with few lines but many stations, like the [variantbenchmarking](https://github.com/seqeralabs/nf-metro/blob/main/examples/variantbenchmarking.mmd) example.
 
 **Off-track inputs.** Pipelines often have reference or auxiliary inputs (a FASTA, a GTF, a known-variants VCF) that feed _into_ a processing step partway through a section rather than flowing along the main route. By default such an input station would claim a line-track slot on the trunk, pushing the layout around. List its station ID in `%%metro off_track:` and nf-metro lifts it above the section's main track, dropping it down into its consumer:
 
@@ -270,7 +270,7 @@ With `%%metro compact_offsets: true`, stations are only as wide as the lines act
 %%metro off_track: ref_in, gtf_in
 ```
 
-This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the lifted stations are usually file terminals. The [`off_track_convergence`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/off_track_convergence.mmd) topology and the [differentialabundance](https://github.com/pinin4fjords/nf-metro/blob/main/examples/differentialabundance.mmd) example both use it.
+This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the lifted stations are usually file terminals. The [`off_track_convergence`](https://github.com/seqeralabs/nf-metro/blob/main/examples/topologies/off_track_convergence.mmd) topology and the [differentialabundance](https://github.com/seqeralabs/nf-metro/blob/main/examples/differentialabundance.mmd) example both use it.
 
 **Off-track outputs.** The same directive works for file _artefacts_ written part-way through a section (a `bam`/`cram` dumped after a mapping step, say). A producer-fed sink - a station with an incoming edge from an on-track step and no on-track consumer - is anchored above its **producer** rather than the section top, so the artefact hangs off the trunk right where it is written:
 
@@ -279,7 +279,7 @@ This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the 
 %%metro off_track: bam_mapped
 ```
 
-The [off_track_outputs](https://github.com/pinin4fjords/nf-metro/blob/main/examples/off_track_outputs.mmd) example hangs several such artefacts above a pre-processing trunk.
+The [off_track_outputs](https://github.com/seqeralabs/nf-metro/blob/main/examples/off_track_outputs.mmd) example hangs several such artefacts above a pre-processing trunk.
 
 **Line spread.** `%%metro line_spread:` controls how lines that share a station relate to each other vertically. It has three modes:
 
@@ -300,7 +300,7 @@ Append `| <section>, ...` to override individual sections, so one map can mix mo
 %%metro line_spread: rails | pathways
 ```
 
-Here every section defaults to `centered` while `pathways` is laid out as parallel rails; ordinary section placement positions both. The [`line_spread`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/line_spread.mmd) example shows all three modes in one map via per-section overrides. For `rails`, inter-section edges into or out of a rail section are not yet supported - a rail section should be self-contained.
+Here every section defaults to `centered` while `pathways` is laid out as parallel rails; ordinary section placement positions both. The [`line_spread`](https://github.com/seqeralabs/nf-metro/blob/main/examples/line_spread.mmd) example shows all three modes in one map via per-section overrides. For `rails`, inter-section edges into or out of a rail section are not yet supported - a rail section should be self-contained.
 
 **Cross-track interchanges.** Sometimes a single step is shared by lines that otherwise run as separate parallel lanes - a tumour and a normal lane both running MarkDuplicates, say - but the lanes never actually merge. In `bundle` mode each lane has to dip off its track to touch that shared node and dip back, pinching the lines together at a point that isn't really a join. An _interchange_ renders the shared step the way a real metro map would: each lane stays straight on its own track, and the step is drawn as a connector (a knob on each rail joined by a link bar) spanning them.
 
@@ -312,7 +312,7 @@ Auto-layout infers an interchange automatically wherever the lanes are _fully pa
 %%metro interchange: markduplicates | tumor | normal
 ```
 
-The lanes are listed one rail per pipe-group; commas bundle several lines onto the same rail. Auto-detection deliberately abstains when two lines share a predecessor or successor (e.g. two callers feeding one merge): there the convergence is doing real work, so it is left alone. It also abstains when another lane's rail would fall between the interchange's rails, since the connector bar would then cut across that lane's stations. Interchanges are skipped inside `rails` sections, which already lay every line on its own rail. The [cross_track_interchange](https://github.com/pinin4fjords/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour/normal lanes.
+The lanes are listed one rail per pipe-group; commas bundle several lines onto the same rail. Auto-detection deliberately abstains when two lines share a predecessor or successor (e.g. two callers feeding one merge): there the convergence is doing real work, so it is left alone. It also abstains when another lane's rail would fall between the interchange's rails, since the connector bar would then cut across that lane's stations. Interchanges are skipped inside `rails` sections, which already lay every line on its own rail. The [cross_track_interchange](https://github.com/seqeralabs/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour/normal lanes.
 
 ### Section directives
 

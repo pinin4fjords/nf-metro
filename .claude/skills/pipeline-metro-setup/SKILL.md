@@ -109,7 +109,7 @@ has merged upstream, every pipeline should converge here.
 ### Case B: pin to a named branch of your fork
 
 If the pipeline needs nf-metro layout fixes that aren't released yet (the
-common case while a fix chain is in flight against `pinin4fjords/nf-metro`):
+common case while a fix chain is in flight against `seqeralabs/nf-metro`):
 
 1. In nf-metro, push the savepoint state of your fix chain to a named branch
    on your fork. Use the pipeline name as the branch name so the pin reads

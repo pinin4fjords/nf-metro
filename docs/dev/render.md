@@ -8,7 +8,7 @@ sidebar:
 Rendering turns a laid-out `MetroGraph` (stations, ports, junctions, and
 sections with coordinates, plus routed `RoutedPath` polylines) into output
 files. The primary entry point is `render_svg` in
-[`src/nf_metro/render/svg.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/render/svg.py),
+[`src/nf_metro/render/svg.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/render/svg.py),
 which returns an SVG string. From there, `render_html` wraps that SVG in
 an interactive HTML page, and `build_manifest` embeds a data manifest into
 the SVG for downstream tooling.

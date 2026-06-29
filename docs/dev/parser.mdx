@@ -12,9 +12,9 @@ you're adding a node shape, a `%%metro` directive, or a new statement
 form - or just trying to understand the grammar - start here.
 
 The entry point is `parse_metro_mermaid` in
-[`src/nf_metro/parser/mermaid.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/parser/mermaid.py);
+[`src/nf_metro/parser/mermaid.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/parser/mermaid.py);
 the data model it builds is in
-[`src/nf_metro/parser/model.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/parser/model.py).
+[`src/nf_metro/parser/model.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/parser/model.py).
 The parser package is split by job: `grammar.py` (grammar, statement types,
 transformer), `directives.py` (directive parsing and dispatch), `resolve.py`
 (the post-parse graph rewrites), and `mermaid.py` (the public entry point and

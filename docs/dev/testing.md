@@ -22,7 +22,7 @@ Test fixtures live in `tests/fixtures/` (`.mmd` files, plus
 `tests/fixtures/nextflow/` for Nextflow-DAG inputs). Larger example
 pipelines live in `examples/`, and the topology stress fixtures in
 `examples/topologies/` (inventory and known issues in
-[`examples/topologies/README.md`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/README.md)).
+[`examples/topologies/README.md`](https://github.com/seqeralabs/nf-metro/blob/main/examples/topologies/README.md)).
 
 :::tip[Auto-discovery]
 Many tests auto-discover fixtures by globbing these directories — adding a `.mmd` file under the right directory enrolls it in the relevant parametrised suites automatically.
@@ -62,7 +62,7 @@ CI, prompting the marker's removal.
 
 The per-phase preconditions, postconditions, and invariants the layout
 engine must preserve are documented in
-[`src/nf_metro/layout/CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md);
+[`src/nf_metro/layout/CONTRACT.md`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md);
 see also [Layout pipeline](/nf-metro/dev/layout_pipeline/).
 
 ## The byte-identical gallery diff
@@ -81,7 +81,7 @@ before and after and diffing the SVGs. This is automated in CI by
 `build_render_diff.py` exits `2` when there is **no** difference: a
 PR that intends to be visually neutral should produce a byte-identical
 gallery (no diff page). The preview is published at
-`https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/`.
+`https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/`.
 
 To reproduce locally, render the gallery on each branch into separate
 directories and run the diff script the same way:
