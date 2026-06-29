@@ -1485,17 +1485,57 @@ def _propagate_lr_rl_exit_to_entry(ctx: _OffsetCtx) -> None:
                             ctx.offsets[(e2.target, lid)] = entry_offs[lid]
 
 
+def _recenter_single_line_corridor_entry(ctx: _OffsetCtx) -> None:
+    """Anchor a corridor-fed single-line section's entry port on its trunk.
+
+    A LEFT/RIGHT entry port of an LR/RL section that carries a single present
+    line has no bundle to keep ordered: its global-priority offset is the lane
+    the line held in the upstream multi-line section, and keeping it only drags
+    the lone consumer off the section trunk (horizontal reconciliation snaps the
+    station up to match the port), so the section reserves empty space for lines
+    that never enter it.  When every feeder reaches the port on a different base
+    Y -- a vertical corridor -- the lane step resolves in that vertical leg, so
+    re-anchor the port at offset 0 and let reconciliation settle the consumer
+    onto the trunk.  A flat (same-Y) seam is left untouched: re-basing there
+    would slope the straight-through run into an almost-horizontal segment.
+    """
+    graph = ctx.graph
+    present = _section_present_lines(graph)
+    for port_id, port_obj in graph.ports.items():
+        if not port_obj.is_entry:
+            continue
+        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        if port_obj.section_id not in ctx.lr_rl_sections:
+            continue
+        if len(present.get(port_obj.section_id, set())) != 1:
+            continue
+        port_y = graph.stations[port_id].y
+        feeders = [
+            graph.stations[edge.source]
+            for edge in graph.edges_to(port_id)
+            if edge.source in graph.stations
+        ]
+        if not feeders or any(abs(f.y - port_y) <= _SAME_Y_TOLERANCE for f in feeders):
+            continue
+        for lid in graph.station_lines(port_id):
+            ctx.offsets[(port_id, lid)] = 0.0
+
+
 def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
     """Compute entry port offsets and propagate to downstream stations.
 
-    Handles two cases:
+    Handles three cases:
     1. TOP entry ports fed by TB BOTTOM exits: match the reversed offset
        scheme used by inter-section routing.
     2. LEFT/RIGHT entry ports fed by a single LR/RL exit: propagate
        spatial ordering to prevent bundle crossings.
+    3. Corridor-fed single-line sections: re-anchor the entry port on the
+       trunk so the lone consumer is not dragged into a phantom bundle lane.
     """
     _entry_top_from_tb_bottom_exits(ctx)
     _propagate_lr_rl_exit_to_entry(ctx)
+    _recenter_single_line_corridor_entry(ctx)
 
 
 def _compact_station_gaps(ctx: _OffsetCtx) -> None:

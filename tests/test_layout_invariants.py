@@ -953,6 +953,93 @@ def test_flat_frame_boundary_run_stays_level(fixture, src_sec, dst_sec, line_id)
 
 
 # ---------------------------------------------------------------------------
+# A single-line section reached through a corridor rides its own trunk
+# ---------------------------------------------------------------------------
+
+
+def _single_line_corridor_entries(graph: MetroGraph):
+    """Yield ``(section_id, entry_port_id, line_id)`` for corridor-fed solos.
+
+    A LEFT/RIGHT entry port of an LR/RL section that carries a single present
+    line, where every feeder reaches the port on a different base Y (a vertical
+    corridor), so the lone consumer has no bundle pinning it off the trunk and
+    must ride offset 0.  Flat (same-Y) seams are excluded: re-basing there would
+    slope the straight-through run.
+    """
+    present: dict[str, set[str]] = defaultdict(set)
+    for sid, st in graph.stations.items():
+        if not st.is_port and st.section_id is not None:
+            present[st.section_id].update(graph.station_lines(sid))
+    for sec_id, sec in graph.sections.items():
+        if not lanes_run_along_y(sec.direction):
+            continue
+        if len(present.get(sec_id, set())) != 1:
+            continue
+        line_id = next(iter(present[sec_id]))
+        for pid in sec.entry_ports:
+            port = graph.ports.get(pid)
+            if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
+            port_y = graph.stations[pid].y
+            feeders = [
+                graph.stations[e.source]
+                for e in graph.edges_to(pid)
+                if e.source in graph.stations
+            ]
+            if feeders and all(abs(f.y - port_y) > _Y_TOL for f in feeders):
+                yield sec_id, pid, line_id
+
+
+def _fixtures_with_corridor_solo() -> list[str]:
+    """Corpus fixtures with at least one corridor-fed single-line section."""
+    out: list[str] = []
+    for fixture in ALL_FIXTURES:
+        try:
+            graph = _layout(fixture)
+        except Exception:
+            continue
+        if next(_single_line_corridor_entries(graph), None) is not None:
+            out.append(fixture)
+    return out
+
+
+_FIXTURES_WITH_CORRIDOR_SOLO = _fixtures_with_corridor_solo()
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_CORRIDOR_SOLO)
+def test_single_line_corridor_section_rides_trunk(fixture):
+    """A corridor-fed single-line section's lone consumer rides offset 0.
+
+    With one present line there is no bundle to keep ordered, so the global
+    priority lane the line held upstream only pushes the lone station off the
+    section trunk -- the section then reserves empty space for lines that never
+    enter it.  The vertical corridor absorbs the lane step, so both the entry
+    port and the consumer it feeds must anchor on the trunk (#1173).
+    """
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    for sec_id, port_id, line_id in _single_line_corridor_entries(graph):
+        port_off = round(offsets.get((port_id, line_id), 0.0), 1)
+        assert port_off == 0.0, (
+            f"{fixture}: section {sec_id} entry port {port_id} sits at offset "
+            f"{port_off} for sole line {line_id}; a corridor-fed single-line "
+            "section should anchor its entry on the trunk"
+        )
+        consumers = [
+            sid
+            for sid in graph.sections[sec_id].station_ids
+            if not graph.stations[sid].is_port and line_id in graph.station_lines(sid)
+        ]
+        for sid in consumers:
+            st_off = round(offsets.get((sid, line_id), 0.0), 1)
+            assert st_off == 0.0, (
+                f"{fixture}: section {sec_id} station {sid} sits at offset "
+                f"{st_off} for sole line {line_id}; the lone consumer should "
+                "ride the section trunk, not the upstream bundle lane"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Merge-port re-joined line keeps its side on the outgoing run
 # ---------------------------------------------------------------------------
 
