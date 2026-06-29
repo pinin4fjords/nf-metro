@@ -23,9 +23,11 @@ from nf_metro.layout.constants import (
     LINE_GAP,
     MIN_STATION_FLAT_LENGTH,
     SAME_COORD_TOLERANCE,
+    STATION_RADIUS_APPROX,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
     TERMINUS_ICON_CLEARANCE_V,
+    TERMINUS_ICON_GAP,
     TERMINUS_WIDTH,
 )
 from nf_metro.layout.geometry import (
@@ -266,6 +268,10 @@ def _layout_single_section(
     # Ensure minimum inner extent so stations sit on visible track
     _enforce_min_extent(sub, section, x_spacing, y_spacing)
 
+    # Put each bypass V on the side its carried line is drawn, so the fork
+    # from the bypassed station's feeder reaches it without crossing the trunk.
+    _align_bypass_v_to_lane_side(sub, section, graph, frame)
+
     # Bypass V helpers (``__bypass_``) have no rendered marker.  Use
     # them to extend the bbox only when V sits beyond the real-station
     # extent, and only by enough for the diversion curve to clear the
@@ -341,6 +347,61 @@ def _layout_single_section(
     _adjust_terminus_icon_clearance(sub, section, graph)
 
     return sub
+
+
+def _align_bypass_v_to_lane_side(
+    sub: MetroGraph, section: Section, graph: MetroGraph, frame: AxisFrame
+) -> None:
+    """Seat a bypass V on its section's lane side of the trunk.
+
+    A bypass V (``__bypass_`` helper) carries one line around the station it
+    bypasses.  In a vertical-flow (TB/BT) section every lane is drawn on the
+    section's lane-sign side of the trunk -- left for a downward (TB) section,
+    right for an upward (BT) one or a positive-fan section.  But
+    :func:`assign_tracks` slots the V by its line's priority index, which for a
+    TB section is the mirror of that side, so a V left on the priority slot
+    lands on the wrong side and the fork from the bypassed station's feeder
+    crosses the trunk lane (#1163).
+
+    Snap the V onto the lane-side grid column its bypass run should share with
+    section content (the nearest real-station column on that side), so the run
+    sits on the section's grid rather than drifting to an off-grid lane.  With
+    no lane-side station to share, reflect the V across the bypassed station so
+    it at least leaves on the side its line is drawn.  Horizontal (LR/RL)
+    sections stack lanes on Y in the same order :func:`assign_tracks` uses, so
+    they never transpose.
+    """
+    if not lanes_run_along_x(section.direction):
+        return
+    bypass_vs = [v for v in sub.stations.values() if is_bypass_v(v.id)]
+    if not bypass_vs:
+        return
+
+    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
+
+    lane_sign = (
+        1.0 if section.id in tb_positive_fan_sections(graph) else frame.secondary_sign
+    )
+    real_xs = [
+        s.x
+        for s in sub.stations.values()
+        if not is_bypass_v(s.id) and not s.is_port and not s.off_track
+    ]
+    for v in bypass_vs:
+        # The subgraph station is a coordinate-only copy; the bypassed-station
+        # link lives on the full-graph station.
+        full = graph.stations.get(v.id)
+        bypassed_id = full.bypasses_station_id if full else None
+        anchor = sub.stations.get(bypassed_id) if bypassed_id else None
+        if anchor is None:
+            continue
+        side_cols = [
+            x for x in real_xs if (x - anchor.x) * lane_sign > SAME_COORD_TOLERANCE
+        ]
+        if side_cols:
+            v.x = min(side_cols, key=lambda x: abs(x - v.x))
+        elif (v.x - anchor.x) * lane_sign < 0.0:
+            v.x = anchor.x - (v.x - anchor.x)
 
 
 def _resolve_station_collisions(
@@ -855,6 +916,30 @@ def _terminus_icon_clearance_vertical(
     )
     step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
     return TERMINUS_ICON_CLEARANCE_V + (n_icons - 1) * step
+
+
+def _terminus_icon_flow_overhang(
+    n_icons: int,
+    names: list[str] | None = None,
+) -> float:
+    """Distance from a TB/BT terminus's marker to the far edge of its icons.
+
+    The drawn flow-axis extent of the icon stack (icon body height plus a
+    caption row when captioned, times the icon count), matching what
+    ``render.svg`` draws.  Unlike :func:`_terminus_icon_clearance_vertical`
+    this omits the section-border visual margin: it locates the icon's
+    *edge* so an exit corridor can be placed just clear of it, rather than
+    reserving bbox padding.
+    """
+    captioned = bool(names and any(names))
+    caption_room = (
+        ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * active_font_scale()
+        if captioned
+        else 0.0
+    )
+    body = STATION_RADIUS_APPROX + TERMINUS_ICON_GAP + 2 * ICON_HALF_HEIGHT
+    step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
+    return body + caption_room + (n_icons - 1) * step
 
 
 def _terminus_icons_extend_forward(is_source: bool, section_dir: str) -> bool:

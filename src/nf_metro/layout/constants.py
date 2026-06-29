@@ -635,6 +635,12 @@ renderer lifts the icon by the same amount keeps the icon fixed and slides the
 nub clear below the caption.  Shared by ``rail_mode`` (the drop) and
 ``render.svg`` (the matching icon lift) so the two stay in lockstep."""
 
+TERMINUS_ICON_GAP: float = 6.0
+"""Gap between a terminus station pill and its first file icon.
+
+Layout-side mirror of the renderer's ``ICON_STATION_GAP`` so the two
+agree on where the icon stack starts without layout depending on render."""
+
 TERMINUS_ICON_CLEARANCE: float = 58.0
 """Minimum clearance from terminus station center to section bbox edge.
 
@@ -644,7 +650,7 @@ extent, plus ~19px visual margin so icons don't crowd the section border.
 
 TERMINUS_ICON_CLEARANCE_V: float = (
     STATION_RADIUS_APPROX
-    + 6.0  # icon gap (render-side ICON_STATION_GAP)
+    + TERMINUS_ICON_GAP
     + 2 * ICON_HALF_HEIGHT
     + ICON_CAPTION_GAP
     + ICON_CAPTION_FONT_HEIGHT
@@ -657,6 +663,15 @@ TB/BT termini stack their file icon (and under-icon caption) below or
 above the station instead of beside it, so the reservation uses icon
 height + caption height rather than icon width.
 """
+
+EXIT_CORRIDOR_ICON_CLEARANCE: float = CURVE_RADIUS
+"""Gap a flow-axis exit corridor keeps below a terminus icon hanging into
+the exit row of a vertical-flow (TB/BT) section.
+
+The exit port (and the horizontal corridor a route turns onto to leave
+the section) is clamped to at least the icon's drawn far edge plus this
+margin, so a route does not graze the file icon on its way out.  Sized
+to clear the bundle-offset spread of the lines on the corridor."""
 
 PORT_LABEL_MAX_DX: float = 120.0
 """Max horizontal distance for port-route label override.

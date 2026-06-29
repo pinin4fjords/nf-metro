@@ -31,6 +31,7 @@ from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
     MIN_STATION_FLAT_LENGTH,
     ROW_BAND_SLACK,
+    SAME_Y_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
@@ -51,7 +52,9 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
+    flow_axis_exit_ports,
     flow_exit_carrier_anchor,
+    iter_corridor_fed_solo_entries,
     iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.bbox import (
@@ -950,6 +953,65 @@ def test_flat_frame_boundary_run_stays_level(fixture, src_sec, dst_sec, line_id)
         f"{fixture}: {line_id} leaves {src_sec} at offset {exit_off} but enters "
         f"{dst_sec} at {entry_off}; the flat run slopes"
     )
+
+
+# ---------------------------------------------------------------------------
+# A single-line section reached through a corridor rides its own trunk
+# ---------------------------------------------------------------------------
+
+
+def _fixtures_with_corridor_solo() -> list[str]:
+    """Corpus fixtures with at least one corridor-fed single-line section."""
+    out: list[str] = []
+    for fixture in ALL_FIXTURES:
+        try:
+            graph = _layout(fixture)
+        except Exception:
+            continue
+        if (
+            next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None)
+            is not None
+        ):
+            out.append(fixture)
+    return out
+
+
+_FIXTURES_WITH_CORRIDOR_SOLO = _fixtures_with_corridor_solo()
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_CORRIDOR_SOLO)
+def test_single_line_corridor_section_rides_trunk(fixture):
+    """A corridor-fed single-line section's lone consumer rides offset 0.
+
+    With one present line there is no bundle to keep ordered, so the global
+    priority lane the line held upstream only pushes the lone station off the
+    section trunk -- the section then reserves empty space for lines that never
+    enter it.  The vertical corridor absorbs the lane step, so both the entry
+    port and the consumer it feeds must anchor on the trunk (#1173).
+    """
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    for sec_id, port_id, line_id in iter_corridor_fed_solo_entries(
+        graph, SAME_Y_TOLERANCE
+    ):
+        port_off = round(offsets.get((port_id, line_id), 0.0), 1)
+        assert port_off == 0.0, (
+            f"{fixture}: section {sec_id} entry port {port_id} sits at offset "
+            f"{port_off} for sole line {line_id}; a corridor-fed single-line "
+            "section should anchor its entry on the trunk"
+        )
+        consumers = [
+            sid
+            for sid in graph.sections[sec_id].station_ids
+            if not graph.stations[sid].is_port and line_id in graph.station_lines(sid)
+        ]
+        for sid in consumers:
+            st_off = round(offsets.get((sid, line_id), 0.0), 1)
+            assert st_off == 0.0, (
+                f"{fixture}: section {sec_id} station {sid} sits at offset "
+                f"{st_off} for sole line {line_id}; the lone consumer should "
+                "ride the section trunk, not the upstream bundle lane"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -2894,6 +2956,73 @@ def test_no_line_crosses_file_icon(fixture):
     hits = _segments_crossing_icons(graph)
     assert not hits, f"{fixture}: line(s) cross a file icon: " + "; ".join(
         f"{ln} on {s}->{t} crosses {icon}" for ln, s, t, icon in hits
+    )
+
+
+def _exit_corridor_runs_over_icon(
+    graph: MetroGraph, sink_id: str
+) -> tuple[list[float], float, tuple[float, float]]:
+    """Y of every horizontal run leaving via ``sink_id``'s section flow-axis
+    exit that overlaps the sink icon's x-span, plus the icon bottom and x-span.
+
+    A vertical-flow section's exit corridor is the horizontal run a route
+    turns onto to leave through the LEFT/RIGHT exit port; this isolates the
+    segments that share x with the terminus icon so a test can check they
+    sit below it.
+    """
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    box = _icon_obstacles_by_station(graph, THEMES["nfcore"], offsets)[sink_id]
+    icon_x_lo, _, icon_x_hi, icon_bottom = box
+    section = graph.sections[graph.stations[sink_id].section_id]
+    exit_ports = flow_axis_exit_ports(section, graph)
+    run_ys: list[float] = []
+    for r in routes:
+        if not (exit_ports & {r.edge.source, r.edge.target}):
+            continue
+        pts = apply_route_offsets(r, offsets)
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            if (
+                abs(y1 - y2) < 1.0
+                and max(x1, x2) >= icon_x_lo
+                and min(x1, x2) <= icon_x_hi
+            ):
+                run_ys.append((y1 + y2) / 2)
+    return run_ys, icon_bottom, (icon_x_lo, icon_x_hi)
+
+
+def test_tb_exit_corridor_clears_terminus_icon():
+    """A vertical-flow section's flow-axis exit corridor sits below a terminus
+    file icon hanging into the exit row, not grazing it (issue #1172).
+
+    The exit port (and the horizontal run a route turns onto to leave the
+    section) is clamped below the icon's drawn edge, so the leaving line
+    clears the artefact with a real margin.
+    """
+    graph = _layout("tb_fork_lane_transpose.mmd")
+    run_ys, icon_bottom, _ = _exit_corridor_runs_over_icon(graph, "vcf_out")
+    assert run_ys, "no exit-corridor run found over the VCF icon x-span"
+    assert min(run_ys) >= icon_bottom, (
+        f"exit corridor at y={min(run_ys):.1f} does not clear the VCF icon "
+        f"bottom y={icon_bottom:.1f}"
+    )
+
+
+def test_tb_exit_corridor_grazes_icon_without_clamp(monkeypatch):
+    """Without the exit-port icon clamp the corridor rakes the icon, so the
+    fixture genuinely exercises the #1172 fix.
+
+    Guards against the fixture silently ceasing to exercise the clamp: with
+    the icon-reach clamp neutralised, the terminus icon must be crossed by a
+    non-terminating line.
+    """
+    import nf_metro.layout.phases.ports as ports_module
+
+    monkeypatch.setattr(ports_module, "_exit_row_icon_reach", lambda *a, **k: 0.0)
+    graph = _layout("tb_fork_lane_transpose.mmd", _cache=False)
+    assert _segments_crossing_icons(graph), (
+        "fixture no longer rakes its icon without the exit-port clamp; it "
+        "can't exercise the #1172 fix"
     )
 
 
@@ -5841,21 +5970,27 @@ def test_symmetric_diamond_compacts_to_half_pitch(fixture):
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_BYPASS)
 def test_bypass_v_has_horizontal_segment(fixture):
-    """Each hidden bypass V station must sit in the middle of a clearly
-    visible horizontal flat segment, matching how regular fork/join
-    stations present a horizontal run through their X.
+    """Each hidden bypass V station must sit on a clearly visible flat run, not
+    at a bare curve apex, matching how regular fork/join stations present a run
+    through their marker.
 
-    Stronger than ``test_bypass_v_horizontal_segment_is_flat``: that
-    test only checks the polyline flat at V's Y is flat in Y, which is
-    trivially true even when the flat is zero pixels long because the
-    two halves of the U meet at V's X.  Here we assert the polyline
-    flat reaches V from at least ``MIN_STATION_FLAT_LENGTH`` pixels
-    away (in run-axis X) on each side, so that after the curve corner
-    consumes ``CURVE_RADIUS`` pixels, a visible flat of
-    ``MIN_STATION_FLAT_LENGTH - CURVE_RADIUS`` pixels remains on each
-    side of V (matching e.g. propd / dream / DESeq2).
+    Stronger than ``test_bypass_v_horizontal_segment_is_flat``: that test only
+    checks the polyline flat at V is flat, which is trivially true even when the
+    flat is zero pixels long because the two halves of the U meet at V.  Here we
+    require the run to reach V from at least ``MIN_STATION_FLAT_LENGTH`` pixels
+    away, so that after the curve corner consumes ``CURVE_RADIUS`` pixels a
+    visible flat of ``MIN_STATION_FLAT_LENGTH - CURVE_RADIUS`` pixels remains
+    (matching e.g. propd / dream / DESeq2).
+
+    The run is measured along the section's flow axis: X for a horizontal
+    (LR/RL) section, Y for a vertical (TB/BT) one.  A horizontal U-bypass dips
+    below the trunk and back, so both incident runs are full flats.  A
+    vertical-flow bypass instead peels around the bypassed station via a
+    diagonal, so its peel-in run lands a curve short by construction; there only
+    the run-out side carries the full flat and the peel-in side need only clear
+    the corner curve.
     """
-    from nf_metro.layout.constants import MIN_STATION_FLAT_LENGTH
+    from nf_metro.layout.constants import CURVE_RADIUS, MIN_STATION_FLAT_LENGTH
 
     graph = _layout(fixture)
     offsets = compute_station_offsets(graph)
@@ -5883,27 +6018,45 @@ def test_bypass_v_has_horizontal_segment(fixture):
         if in_route is None or out_route is None:
             continue
 
-        # P -> V: last two polyline points (-2, -1) form the flat
-        # segment landing at V.  Its length is what reaches V in X
-        # before the curve corner consumes CURVE_RADIUS pixels.
-        left_flat = abs(in_route.points[-1][0] - in_route.points[-2][0])
-        # V -> T: first two polyline points form the flat leaving V.
-        right_flat = abs(out_route.points[1][0] - out_route.points[0][0])
+        section = graph.sections.get(graph.stations[vid].section_id)
+        # Lanes stack on Y for a horizontal section, so its flow (run) axis is
+        # X; a vertical-flow section runs down Y.
+        horizontal = section is not None and lanes_run_along_y(section.direction)
+        flow_axis = 0 if horizontal else 1
 
-        assert left_flat >= MIN_STATION_FLAT_LENGTH - tol, (
-            f"{fixture}: bypass {vid!r} line {lid!r}: P->V flat segment "
-            f"too short to render a visible horizontal run through V "
-            f"(left_flat={left_flat:.2f}px, "
-            f"MIN_STATION_FLAT_LENGTH={MIN_STATION_FLAT_LENGTH}px); "
-            f"V would sit at the curve apex instead of on a visible "
-            f"horizontal flat like regular stations"
-        )
-        assert right_flat >= MIN_STATION_FLAT_LENGTH - tol, (
-            f"{fixture}: bypass {vid!r} line {lid!r}: V->T flat segment "
-            f"too short to render a visible horizontal run through V "
-            f"(right_flat={right_flat:.2f}px, "
-            f"MIN_STATION_FLAT_LENGTH={MIN_STATION_FLAT_LENGTH}px)"
-        )
+        # P -> V: last two polyline points form the run segment landing at V;
+        # V -> T: first two form the run leaving it.  Measured on the flow axis.
+        ip, op = in_route.points, out_route.points
+        left_flat = abs(ip[-1][flow_axis] - ip[-2][flow_axis])
+        right_flat = abs(op[1][flow_axis] - op[0][flow_axis])
+
+        if horizontal:
+            # A U-bypass dips below the trunk and back, so both incident runs
+            # are full flats reaching V from MIN_STATION_FLAT_LENGTH away.
+            assert left_flat >= MIN_STATION_FLAT_LENGTH - tol, (
+                f"{fixture}: bypass {vid!r} line {lid!r}: P->V flat too short "
+                f"(left_flat={left_flat:.2f}px, min={MIN_STATION_FLAT_LENGTH}px); "
+                f"V would sit at the curve apex, not on a visible flat run"
+            )
+            assert right_flat >= MIN_STATION_FLAT_LENGTH - tol, (
+                f"{fixture}: bypass {vid!r} line {lid!r}: V->T flat too short "
+                f"(right_flat={right_flat:.2f}px, min={MIN_STATION_FLAT_LENGTH}px)"
+            )
+        else:
+            # A vertical-flow bypass peels in diagonally, so only its run-out
+            # side is a full flat; the peel-in side need only clear the corner
+            # curve so V never collapses onto a bare apex.
+            run_out, peel_in = max(left_flat, right_flat), min(left_flat, right_flat)
+            assert run_out >= MIN_STATION_FLAT_LENGTH - tol, (
+                f"{fixture}: bypass {vid!r} line {lid!r}: no run-out flat reaches V "
+                f"(run_out={run_out:.2f}px, min={MIN_STATION_FLAT_LENGTH}px); "
+                f"V would sit at the curve apex, not on a visible flat run"
+            )
+            assert peel_in >= CURVE_RADIUS - tol, (
+                f"{fixture}: bypass {vid!r} line {lid!r}: peel-in run too short "
+                f"to clear V's corner curve (peel_in={peel_in:.2f}px, "
+                f"min={CURVE_RADIUS}px)"
+            )
         checked += 1
 
     assert checked > 0, (

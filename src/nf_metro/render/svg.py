@@ -307,49 +307,37 @@ def _icon_obstacles_by_station(
         if not station.is_terminus or not station.terminus_labels:
             continue
 
-        r = theme.station_radius
-
-        # Determine if source (no incoming edges) or sink
-        is_source = not graph.edges_to(station.id)
-
-        section = graph.sections.get(station.section_id) if station.section_id else None
-        section_dir = section.direction if section else "LR"
-
-        if section_dir == "RL":
-            icons_go_right = is_source
-        else:
-            icons_go_right = not is_source
-
-        n = len(station.terminus_labels)
-        icon_gap = r + ICON_STATION_GAP
-        total_w = n * theme.terminus_width + (n - 1) * ICON_INTER_GAP
-
-        # Stacked-files icons extend beyond nominal size by the offset
-        has_stacked = ICON_TYPE_FILES in (station.terminus_icon_types or [])
-        stacked_pad = (
-            theme.terminus_width * FILES_ICON_OFFSET_RATIO if has_stacked else 0.0
-        )
-
+        # Reuse the renderer's own icon-placement geometry so the obstacle
+        # tracks the *drawn* icons.  Icons march along the section's flow
+        # axis -- horizontally for LR/RL, vertically for TB/BT -- so a
+        # box that always assumed a horizontal row sat beside the wrong
+        # axis on a vertical-flow terminus (a line could rake the real
+        # icon while the box reported clear).
         line_offs = [
             station_offsets.get((station.id, lid), 0.0)
             for lid in graph.station_lines(station.id)
         ]
         min_off = min(line_offs) if line_offs else 0.0
         max_off = max(line_offs) if line_offs else 0.0
-        icon_cy = station.y + (min_off + max_off) / 2
+        centers = _terminus_icon_centers_for(station, graph, theme, min_off, max_off)
+        if not centers:
+            continue
 
-        if icons_go_right:
-            x_min = station.x + icon_gap - stacked_pad
-            x_max = x_min + total_w + 2 * stacked_pad
-        else:
-            x_max = station.x - icon_gap + stacked_pad
-            x_min = x_max - total_w - 2 * stacked_pad
+        # Stacked-files icons extend beyond nominal size by the offset.
+        has_stacked = ICON_TYPE_FILES in (station.terminus_icon_types or [])
+        stacked_pad = (
+            theme.terminus_width * FILES_ICON_OFFSET_RATIO if has_stacked else 0.0
+        )
+        icon_half_w = theme.terminus_width / 2 + stacked_pad
+        icon_half_h = theme.terminus_height / 2 + stacked_pad
 
-        y_min = icon_cy - theme.terminus_height / 2 - stacked_pad
-        y_max = icon_cy + theme.terminus_height / 2 + stacked_pad
+        x_min = min(cx for cx, _ in centers) - icon_half_w
+        x_max = max(cx for cx, _ in centers) + icon_half_w
+        y_min = min(cy for _, cy in centers) - icon_half_h
+        y_max = max(cy for _, cy in centers) + icon_half_h
 
-        # Extend the obstacle downward to cover any caption text rendered
-        # below the icon, so neighbouring labels keep their distance.
+        # Captions render below the icon row, so extend the box downward to
+        # cover them and keep neighbouring labels at a distance.
         if any(station.terminus_names or []):
             y_max += ICON_NAME_GAP + theme.label_font_size * ICON_NAME_FONT_SCALE
 
@@ -2181,6 +2169,81 @@ def caption_aware_icon_step(
     return required
 
 
+def _terminus_icon_marching(
+    theme: Theme, names: list[str], is_vertical_flow: bool
+) -> tuple[float, list[float]]:
+    """Per-icon centre-to-centre step along the flow axis, and caption widths.
+
+    TB/BT stack icons by height (plus a caption row when captioned); LR/RL
+    march by a caption-aware width.  Returns the step and each caption's
+    estimated width, shared by the icon-placement helper and the renderer's
+    caption-stagger logic so the two stay in lockstep.
+    """
+    caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
+    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in names]
+    if is_vertical_flow:
+        caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
+        step = theme.terminus_height + ICON_INTER_GAP + caption_room
+    else:
+        step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
+    return step, name_widths
+
+
+def _terminus_icon_centers_for(
+    station: Station,
+    graph: MetroGraph,
+    theme: Theme,
+    min_off: float,
+    max_off: float,
+) -> list[tuple[float, float]]:
+    """Drawn centre of each of *station*'s terminus icons.
+
+    Single source of truth for terminus-icon placement, shared by the
+    renderer (to draw the icons) and the obstacle / clearance logic (to
+    reason about where they land).  Derives the flow axis, marching step,
+    and bundle offset the same way the renderer does, then delegates to
+    :func:`_terminus_icon_centers`.  ``min_off``/``max_off`` carry the
+    station's bundle span so each caller supplies the offsets it already
+    has.  Returns an empty list for non-terminus stations.
+    """
+    if not station.is_terminus or not station.terminus_labels:
+        return []
+
+    section = graph.sections.get(station.section_id) if station.section_id else None
+    is_source = not graph.edges_to(station.id)
+    section_dir = section.direction if section else "LR"
+    is_vertical_flow = lanes_run_along_x(section_dir)
+
+    r = theme.station_radius
+    icon_gap = r + ICON_STATION_GAP
+    icon_half_w = theme.terminus_width / 2
+    icon_half_h = theme.terminus_height / 2
+    icon_half_flow = icon_half_h if is_vertical_flow else icon_half_w
+
+    bundle_center = (min_off + max_off) / 2
+
+    names = station.terminus_names or [""] * len(station.terminus_labels)
+    icon_step, _ = _terminus_icon_marching(theme, names, is_vertical_flow)
+
+    is_rail = graph.station_is_rail(station.id)
+    offtrack_nub_lift = (
+        OFFTRACK_TERMINUS_NUB_CLEARANCE
+        if (station.off_track and is_rail and station.is_captioned_terminus)
+        else 0.0
+    )
+
+    return _terminus_icon_centers(
+        station,
+        section_dir,
+        is_source,
+        len(station.terminus_labels),
+        icon_gap + icon_half_flow + offtrack_nub_lift,
+        icon_step,
+        bundle_center,
+        is_rail=is_rail,
+    )
+
+
 def _terminus_icon_centers(
     station: Station,
     section_dir: str,
@@ -2239,18 +2302,10 @@ def _render_terminus_icons(
     section: Section | None = (
         graph.sections.get(station.section_id) if station.section_id else None
     )
-    # Detect if station is a source (no incoming edges) or sink.
-    is_source = not graph.edges_to(station.id)
     section_dir = section.direction if section else "LR"
     is_vertical_flow = lanes_run_along_x(section_dir)
-    # Gap between the station pill and the first icon, plus the icon's own
-    # half-extent along the flow axis (width for LR/RL, height for TB/BT).
-    icon_gap = r + ICON_STATION_GAP
     icon_half_w = theme.terminus_width / 2
     icon_half_h = theme.terminus_height / 2
-    icon_half_flow = icon_half_h if is_vertical_flow else icon_half_w
-
-    bundle_center = (min_off + max_off) / 2
 
     icon_types = station.terminus_icon_types or [ICON_TYPE_FILE] * len(
         station.terminus_labels
@@ -2259,37 +2314,9 @@ def _render_terminus_icons(
     banners = station.terminus_icon_banners or [False] * len(station.terminus_labels)
 
     caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
-    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in names]
-    # LR/RL march icons along X, so widen the step when adjacent captions
-    # would overlap.  TB/BT stack icons along Y, where icon height (plus a
-    # caption row, when present) sets the spacing.
-    if is_vertical_flow:
-        caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
-        icon_step = theme.terminus_height + ICON_INTER_GAP + caption_room
-    else:
-        icon_step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
+    icon_step, name_widths = _terminus_icon_marching(theme, names, is_vertical_flow)
 
-    is_rail = graph.station_is_rail(station.id)
-    # A captioned off-track rail terminus has its station dropped by
-    # OFFTRACK_TERMINUS_NUB_CLEARANCE (see rail_mode) so the buffer-stop nub
-    # clears the under-icon caption; lift the icon stack by the same amount so
-    # it stays put while the nub slides down.
-    offtrack_nub_lift = (
-        OFFTRACK_TERMINUS_NUB_CLEARANCE
-        if (station.off_track and is_rail and station.is_captioned_terminus)
-        else 0.0
-    )
-
-    centers = _terminus_icon_centers(
-        station,
-        section_dir,
-        is_source,
-        len(station.terminus_labels),
-        icon_gap + icon_half_flow + offtrack_nub_lift,
-        icon_step,
-        bundle_center,
-        is_rail=is_rail,
-    )
+    centers = _terminus_icon_centers_for(station, graph, theme, min_off, max_off)
 
     # Captions sitting at the same Y overlap when their estimated
     # widths exceed icon_step; in that case, every other caption is
