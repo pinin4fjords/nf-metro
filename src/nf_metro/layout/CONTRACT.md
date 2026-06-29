@@ -765,13 +765,18 @@ in pipeline order.
   6.15).
 
 ### Stage 6.5: align TB-section bbox bottoms
-- **Purpose**: Extend TB-section bbox bottom to match downstream
-  LR/RL section's bbox bottom so the line doesn't look pinned to the
-  TB bbox edge.
+- **Purpose**: Extend TB-section bbox bottom to match the downstream
+  LR/RL section's *settled content* bottom so the line doesn't look
+  pinned to the TB bbox edge, and the straight inter-section run clears
+  both section bottoms by the same distance. The target's settled
+  content bottom (`_predict_section_content_bottom`) is used rather than
+  its live `bbox_h`, which the later bbox-shrink phase may collapse.
 - **Helper**: `_align_tb_section_bbox_bottoms` (`phases/ports.py`).
 - **Precondition**: All station/port Ys final (post-snap).
 - **Postcondition**: For each TB section feeding an LR/RL target,
-  `tb.bbox_y + tb.bbox_h >= target.bbox_y + target.bbox_h`.
+  `tb.bbox_y + tb.bbox_h >= target settled content bottom`. After the
+  bbox-shrink phase the two edges are level for a straight run (guarded
+  by `_guard_fold_lr_exit_sections_share_bbox_bottom`, #1162).
 - **Invariants preserved**: All station and port Ys. Other bboxes.
 - **Lifecycle:** invariant - TB-section bbox bottoms align with their
   downstream LR/RL target at the final boundary.

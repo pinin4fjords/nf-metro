@@ -55,6 +55,7 @@ from nf_metro.layout.phases._common import (
     flow_axis_exit_ports,
     flow_exit_carrier_anchor,
     iter_corridor_fed_solo_entries,
+    iter_fold_lr_exit_straight_runs,
     iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.bbox import (
@@ -3798,6 +3799,29 @@ def test_fold_lr_exit_follows_settled_target(fixture):
         for pid, tgt in iter_fold_lr_exits_short_of_target(graph, _Y_TOL)
     ]
     assert not short, f"{fixture}: fold exits short of their target: {short}"
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_MULTI_SECTION)
+def test_fold_lr_exit_sections_share_bbox_bottom(fixture):
+    """A straight folded LR/RL run's two sections end at the same bbox bottom.
+
+    The run is horizontal; unequal bbox bottoms on the exit and target sections
+    leave it a different distance above each section's bottom edge, a lopsided
+    clearance even though the run is straight.
+    """
+    graph = _layout(fixture)
+    mismatches = []
+    for pid, tgt in iter_fold_lr_exit_straight_runs(graph, _Y_TOL):
+        exit_section = graph.sections[graph.ports[pid].section_id]
+        tgt_section = graph.sections[tgt.section_id]
+        exit_bot = exit_section.bbox_y + exit_section.bbox_h
+        tgt_bot = tgt_section.bbox_y + tgt_section.bbox_h
+        if abs(exit_bot - tgt_bot) > _Y_TOL:
+            mismatches.append(
+                f"{exit_section.id} bottom={exit_bot:.1f} != "
+                f"{tgt_section.id} bottom={tgt_bot:.1f}"
+            )
+    assert not mismatches, f"{fixture}: lopsided straight folded runs: {mismatches}"
 
 
 # ---------------------------------------------------------------------------
