@@ -200,6 +200,15 @@ gallery:
     description:
       "A BT section's RIGHT exit feeding a TB section's LEFT entry: an upward flow
       handing off to a downward one across the column seam (#1044)."
+  - id: tb_fork_lane_transpose
+    source_dir: examples/topologies
+    category: Simple Topologies
+    description:
+      "A vertical-flow (TB) section whose trunk station forks one line down to an
+      in-section file terminus and the other out to a side exit through a bypass
+      helper. The bypassing line rides the section's lane side of the trunk, so its
+      fork leg reaches the bypass without crossing the straight-down terminus leg
+      (issue #1163)."
   - id: deep_linear
     source_dir: examples/topologies
     category: Simple Topologies
