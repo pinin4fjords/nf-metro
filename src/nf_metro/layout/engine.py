@@ -140,6 +140,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_feeder_exits_section_through_side,
     _guard_file_icon_no_name_label,
     _guard_flow_exit_anchored_to_carrier,
+    _guard_fold_relocated_flow_ports_face_connections,
     _guard_independent_components_disjoint,
     _guard_inter_row_run_clearance,
     _guard_inter_section_descent_edge_clearance,
@@ -1239,6 +1240,7 @@ def _compute_section_layout(
         _guard_section_bboxes_positive(graph, "after Stage 1.1")
         _guard_no_negative_grid_columns(graph, "after Stage 1.1")
         _guard_explicit_grid_directions(graph, "after Stage 1.1")
+        _guard_fold_relocated_flow_ports_face_connections(graph, "after Stage 1.1")
         _guard_tall_anchor_stack_well_formed(graph, "after Stage 1.1")
 
     # Stage 1.2: Align Y grids across same-row, same-direction sections
