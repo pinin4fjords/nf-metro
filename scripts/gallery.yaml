@@ -738,10 +738,10 @@ gallery:
     source_dir: examples/topologies
     category: Bypass Routing
     description:
-      The tight variant of the fold bypass: the file terminus sits one row below the
-      forking station, so the qc bypass V seats on the trailing row. The folded section's
-      perpendicular exit corridor clears the V by a full station-flat length, so the bypass
-      run-out reads as a visible flat rather than collapsing onto the curve apex.
+      The tight variant of the fold bypass, where the file terminus sits one row below
+      the forking station, so the qc bypass V seats on the trailing row. The folded
+      section's perpendicular exit corridor clears the V by a full station-flat length, so
+      the bypass run-out reads as a visible flat rather than collapsing onto the curve apex.
 
   # ── Merge & Convergence ────────────────────────────────────────────────────
   - id: merge_offrow_continuation
