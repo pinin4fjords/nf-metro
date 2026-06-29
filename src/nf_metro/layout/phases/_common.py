@@ -209,6 +209,43 @@ def iter_fold_lr_exits_short_of_target(
             yield port_id, tgt
 
 
+def iter_fold_lr_exit_straight_runs(
+    graph: MetroGraph, tolerance: float
+) -> Iterator[tuple[str, Station]]:
+    """Yield ``(exit_port_id, target_entry)`` for straight folded LR/RL runs.
+
+    The companion of :func:`iter_fold_lr_exits_short_of_target`: same scope (a
+    vertical-flow fold's LEFT/RIGHT exit feeding a bbox-contained entry in a
+    different grid row), but yielding the runs whose exit sits *at* its target
+    entry Y -- the inter-section run is straight.  A target seated off the exit
+    Y (the staircase case the sibling generator covers) is excluded.
+
+    The single source of "which folded LR/RL run is straight" shared by the
+    bbox-bottom alignment (:func:`_align_tb_section_bbox_bottoms`) and the guard
+    that checks the two sections clear it evenly
+    (``_guard_fold_lr_exit_sections_share_bbox_bottom``).
+    """
+    junction_ids = graph.junction_ids
+    for port_id, port in graph.ports.items():
+        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        section = graph.sections.get(port.section_id)
+        if (
+            section is None
+            or not _is_fold_section(section)
+            or not lanes_run_along_x(section.direction)
+        ):
+            continue
+        tgt = _lr_exit_aligned_target(graph, port_id, section, junction_ids)
+        if tgt is None:
+            continue
+        tgt_section = graph.sections.get(tgt.section_id) if tgt.section_id else None
+        if tgt_section is None or tgt_section.grid_row == section.grid_row:
+            continue
+        if abs(tgt.y - graph.stations[port_id].y) <= tolerance:
+            yield port_id, tgt
+
+
 @contextmanager
 def _scoped_sections(graph: MetroGraph, section_ids: list[str]) -> Iterator[None]:
     """Temporarily restrict ``graph.sections`` to ``section_ids``.
