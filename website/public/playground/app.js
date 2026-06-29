@@ -141,7 +141,9 @@ function initEditor() {
     theme: "default",
   });
   editor.setValue(loadFromHash() || SEED);
-  loadFromHashGz().then((src) => { if (src != null) editor.setValue(src); });
+  loadFromHashGz().then((src) => {
+    if (src != null) editor.setValue(src);
+  });
   editor.on("change", debounce(doRender, 300));
 
   // CodeMirror measures gutter and line geometry once at creation and never
@@ -1545,7 +1547,9 @@ async function b64urlEncodeGz(str) {
   const writer = cs.writable.getWriter();
   writer.write(new TextEncoder().encode(str));
   writer.close();
-  return _bytesToB64url(new Uint8Array(await new Response(cs.readable).arrayBuffer()));
+  return _bytesToB64url(
+    new Uint8Array(await new Response(cs.readable).arrayBuffer()),
+  );
 }
 
 async function b64urlDecodeGz(b64) {
@@ -1553,7 +1557,9 @@ async function b64urlDecodeGz(b64) {
   const writer = ds.writable.getWriter();
   writer.write(_b64urlToBytes(b64));
   writer.close();
-  return new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
+  return new TextDecoder().decode(
+    await new Response(ds.readable).arrayBuffer(),
+  );
 }
 
 function _hashParam(key) {
@@ -1564,13 +1570,21 @@ function _hashParam(key) {
 function loadFromHash() {
   const raw = _hashParam("mmd");
   if (!raw) return null;
-  try { return b64urlDecode(raw); } catch (_) { return null; }
+  try {
+    return b64urlDecode(raw);
+  } catch (_) {
+    return null;
+  }
 }
 
 async function loadFromHashGz() {
   const raw = _hashParam("mmd-gz");
   if (!raw) return null;
-  try { return await b64urlDecodeGz(raw); } catch (_) { return null; }
+  try {
+    return await b64urlDecodeGz(raw);
+  } catch (_) {
+    return null;
+  }
 }
 
 function _pageUrl(hash) {
@@ -1578,11 +1592,15 @@ function _pageUrl(hash) {
 }
 
 function shareUrl() {
-  return _pageUrl("#mmd=" + encodeURIComponent(b64urlEncode(editor.getValue())));
+  return _pageUrl(
+    "#mmd=" + encodeURIComponent(b64urlEncode(editor.getValue())),
+  );
 }
 
 async function compressedShareUrl() {
-  return _pageUrl("#mmd-gz=" + encodeURIComponent(await b64urlEncodeGz(editor.getValue())));
+  return _pageUrl(
+    "#mmd-gz=" + encodeURIComponent(await b64urlEncodeGz(editor.getValue())),
+  );
 }
 
 async function shareLink() {
