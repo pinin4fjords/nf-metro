@@ -3200,6 +3200,105 @@ def check_right_entry_drop_in_when_clear(
     return violations
 
 
+@dataclass(frozen=True)
+class RightEntryCorridorJog:
+    """A RIGHT-entry feed reaches a clear descent corridor by a mid-run jog.
+
+    :func:`~nf_metro.layout.routing.inter_section_handlers._route_right_entry_wrap`
+    leads a source LEFT of a RIGHT entry straight to the descent corridor at the
+    top corner and drops in when that corridor admits a clean straight descent
+    (:func:`~nf_metro.layout.routing.inter_section_handlers._right_entry_corridor_drop_in_is_clear`).
+    A route that instead steps onto the corridor X partway down the descent left
+    a visible lateral kink where a single straight run was available.
+    """
+
+    source: str
+    target: str
+    jog_y: float
+    descent_x: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"RIGHT-entry feed {self.source!r}->{self.target!r} reaches its "
+            f"descent corridor x={self.descent_x:.1f} only at y={self.jog_y:.1f} "
+            f"(a mid-descent lateral jog) though a clean straight drop down that "
+            f"corridor from the source row was clear"
+        )
+
+
+def check_right_entry_corridor_descent_no_jog(
+    graph: MetroGraph, routes: list[RoutedPath]
+) -> list[RightEntryCorridorJog]:
+    """Return RIGHT-entry routes that step onto a clear corridor mid-descent.
+
+    A cross-row feed into a RIGHT entry descends a corridor X just past the
+    target's right edge (``points[-2].x``).  When the source sits LEFT of the
+    port and that corridor admits a clean straight drop from the source row
+    (:func:`~nf_metro.layout.routing.inter_section_handlers._right_entry_corridor_drop_in_is_clear`),
+    the route must reach the corridor X at the top of the descent, not partway
+    down.  A first arrival on the corridor X below the source lead-in Y is a
+    redundant lateral jog the straight drop-in would have avoided.
+    """
+    from nf_metro.layout.routing.inter_section_handlers import (
+        _right_entry_corridor_drop_in_is_clear,
+    )
+
+    tol = COORD_TOLERANCE
+    violations: list[RightEntryCorridorJog] = []
+    for r in routes:
+        tgt_port = graph.ports.get(r.edge.target)
+        if (
+            tgt_port is None
+            or not tgt_port.is_entry
+            or tgt_port.side is not PortSide.RIGHT
+            or not r.is_inter_section
+            or len(r.points) < 4
+        ):
+            continue
+        src_station = graph.stations.get(r.edge.source)
+        tgt_station = graph.stations.get(r.edge.target)
+        if src_station is None or tgt_station is None:
+            continue
+        src_sec = resolve_section(graph, src_station)
+        tgt_sec = resolve_section(graph, tgt_station)
+        if (
+            src_sec is None
+            or tgt_sec is None
+            or src_sec.grid_row is None
+            or tgt_sec.grid_row is None
+            or src_sec.grid_col is None
+            or tgt_sec.grid_col is None
+            or src_sec.grid_row >= tgt_sec.grid_row
+            or src_sec.grid_col != tgt_sec.grid_col
+        ):
+            # Same-column (source stacked directly above target) is the only case
+            # with a redundant lead-in jog; an adjacent- or farther-column source
+            # runs its traverse through the natural inter-row / bypass channel.
+            continue
+        descent_x = r.points[-2][0]
+        # The wrap leads rightward from a source LEFT of the port, so its descent
+        # corridor sits right of the source.  A source right of the corridor took
+        # a leftward plough-deflection (a different handler), not this wrap.
+        if src_station.x >= descent_x - tol:
+            continue
+        lead_in_y = r.points[0][1]
+        arrival_y = next(
+            (py for px, py in r.points[:-1] if abs(px - descent_x) <= tol), None
+        )
+        if arrival_y is None or arrival_y <= lead_in_y + tol:
+            continue
+        if _right_entry_corridor_drop_in_is_clear(
+            graph, src_station, tgt_station, descent_x
+        ):
+            violations.append(
+                RightEntryCorridorJog(
+                    r.edge.source, r.edge.target, arrival_y, descent_x
+                )
+            )
+    return violations
+
+
 @dataclass
 class BottomRowClimbDive:
     """A bottommost-row source dives below its row to climb to a higher target.
@@ -3736,6 +3835,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_perp_entry_boundary_consistent, "B"),
     _check_spec(check_perp_exit_over_leadin_clears_only_spanned_sections, "B"),
     _check_spec(check_right_entry_drop_in_when_clear, "B"),
+    _check_spec(check_right_entry_corridor_descent_no_jog, "B"),
     # --- Tier C: test-only oracles, run from the test suite, not the runtime ---
     _check_spec(check_seam_approach_equals_departure, "C"),
     _check_spec(check_seam_segments_meet_at_port, "C"),
