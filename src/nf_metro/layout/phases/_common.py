@@ -121,10 +121,12 @@ def iter_fold_lr_exits_short_of_target(
     """Yield ``(exit_port_id, target_entry)`` for fold exits short of their target.
 
     A vertical-flow (TB/BT) fold's LEFT/RIGHT exit aligns to a bbox-contained
-    entry target.  Only a target seated *along the flow* from the exit is
-    yielded -- by more than ``tolerance`` -- meaning the exit must follow it to
-    that Y for a straight inter-section run.  A target seated against the flow
-    keeps its own descent (an intentional staircase) and is not yielded.
+    entry target.  A target is yielded only when it sits in a different grid row
+    (the fold relocated it, so its multi-sub-row entry can settle away from the
+    exit) and seated *along the flow* from the exit by more than ``tolerance`` --
+    meaning the exit must follow it to that Y for a straight inter-section run.
+    A same-row seam, or a target seated against the flow (keeping its own
+    descent, an intentional staircase), is not yielded.
 
     The single source of "which fold exit is short of its target" shared by the
     re-alignment that fixes it (:func:`_realign_fold_lr_exit_ports`), the guard
@@ -144,6 +146,9 @@ def iter_fold_lr_exits_short_of_target(
             continue
         tgt = _lr_exit_aligned_target(graph, port_id, section, junction_ids)
         if tgt is None:
+            continue
+        tgt_section = graph.sections.get(tgt.section_id) if tgt.section_id else None
+        if tgt_section is None or tgt_section.grid_row == section.grid_row:
             continue
         flow = AxisFrame.flow_sign(section.direction)
         if flow * (tgt.y - graph.stations[port_id].y) > tolerance:
