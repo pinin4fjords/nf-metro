@@ -5,6 +5,7 @@ import { file } from "astro/loaders";
 import { z } from "astro:content";
 
 const gallerySchema = z.object({
+  order: z.number(),
   title: z.string(),
   src: z.string(),
   description: z.string(),
