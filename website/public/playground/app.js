@@ -140,9 +140,8 @@ function initEditor() {
     lineWrapping: false,
     theme: "default",
   });
-  const hasGz = location.hash.includes("mmd-gz=");
-  editor.setValue((!hasGz && loadFromHash()) || SEED);
-  if (hasGz) loadFromHashGz().then((src) => { if (src != null) editor.setValue(src); });
+  editor.setValue(loadFromHash() || SEED);
+  loadFromHashGz().then((src) => { if (src != null) editor.setValue(src); });
   editor.on("change", debounce(doRender, 300));
 
   // CodeMirror measures gutter and line geometry once at creation and never
@@ -1521,75 +1520,69 @@ async function exportPng() {
 
 /* ------------------------------- sharing ------------------------------- */
 
-function b64urlEncode(str) {
-  const bytes = new TextEncoder().encode(str);
+function _bytesToB64url(arr) {
   let bin = "";
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+  arr.forEach((b) => (bin += String.fromCharCode(b)));
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function _b64urlToBytes(b64) {
+  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+  const bin = atob(b64.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+function b64urlEncode(str) {
+  return _bytesToB64url(new TextEncoder().encode(str));
 }
 
 function b64urlDecode(b64) {
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  const bin = atob(b64.replace(/-/g, "+").replace(/_/g, "/") + pad);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+  return new TextDecoder().decode(_b64urlToBytes(b64));
 }
 
 async function b64urlEncodeGz(str) {
-  const bytes = new TextEncoder().encode(str);
   const cs = new CompressionStream("gzip");
   const writer = cs.writable.getWriter();
-  writer.write(bytes);
+  writer.write(new TextEncoder().encode(str));
   writer.close();
-  const compressed = await new Response(cs.readable).arrayBuffer();
-  const bin = String.fromCharCode(...new Uint8Array(compressed));
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return _bytesToB64url(new Uint8Array(await new Response(cs.readable).arrayBuffer()));
 }
 
 async function b64urlDecodeGz(b64) {
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  const bin = atob(b64.replace(/-/g, "+").replace(/_/g, "/") + pad);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   const ds = new DecompressionStream("gzip");
   const writer = ds.writable.getWriter();
-  writer.write(bytes);
+  writer.write(_b64urlToBytes(b64));
   writer.close();
   return new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
 }
 
-// Reads the legacy uncompressed #mmd= fragment (synchronous, backward compat).
+function _hashParam(key) {
+  const m = location.hash.match(new RegExp("[#&]" + key + "=([^&]+)"));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function loadFromHash() {
-  const m = location.hash.match(/[#&]mmd=([^&]+)/);
-  if (!m) return null;
-  try {
-    return b64urlDecode(decodeURIComponent(m[1]));
-  } catch (_) {
-    return null;
-  }
+  const raw = _hashParam("mmd");
+  if (!raw) return null;
+  try { return b64urlDecode(raw); } catch (_) { return null; }
 }
 
-// Reads the compressed #mmd-gz= fragment (async).
 async function loadFromHashGz() {
-  const m = location.hash.match(/[#&]mmd-gz=([^&]+)/);
-  if (!m) return null;
-  try {
-    return await b64urlDecodeGz(decodeURIComponent(m[1]));
-  } catch (_) {
-    return null;
-  }
+  const raw = _hashParam("mmd-gz");
+  if (!raw) return null;
+  try { return await b64urlDecodeGz(raw); } catch (_) { return null; }
 }
 
-// Uncompressed URL used in bug-report bodies where URL length is not a concern.
+function _pageUrl(hash) {
+  return location.origin + location.pathname + location.search + hash;
+}
+
 function shareUrl() {
-  const hash = "#mmd=" + encodeURIComponent(b64urlEncode(editor.getValue()));
-  return location.origin + location.pathname + location.search + hash;
+  return _pageUrl("#mmd=" + encodeURIComponent(b64urlEncode(editor.getValue())));
 }
 
-// Compressed URL for the Share link button.
 async function compressedShareUrl() {
-  const b64 = await b64urlEncodeGz(editor.getValue());
-  const hash = "#mmd-gz=" + encodeURIComponent(b64);
-  return location.origin + location.pathname + location.search + hash;
+  return _pageUrl("#mmd-gz=" + encodeURIComponent(await b64urlEncodeGz(editor.getValue())));
 }
 
 async function shareLink() {
