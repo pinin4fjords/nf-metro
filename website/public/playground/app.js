@@ -140,7 +140,9 @@ function initEditor() {
     lineWrapping: false,
     theme: "default",
   });
-  editor.setValue(loadFromHash() || SEED);
+  const hasGz = location.hash.includes("mmd-gz=");
+  editor.setValue((!hasGz && loadFromHash()) || SEED);
+  if (hasGz) loadFromHashGz().then((src) => { if (src != null) editor.setValue(src); });
   editor.on("change", debounce(doRender, 300));
 
   // CodeMirror measures gutter and line geometry once at creation and never
@@ -1533,6 +1535,29 @@ function b64urlDecode(b64) {
   return new TextDecoder().decode(bytes);
 }
 
+async function b64urlEncodeGz(str) {
+  const bytes = new TextEncoder().encode(str);
+  const cs = new CompressionStream("gzip");
+  const writer = cs.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const compressed = await new Response(cs.readable).arrayBuffer();
+  const bin = String.fromCharCode(...new Uint8Array(compressed));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function b64urlDecodeGz(b64) {
+  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
+  const bin = atob(b64.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const ds = new DecompressionStream("gzip");
+  const writer = ds.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  return new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
+}
+
+// Reads the legacy uncompressed #mmd= fragment (synchronous, backward compat).
 function loadFromHash() {
   const m = location.hash.match(/[#&]mmd=([^&]+)/);
   if (!m) return null;
@@ -1543,19 +1568,47 @@ function loadFromHash() {
   }
 }
 
+// Reads the compressed #mmd-gz= fragment (async).
+async function loadFromHashGz() {
+  const m = location.hash.match(/[#&]mmd-gz=([^&]+)/);
+  if (!m) return null;
+  try {
+    return await b64urlDecodeGz(decodeURIComponent(m[1]));
+  } catch (_) {
+    return null;
+  }
+}
+
+// Uncompressed URL used in bug-report bodies where URL length is not a concern.
 function shareUrl() {
   const hash = "#mmd=" + encodeURIComponent(b64urlEncode(editor.getValue()));
   return location.origin + location.pathname + location.search + hash;
 }
 
+// Compressed URL for the Share link button.
+async function compressedShareUrl() {
+  const b64 = await b64urlEncodeGz(editor.getValue());
+  const hash = "#mmd-gz=" + encodeURIComponent(b64);
+  return location.origin + location.pathname + location.search + hash;
+}
+
 async function shareLink() {
-  const url = shareUrl();
+  const url = await compressedShareUrl();
   history.replaceState(null, "", url);
   try {
     await navigator.clipboard.writeText(url);
     toast("Share link copied to clipboard");
   } catch (_) {
     toast("Share link is in the address bar");
+  }
+}
+
+async function copySource() {
+  try {
+    await navigator.clipboard.writeText(editor.getValue());
+    toast("Source copied to clipboard");
+  } catch (_) {
+    toast("Copy failed — select all in the editor and copy manually");
   }
 }
 
@@ -1738,6 +1791,7 @@ function wireControls() {
   el("btn-svg").addEventListener("click", exportSvg);
   el("btn-png").addEventListener("click", exportPng);
   el("btn-share").addEventListener("click", shareLink);
+  el("btn-copy-source").addEventListener("click", copySource);
 
   el("zoom-in").addEventListener("click", () => zoomBy(ZOOM_STEP));
   el("zoom-out").addEventListener("click", () => zoomBy(1 / ZOOM_STEP));
