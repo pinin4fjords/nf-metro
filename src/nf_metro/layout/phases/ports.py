@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
     ENTRY_SHIFT_TB,
+    EXIT_CORRIDOR_ICON_CLEARANCE,
     MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC,
     MIN_PORT_STATION_GAP,
     MIN_STATION_FLAT_LENGTH,
@@ -1102,6 +1103,39 @@ def _realign_fold_lr_exit_ports(graph: MetroGraph) -> None:
         _set_port_y(graph, port_id, tgt.y)
 
 
+def _exit_row_icon_reach(
+    graph: MetroGraph,
+    exit_section: Section,
+    trailing_y: float,
+    flow: float,
+) -> float:
+    """How far a terminus icon hangs past the trailing row, along the flow.
+
+    Returns the largest forward distance from ``trailing_y`` to the drawn
+    far edge of any internal terminus whose icons extend in the section's
+    forward flow (down for TB, up for BT).  ``0.0`` when no such icon
+    reaches the exit row, so the exit-port gap is left untouched.
+    """
+    from nf_metro.layout.phases.single_section import (
+        _terminus_icon_flow_overhang,
+        _terminus_icons_extend_forward,
+    )
+
+    reach = 0.0
+    for sid in exit_section.station_ids:
+        st = graph.stations.get(sid)
+        if st is None or st.is_port or not st.is_terminus:
+            continue
+        is_source = not graph.edges_to(st.id)
+        if not _terminus_icons_extend_forward(is_source, exit_section.direction):
+            continue
+        overhang = _terminus_icon_flow_overhang(
+            len(st.terminus_labels), st.terminus_names
+        )
+        reach = max(reach, flow * (st.y - trailing_y) + overhang)
+    return reach
+
+
 def _resolve_tb_exit_y(
     graph: MetroGraph,
     port: Port,
@@ -1142,6 +1176,16 @@ def _resolve_tb_exit_y(
     # corner curve (CURVE_RADIUS) plus a straight run so the curve doesn't
     # crowd the station pill.
     min_exit_gap = max(entry_gap, CURVE_RADIUS + MIN_PORT_STATION_GAP)
+
+    # A terminus file icon hangs forward along the flow (below for TB, above
+    # for BT), past its marker by more than one row.  When such an icon sits
+    # in the exit row, push the exit port (and the corridor that follows it
+    # out) clear of the icon's drawn edge so a route leaving the section does
+    # not graze the artefact.
+    icon_reach = _exit_row_icon_reach(graph, exit_section, trailing_y, flow)
+    if icon_reach > 0:
+        min_exit_gap = max(min_exit_gap, icon_reach + EXIT_CORRIDOR_ICON_CLEARANCE)
+
     bound_exit_y = trailing_y + flow * min_exit_gap
     if flow * (tgt.y - bound_exit_y) >= 0:
         tgt_y = tgt.y

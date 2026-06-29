@@ -719,7 +719,7 @@ def _line_crossed_file_icon_sinks(graph: MetroGraph) -> set[str]:
     icon no line crosses is left alone, so an end-of-chain terminus that
     already sits clear is never lifted.
     """
-    from nf_metro.layout.geometry import segment_intersects_bbox
+    from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
     from nf_metro.layout.routing import (
         apply_route_offsets,
         compute_station_offsets,
@@ -741,6 +741,28 @@ def _line_crossed_file_icon_sinks(graph: MetroGraph) -> set[str]:
     if not leaf_sinks:
         return set()
 
+    # A line leaving the sink's own vertical-flow (TB/BT) section through a
+    # flow-axis (LEFT/RIGHT) exit port is the section's exit corridor, which
+    # ``_resolve_tb_exit_y`` already seats below any terminus icon hanging
+    # into the exit row.  That corridor is not a passing line raking the icon,
+    # so it must not trigger an off-track lift -- the corridor moves, not the
+    # station.  Collect each such sink's exit ports so the crossing scan skips
+    # segments that arrive at (or leave from) them.
+    exit_corridor_ports: dict[str, set[str]] = {}
+    for sid in leaf_sinks:
+        sec_id = graph.stations[sid].section_id
+        sec = graph.sections.get(sec_id) if sec_id else None
+        if sec is None or not lanes_run_along_x(sec.direction or "LR"):
+            continue
+        ports = {
+            pid
+            for pid in sec.exit_ports
+            if (p := graph.ports.get(pid)) is not None
+            and p.side in (PortSide.LEFT, PortSide.RIGHT)
+        }
+        if ports:
+            exit_corridor_ports[sid] = ports
+
     try:
         routes = route_edges(graph, station_offsets=offsets)
     except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
@@ -752,6 +774,9 @@ def _line_crossed_file_icon_sinks(graph: MetroGraph) -> set[str]:
         src, tgt = r.edge.source, r.edge.target
         for sid in leaf_sinks - crossed:
             if src == sid or tgt == sid:
+                continue
+            corridor = exit_corridor_ports.get(sid)
+            if corridor and (src in corridor or tgt in corridor):
                 continue
             bbox = icon_boxes[sid]
             for k in range(len(pts) - 1):

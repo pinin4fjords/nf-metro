@@ -2958,6 +2958,78 @@ def test_no_line_crosses_file_icon(fixture):
     )
 
 
+def _exit_corridor_runs_over_icon(
+    graph: MetroGraph, sink_id: str
+) -> tuple[list[float], float, tuple[float, float]]:
+    """Y of every horizontal run leaving via ``sink_id``'s section flow-axis
+    exit that overlaps the sink icon's x-span, plus the icon bottom and x-span.
+
+    A vertical-flow section's exit corridor is the horizontal run a route
+    turns onto to leave through the LEFT/RIGHT exit port; this isolates the
+    segments that share x with the terminus icon so a test can check they
+    sit below it.
+    """
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    box = _icon_obstacles_by_station(graph, THEMES["nfcore"], offsets)[sink_id]
+    icon_x_lo, _, icon_x_hi, icon_bottom = box
+    section = graph.sections[graph.stations[sink_id].section_id]
+    exit_ports = {
+        pid
+        for pid in section.exit_ports
+        if (p := graph.ports.get(pid)) is not None
+        and p.side in (PortSide.LEFT, PortSide.RIGHT)
+    }
+    run_ys: list[float] = []
+    for r in routes:
+        if not (exit_ports & {r.edge.source, r.edge.target}):
+            continue
+        pts = apply_route_offsets(r, offsets)
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            if (
+                abs(y1 - y2) < 1.0
+                and max(x1, x2) >= icon_x_lo
+                and min(x1, x2) <= icon_x_hi
+            ):
+                run_ys.append((y1 + y2) / 2)
+    return run_ys, icon_bottom, (icon_x_lo, icon_x_hi)
+
+
+def test_tb_exit_corridor_clears_terminus_icon():
+    """A vertical-flow section's flow-axis exit corridor sits below a terminus
+    file icon hanging into the exit row, not grazing it (issue #1172).
+
+    The exit port (and the horizontal run a route turns onto to leave the
+    section) is clamped below the icon's drawn edge, so the leaving line
+    clears the artefact with a real margin.
+    """
+    graph = _layout("tb_fork_lane_transpose.mmd")
+    run_ys, icon_bottom, _ = _exit_corridor_runs_over_icon(graph, "vcf_out")
+    assert run_ys, "no exit-corridor run found over the VCF icon x-span"
+    assert min(run_ys) >= icon_bottom, (
+        f"exit corridor at y={min(run_ys):.1f} does not clear the VCF icon "
+        f"bottom y={icon_bottom:.1f}"
+    )
+
+
+def test_tb_exit_corridor_grazes_icon_without_clamp(monkeypatch):
+    """Without the exit-port icon clamp the corridor rakes the icon, so the
+    fixture genuinely exercises the #1172 fix.
+
+    Guards against the fixture silently ceasing to exercise the clamp: with
+    the icon-reach clamp neutralised, the terminus icon must be crossed by a
+    non-terminating line.
+    """
+    import nf_metro.layout.phases.ports as ports_module
+
+    monkeypatch.setattr(ports_module, "_exit_row_icon_reach", lambda *a, **k: 0.0)
+    graph = _layout("tb_fork_lane_transpose.mmd", _cache=False)
+    assert _segments_crossing_icons(graph), (
+        "fixture no longer rakes its icon without the exit-port clamp; it "
+        "can't exercise the #1172 fix"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Sibling off-track output icons must not overlap each other
 # ---------------------------------------------------------------------------

@@ -23,9 +23,11 @@ from nf_metro.layout.constants import (
     LINE_GAP,
     MIN_STATION_FLAT_LENGTH,
     SAME_COORD_TOLERANCE,
+    STATION_RADIUS_APPROX,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
     TERMINUS_ICON_CLEARANCE_V,
+    TERMINUS_ICON_GAP,
     TERMINUS_WIDTH,
 )
 from nf_metro.layout.geometry import (
@@ -914,6 +916,30 @@ def _terminus_icon_clearance_vertical(
     )
     step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
     return TERMINUS_ICON_CLEARANCE_V + (n_icons - 1) * step
+
+
+def _terminus_icon_flow_overhang(
+    n_icons: int,
+    names: list[str] | None = None,
+) -> float:
+    """Distance from a TB/BT terminus's marker to the far edge of its icons.
+
+    The drawn flow-axis extent of the icon stack (icon body height plus a
+    caption row when captioned, times the icon count), matching what
+    ``render.svg`` draws.  Unlike :func:`_terminus_icon_clearance_vertical`
+    this omits the section-border visual margin: it locates the icon's
+    *edge* so an exit corridor can be placed just clear of it, rather than
+    reserving bbox padding.
+    """
+    captioned = bool(names and any(names))
+    caption_room = (
+        ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * active_font_scale()
+        if captioned
+        else 0.0
+    )
+    body = STATION_RADIUS_APPROX + TERMINUS_ICON_GAP + 2 * ICON_HALF_HEIGHT
+    step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
+    return body + caption_room + (n_icons - 1) * step
 
 
 def _terminus_icons_extend_forward(is_source: bool, section_dir: str) -> bool:
