@@ -33,4 +33,4 @@ Release notes for nf-metro, newest first.
 
 ---
 
-Full history: [github.com/pinin4fjords/nf-metro/releases](https://github.com/pinin4fjords/nf-metro/releases)
+Full history: [github.com/seqeralabs/nf-metro/releases](https://github.com/seqeralabs/nf-metro/releases)

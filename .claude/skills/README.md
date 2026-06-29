@@ -61,8 +61,8 @@ explicitly):
 Most skills assume:
 
 - Local nf-metro checkout at `~/projects/nf-metro`
-- Upstream slug `pinin4fjords/nf-metro` (issues + PR targets)
-- CI render preview at `pinin4fjords.github.io/nf-metro/_pr/<N>/`
+- Upstream slug `seqeralabs/nf-metro` (issues + PR targets)
+- CI render preview at `seqeralabs.github.io/nf-metro/_pr/<N>/`
 
 If your setup differs, substitute in the commands; the conventions are
 called out at the top of each `SKILL.md` so the substitution points are

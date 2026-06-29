@@ -13,10 +13,10 @@ Local pixel-diff of all gallery renders between the current branch and `origin/m
 - Local nf-metro checkout: `~/projects/nf-metro`
 - Baseline env: `nf-metro-main`; branch env: `nf-metro` (or `nf-metro-fix-<N>` in worktree mode)
 - CI render preview is published at the upstream's GitHub Pages site
-  (`pinin4fjords.github.io/nf-metro/_pr/<N>/`); if you ship from a fork
+  (`seqeralabs.github.io/nf-metro/_pr/<N>/`); if you ship from a fork
   with Pages enabled, the URL will track your fork's owner
 
-**In most cases you don't need this.** Push to a PR and review the CI-generated render preview at `https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/` instead. Use this skill only when:
+**In most cases you don't need this.** Push to a PR and review the CI-generated render preview at `https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/` instead. Use this skill only when:
 - You want pre-push confidence before creating a PR
 - The user explicitly asks for a local visual comparison
 - You're iterating on a change and want fast feedback without pushing
@@ -94,5 +94,5 @@ PNG conversion is needed.
 - Nextflow fixtures (`tests/fixtures/nextflow/*.mmd`) are included in the gallery.
 - Baseline always uses `nf-metro-main` env + main repo updated to `origin/main`.
 - Install with `[docs]` extras (not `[dev]`) to match CI dependencies.
-- After a PR is created, CI renders the authoritative diff at `https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/`.
+- After a PR is created, CI renders the authoritative diff at `https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/`.
 - To render a single file: `python -m nf_metro render <file.mmd> -o /tmp/output.svg`

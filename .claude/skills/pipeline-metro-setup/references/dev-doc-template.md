@@ -1,7 +1,7 @@
 # Metro map
 
 The pipeline overview metro map is generated from `assets/metro_map.mmd`
-using [nf-metro](https://github.com/pinin4fjords/nf-metro). If you add or
+using [nf-metro](https://github.com/seqeralabs/nf-metro). If you add or
 rename pipeline steps, update the `.mmd` source and regenerate the images:
 
 ```bash

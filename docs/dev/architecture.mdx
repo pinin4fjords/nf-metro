@@ -15,7 +15,7 @@ Parse  ->  Layout  ->  Render
 ```
 
 Each stage hands a single `MetroGraph` (defined in
-[`src/nf_metro/parser/model.py`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/parser/model.py))
+[`src/nf_metro/parser/model.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/parser/model.py))
 to the next. The graph is mutated in place: parsing fills in stations,
 edges, lines, sections, and ports; layout writes coordinates onto those
 objects; rendering reads them.
@@ -41,7 +41,7 @@ split into an anchor-setting (structural) layer and a content-placement
 layer. The phase implementations live in `layout/phases/`; the
 per-phase preconditions, postconditions, and invariants are documented
 in
-[`src/nf_metro/layout/CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
+[`src/nf_metro/layout/CONTRACT.md`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
 
 Edge routing (horizontal runs plus 45-degree diagonal transitions, with
 L-shaped inter-section routing) lives in `layout/routing/`.
@@ -103,7 +103,7 @@ using the `drawsvg` library. Visual properties come from a `Theme`
   />
 </CardGrid>
 
-The per-phase preconditions, postconditions, and invariants are in [`CONTRACT.md`](https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md). The topology stress fixture inventory is in [`examples/topologies/README.md`](https://github.com/pinin4fjords/nf-metro/blob/main/examples/topologies/README.md).
+The per-phase preconditions, postconditions, and invariants are in [`CONTRACT.md`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md). The topology stress fixture inventory is in [`examples/topologies/README.md`](https://github.com/seqeralabs/nf-metro/blob/main/examples/topologies/README.md).
 
 ## Data model
 

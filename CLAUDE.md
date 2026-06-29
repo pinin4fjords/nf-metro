@@ -156,7 +156,7 @@ When fixing routing or alignment issues, do NOT "solve" a kink by moving a port 
 **Primary method**: Push to a PR. The CI workflow (`.github/workflows/pr-renders.yml`) renders all gallery examples on both the PR branch and base, generates a before/after visual diff, and posts a preview link:
 
 ```
-https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/
+https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 ```
 
 This is the authoritative visual review and should be used for all layout or rendering changes.

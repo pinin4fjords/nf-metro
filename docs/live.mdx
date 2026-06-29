@@ -311,7 +311,7 @@ watch every run light up on one page; the server stays up across runs.
 Everything in §2 and §2b works with **no plugin**: Nextflow's built-in
 `-with-weblog` posts events to a running server, and the persistent dashboard
 is driven by a `curl` to `/maps` plus a per-run `-with-weblog` URL. The
-[nf-metro Nextflow plugin](https://github.com/pinin4fjords/nf-metro-plugin) is a
+[nf-metro Nextflow plugin](https://github.com/seqeralabs/nf-metro-plugin) is a
 convenience layer on top - it emits the same events, but from config and with
 the plumbing handled for you. The Python tooling here never depends on it.
 
@@ -323,7 +323,7 @@ normal `plugins { id 'nf-metro@0.1.0' }` auto-download does not work yet.
 Build and install it locally first:
 
 ```bash
-git clone https://github.com/pinin4fjords/nf-metro-plugin
+git clone https://github.com/seqeralabs/nf-metro-plugin
 cd nf-metro-plugin
 make install        # installs to ~/.nextflow/plugins
 ```
@@ -335,7 +335,7 @@ Alternatively, run against the build tree without installing (build first,
 then set `NXF_PLUGINS_DEV`; still requires `-plugins` on the command line):
 
 ```bash
-git clone https://github.com/pinin4fjords/nf-metro-plugin
+git clone https://github.com/seqeralabs/nf-metro-plugin
 cd nf-metro-plugin
 make assemble       # build but do not install
 # then, from anywhere:
@@ -387,7 +387,7 @@ want the integration to live in the pipeline's config, want the server started
 and stopped for you, or want runs to self-register on a shared dashboard (the
 register-then-emit step is awkward to do by hand). The plugin has three modes -
 attach, managed, central - documented in its
-[README](https://github.com/pinin4fjords/nf-metro-plugin#three-modes).
+[README](https://github.com/seqeralabs/nf-metro-plugin#three-modes).
 
 :::note[Managed mode requires `nf-metro` on PATH]
 Managed mode spawns `nf-metro serve` as a subprocess, so the `nf-metro`
@@ -450,7 +450,7 @@ but are not treated as failures since they may be intentional.
 ## Try it
 
 The repository ships a self-contained demo under
-[`examples/live/`](https://github.com/pinin4fjords/nf-metro/tree/main/examples/live):
+[`examples/live/`](https://github.com/seqeralabs/nf-metro/tree/main/examples/live):
 a toy workflow whose processes only `sleep`, a mapped map, and a process list
 for `check-mapping`. From the repo root:
 

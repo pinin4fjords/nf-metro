@@ -128,7 +128,7 @@ Create `/tmp/nf-metro-release-$NEW_VERSION/docs/releases/$NEW_VERSION.md`.
 ```markdown
 # v$NEW_VERSION
 
-*<YYYY-MM-DD>* · [GitHub release](https://github.com/pinin4fjords/nf-metro/releases/tag/$NEW_VERSION) · [Diff](https://github.com/pinin4fjords/nf-metro/compare/$LAST_TAG...$NEW_VERSION)
+*<YYYY-MM-DD>* · [GitHub release](https://github.com/seqeralabs/nf-metro/releases/tag/$NEW_VERSION) · [Diff](https://github.com/seqeralabs/nf-metro/compare/$LAST_TAG...$NEW_VERSION)
 
 <one-sentence summary>
 
@@ -147,7 +147,7 @@ how to use it>
   the main checkout has a local copy from the last dev build).
 - For feature releases, prefer versioned GitHub Pages URLs so readers see
   the exact shipped render:
-  `https://pinin4fjords.github.io/nf-metro/$NEW_VERSION/assets/renders/<file>.svg`
+  `https://seqeralabs.github.io/nf-metro/$NEW_VERSION/assets/renders/<file>.svg`
   These resolve once the GitHub Release is published and the docs deploy runs.
 - For patch releases fixing a visual issue, describe the before/after even
   if you can only show the after state.
@@ -216,7 +216,7 @@ git push -u origin release/$NEW_VERSION
 
 ```bash
 gh pr create \
-  --repo pinin4fjords/nf-metro \
+  --repo seqeralabs/nf-metro \
   --title "chore: release $NEW_VERSION" \
   --body "$(cat <<'EOF'
 ## Summary
@@ -228,7 +228,7 @@ gh pr create \
 
 ## After merge
 
-Create the GitHub Release at https://github.com/pinin4fjords/nf-metro/releases/new
+Create the GitHub Release at https://github.com/seqeralabs/nf-metro/releases/new
 with tag \`$NEW_VERSION\` to trigger the PyPI publish and versioned docs deploy.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -241,7 +241,7 @@ EOF
 Remind the user:
 
 > PR merged. Now create the GitHub Release:
-> https://github.com/pinin4fjords/nf-metro/releases/new
+> https://github.com/seqeralabs/nf-metro/releases/new
 >
 > - **Tag:** `$NEW_VERSION`
 > - **Title:** `$NEW_VERSION - <short description>`
@@ -252,7 +252,7 @@ Remind the user:
 > Publishing triggers:
 > - `publish.yml` → builds and uploads to PyPI
 > - `docs.yml` → deploys versioned docs at
->   `https://pinin4fjords.github.io/nf-metro/$NEW_VERSION/` and updates
+>   `https://seqeralabs.github.io/nf-metro/$NEW_VERSION/` and updates
 >   the `latest` alias
 >
 > The bioconda autobump bot will open a PR to `bioconda-recipes` within a

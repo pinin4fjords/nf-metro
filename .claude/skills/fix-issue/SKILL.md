@@ -11,7 +11,7 @@ additive-only PR hygiene so a fix never silently regresses the gallery.
 
 **Conventions** (substitute if your setup differs):
 - Local nf-metro checkout: `~/projects/nf-metro`
-- Issues + PRs target the canonical upstream `pinin4fjords/nf-metro`. If
+- Issues + PRs target the canonical upstream `seqeralabs/nf-metro`. If
   you're working from a fork, resolve the owner with
   `gh repo view --json owner -q .owner.login`.
 - micromamba: `/opt/homebrew/bin/micromamba` (macOS Apple Silicon codesign
@@ -20,7 +20,7 @@ additive-only PR hygiene so a fix never silently regresses the gallery.
 ## Step 1: Understand the Issue
 
 ```bash
-gh issue view <N> --repo pinin4fjords/nf-metro
+gh issue view <N> --repo seqeralabs/nf-metro
 ```
 
 Summarize the problem and proposed approach. Wait for user confirmation before proceeding.
@@ -212,7 +212,7 @@ examples on both the PR branch and base, generates a before/after visual
 diff page, and posts a sticky comment on the PR with the preview link:
 
 ```
-https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/
+https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 ```
 
 ### Render-preview verdict gating
@@ -281,7 +281,7 @@ Open the PR:
 
 ```bash
 cd /tmp/nf-metro-fix-<N>
-gh pr create --repo pinin4fjords/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
+gh pr create --repo seqeralabs/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
 ## Summary
 <bullets describing the aggregate diff against main, no narrative>
 
@@ -291,7 +291,7 @@ Fixes #<N>
 - [ ] pytest passes (including new invariant test)
 - [ ] ruff check + ruff format clean on whole repo
 - [ ] Runtime validator added (if applicable)
-- [ ] Visual review of [render preview](https://pinin4fjords.github.io/nf-metro/_pr/<PR_NUMBER>/)
+- [ ] Visual review of [render preview](https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/)
 - [ ] Render-preview verdict: <No visual changes | deltas classified I/N>
 
 Generated with Claude Code
