@@ -52,6 +52,7 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
+    flow_axis_exit_ports,
     flow_exit_carrier_anchor,
     iter_corridor_fed_solo_entries,
     iter_fold_lr_exits_short_of_target,
@@ -2974,12 +2975,7 @@ def _exit_corridor_runs_over_icon(
     box = _icon_obstacles_by_station(graph, THEMES["nfcore"], offsets)[sink_id]
     icon_x_lo, _, icon_x_hi, icon_bottom = box
     section = graph.sections[graph.stations[sink_id].section_id]
-    exit_ports = {
-        pid
-        for pid in section.exit_ports
-        if (p := graph.ports.get(pid)) is not None
-        and p.side in (PortSide.LEFT, PortSide.RIGHT)
-    }
+    exit_ports = flow_axis_exit_ports(section, graph)
     run_ys: list[float] = []
     for r in routes:
         if not (exit_ports & {r.edge.source, r.edge.target}):

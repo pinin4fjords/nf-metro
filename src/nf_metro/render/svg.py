@@ -2169,6 +2169,26 @@ def caption_aware_icon_step(
     return required
 
 
+def _terminus_icon_marching(
+    theme: Theme, names: list[str], is_vertical_flow: bool
+) -> tuple[float, list[float]]:
+    """Per-icon centre-to-centre step along the flow axis, and caption widths.
+
+    TB/BT stack icons by height (plus a caption row when captioned); LR/RL
+    march by a caption-aware width.  Returns the step and each caption's
+    estimated width, shared by the icon-placement helper and the renderer's
+    caption-stagger logic so the two stay in lockstep.
+    """
+    caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
+    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in names]
+    if is_vertical_flow:
+        caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
+        step = theme.terminus_height + ICON_INTER_GAP + caption_room
+    else:
+        step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
+    return step, name_widths
+
+
 def _terminus_icon_centers_for(
     station: Station,
     graph: MetroGraph,
@@ -2203,13 +2223,7 @@ def _terminus_icon_centers_for(
     bundle_center = (min_off + max_off) / 2
 
     names = station.terminus_names or [""] * len(station.terminus_labels)
-    caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
-    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in names]
-    if is_vertical_flow:
-        caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
-        icon_step = theme.terminus_height + ICON_INTER_GAP + caption_room
-    else:
-        icon_step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
+    icon_step, _ = _terminus_icon_marching(theme, names, is_vertical_flow)
 
     is_rail = graph.station_is_rail(station.id)
     offtrack_nub_lift = (
@@ -2300,15 +2314,7 @@ def _render_terminus_icons(
     banners = station.terminus_icon_banners or [False] * len(station.terminus_labels)
 
     caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
-    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in names]
-    # LR/RL march icons along X, so widen the step when adjacent captions
-    # would overlap.  TB/BT stack icons along Y, where icon height (plus a
-    # caption row, when present) sets the spacing.
-    if is_vertical_flow:
-        caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
-        icon_step = theme.terminus_height + ICON_INTER_GAP + caption_room
-    else:
-        icon_step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
+    icon_step, name_widths = _terminus_icon_marching(theme, names, is_vertical_flow)
 
     centers = _terminus_icon_centers_for(station, graph, theme, min_off, max_off)
 

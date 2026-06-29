@@ -112,6 +112,21 @@ def iter_corridor_fed_solo_entries(
                 yield sec_id, pid, line_id
 
 
+def flow_axis_exit_ports(section: Section, graph: MetroGraph) -> set[str]:
+    """Ids of *section*'s exit ports on its flow axis (LEFT/RIGHT).
+
+    For a vertical-flow (TB/BT) section these are the ports a route turns
+    sideways to leave through -- the exit corridor -- as opposed to a
+    perpendicular TOP/BOTTOM drop.
+    """
+    return {
+        pid
+        for pid in section.exit_ports
+        if (p := graph.ports.get(pid)) is not None
+        and p.side in (PortSide.LEFT, PortSide.RIGHT)
+    }
+
+
 def _is_fold_section(section: Section) -> bool:
     """``True`` for a section the row-fold logic produced.
 

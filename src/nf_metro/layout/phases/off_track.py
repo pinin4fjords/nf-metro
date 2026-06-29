@@ -25,6 +25,7 @@ from nf_metro.layout.phases._common import (
     _grow_section_bbox_downward,
     _grow_section_bbox_upward,
     _set_section_bbox_top,
+    flow_axis_exit_ports,
 )
 from nf_metro.parser.model import (
     Edge,
@@ -754,12 +755,7 @@ def _line_crossed_file_icon_sinks(graph: MetroGraph) -> set[str]:
         sec = graph.sections.get(sec_id) if sec_id else None
         if sec is None or not lanes_run_along_x(sec.direction or "LR"):
             continue
-        ports = {
-            pid
-            for pid in sec.exit_ports
-            if (p := graph.ports.get(pid)) is not None
-            and p.side in (PortSide.LEFT, PortSide.RIGHT)
-        }
+        ports = flow_axis_exit_ports(sec, graph)
         if ports:
             exit_corridor_ports[sid] = ports
 

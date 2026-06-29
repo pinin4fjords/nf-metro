@@ -1107,7 +1107,6 @@ def _exit_row_icon_reach(
     graph: MetroGraph,
     exit_section: Section,
     trailing_y: float,
-    flow: float,
 ) -> float:
     """How far a terminus icon hangs past the trailing row, along the flow.
 
@@ -1121,6 +1120,7 @@ def _exit_row_icon_reach(
         _terminus_icons_extend_forward,
     )
 
+    flow = AxisFrame.flow_sign(exit_section.direction)
     reach = 0.0
     for sid in exit_section.station_ids:
         st = graph.stations.get(sid)
@@ -1182,7 +1182,7 @@ def _resolve_tb_exit_y(
     # in the exit row, push the exit port (and the corridor that follows it
     # out) clear of the icon's drawn edge so a route leaving the section does
     # not graze the artefact.
-    icon_reach = _exit_row_icon_reach(graph, exit_section, trailing_y, flow)
+    icon_reach = _exit_row_icon_reach(graph, exit_section, trailing_y)
     if icon_reach > 0:
         min_exit_gap = max(min_exit_gap, icon_reach + EXIT_CORRIDOR_ICON_CLEARANCE)
 
