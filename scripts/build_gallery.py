@@ -200,6 +200,7 @@ def build_gallery_manifest() -> None:
         entries.append(
             {
                 "id": stem,
+                "order": len(entries),
                 "title": clean_name(stem),
                 "src": metro_src(stem, source_dir),
                 "description": description,

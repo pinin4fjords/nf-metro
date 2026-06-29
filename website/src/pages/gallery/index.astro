@@ -4,9 +4,10 @@ import { getCollection } from "astro:content";
 import Metro from "@components/Metro.astro";
 import { base } from "../../site";
 
-const entries = await getCollection("gallery");
+const allEntries = await getCollection("gallery");
+const entries = allEntries.sort((a, b) => a.data.order - b.data.order);
 
-// Group entries by category, preserving insertion order.
+// Group entries by category, preserving gallery.yaml insertion order.
 const byCategory = new Map<string, typeof entries>();
 for (const entry of entries) {
   const cat = entry.data.category;
