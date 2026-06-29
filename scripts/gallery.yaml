@@ -536,6 +536,13 @@ gallery:
     source_dir: examples/topologies
     category: Serpentine Layout
     description: Three lines diverge, converge at a fold, then continue on the return row.
+  - id: fold_left_exit_right_entry
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A folded TB section's LEFT exit runs straight west into a relocated section's
+      RIGHT entry. Regression fixture: the two joined sections share a bbox bottom so
+      the straight run clears both edges by the same distance."
   - id: fold_double
     source_dir: examples/topologies
     category: Serpentine Layout
