@@ -17,6 +17,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     FOLD_MARGIN,
     ICON_TERMINUS_FORK_LEAD,
+    INTER_ROW_EDGE_CLEARANCE,
     LABEL_BBOX_MARGIN,
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
@@ -138,6 +139,68 @@ def _route_entry_runway(
         points=diagonal_centreline(
             section.direction, (sx, sy), (tx, ty), diag_start_x, diag_end_x
         ),
+    )
+
+
+def _route_culdesac_entry(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Trailing-side entry port -> interior trunk station: lift the in-leg.
+
+    A line whose producers all sit to one side enters a section on its
+    flow-*trailing* edge (LEFT on an RL section, RIGHT on an LR one -- the
+    same edge the section flows out of), but its first consumer is an
+    interior station deeper along the trunk.  Drawn flat, the in-leg runs the
+    full trunk to reach that consumer and then the line doubles straight back
+    out along the same row -- a same-side hairpin that folds over its own
+    track (#1182).
+
+    Lift the in-leg onto a track clear of the trunk and drop it perpendicular
+    onto the consumer, so the in-leg and the return trunk leg ride two
+    separate tracks (a cul-de-sac U).  The flow-*leading* entry case (consumer
+    reached without crossing the section) is :func:`_route_entry_runway`.
+    """
+    graph = ctx.graph
+    port = graph.ports.get(edge.source)
+    if not port or not port.is_entry:
+        return None
+    section = graph.sections.get(tgt.section_id or "")
+    if not section or section.direction not in ("LR", "RL"):
+        return None
+    # Only the flow-trailing entry side folds; the leading side is the runway.
+    trailing = PortSide.LEFT if section.direction == "RL" else PortSide.RIGHT
+    if port.side != trailing:
+        return None
+
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    # The consumer must sit on the trunk row; an off-trunk target already
+    # separates the tracks via a diagonal.
+    if abs(sy - ty) >= COORD_TOLERANCE_FINE:
+        return None
+
+    # Interior consumer: a real trunk station sits between the port and target.
+    port_ids = section.port_ids
+    lo, hi = min(sx, tx), max(sx, tx)
+    has_intervening = any(
+        lo + COORD_TOLERANCE < st.x < hi - COORD_TOLERANCE
+        and abs(st.y - ty) < COORD_TOLERANCE
+        for sid in section.station_ids
+        if sid not in (edge.source, edge.target) and sid not in port_ids
+        for st in (graph.stations.get(sid),)
+        if st is not None and not st.is_port
+    )
+    if not has_intervening:
+        return None
+
+    # Lift the in-leg above the trunk, clear of the intervening marker, and
+    # drop perpendicular onto the consumer.  The lift also seats the corners
+    # (>= 2 * curve_radius), so the up/over/down arcs stay separable.
+    upper_y = ty - INTER_ROW_EDGE_CLEARANCE
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[(sx, sy), (sx, upper_y), (tx, upper_y), (tx, ty)],
     )
 
 

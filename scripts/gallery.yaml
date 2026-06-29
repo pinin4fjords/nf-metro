@@ -559,6 +559,16 @@ gallery:
       fed through a TOP entry. Each upper branch's bottom-exit feeder routes around
       the intervening branch boxes through the clear left-side gap rather than
       ploughing straight down through them."
+  - id: same_side_culdesac
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A line enters a reversed (RL) section on its flow-trailing edge, the same
+      edge the section flows out of, but its first consumer is an interior station
+      held off the leading end by a file terminus. The entry leg lifts onto a track
+      clear of the trunk and drops perpendicular onto the consumer, so it and the
+      return trunk leg ride two separate tracks (a cul-de-sac U) instead of folding
+      the line back over itself."
   - id: convergence_fold_diamond
     source_dir: examples/topologies
     category: Serpentine Layout
