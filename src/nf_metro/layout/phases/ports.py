@@ -19,7 +19,9 @@ from nf_metro.layout.phases._common import (
     _expand_bbox_for_y,
     _grid_group_section_ids,
     _is_fold_section,
+    _lr_exit_aligned_target,
     flow_exit_carrier_anchor,
+    iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.guards import (
     _exit_off_consumer_trunk,
@@ -1077,36 +1079,27 @@ def _align_lr_exit_port(
     junction_ids: set[str],
 ) -> None:
     """Align a LEFT/RIGHT exit port's Y with its target entry port."""
-    for edge in graph.edges_from(port_id):
-        tgt = graph.stations.get(edge.target)
-        if not tgt:
-            continue
+    tgt = _lr_exit_aligned_target(graph, port_id, exit_section, junction_ids)
+    if tgt is None:
+        return
 
-        # Don't align with fan-out junctions
-        if edge.target in junction_ids:
-            break
+    if lanes_run_along_x(exit_section.direction):
+        tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
+    else:
+        tgt_y = tgt.y
 
-        if not tgt.is_port:
-            continue
+    _set_port_y(graph, port_id, tgt_y)
 
-        # Don't align with perpendicular target ports (cross-axis)
-        tgt_port_obj = graph.ports.get(tgt.id)
-        if tgt_port_obj and tgt_port_obj.side in (PortSide.TOP, PortSide.BOTTOM):
-            break
 
-        # Don't pull exit port outside its section bbox
-        bbox_top = exit_section.bbox_y
-        bbox_bot = exit_section.bbox_y + exit_section.bbox_h
-        if not (bbox_top <= tgt.y <= bbox_bot):
-            break
+def _realign_fold_lr_exit_ports(graph: MetroGraph) -> None:
+    """Snap each fold LEFT/RIGHT exit down onto a target settled below it.
 
-        if lanes_run_along_x(exit_section.direction):
-            tgt_y = _resolve_tb_exit_y(graph, port, tgt, exit_section)
-        else:
-            tgt_y = tgt.y
-
-        _set_port_y(graph, port_id, tgt_y)
-        break
+    The bbox-contained alignment target keeps the snapped exit inside its
+    section; see :func:`iter_fold_lr_exits_short_of_target` for which exits
+    qualify.
+    """
+    for port_id, tgt in iter_fold_lr_exits_short_of_target(graph, SAME_COORD_TOLERANCE):
+        _set_port_y(graph, port_id, tgt.y)
 
 
 def _resolve_tb_exit_y(

@@ -46,6 +46,7 @@ from nf_metro.layout.phases._common import (
     first_vertical_leg_x,
     flow_exit_carrier_anchor,
     is_loop_side_branch_station,
+    iter_fold_lr_exits_short_of_target,
     iter_sole_trunk_continuations,
     marker_cross_exempt,
     routes_through_own_section_interior,
@@ -863,6 +864,20 @@ def _guard_flow_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
                 f"carrier row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); "
                 f"the boundary run will render as a diagonal instead of a riser"
             )
+
+
+def _guard_fold_lr_exit_follows_target(graph: MetroGraph, phase: str) -> None:
+    """A fold's LEFT/RIGHT exit must reach a target settled along its flow.
+
+    A target seated against the flow keeps its own descent (an intentional
+    staircase) and is exempt; see :func:`iter_fold_lr_exits_short_of_target`.
+    """
+    for pid, tgt in iter_fold_lr_exits_short_of_target(graph, GUARD_TOLERANCE):
+        raise PhaseInvariantError(
+            f"{phase}: fold exit port {pid!r} at y={graph.stations[pid].y:.1f} "
+            f"sits a sub-row short of its target entry {tgt.id!r} at "
+            f"y={tgt.y:.1f}; the inter-section run will render with a jog"
+        )
 
 
 def _exit_perp_to_flow(src_port: Port, src_section: Section) -> bool:
@@ -4263,6 +4278,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_fanout_junction_resolves_upstream, "B"),
     GuardSpec(_guard_entry_port_fed_only_by_ports, "B"),
     GuardSpec(_guard_flow_exit_anchored_to_carrier, "B"),
+    GuardSpec(_guard_fold_lr_exit_follows_target, "B"),
     GuardSpec(
         _guard_perp_fed_entry_anchored_to_consumer,
         "B",

@@ -52,6 +52,7 @@ from nf_metro.layout.labels import (
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
     flow_exit_carrier_anchor,
+    iter_fold_lr_exits_short_of_target,
 )
 from nf_metro.layout.phases.bbox import (
     _section_band_is_empty,
@@ -3646,6 +3647,28 @@ def test_no_kink_at_section_boundary(fixture):
                         f"Row {row}: exit port {pid} cy={exit_cy} != "
                         f"entry port {npid} cy={entry_cy}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# A folded LEFT/RIGHT exit must follow its target's settled entry Y
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_MULTI_SECTION)
+def test_fold_lr_exit_follows_settled_target(fixture):
+    """A fold's LEFT/RIGHT exit must not end a sub-row above its entry target.
+
+    A vertical-flow (TB/BT) fold aligns its exit port to a bbox-contained
+    LEFT/RIGHT entry.  When the target spans several sub-rows its entry Y keeps
+    descending as those sub-rows settle; an exit left short of it renders as a
+    jog.  A target seated against the flow keeps its own descent and is exempt.
+    """
+    graph = _layout(fixture)
+    short = [
+        f"{pid} -> {tgt.id} at y={tgt.y:.1f} (exit y={graph.stations[pid].y:.1f})"
+        for pid, tgt in iter_fold_lr_exits_short_of_target(graph, _Y_TOL)
+    ]
+    assert not short, f"{fixture}: fold exits short of their target: {short}"
 
 
 # ---------------------------------------------------------------------------
