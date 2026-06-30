@@ -347,7 +347,7 @@ def render(
                 embed_basename=output.name,
             ),
         )
-    except (FoldThresholdError, PhaseInvariantError) as e:
+    except (ValueError, FoldThresholdError, PhaseInvariantError) as e:
         raise click.ClickException(str(e))
 
     if validate_geometry:

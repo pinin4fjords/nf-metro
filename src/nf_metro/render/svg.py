@@ -983,11 +983,8 @@ def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float
             w, h = compute_logo_dimensions(dim_path)
             return True, w, h, ""
         if any(raw_candidates):
-            warnings.warn(
-                f"%%metro logo: path(s) {[p for p in raw_candidates if p]} not found;"
-                " logo will be omitted",
-                UserWarning,
-                stacklevel=2,
+            raise ValueError(
+                f"%%metro logo: path(s) {[p for p in raw_candidates if p]} not found"
             )
         return False, 0.0, 0.0, ""
     effective = _effective_logo_path(graph)
@@ -997,12 +994,7 @@ def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float
     if resolved:
         w, h = compute_logo_dimensions(resolved)
         return True, w, h, resolved
-    warnings.warn(
-        f"%%metro logo: path {effective!r} not found; logo will be omitted",
-        UserWarning,
-        stacklevel=2,
-    )
-    return False, 0.0, 0.0, ""
+    raise ValueError(f"%%metro logo: path {effective!r} not found")
 
 
 def compute_logo_dimensions(

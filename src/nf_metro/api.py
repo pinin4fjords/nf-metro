@@ -184,6 +184,11 @@ def prepare_graph(
     if title is not None:
         graph.title = title
 
+    for _attr in ("logo_path", "logo_path_light", "logo_path_dark"):
+        _raw: str = getattr(graph, _attr)
+        if _raw and not Path(_raw).is_file():
+            raise ValueError(f"%%metro logo: path {_raw!r} not found")
+
     compute_layout(graph)
     return graph
 

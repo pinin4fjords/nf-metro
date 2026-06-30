@@ -1,7 +1,6 @@
 """Tests for mode-adaptive logo path selection."""
 
 import io
-import warnings
 from pathlib import Path
 
 import pytest
@@ -148,21 +147,18 @@ def _write_png(path: Path) -> None:
     path.write_bytes(buf.getvalue())
 
 
-def test_resolve_logo_warns_on_missing_single_path():
-    """A set logo_path that doesn't exist on disk should emit a warning."""
+def test_resolve_logo_errors_on_missing_single_path():
+    """A set logo_path that doesn't exist on disk should raise ValueError."""
     g = MetroGraph()
     g.logo_path = "does/not/exist.png"
-    with pytest.warns(UserWarning, match="does/not/exist.png"):
-        show, _, _, _ = _resolve_logo(g, adaptive=False)
-    assert not show
+    with pytest.raises(ValueError, match="does/not/exist.png"):
+        _resolve_logo(g, adaptive=False)
 
 
-def test_resolve_logo_no_warning_when_no_path_set():
-    """Empty logo_path emits no warning."""
+def test_resolve_logo_no_error_when_no_path_set():
+    """Empty logo_path raises no error."""
     g = MetroGraph()
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        show, _, _, _ = _resolve_logo(g, adaptive=False)
+    show, _, _, _ = _resolve_logo(g, adaptive=False)
     assert not show
 
 
@@ -175,32 +171,28 @@ def test_resolve_logo_resolves_relative_to_source_dir(tmp_path):
     g.logo_path = "mylogo.png"
     g.source_dir = str(tmp_path)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        show, w, h, effective = _resolve_logo(g, adaptive=False)
+    show, w, h, effective = _resolve_logo(g, adaptive=False)
     assert show
     assert effective == str(logo_file)
     assert w > 0
 
 
-def test_resolve_logo_warns_when_source_dir_set_but_still_missing(tmp_path):
-    """A logo_path that doesn't exist relative to source_dir emits a warning."""
+def test_resolve_logo_errors_when_source_dir_set_but_still_missing(tmp_path):
+    """A logo_path that doesn't exist relative to source_dir raises ValueError."""
     g = MetroGraph()
     g.logo_path = "nonexistent.png"
     g.source_dir = str(tmp_path)
-    with pytest.warns(UserWarning, match="nonexistent.png"):
-        show, _, _, _ = _resolve_logo(g, adaptive=False)
-    assert not show
+    with pytest.raises(ValueError, match="nonexistent.png"):
+        _resolve_logo(g, adaptive=False)
 
 
-def test_resolve_adaptive_logo_warns_on_missing_paths():
-    """In adaptive mode, missing both variants should emit a warning."""
+def test_resolve_adaptive_logo_errors_on_missing_paths():
+    """In adaptive mode, missing both variants should raise ValueError."""
     g = MetroGraph()
     g.logo_path_light = "missing_light.png"
     g.logo_path_dark = "missing_dark.png"
-    with pytest.warns(UserWarning, match="missing_light.png|missing_dark.png"):
-        show, _, _, _ = _resolve_logo(g, adaptive=True)
-    assert not show
+    with pytest.raises(ValueError, match="missing_light.png|missing_dark.png"):
+        _resolve_logo(g, adaptive=True)
 
 
 def test_resolve_adaptive_logo_resolves_relative_to_source_dir(tmp_path):
@@ -215,8 +207,6 @@ def test_resolve_adaptive_logo_resolves_relative_to_source_dir(tmp_path):
     g.logo_path_dark = "dark.png"
     g.source_dir = str(tmp_path)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        show, w, h, _ = _resolve_logo(g, adaptive=True)
+    show, w, h, _ = _resolve_logo(g, adaptive=True)
     assert show
     assert w > 0
