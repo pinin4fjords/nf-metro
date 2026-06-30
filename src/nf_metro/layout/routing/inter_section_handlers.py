@@ -374,23 +374,26 @@ def _build_inter_facts(
     graph = ctx.graph
     src_col, src_row = _resolve_section_colrow(graph, src)
     tgt_col, tgt_row = _resolve_section_colrow(graph, tgt)
-    # A multi-column hop needs a bypass when an intervening section blocks the
-    # source row, or - for a cross-row L-shape, whose horizontal leg runs at the
-    # target entry Y - the TARGET row, plowed through even when the source row
-    # is clear. A packed cell-mate of either endpoint can also block the path
-    # without registering as an intervening column (see
-    # _packed_cell_mate_obstructs).
+    # Two independent triggers force a bypass: a multi-column hop blocked by an
+    # intervening section, or a packed cell-mate of either endpoint sitting on
+    # the straight path. The latter is independent of the column gap - a same-row
+    # cell-mate can obstruct even an adjacent-column hop, where it never registers
+    # as an intervening column (see _packed_cell_mate_obstructs).
     needs_bypass = (
         src_col is not None
         and tgt_col is not None
-        and abs(tgt_col - src_col) > 1
         and (
-            _has_intervening_sections(graph, src_col, tgt_col, src_row)
-            or (
-                src_row is not None
-                and tgt_row is not None
-                and tgt_row != src_row
-                and _has_intervening_sections(graph, src_col, tgt_col, tgt_row)
+            (
+                abs(tgt_col - src_col) > 1
+                and (
+                    _has_intervening_sections(graph, src_col, tgt_col, src_row)
+                    or (
+                        src_row is not None
+                        and tgt_row is not None
+                        and tgt_row != src_row
+                        and _has_intervening_sections(graph, src_col, tgt_col, tgt_row)
+                    )
+                )
             )
             or _packed_cell_mate_obstructs(graph, src, tgt, src_row, tgt_row)
         )

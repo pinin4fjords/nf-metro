@@ -685,6 +685,15 @@ gallery:
       the intervening section is packed into the same grid cell as the target
       rather than given its own cell. The bypass must still loop around the
       cell-mate's box instead of cutting straight through it (issue #1228)."
+  - id: packed_cell_cellmate_bypass_adjacent
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "The packed-cell cell-mate bypass with the bypassing line's source section
+      sitting in the column immediately adjacent to the packed cell, with no gap
+      column to descend through. The bypass must still loop below the cell-mate's
+      box rather than collapse back to a straight run through its interior
+      (issue #1233)."
   - id: branch_fold_forward
     source_dir: examples/topologies
     category: Serpentine Layout

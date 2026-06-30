@@ -12,13 +12,22 @@ dispatcher never routes the edge through the bypass family, and even once it
 does, the gap placed "to the right of the target's column" lands beyond the
 cell-mate instead of between the cell-mate and the target.
 
-See issue #1228 (companion to #1211, which fixed the equivalent
-separate-cell case).
+Two fixtures exercise the same invariant at different source-to-cell spacing:
+
+* ``packed_cell_cellmate_bypass`` - the bypassing line's source sits one
+  column past the packed cell, with an empty gap column between (issue #1228).
+* ``packed_cell_cellmate_bypass_adjacent`` - the source sits in the column
+  immediately adjacent to the packed cell, with no gap column to descend
+  through (issue #1233). The dispatch gate keyed on column distance hid the
+  cell-mate entirely here, so the line collapsed back to a straight run
+  through the cell-mate's interior.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.phases._common import routes_through_unrelated_sections
@@ -27,18 +36,19 @@ from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.parser import parse_metro_mermaid
 
 TOPOLOGIES = Path(__file__).parent.parent / "examples" / "topologies"
-FIXTURE = "packed_cell_cellmate_bypass"
+FIXTURES = ("packed_cell_cellmate_bypass", "packed_cell_cellmate_bypass_adjacent")
 
 
-def _layout():
-    graph = parse_metro_mermaid((TOPOLOGIES / f"{FIXTURE}.mmd").read_text())
+def _layout(fixture: str):
+    graph = parse_metro_mermaid((TOPOLOGIES / f"{fixture}.mmd").read_text())
     compute_layout(graph)
     return graph
 
 
-def test_no_line_routes_through_cell_mate() -> None:
+@pytest.mark.parametrize("fixture", FIXTURES)
+def test_no_line_routes_through_cell_mate(fixture: str) -> None:
     """No routed line crosses the interior of a packed cell-mate it never touches."""
-    graph = _layout()
+    graph = _layout(fixture)
     offenders = routes_through_unrelated_sections(graph)
     assert not offenders, "; ".join(
         f"{rp.line_id} {rp.edge.source}->{rp.edge.target} through {sid!r}"
@@ -46,7 +56,8 @@ def test_no_line_routes_through_cell_mate() -> None:
     )
 
 
-def test_rna_bypass_clears_realign_on_both_sides() -> None:
+@pytest.mark.parametrize("fixture", FIXTURES)
+def test_rna_bypass_clears_realign_on_both_sides(fixture: str) -> None:
     """The ``rna`` bypass traverses below ``realign``, not collapsed to a point.
 
     ``rna`` leaves ``consensus`` and must reach ``reporting``, its packed
@@ -55,7 +66,7 @@ def test_rna_bypass_clears_realign_on_both_sides() -> None:
     of the box, and its rise, left of the box) rather than the two collapsing
     onto the same x and leaving the final approach to cut through the box.
     """
-    graph = _layout()
+    graph = _layout(fixture)
     realign = graph.sections["realign"]
     realign_left = realign.bbox_x
     realign_right = realign.bbox_x + realign.bbox_w
