@@ -1,5 +1,6 @@
 """Tests for mode-adaptive logo path selection."""
 
+import base64
 import io
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 from PIL import Image as PILImage
 
 from nf_metro.parser.model import MetroGraph
+from nf_metro.render.legend import logo_is_resolvable, open_logo_image
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.svg import (
     _effective_logo_path,
@@ -14,6 +16,13 @@ from nf_metro.render.svg import (
     _is_adaptive_mode,
     _resolve_logo,
 )
+
+
+def _png_data_uri(*, width: int = 100, height: int = 50) -> str:
+    img = PILImage.new("RGB", (width, height), color=(255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
 def _graph_with_logo(
@@ -206,6 +215,45 @@ def test_resolve_adaptive_logo_resolves_relative_to_source_dir(tmp_path):
     g.logo_path_light = "light.png"
     g.logo_path_dark = "dark.png"
     g.source_dir = str(tmp_path)
+
+    show, w, h, _ = _resolve_logo(g, adaptive=True)
+    assert show
+    assert w > 0
+
+
+def test_logo_is_resolvable_for_data_uri():
+    assert logo_is_resolvable(_png_data_uri())
+
+
+def test_logo_is_resolvable_false_for_missing_file():
+    assert not logo_is_resolvable("does/not/exist.png")
+
+
+def test_open_logo_image_decodes_data_uri():
+    img = open_logo_image(_png_data_uri(width=40, height=20))
+    assert (img.width, img.height) == (40, 20)
+
+
+def test_open_logo_image_rejects_non_base64_data_uri():
+    with pytest.raises(ValueError, match="base64"):
+        open_logo_image("data:image/png,not-base64")
+
+
+def test_resolve_logo_accepts_data_uri_single_path():
+    """A data URI needs no filesystem access, so it resolves with no source_dir."""
+    g = MetroGraph()
+    g.logo_path = _png_data_uri(width=40, height=20)
+
+    show, w, h, effective = _resolve_logo(g, adaptive=False)
+    assert show
+    assert effective == g.logo_path
+    assert w / h == 2.0
+
+
+def test_resolve_adaptive_logo_accepts_data_uris():
+    g = MetroGraph()
+    g.logo_path_light = _png_data_uri()
+    g.logo_path_dark = _png_data_uri()
 
     show, w, h, _ = _resolve_logo(g, adaptive=True)
     assert show

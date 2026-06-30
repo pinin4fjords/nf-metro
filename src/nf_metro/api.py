@@ -27,6 +27,7 @@ from nf_metro.parser.directives import apply_legend_directive
 from nf_metro.parser.model import LineSpread, MetroGraph
 from nf_metro.render import render_svg
 from nf_metro.render.html import render_html
+from nf_metro.render.legend import logo_is_resolvable
 from nf_metro.render.style import Theme
 from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 
@@ -174,7 +175,7 @@ def prepare_graph(
         graph.source_dir = source_dir
         for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
             raw: str = getattr(graph, attr)
-            if raw and not Path(raw).is_file():
+            if raw and not logo_is_resolvable(raw):
                 candidate = Path(source_dir) / raw
                 if candidate.is_file():
                     setattr(graph, attr, str(candidate))
@@ -189,7 +190,7 @@ def prepare_graph(
 
     for _attr in ("logo_path", "logo_path_light", "logo_path_dark"):
         _raw: str = getattr(graph, _attr)
-        if _raw and not Path(_raw).is_file():
+        if _raw and not logo_is_resolvable(_raw):
             raise ValueError(f"%%metro logo: path {_raw!r} not found")
 
     compute_layout(graph)

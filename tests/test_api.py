@@ -104,6 +104,31 @@ def test_render_string_propagates_layout_error() -> None:
         render_string(cyclic)
 
 
+def _data_uri_logo_mmd(logo_directive: str) -> str:
+    return (
+        f"%%metro logo: {logo_directive}\n"
+        "%%metro line: a | A | #f00\n"
+        "graph LR\n  n1[N1] -->|a| n2[N2]\n"
+    )
+
+
+def test_render_string_embeds_data_uri_logo_with_no_source_dir() -> None:
+    """A data URI needs no filesystem access, so the browser playground (which
+    calls render_string with no source_dir) can embed a logo that was never on
+    disk in the first place."""
+    pixel = (
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4"
+        "nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+    )
+    svg = render_string(_data_uri_logo_mmd(pixel))
+    assert pixel in svg
+
+
+def test_prepare_graph_rejects_unresolvable_logo_path() -> None:
+    with pytest.raises(ValueError, match="does/not/exist.png"):
+        prepare_graph(_data_uri_logo_mmd("does/not/exist.png"))
+
+
 def test_render_string_self_color_scheme_parity() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
     with_cs = render_string(src)

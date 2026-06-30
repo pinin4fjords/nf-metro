@@ -4,15 +4,25 @@ from __future__ import annotations
 
 __all__ = [
     "compute_legend_dimensions",
+    "logo_image_kwargs",
+    "logo_is_resolvable",
     "marker_corner_radius",
     "marker_fill_color",
     "marker_stroke_color",
+    "open_logo_image",
     "render_legend",
 ]
 
+import base64
 from dataclasses import dataclass
+from io import BytesIO
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import drawsvg as draw
+
+if TYPE_CHECKING:
+    from PIL.Image import Image as PILImageType
 
 from nf_metro.parser.model import (
     MARKER_FILL_OPEN,
@@ -41,6 +51,39 @@ from nf_metro.render.constants import (
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.ns import ns as _ns
 from nf_metro.render.style import Theme
+
+
+def logo_is_resolvable(path: str) -> bool:
+    """True when *path* can be opened as a logo image.
+
+    A logo is either a base64 data URI (self-contained, needs no filesystem -
+    this is what lets a logo travel into sandboxed contexts such as the
+    browser-based playground) or a path to an existing file.
+    """
+    return path.startswith("data:") or Path(path).is_file()
+
+
+def open_logo_image(path: str) -> "PILImageType":
+    """Open a logo image from a data URI or a file path."""
+    from PIL import Image as PILImage
+
+    if path.startswith("data:"):
+        header, _, payload = path.partition(",")
+        if ";base64" not in header:
+            raise ValueError("logo data URI must be base64-encoded")
+        return PILImage.open(BytesIO(base64.b64decode(payload)))
+    return PILImage.open(path)
+
+
+def logo_image_kwargs(path: str) -> dict[str, str | bool]:
+    """``drawsvg.Image`` kwargs that embed a logo from a data URI or file path.
+
+    A data URI is already a self-contained ``data:`` href, so it is passed
+    through unembedded; a file path is read and base64-embedded as usual.
+    """
+    if path.startswith("data:"):
+        return {"path": path, "embed": False}
+    return {"path": path, "embed": True}
 
 
 def marker_fill_color(fill: str, theme: Theme) -> str:
@@ -354,9 +397,8 @@ def render_legend(
                         logo_y,
                         scaled_w,
                         scaled_h,
-                        path=logo_path_dark,
-                        embed=True,
                         mask=f"url(#{dark_mask_id})",
+                        **logo_image_kwargs(logo_path_dark),
                     )
                 )
             if logo_path_light:
@@ -366,20 +408,19 @@ def render_legend(
                         logo_y,
                         scaled_w,
                         scaled_h,
-                        path=logo_path_light,
-                        embed=True,
                         mask=f"url(#{light_mask_id})",
+                        **logo_image_kwargs(logo_path_light),
                     )
                 )
         else:
+            assert logo_path  # has_adaptive is False, so active_logo == logo_path
             d.append(
                 draw.Image(
                     logo_x,
                     logo_y,
                     scaled_w,
                     scaled_h,
-                    path=logo_path,
-                    embed=True,
+                    **logo_image_kwargs(logo_path),
                 )
             )
         logo_offset = scaled_w + _logo_gap(graph)
