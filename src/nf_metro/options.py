@@ -41,6 +41,7 @@ class LayoutOption:
     attr: str = ""
     choices: tuple[str, ...] = ()
     sign: NumberSign = "any"
+    max_val: float | None = None  # inclusive upper bound for numeric options
     parse_time: bool = False  # consumed during parsing, not after
     hidden: bool = False  # omit the generated CLI flag from --help
 
@@ -84,6 +85,8 @@ def coerce(opt: LayoutOption, raw: str) -> tuple[Any, str]:
             return INVALID, "a non-negative number"
         if opt.sign == "positive" and num <= 0:
             return INVALID, "a positive number"
+        if opt.max_val is not None and num > opt.max_val:
+            return INVALID, f"a number <= {opt.max_val}"
         return num, ""
     return text, ""
 
@@ -120,10 +123,11 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         name="track_gap",
         kind="float",
         sign="nonneg",
-        help="Visual gap (in px) between adjacent line strokes in a bundle "
-        "(edge to edge, not centre to centre). Set to 0 to collapse all lines "
-        "onto a single shared track. When unset, lines are spaced 1 px apart "
-        "(the built-in default of 4 px centre-to-centre minus the 3 px stroke).",
+        help="Visual gap (px, 0–3) between adjacent line strokes in a bundle "
+        "(edge to edge, not centre to centre). 0 collapses all lines onto a "
+        "single shared track; 1 is the default. Values above 3 cause routing "
+        "invariant failures on complex maps.",
+        max_val=3.0,
     ),
     LayoutOption(
         name="fold_threshold",

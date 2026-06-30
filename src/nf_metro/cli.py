@@ -60,15 +60,16 @@ def _layout_cli_option(opt: LayoutOption) -> Callable[..., Any]:
             help=opt.help,
             hidden=opt.hidden,
         )
-    ctype: Any = (
-        click.Choice(opt.choices)
-        if opt.kind == "choice"
-        else {
-            "int": int,
-            "float": float,
-            "str": str,
-        }[opt.kind]
-    )
+    if opt.kind == "choice":
+        ctype: Any = click.Choice(opt.choices)
+    elif opt.kind == "float" and opt.max_val is not None:
+        lo = 0.0 if opt.sign in ("nonneg", "positive") else None
+        ctype = click.FloatRange(min=lo, max=opt.max_val)
+    elif opt.kind == "int" and opt.max_val is not None:
+        lo_i = 0 if opt.sign in ("nonneg", "positive") else None
+        ctype = click.IntRange(min=lo_i, max=int(opt.max_val))
+    else:
+        ctype = {"int": int, "float": float, "str": str}[opt.kind]
     return click.option(
         opt.cli_flag,
         opt.name,
