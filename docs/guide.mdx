@@ -282,7 +282,7 @@ This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the 
 
 The [off_track_outputs](https://github.com/seqeralabs/nf-metro/blob/main/examples/off_track_outputs.mmd) example hangs several such artefacts above a pre-processing trunk.
 
-**Track gap.** `%%metro track_gap: <px>` sets the visual gap between adjacent line strokes in a bundle - the empty space between their edges, not their centres. The default is 1 px (the built-in 4 px centre-to-centre minus the 3 px nfcore stroke). Set it to `0` to collapse all lines onto a single shared track, which suits maps where the distinction between co-running lines is already conveyed by section structure rather than visible separation:
+**Track gap.** `%%metro track_gap: <px>` sets the visual gap between adjacent line strokes in a bundle - the empty space between their edges, not their centres. The default is 1 px (the built-in 4 px centre-to-centre minus the 3 px nfcore stroke). Set it to `0` to bring the strokes flush against each other with no gap, or increase it for more breathing room between co-running lines:
 
 <Metro src="examples/guide/07_track_gap.mmd" />
 

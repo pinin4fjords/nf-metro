@@ -3669,10 +3669,6 @@ def assert_render_curve_invariants(
     cannot make clean; the render proceeds best-effort and the warning names the
     actionable fix rather than aborting.
     """
-    # When track_gap=0 the user has intentionally collapsed all lines onto a
-    # single shared centre.  Every distinct-line overlap is expected, so the
-    # three collinear/diagonal checks are skipped entirely.
-    collapsed = getattr(graph, "track_gap", None) == 0.0
     named_checks: list[tuple[str, Sequence[_HasMessage]]] = [
         (
             "bundle order (line crosses its bundle-mate)",
@@ -3682,25 +3678,17 @@ def assert_render_curve_invariants(
             "non-concentric bundle corner",
             check_concentric_bundle_corners(graph, routes, offsets),
         ),
-        *(
-            []
-            if collapsed
-            else [
-                (
-                    "collinear distinct lines",
-                    check_no_collinear_distinct_lines(graph, routes, offsets),
-                ),
-                (
-                    "intra-section collinear distinct lines",
-                    check_intra_section_collinear_distinct_lines(
-                        graph, routes, offsets
-                    ),
-                ),
-                (
-                    "collinear distinct diagonals",
-                    check_no_collinear_distinct_diagonals(graph, routes, offsets),
-                ),
-            ]
+        (
+            "collinear distinct lines",
+            check_no_collinear_distinct_lines(graph, routes, offsets),
+        ),
+        (
+            "intra-section collinear distinct lines",
+            check_intra_section_collinear_distinct_lines(graph, routes, offsets),
+        ),
+        (
+            "collinear distinct diagonals",
+            check_no_collinear_distinct_diagonals(graph, routes, offsets),
         ),
         (
             "same-line parallel descents",

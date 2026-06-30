@@ -171,8 +171,8 @@ _TWO_LINE = (
 )
 
 
-def test_track_gap_zero_collapses_lines():
-    """track_gap=0 renders without error - lines share a single centre."""
+def test_track_gap_zero_renders_touching_lines():
+    """track_gap=0 renders without error - lines touch (zero gap between edges)."""
     from nf_metro.render.svg import render_svg
 
     graph = parse_metro_mermaid("%%metro track_gap: 0\n" + _TWO_LINE)

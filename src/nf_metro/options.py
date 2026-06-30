@@ -124,9 +124,9 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         kind="float",
         sign="nonneg",
         help="Visual gap (px, 0–3) between adjacent line strokes in a bundle "
-        "(edge to edge, not centre to centre). 0 collapses all lines onto a "
-        "single shared track; 1 is the default. Values above 3 cause routing "
-        "invariant failures on complex maps.",
+        "(edge to edge, not centre to centre). 0 means lines touch with no "
+        "space between them; 1 is the default. Values above 3 cause routing "
+        "problems on complex maps.",
         max_val=3.0,
     ),
     LayoutOption(

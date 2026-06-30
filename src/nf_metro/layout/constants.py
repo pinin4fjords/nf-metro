@@ -301,17 +301,14 @@ def resolve_offset_step(
 
     ``track_gap`` is the user-visible *visual* gap -- the empty space between
     adjacent line stroke edges, not between their centres.  The centre-to-centre
-    offset is ``track_gap + line_width`` so the strokes never visually overlap.
+    offset is ``track_gap + line_width``.
 
     ``None``  → built-in default (``OFFSET_STEP``, currently 4 px).
-    ``0``     → intentional single-track collapse; all lines share one centre.
-                Callers that check for collinear lines must skip those checks.
+    ``0``     → lines touch (zero gap between edges); offset = ``line_width``.
     ``X > 0`` → ``X + line_width`` centre-to-centre.
     """
     if track_gap is None:
         return OFFSET_STEP
-    if track_gap == 0.0:
-        return 0.0
     return track_gap + line_width
 
 
