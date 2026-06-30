@@ -1,0 +1,25 @@
+%%metro title: Same-Side Cul-de-Sac
+%%metro style: dark
+%%metro directional: true
+%%metro line: flow | Flow | #0570b0
+%%metro line: feed | Feed | #41ab5d
+%%metro file: f | FASTQ
+%%metro grid: producer | 0,0
+%%metro grid: mid | 1,0
+
+graph LR
+    subgraph producer [Producer]
+        p1[Source]
+        p2[Prepare]
+        p1 -->|flow| p2
+    end
+    subgraph mid [Cul-de-sac]
+        %%metro direction: RL
+        %%metro entry: left | flow
+        f[ ]
+        inner[Inner]
+        outer[Outer]
+        f -->|feed| inner
+        inner -->|flow| outer
+    end
+    p2 -->|flow| inner

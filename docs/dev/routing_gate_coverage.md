@@ -16,7 +16,7 @@ Each row is a branch point (a *gate*) in a `layout/routing/` dispatch handler or
 
 Modules scoped to routing decision gates; `invariants.py` (the `validate=True` checker) and `__init__.py` are excluded.
 
-The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **241** gaps carry a triage verdict.
+The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **240** gaps carry a triage verdict.
 
 ## `arranger.py`
 
@@ -240,7 +240,7 @@ Gates with an un-exercised arm:
 | Line | Gate | Un-exercised arm(s) | Triage |
 | ---: | --- | --- | --- |
 | 77 | `if not section:` | `->L78` | **defensive** -- _route_entry_runway only runs on an entry-port -> internal-station edge; the target of such an edge always carries a section_id that resolves, so the guard's return-None arm protects against a malformed graph rather than a topology. |
-| 84 | `if section.direction == "RL" and port.side != PortSide.RIGHT:` | `->L85` | **defensive** -- Mirror of the LR guard: RL sections only ever receive RIGHT (flow-side) entries (all 24 corpus RL entries are RIGHT); a LEFT-side entry on an RL section is a misconfiguration the reject arm guards against. |
+| 84 | `if section.direction == "RL" and port.side != PortSide.RIGHT:` | `->L85` |  |
 | 86 | `if section.direction not in ("LR", "RL"):` | `->L87` | **defensive** -- No TB/BT entry reaches _route_entry_runway: TB LEFT/RIGHT entries are consumed by _route_tb_lr_entry and TB/BT TOP/BOTTOM entries by _route_perp_entry (both earlier in the dispatch chain), and a BT section is never produced (the direction directive accepts only LR/RL/TB; 0/391 corpus sections are BT). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
 | 103 | `if not st or st.is_port:` | `->L104` | **defensive** -- The loop already skips edge.target and every id in section.port_ids, so a surviving id resolves to a non-port internal station; the not-st / is_port re-check is belt-and-suspenders against a port absent from port_ids. |
 | 108 | `elif section.direction == "RL" and tx < st.x < sx:` | `->L109` |  |

@@ -81,7 +81,7 @@ def _layout(name: str, fold: int, *, validate: bool = False):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="same-side hairpin fold-back in polishing/longranger/freebayes (#1182)",
+    reason="inter-section assemblies fan tangle under fold over-compression (#1187)",
 )
 @pytest.mark.parametrize("fold", [3, 5, 7, 9, 11])
 def test_genomeassembly_renders_clean_under_lowered_fold(fold: int) -> None:
