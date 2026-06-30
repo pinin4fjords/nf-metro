@@ -1601,7 +1601,7 @@ def _route_bypass(
     dx = tx - sx
     horizontal = horizontal_direction(dx)
     graph = ctx.graph
-    src_sec = resolve_section(graph, src)
+    src_sec = resolve_section(graph, src, prefer_upstream=False)
     tgt_sec = resolve_section(graph, tgt, prefer_upstream=False)
     src_sec_id = src_sec.id if src_sec is not None else None
     tgt_sec_id = tgt_sec.id if tgt_sec is not None else None
