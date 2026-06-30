@@ -48,6 +48,7 @@ from nf_metro.layout.phases._common import (
     flow_exit_carrier_anchor,
     is_loop_side_branch_station,
     iter_corridor_fed_solo_entries,
+    iter_fold_lr_exit_straight_runs,
     iter_fold_lr_exits_short_of_target,
     iter_sole_trunk_continuations,
     marker_cross_exempt,
@@ -946,6 +947,32 @@ def _guard_fold_lr_exit_follows_target(graph: MetroGraph, phase: str) -> None:
             f"sits a sub-row short of its target entry {tgt.id!r} at "
             f"y={tgt.y:.1f}; the inter-section run will render with a jog"
         )
+
+
+def _guard_fold_lr_exit_sections_share_bbox_bottom(
+    graph: MetroGraph, phase: str
+) -> None:
+    """A straight folded LR/RL run's two sections must end at the same bbox bottom.
+
+    The run is horizontal, so an unequal bbox bottom on the exit vs the target
+    section leaves the line a different distance above each section's bottom
+    edge -- a lopsided clearance even though the run itself is straight.  Scope
+    is :func:`iter_fold_lr_exit_straight_runs`.
+    """
+    for pid, tgt in iter_fold_lr_exit_straight_runs(graph, GUARD_TOLERANCE):
+        assert tgt.section_id is not None  # generator only yields placed targets
+        exit_section = graph.sections[graph.ports[pid].section_id]
+        tgt_section = graph.sections[tgt.section_id]
+        exit_bot = exit_section.bbox_y + exit_section.bbox_h
+        tgt_bot = tgt_section.bbox_y + tgt_section.bbox_h
+        if abs(exit_bot - tgt_bot) > GUARD_TOLERANCE:
+            raise PhaseInvariantError(
+                f"{phase}: straight folded run from exit {pid!r} joins "
+                f"{exit_section.id!r} (bbox bottom {exit_bot:.1f}) to "
+                f"{tgt_section.id!r} (bbox bottom {tgt_bot:.1f}); the "
+                f"{abs(exit_bot - tgt_bot):.1f}px mismatch makes the run clear "
+                f"the two sections by different distances"
+            )
 
 
 def _exit_perp_to_flow(src_port: Port, src_section: Section) -> bool:
@@ -4429,6 +4456,17 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_entry_port_fed_only_by_ports, "B"),
     GuardSpec(_guard_flow_exit_anchored_to_carrier, "B"),
     GuardSpec(_guard_fold_lr_exit_follows_target, "B"),
+    GuardSpec(
+        _guard_fold_lr_exit_sections_share_bbox_bottom,
+        "B",
+        issue_pin=("#1162",),
+        narrow_reason=(
+            "Only straight folded LR/RL runs are checked (a cross-row, "
+            "bbox-contained entry target sitting at the exit Y).  A staircase "
+            "run into a target seated off the exit Y, or a same-row seam, has no "
+            "single shared bottom edge to balance against."
+        ),
+    ),
     GuardSpec(
         _guard_perp_fed_entry_anchored_to_consumer,
         "B",

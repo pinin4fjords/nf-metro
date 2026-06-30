@@ -24,6 +24,7 @@ from nf_metro.layout.phases._common import (
     flow_exit_carrier_anchor,
     iter_fold_lr_exits_short_of_target,
 )
+from nf_metro.layout.phases.bbox import _predict_section_content_bottom
 from nf_metro.layout.phases.guards import (
     _exit_off_consumer_trunk,
     _section_lacks_flow_aligned_port,
@@ -1233,9 +1234,9 @@ def _resolve_tb_exit_y(
     return tgt_y
 
 
-def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
+def _align_tb_section_bbox_bottoms(graph: MetroGraph, section_y_padding: float) -> None:
     """Extend each TB-section's bbox bottom to match its downstream
-    target section's bbox bottom.
+    target section's settled bbox bottom.
 
     A TB (fold) section's exit port sits at the Y of the downstream
     LR/RL section's entry port (placed by ``_resolve_tb_exit_y``).
@@ -1245,8 +1246,15 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
     For every TB section with an LR/RL exit, find the target sections
     its exit ports feed into (directly or via a junction) and grow the
     TB section's ``bbox_h`` so its bottom reaches the maximum of those
-    targets' bbox bottoms.  Bbox tops are preserved; only ``bbox_h``
-    grows.
+    targets' bottoms.  Bbox tops are preserved; only ``bbox_h`` grows.
+
+    The target bottom is its *settled* content bottom
+    (:func:`_predict_section_content_bottom`), not its current live
+    ``bbox_h``.  This stage runs upstream of the bbox-shrink phase: a
+    target's live ``bbox_h`` can include a padding band that the shrink
+    later collapses to content, whereas the settled content bottom is
+    where the target edge comes to rest.  Aligning to it keeps the
+    inter-section run an equal distance above both section bottoms.
 
     Skipped for TB sections with BOTTOM-side exit ports (TB->TB flow)
     so the bottom-edge port placement invariant continues to hold.
@@ -1313,9 +1321,16 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph) -> None:
         if not target_ids:
             continue
         target_bots = [
-            graph.sections[tid].bbox_y + graph.sections[tid].bbox_h
+            bot
             for tid in target_ids
-            if tid in graph.sections and graph.sections[tid].bbox_h > 0
+            if tid in graph.sections
+            and graph.sections[tid].bbox_h > 0
+            and (
+                bot := _predict_section_content_bottom(
+                    graph, graph.sections[tid], section_y_padding
+                )
+            )
+            is not None
         ]
         if not target_bots:
             continue

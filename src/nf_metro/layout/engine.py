@@ -1628,7 +1628,7 @@ def _place_pass_c_content(
     # downstream LR section's bbox bottom.  Without this the TB
     # section's bbox ends right at the inter-section exit port Y,
     # making the line look pinned to the section edge.
-    _align_tb_section_bbox_bottoms(graph)
+    _align_tb_section_bbox_bottoms(graph, section_y_padding)
     _snap(graph, "6.5")
     if validate:
         _run_pass_c_guards(graph, "after Stage 6.5")

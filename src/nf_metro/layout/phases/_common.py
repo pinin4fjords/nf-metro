@@ -169,23 +169,18 @@ def _lr_exit_aligned_target(
     return None
 
 
-def iter_fold_lr_exits_short_of_target(
-    graph: MetroGraph, tolerance: float
-) -> Iterator[tuple[str, Station]]:
-    """Yield ``(exit_port_id, target_entry)`` for fold exits short of their target.
+def _iter_cross_row_aligned_fold_lr_exits(
+    graph: MetroGraph,
+) -> Iterator[tuple[str, Section, Station]]:
+    """Yield ``(exit_port_id, exit_section, target_entry)`` for a fold's
+    cross-row aligned LEFT/RIGHT exits.
 
-    A vertical-flow (TB/BT) fold's LEFT/RIGHT exit aligns to a bbox-contained
-    entry target.  A target is yielded only when it sits in a different grid row
-    (the fold relocated it, so its multi-sub-row entry can settle away from the
-    exit) and seated *along the flow* from the exit by more than ``tolerance`` --
-    meaning the exit must follow it to that Y for a straight inter-section run.
-    A same-row seam, or a target seated against the flow (keeping its own
-    descent, an intentional staircase), is not yielded.
-
-    The single source of "which fold exit is short of its target" shared by the
-    re-alignment that fixes it (:func:`_realign_fold_lr_exit_ports`), the guard
-    that flags it (``_guard_fold_lr_exit_follows_target``), and the layout
-    invariant test -- so the three cannot drift on scope or predicate.
+    The shared scope of :func:`iter_fold_lr_exits_short_of_target` and
+    :func:`iter_fold_lr_exit_straight_runs`: a vertical-flow (TB/BT) fold's
+    LEFT/RIGHT exit aligned to a bbox-contained entry target in a different grid
+    row (the fold relocated it, so its multi-sub-row entry can settle away from
+    the exit).  Each consumer applies the final predicate that distinguishes a
+    straight run from a staircase, so the two cannot drift on scope.
     """
     junction_ids = graph.junction_ids
     for port_id, port in graph.ports.items():
@@ -204,8 +199,48 @@ def iter_fold_lr_exits_short_of_target(
         tgt_section = graph.sections.get(tgt.section_id) if tgt.section_id else None
         if tgt_section is None or tgt_section.grid_row == section.grid_row:
             continue
+        yield port_id, section, tgt
+
+
+def iter_fold_lr_exits_short_of_target(
+    graph: MetroGraph, tolerance: float
+) -> Iterator[tuple[str, Station]]:
+    """Yield ``(exit_port_id, target_entry)`` for fold exits short of their target.
+
+    A cross-row aligned LEFT/RIGHT fold exit is yielded when its target is
+    seated *along the flow* from the exit by more than ``tolerance`` -- meaning
+    the exit must follow it to that Y for a straight inter-section run.  A target
+    seated against the flow (keeping its own descent, an intentional staircase)
+    is not yielded.
+
+    The single source of "which fold exit is short of its target" shared by the
+    re-alignment that fixes it (:func:`_realign_fold_lr_exit_ports`), the guard
+    that flags it (``_guard_fold_lr_exit_follows_target``), and the layout
+    invariant test -- so the three cannot drift on scope or predicate.
+    """
+    for port_id, section, tgt in _iter_cross_row_aligned_fold_lr_exits(graph):
         flow = AxisFrame.flow_sign(section.direction)
         if flow * (tgt.y - graph.stations[port_id].y) > tolerance:
+            yield port_id, tgt
+
+
+def iter_fold_lr_exit_straight_runs(
+    graph: MetroGraph, tolerance: float
+) -> Iterator[tuple[str, Station]]:
+    """Yield ``(exit_port_id, target_entry)`` for straight folded LR/RL runs.
+
+    The companion of :func:`iter_fold_lr_exits_short_of_target`: the same
+    cross-row aligned fold exits, but yielding the runs whose exit sits *at* its
+    target entry Y -- the inter-section run is straight.  A target seated off the
+    exit Y (the staircase case the sibling generator covers) is excluded.
+
+    The single source of "which folded LR/RL run is straight" shared by the
+    bbox-bottom alignment (:func:`_align_tb_section_bbox_bottoms`) and the guard
+    that checks the two sections clear it evenly
+    (``_guard_fold_lr_exit_sections_share_bbox_bottom``).
+    """
+    for port_id, _section, tgt in _iter_cross_row_aligned_fold_lr_exits(graph):
+        if abs(tgt.y - graph.stations[port_id].y) <= tolerance:
             yield port_id, tgt
 
 

@@ -226,7 +226,10 @@ TERMINUS_FONT_COLOR: str = "#000000"
 # Debug overlay colors
 # ---------------------------------------------------------------------------
 DEBUG_WAYPOINT_COLOR: str = "rgba(255, 200, 50, 0.6)"
-"""Color for edge waypoint markers in debug overlay."""
+"""Color for edge waypoint markers in debug overlay (dark backgrounds)."""
+
+DEBUG_WAYPOINT_COLOR_LIGHT: str = "rgba(200, 80, 0, 0.8)"
+"""Color for edge waypoint markers in debug overlay (light backgrounds)."""
 
 DEBUG_ENTRY_PORT_COLOR: str = "rgba(255, 80, 80, 0.7)"
 """Color for entry port diamond markers in debug overlay."""
@@ -247,7 +250,16 @@ DEBUG_HIDDEN_LABEL_OFFSET: float = 8.0
 """Y offset from hidden station circle to label text."""
 
 DEBUG_ROW_GRID_COLOR: str = "rgba(80, 255, 180, 0.5)"
-"""Color for shared Y grid lines in debug overlay."""
+"""Color for shared Y grid lines in debug overlay (dark backgrounds)."""
+
+DEBUG_ROW_GRID_COLOR_LIGHT: str = "rgba(0, 140, 90, 0.8)"
+"""Color for shared Y grid lines in debug overlay (light backgrounds)."""
+
+DEBUG_GRID_COLOR: str = "rgba(255, 255, 0, 0.5)"
+"""Color for column/row boundary grid lines in debug overlay (dark backgrounds)."""
+
+DEBUG_GRID_COLOR_LIGHT: str = "rgba(0, 100, 200, 0.7)"
+"""Color for column/row boundary grid lines in debug overlay (light backgrounds)."""
 
 # ---------------------------------------------------------------------------
 # Icon styling

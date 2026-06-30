@@ -70,12 +70,16 @@ from nf_metro.render.constants import (
     DEBUG_ENTRY_PORT_COLOR,
     DEBUG_EXIT_PORT_COLOR,
     DEBUG_FONT_SIZE,
+    DEBUG_GRID_COLOR,
+    DEBUG_GRID_COLOR_LIGHT,
     DEBUG_HIDDEN_LABEL_OFFSET,
     DEBUG_HIDDEN_STATION_COLOR,
     DEBUG_LABEL_OFFSET,
     DEBUG_ROW_GRID_COLOR,
+    DEBUG_ROW_GRID_COLOR_LIGHT,
     DEBUG_STROKE_WIDTH,
     DEBUG_WAYPOINT_COLOR,
+    DEBUG_WAYPOINT_COLOR_LIGHT,
     DEBUG_WAYPOINT_RADIUS,
     FALLBACK_LINE_COLOR,
     FILES_ICON_OFFSET_RATIO,
@@ -3035,6 +3039,7 @@ def _draw_debug_y_grid(
     label: str,
     debug_font: str,
     debug_font_size: float,
+    color: str = DEBUG_ROW_GRID_COLOR,
 ) -> None:
     """Draw one horizontal line per row Y, labelling the topmost one."""
     for i, y in enumerate(row_ys):
@@ -3044,7 +3049,7 @@ def _draw_debug_y_grid(
                 y,
                 x_end,
                 y,
-                stroke=DEBUG_ROW_GRID_COLOR,
+                stroke=color,
                 stroke_width=0.75,
                 stroke_dasharray="4,6",
             )
@@ -3056,7 +3061,7 @@ def _draw_debug_y_grid(
                     debug_font_size,
                     x_start - 4,
                     y,
-                    fill=DEBUG_ROW_GRID_COLOR,
+                    fill=color,
                     font_family=debug_font,
                     text_anchor="end",
                 )
@@ -3073,6 +3078,10 @@ def _render_debug_overlay(
     """Render debug markers for ports, hidden stations, and edge waypoints."""
     debug_font = theme.label_font_family
     debug_font_size = DEBUG_FONT_SIZE
+    is_light = theme.mode == "light"
+    waypoint_color = DEBUG_WAYPOINT_COLOR_LIGHT if is_light else DEBUG_WAYPOINT_COLOR
+    grid_color = DEBUG_GRID_COLOR_LIGHT if is_light else DEBUG_GRID_COLOR
+    row_grid_color = DEBUG_ROW_GRID_COLOR_LIGHT if is_light else DEBUG_ROW_GRID_COLOR
 
     # Edge waypoints: small filled circles at intermediate points
     for route in routes:
@@ -3081,9 +3090,7 @@ def _render_debug_overlay(
         pts = apply_route_offsets(route, station_offsets)
         # Draw intermediate waypoints (skip first/last which are at stations)
         for px, py in pts[1:-1]:
-            d.append(
-                draw.Circle(px, py, DEBUG_WAYPOINT_RADIUS, fill=DEBUG_WAYPOINT_COLOR)
-            )
+            d.append(draw.Circle(px, py, DEBUG_WAYPOINT_RADIUS, fill=waypoint_color))
 
     # Port stations: diamond markers with labels
     for station in graph.stations.values():
@@ -3131,7 +3138,7 @@ def _render_debug_overlay(
             all_x0 = min(b[0] for b in col_bounds.values()) - 20
             all_y0 = min(b[0] for b in row_bounds.values()) - 20
             all_y1 = max(b[1] for b in row_bounds.values()) + 20
-        grid_color = "rgba(255, 255, 0, 0.5)"
+        # grid_color already computed above from theme.mode
 
         for ca, cb, mid_x in _compute_col_boundary_xs(col_bounds, sections):
             d.append(
@@ -3211,6 +3218,7 @@ def _render_debug_overlay(
             label=f"row {row} grid",
             debug_font=debug_font,
             debug_font_size=debug_font_size,
+            color=row_grid_color,
         )
 
     for sec in sections:
@@ -3227,6 +3235,7 @@ def _render_debug_overlay(
             label=f"row {sec.grid_row} grid",
             debug_font=debug_font,
             debug_font_size=debug_font_size,
+            color=row_grid_color,
         )
 
     # Hidden stations: dashed-outline circles with labels

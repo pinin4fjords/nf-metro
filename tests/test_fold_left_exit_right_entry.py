@@ -26,6 +26,8 @@ multi-sub-row Binding Prediction -- is the motivating case.
 
 from __future__ import annotations
 
+import pytest
+
 from nf_metro import api
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.layout.routing.invariants import (
@@ -112,4 +114,57 @@ def test_motivating_epitopeprediction_is_clean() -> None:
     assert abs(entry_port.y - exit_port.y) < 1.0, (
         f"exit y={exit_port.y:.1f} != entry y={entry_port.y:.1f}: the "
         f"binding_prediction -> reporting run is not straight"
+    )
+
+
+# (fixture text, layout options, exit-section id, target-section id) for each
+# folded LEFT-exit -> RIGHT-entry straight run whose two sections should clear
+# the connector by the same distance.
+_STRAIGHT_RUN_PAIRS = [
+    pytest.param(
+        open(FIXTURE).read(),
+        None,
+        "middle",
+        "report",
+        id="fold_left_exit_right_entry",
+    ),
+    pytest.param(
+        open("examples/epitopeprediction.mmd").read(),
+        {"fold_threshold": 7},
+        "binding_prediction",
+        "reporting",
+        id="epitopeprediction",
+    ),
+]
+
+
+@pytest.mark.parametrize("text, opts, exit_sec, target_sec", _STRAIGHT_RUN_PAIRS)
+def test_straight_run_sections_share_bbox_bottom(
+    text: str, opts: dict | None, exit_sec: str, target_sec: str
+) -> None:
+    """The two sections joined by the straight run clear it by the same amount.
+
+    A folded TB section's LEFT/RIGHT exit runs straight west into a relocated
+    target's RIGHT/LEFT entry.  If the two sections' bbox bottoms differ, the
+    connector sits a different distance above each section's bottom edge and
+    reads as lopsided even though the run itself is straight.  Their bottoms
+    must line up so the clearance is balanced.
+    """
+    graph = (
+        api.prepare_graph(text, layout_options=opts)
+        if opts
+        else api.prepare_graph(text)
+    )
+    a = graph.sections[exit_sec]
+    b = graph.sections[target_sec]
+    assert b.grid_row != a.grid_row, (
+        f"{target_sec} did not relocate to a different row from {exit_sec}; "
+        "the cross-row bottom-alignment case is not exercised"
+    )
+    a_bottom = a.bbox_y + a.bbox_h
+    b_bottom = b.bbox_y + b.bbox_h
+    assert abs(a_bottom - b_bottom) < 1.0, (
+        f"{exit_sec} bottom={a_bottom:.1f} != {target_sec} bottom={b_bottom:.1f}: "
+        f"the straight inter-section run clears the two sections by different "
+        f"distances (delta {abs(a_bottom - b_bottom):.1f}px)"
     )
