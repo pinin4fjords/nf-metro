@@ -959,7 +959,16 @@ def compute_bundle_info(
             )
             col_key: int | tuple[int, ...]
             if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
-                col_key = (src_sec.grid_col, tgt_sec.grid_col)
+                # Include both rows: two cross-column wraps sharing a column pair
+                # but stacked in different inter-row gaps (a serpentine taller
+                # than 2x2) descend the same channel X at different Y bands and
+                # are distinct corridors, not one interleaved bundle.
+                col_key = (
+                    src_sec.grid_col,
+                    tgt_sec.grid_col,
+                    src_sec.grid_row,
+                    tgt_sec.grid_row,
+                )
             elif tgt_sec:
                 # Source is a junction: include target column AND row so
                 # edges to different sections get separate bundles.  A
