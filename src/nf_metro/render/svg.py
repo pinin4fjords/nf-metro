@@ -11,7 +11,6 @@ import textwrap
 import warnings
 from collections.abc import Iterable
 from dataclasses import replace
-from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
@@ -130,12 +129,12 @@ from nf_metro.render.icons import (
 from nf_metro.render.legend import (
     compute_legend_dimensions,
     logo_image_kwargs,
-    logo_is_resolvable,
     marker_corner_radius,
     marker_fill_color,
     marker_stroke_color,
     open_logo_image,
     render_legend,
+    resolve_logo_file,
 )
 from nf_metro.render.manifest import build_manifest, manifest_metadata_svg
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
@@ -638,12 +637,12 @@ def _render_svg_scaled(
     adaptive_logo = chrome_css and _is_adaptive_mode(graph)
     show_logo, logo_w, logo_h, effective_logo = _resolve_logo(graph, adaptive_logo)
     resolved_logo_light = (
-        _resolve_logo_file(graph.logo_path_light, graph.source_dir)
+        resolve_logo_file(graph.logo_path_light, graph.source_dir)
         if graph.logo_path_light
         else ""
     )
     resolved_logo_dark = (
-        _resolve_logo_file(graph.logo_path_dark, graph.source_dir)
+        resolve_logo_file(graph.logo_path_dark, graph.source_dir)
         if graph.logo_path_dark
         else ""
     )
@@ -978,20 +977,9 @@ def _is_adaptive_mode(graph: MetroGraph) -> bool:
 
 def _has_adaptive_logos(graph: MetroGraph) -> bool:
     """Return True when both logo variants are set and their files exist."""
-    return bool(_resolve_logo_file(graph.logo_path_light, graph.source_dir)) and bool(
-        _resolve_logo_file(graph.logo_path_dark, graph.source_dir)
+    return bool(resolve_logo_file(graph.logo_path_light, graph.source_dir)) and bool(
+        resolve_logo_file(graph.logo_path_dark, graph.source_dir)
     )
-
-
-def _resolve_logo_file(raw: str, source_dir: str) -> str:
-    """Return a resolvable path/data-URI for *raw*, or empty string if not found."""
-    if logo_is_resolvable(raw):
-        return raw
-    if source_dir:
-        candidate = Path(source_dir) / raw
-        if candidate.is_file():
-            return str(candidate)
-    return ""
 
 
 def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float, str]:
@@ -1004,7 +992,7 @@ def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float
     if adaptive:
         raw_candidates = (graph.logo_path_dark, graph.logo_path_light)
         dim_path = next(
-            (_resolve_logo_file(p, graph.source_dir) for p in raw_candidates if p),
+            (resolve_logo_file(p, graph.source_dir) for p in raw_candidates if p),
             "",
         )
         if dim_path:
@@ -1018,7 +1006,7 @@ def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float
     effective = _effective_logo_path(graph)
     if not effective:
         return False, 0.0, 0.0, ""
-    resolved = _resolve_logo_file(effective, graph.source_dir)
+    resolved = resolve_logo_file(effective, graph.source_dir)
     if resolved:
         w, h = compute_logo_dimensions(resolved)
         return True, w, h, resolved

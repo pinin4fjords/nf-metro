@@ -11,6 +11,7 @@ __all__ = [
     "marker_stroke_color",
     "open_logo_image",
     "render_legend",
+    "resolve_logo_file",
 ]
 
 import base64
@@ -61,6 +62,22 @@ def logo_is_resolvable(path: str) -> bool:
     browser-based playground) or a path to an existing file.
     """
     return path.startswith("data:") or Path(path).is_file()
+
+
+def resolve_logo_file(raw: str, source_dir: str) -> str:
+    """Return a resolvable path/data-URI for *raw*, or empty string if not found.
+
+    Tries *raw* as-is first, then relative to *source_dir* (the directory the
+    map's ``.mmd`` came from), so a logo path can be written relative to the
+    source file rather than the caller's working directory.
+    """
+    if logo_is_resolvable(raw):
+        return raw
+    if source_dir:
+        candidate = Path(source_dir) / raw
+        if candidate.is_file():
+            return str(candidate)
+    return ""
 
 
 def open_logo_image(path: str) -> "PILImageType":
@@ -412,8 +429,7 @@ def render_legend(
                         **logo_image_kwargs(logo_path_light),
                     )
                 )
-        else:
-            assert logo_path  # has_adaptive is False, so active_logo == logo_path
+        elif logo_path:
             d.append(
                 draw.Image(
                     logo_x,

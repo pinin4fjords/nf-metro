@@ -1737,6 +1737,9 @@ function submitConvert() {
 // nf-metro can decode and render them with no path lookup at all.
 const LOGO_DATA_URI_WARN_LENGTH = 70_000; // ~50KB of image data, base64-inflated
 
+// The data URI chosen in the logo modal, applied on "Use this logo".
+let pendingLogoUri = null;
+
 function readFileAsDataUri(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1754,7 +1757,7 @@ function openLogo() {
   el("logo-warn").classList.add("hidden");
   el("logo-error").classList.add("hidden");
   el("logo-submit").disabled = true;
-  delete el("logo-modal").dataset.pendingUri;
+  pendingLogoUri = null;
   el("logo-modal").classList.remove("hidden");
 }
 
@@ -1779,14 +1782,13 @@ async function handleLogoFile(file) {
     "hidden",
     uri.length <= LOGO_DATA_URI_WARN_LENGTH,
   );
-  el("logo-modal").dataset.pendingUri = uri;
+  pendingLogoUri = uri;
   el("logo-submit").disabled = false;
 }
 
 function submitLogo() {
-  const uri = el("logo-modal").dataset.pendingUri;
-  if (!uri) return;
-  setDirective("logo", uri);
+  if (!pendingLogoUri) return;
+  setDirective("logo", pendingLogoUri);
   closeLogo();
   doRender();
 }
