@@ -1181,7 +1181,8 @@ def _bump_off_track_clear_of_trunks(
         n_lines = len(lines)
         if n_lines == 0:
             continue
-        half_span = (n_lines - 1) * OFFSET_STEP / 2
+        offset_step = OFFSET_STEP if graph.track_gap is None else graph.track_gap
+        half_span = (n_lines - 1) * offset_step / 2
         trunk_offsets_at_x.append(st2.y - half_span)
         trunk_offsets_at_x.append(st2.y + half_span)
 

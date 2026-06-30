@@ -117,6 +117,14 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         help="Vertical gap between sections (default: 50).",
     ),
     LayoutOption(
+        name="track_gap",
+        kind="float",
+        sign="nonneg",
+        help="Perpendicular offset between parallel lines sharing a section "
+        "(default: 4). Set to 0 to collapse all lines onto a single shared "
+        "track with no lateral separation.",
+    ),
+    LayoutOption(
         name="fold_threshold",
         kind="int",
         sign="positive",

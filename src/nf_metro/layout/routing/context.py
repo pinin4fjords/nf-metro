@@ -308,7 +308,7 @@ def _build_routing_context(
         junction_ids=junction_ids,
         bottom_exit_junctions=bottom_exit_junctions,
         bottom_exit_junction_ports=bottom_exit_junction_ports,
-        offset_step=OFFSET_STEP,
+        offset_step=OFFSET_STEP if graph.track_gap is None else graph.track_gap,
         fork_stations=fork_stations,
         join_stations=join_stations,
         tb_sections=tb_sections,

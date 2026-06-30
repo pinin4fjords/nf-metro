@@ -90,8 +90,9 @@ def _row_group_grid_spacing(
         for st in sub.stations.values():
             if not st.is_port and st.y in multi_ys:
                 max_lines = max(max_lines, len(graph.station_lines(st.id)))
+    offset_step = OFFSET_STEP if graph.track_gap is None else graph.track_gap
     min_track_gap = (
-        (max_lines - 1) * OFFSET_STEP
+        (max_lines - 1) * offset_step
         + 2 * STATION_RADIUS_APPROX
         + LABEL_OFFSET
         + FONT_HEIGHT * active_font_scale()

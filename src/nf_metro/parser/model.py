@@ -372,6 +372,10 @@ class MetroGraph:
     y_spacing: float | None = None
     section_x_gap: float | None = None
     section_y_gap: float | None = None
+    # Perpendicular offset step between parallel lines in bundles (px).
+    # None = use the built-in default (4 px). Set to 0 to collapse all
+    # lines to a single shared track with no lateral separation.
+    track_gap: float | None = None
     # None/False = auto/off; the renderer resolves these.
     width: int | None = None
     height: int | None = None

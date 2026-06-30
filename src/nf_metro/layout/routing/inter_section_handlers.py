@@ -2851,7 +2851,7 @@ def _corridor_is_viable(ctx: _RoutingCtx, src: Station, entry_port: Station) -> 
     # Section placement reserves exactly this band for the wrap bundle, so a
     # corridor sized for it sits right at the boundary; absorb float dust so
     # an exactly-reserved gap stays viable.
-    required = inter_row_wrap_band(len(bundle_lines))
+    required = inter_row_wrap_band(len(bundle_lines), ctx.offset_step)
     return gap_bottom - gap_top >= required - COORD_TOLERANCE
 
 

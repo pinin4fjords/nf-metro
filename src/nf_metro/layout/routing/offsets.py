@@ -2227,7 +2227,7 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
 
 def compute_station_offsets(
     graph: MetroGraph,
-    offset_step: float = OFFSET_STEP,
+    offset_step: float | None = None,
 ) -> dict[tuple[str, str], float]:
     """Compute per-station Y offsets for each line.
 
@@ -2287,7 +2287,12 @@ def compute_station_offsets(
     if graph.line_spread is LineSpread.RAILS:
         return {}
 
-    ctx = _build_offset_ctx(graph, offset_step)
+    resolved = (
+        offset_step
+        if offset_step is not None
+        else (OFFSET_STEP if graph.track_gap is None else graph.track_gap)
+    )
+    ctx = _build_offset_ctx(graph, resolved)
     _compute_base_offsets(ctx)
     _reindex_section_local(ctx)
     _assert_sections_anchored_on_trunk(ctx)

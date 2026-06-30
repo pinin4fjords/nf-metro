@@ -671,10 +671,11 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
         gap = (src_row, tgt_row) if tgt_row > src_row else (tgt_row, src_row)
         per_gap[gap][edge.target].add(edge.line_id)
 
+    offset_step = OFFSET_STEP if graph.track_gap is None else graph.track_gap
     minimums: dict[tuple[int, int], float] = {}
     for gap, ports in per_gap.items():
         widest = max(len(lines) for lines in ports.values())
-        minimums[gap] = inter_row_wrap_band(widest)
+        minimums[gap] = inter_row_wrap_band(widest, offset_step)
     return minimums
 
 
@@ -723,7 +724,8 @@ def _merge_trunk_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
 
     if widest == 0:
         return {}
-    return {(max_row - 1, max_row): inter_row_wrap_band(widest)}
+    offset_step = OFFSET_STEP if graph.track_gap is None else graph.track_gap
+    return {(max_row - 1, max_row): inter_row_wrap_band(widest, offset_step)}
 
 
 def _inter_row_routing_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]:
@@ -918,7 +920,8 @@ def _enforce_min_column_gaps(
         # corridors deterministically claim only the horizontal space
         # their visual width actually occupies.
         bundles = _bundles_in_gap(graph, col_assign, col, col + 1)
-        bundle_min = _min_gap_for_bundles(bundles)
+        offset_step = OFFSET_STEP if graph.track_gap is None else graph.track_gap
+        bundle_min = _min_gap_for_bundles(bundles, offset_step=offset_step)
         effective_min = max(min_gap, bundle_min)
 
         # Widen further for gaps with merge junction routing

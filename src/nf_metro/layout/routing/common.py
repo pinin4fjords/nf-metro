@@ -1402,18 +1402,18 @@ def resolve_section(
     return None
 
 
-def inter_row_wrap_band(n_lines: int) -> float:
+def inter_row_wrap_band(n_lines: int, offset_step: float = OFFSET_STEP) -> float:
     """Bbox-to-bbox row gap a wrap bundle of *n_lines* needs.
 
     A horizontal inter-row run keeps :data:`INTER_ROW_EDGE_CLEARANCE` below
     the upper box edge and :data:`INTER_ROW_HEADER_CLEARANCE` above the next
-    row's header badge, with the bundle's ``(n_lines - 1) * OFFSET_STEP``
+    row's header badge, with the bundle's ``(n_lines - 1) * offset_step``
     stagger between.  Section placement reserves this band
     (:func:`~nf_metro.layout.section_placement._wrap_bundle_row_minimums`)
     and the corridor checks against it (``_corridor_is_viable``); the single
     definition keeps the two in lockstep.
     """
-    span = max(n_lines - 1, 0) * OFFSET_STEP
+    span = max(n_lines - 1, 0) * offset_step
     return INTER_ROW_EDGE_CLEARANCE + span + INTER_ROW_HEADER_CLEARANCE
 
 
