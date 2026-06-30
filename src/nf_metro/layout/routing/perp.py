@@ -32,7 +32,7 @@ by bundle index, since those feeders share one column trunk.
 
 from __future__ import annotations
 
-from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.geometry import lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.routing.common import needs_perp_approach_fan
 from nf_metro.layout.routing.context import (
     _get_offset,
@@ -126,6 +126,11 @@ def _perp_entry_crossing_x(
     feeder_sec = ctx.graph.sections.get(section_id) if section_id else None
     if feeder_sec is not None and lanes_run_along_x(feeder_sec.direction):
         return port_x + _tb_x_offset(ctx, source, line_id, section_id)
+    if feeder_sec is not None and lanes_run_along_y(feeder_sec.direction):
+        # Horizontal-flow feeder: the up-and-over drop lands each line on the
+        # entry port's own per-line offset, so the crossing tracks that, not the
+        # feeder's section lane.
+        return port_x + _get_offset(ctx, entry_port_id, line_id)
     return port_x - max_index * ctx.offset_step
 
 

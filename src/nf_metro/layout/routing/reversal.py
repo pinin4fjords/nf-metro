@@ -176,12 +176,20 @@ def _detect_tb_bottom_top_entries(
                     src_port
                     and not src_port.is_entry
                     and src_port.side == PortSide.BOTTOM
-                    and src.section_id in tb_sections
                 ):
                     continue
                 if lanes_run_along_x(section.direction):
-                    vertical_receivers.setdefault(src.section_id, set()).add(sec_id)
+                    # Vertical (TB/BT) receiver: a straight column continuation.
+                    # Only a vertical-flow feeder seeds the positive_fan cascade;
+                    # a horizontal-flow feeder drops in on the trunk column with no
+                    # order flip, so it needs no marking.
+                    if src.section_id in tb_sections:
+                        vertical_receivers.setdefault(src.section_id, set()).add(sec_id)
                 else:
+                    # Horizontal (LR/RL) receiver: the BOTTOM-exit drop turns into
+                    # the trunk through a corner that reverses bundle ordering,
+                    # whatever the feeder's flow axis (a horizontal-flow feeder is
+                    # the true-serpentine fold, an LR row folding into an RL row).
                     reversed_secs.add(sec_id)
 
     # BFS: propagate positive_fan through vertical chains.

@@ -1005,6 +1005,7 @@ def _align_perpendicular_exit_port(
     _set_port_y(graph, port_id, exit_y)
 
     _align_drop_target_trunk(graph, port_id, exit_x)
+    _align_horizontal_drop_target(graph, port_id, exit_x)
 
 
 def _align_drop_target_trunk(graph: MetroGraph, port_id: str, exit_x: float) -> None:
@@ -1032,29 +1033,85 @@ def _align_drop_target_trunk(graph: MetroGraph, port_id: str, exit_x: float) -> 
             graph._cross_column_perp_bridges.add(tgt_section.id)
             continue
         delta = exit_x - trunk_x
-        if abs(delta) < SAME_COORD_TOLERANCE:
+        if abs(delta) >= SAME_COORD_TOLERANCE:
+            _shift_section_trunk(graph, tgt_section, delta, exit_x)
+
+
+def _align_horizontal_drop_target(
+    graph: MetroGraph, port_id: str, exit_x: float
+) -> None:
+    """Shift a horizontal-flow drop target's trunk so its perp entry aligns to X.
+
+    A perpendicular exit dropping into a horizontal-flow (LR/RL) section's
+    TOP/BOTTOM entry needs the descent to run straight: the entry port must sit
+    under the exit X.  The whole trunk shifts by the same delta, so the entry port
+    lands on the exit X while the first station keeps its station-elbow offset and
+    the drop turns into it below.  Unlike a TB target (``_align_drop_target_trunk``)
+    the first station cannot sit on the drop column -- a perpendicular port sharing
+    a horizontal-flow station's X is a station-as-elbow violation -- so the
+    alignment reference is the entry port, not the trunk's first station.
+    """
+    for tgt_section, entry_port in _horizontal_drop_targets(graph, port_id):
+        if not _drop_x_within_section(tgt_section, exit_x):
+            graph._cross_column_perp_bridges.add(tgt_section.id)
             continue
-        bbox_right = tgt_section.bbox_x + tgt_section.bbox_w
-        for sid in tgt_section.station_ids:
-            port = graph.ports.get(sid)
-            if port is not None and port.side in (PortSide.LEFT, PortSide.RIGHT):
-                continue
-            st = graph.stations.get(sid)
-            if st:
-                st.x += delta
-            if port:
-                port.x += delta
-        # Grow the box only if the shifted trunk would otherwise overrun it.
-        overrun = (exit_x + CURVE_RADIUS) - bbox_right
-        if overrun > 0:
-            tgt_section.bbox_w += overrun
+        delta = exit_x - entry_port.x
+        if abs(delta) >= SAME_COORD_TOLERANCE:
+            _shift_section_trunk(graph, tgt_section, delta, exit_x)
+
+
+def _shift_section_trunk(
+    graph: MetroGraph, section: Section, delta: float, exit_x: float
+) -> None:
+    """Shift a section's trunk by *delta*, growing the box to fit the new extent.
+
+    The trunk -- internal stations and the perpendicular drop entry/exit ports --
+    moves; the flow-side LEFT/RIGHT ports stay on the grid column edge so a source
+    and target stacked in one column keep their shared right edge.  The box widens
+    only if the shifted trunk would overrun ``exit_x`` plus a corner radius.
+    """
+    bbox_right = section.bbox_x + section.bbox_w
+    for sid in section.station_ids:
+        port = graph.ports.get(sid)
+        if port is not None and port.side in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        st = graph.stations.get(sid)
+        if st:
+            st.x += delta
+        if port:
+            port.x += delta
+    overrun = (exit_x + CURVE_RADIUS) - bbox_right
+    if overrun > 0:
+        section.bbox_w += overrun
 
 
 def _drop_targets(graph: MetroGraph, port_id: str) -> Iterator[Section]:
-    """Yield TB/BT sections reached from an exit port via a vertical drop.
+    """Yield vertical-flow (TB/BT) sections reached from a perp exit drop."""
+    return (
+        sec
+        for sec, _port in _perp_drop_targets(graph, port_id)
+        if lanes_run_along_x(sec.direction)
+    )
 
-    Follows the exit port's edges (directly or through a fan-out junction) to
-    any TOP/BOTTOM entry port on a TB/BT section.
+
+def _horizontal_drop_targets(
+    graph: MetroGraph, port_id: str
+) -> Iterator[tuple[Section, Port]]:
+    """Yield (horizontal-flow LR/RL section, its perp entry port) for a drop."""
+    return (
+        (sec, port)
+        for sec, port in _perp_drop_targets(graph, port_id)
+        if lanes_run_along_y(sec.direction)
+    )
+
+
+def _perp_drop_targets(
+    graph: MetroGraph, port_id: str
+) -> Iterator[tuple[Section, Port]]:
+    """Yield (section, its TOP/BOTTOM entry port) reached from a perp exit drop.
+
+    Follows the exit port's edges, directly or through a fan-out junction, to any
+    TOP/BOTTOM entry port and its owning section.
     """
     for edge in graph.edges_from(port_id):
         targets = [edge.target]
@@ -1069,8 +1126,8 @@ def _drop_targets(graph: MetroGraph, port_id: str) -> Iterator[Section]:
             ):
                 continue
             sec = graph.sections.get(tp.section_id)
-            if sec and sec.direction in ("TB", "BT"):
-                yield sec
+            if sec:
+                yield sec, tp
 
 
 def _align_lr_exit_port(

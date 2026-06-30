@@ -124,6 +124,14 @@ EXPECTED_RESIDUALS = frozenset(
         ("variantbenchmarking", "ensembl_truth", "benchmarking", "L->R"),
         ("variantbenchmarking", "filtering", "benchmarking", "R->R"),
         ("variantbenchmarking", "normalization", "benchmarking", "R->R"),
+        # True-serpentine fold: a horizontal-flow row folds down through a BOTTOM
+        # exit into a horizontal-flow return row, whose descend->turn corner
+        # reverses the bundle order.  The machinery marks the receiver (and its
+        # row successors) reversed, but the classifier preserves the seam.
+        ("serpentine_rl_bundle", "variant_calling", "normalization", "B->T"),
+        ("serpentine_rl_bundle", "normalization", "consensus", "L->R"),
+        ("serpentine_rl_bundle", "consensus", "realignment", "L->R"),
+        ("branch_fold_forward", "post", "report", "B->T"),
     }
 )
 

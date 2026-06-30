@@ -614,6 +614,15 @@ gallery:
       "A two-line bundle folds through a 2x3 section grid, wrapping twice. Each wrap
       returns through its own inter-row gap, so the two stacked return runs stay on
       distinct channels rather than collapsing onto one."
+  - id: serpentine_rl_bundle
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A true boustrophedon fold of a two-line bundle: the top row flows left to
+      right, drops straight down the right edge, and the return row flows right to
+      left via direction: RL. The bundle stays on the outside of the fold the whole
+      way round (top, right, then bottom) with no crossover, and the descent column
+      aligns under the exit so the drop is a clean U."
   - id: branch_fold_forward
     source_dir: examples/topologies
     category: Serpentine Layout
