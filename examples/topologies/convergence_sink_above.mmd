@@ -1,70 +1,27 @@
 %%metro title: Convergence Sink Above
 %%metro style: dark
-%%metro line: bam_files | BAM | #24B064
-%%metro line: fastq_files | FASTQ | #ff7f0e
-%%metro line: run_folder | Run | #1f77b4
-%%metro file: fastq_in | FASTQ | | banner
-%%metro dir: rundir_in | RUNDIR
-%%metro file: multiqc | HTML | | banner
-%%metro center_ports: true
 %%metro compact_offsets: true
-%%metro grid: fastq_files | 0,0
-%%metro grid: run_folder | 1,0
-%%metro grid: bam_files | 1,1
-%%metro grid: multiqc | 2,0
+%%metro line: lower | Lower | #e63946
+%%metro line: upper | Upper | #0570b0
+%%metro grid: up_in | 0,0
+%%metro grid: low_in | 0,1
+%%metro grid: sink | 1,1
 
 graph LR
-    subgraph fastq_files [FASTQ]
-        fastq_in[ ]
-        seqtk[Seqtk]
-        fastq_in -->|fastq_files| seqtk
-        bbmap[bbmap]
-        seqtk -->|fastq_files| bbmap
-        fastp[fastp]
-        seqtk -->|fastq_files| fastp
-        fastqc[fastqc]
-        seqtk -->|fastq_files| fastqc
-        fastqe[fastqe]
-        seqtk -->|fastq_files| fastqe
-        fastqscreen[fastqscreen]
-        seqtk -->|fastq_files| fastqscreen
-        fq_lint[fq_lint]
-        seqtk -->|fastq_files| fq_lint
-        kraken2[kraken2]
-        seqtk -->|fastq_files| kraken2
-        krona[krona]
-        seqtk -->|fastq_files| krona
-        seqfu[seqfu]
-        seqtk -->|fastq_files| seqfu
-        subgraph bam_files [BAM]
-            bwamem2[BWA]
-            picardhs[PicHS]
-            riker[Riker]
-            bwamem2 -->|bam_files| picardhs
-            bwamem2 -->|bam_files| riker
-        end
-        seqtk -->|fastq_files| bwamem2
+    subgraph up_in [Upper Input]
+        u1[Load]
+        u2[Prep]
+        u1 -->|upper| u2
     end
-    subgraph run_folder [Run]
-        rundir_in[ ]
-        checkqc[CheckQC]
-        rundirparser[Parser]
-        rundir_in -->|run_folder| checkqc
-        rundir_in -->|run_folder| rundirparser
+    subgraph low_in [Lower Input]
+        d1[Load]
+        d2[Prep]
+        d1 -->|lower| d2
     end
-    subgraph multiqc [MultiQC]
-        multiqc[MultiQC]
-        bbmap -->|fastq_files| multiqc
-        fastp -->|fastq_files| multiqc
-        fastqc -->|fastq_files| multiqc
-        fastqe -->|fastq_files| multiqc
-        fastqscreen -->|fastq_files| multiqc
-        fq_lint -->|fastq_files| multiqc
-        kraken2 -->|fastq_files| multiqc
-        krona -->|fastq_files| multiqc
-        seqfu -->|fastq_files| multiqc
-        checkqc -->|run_folder| multiqc
-        rundirparser -->|run_folder| multiqc
-        picardhs -->|bam_files| multiqc
-        riker -->|bam_files| multiqc
+    subgraph sink [Merge]
+        s1[Collect]
+        s2[Report]
+        s1 -->|lower,upper| s2
     end
+    d2 -->|lower| s1
+    u2 -->|upper| s1

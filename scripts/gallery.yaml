@@ -871,11 +871,11 @@ gallery:
     source_dir: examples/topologies
     category: Merge & Convergence
     description:
-      A parallel input lane is placed above the shared sink it feeds, while its
-      line is declared last. The sink's entry bundle is slotted by feeder
-      approach (the feeder whose source sits highest takes the topmost lane)
-      rather than by declaration order, so the line runs straight into the port
-      instead of dropping down across its bundle-mates.
+      An input section sits above the shared sink it feeds, while its line is
+      declared last. The sink's entry bundle is slotted by feeder approach (the
+      feeder whose source sits highest takes the topmost lane) rather than by
+      declaration order, so the line runs straight into the port instead of
+      dropping down across its bundle-mate.
   - id: terminus_join
     source_dir: examples/topologies
     category: Merge & Convergence

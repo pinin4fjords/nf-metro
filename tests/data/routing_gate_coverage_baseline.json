@@ -167,6 +167,7 @@
   "normalize.py::if 0 <= radius_idx < len(rp.curve_radii):::#1",
   "normalize.py::if abs(dx) > COORD_TOLERANCE:::#1",
   "normalize.py::if abs(ly - pts[1][1]) < COORD_TOLERANCE:::#1",
+  "normalize.py::if abs(x3 - x2) > COORD_TOLERANCE or abs(y3 - y2) <= COORD_TOLERANCE:::#1",
   "normalize.py::if band is not None:::#1",
   "normalize.py::if band is not None:::#2",
   "normalize.py::if below_ok and above_ok and (cross_below is None) != (cross_above is None):::#1",
