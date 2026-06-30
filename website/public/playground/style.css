@@ -447,6 +447,16 @@ button:disabled {
   background: var(--danger-bg);
 }
 
+.build-hint {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  text-decoration: none;
+  opacity: 0.5;
+}
+.build-hint:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

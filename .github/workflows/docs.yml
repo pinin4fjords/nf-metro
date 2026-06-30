@@ -37,6 +37,10 @@ jobs:
           WHEEL=$(basename website/public/playground/wheels/*.whl)
           printf '{"wheel": "%s"}\n' "$WHEEL" > website/public/playground/wheels/index.json
 
+      - name: Write playground build info
+        run: |
+          printf '{"sha": "%s"}\n' "$GITHUB_SHA" > website/public/playground/build-info.json
+
       - name: Build playground example manifest
         run: python scripts/build_playground_examples.py
 
