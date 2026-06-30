@@ -922,6 +922,12 @@ def test_frame_member_reanchors_when_fed_through_risers(
 # the per-line offset must match at each end or the inter-section run slopes.
 _LEVEL_BOUNDARY_RUNS = [
     ("topologies/convergent_offrow_exit_climb.mmd", "annotation", "reports", "svvcf"),
+    # Serpentine return row whose section exit reaches the next section through
+    # a peel-off junction (the bundle splits a second line down to a lower
+    # loop).  The continuing line crosses that boundary on one trunk Y, so its
+    # exit and entry offsets must match even though a junction sits between the
+    # two ports (#1199).
+    ("topologies/foldback_exit_peeloff.mmd", "consensus", "realign", "realignment"),
 ]
 
 
@@ -7171,6 +7177,12 @@ _SV_STATS_NUDGE_REASON = (
 _XFAIL_LABEL_AT_STATION_X: dict[str, str] = {
     "variantbenchmarking.mmd": _SV_STATS_NUDGE_REASON,
     "variantbenchmarking_auto.mmd": _SV_STATS_NUDGE_REASON,
+    "topologies/foldback_exit_peeloff.mmd": (
+        "issue #348: samtools_stats label nudged 17.1px to clear an adjacent "
+        "label collision in the dense GATK Preprocessing section (forward top "
+        "row, unrelated to the return-row peel-off this fixture locks); revisit "
+        "when the engine collision-clearance is tuned"
+    ),
 }
 
 
