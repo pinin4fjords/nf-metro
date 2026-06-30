@@ -163,6 +163,15 @@ gallery:
     source_dir: examples/topologies
     category: Realistic Pipelines
     description: Variant calling pipeline with four lines sharing alignment.
+  - id: foldback_exit_peeloff
+    source_dir: examples/topologies
+    category: Realistic Pipelines
+    description:
+      "An auto-folded serpentine (`%%metro fold_threshold: 15`) where a return-row
+      section exit splits a bundle to two downstream sections: one line continues
+      level along the row, the other turns down to a lower loop. Regression fixture
+      for the peel-off lane crossover at the exit -- the reversal must follow the
+      continuing line through the peel-off junction so it stays level."
 
   # ── Basic Topologies ───────────────────────────────────────────────────────
   - id: single_section

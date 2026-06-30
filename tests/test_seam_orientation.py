@@ -132,6 +132,11 @@ EXPECTED_RESIDUALS = frozenset(
         ("serpentine_rl_bundle", "normalization", "consensus", "L->R"),
         ("serpentine_rl_bundle", "consensus", "realignment", "L->R"),
         ("branch_fold_forward", "post", "report", "B->T"),
+        # Auto-folded serpentine return row: the fold reverses consensus, which
+        # propagates along the row to realign and reporting (reached through the
+        # exit peel-off junction).  The realign->reporting seam is a plain L->R
+        # continuation the classifier preserves while the machinery reverses it.
+        ("foldback_exit_peeloff", "realign", "reporting", "L->R"),
     }
 )
 

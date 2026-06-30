@@ -219,34 +219,83 @@ def _detect_fold_right_entries(
                 break
 
 
+def _entry_ports_through_junctions(
+    graph: MetroGraph, junction_id: str, junction_ids: set[str]
+) -> set[str]:
+    """Entry ports reachable from *junction_id*, hopping through chained junctions.
+
+    A peel-off junction fans one exit bundle to several downstream sections, so
+    the exit reaches each section through the junction rather than a direct
+    port-to-port edge.  Walk the junction's outgoing edges (through any further
+    junctions) to collect the entry ports the bundle lands on.
+    """
+    entries: set[str] = set()
+    seen: set[str] = set()
+    stack = [junction_id]
+    while stack:
+        jid = stack.pop()
+        if jid in seen:
+            continue
+        seen.add(jid)
+        for edge in graph.edges_from(jid):
+            if edge.target in junction_ids:
+                stack.append(edge.target)
+                continue
+            port = graph.ports.get(edge.target)
+            if port and port.is_entry:
+                entries.add(edge.target)
+    return entries
+
+
 def _build_section_adjacency(
     graph: MetroGraph,
 ) -> tuple[dict[str, set[str]], set[tuple[str, str]]]:
     """Section successors plus the LEFT/RIGHT-to-LEFT/RIGHT continuation pairs.
 
     The horizontal pairs are those whose inter-section edge runs between
-    LEFT/RIGHT ports on both sides (a direction-preserving continuation).
+    LEFT/RIGHT ports on both sides (a direction-preserving continuation).  An
+    exit feeding a peel-off junction is followed through the junction so its
+    downstream sections register even though no direct port-to-port edge joins
+    them.
     """
     sec_successors: dict[str, set[str]] = {}
     horizontal_succ_pairs: set[tuple[str, str]] = set()
+    junction_ids = graph.junction_ids
+    walked_junctions: set[tuple[str, str]] = set()
+
+    def _record(src_id: str, src_sec: str, tgt_id: str, tgt_sec: str) -> None:
+        sec_successors.setdefault(src_sec, set()).add(tgt_sec)
+        src_port = graph.ports.get(src_id)
+        tgt_port = graph.ports.get(tgt_id)
+        if (
+            src_port
+            and not src_port.is_entry
+            and src_port.side in (PortSide.LEFT, PortSide.RIGHT)
+            and tgt_port
+            and tgt_port.is_entry
+            and tgt_port.side in (PortSide.LEFT, PortSide.RIGHT)
+        ):
+            horizontal_succ_pairs.add((src_sec, tgt_sec))
+
     for edge in graph.edges:
         src = graph.stations.get(edge.source)
         tgt = graph.stations.get(edge.target)
         if not src or not tgt:
             continue
         if src.section_id and tgt.section_id and src.section_id != tgt.section_id:
-            sec_successors.setdefault(src.section_id, set()).add(tgt.section_id)
-            src_port = graph.ports.get(edge.source)
-            tgt_port = graph.ports.get(edge.target)
-            if (
-                src_port
-                and not src_port.is_entry
-                and src_port.side in (PortSide.LEFT, PortSide.RIGHT)
-                and tgt_port
-                and tgt_port.is_entry
-                and tgt_port.side in (PortSide.LEFT, PortSide.RIGHT)
+            _record(edge.source, src.section_id, edge.target, tgt.section_id)
+        elif src.section_id and edge.target in junction_ids:
+            # A junction fed by an N-line bundle yields N identical exit-to-
+            # junction edges from one section; walk its subtree once per source.
+            if (src.section_id, edge.target) in walked_junctions:
+                continue
+            walked_junctions.add((src.section_id, edge.target))
+            for entry_id in _entry_ports_through_junctions(
+                graph, edge.target, junction_ids
             ):
-                horizontal_succ_pairs.add((src.section_id, tgt.section_id))
+                entry = graph.stations.get(entry_id)
+                if entry and entry.section_id and entry.section_id != src.section_id:
+                    _record(edge.source, src.section_id, entry_id, entry.section_id)
     return sec_successors, horizontal_succ_pairs
 
 
