@@ -459,10 +459,6 @@
     "note": "A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
-  "normalize.py::if abs(x3 - x2) > COORD_TOLERANCE or abs(y3 - y2) <= COORD_TOLERANCE:::#1": {
-    "note": "Every non-exempt inter-section route ends with a vertical descent into the target Y then a short horizontal port lead (V->H tail); routes with non-V tails are normalize_exempt. The second-to-last-not-vertical reject in _final_port_approach is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-    "status": "defensive"
-  },
   "normalize.py::if band is not None:::#1": {
     "note": "Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band).",
     "status": "defensive"
@@ -652,7 +648,7 @@
     "status": "defensive"
   },
   "offsets.py::if lid not in seen:::#1": {
-    "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable — the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
+    "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable \u2014 the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
   "offsets.py::if max_steps <= 0:::#1": {
@@ -736,7 +732,7 @@
     "status": "defensive"
   },
   "offsets.py::if src_st and not src_st.is_port:::#1": {
-    "note": "In `_rewrite_edges_with_junctions` (resolve.py L594), edges to exit ports are always created as `Edge(source=edge.source, target=exit_port_id)` where `edge.source` is the original inter-section edge's source — an internal section station, not a port. So `src_st` is never None and `src_st.is_port` is always False. The false arm cannot be taken by any valid parsed graph.",
+    "note": "In `_rewrite_edges_with_junctions` (resolve.py L594), edges to exit ports are always created as `Edge(source=edge.source, target=exit_port_id)` where `edge.source` is the original inter-section edge's source \u2014 an internal section station, not a port. So `src_st` is never None and `src_st.is_port` is always False. The false arm cannot be taken by any valid parsed graph.",
     "status": "defensive"
   },
   "offsets.py::if src_st and not src_st.is_port:::#2": {
