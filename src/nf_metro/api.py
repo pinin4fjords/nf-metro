@@ -17,7 +17,6 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from nf_metro.layout import compute_layout
@@ -27,6 +26,7 @@ from nf_metro.parser.directives import apply_legend_directive
 from nf_metro.parser.model import LineSpread, MetroGraph
 from nf_metro.render import render_svg
 from nf_metro.render.html import render_html
+from nf_metro.render.legend import logo_is_resolvable, resolve_logo_file
 from nf_metro.render.style import Theme
 from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 
@@ -174,10 +174,9 @@ def prepare_graph(
         graph.source_dir = source_dir
         for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
             raw: str = getattr(graph, attr)
-            if raw and not Path(raw).is_file():
-                candidate = Path(source_dir) / raw
-                if candidate.is_file():
-                    setattr(graph, attr, str(candidate))
+            resolved = resolve_logo_file(raw, source_dir) if raw else ""
+            if resolved:
+                setattr(graph, attr, resolved)
     if line_spread is not None:
         graph.line_spread = LineSpread(line_spread)
     if logo is not None:
@@ -189,7 +188,7 @@ def prepare_graph(
 
     for _attr in ("logo_path", "logo_path_light", "logo_path_dark"):
         _raw: str = getattr(graph, _attr)
-        if _raw and not Path(_raw).is_file():
+        if _raw and not logo_is_resolvable(_raw):
             raise ValueError(f"%%metro logo: path {_raw!r} not found")
 
     compute_layout(graph)

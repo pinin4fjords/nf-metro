@@ -277,7 +277,7 @@ function doRender() {
       applyZoom();
     } else {
       // Keep the last good render visible; just report the problem.
-      showError(res.error);
+      showError(friendlyRenderError(res.error));
     }
     refreshLineColors();
     syncDirectiveControls();
@@ -1727,6 +1727,92 @@ function submitConvert() {
   closeConvert();
 }
 
+/* ----------------------------- logo upload ------------------------------ */
+
+// The playground runs entirely in the browser (Pyodide has no access to the
+// user's disk), so a %%metro logo: directive can only resolve a path that
+// already exists inside that sandbox - which is never true for an uploaded
+// image. Embedding the image as a data: URI sidesteps the filesystem
+// entirely: the bytes travel as inline text in the map source itself, so
+// nf-metro can decode and render them with no path lookup at all.
+const LOGO_DATA_URI_WARN_LENGTH = 70_000; // ~50KB of image data, base64-inflated
+
+// The data URI chosen in the logo modal, applied on "Use this logo".
+let pendingLogoUri = null;
+
+function readFileAsDataUri(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () =>
+      reject(reader.error || new Error("file read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function openLogo() {
+  el("logo-file").value = "";
+  el("logo-preview").src = "";
+  el("logo-preview").classList.add("hidden");
+  el("logo-warn").classList.add("hidden");
+  el("logo-error").classList.add("hidden");
+  el("logo-submit").disabled = true;
+  pendingLogoUri = null;
+  el("logo-modal").classList.remove("hidden");
+}
+
+function closeLogo() {
+  el("logo-modal").classList.add("hidden");
+}
+
+async function handleLogoFile(file) {
+  el("logo-error").classList.add("hidden");
+  if (!file) return;
+  let uri;
+  try {
+    uri = await readFileAsDataUri(file);
+  } catch (err) {
+    el("logo-error").textContent = "Could not read that file: " + err;
+    el("logo-error").classList.remove("hidden");
+    return;
+  }
+  el("logo-preview").src = uri;
+  el("logo-preview").classList.remove("hidden");
+  el("logo-warn").classList.toggle(
+    "hidden",
+    uri.length <= LOGO_DATA_URI_WARN_LENGTH,
+  );
+  pendingLogoUri = uri;
+  el("logo-submit").disabled = false;
+}
+
+function submitLogo() {
+  if (!pendingLogoUri) return;
+  setDirective("logo", pendingLogoUri);
+  closeLogo();
+  doRender();
+}
+
+function removeLogo() {
+  setDirective("logo", null);
+  closeLogo();
+  doRender();
+}
+
+// A %%metro logo: path the playground genuinely cannot resolve (it isn't a
+// data URI and there is no source repo on disk to resolve it against) is the
+// single most common reason a pasted map fails to render here; point at the
+// fix rather than leaving the raw parser error to puzzle out.
+function friendlyRenderError(msg) {
+  if (/%%metro logo:.*not found/.test(msg)) {
+    return (
+      msg +
+      '\n\nThe playground can\'t read logo files from disk - use the "+ Logo" button to attach the image instead.'
+    );
+  }
+  return msg;
+}
+
 /* -------------------------------- utils -------------------------------- */
 
 function debounce(fn, ms) {
@@ -1853,10 +1939,22 @@ function wireControls() {
     if (e.target === el("convert-modal")) closeConvert();
   });
 
+  el("btn-logo").addEventListener("click", openLogo);
+  el("logo-file").addEventListener("change", (e) =>
+    handleLogoFile(e.target.files[0]),
+  );
+  el("logo-cancel").addEventListener("click", closeLogo);
+  el("logo-remove").addEventListener("click", removeLogo);
+  el("logo-submit").addEventListener("click", submitLogo);
+  el("logo-modal").addEventListener("click", (e) => {
+    if (e.target === el("logo-modal")) closeLogo();
+  });
+
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (!el("report-modal").classList.contains("hidden")) closeReport();
     if (!el("convert-modal").classList.contains("hidden")) closeConvert();
+    if (!el("logo-modal").classList.contains("hidden")) closeLogo();
   });
 
   wireEditTools();

@@ -58,6 +58,12 @@
               + Line
             </button>
             <button id="btn-edge" title="Insert an edge">+ Edge</button>
+            <button
+              id="btn-logo"
+              title="Attach a logo image (embedded inline, since the playground can't read files from disk)"
+            >
+              + Logo
+            </button>
             <span class="sep"></span>
             <span class="group-label">Lines</span>
             <div id="line-colors" class="swatches"></div>
@@ -344,6 +350,46 @@
           <div class="modal-actions">
             <button id="convert-cancel" class="ghost">Cancel</button>
             <button id="convert-submit">Convert</button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="logo-modal"
+        class="modal-overlay hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="logo-title"
+      >
+        <div class="modal">
+          <h2 id="logo-title">Attach a logo</h2>
+          <p class="muted small">
+            Embeds the image directly into the
+            <code>%%metro logo:</code> directive as inline data, so it travels
+            with the map text. The playground runs entirely in your browser and
+            cannot read a logo file from your computer's disk by path.
+          </p>
+          <label for="logo-file">Image file</label>
+          <input
+            type="file"
+            id="logo-file"
+            accept="image/png,image/svg+xml,image/jpeg,image/gif,image/webp"
+          />
+          <img
+            id="logo-preview"
+            class="logo-preview hidden"
+            alt="Logo preview"
+          />
+          <div id="logo-warn" class="hidden modal-error">
+            This image is large; embedding it will make the map source (and any
+            share link) much bigger. A small logo (under ~50&nbsp;KB) works
+            best.
+          </div>
+          <div id="logo-error" class="hidden modal-error"></div>
+          <div class="modal-actions">
+            <button id="logo-remove" class="ghost">Remove logo</button>
+            <button id="logo-cancel" class="ghost">Cancel</button>
+            <button id="logo-submit" disabled>Use this logo</button>
           </div>
         </div>
       </div>

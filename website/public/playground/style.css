@@ -539,6 +539,22 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.modal input[type="file"] {
+  width: 100%;
+  color: var(--text);
+  font-size: 12px;
+}
+.logo-preview {
+  display: block;
+  margin-top: 12px;
+  max-width: 100%;
+  max-height: 120px;
+  background: repeating-conic-gradient(#80808033 0% 25%, transparent 0% 50%)
+    50% / 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .mode-btn[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);
