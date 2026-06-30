@@ -659,6 +659,16 @@ gallery:
       reserves an offset slot for a line that peels off inside it, so the descent
       inherits that wider anchoring and lands square on the entry port with no
       sideways jog at the boundary (issue #1212)."
+  - id: manual_rl_row_nonconsumer_bypass
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A manual-grid serpentine whose return row flows right to left via
+      direction: RL. A non-consumer line shares an exit bundle with a consumed
+      line but is not consumed by the intervening RL section, so it must bypass
+      around that section rather than route through its interior. The descent
+      column lands in the clear gap beside the intervening box and the line
+      loops below the whole row into its target (issue #1211)."
   - id: branch_fold_forward
     source_dir: examples/topologies
     category: Serpentine Layout

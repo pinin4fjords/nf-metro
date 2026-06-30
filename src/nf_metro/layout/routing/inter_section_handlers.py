@@ -1791,8 +1791,8 @@ def _route_bypass(
     # (its bbox extends into the gap).  Nudge each vertical leg clear of any
     # box its Y-span pierces, bounded to the inter-column gap so the channel
     # stays in clear space.
+    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
     if cross_row:
-        exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
         if horizontal is Direction.R:
             g1_lo, g1_hi = column_gap_edges(graph, src_col, src_col + 1)
             g2_lo, g2_hi = column_gap_edges(graph, tgt_col - 1, tgt_col)
@@ -1826,6 +1826,23 @@ def _route_bypass(
                         exclude,
                         bound_left=gap1_x,
                     )
+    else:
+        # Same-row bypass past an intervening section whose box is wider than
+        # its grid cell: the neighbour cell sits empty, so the gap query bounds
+        # the descent channel at the canvas origin and it can land inside that
+        # box.  Push gap1 toward the source end of the route and gap2 toward the
+        # target end, so the long below-row traverse, not the descent, passes
+        # the box.  The current leg X seeds the bound that pins each push.
+        if horizontal is Direction.L:
+            g1_left, g1_right, g2_left, g2_right = gap1_x, None, None, gap2_x
+        else:
+            g1_left, g1_right, g2_left, g2_right = None, gap1_x, gap2_x, None
+        gap1_x = _clear_channel_x_in_band(
+            graph, gap1_x, sy, by, SECTION_ROUTE_CLEARANCE, exclude, g1_left, g1_right
+        )
+        gap2_x = _clear_channel_x_in_band(
+            graph, gap2_x, by, ty, SECTION_ROUTE_CLEARANCE, exclude, g2_left, g2_right
+        )
 
     # Describe the U as a centreline through the two gap channels plus a
     # per-line offset on each, and let build_tapered_bundle derive every

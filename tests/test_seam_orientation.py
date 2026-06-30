@@ -144,6 +144,12 @@ EXPECTED_RESIDUALS = frozenset(
         # preserves while the machinery reverses them.
         ("lr_bottom_exit_rl_top_entry_jog", "normalization", "consensus", "B->T"),
         ("lr_bottom_exit_rl_top_entry_jog", "realign", "reporting", "L->R"),
+        # Manual-grid serpentine whose return row flows direction: RL: the fold
+        # reverses consensus (the B->T drop receiver) and propagates along the
+        # return row to reporting.  Both seams are continuations the classifier
+        # preserves while the machinery reverses them.
+        ("manual_rl_row_nonconsumer_bypass", "normalization", "consensus", "B->T"),
+        ("manual_rl_row_nonconsumer_bypass", "realign", "reporting", "L->R"),
     }
 )
 
