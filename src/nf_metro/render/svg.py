@@ -31,6 +31,7 @@ from nf_metro.layout.labels import (
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     assert_render_layout_invariants,
+    iter_opposing_line_overlaps,
 )
 from nf_metro.layout.routing import (
     RoutedPath,
@@ -465,6 +466,11 @@ def render_svg(
                 raise reframed from exc
             raise
 
+    if _fold_back_under_compression(graph):
+        reframed = _fold_threshold_error(graph)
+        if reframed is not None:
+            raise reframed
+
     if font_portability == "paths":
         from nf_metro.render.font_embed import text_to_paths as _text_to_paths
 
@@ -498,6 +504,25 @@ def _fold_threshold_error(graph: MetroGraph) -> FoldThresholdError | None:
         f"bundle curves. Raise --fold-threshold (or the %%metro fold_threshold "
         f"directive), or remove it to render at the default width."
     )
+
+
+def _fold_back_under_compression(graph: MetroGraph) -> bool:
+    """True when a fold-compressed grid leaves a line folding back over itself.
+
+    A too-small fold can collapse an inter-section fan onto a single row where a
+    line runs out along a track and straight back along it.  The doubled-back
+    legs draw collinear on the trunk, so no curve self-check fires and the map
+    renders silently tangled (a station in the overlap is read out of flow
+    order).  Detecting it here lets the render chokepoint reframe the tangle as
+    a :class:`FoldThresholdError`, the same authoring error a fold-induced curve
+    abort raises, instead of emitting the tangled map.
+
+    Guarded on ``_fold_compressed_sections`` so the default (un-folded) render
+    pays nothing: at the natural width the set is empty and this short-circuits.
+    """
+    if not graph._fold_compressed_sections:
+        return False
+    return any(iter_opposing_line_overlaps(graph))
 
 
 def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:

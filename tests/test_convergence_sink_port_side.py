@@ -19,10 +19,14 @@ from pathlib import Path
 
 import pytest
 
+from nf_metro.api import prepare_graph
+from nf_metro.layout import FoldThresholdError
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
 from nf_metro.parser.resolve import _expected_flow_side
+from nf_metro.render import render_svg
+from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -79,13 +83,22 @@ def _layout(name: str, fold: int, *, validate: bool = False):
     return graph
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="inter-section assemblies fan tangle under fold over-compression (#1187)",
-)
 @pytest.mark.parametrize("fold", [3, 5, 7, 9, 11])
-def test_genomeassembly_renders_clean_under_lowered_fold(fold: int) -> None:
-    _layout("genomeassembly", fold, validate=True)
+def test_genomeassembly_gates_lowered_fold_as_authoring_error(fold: int) -> None:
+    """Under a lowered fold the 5-section grid over-compresses (all 5 relocate),
+    collapsing the inter-section ``assemblies`` fan onto a single row where the
+    line folds back over its own track.  The doubled-back legs draw collinear on
+    the trunk, so the render emits no curve self-check and would otherwise show a
+    silently-tangled map; the render gate surfaces it as a clean
+    :class:`FoldThresholdError` instead (#1187).
+    """
+    graph = prepare_graph(
+        (EXAMPLES / "genomeassembly.mmd").read_text(),
+        layout_options={"fold_threshold": fold},
+    )
+    with pytest.raises(FoldThresholdError) as exc:
+        render_svg(graph, THEMES["nfcore"])
+    assert "fold" in str(exc.value).lower()
 
 
 def test_genomeassembly_sink_exit_and_entry_face_inward() -> None:
