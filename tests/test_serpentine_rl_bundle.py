@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing.core import route_edges_centred
 from nf_metro.layout.routing.invariants import (
