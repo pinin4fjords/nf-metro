@@ -4,9 +4,10 @@ title: "Releases"
 
 Release notes for nf-metro, newest first.
 
-| Version                             | Date       | Highlights                                                                                      |
-| ----------------------------------- | ---------- | ----------------------------------------------------------------------------------------------- |
-| [v0.7.2](/nf-metro/releases/0.7.2/) | 2026-05-18 | Rowspan bbox shrink fix                                                                         |
+| Version                             | Date       | Highlights                                                                                                                   |
+| ----------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [v1.0.0](/nf-metro/releases/1.0.0/) | 2026-06-30 | Astro/Starlight docs site, all four flow directions, light/dark axis, playground overhaul, stable render API, CSS animations |
+| [v0.7.2](/nf-metro/releases/0.7.2/) | 2026-05-18 | Rowspan bbox shrink fix                                                                                                      |
 | [v0.7.1](/nf-metro/releases/0.7.1/) | 2026-05-17 | Bypass row-gap fix                                                                              |
 | [v0.7.0](/nf-metro/releases/0.7.0/) | 2026-05-17 | HTML export, new directives, dashed/dotted lines, richer file icons, layout invariant framework |
 | [v0.6.1](/nf-metro/releases/0.6.1/) | 2026-03-06 | Docs build fix                                                                                  |
