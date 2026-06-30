@@ -2,6 +2,7 @@
 
 import io
 import warnings
+from pathlib import Path
 
 import pytest
 from PIL import Image as PILImage
@@ -140,7 +141,7 @@ def test_is_adaptive_mode_false_when_no_logo():
     assert not _is_adaptive_mode(g)
 
 
-def _write_png(path: "Path") -> None:  # type: ignore[name-defined]  # noqa: F821
+def _write_png(path: Path) -> None:
     img = PILImage.new("RGB", (100, 50), color=(255, 0, 0))
     buf = io.BytesIO()
     img.save(buf, format="PNG")

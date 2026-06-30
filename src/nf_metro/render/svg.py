@@ -950,19 +950,13 @@ def _is_adaptive_mode(graph: MetroGraph) -> bool:
 
 def _has_adaptive_logos(graph: MetroGraph) -> bool:
     """Return True when both logo variants are set and their files exist."""
-    return (
-        bool(graph.logo_path_light)
-        and Path(graph.logo_path_light).is_file()
-        and bool(graph.logo_path_dark)
-        and Path(graph.logo_path_dark).is_file()
+    return bool(_resolve_logo_file(graph.logo_path_light, graph.source_dir)) and bool(
+        _resolve_logo_file(graph.logo_path_dark, graph.source_dir)
     )
 
 
 def _resolve_logo_file(raw: str, source_dir: str) -> str:
-    """Return an absolute path to *raw* if it resolves, else empty string.
-
-    Tries *raw* as-is first, then relative to *source_dir*.
-    """
+    """Return a resolvable path for *raw*, or empty string if not found."""
     if Path(raw).is_file():
         return raw
     if source_dir:
@@ -988,10 +982,10 @@ def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float
         if dim_path:
             w, h = compute_logo_dimensions(dim_path)
             return True, w, h, ""
-        set_paths = [p for p in raw_candidates if p]
-        if set_paths:
+        if any(raw_candidates):
             warnings.warn(
-                f"%%metro logo: path(s) {set_paths} not found; logo will be omitted",
+                f"%%metro logo: path(s) {[p for p in raw_candidates if p]} not found;"
+                " logo will be omitted",
                 UserWarning,
                 stacklevel=2,
             )
@@ -1008,7 +1002,7 @@ def _resolve_logo(graph: MetroGraph, adaptive: bool) -> tuple[bool, float, float
         UserWarning,
         stacklevel=2,
     )
-    return False, 0.0, 0.0, effective
+    return False, 0.0, 0.0, ""
 
 
 def compute_logo_dimensions(
