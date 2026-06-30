@@ -33107,6 +33107,7 @@
       "_guard_entry_port_fed_only_by_ports|after final",
       "_guard_flow_exit_anchored_to_carrier|after final",
       "_guard_fold_lr_exit_follows_target|after final",
+      "_guard_fold_lr_exit_sections_share_bbox_bottom|after final",
       "_guard_perp_fed_entry_anchored_to_consumer|after final",
       "_guard_corridor_fed_solo_rides_trunk|after final",
       "_guard_perp_entry_clears_vertical_trunk_head|after final",
