@@ -996,7 +996,7 @@ in pipeline order.
   sections), the final top-sizing pass. Row-top flush alignment is not a
   maintained property; it is transient scaffolding superseded here.
 
-### Stage 6.15a (cont.): distribute stacked rows across a rowspan band
+### Stage 6.15b: distribute stacked rows across a rowspan band
 - **Purpose**: When a column holds single-row sections stacked one per grid
   row beside an adjacent `grid_row_span > 1` section spanning those rows,
   distribute them across that section's vertical band so the topmost's bbox

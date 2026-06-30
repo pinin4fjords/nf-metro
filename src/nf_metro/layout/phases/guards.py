@@ -51,6 +51,7 @@ from nf_metro.layout.phases._common import (
     iter_fold_lr_exit_straight_runs,
     iter_fold_lr_exits_short_of_target,
     iter_sole_trunk_continuations,
+    iter_stacked_rows_in_rowspan_band,
     marker_cross_exempt,
     routes_through_own_section_interior,
     routes_through_unrelated_sections,
@@ -984,60 +985,26 @@ def _guard_stacked_rows_fill_rowspan_band(graph: MetroGraph, phase: str) -> None
     bottommost's bbox bottom meets the band bottom.  A topmost section above the
     band top has spread out of the layout into the title band; a bottommost
     above the band bottom floats high with empty slack beneath it.  Scope is
-    :func:`_distribute_stacked_rows_in_rowspan_band`.
+    :func:`iter_stacked_rows_in_rowspan_band`.
     """
-    from collections import defaultdict
-
-    rowspans = [
-        s
-        for s in graph.sections.values()
-        if s.grid_row_span > 1 and s.bbox_h > 0 and s.grid_row >= 0
-    ]
-    if not rowspans:
-        return
-
-    by_col: dict[int, list[Section]] = defaultdict(list)
-    for section in graph.sections.values():
-        if section.grid_row_span == 1 and section.bbox_h > 0 and section.grid_row >= 0:
-            by_col[section.grid_col].append(section)
-
-    for col, stack in by_col.items():
-        stack.sort(key=lambda s: s.grid_row)
-        band = [
-            r
-            for r in rowspans
-            if abs(r.grid_col - col) == 1
-            and r.grid_row <= stack[0].grid_row
-            and r.grid_row + r.grid_row_span - 1 >= stack[-1].grid_row
-        ]
-        if not band:
-            continue
-        band_top_row = min(r.grid_row for r in band)
-        band_bot_row = max(r.grid_row + r.grid_row_span - 1 for r in band)
-        if sorted(s.grid_row for s in stack) != list(
-            range(band_top_row, band_bot_row + 1)
-        ):
-            continue
-        band_top = min(r.bbox_y for r in band)
-        band_bot = max(r.bbox_y + r.bbox_h for r in band)
-        if (band_bot - band_top) - sum(s.bbox_h for s in stack) <= 2 * GUARD_TOLERANCE:
-            continue
-
+    for stack, band_top, band_bot in iter_stacked_rows_in_rowspan_band(
+        graph, 2 * GUARD_TOLERANCE
+    ):
         top, bot = stack[0], stack[-1]
         if band_top - top.bbox_y > GUARD_TOLERANCE:
             raise PhaseInvariantError(
-                f"{phase}: section {top.id!r} (col {col}, top of a stack beside a "
-                f"rowspan band) has bbox top {top.bbox_y:.1f} above the band top "
-                f"{band_top:.1f}; it rises {band_top - top.bbox_y:.1f}px out of "
-                f"the band into the title space"
+                f"{phase}: section {top.id!r} (col {top.grid_col}, top of a stack "
+                f"beside a rowspan band) has bbox top {top.bbox_y:.1f} above the "
+                f"band top {band_top:.1f}; it rises {band_top - top.bbox_y:.1f}px "
+                f"out of the band into the title space"
             )
         bot_edge = bot.bbox_y + bot.bbox_h
         if band_bot - bot_edge > GUARD_TOLERANCE:
             raise PhaseInvariantError(
-                f"{phase}: section {bot.id!r} (col {col}, bottom of a stack beside "
-                f"a rowspan band) has bbox bottom {bot_edge:.1f} above the band "
-                f"bottom {band_bot:.1f}; {band_bot - bot_edge:.1f}px of empty slack "
-                f"sits below it"
+                f"{phase}: section {bot.id!r} (col {bot.grid_col}, bottom of a "
+                f"stack beside a rowspan band) has bbox bottom {bot_edge:.1f} "
+                f"above the band bottom {band_bot:.1f}; {band_bot - bot_edge:.1f}px "
+                f"of empty slack sits below it"
             )
 
 
