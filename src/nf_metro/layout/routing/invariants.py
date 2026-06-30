@@ -32,6 +32,7 @@ from typing import Any, Protocol
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
+    BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     CURVE_RADIUS,
@@ -3458,6 +3459,102 @@ def check_bottom_row_climb_run_on_source_track(
 
 
 @dataclass
+class ExitRowEarlyUpStep:
+    """A same-row bypass steps up to a mid-lane above a clear exit row.
+
+    When the source row threads clear of every intervening section across the
+    span, the bypass should run straight along that row and turn up once into
+    the target (see
+    :func:`~nf_metro.layout.routing.inter_section_handlers._route_bypass`).  A
+    route that instead steps up to a lane above the source for the long
+    traverse, then up again into the target, took an avoidable kink at the exit.
+    """
+
+    source: str
+    target: str
+    run_y: float
+    src_y: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"exit-row bypass {self.source!r}->{self.target!r} runs its traverse "
+            f"at y={self.run_y:.1f}, above the clear exit row y={self.src_y:.1f} "
+            f"-- an avoidable up-step kink before the end-of-traverse climb"
+        )
+
+
+def check_exit_row_bypass_no_early_upstep(
+    graph: MetroGraph, routes: list[RoutedPath]
+) -> list[ExitRowEarlyUpStep]:
+    """Return same-row bypasses that step up to a mid-lane over a clear corridor.
+
+    When source and target share a grid row, the target is a real entry port,
+    a same-row section between them sits entirely above the exit row (so the
+    bypass lane hugs its bottom above the source -- ``base_y < sy``), and the
+    source row threads clear of every section across the span, the bypass must
+    run its traverse at the source row and climb only at the end.  A horizontal
+    run sitting *above* the source row while it overlaps such a section's column
+    is the early up-step this polices.  An up-step that lands at the target
+    port's own Y (the final approach to a port on a higher row) is not policed.
+    """
+    from nf_metro.layout.routing.normalize import _h_segment_crosses_other_section
+
+    tol = COORD_TOLERANCE
+    violations: list[ExitRowEarlyUpStep] = []
+    for r in routes:
+        if not r.is_inter_section or len(r.points) < 2:
+            continue
+        tgt_port = graph.ports.get(r.edge.target)
+        if tgt_port is None or not tgt_port.is_entry:
+            continue
+        src_station = graph.stations.get(r.edge.source)
+        tgt_station = graph.stations.get(r.edge.target)
+        if src_station is None or tgt_station is None:
+            continue
+        src_sec = resolve_section(graph, src_station)
+        tgt_sec = resolve_section(graph, tgt_station)
+        if (
+            src_sec is None
+            or tgt_sec is None
+            or src_sec.grid_row is None
+            or tgt_sec.grid_row is None
+            or src_sec.grid_row != tgt_sec.grid_row
+        ):
+            continue
+        src_y = src_station.y
+        exclude = {sid for sid in (src_sec.id, tgt_sec.id) if sid is not None}
+        if _h_segment_crosses_other_section(
+            graph, src_station.x, tgt_station.x, src_y, exclude, margin=BYPASS_CLEARANCE
+        ):
+            continue
+        lo, hi = (
+            min(src_sec.grid_col, tgt_sec.grid_col),
+            max(src_sec.grid_col, tgt_sec.grid_col),
+        )
+        lane_sources = [
+            s
+            for s in graph.sections.values()
+            if s.bbox_w > 0
+            and lo < s.grid_col < hi
+            and s.grid_row == src_sec.grid_row
+            and s.bbox_y + s.bbox_h < src_y - tol
+        ]
+        for (x0, y0), (x1, y1) in zip(r.points, r.points[1:]):
+            if abs(y1 - y0) > tol or y0 >= src_y - tol:
+                continue
+            seg_lo, seg_hi = min(x0, x1), max(x0, x1)
+            if any(
+                seg_lo < s.bbox_x + s.bbox_w and seg_hi > s.bbox_x for s in lane_sources
+            ):
+                violations.append(
+                    ExitRowEarlyUpStep(r.edge.source, r.edge.target, y0, src_y)
+                )
+                break
+    return violations
+
+
+@dataclass
 class UndeclaredGapChannel:
     """A vertical inter-section leg sits in a gap with no :class:`GapSlot`.
 
@@ -3715,6 +3812,10 @@ def assert_render_curve_invariants(
             check_bottom_row_climb_run_on_source_track(graph, routes),
         ),
         (
+            "exit-row bypass steps up over clear corridor",
+            check_exit_row_bypass_no_early_upstep(graph, routes),
+        ),
+        (
             "undeclared gap channel",
             check_gap_channels_materialized(graph, routes),
         ),
@@ -3810,6 +3911,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_deferred_offsets_apply_laterally, "A"),
     _check_spec(check_bottom_row_climb_stays_at_row_level, "A"),
     _check_spec(check_bottom_row_climb_run_on_source_track, "A"),
+    _check_spec(check_exit_row_bypass_no_early_upstep, "A"),
     _check_spec(check_gap_channels_materialized, "A"),
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
@@ -3851,6 +3953,7 @@ __all__ = [
     "GuardSpec",
     "BottomRowClimbDive",
     "BottomRowClimbOffTrack",
+    "ExitRowEarlyUpStep",
     "BundleOrderViolation",
     "CollinearOverlapViolation",
     "DiagonalOverlapViolation",
@@ -3874,6 +3977,7 @@ __all__ = [
     "UndeclaredTrunk",
     "check_bottom_row_climb_stays_at_row_level",
     "check_bottom_row_climb_run_on_source_track",
+    "check_exit_row_bypass_no_early_upstep",
     "check_bundle_order_preserved",
     "check_gap_channels_materialized",
     "check_trunks_declared",
