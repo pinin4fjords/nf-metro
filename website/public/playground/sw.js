@@ -7,11 +7,15 @@ const PYODIDE_VERSION = "v0.27.2";
 const PYODIDE_BASE = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`;
 const CACHE_NAME = `nfm-playground-${PYODIDE_VERSION}`;
 
+// The deploy stamps a content hash into each dev wheel's build tag, so a
+// wheel URL names one immutable build and is safe to cache indefinitely.
+const WHEEL_URL = /\/wheels\/[^/]+\.whl$/;
+
 function shouldCache(url) {
   // wheels/index.json is fetched with cache: "no-store" by app.js for wheel
-  // discovery, so exclude it; .whl files are content-addressed and safe to cache.
+  // discovery, so it is excluded by WHEEL_URL requiring the .whl suffix.
   if (url.startsWith(PYODIDE_BASE)) return true;
-  return /\/wheels\/[^/]+\.whl$/.test(url);
+  return WHEEL_URL.test(url);
 }
 
 self.addEventListener("install", (event) => {
@@ -55,7 +59,16 @@ self.addEventListener("fetch", (event) => {
       if (cached) return cached;
       const response = await fetch(event.request);
       if (response.ok) {
-        cache.put(url, response.clone());
+        await cache.put(url, response.clone());
+        // A fresh wheel hash supersedes earlier builds; drop their entries so
+        // the cache holds only the current wheel rather than one per deploy.
+        if (WHEEL_URL.test(url)) {
+          for (const req of await cache.keys()) {
+            if (req.url !== url && WHEEL_URL.test(req.url)) {
+              await cache.delete(req);
+            }
+          }
+        }
       }
       return response;
     })(),

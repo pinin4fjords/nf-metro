@@ -31,11 +31,19 @@ jobs:
 
       # --- Generate dynamic content into the Astro project ---
       - name: Build playground wheel
+        # The service worker caches .whl files by name as immutable. The dev
+        # wheel's version is static, so stamp a content hash into the wheel
+        # build tag: the filename then changes whenever the wheel does, so a
+        # returning visitor's cached copy is superseded instead of served stale.
         run: |
           rm -rf website/public/playground/wheels
           python -m build --wheel -o website/public/playground/wheels
-          WHEEL=$(basename website/public/playground/wheels/*.whl)
-          printf '{"wheel": "%s"}\n' "$WHEEL" > website/public/playground/wheels/index.json
+          cd website/public/playground/wheels
+          orig=$(basename ./*.whl)
+          hash=$(sha256sum "$orig" | cut -c1-12)
+          wheel=$(echo "$orig" | sed -E "s/^([^-]+-[^-]+)-/\1-0$hash-/")
+          mv "$orig" "$wheel"
+          printf '{"wheel": "%s"}\n' "$wheel" > index.json
 
       - name: Build playground example manifest
         run: python scripts/build_playground_examples.py
