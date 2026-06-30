@@ -1623,6 +1623,29 @@ def _route_bypass(
         # double up here.
         base_y = sy + src_off
         nest_offset = 0.0
+    elif (
+        src_row is not None
+        and tgt_row is not None
+        and src_row == tgt_row
+        and tgt_entry is not None
+        and tgt_entry.is_entry
+        and base_y < sy - COORD_TOLERANCE
+        and not _h_segment_crosses_other_section(
+            graph,
+            sx,
+            effective_tx,
+            sy,
+            {sid for sid in (src.section_id, tgt.section_id) if sid is not None},
+            margin=BYPASS_CLEARANCE,
+        )
+    ):
+        # Same-row bypass whose source sits below the intervening sections that
+        # forced the classification: the computed lane hugs their bottoms above
+        # the source, so diving up to it at the exit and stepping up again into
+        # the target is an avoidable kink.  The source row threads clear across
+        # the span, so run straight along it and turn up once at the target.
+        base_y = sy + src_off
+        nest_offset = 0.0
 
     # Determine actual vertical direction at each gap from the geometry.
     # Gap1 goes from source Y to trunk Y; gap2 from trunk Y to target Y.
