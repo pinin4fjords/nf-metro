@@ -282,6 +282,57 @@ test("syntax error surfaces inline and keeps the last good render", async () => 
   expect(await page.locator("#preview").innerHTML()).toBe(good);
 });
 
+// 1x1 red PNG, used as a stand-in logo upload.
+const TINY_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4" +
+  "nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+
+test("a logo path the playground cannot resolve gets a friendly hint", async () => {
+  await page.evaluate(() => {
+    window.__nfMetro.setValue(
+      "%%metro logo: does/not/exist.png\n%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    );
+  });
+  await expect(page.locator("#error")).toContainText("not found");
+  await expect(page.locator("#error")).toContainText("+ Logo");
+});
+
+test("attaching a logo embeds it as a data URI and renders it", async () => {
+  await page.evaluate(() => {
+    window.__nfMetro.setValue(
+      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    );
+  });
+
+  await page.locator("#btn-logo").click();
+  await expect(page.locator("#logo-modal")).toBeVisible();
+  await expect(page.locator("#logo-submit")).toBeDisabled();
+
+  await page.locator("#logo-file").setInputFiles({
+    name: "logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(TINY_PNG_BASE64, "base64"),
+  });
+  await expect(page.locator("#logo-preview")).toBeVisible();
+  await expect(page.locator("#logo-submit")).toBeEnabled();
+
+  await page.locator("#logo-submit").click();
+  await expect(page.locator("#logo-modal")).toBeHidden();
+  await expect(page.locator("#error")).toBeHidden();
+
+  const value = await page.evaluate(() => window.__nfMetro.getValue());
+  expect(value).toContain("%%metro logo: data:image/png;base64,");
+  await expect(page.locator("#preview svg image")).toHaveCount(1);
+
+  // Removing it clears the directive and the embedded image.
+  await page.locator("#btn-logo").click();
+  await page.locator("#logo-remove").click();
+  await expect(page.locator("#preview svg image")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__nfMetro.getValue())).not.toContain(
+    "%%metro logo:",
+  );
+});
+
 test("SVG and PNG export produce non-empty downloads", async () => {
   // Restore a valid map after the error test.
   await page.evaluate(() => {
