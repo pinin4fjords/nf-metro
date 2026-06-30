@@ -516,6 +516,81 @@ def _top_align_row_sections(graph: MetroGraph) -> None:
                 section.bbox_y -= delta
 
 
+def _shift_section_y(graph: MetroGraph, section: Section, delta: float) -> None:
+    """Shift a section's stations, ports and bbox top by ``delta`` (no resize)."""
+    for sid in section.station_ids:
+        station = graph.stations.get(sid)
+        if station is not None:
+            station.y += delta
+    section.bbox_y += delta
+
+
+def _distribute_stacked_rows_in_rowspan_band(graph: MetroGraph) -> None:
+    """Distribute single-row sections stacked in a column across the band a
+    neighbouring rowspan section fills.
+
+    A column can hold several single-row sections stacked one per grid row,
+    beside a taller ``grid_row_span > 1`` section that spans those same rows.
+    Each single-row section is otherwise positioned on its own row line, so the
+    topmost can poke above the band top -- a fan centred on its row line spreads
+    upward into the title band -- and the bottommost can stop short of the band
+    bottom, leaving slack beneath it.
+
+    When the stack holds exactly one section per band row, distribute the
+    sections evenly across the band: the topmost's bbox top meets the band top,
+    the bottommost's bbox bottom meets the band bottom, and any middle sections
+    sit on equal gaps between.  Only acts when the band has slack to give, so a
+    stack already filling its band is left untouched.
+    """
+    rowspans = [
+        s
+        for s in graph.sections.values()
+        if s.grid_row_span > 1 and s.bbox_h > 0 and s.grid_row >= 0
+    ]
+    if not rowspans:
+        return
+
+    by_col: dict[int, list[Section]] = defaultdict(list)
+    for section in graph.sections.values():
+        if section.grid_row_span == 1 and section.bbox_h > 0 and section.grid_row >= 0:
+            by_col[section.grid_col].append(section)
+
+    for col, stack in by_col.items():
+        stack.sort(key=lambda s: s.grid_row)
+        top_row, bot_row = stack[0].grid_row, stack[-1].grid_row
+        band = [
+            r
+            for r in rowspans
+            if abs(r.grid_col - col) == 1
+            and r.grid_row <= top_row
+            and r.grid_row + r.grid_row_span - 1 >= bot_row
+        ]
+        if not band:
+            continue
+        band_top_row = min(r.grid_row for r in band)
+        band_bot_row = max(r.grid_row + r.grid_row_span - 1 for r in band)
+        # Require one section per band row, covering the band's full row range,
+        # so even distribution maps each section onto its own row.
+        if sorted(s.grid_row for s in stack) != list(
+            range(band_top_row, band_bot_row + 1)
+        ):
+            continue
+
+        band_top = min(r.bbox_y for r in band)
+        band_bot = max(r.bbox_y + r.bbox_h for r in band)
+        slack = (band_bot - band_top) - sum(s.bbox_h for s in stack)
+        if slack <= SAME_COORD_TOLERANCE:
+            continue
+
+        gap = slack / (len(stack) - 1) if len(stack) > 1 else 0.0
+        cursor = band_top
+        for section in stack:
+            delta = cursor - section.bbox_y
+            if abs(delta) > SAME_COORD_TOLERANCE:
+                _shift_section_y(graph, section, delta)
+            cursor += section.bbox_h + gap
+
+
 def _top_align_row_bboxes_only(graph: MetroGraph) -> None:
     """Align bbox tops within each row by growing bboxes upward.
 
