@@ -8,9 +8,9 @@ from collections import defaultdict
 from nf_metro.layout.constants import (
     FONT_HEIGHT,
     LABEL_OFFSET,
-    OFFSET_STEP,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
+    resolve_offset_step,
 )
 from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.labels import active_font_scale
@@ -90,7 +90,7 @@ def _row_group_grid_spacing(
         for st in sub.stations.values():
             if not st.is_port and st.y in multi_ys:
                 max_lines = max(max_lines, len(graph.station_lines(st.id)))
-    offset_step = OFFSET_STEP if graph.track_gap is None else graph.track_gap
+    offset_step = resolve_offset_step(graph.track_gap)
     min_track_gap = (
         (max_lines - 1) * offset_step
         + 2 * STATION_RADIUS_APPROX

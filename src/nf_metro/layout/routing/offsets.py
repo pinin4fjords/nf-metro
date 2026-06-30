@@ -10,6 +10,7 @@ from nf_metro.layout.constants import (
     COORD_TOLERANCE_FINE,
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
+    resolve_offset_step,
 )
 from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
@@ -2288,9 +2289,7 @@ def compute_station_offsets(
         return {}
 
     resolved = (
-        offset_step
-        if offset_step is not None
-        else (OFFSET_STEP if graph.track_gap is None else graph.track_gap)
+        offset_step if offset_step is not None else resolve_offset_step(graph.track_gap)
     )
     ctx = _build_offset_ctx(graph, resolved)
     _compute_base_offsets(ctx)

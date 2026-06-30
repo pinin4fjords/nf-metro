@@ -120,9 +120,10 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         name="track_gap",
         kind="float",
         sign="nonneg",
-        help="Perpendicular offset between parallel lines sharing a section "
-        "(default: 4). Set to 0 to collapse all lines onto a single shared "
-        "track with no lateral separation.",
+        help="Visual gap (in px) between adjacent line strokes in a bundle "
+        "(edge to edge, not centre to centre). Set to 0 to collapse all lines "
+        "onto a single shared track. When unset, lines are spaced 1 px apart "
+        "(the built-in default of 4 px centre-to-centre minus the 3 px stroke).",
     ),
     LayoutOption(
         name="fold_threshold",

@@ -40,6 +40,7 @@ from nf_metro.layout.constants import (
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
+    resolve_offset_step,
 )
 from nf_metro.layout.geometry import AxisFrame, axis_split, lanes_run_along_y
 from nf_metro.layout.phases.guards import GuardSpec
@@ -1239,6 +1240,7 @@ class DiagonalOverlapViolation:
     edge_b: tuple[str, str]
     perp_sep: float
     span: float
+    min_sep: float
 
     def message(self) -> str:
         """Human-readable summary suitable for the engine error message."""
@@ -1247,7 +1249,7 @@ class DiagonalOverlapViolation:
             f"({self.edge_a[0]}->{self.edge_a[1]}) and line {self.line_b!r} "
             f"({self.edge_b[0]}->{self.edge_b[1]}) run {self.perp_sep:.2f}px apart "
             f"on a shared diagonal over {self.span:.1f}px "
-            f"(need >= {_DIAGONAL_MIN_PERP_SEP:.1f}px)"
+            f"(need >= {self.min_sep:.1f}px)"
         )
 
 
@@ -1548,6 +1550,7 @@ def check_no_collinear_distinct_diagonals(
         for seg in _diagonal_segments(rp, offsets):
             diags.append((rp.line_id, (rp.edge.source, rp.edge.target), seg))
 
+    min_sep = resolve_offset_step(getattr(graph, "track_gap", None)) * 0.5
     violations: list[DiagonalOverlapViolation] = []
     for i in range(len(diags)):
         la, ea, sa = diags[i]
@@ -1559,7 +1562,7 @@ def check_no_collinear_distinct_diagonals(
             if result is None:
                 continue
             perp_sep, span = result
-            if perp_sep >= _DIAGONAL_MIN_PERP_SEP:
+            if perp_sep >= min_sep:
                 continue
             violations.append(
                 DiagonalOverlapViolation(
@@ -1569,6 +1572,7 @@ def check_no_collinear_distinct_diagonals(
                     edge_b=eb,
                     perp_sep=perp_sep,
                     span=span,
+                    min_sep=min_sep,
                 )
             )
     return violations
@@ -3665,6 +3669,10 @@ def assert_render_curve_invariants(
     cannot make clean; the render proceeds best-effort and the warning names the
     actionable fix rather than aborting.
     """
+    # When track_gap=0 the user has intentionally collapsed all lines onto a
+    # single shared centre.  Every distinct-line overlap is expected, so the
+    # three collinear/diagonal checks are skipped entirely.
+    collapsed = getattr(graph, "track_gap", None) == 0.0
     named_checks: list[tuple[str, Sequence[_HasMessage]]] = [
         (
             "bundle order (line crosses its bundle-mate)",
@@ -3674,17 +3682,25 @@ def assert_render_curve_invariants(
             "non-concentric bundle corner",
             check_concentric_bundle_corners(graph, routes, offsets),
         ),
-        (
-            "collinear distinct lines",
-            check_no_collinear_distinct_lines(graph, routes, offsets),
-        ),
-        (
-            "intra-section collinear distinct lines",
-            check_intra_section_collinear_distinct_lines(graph, routes, offsets),
-        ),
-        (
-            "collinear distinct diagonals",
-            check_no_collinear_distinct_diagonals(graph, routes, offsets),
+        *(
+            []
+            if collapsed
+            else [
+                (
+                    "collinear distinct lines",
+                    check_no_collinear_distinct_lines(graph, routes, offsets),
+                ),
+                (
+                    "intra-section collinear distinct lines",
+                    check_intra_section_collinear_distinct_lines(
+                        graph, routes, offsets
+                    ),
+                ),
+                (
+                    "collinear distinct diagonals",
+                    check_no_collinear_distinct_diagonals(graph, routes, offsets),
+                ),
+            ]
         ),
         (
             "same-line parallel descents",
