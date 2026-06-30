@@ -462,6 +462,36 @@ test("share link round-trips the editor content", async () => {
   expect(restored).toBe(source);
 });
 
+test("share link round-trips an attached logo", async () => {
+  await page.evaluate(() => {
+    window.__nfMetro.setValue(
+      "%%metro line: a | A | #f00\ngraph LR\n  n1[N1] -->|a| n2[N2]\n",
+    );
+  });
+  await page.locator("#btn-logo").click();
+  await page.locator("#logo-file").setInputFiles({
+    name: "logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(TINY_PNG_BASE64, "base64"),
+  });
+  await page.locator("#logo-submit").click();
+  await expect(page.locator("#preview svg image")).toHaveCount(1);
+  const source = await page.evaluate(() => window.__nfMetro.getValue());
+
+  await page.locator("#btn-share").click();
+  await page.waitForFunction(() => location.hash.includes("mmd-gz="));
+  const url = await page.evaluate(() => location.href);
+
+  // A full navigation to the shared URL starts from no prior editor state, so
+  // it stands in for the recipient opening the link cold: the logo must
+  // render with no network/disk access since the data URI travels entirely
+  // inside the link itself.
+  await page.goto(url);
+  await waitReady(page);
+  expect(await page.evaluate(() => window.__nfMetro.getValue())).toBe(source);
+  await expect(page.locator("#preview svg image")).toHaveCount(1);
+});
+
 // A two-section map used by the graphical-editing tests below.
 const EDIT_MAP =
   "%%metro line: a | A | #f00\n" +
