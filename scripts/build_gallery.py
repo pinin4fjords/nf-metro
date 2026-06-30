@@ -92,6 +92,13 @@ _GALLERY_CATEGORIES: dict[str, str] = {
     entry["id"]: entry["category"] for entry in _config["gallery"]
 }
 
+# Per-stem source dir, so a pipeline entry can point at a gallery id whose .mmd
+# lives outside examples/ (e.g. examples/showcase/) rather than assuming every
+# pipeline's source sits directly in EXAMPLES_DIR.
+_GALLERY_SOURCE_DIRS: dict[str, Path] = {
+    entry["id"]: project_root / entry["source_dir"] for entry in _config["gallery"]
+}
+
 # Ordered list of nf-core pipeline examples.
 PIPELINE_ENTRIES: list[tuple[str, str, str, str]] = [
     (entry["id"], entry["title"], entry["repo_url"], entry["description"])
@@ -217,14 +224,15 @@ def build_pipelines_manifest() -> None:
     CONTENT_DIR.mkdir(parents=True, exist_ok=True)
     entries: list[dict] = []
     for stem, display_name, repo_url, description in PIPELINE_ENTRIES:
-        mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
+        source_dir = _GALLERY_SOURCE_DIRS.get(stem, EXAMPLES_DIR)
+        mmd_path = source_dir / f"{stem}.mmd"
         if not mmd_path.exists():
             continue
         entries.append(
             {
                 "id": stem,
                 "title": display_name,
-                "src": metro_src(stem, EXAMPLES_DIR),
+                "src": metro_src(stem, source_dir),
                 "repo_url": repo_url,
                 "description": description,
             }
@@ -372,7 +380,8 @@ def build_pipelines_page() -> None:
     print("nf-core pipelines:")
 
     for stem, display_name, repo_url, description in PIPELINE_ENTRIES:
-        mmd_path = EXAMPLES_DIR / f"{stem}.mmd"
+        source_dir = _GALLERY_SOURCE_DIRS.get(stem, EXAMPLES_DIR)
+        mmd_path = source_dir / f"{stem}.mmd"
         svg_path = RENDERS_DIR / f"pipeline_{stem}.svg"
 
         if not mmd_path.exists():

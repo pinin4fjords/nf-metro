@@ -1288,6 +1288,12 @@ pipelines:
     description:
       Genome assembly from long reads and Hi-C data through purging, polishing, scaffolding,
       and QC.
+  - id: single_row_rowspan_neighbor
+    title: nf-core/seqinspector
+    repo_url: https://github.com/nf-core/seqinspector
+    description:
+      Dedicated QC-only pipeline for sequencing data, running FASTQ, BAM, and run-folder
+      QC tools in parallel and aggregating everything into a MultiQC report.
 
 # Stems rendered for the CI render-diff only (not shown on gallery/pipelines pages).
 # These supplement the auto-discovered guide/*.mmd and tests/fixtures/nextflow/*.mmd globs.
