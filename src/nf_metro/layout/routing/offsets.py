@@ -1486,6 +1486,57 @@ def _propagate_lr_rl_exit_to_entry(ctx: _OffsetCtx) -> None:
                             ctx.offsets[(e2.target, lid)] = entry_offs[lid]
 
 
+def _align_flat_tb_exit_to_entry(ctx: _OffsetCtx) -> None:
+    """Snap a TB section's flat-seam LEFT/RIGHT exit bundle onto the entry it feeds.
+
+    In an auto-folded serpentine the turn-around TB section exits sideways onto
+    the return row: its LEFT/RIGHT exit port feeds an LR/RL section's LEFT/RIGHT
+    entry port at the same Y, so the connector is a horizontal run.  The TB exit
+    reflects its bundle within its own present-line width, while the receiving
+    section anchors the same lines against its full bundle (reserving slots for
+    lines that peel off deeper in the section).  When the two anchorings differ
+    by a constant the shared lines keep their order but the connector slopes.
+
+    Copy the entry's per-line offsets onto the exit port so the run is level.
+    The exit's own feeder reaches it from a different column (a vertical drop),
+    so absorbing the shift on the exit side adds no new slope; shifting the entry
+    bundle the other way would collide it with the reserved peel-off slot.
+    """
+    graph = ctx.graph
+    for port_id, port_obj in graph.ports.items():
+        if port_obj.is_entry or port_obj.section_id not in ctx.tb_sections:
+            continue
+        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        exit_y = graph.stations[port_id].y
+        for edge in graph.edges_from(port_id):
+            entry = graph.ports.get(edge.target)
+            if not (entry and entry.is_entry):
+                continue
+            if entry.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
+            if entry.section_id not in ctx.lr_rl_sections:
+                continue
+            if abs(graph.stations[edge.target].y - exit_y) > _SAME_Y_TOLERANCE:
+                continue
+            entry_lines = set(graph.station_lines(edge.target))
+            shared = [lid for lid in graph.station_lines(port_id) if lid in entry_lines]
+            if len(shared) < 2:
+                continue
+            delta_levels = distinct_offset_levels(
+                ctx.offsets.get((edge.target, lid), 0.0)
+                - ctx.offsets.get((port_id, lid), 0.0)
+                for lid in shared
+            )
+            # One delta level means the bundles share an order and differ only
+            # in anchoring; multiple levels are a transpose handled elsewhere,
+            # and a near-zero delta is already level.
+            if len(delta_levels) != 1 or abs(delta_levels[0]) <= _OFFSET_EQ_TOLERANCE:
+                continue
+            for lid in shared:
+                ctx.offsets[(port_id, lid)] = ctx.offsets.get((edge.target, lid), 0.0)
+
+
 def _recenter_single_line_corridor_entry(ctx: _OffsetCtx) -> None:
     """Anchor a corridor-fed single-line section's entry port on its trunk.
 
@@ -2269,6 +2320,9 @@ def compute_station_offsets(
        risers turn in concentrically (non-compact only).
     8. **Horizontal reconciliation** - snaps mismatched offsets on
        same-Y edges to eliminate almost-horizontal slopes.
+    8b. **Flat TB-exit/entry alignment** - on an auto-folded return row,
+       snaps a TB section's flat-seam LEFT/RIGHT exit bundle onto the
+       LR/RL entry it feeds so the horizontal connector runs level.
     9. **Partial fan-branch re-centring** - collapses reserved
        absent-line slots at independent fan branches so a partial-line
        station's marker has no interior gap (compact only).
@@ -2306,6 +2360,7 @@ def compute_station_offsets(
     _allocate_merge_ports_by_approach(ctx)
     _order_convergence_entry_ports(ctx)
     _reconcile_horizontal_offsets(ctx)
+    _align_flat_tb_exit_to_entry(ctx)
     _recenter_partial_fan_branches(ctx)
     _reverse_near_vertical_junction_right_entry_offsets(ctx)
     return ctx.offsets
