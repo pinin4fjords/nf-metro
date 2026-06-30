@@ -1,24 +1,34 @@
 %%metro title: Track Gap = 0 (touching)
 %%metro style: dark
 %%metro track_gap: 0
-%%metro line: main | Main | #4CAF50
-%%metro line: qc | Quality Control | #2196F3 | dashed
-%%metro line: alt | Alternative | #FF9800
+%%metro line: dna | DNA | #E53935
+%%metro line: rna | RNA | #1E88E5
+%%metro line: pro | Protein | #43A047
 
 graph LR
-    input[Input]
-    fastqc[FastQC]
+    qc[QC]
     trim[Trimming]
     align[Alignment]
+    dedup[Dedup]
+    call[Variant Calling]
     quant[Quantification]
-    multiqc[MultiQC]
+    express[Expression]
+    prot[Protein ID]
+    report[Report]
 
-    input -->|main| trim
-    trim -->|main| align
-    align -->|main| quant
-    input -->|qc| fastqc
-    trim -->|qc| fastqc
-    quant -->|qc| multiqc
-    fastqc -->|qc| multiqc
-    trim -->|alt| align
-    align -->|alt| quant
+    qc -->|dna| trim
+    qc -->|rna| trim
+    qc -->|pro| trim
+    trim -->|dna| align
+    trim -->|rna| align
+    trim -->|pro| align
+    align -->|dna| dedup
+    align -->|rna| dedup
+    align -->|pro| dedup
+    dedup -->|dna| call
+    dedup -->|rna| quant
+    dedup -->|pro| prot
+    call -->|dna| report
+    quant -->|rna| express
+    express -->|rna| report
+    prot -->|pro| report
