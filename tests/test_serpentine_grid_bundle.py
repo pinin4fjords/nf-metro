@@ -5,12 +5,11 @@ section-grid fold-back (exit the right of row *N*, re-enter the left of row
 *N+1*) keeps its lines fanned on every leg of the wrap, on grids larger than
 2x2:
 
-* ``serpentine_grid_wide_bundle`` -- the wrap spans more than one column, so the
-  U-shaped bypass relocates its first vertical channel to the source's right
-  edge; the relocation carries the per-line stagger so the channel stays fanned.
+* ``serpentine_grid_wide_bundle`` -- the wrap spans more than one column; its
+  vertical channels stay fanned across the multi-column return.
 * ``serpentine_grid_tall_bundle`` -- a second wrap stacks below the first; the
-  corridor grouping keys on row as well as column pair, so each wrap is its own
-  bundle and the horizontal return runs stay on distinct rows.
+  two wraps occupy distinct inter-row gaps, so their return runs stay on
+  separate channels.
 
 See issue #1192 (companion #1193 for the ``direction: RL`` true-serpentine).
 """
