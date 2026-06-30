@@ -1,0 +1,57 @@
+%%metro title: Serpentine Grid Wide Bundle
+%%metro style: dark
+%%metro line: a | Line A | #4a90d9
+%%metro line: b | Line B | #e63946
+%%metro grid: s1 | 0,0
+%%metro grid: s2 | 1,0
+%%metro grid: s3 | 2,0
+%%metro grid: s4 | 0,1
+%%metro grid: s5 | 1,1
+%%metro grid: s6 | 2,1
+
+graph LR
+    subgraph s1 [Sec 1]
+        %%metro exit: right | a, b
+        n1[Alpha]
+        n2[Beta]
+        n1 -->|a,b| n2
+    end
+    subgraph s2 [Sec 2]
+        %%metro entry: left | a, b
+        %%metro exit: right | a, b
+        n3[Gamma]
+        n4[Delta]
+        n3 -->|a,b| n4
+    end
+    subgraph s3 [Sec 3]
+        %%metro entry: left | a, b
+        %%metro exit: right | a, b
+        n5[Epsilon]
+        n6[Zeta]
+        n5 -->|a,b| n6
+    end
+    subgraph s4 [Sec 4]
+        %%metro entry: left | a, b
+        %%metro exit: right | a, b
+        n7[Eta]
+        n8[Theta]
+        n7 -->|a,b| n8
+    end
+    subgraph s5 [Sec 5]
+        %%metro entry: left | a, b
+        %%metro exit: right | a, b
+        n9[Iota]
+        n10[Kappa]
+        n9 -->|a,b| n10
+    end
+    subgraph s6 [Sec 6]
+        %%metro entry: left | a, b
+        n11[Lambda]
+        n12[Mu]
+        n11 -->|a,b| n12
+    end
+    n2 -->|a,b| n3
+    n4 -->|a,b| n5
+    n6 -->|a,b| n7
+    n8 -->|a,b| n9
+    n10 -->|a,b| n11

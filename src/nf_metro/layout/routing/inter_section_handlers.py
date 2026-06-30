@@ -454,6 +454,12 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
         exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
         if not _h_segment_crosses_other_section(graph, f.sx, f.tx, f.ty, exclude):
             return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
+        if f.left_entry_from_right:
+            # Entry-Y blocked: return through the clear inter-row gap as a
+            # concentric serpentine wrap.  The below-row U dive cannot fan a
+            # bundle leaving a shared exit port (collinear lead-out) and
+            # collapses its lines onto one channel.
+            return _route_left_entry_family(f)
     if f.right_entry_from_left:
         return _route_right_entry_cross_row(f)
     if f.left_entry_from_right and f.is_left_exit:

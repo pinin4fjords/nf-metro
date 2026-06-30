@@ -289,6 +289,7 @@ def render(
             logo=str(logo) if logo is not None else None,
             legend=legend,
             layout_options=layout_opts,
+            source_dir=str(input_file.resolve().parent),
         )
     except (
         ValueError,
@@ -347,7 +348,7 @@ def render(
                 embed_basename=output.name,
             ),
         )
-    except (FoldThresholdError, PhaseInvariantError) as e:
+    except (ValueError, FoldThresholdError, PhaseInvariantError) as e:
         raise click.ClickException(str(e))
 
     if validate_geometry:
