@@ -13,11 +13,11 @@ from nf_metro.layout.constants import (
     ICON_HALF_HEIGHT,
     LABEL_BBOX_MARGIN,
     MIN_STRAIGHT_EDGE,
-    OFFSET_STEP,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
     TERMINUS_WIDTH,
     X_SPACING,
+    resolve_offset_step,
 )
 from nf_metro.layout.labels import _label_text_height, label_text_width
 from nf_metro.layout.phases._common import (
@@ -1181,7 +1181,8 @@ def _bump_off_track_clear_of_trunks(
         n_lines = len(lines)
         if n_lines == 0:
             continue
-        half_span = (n_lines - 1) * OFFSET_STEP / 2
+        offset_step = resolve_offset_step(graph.track_gap)
+        half_span = (n_lines - 1) * offset_step / 2
         trunk_offsets_at_x.append(st2.y - half_span)
         trunk_offsets_at_x.append(st2.y + half_span)
 

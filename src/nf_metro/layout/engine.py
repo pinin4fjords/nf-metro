@@ -27,7 +27,6 @@ from nf_metro.layout.constants import (
     ICON_STACK_LABEL_CLEARANCE,
     LABEL_OFFSET,
     MIN_Y_SPACING_FLOOR,
-    OFFSET_STEP,
     ROW_GAP,
     SECTION_GAP,
     SECTION_ROUTE_CLEARANCE,
@@ -39,6 +38,7 @@ from nf_metro.layout.constants import (
     X_SPACING,
     Y_OFFSET,
     Y_SPACING,
+    resolve_offset_step,
 )
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
@@ -410,8 +410,9 @@ def _far_side_wrap_left_clearances(graph: MetroGraph) -> dict[str, float]:
         if not is_far_side_around_below_left_entry(graph, port):
             continue
         n = len({edge.line_id for edge in graph.edges_to(port.id)})
+        offset_step = resolve_offset_step(graph.track_gap)
         clearance = (
-            (n - 1) * OFFSET_STEP + CURVE_RADIUS + OFFSET_STEP + SECTION_ROUTE_CLEARANCE
+            (n - 1) * offset_step + CURVE_RADIUS + offset_step + SECTION_ROUTE_CLEARANCE
         )
         clearances[port.section_id] = max(
             clearances.get(port.section_id, 0.0), clearance

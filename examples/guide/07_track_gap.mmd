@@ -1,0 +1,34 @@
+%%metro title: Track Gap = 0 (touching)
+%%metro style: dark
+%%metro track_gap: 0
+%%metro line: dna | DNA | #E53935
+%%metro line: rna | RNA | #1E88E5
+%%metro line: pro | Protein | #43A047
+
+graph LR
+    qc[QC]
+    trim[Trimming]
+    align[Alignment]
+    dedup[Dedup]
+    call[Variant Calling]
+    quant[Quantification]
+    express[Expression]
+    prot[Protein ID]
+    report[Report]
+
+    qc -->|dna| trim
+    qc -->|rna| trim
+    qc -->|pro| trim
+    trim -->|dna| align
+    trim -->|rna| align
+    trim -->|pro| align
+    align -->|dna| dedup
+    align -->|rna| dedup
+    align -->|pro| dedup
+    dedup -->|dna| call
+    dedup -->|rna| quant
+    dedup -->|pro| prot
+    call -->|dna| report
+    quant -->|rna| express
+    express -->|rna| report
+    prot -->|pro| report
