@@ -31,7 +31,6 @@ from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
     MIN_STRAIGHT_EDGE,
-    OFFSET_STEP,
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     RAIL_ABOVE_LABEL_TOP_PAD,
     SECTION_HEADER_PROTRUSION,
@@ -41,6 +40,7 @@ from nf_metro.layout.constants import (
     X_OFFSET,
     X_SPACING,
     Y_OFFSET,
+    resolve_offset_step,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Section
 
@@ -449,8 +449,9 @@ def _layout_section_rails(
                 rank = {
                     i: r for r, i in enumerate(sorted(range(n), key=lambda i: ys[i]))
                 }
+                offset_step = resolve_offset_step(graph.track_gap)
                 slots = [
-                    st.y + (rank[i] - (n - 1) / 2.0) * OFFSET_STEP for i in range(n)
+                    st.y + (rank[i] - (n - 1) / 2.0) * offset_step for i in range(n)
                 ]
                 st.rail_used_ys = slots
                 st.rail_top_y = min(slots)
@@ -665,13 +666,7 @@ def _rail_slot_offsets(
             slot_index[lid] = n_slots
             n_slots += 1
 
-    # A combo's members hug within their shared slot: spread them symmetrically
-    # about the slot centre, one OFFSET_STEP apart (the same pitch the normal
-    # router uses for parallel lines in a bundle), so the sub-lines abut and the
-    # bundle reads as a single track rather than separate rails.
-    from nf_metro.layout.constants import OFFSET_STEP
-
-    bundle_gap = OFFSET_STEP
+    bundle_gap = resolve_offset_step(graph.track_gap)
     members_in_slot: dict[int, list[str]] = {}
     for lid in lines:
         members_in_slot.setdefault(slot_index[lid], []).append(lid)

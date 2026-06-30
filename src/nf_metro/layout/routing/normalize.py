@@ -16,8 +16,8 @@ from nf_metro.layout.constants import (
     INTER_ROW_HEADER_CLEARANCE,
     MIN_CORRIDOR_Y_OVERLAP,
     NEXT_ROW_HEADER_BADGE_CLEARANCE,
-    OFFSET_STEP,
     SECTION_HEADER_PROTRUSION,
+    resolve_offset_step,
 )
 from nf_metro.layout.routing.common import (
     Direction,
@@ -1155,7 +1155,7 @@ def _dogleg_off_exempt_trunks(
             down_room = up_room = clearance
         down = min(clearance, down_room)
         up = min(clearance, up_room)
-        min_sep = 2 * OFFSET_STEP  # below this the two strokes still fuse
+        min_sep = 2 * ctx.offset_step  # below this the two strokes still fuse
         down_ok = down >= min_sep
         up_ok = up >= min_sep
         down_y, up_y = hit.y + down, hit.y - up
@@ -1404,7 +1404,8 @@ def _convergence_line_order(
     # cross-row fan-in whose legs start rows apart is a divergence the standard
     # crossing-minimiser orders, not a single-trunk convergence.
     trunk_ys = [ch.y_hi for ch in chans]
-    if not trunk_depths_contiguous(trunk_ys, len(src_cols), OFFSET_STEP):
+    offset_step = resolve_offset_step(graph.track_gap)
+    if not trunk_depths_contiguous(trunk_ys, len(src_cols), offset_step):
         return None
     return sorted(_distinct_line_order(chans), key=lambda lid: trunk_depth[lid])
 

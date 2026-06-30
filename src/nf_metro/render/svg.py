@@ -20,6 +20,7 @@ from nf_metro.layout.constants import (
     LABEL_LINE_HEIGHT,
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
+    resolve_offset_step,
 )
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
@@ -565,7 +566,9 @@ def _render_svg_scaled(
         legend_position if legend_position is not None else graph.legend_position
     )
 
-    station_offsets = compute_station_offsets(graph)
+    station_offsets = compute_station_offsets(
+        graph, offset_step=resolve_offset_step(graph.track_gap, theme.line_width)
+    )
     routes = route_edges_centred(graph, station_offsets=station_offsets)
     assert_render_curve_invariants(graph, routes, station_offsets)
     assert_render_layout_invariants(graph, routes, station_offsets, strict=graph.strict)

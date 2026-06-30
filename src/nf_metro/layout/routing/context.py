@@ -12,7 +12,7 @@ from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     JUNCTION_MARGIN,
-    OFFSET_STEP,
+    resolve_offset_step,
 )
 from nf_metro.layout.geometry import AxisFrame, lane_delta, station_lane_coord
 from nf_metro.layout.routing.common import (
@@ -308,7 +308,7 @@ def _build_routing_context(
         junction_ids=junction_ids,
         bottom_exit_junctions=bottom_exit_junctions,
         bottom_exit_junction_ports=bottom_exit_junction_ports,
-        offset_step=OFFSET_STEP,
+        offset_step=resolve_offset_step(graph.track_gap),
         fork_stations=fork_stations,
         join_stations=join_stations,
         tb_sections=tb_sections,

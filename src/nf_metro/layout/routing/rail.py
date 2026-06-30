@@ -25,6 +25,7 @@ from nf_metro.layout.constants import (
     OFFSET_STEP,
     RAIL_TERMINUS_FAN_LEAD,
     X_SPACING,
+    resolve_offset_step,
 )
 from nf_metro.layout.routing.bundle import build_offset_bundle, build_tapered_bundle
 from nf_metro.layout.routing.common import (
@@ -103,12 +104,14 @@ def _off_track_drop_order(
     return order
 
 
-def _drop_stagger(order: list[str], line_id: str) -> float:
+def _drop_stagger(
+    order: list[str], line_id: str, offset_step: float = OFFSET_STEP
+) -> float:
     """Signed lateral offset of *line_id*'s drop from the feeder centre."""
     n = len(order)
     if n <= 1 or line_id not in order:
         return 0.0
-    return (order.index(line_id) - (n - 1) / 2.0) * OFFSET_STEP
+    return (order.index(line_id) - (n - 1) / 2.0) * offset_step
 
 
 def _route_off_track_elbow(
@@ -135,9 +138,10 @@ def _route_off_track_elbow(
     # feeder, so the sign inverts.
     drop_to_rail = 1.0 if rail_y >= feeder.y else -1.0
     vert_dir = drop_to_rail if off_src else -drop_to_rail
+    step = resolve_offset_step(graph.track_gap)
 
     def drop_off(line_id: str) -> float:
-        return -vert_dir * _drop_stagger(order, line_id)
+        return -vert_dir * _drop_stagger(order, line_id, step)
 
     siblings = [
         (drop_off(lid), _line_rail_y(graph, on_rail.id, lid) - rail_y) for lid in order

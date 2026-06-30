@@ -286,6 +286,32 @@ corners.  Derived as 4 * CURVE_RADIUS."""
 OFFSET_STEP: float = 4.0
 """Per-line offset increment for parallel lines in bundles."""
 
+DEFAULT_LINE_WIDTH: float = 3.0
+"""Stroke width used when converting a visual *track_gap* to an offset step.
+
+Matches the nfcore theme (3 px). The seqera theme uses 4 px; that 1 px
+difference is absorbed by rounding elsewhere in the layout pipeline.
+"""
+
+
+def resolve_offset_step(
+    track_gap: float | None, line_width: float = DEFAULT_LINE_WIDTH
+) -> float:
+    """Return the centre-to-centre bundle offset step for *track_gap*.
+
+    ``track_gap`` is the user-visible *visual* gap -- the empty space between
+    adjacent line stroke edges, not between their centres.  The centre-to-centre
+    offset is ``track_gap + line_width``.
+
+    ``None``  → built-in default (``OFFSET_STEP``, currently 4 px).
+    ``0``     → lines touch (zero gap between edges); offset = ``line_width``.
+    ``X > 0`` → ``X + line_width`` centre-to-centre.
+    """
+    if track_gap is None:
+        return OFFSET_STEP
+    return track_gap + line_width
+
+
 COORD_TOLERANCE: float = 1.0
 """Tolerance for coordinate comparison (same X or same Y)."""
 
