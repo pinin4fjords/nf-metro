@@ -152,21 +152,33 @@ suppress it:
 nf-metro render pipeline.mmd -o pipeline.svg --no-dark-mode-css
 ```
 
-### Raster export (PNG) - `--no-chrome-css`
+### Raster export (PNG) - `--mode` and `--no-chrome-css`
 
-The `--nfm-*` properties above use CSS `var()`, which a browser resolves but
-many rasterizers (including **cairosvg**) cannot parse - they abort on the
-`var()` token. For a PNG, either render with `--no-chrome-css` (which bakes the
-concrete theme colors and omits the `var()` block; the map looks identical, you
-just lose live host recoloring)…
+Two independent settings control correct PNG output:
+
+**Palette (`--mode`)** - always pass `--mode light` or `--mode dark` explicitly.
+Without it the default palette is used, which may not match your intent.
+It also pins `color-scheme` on the SVG root so CSS-aware rasterizers resolve
+`light-dark()` to the right values regardless of the host OS color scheme.
+
+**CSS variables (`--no-chrome-css`)** - the `--nfm-*` properties above use CSS
+`var()`, which many rasterizers (including **cairosvg**) cannot parse and abort
+on. Add `--no-chrome-css` to bake the concrete theme colors instead (the map
+looks identical; you just lose live host recoloring):
 
 ```bash
-nf-metro render pipeline.mmd -o pipeline.svg --no-chrome-css
+nf-metro render pipeline.mmd -o pipeline.svg --no-chrome-css --mode light
 python -c "import cairosvg; cairosvg.svg2png(url='pipeline.svg', write_to='pipeline.png', scale=2)"
 ```
 
-…or feed the default SVG to a CSS-custom-property-aware rasterizer
-(`resvg`, `rsvg-convert`, or headless Chromium), which honors the fallbacks.
+For a CSS-custom-property-aware rasterizer (`resvg`, `rsvg-convert`, headless
+Chromium) skip `--no-chrome-css` - those tools resolve `var()` and `light-dark()`
+natively - but still pass `--mode` to pin the palette:
+
+```bash
+nf-metro render pipeline.mmd -o pipeline.svg --mode light
+resvg pipeline.svg pipeline.png
+```
 
 ## Sizing and placement
 

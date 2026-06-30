@@ -10,6 +10,7 @@ as presentation attributes (semantic).
 
 import pytest
 
+from nf_metro.api import render_string
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.svg import render_svg
@@ -108,6 +109,40 @@ def test_self_color_scheme_false_omits_root_color_scheme():
     """Inlined renders omit the root color-scheme so the page's choice wins."""
     svg = render_svg(_make_graph(), NFCORE_THEME, self_color_scheme=False)
     assert "color-scheme" not in svg
+
+
+def test_baked_mode_light_narrows_color_scheme():
+    """baked_mode='light' pins color-scheme so rasterizers pick the light palette."""
+    svg = render_svg(_make_graph(), NFCORE_LIGHT_THEME, baked_mode="light")
+    assert "color-scheme: light" in svg
+    assert "color-scheme: light dark" not in svg
+
+
+def test_baked_mode_dark_narrows_color_scheme():
+    """baked_mode='dark' pins color-scheme so rasterizers pick the dark palette."""
+    svg = render_svg(_make_graph(), NFCORE_DARK_THEME, baked_mode="dark")
+    assert "color-scheme: dark" in svg
+    assert "color-scheme: light dark" not in svg
+
+
+def test_no_baked_mode_preserves_adaptive_color_scheme():
+    """Without baked_mode the SVG stays adaptive (color-scheme: light dark)."""
+    svg = render_svg(_make_graph(), NFCORE_THEME)
+    assert "color-scheme: light dark" in svg
+
+
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_render_string_explicit_mode_narrows_color_scheme(mode):
+    """render_string(mode=...) propagates the chosen mode to the root color-scheme."""
+    svg = render_string(_MMD, mode=mode)
+    assert f"color-scheme: {mode}" in svg
+    assert "color-scheme: light dark" not in svg
+
+
+def test_render_string_no_mode_keeps_adaptive_color_scheme():
+    """render_string without mode keeps color-scheme: light dark for browser adaptation."""  # noqa: E501
+    svg = render_string(_MMD)
+    assert "color-scheme: light dark" in svg
 
 
 def test_chrome_css_fallbacks_single_value_for_unfamilied_theme():

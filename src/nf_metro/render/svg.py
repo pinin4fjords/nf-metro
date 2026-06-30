@@ -381,6 +381,7 @@ def render_svg(
     inject_dark_mode_css: bool = True,
     chrome_css: bool = True,
     self_color_scheme: bool = True,
+    baked_mode: str | None = None,
     bare: bool = False,
 ) -> str:
     """Render a metro map graph to an SVG string.
@@ -421,12 +422,20 @@ def render_svg(
     cairosvg, which cannot parse ``var()``/``light-dark()``) or any consumer
     without CSS custom-property support - pick the concrete mode via the theme.
 
-    ``self_color_scheme``: when True the root ``<svg>`` declares
-    ``color-scheme: light dark`` so a standalone file (opened directly or via
-    ``<img>``) resolves ``light-dark()`` against the viewer's OS preference.
+    ``self_color_scheme``: when True the root ``<svg>`` declares a
+    ``color-scheme`` so a standalone file (opened directly or via ``<img>``)
+    resolves ``light-dark()`` against the viewer's OS preference.  The value
+    is ``light dark`` (adaptive) unless *baked_mode* is set.
     Set False when inlining into a page that owns the theme (the docs site,
     the playground): the SVG then inherits the page's ``color-scheme`` so a
     manual light/dark toggle drives it. No effect for single-palette themes.
+
+    ``baked_mode``: when ``"light"`` or ``"dark"``, the root ``<svg>`` declares
+    ``color-scheme: <mode>`` instead of the adaptive ``color-scheme: light dark``.
+    This ensures ``light-dark()`` in the chrome CSS resolves to the correct
+    palette in rasterizers that respect the OS color-scheme (e.g. cairosvg on
+    a dark-mode macOS session).  Set this to the explicit ``--mode`` value when
+    rendering for PNG export; leave ``None`` for browser-adaptive SVG output.
 
     ``bare``: when True, omits the title and outer padding so the canvas
     hugs the diagram content.  The attribution watermark is kept.  Use for
@@ -459,6 +468,7 @@ def render_svg(
                 inject_dark_mode_css=inject_dark_mode_css,
                 chrome_css=chrome_css,
                 self_color_scheme=self_color_scheme,
+                baked_mode=baked_mode,
                 bare=bare,
             )
         except (CurveInvariantError, SectionHeaderClashError) as exc:
@@ -559,6 +569,7 @@ def _render_svg_scaled(
     inject_dark_mode_css: bool = True,
     chrome_css: bool = True,
     self_color_scheme: bool = True,
+    baked_mode: str | None = None,
     bare: bool = False,
 ) -> str:
     """Render body, run with ``theme`` fonts and label metrics already scaled."""
@@ -681,7 +692,8 @@ def _render_svg_scaled(
     if responsive:
         root_attrs["preserveAspectRatio"] = "xMinYMin meet"
     if self_color_scheme and mode_pair(theme) is not None:
-        root_attrs["style"] = "color-scheme: light dark"
+        color_scheme = baked_mode if baked_mode is not None else "light dark"
+        root_attrs["style"] = f"color-scheme: {color_scheme}"
     d = draw.Drawing(svg_width, svg_height, **root_attrs)
 
     positive_fan = tb_positive_fan_sections(graph)

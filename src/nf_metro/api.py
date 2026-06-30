@@ -52,6 +52,7 @@ class RenderConfig:
     inject_dark_mode_css: bool = True
     chrome_css: bool = True
     self_color_scheme: bool = True
+    baked_mode: str | None = None
     bare: bool = False
     embed_basename: str = "metro_map.html"
 
@@ -113,6 +114,7 @@ def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
             embed_basename=cfg.embed_basename,
             font_portability=font_portability,
             inject_dark_mode_css=cfg.inject_dark_mode_css,
+            baked_mode=cfg.baked_mode,
         )
     return render_svg(
         graph,
@@ -124,6 +126,7 @@ def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
         inject_dark_mode_css=cfg.inject_dark_mode_css,
         chrome_css=cfg.chrome_css,
         self_color_scheme=cfg.self_color_scheme,
+        baked_mode=cfg.baked_mode,
         bare=cfg.bare,
     )
 
@@ -258,6 +261,7 @@ def render_string(
         inject_dark_mode_css=inject_dark_mode_css,
         chrome_css=chrome_css,
         self_color_scheme=self_color_scheme,
+        baked_mode=(mode or graph.mode).strip() or None if config is None else None,
         bare=bare,
         embed_basename=embed_basename,
     )
