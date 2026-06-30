@@ -179,18 +179,17 @@ def _detect_tb_bottom_top_entries(
                 ):
                     continue
                 if lanes_run_along_x(section.direction):
-                    # Vertical (TB/BT) receiver: a straight column continuation
-                    # whose positive_fan cascade only applies to a vertical-flow
-                    # feeder; a horizontal-flow feeder dropping in is handled
-                    # elsewhere and needs no marking here.
+                    # Vertical (TB/BT) receiver: a straight column continuation.
+                    # Only a vertical-flow feeder seeds the positive_fan cascade;
+                    # a horizontal-flow feeder drops in on the trunk column with no
+                    # order flip, so it needs no marking.
                     if src.section_id in tb_sections:
                         vertical_receivers.setdefault(src.section_id, set()).add(sec_id)
                 else:
                     # Horizontal (LR/RL) receiver: the BOTTOM-exit drop turns into
                     # the trunk through a corner that reverses bundle ordering,
-                    # for a vertical-flow or a horizontal-flow feeder alike (the
-                    # true-serpentine fold: an LR row folding into an RL return
-                    # row drops through this corner).
+                    # whatever the feeder's flow axis (a horizontal-flow feeder is
+                    # the true-serpentine fold, an LR row folding into an RL row).
                     reversed_secs.add(sec_id)
 
     # BFS: propagate positive_fan through vertical chains.

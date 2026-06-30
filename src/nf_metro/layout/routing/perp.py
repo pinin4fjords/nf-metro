@@ -127,10 +127,9 @@ def _perp_entry_crossing_x(
     if feeder_sec is not None and lanes_run_along_x(feeder_sec.direction):
         return port_x + _tb_x_offset(ctx, source, line_id, section_id)
     if feeder_sec is not None and lanes_run_along_y(feeder_sec.direction):
-        # A horizontal-flow (LR/RL) feeder dropping a single bundle through a
-        # BOTTOM exit (the true-serpentine fold: an LR row folding into an RL
-        # return row) lands on the entry port's own per-line offset -- the exact
-        # X the up-and-over feeder ends on -- so the boundary stays straight.
+        # Horizontal-flow feeder: the up-and-over drop lands each line on the
+        # entry port's own per-line offset, so the crossing tracks that, not the
+        # feeder's section lane.
         return port_x + _get_offset(ctx, entry_port_id, line_id)
     return port_x - max_index * ctx.offset_step
 
