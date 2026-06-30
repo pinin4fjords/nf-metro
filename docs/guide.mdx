@@ -38,6 +38,21 @@ There is one important rule: **edges between stations in different sections must
 
 nf-metro places sections on a grid automatically based on their dependencies. It also creates port connections at section boundaries and junction stations where lines diverge.
 
+### Packing sections into a shared column
+
+When you place sections by hand with `%%metro grid: <section> | <col>,<row>`, each cell normally holds one section, and every cell in a column is as wide as the column's widest section. To pack two short sections into the horizontal space a single wide section would take, name several comma-separated sections in one cell:
+
+```
+%%metro grid: gatk, variant_calling | 1,0
+%%metro grid: realign, reporting     | 1,1
+```
+
+The named sections share that cell and pack side-by-side along the flow axis (right-to-left for an `RL` row). The cell is as wide as its members combined, and the column is as wide as its widest cell, so a short+long pair in one row lines up top-to-bottom with a long+short pair packed into the same column below it:
+
+<Metro src="examples/topologies/multi_section_cell.mmd" mmd={false} />
+
+This keeps a folded pipeline compact and frees the cleared corner (here the bottom-left) for the legend. Each member keeps its own direction, ports, and internal layout; only their placement is shared.
+
 ## 3. Fan-out and fan-in
 
 When lines diverge from a shared section into separate analysis paths and then reconverge, nf-metro stacks the target sections vertically and routes each line to its destination:
@@ -227,7 +242,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro logo_scale: <factor>`                                             | Scale the logo within the legend block (`1.0` = default auto-size). Values above 1 grow the legend box to contain the logo.                                                                                                                                                                                                                                                                            |
 | `%%metro style: <name>`                                                    | Theme: `dark` (default, the nfcore theme) or `light`. Selects the render theme unless `--theme` is passed.                                                                                                                                                                                                                                                                                             |
 | `%%metro line: <id> \| <name> \| <color> [\| <style>]`                     | Define a metro line. Optional style: `solid` (default), `dashed`, or `dotted`                                                                                                                                                                                                                                                                                                                          |
-| `%%metro grid: <section> \| <col>,<row>[,<rowspan>[,<colspan>]]`           | Pin a section to a grid position                                                                                                                                                                                                                                                                                                                                                                       |
+| `%%metro grid: <sections> \| <col>,<row>[,<rowspan>[,<colspan>]]`          | Pin a section to a grid position. The first field may name several comma-separated sections; they share one cell and pack side-by-side along the flow axis, so a short+long pair aligns top-to-bottom with a long+short pair in the same column below it.                                                                                                                                              |
 | `%%metro legend: <position>`                                               | Position the legend (and its embedded logo). Keyword: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` (a bare keyword auto-relocates if it would overlap a section or route). Add `\| canvas` to anchor the keyword to the canvas margin, or `\| <dx>,<dy>` to nudge it; both pin the block exactly (warning on overlap rather than relocating). Use `<x>,<y>` for absolute top-left coordinates. |
 | `%%metro line_order: <strategy>`                                           | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks)                                                                                                                                                                                                                                                                 |
 | `%%metro diamond_style: <mode>`                                            | Fork-join (diamond) layout: `straight` (default) keeps the top branch on the main track; `symmetric` fans the branches evenly                                                                                                                                                                                                                                                                          |
