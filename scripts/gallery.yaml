@@ -599,6 +599,21 @@ gallery:
     description:
       Same-direction sections stacked in one grid column, chained via short vertical
       drops on alternating sides (serpentine), no wrap-around.
+  - id: serpentine_grid_wide_bundle
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A two-line bundle folds through a 3x2 section grid: each row flows left to
+      right, and the bundle wraps from the right of one row to the left of the next.
+      The wrap spans more than one column, so its return run loops through the clear
+      inter-row gap with both lines kept fanned around every corner."
+  - id: serpentine_grid_tall_bundle
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A two-line bundle folds through a 2x3 section grid, wrapping twice. Each wrap
+      returns through its own inter-row gap, so the two stacked return runs stay on
+      distinct channels rather than collapsing onto one."
   - id: branch_fold_forward
     source_dir: examples/topologies
     category: Serpentine Layout
