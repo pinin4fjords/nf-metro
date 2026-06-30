@@ -244,6 +244,17 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
                 graph.stations[sid].y = trunk_y + sign * k * y_spacing
 
 
+def _is_in_section_on_track(st: Station | None, section_id: str | None) -> bool:
+    """True when ``st`` is a real on-track member of ``section_id``."""
+    return (
+        st is not None
+        and not st.is_port
+        and not st.is_hidden
+        and not st.off_track
+        and st.section_id == section_id
+    )
+
+
 def _symfan_branches_hub(
     graph: MetroGraph, section: Section
 ) -> tuple[list[Station], Station | None] | None:
@@ -308,25 +319,27 @@ def _symfan_branches_hub(
         return None
     if abs(branches[0].x - branches[1].x) >= SAME_COORD_TOLERANCE:
         return None
+    # Reject a third branch sharing the branch column, or a hub sitting in it:
+    # the section height must be bounded by the two straddling branches alone.
     if not all(count <= 2 for count in by_col.values()):
         return None
 
+    # A hub is valid only between equal-sibling branches; that requirement also
+    # excludes trunk-continuation fans where one branch carries the onward
+    # bundle and the other a strict subset.
     lines_equal = set(graph.station_lines(branches[0].id)) == set(
         graph.station_lines(branches[1].id)
     )
-    if hub is not None and not lines_equal:
-        return None
-    if hub is None and lines_equal:
+    if hub is not None:
+        if not lines_equal:
+            return None
+    elif lines_equal:
+        # Promote a shared upstream in-section source (e.g. a terminus source
+        # icon excluded from the branch count) to the hub.
         preds = _real_predecessors(graph, {branches[0].id})
         if len(preds) == 1 and preds == _real_predecessors(graph, {branches[1].id}):
             src = graph.stations.get(next(iter(preds)))
-            if (
-                src is not None
-                and not src.is_port
-                and not src.is_hidden
-                and not src.off_track
-                and src.section_id == section.id
-            ):
+            if _is_in_section_on_track(src, section.id):
                 hub = src
 
     return branches, hub
@@ -408,17 +421,10 @@ def _apply_half_grid_2branch_symfan(
         # the frame and snap normally.
         branch_ids = {b.id for b in branches}
         for src_id in _real_predecessors(graph, branch_ids):
-            src = graph.stations.get(src_id)
-            if (
-                src is None
-                or src.is_port
-                or src.is_hidden
-                or src.off_track
-                or src.section_id != section.id
-                or src_id in branch_ids
-            ):
+            if src_id in branch_ids:
                 continue
-            graph.symfan_trunk_station_ids.add(src_id)
+            if _is_in_section_on_track(graph.stations.get(src_id), section.id):
+                graph.symfan_trunk_station_ids.add(src_id)
 
         # A single in-section source feeding both equal-sibling branches is
         # centred between them, so the fork is a balanced Y-split rather than
@@ -448,12 +454,8 @@ def _apply_half_grid_2branch_symfan(
 def _section_symfan_uses_half_grid(graph: MetroGraph, section: Section) -> bool:
     """Return True when a section's symfan should use half-pitch offsets.
 
-    True when :func:`_symfan_branches_hub` identifies a 2-branch symmetric fan:
-    two on-track branch stations sharing one X column, no off-track stations,
-    no other multi-branch column, fed either from upstream (entry port or
-    terminus source icon) or from a single in-section equal-sibling source.
-
-    When the trigger fires the two branch stations are placed at
+    True when :func:`_symfan_branches_hub` classifies the section as a 2-branch
+    symmetric fan.  The two branch stations are then placed at
     ``trunk_y +/- 0.5 * y_spacing`` instead of the default
     ``trunk_y +/- 1 * y_spacing``, so the section needs only one vertical grid
     unit instead of two.  The branches sit at half-pitch relative to the row
