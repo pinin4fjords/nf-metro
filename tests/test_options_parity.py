@@ -138,6 +138,74 @@ def test_section_x_gap_directive_drives_layout():
     assert wide.sections["s2"].offset_x > base.sections["s2"].offset_x
 
 
+@pytest.mark.parametrize("gap", [0.0, 1.0, 3.0])
+def test_track_gap_directive_accepted(gap):
+    """Valid track_gap values (0–3) parse cleanly and reach the graph field."""
+    graph = parse_metro_mermaid(f"%%metro track_gap: {gap}\ngraph LR\n")
+    assert graph.track_gap == gap
+
+
+@pytest.mark.parametrize("bad", ["4", "10", "-1"])
+def test_track_gap_directive_out_of_range_ignored(bad):
+    """track_gap directives outside 0–3 are silently ignored (field stays None)."""
+    with pytest.warns(UserWarning):
+        graph = parse_metro_mermaid(f"%%metro track_gap: {bad}\ngraph LR\n")
+    assert graph.track_gap is None
+
+
+_TWO_LINE = (
+    "%%metro line: a | A | #f00\n"
+    "%%metro line: b | B | #00f\n"
+    "graph LR\n"
+    "  subgraph s1 [S1]\n"
+    "    %%metro entry: left | a, b\n"
+    "    %%metro exit: right | a, b\n"
+    "    n1[N1]\n"
+    "  end\n"
+    "  n1 -->|a| n2\n"
+    "  n1 -->|b| n2\n"
+    "  subgraph s2 [S2]\n"
+    "    %%metro entry: left | a, b\n"
+    "    n2[N2]\n"
+    "  end\n"
+)
+
+
+def test_track_gap_zero_collapses_lines():
+    """track_gap=0 renders without error - lines share a single centre."""
+    from nf_metro.render.svg import render_svg
+
+    graph = parse_metro_mermaid("%%metro track_gap: 0\n" + _TWO_LINE)
+    compute_layout(graph)
+    svg = render_svg(graph, THEMES["nfcore"])
+    assert svg  # just checking it doesn't raise
+
+
+def test_track_gap_widens_bundle_offsets():
+    """track_gap=3 produces a wider centre-to-centre offset than the default."""
+    from nf_metro.layout.constants import resolve_offset_step
+    from nf_metro.layout.routing.offsets import compute_station_offsets
+
+    default = parse_metro_mermaid(_TWO_LINE)
+    compute_layout(default)
+    gapped = parse_metro_mermaid("%%metro track_gap: 3\n" + _TWO_LINE)
+    compute_layout(gapped)
+
+    default_offsets = compute_station_offsets(default)
+    gapped_offsets = compute_station_offsets(
+        gapped,
+        offset_step=resolve_offset_step(gapped.track_gap, THEMES["nfcore"].line_width),
+    )
+    # At least one station should have a wider spread with track_gap=3.
+    default_spread = (
+        max(abs(v) for v in default_offsets.values()) if default_offsets else 0.0
+    )
+    gapped_spread = (
+        max(abs(v) for v in gapped_offsets.values()) if gapped_offsets else 0.0
+    )
+    assert gapped_spread > default_spread
+
+
 def test_style_directive_selects_theme_and_cli_overrides():
     assert resolve_theme(None, MetroGraph(style="light")) is THEMES["light"]
     assert resolve_theme(None, MetroGraph(style="dark")) is THEMES["nfcore"]

@@ -232,6 +232,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro line_order: <strategy>`                                           | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks)                                                                                                                                                                                                                                                                 |
 | `%%metro diamond_style: <mode>`                                            | Fork-join (diamond) layout: `straight` (default) keeps the top branch on the main track; `symmetric` fans the branches evenly                                                                                                                                                                                                                                                                          |
 | `%%metro fold_threshold: <columns>`                                        | Max station-columns a section row may reach before the auto-layout wraps it onto the next row (default 15). Raise it to keep a long horizontal trunk of sections on a single row.                                                                                                                                                                                                                      |
+| `%%metro track_gap: <pixels>`                                              | Visual gap between adjacent line strokes in a bundle (0–3 px, edge to edge). `0` collapses all lines onto a single shared track; default is 1 px (the built-in 4 px centre-to-centre minus the 3 px stroke). CLI equivalent `--track-gap`.                                                                                                                                                            |
 | `%%metro x_spacing: <pixels>`                                              | Horizontal spacing between layers (default: auto - widened from 60 only when wide labels would collide)                                                                                                                                                                                                                                                                                                |
 | `%%metro y_spacing: <pixels>`                                              | Vertical spacing between tracks (default: auto - derived from the map's content)                                                                                                                                                                                                                                                                                                                       |
 | `%%metro section_x_gap: <pixels>`                                          | Horizontal gap between sections (default: 50)                                                                                                                                                                                                                                                                                                                                                          |
@@ -280,6 +281,12 @@ This pairs naturally with the `file:` / `files:` / `dir:` icon directives - the 
 ```
 
 The [off_track_outputs](https://github.com/seqeralabs/nf-metro/blob/main/examples/off_track_outputs.mmd) example hangs several such artefacts above a pre-processing trunk.
+
+**Track gap.** `%%metro track_gap: <px>` sets the visual gap between adjacent line strokes in a bundle - the empty space between their edges, not their centres. The default is 1 px (the built-in 4 px centre-to-centre minus the 3 px nfcore stroke). Set it to `0` to collapse all lines onto a single shared track, which suits maps where the distinction between co-running lines is already conveyed by section structure rather than visible separation:
+
+<Metro src="examples/guide/07_track_gap.mmd" />
+
+Valid range is 0–3; values above 3 cause routing problems on complex maps and are rejected.
 
 **Line spread.** `%%metro line_spread:` controls how lines that share a station relate to each other vertically. It has three modes:
 
@@ -339,6 +346,7 @@ Set the directive in your committed `.mmd` so the map reproduces from the file a
 | `title:`             | `--title`                                    | (none)            |
 | `style:`             | `--theme`                                    | `nfcore`          |
 | `logo:`              | `--logo`                                     | (none)            |
+| `track_gap:`         | `--track-gap`                                | 1 (4 px c-to-c)   |
 | `x_spacing:`         | `--x-spacing`                                | auto              |
 | `y_spacing:`         | `--y-spacing`                                | auto              |
 | `section_x_gap:`     | `--section-x-gap`                            | 50                |

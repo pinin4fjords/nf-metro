@@ -1,0 +1,24 @@
+%%metro title: Track Gap = 0 (collapsed)
+%%metro style: dark
+%%metro track_gap: 0
+%%metro line: main | Main | #4CAF50
+%%metro line: qc | Quality Control | #2196F3 | dashed
+%%metro line: alt | Alternative | #FF9800
+
+graph LR
+    input[Input]
+    fastqc[FastQC]
+    trim[Trimming]
+    align[Alignment]
+    quant[Quantification]
+    multiqc[MultiQC]
+
+    input -->|main| trim
+    trim -->|main| align
+    align -->|main| quant
+    input -->|qc| fastqc
+    trim -->|qc| fastqc
+    quant -->|qc| multiqc
+    fastqc -->|qc| multiqc
+    trim -->|alt| align
+    align -->|alt| quant
