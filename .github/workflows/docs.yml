@@ -45,6 +45,10 @@ jobs:
           mv "$orig" "$wheel"
           printf '{"wheel": "%s"}\n' "$wheel" > index.json
 
+      - name: Write playground build info
+        run: |
+          printf '{"sha": "%s"}\n' "$GITHUB_SHA" > website/public/playground/build-info.json
+
       - name: Build playground example manifest
         run: python scripts/build_playground_examples.py
 

@@ -105,6 +105,8 @@ import { base } from "../site";
           <button id="btn-png">PNG</button>
           <button id="btn-share">Share link</button>
           <button id="btn-copy-source">Copy source</button>
+          <a id="build-hint" class="muted small build-hint hidden"
+            target="_blank" rel="noopener"></a>
           <button
             id="btn-report"
             class="report-btn"
@@ -146,6 +148,17 @@ import { base } from "../site";
             <label class="check"
               ><input type="checkbox" id="opt-compact-offsets" /> Compact offsets</label
             >
+            <label
+              >Line gap
+              <input
+                type="number"
+                id="opt-track-gap"
+                min="0"
+                max="3"
+                step="0.5"
+                placeholder="1.0"
+              />
+            </label>
             <label
               >Font scale
               <input
@@ -874,6 +887,21 @@ import { base } from "../site";
     color: var(--text) !important;
     border-color: var(--muted) !important;
     background: var(--panel) !important;
+  }
+
+  .build-hint {
+    font-family:
+      "SF Mono",
+      "JetBrains Mono",
+      Menlo,
+      Consolas,
+      monospace;
+    text-decoration: none;
+    opacity: 0.5;
+  }
+  .build-hint:hover {
+    opacity: 1;
+    text-decoration: underline;
   }
 
   .modal-overlay {
