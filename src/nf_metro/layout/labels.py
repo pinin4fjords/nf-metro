@@ -46,6 +46,7 @@ from nf_metro.layout.constants import (
     RAIL_KNOB_RADIUS_RATIO,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
+    STATION_STROKE_APPROX,
     TB_LABEL_H_SPACING,
     TB_LINE_Y_OFFSET,
     TB_PILL_EDGE_OFFSET,
@@ -346,7 +347,12 @@ def _interchange_span_label_offsets(
     if extent is None:
         return None
     top_y, bot_y = extent
-    knob_clearance = STATION_RADIUS_APPROX * (RAIL_KNOB_RADIUS_RATIO - 1.0)
+    # Reach past the enlarged knob's outer edge, not the member centre, by the
+    # amount the knob outline extends beyond a plain marker's -- so the label
+    # sits the same gap past the knob as a normal label sits past its marker.
+    knob_outer = STATION_RADIUS_APPROX * RAIL_KNOB_RADIUS_RATIO + STATION_STROKE_APPROX
+    marker_outer = STATION_RADIUS_APPROX + STATION_STROKE_APPROX / 2.0
+    knob_clearance = knob_outer - marker_outer
     return (top_y - knob_clearance - station.y, bot_y + knob_clearance - station.y)
 
 
