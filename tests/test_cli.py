@@ -242,6 +242,55 @@ def test_render_nonexistent_file():
     assert result.exit_code != 0
 
 
+def test_render_multiple_files(tmp_path):
+    """render accepts more than one INPUT_FILE, each to its own sibling output."""
+    a = tmp_path / "a.mmd"
+    b = tmp_path / "b.mmd"
+    a.write_text(RNASEQ_MMD.read_text())
+    b.write_text(RNASEQ_MMD.read_text())
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", str(a), str(b)])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "a.svg").exists()
+    assert (tmp_path / "b.svg").exists()
+    assert "[1/2] OK" in result.output
+    assert "[2/2] OK" in result.output
+
+
+def test_render_multiple_files_rejects_output_flag(tmp_path):
+    """-o/--output is only valid with a single INPUT_FILE."""
+    a = tmp_path / "a.mmd"
+    b = tmp_path / "b.mmd"
+    a.write_text(RNASEQ_MMD.read_text())
+    b.write_text(RNASEQ_MMD.read_text())
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["render", str(a), str(b), "-o", str(tmp_path / "out.svg")]
+    )
+    assert result.exit_code != 0
+    assert "single INPUT_FILE" in result.output
+
+
+def test_render_multiple_files_partial_failure(tmp_path):
+    """One failing file doesn't block the rest, but the overall exit is non-zero."""
+    bad = tmp_path / "bad.mmd"
+    good = tmp_path / "good.mmd"
+    bad.write_text(
+        "%%metro title: Bad\n"
+        "%%metro logo: nonexistent-logo-file.png\n"
+        "graph LR\n"
+        "    a[Foo] -->|x| b[Bar]\n"
+    )
+    good.write_text(RNASEQ_MMD.read_text())
+    runner = CliRunner()
+    result = runner.invoke(cli, ["render", str(bad), str(good)])
+    assert result.exit_code != 0
+    assert "[1/2] FAIL" in result.output
+    assert "[2/2] OK" in result.output
+    assert not (tmp_path / "bad.svg").exists()
+    assert (tmp_path / "good.svg").exists()
+
+
 def test_render_center_ports_cli_flag_accepted(tmp_path):
     """--center-ports / --no-center-ports flags both render successfully."""
     out = tmp_path / "out.svg"
