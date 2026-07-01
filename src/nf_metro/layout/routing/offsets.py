@@ -2202,15 +2202,16 @@ def _order_convergence_by_approach(ctx: _OffsetCtx) -> None:
     graph = ctx.graph
     for port_id, port in _left_entry_lr_ports(ctx):
         source_y: dict[str, float] = {}
-        source_secs: set[str | None] = set()
+        upstream_secs: set[str] = set()
         for edge in graph.edges_to(port_id):
             src = graph.stations.get(edge.source)
             if src is None:
                 continue
             lid = edge.line_id
             source_y[lid] = min(source_y.get(lid, src.y), src.y)
-            source_secs.add(src.section_id)
-        if len(source_y) < 2 or len(source_secs) < 2:
+            if src.section_id is not None and src.section_id != port.section_id:
+                upstream_secs.add(src.section_id)
+        if len(source_y) < 2 or len(upstream_secs) < 2:
             continue
         ordered = sorted(
             source_y, key=lambda lid: (source_y[lid], ctx.line_priority.get(lid, 0))
