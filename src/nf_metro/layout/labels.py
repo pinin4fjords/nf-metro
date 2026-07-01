@@ -303,6 +303,51 @@ def _rail_panel_label_offsets(
     return (top_y - station.y, bot_y - station.y)
 
 
+def _interchange_span_extents(graph: "MetroGraph") -> dict[str, tuple[float, float]]:
+    """Per-anchor ``(top_member_y, bottom_member_y)`` for cross-track interchanges.
+
+    A cross-track interchange draws one connector "bridge" spanning its members'
+    Y range at the anchor column; only the anchor member carries a label.  This
+    maps that anchor's id to the span so its label can clear the whole bridge
+    (see :func:`_interchange_span_label_offsets`).  Rail-mode interchanges are
+    excluded: their spanning pills keep the rail-panel alternation idiom.
+    """
+    extents: dict[str, tuple[float, float]] = {}
+    for ic in graph.interchanges:
+        members = [graph.stations[m] for m in ic.member_ids if m in graph.stations]
+        if len(members) < 2:
+            continue
+        anchor = graph.stations.get(ic.node_id)
+        if anchor is None or graph.is_rail_section(anchor.section_id):
+            continue
+        ys = [m.y for m in members]
+        top_y, bot_y = min(ys), max(ys)
+        if bot_y - top_y < SAME_COORD_TOLERANCE:
+            continue
+        extents[ic.node_id] = (top_y, bot_y)
+    return extents
+
+
+def _interchange_span_label_offsets(
+    station: "Station",
+    span_extents: dict[str, tuple[float, float]],
+) -> tuple[float, float] | None:
+    """Label offsets (min_off, max_off) clearing the WHOLE interchange bridge.
+
+    An interchange is one long station, so its anchor's label must clear the
+    connector bridge rather than land on it: an above label clears the topmost
+    member and a below label the bottommost.  Returns offsets measured from
+    ``station.y`` to the span's top/bottom member (so ``_try_place`` lands the
+    label outside the bridge), or None when the station is not an interchange
+    anchor with a spanning bridge.
+    """
+    extent = span_extents.get(station.id)
+    if extent is None:
+        return None
+    top_y, bot_y = extent
+    return (top_y - station.y, bot_y - station.y)
+
+
 def _label_bbox(
     placement: LabelPlacement,
 ) -> tuple[float, float, float, float]:
@@ -1052,6 +1097,7 @@ def _trial_cost(
     icon_obstacles: list[tuple[float, float, float, float]] | None = None,
     port_pref: dict[str, bool] | None = None,
     panel_extents: dict[str, tuple[float, float]] | None = None,
+    interchange_spans: dict[str, tuple[float, float]] | None = None,
 ) -> float:
     """Count label collision cost for a section using the given alternation.
 
@@ -1090,6 +1136,10 @@ def _trial_cost(
         )
         if rail_panel is not None:
             min_off, max_off = rail_panel
+        if interchange_spans is not None:
+            ic_span = _interchange_span_label_offsets(station, interchange_spans)
+            if ic_span is not None:
+                min_off, max_off = ic_span
 
         start_above = station.layer % 2 == 1
         if flip:
@@ -1175,6 +1225,7 @@ class _LabelCtx:
     section_flip: dict[str, bool]
     safe_offsets: dict[str, tuple[float, float]]
     panel_extents: dict[str, tuple[float, float]]
+    interchange_spans: dict[str, tuple[float, float]]
     tb_positive_fan: set[str]
 
 
@@ -1231,6 +1282,7 @@ def _build_label_ctx(
     solo = _edge_solo(sorted_stations, section_y_range)
     port_pref = _compute_port_label_preference(graph, max_dx=PORT_LABEL_MAX_DX)
     panel_extents = _rail_panel_extents(graph)
+    interchange_spans = _interchange_span_extents(graph)
 
     # Trial both alternation patterns per section, pick the better one.
     section_flip: dict[str, bool] = {}
@@ -1255,6 +1307,7 @@ def _build_label_ctx(
             icon_obstacles=icon_obstacles,
             port_pref=port_pref,
             panel_extents=panel_extents,
+            interchange_spans=interchange_spans,
         )
         cost_flipped = _trial_cost(
             *args,
@@ -1262,6 +1315,7 @@ def _build_label_ctx(
             icon_obstacles=icon_obstacles,
             port_pref=port_pref,
             panel_extents=panel_extents,
+            interchange_spans=interchange_spans,
         )
         if cost_flipped < cost_default:
             section_flip[sec_id] = True
@@ -1286,6 +1340,7 @@ def _build_label_ctx(
         section_flip=section_flip,
         safe_offsets=safe_offsets,
         panel_extents=panel_extents,
+        interchange_spans=interchange_spans,
         tb_positive_fan=tb_positive_fan,
     )
     return ctx, sorted_stations
@@ -1315,6 +1370,9 @@ def _place_station_label(
     rail_panel = _rail_panel_label_offsets(station, ctx.panel_extents)
     if rail_panel is not None:
         min_off, max_off = rail_panel
+    ic_span = _interchange_span_label_offsets(station, ctx.interchange_spans)
+    if ic_span is not None:
+        min_off, max_off = ic_span
 
     if _places_label_beside_pill(graph, station):
         return _place_tb_label(ctx, station, placements)
