@@ -718,6 +718,14 @@ gallery:
     description:
       An express line skips a station three collinear stations share; the geometric
       bypass pass bows it around the skipped marker (#990).
+  - id: sectionless_skip_breeze
+    source_dir: examples/topologies
+    category: Bypass Routing
+    description:
+      A skip-line jumps between two stops on a graph with no declared section,
+      skipping the stops between them. Interchange inference detects the
+      parallel-lane hub and the detour routes around the skipped markers
+      instead of through them (#1229).
   - id: bypass_fan_in_outer_slot
     source_dir: examples/topologies
     category: Bypass Routing
