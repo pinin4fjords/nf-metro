@@ -155,6 +155,10 @@ EXPECTED_RESIDUALS = frozenset(
         # each owning its own.
         ("packed_cell_cellmate_bypass", "normalization", "consensus", "B->T"),
         ("packed_cell_cellmate_bypass", "realign", "reporting", "L->R"),
+        # Same packed-cell return-row reversal with the bypass source sitting in
+        # the column adjacent to the packed cell (no gap column).
+        ("packed_cell_cellmate_bypass_adjacent", "normalization", "consensus", "B->T"),
+        ("packed_cell_cellmate_bypass_adjacent", "realign", "reporting", "L->R"),
     }
 )
 

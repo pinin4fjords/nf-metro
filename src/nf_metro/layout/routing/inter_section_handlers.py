@@ -368,30 +368,49 @@ def _packed_cell_mate_obstructs(
     return _h_segment_crosses_other_section(graph, src.x, tgt.x, src.y, exclude)
 
 
+def _intervening_section_obstructs(
+    graph: MetroGraph,
+    src_col: int,
+    src_row: int | None,
+    tgt_col: int,
+    tgt_row: int | None,
+) -> bool:
+    """Whether a multi-column hop is blocked by a section in a column it spans.
+
+    The horizontal run blocks on the source row, or - for a cross-row L-shape,
+    whose horizontal leg runs at the target entry Y - the target row, plowed
+    through even when the source row is clear. Only meaningful when the columns
+    are more than one apart; an adjacent hop has no column between them to
+    intervene.
+    """
+    if abs(tgt_col - src_col) <= 1:
+        return False
+    if _has_intervening_sections(graph, src_col, tgt_col, src_row):
+        return True
+    return (
+        src_row is not None
+        and tgt_row is not None
+        and tgt_row != src_row
+        and _has_intervening_sections(graph, src_col, tgt_col, tgt_row)
+    )
+
+
 def _build_inter_facts(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> _InterFacts:
     graph = ctx.graph
     src_col, src_row = _resolve_section_colrow(graph, src)
     tgt_col, tgt_row = _resolve_section_colrow(graph, tgt)
-    # A multi-column hop needs a bypass when an intervening section blocks the
-    # source row, or - for a cross-row L-shape, whose horizontal leg runs at the
-    # target entry Y - the TARGET row, plowed through even when the source row
-    # is clear. A packed cell-mate of either endpoint can also block the path
-    # without registering as an intervening column (see
-    # _packed_cell_mate_obstructs).
+    # Two independent triggers force a bypass: a multi-column hop blocked by an
+    # intervening section, or a packed cell-mate of either endpoint sitting on
+    # the straight path. The latter is independent of the column gap - a same-row
+    # cell-mate can obstruct even an adjacent-column hop, where it never registers
+    # as an intervening column (see _packed_cell_mate_obstructs).
     needs_bypass = (
         src_col is not None
         and tgt_col is not None
-        and abs(tgt_col - src_col) > 1
         and (
-            _has_intervening_sections(graph, src_col, tgt_col, src_row)
-            or (
-                src_row is not None
-                and tgt_row is not None
-                and tgt_row != src_row
-                and _has_intervening_sections(graph, src_col, tgt_col, tgt_row)
-            )
+            _intervening_section_obstructs(graph, src_col, src_row, tgt_col, tgt_row)
             or _packed_cell_mate_obstructs(graph, src, tgt, src_row, tgt_row)
         )
     )
