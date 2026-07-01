@@ -1074,14 +1074,9 @@ def _apply_edge_override(
 def _compute_diamond_branch_siblings(graph: MetroGraph) -> dict[str, Station]:
     """Map each 2-way fork/join diamond branch station id to its sibling branch.
 
-    A branch's sibling sits on the opposite side of the gap that no other
-    route can enter (the two branches only ever connect to the shared fork
-    and join), so that gap is a safe fallback label side when the branch
-    isn't at its section's Y extreme and the plain column-parity default
-    would otherwise point at whatever unrelated content happens to sit on
-    the branch's other side.  Narrowed to clean, column-aligned diamonds via
-    :func:`_iter_symmetric_diamonds` so a hidden/port/off-track/cross-section
-    branch never gets paired up as a label-side sibling.
+    Narrowed to clean, column-aligned diamonds via :func:`_iter_symmetric_diamonds`
+    so a hidden/port/off-track/cross-section branch never gets paired up as a
+    label-side sibling.
     """
     from nf_metro.layout.phases.fan_bundles import _iter_symmetric_diamonds
 
@@ -1094,123 +1089,24 @@ def _compute_diamond_branch_siblings(graph: MetroGraph) -> dict[str, Station]:
     return siblings
 
 
-def _bbox_hits_diagonal(
-    box: tuple[float, float, float, float],
-    diagonal_segments: list[tuple[str, str, str, float, float, float, float]],
-) -> bool:
-    """Whether a (padded) label bbox crosses any non-horizontal route segment."""
-    m = LABEL_MARGIN
-    padded = (box[0] - m, box[1] - m, box[2] + m, box[3] + m)
-    return any(
-        segment_intersects_bbox(x1, y1, x2, y2, padded)
-        for _lid, _src, _tgt, x1, y1, x2, y2 in diagonal_segments
-    )
-
-
-def _nearest_same_column_gap(
-    graph: MetroGraph,
+def _apply_diamond_outward_override(
     station: Station,
-    exclude_ids: set[str],
-    *,
-    above: bool,
-) -> float | None:
-    """Y-distance to the nearest other labelled station roughly sharing
-    *station*'s column on the given side, or ``None`` if there is none.
-    """
-    best: float | None = None
-    for other in graph.stations.values():
-        if (
-            other.id in exclude_ids
-            or other.is_port
-            or other.is_hidden
-            or not other.label.strip()
-            or other.section_id != station.section_id
-        ):
-            continue
-        if abs(other.x - station.x) > X_SPACING * 0.5:
-            continue
-        if above and other.y >= station.y:
-            continue
-        if not above and other.y <= station.y:
-            continue
-        dist = abs(other.y - station.y)
-        if best is None or dist < best:
-            best = dist
-    return best
-
-
-def _apply_diamond_interior_override(
-    graph: MetroGraph,
-    station: Station,
-    start_above: bool,
-    section_y_range: dict[str, tuple[float, float]],
-    sections_with_multiline: set[str],
-    edge_solo: dict[str, tuple[bool, bool]],
     diamond_siblings: dict[str, Station],
-    label_offset: float,
-    diagonal_segments: list[tuple[str, str, str, float, float, float, float]],
-    min_off: float = 0.0,
-    max_off: float = 0.0,
-) -> bool:
-    """Point a diamond branch label at its sibling when its own exterior is
-    at least as crowded as the diamond's interior.
+) -> bool | None:
+    """Point a 2-way diamond branch label away from its sibling branch.
 
-    Skipped whenever the section-edge outward override
-    (:func:`_apply_edge_override`) already applies to this station -- a
-    diamond that is a section's *only* content already gets pushed outward
-    correctly by that override, since nothing crowds it on that side.  Also
-    skipped when nothing else shares the branch's column on its exterior
-    side (e.g. a diamond sitting beside an unrelated, differently-columned
-    fan) -- there the column-parity default already reads fine, and
-    pointing inward would just squeeze into the diamond's own bundle for no
-    reason -- or when the sibling-facing side would cross the diamond's own
-    fork/join transition diagonal, which a wide label can reach back into
-    near the fork end.
+    Column-parity alternation picks a side by column index alone, so it can
+    coincidentally put a diamond branch's label on the side facing its
+    sibling -- squeezed inside the bubble between the two branches, where
+    nothing but the diamond's own converging routes ever needs to be.  The
+    outside of a two-way bubble is always the better default, so this is a
+    hard, unconditional preference with no further collision reasoning.
+    Returns ``None`` for a station that isn't a diamond branch.
     """
     sibling = diamond_siblings.get(station.id)
     if sibling is None:
-        return start_above
-    if (
-        not station.section_id
-        or station.section_id in sections_with_multiline
-        or station.section_id not in section_y_range
-    ):
-        return start_above
-
-    y_lo, y_hi = section_y_range[station.section_id]
-    lo_solo, hi_solo = edge_solo.get(station.section_id, (True, True))
-    if y_lo < y_hi:
-        if station.y == y_lo and lo_solo:
-            return start_above
-        if station.y == y_hi and hi_solo:
-            return start_above
-
-    interior_above = sibling.y < station.y
-    exterior_above = not interior_above
-    interior_gap = abs(sibling.y - station.y)
-    exterior_gap = _nearest_same_column_gap(
-        graph, station, {station.id, sibling.id}, above=exterior_above
-    )
-    sec = graph.sections.get(station.section_id)
-    if sec is not None and sec.bbox_h > 0:
-        boundary_gap = (
-            station.y - sec.bbox_y
-            if exterior_above
-            else (sec.bbox_y + sec.bbox_h) - station.y
-        )
-        exterior_gap = (
-            boundary_gap if exterior_gap is None else min(exterior_gap, boundary_gap)
-        )
-    if exterior_gap is None or exterior_gap > interior_gap:
-        return start_above
-
-    if diagonal_segments:
-        candidate = _try_place(
-            station, label_offset, interior_above, [], min_off, max_off
-        )
-        if _bbox_hits_diagonal(_label_bbox(candidate), diagonal_segments):
-            return start_above
-    return interior_above
+        return None
+    return sibling.y > station.y
 
 
 def _make_obstacle_placements(
@@ -1249,8 +1145,6 @@ def _trial_cost(
     panel_extents: dict[str, tuple[float, float]] | None = None,
     interchange_spans: dict[str, tuple[float, float]] | None = None,
     diamond_siblings: dict[str, Station] | None = None,
-    diagonal_segments: list[tuple[str, str, str, float, float, float, float]]
-    | None = None,
 ) -> float:
     """Count label collision cost for a section using the given alternation.
 
@@ -1309,19 +1203,9 @@ def _trial_cost(
         )
 
         if diamond_siblings:
-            start_above = _apply_diamond_interior_override(
-                graph,
-                station,
-                start_above,
-                section_y_range,
-                sections_with_multiline,
-                solo,
-                diamond_siblings,
-                label_offset,
-                diagonal_segments or [],
-                min_off,
-                max_off,
-            )
+            outward = _apply_diamond_outward_override(station, diamond_siblings)
+            if outward is not None:
+                start_above = outward
 
         if port_pref and station.id in port_pref:
             start_above = port_pref[station.id]
@@ -1396,7 +1280,6 @@ class _LabelCtx:
     interchange_spans: dict[str, tuple[float, float]]
     tb_positive_fan: set[str]
     diamond_siblings: dict[str, Station]
-    diagonal_segments: list[tuple[str, str, str, float, float, float, float]]
 
 
 def _build_label_ctx(
@@ -1405,7 +1288,6 @@ def _build_label_ctx(
     station_offsets: dict[tuple[str, str], float] | None,
     icon_obstacles: list[tuple[float, float, float, float]] | None,
     label_angle: float,
-    routes: list["RoutedPath"] | None = None,
 ) -> tuple[_LabelCtx, list[Station]]:
     """Sort the labelled stations and pre-compute the placement context."""
     sorted_stations = sorted(
@@ -1455,11 +1337,6 @@ def _build_label_ctx(
     panel_extents = _rail_panel_extents(graph)
     interchange_spans = _interchange_span_extents(graph)
     diamond_siblings = _compute_diamond_branch_siblings(graph)
-    diagonal_segments = (
-        _foreign_route_segments(routes, station_offsets, diagonal=True)
-        if routes
-        else []
-    )
 
     # Trial both alternation patterns per section, pick the better one.
     section_flip: dict[str, bool] = {}
@@ -1486,7 +1363,6 @@ def _build_label_ctx(
             panel_extents=panel_extents,
             interchange_spans=interchange_spans,
             diamond_siblings=diamond_siblings,
-            diagonal_segments=diagonal_segments,
         )
         cost_flipped = _trial_cost(
             *args,
@@ -1496,7 +1372,6 @@ def _build_label_ctx(
             panel_extents=panel_extents,
             interchange_spans=interchange_spans,
             diamond_siblings=diamond_siblings,
-            diagonal_segments=diagonal_segments,
         )
         if cost_flipped < cost_default:
             section_flip[sec_id] = True
@@ -1524,7 +1399,6 @@ def _build_label_ctx(
         interchange_spans=interchange_spans,
         tb_positive_fan=tb_positive_fan,
         diamond_siblings=diamond_siblings,
-        diagonal_segments=diagonal_segments,
     )
     return ctx, sorted_stations
 
@@ -1674,8 +1548,6 @@ def _initial_label_side(
     ctx: _LabelCtx,
     station: Station,
     rail_side: bool | None,
-    min_off: float = 0.0,
-    max_off: float = 0.0,
 ) -> bool:
     """Initial above/below choice for an alternating (non-angled) label."""
     # Alternate by layer (column): even layers below, odd layers above.
@@ -1690,20 +1562,10 @@ def _initial_label_side(
         ctx.sections_with_multiline,
         ctx.solo,
     )
-    # A fork/join diamond branch not at a section edge points at its sibling.
-    start_above = _apply_diamond_interior_override(
-        ctx.graph,
-        station,
-        start_above,
-        ctx.section_y_range,
-        ctx.sections_with_multiline,
-        ctx.solo,
-        ctx.diamond_siblings,
-        ctx.label_offset,
-        ctx.diagonal_segments,
-        min_off,
-        max_off,
-    )
+    # A fork/join diamond branch always points away from its sibling.
+    outward = _apply_diamond_outward_override(station, ctx.diamond_siblings)
+    if outward is not None:
+        start_above = outward
     # Override when a port route would clash with the label.
     if station.id in ctx.port_pref:
         start_above = ctx.port_pref[station.id]
@@ -1860,7 +1722,7 @@ def _place_alternating_label(
     rail_side: bool | None,
 ) -> LabelPlacement:
     """Place a standard label by layer alternation with collision handling."""
-    start_above = _initial_label_side(ctx, station, rail_side, min_off, max_off)
+    start_above = _initial_label_side(ctx, station, rail_side)
     candidate = _place_alternating_candidate(
         ctx, station, placements, min_off, max_off, start_above
     )
@@ -1901,7 +1763,7 @@ def place_labels(
     deliberate neighbour graze never trips the label-overlap guard.
     """
     ctx, sorted_stations = _build_label_ctx(
-        graph, label_offset, station_offsets, icon_obstacles, label_angle, routes
+        graph, label_offset, station_offsets, icon_obstacles, label_angle
     )
 
     placements: list[LabelPlacement] = _make_obstacle_placements(icon_obstacles)
