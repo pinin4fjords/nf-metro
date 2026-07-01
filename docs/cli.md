@@ -10,14 +10,19 @@ nf-metro ships four commands - `render`, `convert`, `validate`, and `info`. This
 Render a Mermaid metro map definition to SVG or interactive HTML.
 
 ```bash frame="terminal"
-nf-metro render [OPTIONS] INPUT_FILE
+nf-metro render [OPTIONS] INPUT_FILE...
 ```
+
+Accepts one or more `INPUT_FILE`s. With more than one, all render within the
+same process and each write to their own sibling `<input>.<format>`; every
+file is attempted even if an earlier one fails, and the command exits
+non-zero if any failed.
 
 Every layout/render option below also has a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide).
 
 | Option                                     | Default                      | Description                                                                       |
 | ------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------- |
-| `-o`, `--output PATH`                      | `<input>.<format>`           | Output file path                                                                  |
+| `-o`, `--output PATH`                      | `<input>.<format>`           | Output file path (only valid with a single `INPUT_FILE`)                          |
 | `--format [svg\|html]`                     | `svg`                        | Output format: `svg` or interactive `html`                                        |
 | `--theme [nfcore\|light]`                  | from `style:`, else `nfcore` | Visual theme                                                                      |
 | `--debug / --no-debug`                     | off                          | Show debug overlay                                                                |

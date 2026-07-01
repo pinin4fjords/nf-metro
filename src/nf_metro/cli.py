@@ -97,13 +97,16 @@ def _echo_issues(
 
 
 @cli.command()
-@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
+@click.argument(
+    "input_files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path)
+)
 @click.option(
     "-o",
     "--output",
     type=click.Path(path_type=Path),
     default=None,
-    help="Output file path. Defaults to <input>.<format>",
+    help="Output file path. Defaults to <input>.<format>. Only valid with a "
+    "single INPUT_FILE.",
 )
 @click.option(
     "--format",
@@ -255,7 +258,7 @@ def _echo_issues(
 )
 @layout_cli_options
 def render(
-    input_file: Path,
+    input_files: tuple[Path, ...],
     output: Path | None,
     format_: Literal["svg", "html"],
     theme: str | None,
@@ -277,7 +280,91 @@ def render(
     validate_geometry: bool,
     **layout_opts: object,
 ) -> None:
-    """Render a Mermaid metro map definition to SVG or interactive HTML."""
+    """Render one or more Mermaid metro map definitions to SVG or interactive HTML.
+
+    Given more than one INPUT_FILE, all render within the same process
+    (amortising interpreter/import startup across the batch) and each write
+    to their own sibling <input>.<format>; every file is attempted even if an
+    earlier one fails, successful outputs are kept, and a non-zero exit is
+    returned if any failed.
+    """
+    if len(input_files) > 1 and output is not None:
+        raise click.UsageError("-o/--output can only be used with a single INPUT_FILE.")
+
+    total = len(input_files)
+    failures: list[str] = []
+    for idx, input_file in enumerate(input_files, 1):
+        out_path = (
+            output if output is not None else input_file.with_suffix(f".{format_}")
+        )
+        try:
+            _render_one(
+                input_file,
+                out_path,
+                format_=format_,
+                theme=theme,
+                mode=mode,
+                debug=debug,
+                logo=logo,
+                line_spread=line_spread,
+                legend=legend,
+                from_nextflow=from_nextflow,
+                title=title,
+                responsive=responsive,
+                embed_font=embed_font,
+                text_to_paths=text_to_paths,
+                svg_class_prefix=svg_class_prefix,
+                no_self_color_scheme=no_self_color_scheme,
+                no_dark_mode_css=no_dark_mode_css,
+                no_chrome_css=no_chrome_css,
+                bare=bare,
+                validate_geometry=validate_geometry,
+                layout_opts=layout_opts,
+                quiet=total > 1,
+            )
+        except click.ClickException as e:
+            if total == 1:
+                raise
+            failures.append(f"{input_file}: {e.message}")
+            click.echo(
+                f"[{idx}/{total}] FAIL  {input_file.name}: {e.message}", err=True
+            )
+        else:
+            if total > 1:
+                click.echo(f"[{idx}/{total}] OK    {input_file.name}")
+
+    if failures:
+        raise click.ClickException(
+            f"{len(failures)}/{total} render(s) failed; "
+            "see stderr output above for details"
+        )
+
+
+def _render_one(
+    input_file: Path,
+    output: Path,
+    *,
+    format_: Literal["svg", "html"],
+    theme: str | None,
+    mode: str | None,
+    debug: bool,
+    logo: Path | None,
+    line_spread: str | None,
+    legend: str | None,
+    from_nextflow: bool,
+    title: str | None,
+    responsive: bool,
+    embed_font: bool,
+    text_to_paths: bool,
+    svg_class_prefix: str,
+    no_self_color_scheme: bool,
+    no_dark_mode_css: bool,
+    no_chrome_css: bool,
+    bare: bool,
+    validate_geometry: bool,
+    layout_opts: dict[str, object],
+    quiet: bool,
+) -> None:
     text = input_file.read_text()
 
     try:
@@ -301,9 +388,6 @@ def render(
         raise click.ClickException(str(e))
 
     theme_obj = resolve_theme(theme, graph, mode=mode)
-
-    if output is None:
-        output = input_file.with_suffix(f".{format_}")
 
     if format_ == "html":
         # The interactive page supplies its own responsive frame, chrome, and
@@ -364,11 +448,12 @@ def render(
             )
 
     output.write_text(content if content.endswith("\n") else content + "\n")
-    click.echo(
-        f"Rendered {len(graph.stations)} stations, "
-        f"{len(graph.edges)} edges, "
-        f"{len(graph.lines)} lines -> {output}"
-    )
+    if not quiet:
+        click.echo(
+            f"Rendered {len(graph.stations)} stations, "
+            f"{len(graph.edges)} edges, "
+            f"{len(graph.lines)} lines -> {output}"
+        )
 
 
 @cli.command(name="render-many")
