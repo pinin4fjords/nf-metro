@@ -159,6 +159,23 @@ def test_backtrack_guards_on_render_path(guard_name: str) -> None:
     assert guard_name in names
 
 
+# A line that breezes through a section it never connects to is at least as
+# visibly broken as the backtrack/wrap guards above, so it gets the same
+# always-on treatment: warn by default, raise under --strict.
+BREEZE_THROUGH_RENDER_GUARDS = [
+    "_guard_no_route_through_section",
+    "_guard_no_line_crosses_non_consumer",
+]
+
+
+@pytest.mark.parametrize("guard_name", BREEZE_THROUGH_RENDER_GUARDS)
+def test_breeze_through_guards_on_render_path(guard_name: str) -> None:
+    """The non-consumer-section breeze-through guards are part of the
+    always-on render chokepoint set (Tier A), not the validate-only set."""
+    names = {spec.name for spec in render_layout_invariant_specs()}
+    assert guard_name in names
+
+
 def _render_fixture(name: str, *, strict: bool = False) -> None:
     graph = parse_metro_mermaid((FIXTURES / name).read_text())
     graph.strict = strict

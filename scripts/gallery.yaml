@@ -181,7 +181,7 @@ gallery:
       level along the row, the other turns down to a lower loop. Regression fixture
       for the peel-off lane crossover at the exit -- the reversal must follow the
       continuing line through the peel-off junction so it stays level."
-  - id: single_row_rowspan_neighbor
+  - id: seqinspector
     source_dir: examples/showcase
     category: Realistic Pipelines
     description:
@@ -677,6 +677,14 @@ gallery:
       around that section rather than route through its interior. The descent
       column lands in the clear gap beside the intervening box and the line
       loops below the whole row into its target (issue #1211)."
+  - id: packed_cell_cellmate_bypass
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "The same non-consumer bypass as manual_rl_row_nonconsumer_bypass, but
+      the intervening section is packed into the same grid cell as the target
+      rather than given its own cell. The bypass must still loop around the
+      cell-mate's box instead of cutting straight through it (issue #1228)."
   - id: branch_fold_forward
     source_dir: examples/topologies
     category: Serpentine Layout
@@ -1289,6 +1297,12 @@ pipelines:
     description:
       Genome assembly from long reads and Hi-C data through purging, polishing, scaffolding,
       and QC.
+  - id: seqinspector
+    title: nf-core/seqinspector
+    repo_url: https://github.com/nf-core/seqinspector
+    description:
+      Dedicated QC-only pipeline for sequencing data, running FASTQ, BAM, and run-folder
+      QC tools in parallel and aggregating everything into a MultiQC report.
 
 # Stems rendered for the CI render-diff only (not shown on gallery/pipelines pages).
 # These supplement the auto-discovered guide/*.mmd and tests/fixtures/nextflow/*.mmd globs.
