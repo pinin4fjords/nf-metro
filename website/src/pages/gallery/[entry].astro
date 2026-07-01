@@ -26,7 +26,10 @@ const { title, src, description, category } = entry.data;
     pagefind: true,
     prev: false,
     next: false,
-    head: ogImageHead(`og/gallery/${entry.id}.png`),
+    // The 177 gallery entries are internal layout-regression fixtures, not
+    // pages anyone links to externally - a per-entry OG image isn't worth
+    // the render cost, so every entry shares the gallery's generic card.
+    head: ogImageHead("og/gallery.png"),
   }}
 >
   <p class="nfm-entry-meta">

@@ -112,33 +112,33 @@ function cacheHash(source, mode) {
 
 /**
  * Collect the `.mmd` source paths that need a chrome-less ("baked colour")
- * render for OG image generation: every gallery/pipelines content-collection
- * entry (website/src/content/{gallery,pipelines}.json, written by
- * `scripts/build_gallery.py` before the Astro build runs), plus the fixed
- * maps `og-targets.mjs` names for the non-per-entry OG routes (gallery
- * index, pipelines index, site-wide default). Without the latter, a fixed
- * route whose map isn't otherwise showcased would silently fall back to an
- * individual, unbatched render on every build instead of joining this batch.
+ * render for OG image generation: every pipelines content-collection entry
+ * (website/src/content/pipelines.json, written by `scripts/build_gallery.py`
+ * before the Astro build runs - each pipeline gets its own OG image), plus
+ * the fixed maps `og-targets.mjs` names for the non-per-entry OG routes
+ * (gallery index, pipelines index, site-wide default). Gallery entries don't
+ * get individual OG images (177 internal layout-regression fixtures aren't
+ * pages anyone links to externally), so gallery.json isn't consulted here.
  *
- * Returns an empty set (beyond the fixed maps) if the content files haven't
- * been generated yet (e.g. a raw `astro dev` without that step) -
- * og-image.mjs falls back to rendering on demand in that case.
+ * Returns just the fixed maps if pipelines.json hasn't been generated yet
+ * (e.g. a raw `astro dev` without that step) - og-image.mjs falls back to
+ * rendering on demand in that case.
  * @returns {string[]} Absolute `.mmd` paths.
  */
 function findOgSourceFiles() {
   const contentDir = join(process.cwd(), "src/content");
   const fixedMaps = [OG_GALLERY_MAP, OG_PIPELINES_MAP, OG_DEFAULT_MAP];
   const files = new Set(fixedMaps.map((p) => join(REPO_ROOT, p)));
-  for (const name of ["gallery.json", "pipelines.json"]) {
-    try {
-      const entries = JSON.parse(readFileSync(join(contentDir, name), "utf-8"));
-      for (const entry of entries) {
-        files.add(join(REPO_ROOT, entry.src));
-      }
-    } catch (e) {
-      if (e.code !== "ENOENT") {
-        console.warn(`nf-metro: failed to read ${name} for OG pre-warm: ${e.message}`);
-      }
+  try {
+    const entries = JSON.parse(
+      readFileSync(join(contentDir, "pipelines.json"), "utf-8"),
+    );
+    for (const entry of entries) {
+      files.add(join(REPO_ROOT, entry.src));
+    }
+  } catch (e) {
+    if (e.code !== "ENOENT") {
+      console.warn(`nf-metro: failed to read pipelines.json for OG pre-warm: ${e.message}`);
     }
   }
   return [...files];
@@ -156,9 +156,10 @@ function findOgSourceFiles() {
  *   tests/fixtures/*.mmd        → plain mode (top-level only)
  *   tests/fixtures/nextflow/**  → nextflow mode
  *
- * Also renders a chrome-less ("baked colour") copy of every gallery/pipelines
- * source map, which og-image.mjs rasterizes into OG preview images - batching
- * them here amortises Python startup the same way the plain renders do.
+ * Also renders a chrome-less ("baked colour") copy of every OG-image source
+ * map (see findOgSourceFiles), which og-image.mjs rasterizes into OG preview
+ * images - batching them here amortises Python startup the same way the
+ * plain renders do.
  */
 function prewarmMetroCache() {
   if (NF_METRO_VERSION === "unknown") {
@@ -209,7 +210,7 @@ function prewarmMetroCache() {
     addJob(file, "n");
   }
 
-  // gallery/pipelines sources → chrome-less, for OG image rasterization
+  // OG image sources → chrome-less, for OG image rasterization
   for (const file of findOgSourceFiles()) {
     addJob(file, "c");
   }
