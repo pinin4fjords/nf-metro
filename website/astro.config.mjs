@@ -9,6 +9,7 @@ import mermaid from "astro-mermaid";
 import { metroVitePlugin } from "./src/lib/render-metro.mjs";
 import { starlightGitFix } from "./src/lib/starlight-git-fix.mjs";
 import { remarkRebaseLinks } from "./src/lib/rebase-links.mjs";
+import { ogImageMetaTags } from "./src/lib/og-meta-tags.mjs";
 import { GITHUB_URL, PAGES_ORIGIN } from "./src/repo";
 
 // Expressive Code options (custom grammars + the color-chips plugin) live in
@@ -154,22 +155,7 @@ export default defineConfig({
       lastUpdated: true,
       // Site-wide OG preview; gallery/pipelines pages override with an image
       // of their own map (see their `frontmatter.head` in each page/route).
-      head: [
-        {
-          tag: "meta",
-          attrs: {
-            property: "og:image",
-            content: `${site}${base}og/default.png`,
-          },
-        },
-        {
-          tag: "meta",
-          attrs: {
-            name: "twitter:image",
-            content: `${site}${base}og/default.png`,
-          },
-        },
-      ],
+      head: ogImageMetaTags(`${site}${base}og/default.png`),
       // Expressive Code options (grammars + color-chips plugin) are in ec.config.mjs.
       social: [
         {

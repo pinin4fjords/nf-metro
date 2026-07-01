@@ -22,16 +22,19 @@ const PANEL_WIDTH = 500;
 const MAP_MAX_WIDTH = WIDTH - PANEL_WIDTH - 80;
 const MAP_MAX_HEIGHT = HEIGHT - 80;
 
+// Mirrors the dark-mode brand palette in website/src/styles/custom.css
+// (--nfm-brand, --nfm-accent-text, --nfm-ink, --nfm-ink-dim) - satori can't
+// consume CSS custom properties, so these are duplicated as literals; keep
+// them in sync by hand if that palette changes.
 const BRAND_DARK = "#201637";
 const MAP_STAGE = "#161022";
 const ACCENT = "#56d3ba";
 const INK = "#ffffff";
 const INK_MUTE = "#c9c2da";
 
-const FONT_DIR = join(
-  REPO_ROOT,
-  "website/node_modules/@fontsource/inter/files",
-);
+// cwd is website/ (see render-metro.mjs), so this resolves directly without
+// round-tripping through REPO_ROOT and back down into website/.
+const FONT_DIR = join(process.cwd(), "node_modules/@fontsource/inter/files");
 const fonts = [
   {
     name: "Inter",
@@ -147,7 +150,7 @@ export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
                           marginTop: 18,
                           lineHeight: 1.15,
                         },
-                        children: title,
+                        children: truncate(title, 70),
                       },
                     },
                     {

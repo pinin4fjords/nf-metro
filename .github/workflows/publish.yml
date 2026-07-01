@@ -37,6 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # Serialize pushes to main: two releases published close together must not
+    # race on `git push origin main` (the loser would fail non-fast-forward).
+    concurrency:
+      group: readme-hero
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:

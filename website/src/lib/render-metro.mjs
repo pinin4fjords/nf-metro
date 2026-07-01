@@ -33,6 +33,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import {
+  OG_GALLERY_MAP,
+  OG_PIPELINES_MAP,
+  OG_DEFAULT_MAP,
+} from "./og-targets.mjs";
 
 // Paths are anchored to process.cwd() rather than import.meta.url: `npm run
 // {dev,build}` always runs with cwd = website/ (see scripts/serve_docs.sh and
@@ -106,26 +111,34 @@ function cacheHash(source, mode) {
 }
 
 /**
- * Collect the `.mmd` source paths referenced by the gallery and pipelines
- * content collections (website/src/content/{gallery,pipelines}.json), which
- * `scripts/build_gallery.py` writes before the Astro build runs. Used to
- * pre-warm the chrome-less ("baked colour") renders that OG image generation
- * needs, alongside the plain ones. Returns an empty set if the content files
- * haven't been generated yet (e.g. a raw `astro dev` without that step) -
+ * Collect the `.mmd` source paths that need a chrome-less ("baked colour")
+ * render for OG image generation: every gallery/pipelines content-collection
+ * entry (website/src/content/{gallery,pipelines}.json, written by
+ * `scripts/build_gallery.py` before the Astro build runs), plus the fixed
+ * maps `og-targets.mjs` names for the non-per-entry OG routes (gallery
+ * index, pipelines index, site-wide default). Without the latter, a fixed
+ * route whose map isn't otherwise showcased would silently fall back to an
+ * individual, unbatched render on every build instead of joining this batch.
+ *
+ * Returns an empty set (beyond the fixed maps) if the content files haven't
+ * been generated yet (e.g. a raw `astro dev` without that step) -
  * og-image.mjs falls back to rendering on demand in that case.
  * @returns {string[]} Absolute `.mmd` paths.
  */
 function findOgSourceFiles() {
   const contentDir = join(process.cwd(), "src/content");
-  const files = new Set();
+  const fixedMaps = [OG_GALLERY_MAP, OG_PIPELINES_MAP, OG_DEFAULT_MAP];
+  const files = new Set(fixedMaps.map((p) => join(REPO_ROOT, p)));
   for (const name of ["gallery.json", "pipelines.json"]) {
     try {
       const entries = JSON.parse(readFileSync(join(contentDir, name), "utf-8"));
       for (const entry of entries) {
         files.add(join(REPO_ROOT, entry.src));
       }
-    } catch {
-      /* content not generated yet; og-image.mjs renders on demand */
+    } catch (e) {
+      if (e.code !== "ENOENT") {
+        console.warn(`nf-metro: failed to read ${name} for OG pre-warm: ${e.message}`);
+      }
     }
   }
   return [...files];
