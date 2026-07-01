@@ -177,7 +177,7 @@ def _layout_single_section(
         sid
         for sid, st in sub.stations.items()
         if not st.is_port
-        and (lines := set(sub.station_lines(sid)))
+        and (lines := set(graph.station_lines(sid)))
         and not (lines & exit_lines)
     )
     tracks = assign_tracks(

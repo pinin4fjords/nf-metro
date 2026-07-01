@@ -25,6 +25,7 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.parser import parse_metro_mermaid
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
+TOPOLOGIES = EXAMPLES / "topologies"
 
 TOL = 1.0
 
@@ -58,6 +59,39 @@ def test_peeloff_lands_on_carrier_row() -> None:
     assert abs(report.y - salmon.y) < TOL, (
         f"report_bowtie2 (y={report.y}) did not land on the "
         f"salmon_quant row (y={salmon.y})"
+    )
+
+
+def _swap_line_order(text: str, line_a: str, line_b: str) -> str:
+    """Return *text* with the two ``%%metro line:`` declarations swapped."""
+    lines = text.splitlines()
+    ia = next(i for i, ln in enumerate(lines) if f"line: {line_a} " in ln)
+    ib = next(i for i, ln in enumerate(lines) if f"line: {line_b} " in ln)
+    lines[ia], lines[ib] = lines[ib], lines[ia]
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("swap", [False, True], ids=["declared-order", "swapped-order"])
+def test_terminal_spur_flat_regardless_of_line_order(swap: bool) -> None:
+    """A terminal spur stays flat on its carrier whichever aligner line is first.
+
+    In ``aligner_row_pinned_continuation`` the ``bowtie2_salmon`` spur peels off
+    ``salmon_quant`` to ``multiqc_bowtie2``. Its landing row must come from the
+    carrier's occupancy, not the line's declaration index -- so swapping the
+    ``bowtie2_salmon``/``hisat2`` declaration order (which moves the spur's base
+    track from two rows off the carrier to one) must not push the spur off the
+    carrier's row.
+    """
+    text = (TOPOLOGIES / "aligner_row_pinned_continuation.mmd").read_text()
+    if swap:
+        text = _swap_line_order(text, "bowtie2_salmon", "hisat2")
+    graph = parse_metro_mermaid(text)
+    compute_layout(graph)
+    salmon = graph.stations["salmon_quant"]
+    multiqc = graph.stations["multiqc_bowtie2"]
+    assert abs(multiqc.y - salmon.y) < TOL, (
+        f"spur multiqc_bowtie2 (y={multiqc.y}) is off the salmon_quant row "
+        f"(y={salmon.y}) with swap={swap}"
     )
 
 

@@ -362,12 +362,15 @@ def _place_single_node(
             else:
                 # Terminal bundle peel-off: one line diverges from a
                 # multi-line predecessor to visit its own short chain, ending
-                # within the section.  Its formulaic base track can skip a
-                # vacant row purely because of line declaration order, so land
-                # instead on the nearest row -- a reserved per-line base or an
-                # already-placed track -- between the predecessor and the base
-                # that no station occupies at this layer.  The spur's file-icon
-                # successor inherits this row for a straight connector.
+                # within the section.  Its formulaic base track is set by line
+                # declaration order and can push the spur off the carrier's row
+                # -- skipping a vacant row, or just dropping one row for no
+                # reason -- so land instead on the nearest row (a reserved
+                # per-line base or an already-placed track) between the
+                # predecessor and the base that no station occupies at this
+                # layer, preferring the carrier's own row when it is free.  The
+                # spur's file-icon successor inherits this row for a straight
+                # connector.
                 #
                 # A through-line diverging here continues to a section exit and
                 # keeps its own base lane, so it is excluded (terminal_nodes)
@@ -375,7 +378,7 @@ def _place_single_node(
                 if (
                     len(preds) == 1
                     and node in terminal_nodes
-                    and abs(base - pred_avg) > line_gap
+                    and abs(base - pred_avg) > COORD_TOLERANCE_FINE
                     and layers is not None
                 ):
                     candidates = set(tracks.values())
