@@ -12,8 +12,8 @@ rendered SVG in sync. nf-metro ships three integration modes:
 
 ## GitHub Action
 
-The composite action installs nf-metro, renders the map, and reports whether the
-SVG changed — leaving it to you to upload an artifact, gate a check, or commit.
+The composite action uses nf-metro to render the map, and reports whether the
+SVG changed.
 
 ```yaml
 - uses: seqeralabs/nf-metro@1.1.0
