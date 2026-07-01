@@ -18,9 +18,16 @@ import { renderMetroFile, REPO_ROOT } from "./render-metro.mjs";
 
 const WIDTH = 1200;
 const HEIGHT = 630;
-const PANEL_WIDTH = 500;
-const MAP_MAX_WIDTH = WIDTH - PANEL_WIDTH - 80;
-const MAP_MAX_HEIGHT = HEIGHT - 80;
+// A header band across the top leaves the full card width for the map below -
+// pipeline maps are usually landscape, so this fits far more of one than a
+// side panel would.
+const HEADER_HEIGHT = 170;
+const HEADER_PADDING_X = 48;
+const TEXT_MAX_WIDTH = 860;
+const MAP_STAGE_HEIGHT = HEIGHT - HEADER_HEIGHT;
+const MAP_STAGE_PADDING = 32;
+const MAP_MAX_WIDTH = WIDTH - MAP_STAGE_PADDING * 2;
+const MAP_MAX_HEIGHT = MAP_STAGE_HEIGHT - MAP_STAGE_PADDING * 2;
 
 // Mirrors the dark-mode brand palette in website/src/styles/custom.css
 // (--nfm-brand, --nfm-accent-text, --nfm-ink, --nfm-ink-dim) - satori can't
@@ -50,6 +57,34 @@ const fonts = [
   },
 ];
 
+// website/src/assets/logo.svg colours its lines/capsules with the site's CSS
+// custom properties, which satori can't resolve - bake in the constant
+// (mode-independent) Nextflow green and this card's own ink/background so
+// the capsule "cuts into" the card the same way it does the live page.
+const LOGO_HEIGHT = 34;
+const LOGO_VIEWBOX_ASPECT = 192 / 45;
+const LOGO_WIDTH = Math.round(LOGO_HEIGHT * LOGO_VIEWBOX_ASPECT);
+const LOGO_SVG = readFileSync(
+  join(REPO_ROOT, "website/src/assets/logo.svg"),
+  "utf-8",
+)
+  .replaceAll("var(--nfm-line-a)", "#31c9ac")
+  .replaceAll("var(--nfm-line-b)", "#0a967b")
+  .replaceAll("var(--nfm-bg)", BRAND_DARK)
+  .replaceAll("var(--nfm-ink)", INK);
+
+let logoDataUri;
+async function rasterizeLogo() {
+  if (!logoDataUri) {
+    const png = await sharp(Buffer.from(LOGO_SVG), { density: 400 })
+      .resize({ height: LOGO_HEIGHT * 3 })
+      .png()
+      .toBuffer();
+    logoDataUri = `data:image/png;base64,${png.toString("base64")}`;
+  }
+  return logoDataUri;
+}
+
 /** Truncate to `max` chars on a word boundary, appending an ellipsis. */
 function truncate(text, max) {
   if (text.length <= max) return text;
@@ -58,11 +93,11 @@ function truncate(text, max) {
   return `${cut.slice(0, lastSpace > 0 ? lastSpace : max)}…`;
 }
 
-/** Smaller font for longer titles so it still fits the panel without clipping. */
+/** Smaller font for longer titles so the fixed-height header never clips. */
 function titleFontSize(title) {
-  if (title.length > 26) return 34;
-  if (title.length > 16) return 42;
-  return 52;
+  if (title.length > 40) return 30;
+  if (title.length > 26) return 36;
+  return 42;
 }
 
 /**
@@ -91,13 +126,13 @@ async function rasterizeMap(mmdRelPath) {
 }
 
 /**
- * Render an OG preview card: a title/description panel beside the pipeline's
- * metro map.
+ * Render an OG preview card: a title/description header band above the
+ * pipeline's metro map, which gets the full card width to work with.
  * @param {{ kicker: string, title: string, subtitle: string, mmdPath: string }} opts
  * @returns {Promise<Buffer>} PNG bytes.
  */
 export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
-  const map = await rasterizeMap(mmdPath);
+  const [map, logo] = await Promise.all([rasterizeMap(mmdPath), rasterizeLogo()]);
 
   const tree = {
     type: "div",
@@ -106,6 +141,7 @@ export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
         width: WIDTH,
         height: HEIGHT,
         display: "flex",
+        flexDirection: "column",
         fontFamily: "Inter",
         background: BRAND_DARK,
       },
@@ -114,24 +150,28 @@ export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
           type: "div",
           props: {
             style: {
-              width: PANEL_WIDTH,
-              height: HEIGHT,
+              width: WIDTH,
+              height: HEADER_HEIGHT,
               display: "flex",
-              flexDirection: "column",
+              alignItems: "center",
               justifyContent: "space-between",
-              padding: "56px 48px",
+              padding: `0 ${HEADER_PADDING_X}px`,
             },
             children: [
               {
                 type: "div",
                 props: {
-                  style: { display: "flex", flexDirection: "column" },
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    maxWidth: TEXT_MAX_WIDTH,
+                  },
                   children: [
                     {
                       type: "div",
                       props: {
                         style: {
-                          fontSize: 20,
+                          fontSize: 18,
                           fontWeight: 700,
                           color: ACCENT,
                           textTransform: "uppercase",
@@ -147,7 +187,7 @@ export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
                           fontSize: titleFontSize(title),
                           fontWeight: 700,
                           color: INK,
-                          marginTop: 18,
+                          marginTop: 10,
                           lineHeight: 1.15,
                         },
                         children: truncate(title, 70),
@@ -157,31 +197,25 @@ export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
                       type: "div",
                       props: {
                         style: {
-                          fontSize: 22,
+                          fontSize: 19,
                           fontWeight: 400,
                           color: INK_MUTE,
-                          marginTop: 18,
-                          lineHeight: 1.4,
+                          marginTop: 8,
+                          lineHeight: 1.35,
                         },
-                        children: truncate(subtitle, 150),
+                        children: truncate(subtitle, 115),
                       },
                     },
                   ],
                 },
               },
               {
-                type: "div",
+                type: "img",
                 props: {
-                  style: {
-                    display: "flex",
-                    alignItems: "baseline",
-                    fontSize: 26,
-                    fontWeight: 700,
-                  },
-                  children: [
-                    { type: "span", props: { style: { color: ACCENT }, children: "nf-" } },
-                    { type: "span", props: { style: { color: INK }, children: "metro" } },
-                  ],
+                  src: logo,
+                  width: LOGO_WIDTH,
+                  height: LOGO_HEIGHT,
+                  style: { flexShrink: 0 },
                 },
               },
             ],
@@ -191,8 +225,8 @@ export async function renderOgImage({ kicker, title, subtitle, mmdPath }) {
           type: "div",
           props: {
             style: {
-              width: WIDTH - PANEL_WIDTH,
-              height: HEIGHT,
+              width: WIDTH,
+              height: MAP_STAGE_HEIGHT,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
