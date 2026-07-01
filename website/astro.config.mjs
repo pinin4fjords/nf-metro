@@ -152,6 +152,24 @@ export default defineConfig({
         "Metro-map-style SVG diagrams from Mermaid graph definitions with %%metro directives - for visualizing bioinformatics pipeline workflows.",
       favicon: "/favicon.svg",
       lastUpdated: true,
+      // Site-wide OG preview; gallery/pipelines pages override with an image
+      // of their own map (see their `frontmatter.head` in each page/route).
+      head: [
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image",
+            content: `${site}${base}og/default.png`,
+          },
+        },
+        {
+          tag: "meta",
+          attrs: {
+            name: "twitter:image",
+            content: `${site}${base}og/default.png`,
+          },
+        },
+      ],
       // Expressive Code options (grammars + color-chips plugin) are in ec.config.mjs.
       social: [
         {

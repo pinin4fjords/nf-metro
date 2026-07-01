@@ -3,6 +3,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { getCollection } from "astro:content";
 import Metro from "@components/Metro.astro";
 import { base } from "../../site";
+import { ogImageHead } from "../../lib/og-head";
 
 const entries = await getCollection("pipelines");
 
@@ -27,6 +28,7 @@ const headings = entries.map((entry) => ({
     pagefind: true,
     prev: false,
     next: false,
+    head: ogImageHead("og/pipelines.png"),
   }}
   headings={headings}
 >

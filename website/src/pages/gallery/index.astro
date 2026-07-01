@@ -3,6 +3,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { getCollection } from "astro:content";
 import Metro from "@components/Metro.astro";
 import { base } from "../../site";
+import { ogImageHead } from "../../lib/og-head";
 
 const allEntries = await getCollection("gallery");
 const entries = allEntries.sort((a, b) => a.data.order - b.data.order);
@@ -36,6 +37,7 @@ const headings = Array.from(byCategory.keys()).map((cat) => ({
     pagefind: true,
     prev: false,
     next: false,
+    head: ogImageHead("og/gallery.png"),
   }}
   headings={headings}
 >
