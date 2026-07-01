@@ -16,6 +16,7 @@ The composite action uses nf-metro to render the map, and reports whether the
 SVG changed.
 
 ```yaml
+- uses: actions/checkout@v4
 - uses: seqeralabs/nf-metro@1.1.0
   id: metro
   with:

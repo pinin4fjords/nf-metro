@@ -117,7 +117,7 @@ runs:
         nf-metro "${args[@]}"
 
         echo "output-path=$rendered" >> "$GITHUB_OUTPUT"
-        if git diff --quiet -- "$rendered" 2>/dev/null; then
+        if [ -z "$(git status --porcelain -- "$rendered" 2>/dev/null)" ]; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
         else
           echo "changed=true" >> "$GITHUB_OUTPUT"
