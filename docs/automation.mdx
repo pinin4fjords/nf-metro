@@ -1,0 +1,34 @@
+---
+title: "CI & automation"
+description: Keep a pipeline's metro-map SVG in sync with its .mmd source using the nf-metro GitHub Action, reusable workflow, or pre-commit hook.
+---
+
+Commit a metro-map `.mmd` to your pipeline repo and let automation keep the
+rendered SVG in sync. nf-metro ships three integration modes:
+
+- a **composite GitHub Action** — install + render, you decide what to do with the result;
+- a **reusable workflow** — the same, plus commit-on-push / warn-on-PR out of the box;
+- a **pre-commit hook** — re-render locally on every commit.
+
+## GitHub Action
+
+The composite action installs nf-metro, renders the map, and reports whether the
+SVG changed — leaving it to you to upload an artifact, gate a check, or commit.
+
+```yaml
+- uses: seqeralabs/nf-metro@1.1.0
+  id: metro
+  with:
+    input: assets/metro_map.mmd
+    theme: nfcore
+    embed-font: "true"
+
+# steps.metro.outputs.output-path — where the SVG was written
+# steps.metro.outputs.changed     — 'true' when it differs from the committed SVG
+```
+
+Inputs (all optional): `input` (default `assets/metro_map.mmd`), `output`
+(default: the sibling `.svg` of the input), `theme` (default `nfcore`), `mode`,
+`embed-font` (default `true`), `version` (nf-metro version to install), and
+`extra-args` for any other `nf-metro render` flag (e.g.
+`extra-args: "--fold-threshold 20"`).

@@ -56,6 +56,21 @@ pip install -e ".[dev]"
 
 Requires Python 3.10+.
 
+## CI & automation
+
+Keep a pipeline's metro-map SVG in sync with its `.mmd` source via a composite
+GitHub Action, a reusable workflow, or a pre-commit hook:
+
+```yaml
+# .github/workflows/metro-map.yml
+- uses: seqeralabs/nf-metro@1.1.0
+  with:
+    input: assets/metro_map.mmd
+    theme: nfcore
+```
+
+See the [CI & automation guide](https://seqeralabs.github.io/nf-metro/automation/) for the reusable-workflow and pre-commit options.
+
 ## Quick start
 
 Render a metro map from a `.mmd` file:

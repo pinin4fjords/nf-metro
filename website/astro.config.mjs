@@ -203,6 +203,7 @@ export default defineConfig({
             { label: "Data manifest", slug: "manifest" },
             { label: "Live progress", slug: "live" },
             { label: "Nextflow import", slug: "nextflow" },
+            { label: "CI & automation", slug: "automation" },
             { label: "How it's built", slug: "how-its-built" },
           ],
         },
