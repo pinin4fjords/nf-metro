@@ -2225,6 +2225,8 @@ def _order_convergence_by_approach(ctx: _OffsetCtx) -> None:
         ):
             continue
         _apply_offsets_along_bundle(ctx, port_id, port.section_id, new_offs)
+        for lid in ordered:
+            _apply_offset_upstream_on_row(ctx, port_id, lid, new_offs[lid])
 
 
 def _recenter_partial_fan_branches(ctx: _OffsetCtx) -> None:
