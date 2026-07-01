@@ -96,14 +96,44 @@ def _echo_issues(
         click.echo(f"  - {issue.format(path)}", err=True)
 
 
+def _run_batch(items: list[tuple[str, Callable[[], None]]]) -> None:
+    """Run every item's callable, printing a ``[i/total] OK``/``FAIL`` line.
+
+    Every item runs regardless of whether an earlier one raised, so
+    successful outputs are kept. Catches any exception type, since a
+    callable's failure mode (parse error, I/O error, an unanticipated bug)
+    isn't known to this generic runner. Raises a single ``ClickException``
+    summarising the failure count if anything failed (the per-item FAIL
+    lines, already on stderr, carry the detail).
+    """
+    total = len(items)
+    failure_count = 0
+    for idx, (label, job) in enumerate(items, 1):
+        try:
+            job()
+        except Exception as e:
+            failure_count += 1
+            click.echo(f"[{idx}/{total}] FAIL  {label}: {e}", err=True)
+        else:
+            click.echo(f"[{idx}/{total}] OK    {label}")
+    if failure_count:
+        raise click.ClickException(
+            f"{failure_count}/{total} render(s) failed; "
+            "see stderr output above for details"
+        )
+
+
 @cli.command()
-@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
+@click.argument(
+    "input_files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path)
+)
 @click.option(
     "-o",
     "--output",
     type=click.Path(path_type=Path),
     default=None,
-    help="Output file path. Defaults to <input>.<format>",
+    help="Output file path. Defaults to <input>.<format>. Only valid with a "
+    "single INPUT_FILE.",
 )
 @click.option(
     "--format",
@@ -255,7 +285,7 @@ def _echo_issues(
 )
 @layout_cli_options
 def render(
-    input_file: Path,
+    input_files: tuple[Path, ...],
     output: Path | None,
     format_: Literal["svg", "html"],
     theme: str | None,
@@ -277,7 +307,78 @@ def render(
     validate_geometry: bool,
     **layout_opts: object,
 ) -> None:
-    """Render a Mermaid metro map definition to SVG or interactive HTML."""
+    """Render one or more Mermaid metro map definitions to SVG or interactive HTML.
+
+    Given more than one INPUT_FILE, all render within the same process
+    (amortising interpreter/import startup across the batch) and each write
+    to their own sibling <input>.<format>; every file is attempted even if an
+    earlier one fails, successful outputs are kept, and a non-zero exit is
+    returned if any failed.
+    """
+    if len(input_files) > 1 and output is not None:
+        raise click.UsageError("-o/--output can only be used with a single INPUT_FILE.")
+
+    def _job(input_file: Path, *, quiet: bool) -> Callable[[], None]:
+        out_path = (
+            output if output is not None else input_file.with_suffix(f".{format_}")
+        )
+        return lambda: _render_one(
+            input_file,
+            out_path,
+            format_=format_,
+            theme=theme,
+            mode=mode,
+            debug=debug,
+            logo=logo,
+            line_spread=line_spread,
+            legend=legend,
+            from_nextflow=from_nextflow,
+            title=title,
+            responsive=responsive,
+            embed_font=embed_font,
+            text_to_paths=text_to_paths,
+            svg_class_prefix=svg_class_prefix,
+            no_self_color_scheme=no_self_color_scheme,
+            no_dark_mode_css=no_dark_mode_css,
+            no_chrome_css=no_chrome_css,
+            bare=bare,
+            validate_geometry=validate_geometry,
+            layout_opts=layout_opts,
+            quiet=quiet,
+        )
+
+    if len(input_files) == 1:
+        _job(input_files[0], quiet=False)()
+        return
+
+    _run_batch([(f.name, _job(f, quiet=True)) for f in input_files])
+
+
+def _render_one(
+    input_file: Path,
+    output: Path,
+    *,
+    format_: Literal["svg", "html"],
+    theme: str | None,
+    mode: str | None,
+    debug: bool,
+    logo: Path | None,
+    line_spread: str | None,
+    legend: str | None,
+    from_nextflow: bool,
+    title: str | None,
+    responsive: bool,
+    embed_font: bool,
+    text_to_paths: bool,
+    svg_class_prefix: str,
+    no_self_color_scheme: bool,
+    no_dark_mode_css: bool,
+    no_chrome_css: bool,
+    bare: bool,
+    validate_geometry: bool,
+    layout_opts: dict[str, object],
+    quiet: bool,
+) -> None:
     text = input_file.read_text()
 
     try:
@@ -301,9 +402,6 @@ def render(
         raise click.ClickException(str(e))
 
     theme_obj = resolve_theme(theme, graph, mode=mode)
-
-    if output is None:
-        output = input_file.with_suffix(f".{format_}")
 
     if format_ == "html":
         # The interactive page supplies its own responsive frame, chrome, and
@@ -363,12 +461,14 @@ def render(
                 f"defect(s) in the drawn SVG:\n{detail}"
             )
 
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(content if content.endswith("\n") else content + "\n")
-    click.echo(
-        f"Rendered {len(graph.stations)} stations, "
-        f"{len(graph.edges)} edges, "
-        f"{len(graph.lines)} lines -> {output}"
-    )
+    if not quiet:
+        click.echo(
+            f"Rendered {len(graph.stations)} stations, "
+            f"{len(graph.edges)} edges, "
+            f"{len(graph.lines)} lines -> {output}"
+        )
 
 
 @cli.command(name="render-many")
@@ -412,117 +512,67 @@ def render_many(manifest_file: Path) -> None:
     import json
 
     try:
-        jobs: list[dict[str, object]] = json.loads(manifest_file.read_text())
+        jobs: list[object] = json.loads(manifest_file.read_text())
     except (json.JSONDecodeError, OSError) as e:
         raise click.ClickException(f"cannot read manifest: {e}")
 
     if not isinstance(jobs, list):
         raise click.ClickException("manifest must be a JSON array")
 
-    total = len(jobs)
-    if total == 0:
+    if not jobs:
         click.echo("render-many: empty manifest, nothing to do")
         return
 
-    failures: list[str] = []
-    for idx, job in enumerate(jobs, 1):
-        if not isinstance(job, dict):
-            failures.append(f"job {idx}: not an object")
-            click.echo(f"[{idx}/{total}] SKIP  (not an object)", err=True)
-            continue
+    def _label(job: object, idx: int) -> str:
+        if isinstance(job, dict) and isinstance(job.get("input"), str):
+            return Path(cast(str, job["input"])).name
+        return f"job {idx}"
 
-        raw_input = job.get("input")
-        raw_output = job.get("output")
-        if not isinstance(raw_input, str) or not isinstance(raw_output, str):
-            failures.append(f"job {idx}: missing or non-string 'input'/'output'")
-            click.echo(f"[{idx}/{total}] SKIP  (bad input/output)", err=True)
-            continue
+    def _job_call(job: object) -> Callable[[], None]:
+        def _run() -> None:
+            if not isinstance(job, dict):
+                raise ValueError("not an object")
 
-        in_path = Path(raw_input)
-        out_path = Path(raw_output)
+            raw_input = job.get("input")
+            raw_output = job.get("output")
+            if not isinstance(raw_input, str) or not isinstance(raw_output, str):
+                raise ValueError("missing or non-string 'input'/'output'")
 
-        def _str_or_none(key: str) -> str | None:
-            v = job.get(key)
-            return str(v) if v else None
+            def _str_or_none(key: str) -> str | None:
+                v = job.get(key)
+                return str(v) if v else None
 
-        format_ = cast(Literal["svg", "html"], str(job.get("format", "svg")))
-        theme = _str_or_none("theme")
-        mode = _str_or_none("mode")
-        debug_flag = bool(job.get("debug", False))
-        logo_raw = job.get("logo")
-        logo = Path(str(logo_raw)) if logo_raw else None
-        line_spread = _str_or_none("line_spread")
-        legend = _str_or_none("legend")
-        from_nextflow_flag = bool(job.get("from_nextflow", False))
-        title = _str_or_none("title")
-        responsive = bool(job.get("responsive", False))
-        embed_font = bool(job.get("embed_font", False))
-        text_to_paths = bool(job.get("text_to_paths", False))
-        svg_class_prefix = str(job.get("svg_class_prefix", ""))
-        no_self_cs = bool(job.get("no_self_color_scheme", False))
-        no_dark_mode_css = bool(job.get("no_dark_mode_css", False))
-        no_chrome_css = bool(job.get("no_chrome_css", False))
-        bare = bool(job.get("bare", False))
-        validate_geometry = bool(job.get("validate", False))
-        lo_raw = job.get("layout_options")
-        layout_opts: dict[str, object] = (
-            dict(lo_raw) if isinstance(lo_raw, dict) else {}
-        )
+            logo_raw = job.get("logo")
+            lo_raw = job.get("layout_options")
 
-        try:
-            text = in_path.read_text()
-            graph = prepare_graph(
-                text,
-                from_nextflow=from_nextflow_flag,
-                title=title,
-                line_spread=str(line_spread) if line_spread is not None else None,
-                logo=str(logo) if logo is not None else None,
-                legend=str(legend) if legend is not None else None,
-                layout_options=layout_opts if layout_opts else None,
-            )
-            theme_obj = resolve_theme(theme, graph, mode=mode)
-
-            content = render_graph(
-                graph,
-                theme_obj,
-                RenderConfig(
-                    output_format=format_,
-                    debug=debug_flag,
-                    responsive=responsive,
-                    embed_font=embed_font,
-                    text_to_paths=text_to_paths,
-                    svg_class_prefix=svg_class_prefix,
-                    inject_dark_mode_css=not no_dark_mode_css,
-                    chrome_css=not no_chrome_css,
-                    self_color_scheme=not no_self_cs,
-                    baked_mode=(mode or graph.mode).strip() or None,
-                    bare=bare,
-                    embed_basename=out_path.name,
-                ),
+            _render_one(
+                Path(raw_input),
+                Path(raw_output),
+                format_=cast(Literal["svg", "html"], str(job.get("format", "svg"))),
+                theme=_str_or_none("theme"),
+                mode=_str_or_none("mode"),
+                debug=bool(job.get("debug", False)),
+                logo=Path(str(logo_raw)) if logo_raw else None,
+                line_spread=_str_or_none("line_spread"),
+                legend=_str_or_none("legend"),
+                from_nextflow=bool(job.get("from_nextflow", False)),
+                title=_str_or_none("title"),
+                responsive=bool(job.get("responsive", False)),
+                embed_font=bool(job.get("embed_font", False)),
+                text_to_paths=bool(job.get("text_to_paths", False)),
+                svg_class_prefix=str(job.get("svg_class_prefix", "")),
+                no_self_color_scheme=bool(job.get("no_self_color_scheme", False)),
+                no_dark_mode_css=bool(job.get("no_dark_mode_css", False)),
+                no_chrome_css=bool(job.get("no_chrome_css", False)),
+                bare=bool(job.get("bare", False)),
+                validate_geometry=bool(job.get("validate", False)),
+                layout_opts=dict(lo_raw) if isinstance(lo_raw, dict) else {},
+                quiet=True,
             )
 
-            if validate_geometry:
-                if format_ == "html":
-                    raise ValueError("validate applies to format svg only")
-                findings = validate_render(content, graph=graph)
-                if findings:
-                    detail = "; ".join(f.message for f in findings)
-                    raise ValueError(
-                        f"render-geometry: {len(findings)} defect(s): {detail}"
-                    )
+        return _run
 
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(content if content.endswith("\n") else content + "\n")
-            click.echo(f"[{idx}/{total}] OK    {in_path.name}")
-        except Exception as e:
-            failures.append(f"{in_path}: {e}")
-            click.echo(f"[{idx}/{total}] FAIL  {in_path.name}: {e}", err=True)
-
-    if failures:
-        raise click.ClickException(
-            f"{len(failures)}/{total} render(s) failed; "
-            "see stderr output above for details"
-        )
+    _run_batch([(_label(job, idx), _job_call(job)) for idx, job in enumerate(jobs, 1)])
 
 
 @cli.command()
