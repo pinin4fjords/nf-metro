@@ -1,0 +1,124 @@
+name: nf-metro
+description: Render a metro-map SVG from a Mermaid .mmd source and report whether the committed SVG is out of date.
+author: Seqera
+
+branding:
+  icon: map
+  color: purple
+
+inputs:
+  input:
+    description: Path to the Mermaid .mmd source to render.
+    required: false
+    default: assets/metro_map.mmd
+  output:
+    description: >-
+      Path for the rendered SVG. Leave empty to write a sibling file next to the
+      input (e.g. assets/metro_map.mmd -> assets/metro_map.svg).
+    required: false
+    default: ""
+  theme:
+    description: "Visual theme (nfcore, seqera, ...)."
+    required: false
+    default: nfcore
+  mode:
+    description: >-
+      Display mode to bake (light or dark). Leave empty to keep the theme's own
+      default and emit an adaptive light-dark() SVG.
+    required: false
+    default: ""
+  embed-font:
+    description: Inline the label font into the SVG so it renders standalone.
+    required: false
+    default: "true"
+  version:
+    description: >-
+      nf-metro version to install (e.g. 1.1.0). Leave empty to install the
+      version this action release was cut with, so `@X.Y.Z` installs
+      nf-metro X.Y.Z for reproducible renders.
+    required: false
+    default: ""
+  extra-args:
+    description: Additional flags passed verbatim to `nf-metro render`.
+    required: false
+    default: ""
+
+outputs:
+  output-path:
+    description: The path the SVG was written to (the resolved sibling path when `output` was empty).
+    value: ${{ steps.render.outputs.output-path }}
+  changed:
+    description: "'true' when the rendered SVG differs from the committed version, otherwise 'false'."
+    value: ${{ steps.render.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+    - name: Install nf-metro
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        version="$VERSION"
+        if [ -z "$version" ]; then
+          # Default to the version this action release ships with (the
+          # pyproject.toml checked out at the action's ref), so `@X.Y.Z`
+          # installs nf-metro X.Y.Z rather than whatever is latest on PyPI.
+          version="$(grep -m1 '^version = ' "$ACTION_PATH/pyproject.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
+        fi
+        uv tool install "nf-metro==$version"
+
+    - name: Render metro map
+      id: render
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.input }}
+        OUTPUT_PATH: ${{ inputs.output }}
+        THEME: ${{ inputs.theme }}
+        MODE: ${{ inputs.mode }}
+        EMBED_FONT: ${{ inputs.embed-font }}
+        EXTRA_ARGS: ${{ inputs.extra-args }}
+      run: |
+        set -euo pipefail
+
+        args=(render "$INPUT_PATH" --theme "$THEME")
+
+        # Resolve the output path: explicit value, or the sibling .svg the CLI
+        # would derive from the input, so we can diff it afterwards.
+        if [ -n "$OUTPUT_PATH" ]; then
+          args+=(-o "$OUTPUT_PATH")
+          rendered="$OUTPUT_PATH"
+        else
+          rendered="${INPUT_PATH%.*}.svg"
+        fi
+
+        if [ -n "$MODE" ]; then
+          args+=(--mode "$MODE")
+        fi
+
+        if [ "$EMBED_FONT" = "true" ]; then
+          args+=(--embed-font)
+        else
+          args+=(--no-embed-font)
+        fi
+
+        # Split EXTRA_ARGS on whitespace (word-splitting is intentional here).
+        if [ -n "$EXTRA_ARGS" ]; then
+          # shellcheck disable=SC2206
+          extra=($EXTRA_ARGS)
+          args+=("${extra[@]}")
+        fi
+
+        nf-metro "${args[@]}"
+
+        echo "output-path=$rendered" >> "$GITHUB_OUTPUT"
+        if [ -z "$(git status --porcelain -- "$rendered" 2>/dev/null)" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi

@@ -108,7 +108,7 @@ git -C ~/projects/nf-metro worktree add /tmp/nf-metro-release-$NEW_VERSION \
 
 All subsequent edits happen inside `/tmp/nf-metro-release-$NEW_VERSION`.
 
-## Step 4: Bump the version in two places
+## Step 4: Bump the version
 
 **`pyproject.toml`** — the `version = "X.Y.Z"` line under `[project]`.
 
@@ -119,6 +119,31 @@ Verify both:
 ```bash
 grep '^version' /tmp/nf-metro-release-$NEW_VERSION/pyproject.toml
 grep '__version__' /tmp/nf-metro-release-$NEW_VERSION/src/nf_metro/__init__.py
+```
+
+### CI-integration version references
+
+The composite action, reusable workflow, and pre-commit hook ship from this
+repo, so they inherit the release tag automatically. But the *example* refs and
+the reusable workflow's `nf-metro-ref` default are pinned to the previous
+version and must be bumped to `$NEW_VERSION` so consumers copy the current one:
+
+```bash
+cd /tmp/nf-metro-release-$NEW_VERSION
+OLD_VERSION=${LAST_TAG}
+grep -rl "@${OLD_VERSION}\|rev: ${OLD_VERSION}\|nf-metro.*\"${OLD_VERSION}\"" \
+    docs/automation.mdx README.md .github/workflows/render-metro-map.yml
+# Replace the pinned refs (action `@X.Y.Z`, workflow `@X.Y.Z`, pre-commit
+# `rev: X.Y.Z`) and the workflow's `nf-metro-ref` default with $NEW_VERSION.
+```
+
+`action.yml` needs **no** edit — with an empty `version` input it reads the
+bumped `pyproject.toml` at runtime, so `@$NEW_VERSION` installs
+`nf-metro==$NEW_VERSION` automatically. After editing, confirm no stale refs
+remain:
+
+```bash
+grep -rn "${OLD_VERSION}" docs/automation.mdx README.md .github/workflows/render-metro-map.yml || echo "clean"
 ```
 
 ## Step 5: Draft the release page
@@ -202,6 +227,9 @@ cd /tmp/nf-metro-release-$NEW_VERSION
 
 git add pyproject.toml \
         src/nf_metro/__init__.py \
+        docs/automation.mdx \
+        README.md \
+        .github/workflows/render-metro-map.yml \
         docs/releases/$NEW_VERSION.md \
         docs/releases/index.md \
         mkdocs.yml
