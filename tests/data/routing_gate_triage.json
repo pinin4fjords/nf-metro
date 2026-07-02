@@ -635,10 +635,6 @@
     "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive.",
     "status": "defensive"
   },
-  "offsets.py::if graph.stations[peer_sid].is_hidden:::#1": {
-    "note": "For this arm to fire, the compaction BFS must arrive at a neighbor N whose same-layer peers include a hidden station (bypass-V or converge). Bypass-V stations get their layer from the predecessor P (P.layer+1), so a bypass-V at N.layer requires P at N.layer-1. But P must carry the bypassed line (not in the gap), while the gap seed must NOT carry that line. These constraints force P and the gap seed to be at the same layer (seed.layer = P.layer = N.layer-1) but connected through independent chains to N, a topologically exotic arrangement no standard mmd pattern produces. In all tested bypass+gap topologies, the bypass-V ends up co-layer with the gap seed, not with the BFS neighbor.",
-    "status": "defensive"
-  },
   "offsets.py::if internal_offs:::#1": {
     "note": "Exit ports are only created when inter-section edges exist (resolve.py `_create_port_stations` iterates `exit_group_edges` which is populated only from actual edges). Every TB LEFT/RIGHT exit port therefore has at least one edge from an internal station, so `internal_offs` is never empty when the loop is entered. The false arm is a defensive guard against an impossible empty-feeder state.",
     "status": "defensive"

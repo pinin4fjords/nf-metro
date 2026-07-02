@@ -46,6 +46,7 @@ from nf_metro.layout.ordering import assign_tracks
 from nf_metro.layout.phases._common import (
     _build_section_subgraph,
     iter_sole_trunk_continuations,
+    section_exit_lines,
 )
 from nf_metro.layout.phases.off_track import (
     _align_phantom_pass_throughs,
@@ -163,8 +164,24 @@ def _layout_single_section(
         for sec_id, _pred, node in iter_sole_trunk_continuations(graph)
         if sec_id == section.id
     )
+    # A terminal spur carries only lines that never leave the section, so its
+    # chain ends inside it.  The section subgraph cannot tell a spur from a
+    # through-line node -- it omits the exit-port edges -- so classify against
+    # the full-graph line set and the section's exit lines.
+    exit_lines = section_exit_lines(graph, section)
+    terminal_nodes = frozenset(
+        sid
+        for sid, st in sub.stations.items()
+        if not st.is_port
+        and (lines := set(graph.station_lines(sid)))
+        and not (lines & exit_lines)
+    )
     tracks = assign_tracks(
-        sub, layers, entry_top=entry_top, continuation_nodes=continuation_nodes
+        sub,
+        layers,
+        entry_top=entry_top,
+        continuation_nodes=continuation_nodes,
+        terminal_nodes=terminal_nodes,
     )
 
     if not layers:
