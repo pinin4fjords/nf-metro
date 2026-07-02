@@ -18,6 +18,7 @@ from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _content_station_ys,
+    _is_side_entered_vertical_section,
     _ref_y,
     _set_section_bbox_top,
 )
@@ -600,6 +601,11 @@ def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:
     """
     content_min_ys = _content_station_ys(graph, section)
     if not content_min_ys:
+        return False
+    # The side entry's approach occupies the band above the first station, and
+    # Stage 6.16 has not yet lifted the entry port off that station when this
+    # shrink runs at Stage 6.15a, so key off structure rather than the port Y.
+    if _is_side_entered_vertical_section(graph, section):
         return False
     topmost = min(content_min_ys)
     for sid in section.station_ids:

@@ -55,6 +55,8 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.phases._common import (
     _grow_section_bbox_upward,
+    _is_side_entered_vertical_section,
+    _row_contiguous_column_groups,
     flow_axis_exit_ports,
     flow_exit_carrier_anchor,
     iter_corridor_fed_solo_entries,
@@ -6463,6 +6465,43 @@ def test_section_bbox_top_hugs_content(fixture):
     assert not offenders, (
         f"{fixture}: section tops with an empty band must hug content to "
         f"section_y_padding with no leftover space: " + "; ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_side_entered_vertical_section_top_not_below_feeder_neighbour(fixture):
+    """A TB/BT section entered from a perpendicular side keeps its bbox top
+    no lower than the contiguous row-mate immediately to its left.
+
+    A vertical-flow section entered from a LEFT/RIGHT port routes that
+    entry's approach across the band above its first internal station, so
+    the band is never empty.  The content-hug shrink
+    (:func:`_section_band_is_empty`) must therefore not lower such a
+    section's bbox top below its feeder neighbour's, dropping the section
+    number badge beneath the row-mate that flows into it.
+    """
+    graph = _layout(fixture)
+    tol = 1.0
+
+    offenders: list[str] = []
+    for group in _row_contiguous_column_groups(graph):
+        for section in group:
+            if not _is_side_entered_vertical_section(graph, section):
+                continue
+            left = [s for s in group if s.grid_col < section.grid_col]
+            if not left:
+                continue
+            neighbour = max(left, key=lambda s: s.grid_col)
+            if section.bbox_y - neighbour.bbox_y > tol:
+                offenders.append(
+                    f"section {section.id!r}: bbox_y={section.bbox_y:.1f} "
+                    f"drops {section.bbox_y - neighbour.bbox_y:.1f} below its "
+                    f"feeder neighbour {neighbour.id!r} top {neighbour.bbox_y:.1f}"
+                )
+
+    assert not offenders, (
+        f"{fixture}: side-entered vertical-flow sections must not drop below "
+        f"their feeder row-mate's bbox top: " + "; ".join(offenders)
     )
 
 

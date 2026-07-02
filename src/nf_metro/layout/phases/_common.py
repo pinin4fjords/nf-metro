@@ -838,6 +838,23 @@ def _row_contiguous_column_groups(
     return result
 
 
+def _is_side_entered_vertical_section(graph: MetroGraph, section: Section) -> bool:
+    """Whether *section* is a vertical-flow (TB/BT) section entered from a
+    perpendicular side.
+
+    Such a section routes its entry approach across the band above its first
+    internal station, so that band is never empty even before the entry port's
+    Y settles.
+    """
+    if lanes_run_along_y(section.direction):
+        return False
+    return any(
+        (port := graph.ports.get(pid)) is not None
+        and port.side in (PortSide.LEFT, PortSide.RIGHT)
+        for pid in section.entry_ports
+    )
+
+
 def _section_lr_port_anchor_y(graph: MetroGraph, section: Section) -> float | None:
     """The section's frozen trunk anchor: its LR/RL entry port Y, or the
     exit port Y when there is no LR/RL entry port.
