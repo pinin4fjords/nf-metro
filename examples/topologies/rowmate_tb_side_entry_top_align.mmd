@@ -2,8 +2,6 @@
 %%metro style: light
 %%metro diamond_style: symmetric
 %%metro file: fastq_in | FASTQ
-%%metro file: report_final | HTML
-%%metro file: report_quant | HTML
 %%metro file: report_bowtie2 | HTML
 %%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
 %%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
@@ -89,15 +87,9 @@ graph LR
         salmon_pseudo[Salmon]
         kallisto[Kallisto]
         tximport_pa[tximport]
-        summarized_exp_pa[Sum. Exp.]
-        multiqc_quant[MultiQC]
-        report_quant[ ]
 
         salmon_pseudo -->|pseudo_salmon| tximport_pa
         kallisto -->|pseudo_kallisto| tximport_pa
-        tximport_pa -->|pseudo_salmon,pseudo_kallisto| summarized_exp_pa
-        summarized_exp_pa -->|pseudo_salmon,pseudo_kallisto| multiqc_quant
-        multiqc_quant -->|pseudo_salmon,pseudo_kallisto| report_quant
     end
 
     subgraph postprocessing [Post-processing]
@@ -114,31 +106,6 @@ graph LR
         bedgraph -->|star_salmon,star_rsem,hisat2| stringtie
     end
 
-    subgraph qc_report [Quality control & reporting]
-        %%metro direction: RL
-        %%metro entry: top | star_salmon, star_rsem, hisat2
-        rseqc[RSeQC]
-        preseq[Preseq]
-        qualimap[Qualimap]
-        dupradar[dupRadar]
-        featurecounts[featureCounts]
-        deseq2_pca[DESeq2 PCA]
-        kraken2[Kraken2/Bracken]
-        sylph[Sylph]
-        multiqc_final[MultiQC]
-        report_final[ ]
-
-        rseqc -->|star_salmon,star_rsem,hisat2| preseq
-        preseq -->|star_salmon,star_rsem,hisat2| qualimap
-        qualimap -->|star_salmon,star_rsem,hisat2| dupradar
-        dupradar -->|star_salmon,star_rsem,hisat2| featurecounts
-        featurecounts -->|star_salmon,star_rsem,hisat2| deseq2_pca
-        deseq2_pca -->|star_salmon,star_rsem,hisat2| kraken2
-        deseq2_pca -->|star_salmon,star_rsem,hisat2| sylph
-        kraken2 -->|star_salmon,star_rsem,hisat2| multiqc_final
-        sylph -->|star_salmon,star_rsem,hisat2| multiqc_final
-        multiqc_final -->|star_salmon,star_rsem,hisat2| report_final
-    end
 
     %% Inter-section edges
     infer_strandedness -->|star_salmon,star_rsem| star
@@ -148,4 +115,3 @@ graph LR
     infer_strandedness -->|pseudo_kallisto| kallisto
     summarized_exp_ga -->|star_salmon,star_rsem| picard
     _h3 -->|hisat2| picard
-    stringtie -->|star_salmon,star_rsem,hisat2| rseqc
