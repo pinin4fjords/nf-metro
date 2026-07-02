@@ -259,6 +259,35 @@ Applied after accounting for SECTION_HEADER_PROTRUSION, so the actual
 bbox-to-bbox distance will be MIN_INTER_SECTION_ROW_GAP + protrusion.
 """
 
+TITLE_BAND_BOTTOM: float = 36.0
+"""Lowest y a map title's glyphs reach, measured from the canvas top.
+
+The title baseline sits at render's ``TITLE_Y_OFFSET`` (30) and the largest
+title font across themes is ~26px, whose descenders drop ~6px below the
+baseline.  Mirrors render geometry the way ``SECTION_HEADER_PROTRUSION``
+does; layout has no theme, so it reserves against the tallest title.
+"""
+
+TITLE_BAND_GAP: float = 8.0
+"""Visual gap between the title's lowest glyph and the header badge top.
+
+Kept small so :data:`TITLE_BAND_CLEARANCE` lands on the first box-top grid
+slot above the title (``bbox_y = station_y - SECTION_Y_PADDING`` puts default
+tops on the 30/70/110 ladder); a wider gap would push the clearance past the
+70 slot, forcing the grid snap a full pitch up and over-padding simple maps.
+"""
+
+TITLE_BAND_CLEARANCE: float = (
+    TITLE_BAND_BOTTOM + TITLE_BAND_GAP + SECTION_HEADER_PROTRUSION
+)
+"""Minimum ``bbox_y`` for the topmost section when a map title is present.
+
+The section header badge protrudes ``SECTION_HEADER_PROTRUSION`` above its
+box top, so a top edge at this clearance keeps the header a ``TITLE_BAND_GAP``
+band below the title's lowest glyph instead of level with it.  Untitled maps
+keep the tighter ``SECTION_Y_PADDING`` top.
+"""
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from nf_metro.layout.phases.bbox import _min_section_bbox_top
+from nf_metro.layout.constants import TITLE_BAND_CLEARANCE
+from nf_metro.layout.phases.bbox import (
+    _min_drawn_section_bbox_top,
+    _min_section_bbox_top,
+)
 from nf_metro.parser.model import MetroGraph, Section
 
 
@@ -111,13 +115,33 @@ def _translate_graph_y(graph: MetroGraph, shift: float) -> None:
         port.y += shift
 
 
+def _canvas_top_deficit(
+    graph: MetroGraph, section_y_padding: float, shift: float = 0.0
+) -> float:
+    """How far below its required top the graph would sit after ``shift``.
+
+    Two constraints bound the top: every section must clear
+    ``section_y_padding`` from the canvas top (containment), and -- when the
+    map is titled -- every *drawn* section must clear ``TITLE_BAND_CLEARANCE``
+    so its header badge sits below the title rather than level with it
+    (implicit holders draw no badge and are exempt).  Returns the larger
+    violation, or a non-positive value when both are satisfied.
+    """
+    min_all = _min_section_bbox_top(graph, section_y_padding)
+    deficit = section_y_padding - (min_all + shift)
+    if graph.title:
+        min_drawn = _min_drawn_section_bbox_top(graph)
+        if min_drawn is not None:
+            deficit = max(deficit, TITLE_BAND_CLEARANCE - (min_drawn + shift))
+    return deficit
+
+
 def _shift_graph_into_canvas(graph: MetroGraph, section_y_padding: float) -> None:
     """Shift the whole graph down if the topmost section is above the canvas.
 
-    Keeps the topmost section's ``section_y_padding`` margin from the
-    canvas edge.  No-op when all sections already sit inside.
+    Keeps the topmost section's required margin (``_canvas_top_deficit``) from
+    the canvas edge.  No-op when the graph already sits below it.
     """
-    min_top = _min_section_bbox_top(graph, section_y_padding)
-    if min_top >= section_y_padding:
-        return
-    _translate_graph_y(graph, section_y_padding - min_top)
+    deficit = _canvas_top_deficit(graph, section_y_padding)
+    if deficit > 0:
+        _translate_graph_y(graph, deficit)
