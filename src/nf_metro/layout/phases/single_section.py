@@ -46,6 +46,7 @@ from nf_metro.layout.ordering import assign_tracks
 from nf_metro.layout.phases._common import (
     _build_section_subgraph,
     iter_sole_trunk_continuations,
+    section_exit_lines,
 )
 from nf_metro.layout.phases.off_track import (
     _align_phantom_pass_throughs,
@@ -163,16 +164,11 @@ def _layout_single_section(
         for sec_id, _pred, node in iter_sole_trunk_continuations(graph)
         if sec_id == section.id
     )
-    # Lines that leave the section (from exit-port directives and the routed
-    # exit-port edges).  A node carrying only non-exiting lines is a terminal
-    # spur -- its chain ends inside the section -- which the subgraph alone
-    # cannot tell from a through-line node, since it omits the exit-port edges.
-    exit_lines: set[str] = set()
-    for _side, line_ids in section.exit_hints:
-        exit_lines.update(line_ids)
-    for exit_port_id in section.exit_ports:
-        for edge in graph.edges_from(exit_port_id):
-            exit_lines.add(edge.line_id)
+    # A terminal spur carries only lines that never leave the section, so its
+    # chain ends inside it.  The section subgraph cannot tell a spur from a
+    # through-line node -- it omits the exit-port edges -- so classify against
+    # the full-graph line set and the section's exit lines.
+    exit_lines = section_exit_lines(graph, section)
     terminal_nodes = frozenset(
         sid
         for sid, st in sub.stations.items()
