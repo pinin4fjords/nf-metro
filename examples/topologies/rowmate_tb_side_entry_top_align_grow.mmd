@@ -1,0 +1,47 @@
+%%metro title: TB side-entry row-mate top alignment
+%%metro line: sa | STAR / Salmon | #2db572
+%%metro line: sr | STAR / RSEM | #0570b0
+%%metro line: hs | HISAT2 | #f5c542
+%%metro line: bt | Bowtie2 (terminates) | #ff8c00
+%%metro grid: source | 0,0
+%%metro grid: align | 1,0
+%%metro grid: post | 2,0
+
+graph LR
+    subgraph source [Pre-processing]
+        %%metro exit: right | sa, sr, hs, bt
+        infer[Infer Strand.]
+    end
+    subgraph align [Alignment & quantification]
+        %%metro entry: left | sa, sr, hs, bt
+        %%metro exit: right | sa, sr, hs
+        star[STAR]
+        hisat[HISAT2]
+        bowtie[Bowtie2]
+        dedup[Dedup]
+        rsem[RSEM]
+        salmon[Salmon]
+        sumexp[Sum. Exp.]
+        star -->|sa,sr| dedup
+        hisat -->|hs| dedup
+        bowtie -->|bt| dedup
+        dedup -->|sr| rsem
+        dedup -->|sa,bt| salmon
+        dedup -->|hs| sumexp
+        rsem -->|sr| sumexp
+        salmon -->|sa,bt| sumexp
+    end
+    subgraph post [Post-processing]
+        %%metro direction: TB
+        %%metro entry: left | sa, sr, hs
+        %%metro exit: bottom | sa, sr, hs
+        picard[Picard]
+        bedtools[BEDTools]
+        bigwig[bigWig]
+        stringtie[StringTie]
+        picard -->|sa,sr,hs| bedtools
+        bedtools -->|sa,sr,hs| bigwig
+        bigwig -->|sa,sr,hs| stringtie
+    end
+    infer -->|sa,sr,hs,bt| star
+    sumexp -->|sa,sr,hs| picard

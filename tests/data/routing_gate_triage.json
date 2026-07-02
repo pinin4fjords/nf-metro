@@ -815,10 +815,6 @@
     "note": "The skip-this-block arm fires only when multi_diag is True, which is structurally unsatisfiable (see the _classify_centering_routes gate). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
-  "postprocess.py::if not other or other.is_port or other.is_hidden:::#1": {
-    "note": "Companion scan in _apply_station_moves iterates original_x, which holds only non-port stations, so `other` is never None and never a port (both operands unreachable); `other.is_hidden` is a coincidence guard skipping a hidden station that happens to share a moving station's column, which no corpus topology produces.",
-    "status": "defensive"
-  },
   "postprocess.py::if not outliers:::#1": {
     "note": "The no-outliers arm in the movers-disagree branch. Disagreement only arises from hub/exit-port collinearity at a >=20px quantum, never sub-pixel, so whenever spread exceeds 1px at least one mover rounds >1px from the majority x. outliers is never empty here. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"

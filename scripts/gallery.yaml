@@ -190,6 +190,15 @@ gallery:
       approach occupies the band above the section's first station, so the
       content-hug shrink must not drop the section's box top below its feeder
       row-mate, floating its number badge beneath the rest of the grid row."
+  - id: rowmate_tb_side_entry_top_align_grow
+    source_dir: examples/topologies
+    category: Realistic Pipelines
+    description:
+      "A row-0 TB Post-processing section entered from the left sits beside a
+      tall fan section whose box top grows upward to fit a branch above its
+      trunk. Regression fixture: when the feeder row-mate's top grows, the
+      side-entered vertical section must follow it up rather than hugging its
+      low content, keeping its number badge level with the rest of the grid row."
   - id: seqinspector
     source_dir: examples/showcase
     category: Realistic Pipelines
