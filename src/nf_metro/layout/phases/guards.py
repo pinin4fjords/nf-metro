@@ -38,8 +38,10 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
+    _is_side_entered_vertical_section,
     _restoring_layout_geometry,
     _route_crosses_section_boundary,
+    _row_contiguous_column_groups,
     _section_bundle_lines,
     _section_lr_port_anchor_y,
     _station_marker_bbox,
@@ -616,6 +618,35 @@ def _guard_tb_top_entry_drop_hugs_top(graph: MetroGraph, phase: str) -> None:
             f"its box top despite a clean vertical TOP-entry drop "
             f"(expected <= {SECTION_Y_PADDING:.1f})"
         )
+
+
+def _guard_side_entered_vertical_top_not_below_feeder(
+    graph: MetroGraph, phase: str
+) -> None:
+    """Final: a TB/BT section entered from a perpendicular side keeps its bbox
+    top no lower than the contiguous row-mate immediately to its left.
+
+    The side entry's approach runs across the band above the section's first
+    internal station, so the content-hug shrink must not lower the top below
+    the feeder row-mate that flows into it (which would drop the section badge
+    beneath the rest of its grid row).
+    """
+    tol = SAME_COORD_TOLERANCE
+    for group in _row_contiguous_column_groups(graph):
+        for section in group:
+            if not _is_side_entered_vertical_section(graph, section):
+                continue
+            left = [s for s in group if s.grid_col < section.grid_col]
+            if not left:
+                continue
+            neighbour = max(left, key=lambda s: s.grid_col)
+            if section.bbox_y - neighbour.bbox_y > tol:
+                raise PhaseInvariantError(
+                    f"{phase}: side-entered vertical section {section.id!r} "
+                    f"bbox top y={section.bbox_y:.1f} drops "
+                    f"{section.bbox_y - neighbour.bbox_y:.1f}px below its feeder "
+                    f"row-mate {neighbour.id!r} (top y={neighbour.bbox_y:.1f})"
+                )
 
 
 def _guard_symmetric_diamond_branches_straddle_trunk(
@@ -4946,6 +4977,7 @@ INLINE_GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "than the spread-widened y_spacing."
         ),
     ),
+    GuardSpec(_guard_side_entered_vertical_top_not_below_feeder, "B"),
     GuardSpec(_guard_symmetric_diamond_branches_straddle_trunk, "B"),
     GuardSpec(_guard_symmetric_diamond_branches_half_pitch, "B"),
     GuardSpec(_guard_tall_anchor_stack_well_formed, "B"),
