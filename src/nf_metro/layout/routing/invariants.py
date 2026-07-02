@@ -1052,20 +1052,36 @@ def check_merge_port_outgoing_side_preserved(
 
 @dataclass(frozen=True)
 class ExitBundleOrderViolation:
-    """An LR/RL exit port that re-orders a bundle relative to the single
-    entry bundle feeding the section, kinking a straight-through line.
+    """An LR/RL exit port whose bundle disagrees with the single entry
+    bundle feeding the section, kinking a straight-through line.
 
     ``entry_order`` / ``exit_order`` are the shared lines sorted by their
-    per-line offset at each port.
+    per-line offset at each port. ``gap`` is set instead of ``exit_order``
+    when the shared lines keep the entry's relative order but the exit port
+    reserves an offset slot for a line that terminates inside the section
+    without reaching this port.
     """
 
     section_id: str
     entry_port: str
     exit_port: str
     entry_order: tuple[str, ...]
-    exit_order: tuple[str, ...]
+    exit_order: tuple[str, ...] | None = None
+    gap: float | None = None
+
+    def __post_init__(self) -> None:
+        if (self.exit_order is None) == (self.gap is None):
+            raise ValueError("exactly one of exit_order or gap must be set")
 
     def message(self) -> str:
+        if self.gap is not None:
+            return (
+                f"section {self.section_id!r}: exit port {self.exit_port!r} "
+                f"leaves a {self.gap:.1f}px gap in its bundle inherited from "
+                f"entry {self.entry_port!r} (order {self.entry_order}); a "
+                "line that terminates inside the section reserves a slot at "
+                "the exit it never reaches"
+            )
         return (
             f"section {self.section_id!r}: exit port {self.exit_port!r} "
             f"re-orders the bundle from its single entry {self.entry_port!r} "
@@ -1078,13 +1094,15 @@ def check_exit_inherits_entry_bundle_order(
     graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
     offsets: dict[tuple[str, str], float],
 ) -> list[ExitBundleOrderViolation]:
-    """Return LR/RL exit ports that re-order a single incoming bundle.
+    """Return LR/RL exit ports that re-order or gap a single incoming bundle.
 
     When a left/right section has exactly one entry port whose lines are a
     superset of an exit port's lines, that entry bundle establishes the
     order; the exit port must keep the shared lines in the same relative
-    vertical order, so a line travelling straight through keeps its slot.
-    TB sections are exempt: their exit reverses offsets for concentric arcs.
+    vertical order, on contiguous offset slots, so a line travelling
+    straight through keeps its slot and no slot is left reserved for a line
+    that terminates inside the section without reaching this port. TB
+    sections are exempt: their exit reverses offsets for concentric arcs.
     """
 
     def _order(port_id: str, lines: set[str]) -> tuple[str, ...]:
@@ -1120,6 +1138,21 @@ def check_exit_inherits_entry_bundle_order(
                     exit_order=exit_order,
                 )
             )
+            continue
+        levels = distinct_offset_levels(
+            offsets.get((port_id, lid), 0.0) for lid in exit_lines
+        )
+        gap = max_interior_offset_gap(levels)
+        if gap is not None:
+            violations.append(
+                ExitBundleOrderViolation(
+                    section_id=section.id,
+                    entry_port=entry_id,
+                    exit_port=port_id,
+                    entry_order=entry_order,
+                    gap=gap,
+                )
+            )
     return violations
 
 
@@ -1139,6 +1172,24 @@ def distinct_offset_levels(values: Iterable[float]) -> list[float]:
         if not levels or v - levels[-1] > COORD_TOLERANCE_FINE:
             levels.append(v)
     return levels
+
+
+def max_interior_offset_gap(
+    levels: Sequence[float], offset_step: float = OFFSET_STEP
+) -> float | None:
+    """Return the widest gap between adjacent *levels* over one bundle slot.
+
+    Distinct occupied levels are expected one ``offset_step`` apart; a wider
+    gap means a slot is reserved for a line that carries no station there
+    (e.g. one absent from a partial branch, or terminating before a shared
+    exit port). Returns ``None`` when every gap is at most one slot wide.
+    """
+    gaps = [
+        levels[i + 1] - levels[i]
+        for i in range(len(levels) - 1)
+        if levels[i + 1] - levels[i] > offset_step + COORD_TOLERANCE_FINE
+    ]
+    return max(gaps) if gaps else None
 
 
 def is_independent_fan_branch(graph: MetroGraph, station_id: str) -> bool:
@@ -1603,14 +1654,7 @@ def check_partial_branch_offset_gaps(
             (offsets.get((sid, lid), 0.0), lid) for lid in graph.station_lines(sid)
         )
         levels = distinct_offset_levels(off for off, _ in sorted_offs)
-        # A reserved absent-line slot is an interior gap between two
-        # distinct occupied levels wider than one step.  Lines that share
-        # a level (coincident) collapse to one level and never trip this.
-        has_gap = any(
-            levels[i + 1] - levels[i] > offset_step + COORD_TOLERANCE_FINE
-            for i in range(len(levels) - 1)
-        )
-        if has_gap:
+        if max_interior_offset_gap(levels, offset_step) is not None:
             violations.append(
                 PartialBranchGapViolation(
                     station_id=sid,

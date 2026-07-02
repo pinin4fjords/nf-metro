@@ -957,6 +957,22 @@ def _section_bundle_lines(graph: MetroGraph, section: Section) -> set[str]:
     return bundle
 
 
+def section_exit_lines(graph: MetroGraph, section: Section) -> set[str]:
+    """Return the line IDs that leave a section.
+
+    Combines the exit-port directives with the lines on the routed edges out
+    of the section's exit ports. A station whose lines are disjoint from this
+    set has no forward path out of the section (a terminal spur).
+    """
+    exit_lines: set[str] = set()
+    for _side, line_ids in section.exit_hints:
+        exit_lines.update(line_ids)
+    for pid in section.exit_ports:
+        for edge in graph.edges_from(pid):
+            exit_lines.add(edge.line_id)
+    return exit_lines
+
+
 def _fan_offsets(n: int) -> list[int]:
     """Symmetric vertical slot offsets for ``n`` stations fanned about a
     trunk Y: even ``n`` leaves the trunk row empty (-n//2..-1, 1..n//2),
