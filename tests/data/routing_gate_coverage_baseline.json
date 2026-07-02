@@ -296,7 +296,6 @@
   "postprocess.py::if multi_diag:::#2",
   "postprocess.py::if not is_fork_join and (::#1",
   "postprocess.py::if not multi_diag:::#1",
-  "postprocess.py::if not other or other.is_port or other.is_hidden:::#1",
   "postprocess.py::if not outliers:::#1",
   "postprocess.py::if ox is None:::#1",
   "rail.py::if conn is not None:::#1",

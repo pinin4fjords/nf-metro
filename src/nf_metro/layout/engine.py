@@ -90,6 +90,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     _shrink_bboxes_to_content_bottom,
     _snapshot_struct_heights_below_top,
     _tighten_lower_rows_after_shrink,
+    _top_align_side_entered_vertical_to_feeder,
 )
 from nf_metro.layout.phases.canvas import (  # noqa: F401
     _renumber_sections_by_grid,
@@ -1795,6 +1796,9 @@ def _finalize_layout(
     # re-fit's non-grid shift is then cleaned up by the Stage 6.15
     # canvas snap below.
     _fit_bboxes_to_content_top(graph, section_y_padding, section_y_gap)
+    # Follows the grow above: a side-entered vertical section beside a
+    # row-mate whose top just grew is lifted to that feeder.
+    _top_align_side_entered_vertical_to_feeder(graph)
     _distribute_stacked_rows_in_rowspan_band(graph)
     _shift_graph_into_canvas(graph, section_y_padding)
     # Must precede the structural snapshot: the extent counts the exit port and

@@ -855,6 +855,24 @@ def _is_side_entered_vertical_section(graph: MetroGraph, section: Section) -> bo
     )
 
 
+def _side_entered_vertical_feeder_pairs(
+    graph: MetroGraph,
+) -> Iterator[tuple[Section, Section]]:
+    """Yield each side-entered vertical section with its feeder row-mate.
+
+    The feeder is the nearest contiguous row-mate to the section's left.  The
+    Stage 6.15a top-align and its guard both iterate these pairs, so the
+    enforcer and its check read the same section-to-feeder relation.
+    """
+    for group in _row_contiguous_column_groups(graph):
+        for section in group:
+            if not _is_side_entered_vertical_section(graph, section):
+                continue
+            left = [s for s in group if s.grid_col < section.grid_col]
+            if left:
+                yield section, max(left, key=lambda s: s.grid_col)
+
+
 def _section_lr_port_anchor_y(graph: MetroGraph, section: Section) -> float | None:
     """The section's frozen trunk anchor: its LR/RL entry port Y, or the
     exit port Y when there is no LR/RL entry port.

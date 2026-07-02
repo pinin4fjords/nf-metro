@@ -18,9 +18,11 @@ from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _content_station_ys,
+    _grow_section_bbox_upward,
     _is_side_entered_vertical_section,
     _ref_y,
     _set_section_bbox_top,
+    _side_entered_vertical_feeder_pairs,
 )
 from nf_metro.layout.phases.single_section import (
     _terminus_y_overhang,
@@ -659,6 +661,25 @@ def _fit_bboxes_to_content_top(
             and _section_band_is_empty(graph, section)
         ):
             _set_section_bbox_top(graph, section, hug)
+
+
+def _top_align_side_entered_vertical_to_feeder(graph: MetroGraph) -> None:
+    """Grow a side-entered vertical section's bbox top up to its feeder
+    row-mate's top.
+
+    When a horizontal-flow row-mate grows its top to fit a branch fanned
+    above its trunk (:func:`_fit_bboxes_to_content_top`), a side-entered
+    vertical (TB/BT) section beside it keeps its content-hugged top, dropping
+    its number badge below the rest of the grid row.  The band above such a
+    section's first station carries the perpendicular entry approach, so
+    growing the top upward (stations stay put) re-levels the badge without
+    disturbing routing.  Growth is upward only, so a section already at or
+    above its feeder is untouched, and empty-band sections with no side entry
+    keep their content-hug.
+    """
+    for section, neighbour in _side_entered_vertical_feeder_pairs(graph):
+        if section.bbox_y - neighbour.bbox_y > SAME_COORD_TOLERANCE:
+            _grow_section_bbox_upward(graph, section, neighbour.bbox_y)
 
 
 def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) -> None:
