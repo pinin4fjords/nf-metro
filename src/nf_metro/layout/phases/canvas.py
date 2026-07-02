@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from nf_metro.layout.constants import TITLE_BAND_CLEARANCE
+from nf_metro.layout.constants import (
+    TITLE_BAND_CLEARANCE,
+    TITLE_BAND_OVERLAP_FLOOR,
+)
 from nf_metro.layout.phases.bbox import (
     _min_drawn_section_bbox_top,
     _min_section_bbox_top,
@@ -115,33 +118,53 @@ def _translate_graph_y(graph: MetroGraph, shift: float) -> None:
         port.y += shift
 
 
-def _canvas_top_deficit(
-    graph: MetroGraph, section_y_padding: float, shift: float = 0.0
-) -> float:
-    """How far below its required top the graph would sit after ``shift``.
+def _canvas_top_shortfall(graph: MetroGraph, section_y_padding: float) -> float:
+    """Downward shift needed so the graph clears both top floors (0 if none).
 
-    Two constraints bound the top: every section must clear
-    ``section_y_padding`` from the canvas top (containment), and -- when the
-    map is titled -- every *drawn* section must clear ``TITLE_BAND_CLEARANCE``
-    so its header badge sits below the title rather than level with it
-    (implicit holders draw no badge and are exempt).  Returns the larger
-    violation, or a non-positive value when both are satisfied.
+    Containment: every section must sit ``section_y_padding`` below the canvas
+    top.  Title: when the map is titled, a *drawn* section whose header badge
+    overlaps the title band (box top above ``TITLE_BAND_OVERLAP_FLOOR``) is
+    lifted clear to ``TITLE_BAND_CLEARANCE`` -- a map already clearing the
+    title, and implicit holders (which draw no badge), are left untouched.
     """
     min_all = _min_section_bbox_top(graph, section_y_padding)
-    deficit = section_y_padding - (min_all + shift)
+    shortfall = max(0.0, section_y_padding - min_all)
     if graph.title:
         min_drawn = _min_drawn_section_bbox_top(graph)
-        if min_drawn is not None:
-            deficit = max(deficit, TITLE_BAND_CLEARANCE - (min_drawn + shift))
-    return deficit
+        if min_drawn is not None and min_drawn < TITLE_BAND_OVERLAP_FLOOR:
+            shortfall = max(shortfall, TITLE_BAND_CLEARANCE - min_drawn)
+    return shortfall
+
+
+def _canvas_top_preserved(
+    graph: MetroGraph, section_y_padding: float, shift: float
+) -> bool:
+    """True if ``shift`` keeps every section within its top floor.
+
+    The containment floor (``section_y_padding``) bounds all sections; the
+    no-overlap floor (``TITLE_BAND_OVERLAP_FLOOR``) bounds drawn sections on a
+    titled map.  Lets the grid snap reject a candidate that would lift the top
+    above a floor.
+    """
+    min_all = _min_section_bbox_top(graph, section_y_padding)
+    if min_all + shift < section_y_padding - 1e-6:
+        return False
+    if graph.title:
+        min_drawn = _min_drawn_section_bbox_top(graph)
+        if (
+            min_drawn is not None
+            and min_drawn + shift < TITLE_BAND_OVERLAP_FLOOR - 1e-6
+        ):
+            return False
+    return True
 
 
 def _shift_graph_into_canvas(graph: MetroGraph, section_y_padding: float) -> None:
     """Shift the whole graph down if the topmost section is above the canvas.
 
-    Keeps the topmost section's required margin (``_canvas_top_deficit``) from
-    the canvas edge.  No-op when the graph already sits below it.
+    Lifts the graph by ``_canvas_top_shortfall`` so it clears the canvas-top
+    margin and, on a titled map, the title band.  No-op when it already does.
     """
-    deficit = _canvas_top_deficit(graph, section_y_padding)
-    if deficit > 0:
-        _translate_graph_y(graph, deficit)
+    shortfall = _canvas_top_shortfall(graph, section_y_padding)
+    if shortfall > 0:
+        _translate_graph_y(graph, shortfall)

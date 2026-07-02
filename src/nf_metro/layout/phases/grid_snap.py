@@ -9,7 +9,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.phase_state import require_phase_field
-from nf_metro.layout.phases.canvas import _canvas_top_deficit, _translate_graph_y
+from nf_metro.layout.phases.canvas import _canvas_top_preserved, _translate_graph_y
 from nf_metro.layout.phases.fan_bundles import _convergence_source_ys
 from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.parser.model import MetroGraph, PortSide
@@ -258,9 +258,9 @@ def _snap_canvas_y_to_grid(
     shift_down = -mode_residue
     shift_up = y_spacing - mode_residue
     candidates: list[float] = []
-    if _canvas_top_deficit(graph, section_y_padding, shift_down) <= 1e-6:
+    if _canvas_top_preserved(graph, section_y_padding, shift_down):
         candidates.append(shift_down)
-    if _canvas_top_deficit(graph, section_y_padding, shift_up) <= 1e-6:
+    if _canvas_top_preserved(graph, section_y_padding, shift_up):
         candidates.append(shift_up)
     if not candidates:
         # Neither preserves the margin; pick the up-shift since

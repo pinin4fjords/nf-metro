@@ -37,7 +37,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
     TITLE_BAND_BOTTOM,
-    TITLE_BAND_CLEARANCE,
+    TITLE_BAND_OVERLAP_FLOOR,
     X_SPACING,
     resolve_offset_step,
 )
@@ -1429,30 +1429,22 @@ _TITLED_FIXTURES = _fixtures_with(lambda t: "%%metro title:" in t)
 
 
 @pytest.mark.parametrize("fixture", _TITLED_FIXTURES)
-def test_titled_map_topmost_section_clears_title_band(fixture):
-    """A titled map's topmost section box top must clear the title band.
+def test_titled_map_header_does_not_overlap_title(fixture):
+    """A titled map's topmost drawn header must not overlap the title band.
 
-    The map title is drawn in the canvas-top padding; the section header
-    badge protrudes ``SECTION_HEADER_PROTRUSION`` above its box top.  The
-    topmost box top must therefore sit at least ``TITLE_BAND_CLEARANCE``
-    below the canvas top so the header lands a clear gap below the title
-    rather than level with it.
+    The map title is drawn in the canvas-top padding; the section header badge
+    protrudes ``SECTION_HEADER_PROTRUSION`` above its box top.  The header top
+    must therefore land at or below the title's lowest glyph
+    (``TITLE_BAND_BOTTOM``) rather than level with the title.
     """
     graph = _layout(fixture)
     top = _min_drawn_section_bbox_top(graph)
     if top is None:
         pytest.skip("no drawn sections")
-    limit = max(SECTION_Y_PADDING, TITLE_BAND_CLEARANCE) - GUARD_TOLERANCE
-    assert top >= limit, (
-        f"{fixture}: topmost section box top y={top:.1f} < title-band "
-        f"clearance {limit:.1f}; header badge (protruding "
-        f"{SECTION_HEADER_PROTRUSION:.0f}px) would crowd the title"
-    )
-    # The header top sits below the title's lowest glyph.
     header_top = top - SECTION_HEADER_PROTRUSION
     assert header_top >= TITLE_BAND_BOTTOM - GUARD_TOLERANCE, (
-        f"{fixture}: header top y={header_top:.1f} rises above the title "
-        f"band bottom {TITLE_BAND_BOTTOM:.1f}"
+        f"{fixture}: header top y={header_top:.1f} rises above the title band "
+        f"bottom {TITLE_BAND_BOTTOM:.1f}; box top y={top:.1f}"
     )
 
 
@@ -1465,14 +1457,13 @@ _TITLE_TOGGLE_FIXTURES = [
 
 
 @pytest.mark.parametrize("fixture", _TITLE_TOGGLE_FIXTURES)
-def test_title_presence_is_sole_cause_of_top_clearance(fixture):
-    """The title is the only cause of the extra top clearance.
+def test_title_only_moves_a_map_whose_header_would_overlap(fixture):
+    """A title moves the top only when the header would otherwise overlap it.
 
-    Laying the same graph out with and without a title never raises the
-    topmost box top with a title present, and a titled map always clears
-    ``TITLE_BAND_CLEARANCE``.  Where the untitled layout already sits below
-    that band the title is a no-op; where it hugs ``SECTION_Y_PADDING`` the
-    title pushes it down to the clearance.
+    Laying the same graph out with and without a title: the title never lifts
+    the top upward, only clears an overlap.  A layout already clearing the
+    title band (untitled top at or below ``TITLE_BAND_OVERLAP_FLOOR``) is left
+    byte-for-byte where it was; one that would overlap is pushed down clear.
     """
     text = _fixture_text(fixture)
 
@@ -1488,15 +1479,12 @@ def test_title_presence_is_sole_cause_of_top_clearance(fixture):
     untitled_top = _min_drawn_section_bbox_top(untitled)
 
     assert titled_top is not None and untitled_top is not None
-    assert titled_top >= TITLE_BAND_CLEARANCE - GUARD_TOLERANCE
     assert titled_top >= untitled_top - GUARD_TOLERANCE
-    if untitled_top < TITLE_BAND_CLEARANCE - GUARD_TOLERANCE:
-        # A crowding case: the title lifts the top to exactly the clearance.
-        assert untitled_top == pytest.approx(SECTION_Y_PADDING, abs=GUARD_TOLERANCE)
-        assert titled_top == pytest.approx(TITLE_BAND_CLEARANCE, abs=GUARD_TOLERANCE)
-    else:
-        # Already clear of the band: the title changes nothing.
+    assert titled_top >= TITLE_BAND_OVERLAP_FLOOR - GUARD_TOLERANCE
+    if untitled_top >= TITLE_BAND_OVERLAP_FLOOR - GUARD_TOLERANCE:
         assert titled_top == pytest.approx(untitled_top, abs=GUARD_TOLERANCE)
+    else:
+        assert titled_top > untitled_top + GUARD_TOLERANCE
 
 
 @pytest.mark.parametrize("fixture", ALL_FIXTURES)
