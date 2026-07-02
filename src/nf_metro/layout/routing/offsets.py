@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -1131,6 +1131,19 @@ def _tb_exit_port_offset(
     return max_int - column_off if right_exit else column_off
 
 
+def _rerank_contiguous(
+    ctx: _OffsetCtx, lines: Iterable[str], values: dict[str, float]
+) -> dict[str, float]:
+    """Re-rank *lines* onto contiguous ``offset_step``-spaced slots by *values*.
+
+    Ties broken by line priority. Collapses a bundle whose incoming values
+    carry gaps (an absent line's reserved slot, or distinct feeders that
+    land on the same value) onto adjacent slots.
+    """
+    order = sorted(lines, key=lambda lid: (values[lid], ctx.line_priority.get(lid, 0)))
+    return {lid: i * ctx.offset_step for i, lid in enumerate(order)}
+
+
 def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
     """Compute exit port offsets for TB and LR/RL sections.
 
@@ -1177,11 +1190,7 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
             # one exit slot.  Re-rank the port onto distinct slots in the same
             # order so the converging lines stack instead of drawing on top.
             if len(set(assigned.values())) < len(assigned):
-                order = sorted(
-                    assigned,
-                    key=lambda lid: (assigned[lid], ctx.line_priority.get(lid, 0)),
-                )
-                assigned = {lid: i * ctx.offset_step for i, lid in enumerate(order)}
+                assigned = _rerank_contiguous(ctx, assigned, assigned)
             for lid, off in assigned.items():
                 ctx.offsets[(port_id, lid)] = off
 
@@ -1212,16 +1221,28 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
         # feeder Y.
         section = graph.sections.get(port_obj.section_id)
         entry_ports = list(section.entry_ports) if section else []
-        if len(entry_ports) == 1 and port_lines.issubset(
-            graph.station_lines(entry_ports[0])
-        ):
-            inherited = {
-                lid: ctx.offsets.get((entry_ports[0], lid), 0.0) for lid in port_lines
-            }
-            for lid, off in inherited.items():
-                ctx.offsets[(port_id, lid)] = off
-            _propagate_exit_offsets_to_hubs(ctx, port_id, inherited)
-            continue
+        if len(entry_ports) == 1:
+            entry_id = entry_ports[0]
+            entry_lines = graph.station_lines(entry_id)
+            if port_lines.issubset(entry_lines):
+                if len(entry_lines) == len(port_lines):
+                    inherited = {
+                        lid: ctx.offsets.get((entry_id, lid), 0.0) for lid in port_lines
+                    }
+                else:
+                    # A line that terminates inside the section without
+                    # reaching this exit reserves an entry slot; re-rank the
+                    # survivors onto contiguous slots so that reserved lane
+                    # doesn't leave a gap here that the far side's entry port
+                    # doesn't share.
+                    values = {
+                        lid: ctx.offsets.get((entry_id, lid), 0.0) for lid in port_lines
+                    }
+                    inherited = _rerank_contiguous(ctx, port_lines, values)
+                for lid, off in inherited.items():
+                    ctx.offsets[(port_id, lid)] = off
+                _propagate_exit_offsets_to_hubs(ctx, port_id, inherited)
+                continue
 
         all_feeders = {fid for entries in line_feeders.values() for fid, _ in entries}
         trunk_feeder_id = next(

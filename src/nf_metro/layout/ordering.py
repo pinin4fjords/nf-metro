@@ -33,6 +33,7 @@ def assign_tracks(
     *,
     entry_top: bool = False,
     continuation_nodes: frozenset[str] = frozenset(),
+    terminal_nodes: frozenset[str] = frozenset(),
 ) -> dict[str, float]:
     """Assign each station a track using the track-per-line strategy.
 
@@ -48,6 +49,10 @@ def assign_tracks(
             to a line base. Computed with full-graph awareness by the caller,
             since this graph is a section subgraph blind to a predecessor's
             section-exit edges.
+        terminal_nodes: Stations carrying only lines that do not leave the
+            section, so their chain ends inside it (a terminal spur). Supplied
+            by the caller because the section subgraph omits the exit-port
+            edges that distinguish a spur from a through-line.
 
     Returns a dict mapping station_id -> track (float).
     """
@@ -142,6 +147,8 @@ def assign_tracks(
                     diamond_members=diamond_members,
                     layer_occupancy=layer_occupancy,
                     continuation_nodes=continuation_nodes,
+                    line_base=line_base,
+                    terminal_nodes=terminal_nodes,
                 )
                 layer_occupancy[layer_idx][nodes[0]] = tracks[nodes[0]]
             else:
@@ -259,23 +266,29 @@ def _find_free_nearby_track(
     base: float,
     layer: int,
     layer_occupancy: dict[int, dict[str, float]],
-    tracks: dict[str, float],
+    candidates: set[float],
     exclude_node: str,
+    *,
+    allow_flat: bool = False,
 ) -> float | None:
-    """Find the nearest existing track between *pred_track* and *base* that is
+    """Find the nearest candidate track between *pred_track* and *base* that is
     free at *layer*.
 
-    Returns ``None`` when no suitable candidate exists (all occupied, or no
-    existing tracks lie between pred and base).
+    *candidates* is the pool of track values to consider (already-placed
+    station tracks, and optionally the reserved per-line base tracks). Ranked
+    by distance from *pred_track* so a branch stays as close to its
+    predecessor as a free row allows. With *allow_flat*, the predecessor's own
+    track is eligible (a straight run continuing the predecessor's row);
+    otherwise it is skipped to avoid a flat edge onto the predecessor.
+
+    Returns ``None`` when no suitable candidate exists (all occupied, or none
+    lie between pred and base).
     """
     lo, hi = min(pred_track, base), max(pred_track, base)
-    # Collect all track values already assigned to any station
-    existing = sorted({t for t in tracks.values() if lo <= t <= hi})
-    # Rank by distance from pred_track (prefer closer to predecessor)
-    existing.sort(key=lambda t: abs(t - pred_track))
-    for t in existing:
-        if abs(t - pred_track) < COORD_TOLERANCE_FINE:
-            # Skip the predecessor's own track (would be a flat line)
+    within = sorted({t for t in candidates if lo <= t <= hi})
+    within.sort(key=lambda t: abs(t - pred_track))
+    for t in within:
+        if not allow_flat and abs(t - pred_track) < COORD_TOLERANCE_FINE:
             continue
         if not _is_track_occupied_at_layer(t, layer, layer_occupancy, exclude_node):
             return t
@@ -304,6 +317,8 @@ def _place_single_node(
     diamond_members: set[str] | None = None,
     layer_occupancy: dict[int, dict[str, float]] | None = None,
     continuation_nodes: frozenset[str] = frozenset(),
+    line_base: dict[str, float] | None = None,
+    terminal_nodes: frozenset[str] = frozenset(),
 ) -> float:
     """Place a single node, choosing between line base track and predecessor proximity.
 
@@ -345,24 +360,38 @@ def _place_single_node(
                 # Diamond: compress toward trunk for compact visual
                 return pred_avg + (base - pred_avg) * DIAMOND_COMPRESSION
             else:
-                # Dead-end spur: if this node has no successors, one
-                # predecessor, and the base track is far away, reuse
-                # a nearby existing track instead of jumping to a
-                # distant base track.  Pick the closest existing track
-                # between pred and base that is free at this layer.
+                # Terminal bundle peel-off: one line diverges from a
+                # multi-line predecessor to visit its own short chain, ending
+                # within the section.  Its formulaic base track is set by line
+                # declaration order and can push the spur off the carrier's row
+                # -- skipping a vacant row, or just dropping one row for no
+                # reason -- so land instead on the nearest row (a reserved
+                # per-line base or an already-placed track) between the
+                # predecessor and the base that no station occupies at this
+                # layer, preferring the carrier's own row when it is free.  The
+                # spur's file-icon successor inherits this row for a straight
+                # connector.
+                #
+                # A through-line diverging here continues to a section exit and
+                # keeps its own base lane, so it is excluded (terminal_nodes)
+                # and does not contend for the inner rows near the bundle.
                 if (
                     len(preds) == 1
-                    and not list(G.successors(node))
-                    and abs(base - pred_avg) > line_gap
+                    and node in terminal_nodes
+                    and abs(base - pred_avg) > COORD_TOLERANCE_FINE
                     and layers is not None
                 ):
+                    candidates = set(tracks.values())
+                    if line_base is not None:
+                        candidates |= set(line_base.values())
                     candidate = _find_free_nearby_track(
                         tracks[preds[0]],
                         base,
                         node_layer,
                         layer_occupancy if layer_occupancy is not None else {},
-                        tracks,
+                        candidates,
                         node,
+                        allow_flat=True,
                     )
                     if candidate is not None:
                         return candidate
