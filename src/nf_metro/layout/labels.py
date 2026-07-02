@@ -1071,6 +1071,24 @@ def _apply_edge_override(
     return start_above
 
 
+def _compute_diamond_branch_siblings(graph: MetroGraph) -> dict[str, Station]:
+    """Map each 2-way fork/join diamond branch station id to its sibling branch.
+
+    Narrowed to clean, column-aligned diamonds via :func:`_iter_symmetric_diamonds`
+    so a hidden/port/off-track/cross-section branch never gets paired up as a
+    label-side sibling.
+    """
+    from nf_metro.layout.phases.fan_bundles import _iter_symmetric_diamonds
+
+    siblings: dict[str, Station] = {}
+    for _fork, lo, hi, _join in _iter_symmetric_diamonds(graph):
+        if abs(lo.y - hi.y) < SAME_COORD_TOLERANCE:
+            continue
+        siblings[lo.id] = hi
+        siblings[hi.id] = lo
+    return siblings
+
+
 def _make_obstacle_placements(
     obstacles: list[tuple[float, float, float, float]] | None,
 ) -> list[LabelPlacement]:
@@ -1717,6 +1735,12 @@ def place_labels(
     for station in sorted_stations:
         placements.append(_place_station_label(ctx, station, placements))
 
+    diamond_siblings = _compute_diamond_branch_siblings(graph)
+    if diamond_siblings:
+        _prefer_diamond_labels_outward(
+            placements, graph, diamond_siblings, station_offsets, label_offset
+        )
+
     if routes:
         _avoid_diagonal_routes(placements, graph, routes, station_offsets)
         _avoid_horizontal_strikethrough(placements, graph, routes, station_offsets)
@@ -1983,6 +2007,56 @@ def _route_endpoints_with_offsets(
     return pts
 
 
+def _prefer_diamond_labels_outward(
+    placements: list[LabelPlacement],
+    graph: MetroGraph,
+    diamond_siblings: dict[str, Station],
+    station_offsets: dict[tuple[str, str], float] | None,
+    label_offset: float,
+) -> None:
+    """Flip a 2-way fork/join diamond branch's label outward -- away from
+    its sibling branch -- when that side is free of collisions with every
+    other already-placed label.
+
+    Column-parity alternation picks a side by column index alone, so it can
+    coincidentally place a diamond branch's label facing its sibling,
+    squeezed inside the bubble where nothing but the diamond's own
+    converging routes ever needs to be.  The outside of the bubble reads
+    better, but only when nothing else already sits there: an on-trunk
+    branch's outward side is the same row as its neighbouring trunk
+    stations, so unconditionally forcing it outward can shove a
+    neighbour's label aside.  Running this once every label has settled
+    lets each branch check its outward candidate against the *whole*
+    placement list, not just whichever labels happened to be placed
+    earlier in layer order.
+    """
+    by_id = {p.station_id: p for p in placements}
+    for station_id, sibling in diamond_siblings.items():
+        placement = by_id.get(station_id)
+        station = graph.stations.get(station_id)
+        if placement is None or station is None:
+            continue
+        if placement.dominant_baseline or placement.angle:
+            continue
+        if placement.text_anchor != "middle":
+            continue
+        outward_above = sibling.y > station.y
+        if placement.above == outward_above:
+            continue
+        min_off, max_off = _pill_offsets(graph, station, station_offsets)
+        candidate = _try_place(
+            station, label_offset, outward_above, [], min_off, max_off
+        )
+        others = [p for p in placements if p is not placement]
+        if _has_collision(candidate, others):
+            continue
+        placement.x, placement.y, placement.above = (
+            candidate.x,
+            candidate.y,
+            candidate.above,
+        )
+
+
 def _avoid_diagonal_routes(
     placements: list[LabelPlacement],
     graph: MetroGraph,
@@ -1998,15 +2072,7 @@ def _avoid_diagonal_routes(
     station when the flipped position is free of label and route
     collisions; otherwise leave it.
     """
-    diag: list[tuple[float, float, float, float]] = []
-    for route in routes:
-        pts = _route_endpoints_with_offsets(route, station_offsets)
-        for i in range(len(pts) - 1):
-            (x1, y1), (x2, y2) = pts[i], pts[i + 1]
-            dx, dy = x2 - x1, y2 - y1
-            if abs(dy) < max(abs(dx), 1.0) * DIAGONAL_SLOPE_RATIO:
-                continue  # ~horizontal; not a label obstacle.
-            diag.append((x1, y1, x2, y2))
+    diag = _foreign_route_segments(routes, station_offsets, diagonal=True)
     if not diag:
         return
 
@@ -2014,7 +2080,10 @@ def _avoid_diagonal_routes(
 
     def hits(box: tuple[float, float, float, float]) -> bool:
         padded = (box[0] - m, box[1] - m, box[2] + m, box[3] + m)
-        return any(segment_intersects_bbox(*s, padded) for s in diag)
+        return any(
+            segment_intersects_bbox(x1, y1, x2, y2, padded)
+            for _lid, _src, _tgt, x1, y1, x2, y2 in diag
+        )
 
     for placement in [p for p in placements if p.obstacle_bbox is None]:
         if placement.dominant_baseline or placement.angle:
