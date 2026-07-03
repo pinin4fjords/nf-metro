@@ -174,6 +174,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_off_track_clear_of_anchor,
     _guard_off_track_consumer_on_trunk,
     _guard_off_track_input_column_stack,
+    _guard_off_track_not_hub,
     _guard_off_track_output_clears_non_producer,
     _guard_partial_branch_offset_gaps,
     _guard_perp_entry_boundary_consistent,
@@ -713,6 +714,7 @@ def _compute_layout_scaled(
         _guard_single_trunk_off_track_step(graph, "final")
         _guard_off_track_consumer_on_trunk(graph, "final")
         _guard_off_track_input_column_stack(graph, "final")
+        _guard_off_track_not_hub(graph, "final")
         _guard_interchange_bar_clears_non_members(graph, "final")
         _guard_interchange_label_clears_connector(graph, "final")
         _guard_tb_top_entry_drop_hugs_top(graph, "final")

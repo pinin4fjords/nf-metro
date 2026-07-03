@@ -1309,6 +1309,13 @@ gallery:
       station feeds an off-track output. The input hugs one row above its consumer instead of
       towering an extra slot up because it shares an anchor with the differently-columned output
       (issue #651)."
+  - id: off_track_terminal_noop
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A station marked off_track whose only continuation is an inter-section edge to the
+      next section, with no in-section successor. It renders inline on the trunk rather than
+      lifting into a bump that immediately drops back down to reach the exit port (issue #1295)."
   - id: rail_inter_section
     source_dir: examples/topologies
     category: Off-track & Rails

@@ -226,6 +226,7 @@ pass.
 | `_guard_no_wrapped_label_trunk_strike`        | B    | No wrapped label overruns a foreign horizontal trunk.                       |
 | `_guard_off_track_consumer_on_trunk`          | B    | An off-track input's straight-through consumer stays on trunk (`#650`).     |
 | `_guard_off_track_input_column_stack`         | B    | Single-trunk off-track inputs hug their consumer column (`#651`).           |
+| `_guard_off_track_not_hub`                    | B    | No off-track station has edges on both sides (`#1295`).                     |
 | `_guard_rail_above_label_band`                | B    | A rail section reserves room above its top rail for labels.                 |
 | `_guard_rail_one_station_per_column`          | B    | Rails place one distinct station per column.                                |
 | `_guard_rail_stations_seat_on_rails`          | B    | Rail stations seat on their lines' fixed rails.                             |
