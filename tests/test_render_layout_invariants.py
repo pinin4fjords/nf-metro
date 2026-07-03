@@ -36,7 +36,6 @@ from nf_metro.render import render_svg
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-FIXTURES_ROOT = Path(__file__).resolve().parent / "fixtures"
 
 # A spread of gallery topologies so the invariant is exercised against more
 # than one layout shape.
@@ -351,7 +350,7 @@ ENTRY_TRUNK_ROW_BOW_FIXTURES = [
 def test_entry_trunk_row_bow_clears_non_consumer(name: str) -> None:
     """A trunk-row entry run bows over a same-row non-consumer station rather
     than raking its marker (#1315)."""
-    graph = parse_metro_mermaid((FIXTURES_ROOT / name).read_text())
+    graph = parse_metro_mermaid((FIXTURES / name).read_text())
     compute_layout(graph)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
