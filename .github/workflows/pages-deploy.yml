@@ -1,11 +1,15 @@
 name: Deploy Pages (Actions)
 
 # Publishes the gh-pages branch via GitHub's Actions-based Pages deployment.
-# docs.yml / pr-renders.yml / pr-cleanup.yml own writing content into the
-# gh-pages branch; this workflow only publishes whatever's currently there.
+# The listed workflows own writing content into the gh-pages branch; this
+# workflow only publishes whatever's currently there once one of them finishes.
 on:
-  push:
-    branches: [gh-pages]
+  workflow_run:
+    workflows:
+      - Deploy docs
+      - Publish render preview
+      - Clean up PR render preview
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +23,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
