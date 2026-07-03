@@ -29,6 +29,14 @@ For someone changing nf-metro itself:
 | [`nf-metro-gate-triage`](nf-metro-gate-triage/SKILL.md) | Run a routing gate-arm triage slice: give every un-exercised branch in a `layout/routing/` module a verdict (reachable -> fixture, defensive, candidate-dead, or reachable-but-defective -> file a bug). Wraps the methodology in [`docs/dev/routing_gate_triage.md`](../../docs/dev/routing_gate_triage.md). |
 | [`pr-chain-vet`](pr-chain-vet/SKILL.md) | Per-PR vetting on a stacked PR chain: gallery diff vs `main`, classify every changed example, `/simplify` pass, sweep narrative comments, get CI green, post-merge cleanup in the right order. |
 
+### Publishing / CI ops
+
+For keeping the docs site and PR render previews actually reaching the web:
+
+| Skill | When to use |
+|---|---|
+| [`pages-ci-doctor`](pages-ci-doctor/SKILL.md) | Diagnose and un-stick GitHub Pages publishing when a `_pr/<N>/` preview 404s or shows stale content, or the docs site didn't refresh after a merge. Walks the `pr-renders -> pr-render-publish -> branch build` chain, detects the recurring legacy-builder stall, re-triggers it, and verifies live through the CDN-caching gotchas. |
+
 ### Visual verification
 
 Opt-in only (`disable-model-invocation: true` — the user must invoke
