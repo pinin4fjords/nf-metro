@@ -36,6 +36,7 @@ from nf_metro.render import render_svg
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+FIXTURES_ROOT = Path(__file__).resolve().parent / "fixtures"
 
 # A spread of gallery topologies so the invariant is exercised against more
 # than one layout shape.
@@ -333,4 +334,59 @@ def test_entry_runway_clears_trunk_row_non_consumer(name: str) -> None:
     ]
     assert not crossings, (
         f"{name}: entry route rakes a non-consumer marker: {crossings}"
+    )
+
+
+# A flow-side entry port that lands ON the target's trunk row while a
+# non-consumer station shares that row between the port and the target: the
+# straight run would pass through the blocker's marker, so the entry route must
+# bow off the trunk, past the blocker, and drop back on before the target
+# (#1315).
+ENTRY_TRUNK_ROW_BOW_FIXTURES = [
+    "entry_trunk_row_bow.mmd",
+]
+
+
+@pytest.mark.parametrize("name", ENTRY_TRUNK_ROW_BOW_FIXTURES)
+def test_entry_trunk_row_bow_clears_non_consumer(name: str) -> None:
+    """A trunk-row entry run bows over a same-row non-consumer station rather
+    than raking its marker (#1315)."""
+    graph = parse_metro_mermaid((FIXTURES_ROOT / name).read_text())
+    compute_layout(graph)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        render_svg(graph, THEMES["nfcore"])
+    crossings = [
+        str(w.message)
+        for w in caught
+        if "_guard_no_line_crosses_non_consumer" in str(w.message)
+    ]
+    assert not crossings, (
+        f"{name}: trunk-row entry route rakes a non-consumer marker: {crossings}"
+    )
+
+
+# A vertical-flow (TB) section whose bottom-most internal station sits above the
+# flow-perpendicular exit port: the late bbox-bottom fit must keep the BOTTOM
+# exit port on the section boundary rather than leaving it stranded inside the
+# grown box (#1294).
+TB_EXIT_BOUNDARY_FIXTURES = [
+    "tb_exit_terminal_on_carrier.mmd",
+]
+
+
+@pytest.mark.parametrize("name", TB_EXIT_BOUNDARY_FIXTURES)
+def test_tb_exit_port_stays_on_bbox_boundary(name: str) -> None:
+    """A vertical-flow section's flow-perpendicular exit port sits on the
+    section bbox boundary after the late bbox settling (#1294)."""
+    graph = parse_metro_mermaid((FIXTURES / name).read_text())
+    compute_layout(graph)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        render_svg(graph, THEMES["nfcore"])
+    off_boundary = [
+        str(w.message) for w in caught if "_guard_ports_on_boundaries" in str(w.message)
+    ]
+    assert not off_boundary, (
+        f"{name}: an exit port drifted off its section boundary: {off_boundary}"
     )

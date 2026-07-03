@@ -1391,3 +1391,4 @@ render_only:
     - multiline_labels
     - rnaseq_simple
     - genomeassembly_organellar
+    - entry_trunk_row_bow
