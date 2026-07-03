@@ -990,5 +990,21 @@
   "intra_handlers.py::if abs(nearest_src - sx) < src_min + ctx.diagonal_run:::#1": {
     "note": "Entry-runway 'too tight' return cannot fire: |nearest_src - entry_port_x| is floored at SECTION_X_PADDING (50px, the entry port sits at section.bbox_x = min(internal_station_x) - SECTION_X_PADDING), while src_min + diagonal_run = CURVE_RADIUS(10) + MIN_STRAIGHT_PORT(5) + DIAGONAL_RUN(30) = 45px. Since 50 >= 45 the guard is always False.",
     "status": "defensive"
+  },
+  "intra_handlers.py::if lead_end - sx < min_straight or tx - tail_start < min_straight:::#1": {
+    "note": "Trunk-row entry bow (#1315). No-room return: the flat lead-in before the rise, or the flat tail after the drop, is shorter than a port's minimum straight. A corpus blocker sits far enough from both the port and the target to leave room, so the fall-through to a plain straight run is defensive.",
+    "status": "defensive"
+  },
+  "intra_handlers.py::if over_end - over_start < 2 * ctx.curve_radius:::#1": {
+    "note": "Trunk-row entry bow (#1315). No-room return: the flat run over the blocker(s) is shorter than two corner radii, so the bump's corners would overlap. The blocker-span-plus-clearance always exceeds 2*CURVE_RADIUS for corpus fixtures; defensive.",
+    "status": "defensive"
+  },
+  "intra_handlers.py::for sign in _bow_side_order(section_stations, blockers, sy, over_start, over_end):::#1": {
+    "note": "Trunk-row entry bow (#1315). Loop-exhausted fall-through (both sides fail the clearance check): every corpus bow clears on its first (roomier) side, so the exit past the loop that returns a plain straight run is defensive.",
+    "status": "defensive"
+  },
+  "intra_handlers.py::if _bow_clears_markers(points, section_stations):::#1": {
+    "note": "Trunk-row entry bow (#1315). Retry arm (the roomier side's bow rakes a marker, so the other side is tried): _bow_side_order puts the side with the farthest off-trunk marker first, and the fixed bump height clears it, so no corpus fixture falls to the second side; defensive.",
+    "status": "defensive"
   }
 }
