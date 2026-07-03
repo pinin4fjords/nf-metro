@@ -1,0 +1,23 @@
+%%metro title: Symmetric Diamond Bundle Padding
+%%metro diamond_style: symmetric
+%%metro line: line1 | Line 1 | #e63946
+%%metro line: line2 | Line 2 | #2db572
+%%metro line: line3 | Line 3 | #0570b0
+%%metro line: line4 | Line 4 | #f5c542
+%%metro line: line5 | Line 5 | #ff8c00
+%%metro line: line6 | Line 6 | #7b2d3b
+
+graph LR
+    subgraph sec [Sec]
+        a[A]
+        top[Top]
+        mid[Mid]
+        bot[Bot]
+        z[Z]
+        a -->|line1,line2,line3,line4,line5,line6| top
+        a -->|line1,line2,line3,line4,line5,line6| mid
+        a -->|line1,line2,line3,line4,line5,line6| bot
+        top -->|line1,line2,line3,line4,line5,line6| z
+        mid -->|line1,line2,line3,line4,line5,line6| z
+        bot -->|line1,line2,line3,line4,line5,line6| z
+    end
