@@ -312,10 +312,11 @@ def _finalize_graph(
 def _apply_pending_metadata(graph: MetroGraph) -> None:
     """Apply terminus icons, off-track marks, and markers buffered during parse.
 
-    Terminus icons skip mid-pipeline hub stations: a station the author tagged
-    as a file/dir input but which both receives and forwards data. The file
-    icon implies a path start or end, which is misleading on a routing hub, so
-    only pure sources (no predecessors) and pure sinks (no successors) keep it.
+    Both terminus icons and off-track marks skip mid-pipeline hub stations: a
+    station the author tagged as off-track (or as a file/dir input) but which
+    both receives and forwards data. A hub has something on both sides of it
+    to protect a trunk slot from or lift clear of, so only pure sources (no
+    predecessors) and pure sinks (no successors) take either mark.
     """
     for station_id, entries in graph._pending_terminus.items():
         station = graph.stations.get(station_id)
@@ -330,8 +331,11 @@ def _apply_pending_metadata(graph: MetroGraph) -> None:
 
     for station_id in graph._pending_off_track:
         station = graph.stations.get(station_id)
-        if station:
-            station.off_track = True
+        if not station:
+            continue
+        if graph.edges_to(station_id) and graph.edges_from(station_id):
+            continue
+        station.off_track = True
 
     for station_id, marker in graph._pending_markers.items():
         station = graph.stations.get(station_id)
