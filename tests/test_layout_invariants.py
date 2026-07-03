@@ -6484,6 +6484,131 @@ def test_section_bbox_has_top_padding(fixture):
     )
 
 
+@pytest.mark.parametrize(
+    "fixture", _params_with_xfails(ALL_FIXTURES, _XFAIL_BBOX_TOP_PAD)
+)
+def test_section_bbox_padding_clears_symmetric_fan_bundle_span(fixture):
+    """A symmetric diamond's off-trunk branches must get equal, full padding.
+
+    A multi-line bundle's per-line Y offsets are priority-ordered rather
+    than centred on the anchor (``compute_station_offsets`` assigns
+    ``0, step, 2*step, ...`` by declaration order in the default
+    non-compact mode), so the pill ``render.svg`` draws for a station
+    carrying several lines can sit mostly to one side of ``station.y``.
+    ``test_section_bbox_has_bottom_padding`` / ``test_section_bbox_has_top_padding``
+    only check clearance to the anchor centre, so they pass even when a
+    branch's drawn pill edge -- and any label hanging off it -- sits much
+    closer to the box edge than its Y-mirrored sibling's.
+
+    Scoped to stations in a Y-mirrored off-trunk pair
+    (``_trunk_symmetric_fan_ids``), matching the bundle-span padding
+    correction's own scope: an unmirrored bundle placement (a flat run, a
+    fold) is not required to hit the full ``section_y_padding`` here.
+    """
+    from nf_metro.layout.constants import SECTION_Y_PADDING
+    from nf_metro.layout.phases._common import _trunk_symmetric_fan_ids
+    from nf_metro.layout.routing import compute_station_offsets
+
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    tol = 1.0
+
+    offenders: list[str] = []
+    checked_pairs = 0
+    for sec in graph.sections.values():
+        if sec.bbox_h <= 0 or sec.direction not in ("LR", "RL", None):
+            continue
+        fan_ids = _trunk_symmetric_fan_ids(graph, sec)
+        if not fan_ids:
+            continue
+        checked_pairs += 1
+        for sid in fan_ids:
+            st = graph.stations[sid]
+            line_offs = [
+                offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)
+            ]
+            min_off = min(line_offs) if line_offs else 0.0
+            max_off = max(line_offs) if line_offs else 0.0
+            top_gap = (st.y + min(0.0, min_off)) - sec.bbox_y
+            bot_gap = (sec.bbox_y + sec.bbox_h) - (st.y + max(0.0, max_off))
+            if top_gap + tol < SECTION_Y_PADDING:
+                offenders.append(
+                    f"section {sec.id!r} station {sid!r}: top gap={top_gap:.1f} "
+                    f"< section_y_padding={SECTION_Y_PADDING}"
+                )
+            if bot_gap + tol < SECTION_Y_PADDING:
+                offenders.append(
+                    f"section {sec.id!r} station {sid!r}: bottom gap={bot_gap:.1f} "
+                    f"< section_y_padding={SECTION_Y_PADDING}"
+                )
+
+    assert not offenders, (
+        f"{fixture}: symmetric-fan branch stations must clear the drawn "
+        f"bundle span by a full section_y_padding on their own side: "
+        + "; ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_section_bbox_padding_has_min_bundle_edge_clearance(fixture):
+    """Every multi-line bundle keeps at least a minimum edge clearance,
+    fan or not.
+
+    ``test_section_bbox_padding_clears_symmetric_fan_bundle_span`` restores
+    the full ``section_y_padding`` for a symmetric diamond's mirrored
+    branches; an unmirrored bundle (a flat run, a fold) only gets the
+    smaller ``MIN_BUNDLE_EDGE_CLEARANCE`` floor, but every multi-line
+    bundle in the corpus should clear at least that much so its label
+    never crowds the section edge regardless of symmetry.
+    """
+    from nf_metro.layout.constants import MIN_BUNDLE_EDGE_CLEARANCE
+    from nf_metro.layout.routing import compute_station_offsets
+
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    tol = 1.0
+
+    offenders: list[str] = []
+    for sec in graph.sections.values():
+        if sec.bbox_h <= 0 or sec.direction not in ("LR", "RL", None):
+            continue
+        port_ids = set(sec.entry_ports) | set(sec.exit_ports)
+        content_ids = [
+            sid
+            for sid in sec.station_ids
+            if sid in graph.stations
+            and sid not in port_ids
+            and not graph.stations[sid].is_hidden
+        ]
+        if not content_ids:
+            continue
+        for sid in content_ids:
+            st = graph.stations[sid]
+            line_offs = [
+                offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)
+            ]
+            min_off = min(line_offs) if line_offs else 0.0
+            max_off = max(line_offs) if line_offs else 0.0
+            top_gap = (st.y + min(0.0, min_off)) - sec.bbox_y
+            bot_gap = (sec.bbox_y + sec.bbox_h) - (st.y + max(0.0, max_off))
+            if top_gap + tol < MIN_BUNDLE_EDGE_CLEARANCE:
+                offenders.append(
+                    f"section {sec.id!r} station {sid!r}: top gap={top_gap:.1f} "
+                    f"< MIN_BUNDLE_EDGE_CLEARANCE={MIN_BUNDLE_EDGE_CLEARANCE}"
+                )
+            if bot_gap + tol < MIN_BUNDLE_EDGE_CLEARANCE:
+                offenders.append(
+                    f"section {sec.id!r} station {sid!r}: bottom gap={bot_gap:.1f} "
+                    f"< MIN_BUNDLE_EDGE_CLEARANCE={MIN_BUNDLE_EDGE_CLEARANCE}"
+                )
+
+    assert not offenders, (
+        f"{fixture}: every multi-line bundle must clear at least "
+        f"MIN_BUNDLE_EDGE_CLEARANCE from its section's bbox edge: "
+        + "; ".join(offenders)
+    )
+
+
 @pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_section_bbox_top_hugs_content(fixture):
     """Empty-band sections hug content to an EQUALITY, not just a floor.

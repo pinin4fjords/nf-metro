@@ -364,8 +364,8 @@ def _bbox_cols_overlap(a: Section, b: Section) -> bool:
     return a.bbox_x < b.bbox_x + b.bbox_w and b.bbox_x < a.bbox_x + a.bbox_w
 
 
-def _content_station_ys(graph: MetroGraph, section: Section) -> list[float]:
-    """Y of every content marker in ``section``.
+def _content_station_ids(graph: MetroGraph, section: Section) -> list[str]:
+    """IDs of every content marker in ``section``.
 
     Content = non-port stations excluding the ``__bypass_`` helpers; hidden
     phantoms are kept.  The single definition of the content set the
@@ -376,7 +376,7 @@ def _content_station_ys(graph: MetroGraph, section: Section) -> list[float]:
     would drop the phantoms.
     """
     return [
-        graph.stations[sid].y
+        sid
         for sid in section.station_ids
         if (
             sid in graph.stations
@@ -384,6 +384,82 @@ def _content_station_ys(graph: MetroGraph, section: Section) -> list[float]:
             and not is_bypass_v(sid)
         )
     ]
+
+
+def _content_station_ys(graph: MetroGraph, section: Section) -> list[float]:
+    """Y of every content marker in ``section``; see :func:`_content_station_ids`."""
+    return [graph.stations[sid].y for sid in _content_station_ids(graph, section)]
+
+
+def _trunk_symmetric_fan_ids(graph: MetroGraph, section: Section) -> set[str]:
+    """Content station ids in ``section`` sitting in a Y-mirrored off-trunk pair.
+
+    A station qualifies when another station shares its X (same layer) and
+    their Ys are equidistant on opposite sides of the section's trunk Y (the
+    Y shared by the most content stations).  This is the "diamond straddles
+    the trunk at equal offsets" shape -- a 2-way fork/join or a fork with a
+    straight-through middle branch both produce it.
+
+    Scopes the section-bbox padding's bundle-span correction
+    (:func:`...bbox._predict_section_content_bottom`,
+    :func:`...bbox._section_content_hug_top`) to symmetric fans: an
+    unmirrored off-trunk placement (a plain flat multi-line run, a fold, an
+    asymmetric fan) keeps the existing anchor-only padding rather than
+    growing every multi-line section's bbox.
+
+    Y and X are rounded to 1dp before grouping (matching the convention
+    elsewhere for float-keyed layout-coordinate grouping, e.g.
+    ``_station_marker_bbox``'s callers), so settled-but-not-bit-identical
+    coordinates land in the same bucket.  When no single Y is a clear
+    majority, the tie-break (highest count, then topmost Y) can pick either
+    row as the trunk; the effect is only fewer/no pairs found, never a wrong
+    padding target, so it is left unresolved rather than special-cased.
+    """
+    content_ids = _content_station_ids(graph, section)
+    if len(content_ids) < 3:
+        return set()
+    counts: dict[float, int] = defaultdict(int)
+    for sid in content_ids:
+        counts[round(graph.stations[sid].y, 1)] += 1
+    trunk_y = max(counts.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+    by_x: dict[float, list[str]] = defaultdict(list)
+    for sid in content_ids:
+        by_x[round(graph.stations[sid].x, 1)].append(sid)
+    result: set[str] = set()
+    for sids in by_x.values():
+        if len(sids) < 2:
+            continue
+        seen_by_offset: dict[float, list[str]] = defaultdict(list)
+        for sid in sids:
+            off = round(graph.stations[sid].y - trunk_y, 1)
+            if off == 0.0:
+                continue
+            mirrors = seen_by_offset.get(-off)
+            if mirrors:
+                result.add(sid)
+                result.update(mirrors)
+            seen_by_offset[off].append(sid)
+    return result
+
+
+def _station_bundle_offset_span(
+    graph: MetroGraph, sid: str, offsets: dict[tuple[str, str], float]
+) -> tuple[float, float]:
+    """Min/max per-line Y offset ``sid``'s drawn bundle pill spans around
+    its anchor lane, ``(0.0, 0.0)`` for a station with no lines.
+
+    A multi-line bundle's per-line offsets need not be centred on the
+    anchor -- the default non-compact assignment gives each line a
+    priority-ordered offset (0, step, 2*step, ...), so a station carrying
+    several lines can have its whole pill sit to one side of ``station.y``.
+    Shared by :func:`_station_marker_bbox` and the section-bbox padding
+    targets in :mod:`...bbox`, so the room a padding constant reserves
+    matches what the marker pill actually spans.
+    """
+    line_offs = [offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)]
+    if not line_offs:
+        return 0.0, 0.0
+    return min(line_offs), max(line_offs)
 
 
 def _station_marker_bbox(
@@ -406,10 +482,7 @@ def _station_marker_bbox(
         return None
     if offsets is None:
         offsets = compute_station_offsets(graph)
-    line_offs = [offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)] or [
-        0.0
-    ]
-    min_off, max_off = min(line_offs), max(line_offs)
+    min_off, max_off = _station_bundle_offset_span(graph, sid, offsets)
     cy = st.y + (min_off + max_off) / 2
     half_h = (max_off - min_off) / 2 + radius
     return (st.x - radius, cy - half_h, st.x + radius, cy + half_h)

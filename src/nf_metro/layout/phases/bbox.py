@@ -8,6 +8,7 @@ from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     CURVE_RADIUS,
     DIAGONAL_RUN,
+    MIN_BUNDLE_EDGE_CLEARANCE,
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
@@ -17,12 +18,15 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
+    _content_station_ids,
     _content_station_ys,
     _grow_section_bbox_upward,
     _is_side_entered_vertical_section,
     _ref_y,
     _set_section_bbox_top,
     _side_entered_vertical_feeder_pairs,
+    _station_bundle_offset_span,
+    _trunk_symmetric_fan_ids,
 )
 from nf_metro.layout.phases.single_section import (
     _terminus_y_overhang,
@@ -361,17 +365,52 @@ def _shrink_and_tighten_rows(
     _tighten_lower_rows_after_shrink(graph, section_y_gap)
 
 
+def _bundle_edge_padding(
+    section_y_padding: float, edge_reach: float, in_fan: bool
+) -> float:
+    """Padding to reserve, beyond ``station.y``, toward one edge of a
+    multi-line bundle's drawn pill.
+
+    ``edge_reach`` is how far the pill extends past the anchor toward that
+    edge (:func:`_station_bundle_offset_span`; 0 for a non-bundle or
+    vertical-flow station).  A station in a Y-mirrored fan pair (``in_fan``,
+    :func:`_trunk_symmetric_fan_ids`) gets the reach added under the full
+    ``section_y_padding``, so a symmetric diamond's two branches get equal
+    breathing room; any other multi-line station gets it added under the
+    smaller ``MIN_BUNDLE_EDGE_CLEARANCE`` floor, enough for a label off an
+    unmirrored bundle (a flat run, a fold) to clear the box edge.  Shared by
+    :func:`_predict_section_content_bottom` and
+    :func:`_section_content_hug_top` so the fan-vs-floor split cannot drift
+    between the two directions.
+    """
+    return max(
+        section_y_padding,
+        edge_reach + (section_y_padding if in_fan else MIN_BUNDLE_EDGE_CLEARANCE),
+    )
+
+
 def _predict_section_content_bottom(
-    graph: MetroGraph, section: Section, section_y_padding: float
+    graph: MetroGraph,
+    section: Section,
+    section_y_padding: float,
+    offsets: dict[tuple[str, str], float] | None = None,
 ) -> float | None:
     """Lowest Y the section's content requires, by the bbox-shrink rule.
 
     The single per-section content-bottom rule shared by the bbox shrink
     (:func:`_shrink_bboxes_to_content_bottom`) and the structural-extent
     snapshot (:func:`_snapshot_struct_heights_below_top`): the max over
-    non-port, non-``__bypass_`` stations of ``y + max(section_y_padding,
-    terminus_overhang)``, then raised to keep bypass-curve helpers and
-    ports inside.  Returns ``None`` when the section has no real content.
+    non-port, non-``__bypass_`` stations of ``y + max(bundle_edge_padding,
+    terminus_overhang)``, then raised to keep bypass-curve helpers and ports
+    inside.  Returns ``None`` when the section has no real content.
+
+    ``bundle_edge_padding`` (see :func:`_bundle_edge_padding`) is the
+    bottom-edge case of the bundle-span correction: how far a station's
+    drawn bundle pill extends below its anchor lane
+    (:func:`_station_bundle_offset_span`) folded into the padding target.
+    Pass a pre-computed ``offsets``
+    (:func:`nf_metro.layout.routing.compute_station_offsets`) to avoid
+    recomputing it once per section in a per-section caller's loop.
 
     Named for its role in the snapshot: captured before the opportunistic
     Pass C content-compaction phases run so the inter-row cascade can stack
@@ -382,6 +421,12 @@ def _predict_section_content_bottom(
     # part of the content bottom so the shrink phase and the inter-row
     # cascade keep the row below clear.  0 for horizontal-label layouts.
     label_angle = graph.label_angle or 0.0 if section_dir in ("LR", "RL") else 0.0
+    is_horizontal = section_dir in ("LR", "RL")
+    fan_ids = _trunk_symmetric_fan_ids(graph, section) if is_horizontal else ()
+    if is_horizontal and offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
     # The label-reach metric scales with the graph's font; bind it from the
     # graph so the prediction is reproducible whether or not a layout-wide
     # font-scale context is active at the call site.
@@ -389,16 +434,19 @@ def _predict_section_content_bottom(
         content_bots = [
             graph.stations[sid].y
             + max(
-                section_y_padding,
+                _bundle_edge_padding(
+                    section_y_padding,
+                    (
+                        max(0.0, _station_bundle_offset_span(graph, sid, offsets)[1])
+                        if is_horizontal and offsets is not None
+                        else 0.0
+                    ),
+                    sid in fan_ids,
+                ),
                 _terminus_y_overhang(graph.stations[sid], section_dir, graph)[1],
                 angled_label_reach(graph.stations[sid], label_angle),
             )
-            for sid in section.station_ids
-            if (
-                sid in graph.stations
-                and not graph.stations[sid].is_port
-                and not is_bypass_v(sid)
-            )
+            for sid in _content_station_ids(graph, section)
         ]
     if not content_bots:
         return None
@@ -433,11 +481,16 @@ def _snapshot_struct_heights_below_top(
     bbox directly; this snapshot records the settled extents for
     structural-extent fidelity checks.
     """
+    from nf_metro.layout.routing import compute_station_offsets
+
+    offsets = compute_station_offsets(graph)
     graph._struct_height_below_top = {}
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
-        bottom = _predict_section_content_bottom(graph, section, section_y_padding)
+        bottom = _predict_section_content_bottom(
+            graph, section, section_y_padding, offsets
+        )
         if bottom is not None:
             graph._struct_height_below_top[section.id] = bottom - section.bbox_y
 
@@ -495,10 +548,15 @@ def _shrink_bboxes_to_content_bottom(
                 out.append(o_y_bot)
         return out
 
+    from nf_metro.layout.routing import compute_station_offsets
+
+    offsets = compute_station_offsets(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
-        content_bot = _predict_section_content_bottom(graph, section, section_y_padding)
+        content_bot = _predict_section_content_bottom(
+            graph, section, section_y_padding, offsets
+        )
         if content_bot is None:
             continue
         current_bot = section.bbox_y + section.bbox_h
@@ -519,6 +577,7 @@ def _section_fit_top(
     section: Section,
     section_y_padding: float,
     section_y_gap: float,
+    offsets: dict[tuple[str, str], float] | None = None,
 ) -> float | None:
     """Return the content-hug bbox top for ``section``.
 
@@ -532,9 +591,12 @@ def _section_fit_top(
     it above the content-hug position, so a caller hugging content
     downward applies it as a bound, not as the target.
 
+    ``offsets`` is forwarded to :func:`_section_content_hug_top`; see its
+    docstring for the bundle-span adjustment it enables.
+
     Returns ``None`` when the section has no real content to anchor to.
     """
-    target = _section_content_hug_top(graph, section, section_y_padding)
+    target = _section_content_hug_top(graph, section, section_y_padding, offsets)
     if target is None:
         return None
 
@@ -558,6 +620,7 @@ def _section_content_hug_top(
     graph: MetroGraph,
     section: Section,
     section_y_padding: float,
+    offsets: dict[tuple[str, str], float] | None = None,
 ) -> float | None:
     """Ceiling-free content-hug top for ``section``.
 
@@ -568,11 +631,39 @@ def _section_content_hug_top(
     too-tall top moves it away from the row above, so it never binds when
     hugging content downward.
 
+    The padding above each station folds in the top-edge case of the
+    bundle-span correction (see :func:`_bundle_edge_padding`): how far a
+    multi-line bundle's drawn pill extends above its anchor lane
+    (:func:`_station_bundle_offset_span`), which can be nonzero even when
+    no fan-out lifted the station itself.  Pass a pre-computed ``offsets``
+    (:func:`nf_metro.layout.routing.compute_station_offsets`) to avoid
+    recomputing it once per section in a per-section caller's loop.
+
     Returns ``None`` when the section has no real content to anchor to.
     """
-    content_min_ys = _content_station_ys(graph, section)
-    if not content_min_ys:
+    content_ids = _content_station_ids(graph, section)
+    if not content_ids:
         return None
+    section_dir = section.direction or "LR"
+    is_horizontal = section_dir in ("LR", "RL")
+    fan_ids = _trunk_symmetric_fan_ids(graph, section) if is_horizontal else ()
+    if is_horizontal and offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+    content_min_ys = [
+        graph.stations[sid].y
+        - _bundle_edge_padding(
+            section_y_padding,
+            (
+                max(0.0, -_station_bundle_offset_span(graph, sid, offsets)[0])
+                if is_horizontal and offsets is not None
+                else 0.0
+            ),
+            sid in fan_ids,
+        )
+        for sid in content_ids
+    ]
     bypass_min_ys = [
         graph.stations[sid].y
         for sid in section.station_ids
@@ -584,7 +675,7 @@ def _section_content_hug_top(
         if sid in graph.stations and graph.stations[sid].is_port
     ]
     v_curve_clearance = CURVE_RADIUS + MIN_STATION_FLAT_LENGTH / 2
-    target = min(content_min_ys) - section_y_padding
+    target = min(content_min_ys)
     if bypass_min_ys:
         target = min(target, min(bypass_min_ys) - v_curve_clearance)
     if port_min_ys:
@@ -647,14 +738,19 @@ def _fit_bboxes_to_content_top(
     moves go through the bidirectional :func:`_set_section_bbox_top` (TOP
     ports follow the new edge).
     """
+    from nf_metro.layout.routing import compute_station_offsets
+
+    offsets = compute_station_offsets(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
-        target = _section_fit_top(graph, section, section_y_padding, section_y_gap)
+        target = _section_fit_top(
+            graph, section, section_y_padding, section_y_gap, offsets
+        )
         if target is not None and target < section.bbox_y - SAME_COORD_TOLERANCE:
             _set_section_bbox_top(graph, section, target)
             continue
-        hug = _section_content_hug_top(graph, section, section_y_padding)
+        hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
         if (
             hug is not None
             and hug > section.bbox_y + SAME_COORD_TOLERANCE

@@ -218,6 +218,18 @@ SECTION_X_PADDING: float = 50.0
 SECTION_Y_PADDING: float = 50.0
 """Vertical padding around section content."""
 
+MIN_BUNDLE_EDGE_CLEARANCE: float = 28.0
+"""Minimum room a station's drawn multi-line bundle pill keeps from its
+section's bbox edge, independent of ``SECTION_Y_PADDING``.
+
+``SECTION_Y_PADDING`` is measured from a station's anchor lane (offset 0),
+not its drawn pill edge, so a wide bundle (many co-routed lines, offsets
+priority-ordered rather than centred on the anchor) can leave far less
+room than intended.  This floor guarantees enough clearance for a label
+(``LABEL_OFFSET`` + ``LABEL_FONT_SIZE`` + ``DESCENDER_CLEARANCE``) to sit
+off the pill without crowding the edge, for every multi-line bundle -- not
+only ones a symmetric-diamond fan places at mirrored offsets."""
+
 RAIL_ABOVE_LABEL_TOP_PAD: float = 20.0
 """Padding between a rail section's box top and its above-rail label band.
 

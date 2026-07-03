@@ -1325,7 +1325,10 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph, section_y_padding: float) 
     downward-fold case, where ``_resolve_tb_exit_y`` places the exit
     port flush at the bbox bottom.
     """
+    from nf_metro.layout.routing import compute_station_offsets
+
     junction_ids = graph.junction_ids
+    offsets: dict[tuple[str, str], float] | None = None
 
     def _downstream_section_ids(tb_section: Section) -> set[str]:
         out: set[str] = set()
@@ -1377,6 +1380,8 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph, section_y_padding: float) 
         target_ids = _downstream_section_ids(section)
         if not target_ids:
             continue
+        if offsets is None:
+            offsets = compute_station_offsets(graph)
         target_bots = [
             bot
             for tid in target_ids
@@ -1384,7 +1389,7 @@ def _align_tb_section_bbox_bottoms(graph: MetroGraph, section_y_padding: float) 
             and graph.sections[tid].bbox_h > 0
             and (
                 bot := _predict_section_content_bottom(
-                    graph, graph.sections[tid], section_y_padding
+                    graph, graph.sections[tid], section_y_padding, offsets
                 )
             )
             is not None

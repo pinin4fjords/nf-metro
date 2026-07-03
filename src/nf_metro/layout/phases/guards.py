@@ -58,7 +58,11 @@ from nf_metro.layout.phases._common import (
     routes_through_own_section_interior,
     routes_through_unrelated_sections,
 )
-from nf_metro.layout.phases.bbox import _min_drawn_section_bbox_top, _section_fit_top
+from nf_metro.layout.phases.bbox import (
+    _min_drawn_section_bbox_top,
+    _predict_section_content_bottom,
+    _section_fit_top,
+)
 from nf_metro.layout.phases.off_track import (
     _is_single_trunk_lr_section,
     _off_track_anchor_of,
@@ -1417,11 +1421,12 @@ def _guard_section_top_padding(
     *,
     section_y_padding: float,
     section_y_gap: float,
+    offsets: dict[tuple[str, str], float],
 ) -> None:
     """Final phase: each section's bbox top must clear its highest marker.
 
-    The mirror of the bottom-padding contract.  After
-    :func:`_fit_bboxes_to_content_top` runs, every section's bbox top
+    The mirror of the bottom-padding contract (:func:`_guard_section_bottom_padding`).
+    After :func:`_fit_bboxes_to_content_top` runs, every section's bbox top
     should sit at its content-anchored target (a full ``section_y_padding``
     above the highest marker, unless gap-bounded by the row above).  A
     bbox top below that target means a later pass crowded the topmost
@@ -1431,7 +1436,9 @@ def _guard_section_top_padding(
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
-        target = _section_fit_top(graph, section, section_y_padding, section_y_gap)
+        target = _section_fit_top(
+            graph, section, section_y_padding, section_y_gap, offsets
+        )
         if target is None:
             continue
         if section.bbox_y > target + tol:
@@ -1439,6 +1446,41 @@ def _guard_section_top_padding(
                 f"{phase}: section {section.id!r} bbox top {section.bbox_y:.1f} "
                 f"sits below its content-anchored target {target:.1f} "
                 f"(highest marker crowds the bbox top edge)"
+            )
+
+
+def _guard_section_bottom_padding(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    section_y_padding: float,
+    offsets: dict[tuple[str, str], float],
+) -> None:
+    """Final phase: each section's bbox bottom must clear its lowest marker.
+
+    The mirror of the top-padding contract (:func:`_guard_section_top_padding`).
+    After :func:`_shrink_bboxes_to_content_bottom` runs, every section's bbox
+    bottom sits at or below its content-anchored target: a full
+    ``section_y_padding`` below the lowest marker's drawn bundle pill, or
+    further down still when a row-mate's bottom pins it there.  A bbox
+    bottom above that target means a later pass crowded the lowest marker
+    against the box edge.
+    """
+    tol = 1.0
+    for section in graph.sections.values():
+        if section.bbox_h <= 0:
+            continue
+        target = _predict_section_content_bottom(
+            graph, section, section_y_padding, offsets
+        )
+        if target is None:
+            continue
+        bbox_bot = section.bbox_y + section.bbox_h
+        if bbox_bot < target - tol:
+            raise PhaseInvariantError(
+                f"{phase}: section {section.id!r} bbox bottom {bbox_bot:.1f} "
+                f"sits above its content-anchored target {target:.1f} "
+                f"(lowest marker crowds the bbox bottom edge)"
             )
 
 
@@ -4720,11 +4762,21 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(
         _guard_section_top_padding,
         "B",
-        needs=frozenset({"section_y_gap", "section_y_padding"}),
+        needs=frozenset({"section_y_gap", "section_y_padding", "offsets"}),
         issue_pin=("#406",),
         narrow_reason=(
             "Mirror of the bottom-padding contract; a gap-bounded top is "
             "allowed where the row above legitimately constrains it."
+        ),
+    ),
+    GuardSpec(
+        _guard_section_bottom_padding,
+        "B",
+        needs=frozenset({"section_y_padding", "offsets"}),
+        issue_pin=("#1274",),
+        narrow_reason=(
+            "Mirror of the top-padding contract; a row-mate-pinned bottom "
+            "is allowed to sit further down than its own content requires."
         ),
     ),
     GuardSpec(
