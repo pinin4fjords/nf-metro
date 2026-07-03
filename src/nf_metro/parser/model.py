@@ -673,6 +673,15 @@ class MetroGraph:
             self._edges_to_cache = idx
         return self._edges_to_cache.get(station_id, [])
 
+    def is_hub(self, station_id: str) -> bool:
+        """A station with both a predecessor and a successor edge.
+
+        A pure source (no predecessor) or pure sink (no successor) has one
+        free side to anchor a terminus icon or an ``off_track`` lift against;
+        a hub has neither, so both marks are no-ops there.
+        """
+        return bool(self.edges_to(station_id)) and bool(self.edges_from(station_id))
+
     def line_stations(self, line_id: str) -> list[str]:
         """Return station IDs on a line, in edge order."""
         stations = []

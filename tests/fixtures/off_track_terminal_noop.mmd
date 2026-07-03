@@ -1,0 +1,19 @@
+%%metro title: Off-track terminal has nothing to protect
+%%metro file: out1 | GTF | Output
+%%metro off_track: out1
+%%metro line: a | Line A | #2db572
+
+graph LR
+    subgraph s1 [S1]
+        %%metro exit: right | a
+        n1[N1]
+        n2[N2]
+        n1 -->|a| n2
+        n2 -->|a| out1
+    end
+
+    subgraph s2 [S2]
+        %%metro entry: left | a
+        m1[M1]
+        out1 -->|a| m1
+    end
