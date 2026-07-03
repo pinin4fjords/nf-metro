@@ -320,9 +320,7 @@ def _apply_pending_metadata(graph: MetroGraph) -> None:
     """
     for station_id, entries in graph._pending_terminus.items():
         station = graph.stations.get(station_id)
-        if not station:
-            continue
-        if graph.edges_to(station_id) and graph.edges_from(station_id):
+        if not station or graph.is_hub(station_id):
             continue
         station.terminus_labels = [label for label, _, _, _ in entries]
         station.terminus_icon_types = [icon_type for _, icon_type, _, _ in entries]
@@ -331,9 +329,7 @@ def _apply_pending_metadata(graph: MetroGraph) -> None:
 
     for station_id in graph._pending_off_track:
         station = graph.stations.get(station_id)
-        if not station:
-            continue
-        if graph.edges_to(station_id) and graph.edges_from(station_id):
+        if not station or graph.is_hub(station_id):
             continue
         station.off_track = True
 

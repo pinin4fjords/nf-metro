@@ -1817,10 +1817,11 @@ def _guard_off_track_not_hub(graph: MetroGraph, phase: str) -> None:
     to rejoin the trunk (issue #1295). The parser already refuses to set the
     flag on a hub; this catches any other path that sets it directly.
     """
+    junction_ids = graph.junction_ids
     for sid, st in graph.stations.items():
-        if not st.off_track or st.is_port or sid in graph.junction_ids:
+        if not st.off_track or st.is_port or sid in junction_ids:
             continue
-        if graph.edges_to(sid) and graph.edges_from(sid):
+        if graph.is_hub(sid):
             raise PhaseInvariantError(
                 f"{phase}: off-track station {sid!r} has both a predecessor "
                 f"and a successor; it is a pass-through hub with nothing to "
