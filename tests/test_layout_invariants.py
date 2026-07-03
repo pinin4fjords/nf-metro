@@ -2227,16 +2227,8 @@ def test_fanout_bundle_plus_spurs_renders_cleanly():
     bundle member off its concentric slot, or it crosses a bundle-mate of a
     different line and trips the render-curve backstop.  The spur descent fuses
     onto the bundle member's X instead; a clean render is the lock.
-
-    The fixture lives outside the topology corpus because its hand-authored
-    single-line spur sections are corridor-fed and their entry ports do not
-    re-anchor onto the section trunk -- a separate offset-anchoring quirk of the
-    grid, not the routing-curve defect #1292 is about.
     """
-    path = Path(__file__).parent / "fixtures" / "curve_invariant_repros"
-    path = path / "fanout_bundle_plus_spurs.mmd"
-    graph = parse_metro_mermaid(path.read_text())
-    compute_layout(graph)
+    graph = _layout("topologies/fanout_bundle_plus_spurs.mmd")
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
     # Raises CurveInvariantError naming the offending edge on regression.
