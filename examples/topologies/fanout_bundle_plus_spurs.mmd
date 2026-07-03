@@ -1,0 +1,41 @@
+%%metro title: Fan-out bundle plus spurs
+%%metro line: a | Line A | #e6007e
+%%metro line: b | Line B | #2db572
+%%metro line: c | Line C | #2b6cb0
+%%metro grid: trunk | 0,0
+%%metro grid: branch | 0,1
+%%metro grid: solo_a | 1,0
+%%metro grid: solo_b | 1,1
+
+graph LR
+    subgraph trunk [Trunk]
+        %%metro exit: right | a, b, c
+        x1[X1]
+        x2[X2]
+        x1 -->|a,b,c| x2
+    end
+
+    subgraph branch [Branch]
+        %%metro entry: left | a, b, c
+        y1[Y1]
+        y2[Y2]
+        y1 -->|a,b,c| y2
+    end
+
+    subgraph solo_a [SoloA]
+        %%metro entry: left | a
+        z1[Z1]
+        z2[Z2]
+        z1 -->|a| z2
+    end
+
+    subgraph solo_b [SoloB]
+        %%metro entry: left | b
+        w1[W1]
+        w2[W2]
+        w1 -->|b| w2
+    end
+
+    x2 -->|a,b,c| y1
+    x2 -->|a| z1
+    x2 -->|b| w1

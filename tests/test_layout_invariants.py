@@ -312,6 +312,14 @@ _OFF_TRACK_ROLES = {
 }
 _FIXTURES_WITH_OFF_TRACK_INPUT = [f for f, r in _OFF_TRACK_ROLES.items() if r[0]]
 _FIXTURES_WITH_OFF_TRACK_OUTPUT = [f for f, r in _OFF_TRACK_ROLES.items() if r[1]]
+# A fixture whose only `off_track:` mark landed on a hub station (both a
+# predecessor and a successor) resolves to neither role: the mark was a
+# no-op there (#1295). Use this role-aware set, not the raw text-matched
+# `_FIXTURES_WITH_OFF_TRACK`, wherever a test requires an actual off-track
+# station to exist.
+_FIXTURES_WITH_OFF_TRACK_ANY = sorted(
+    {*_FIXTURES_WITH_OFF_TRACK_INPUT, *_FIXTURES_WITH_OFF_TRACK_OUTPUT}
+)
 _FIXTURES_MULTI_SECTION = _fixtures_with(lambda t: t.count("subgraph") >= 2)
 _FIXTURES_COMPACT = _fixtures_with(lambda t: "compact_offsets: true" in t)
 
@@ -2200,6 +2208,57 @@ def test_near_vertical_junction_hook_renders_cleanly():
     assert_render_curve_invariants(graph, routes, offsets)
 
 
+def _opening_descent_x(route):
+    """The X of *route*'s opening horizontal-then-vertical descent, or None.
+
+    The route leaves its source on a short horizontal lead ``points[0]->[1]``
+    and drops on the vertical ``points[1]->[2]``; the shared X of those two is
+    the descent channel.  Returns None when the route does not open that way.
+    """
+    pts = route.points
+    if len(pts) < 3:
+        return None
+    (_, y0), (x1, y1), (x2, y2) = pts[0], pts[1], pts[2]
+    if abs(y0 - y1) < 0.5 and abs(x1 - x2) < 0.5 and abs(y1 - y2) > 0.5:
+        return x1
+    return None
+
+
+def test_fanout_bundle_plus_spurs_renders_cleanly():
+    """A shared source fanning out to a multi-line branch plus single-line spurs
+    keeps its bundle fan concentric (#1292).
+
+    A junction carries a three-line bundle to a same-column branch a row below
+    (wrapping through the inter-row gap) and single-line spurs off the same
+    junction.  A spur line also carried by the branch bundle has two opening
+    descents from the junction; fusing them onto one stroke must not drag the
+    bundle member off its concentric slot, or it crosses a bundle-mate of a
+    different line and trips the render-curve backstop.  The spur descent fuses
+    onto the bundle member's X instead; a clean render is the lock.
+    """
+    graph = _layout("topologies/fanout_bundle_plus_spurs.mmd")
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    # Raises CurveInvariantError naming the offending edge on regression.
+    assert_render_curve_invariants(graph, routes, offsets)
+
+    branch_bundle = {
+        r.line_id: _opening_descent_x(r)
+        for r in routes
+        if r.edge.target == "branch__entry_left_1"
+    }
+    assert branch_bundle.keys() == {"a", "b", "c"}, branch_bundle
+    assert branch_bundle["a"] > branch_bundle["b"] > branch_bundle["c"], (
+        f"branch bundle fan order broken: {branch_bundle}"
+    )
+    solo_b = next(r for r in routes if r.edge.target == "solo_b__entry_left_3")
+    spur_x = _opening_descent_x(solo_b)
+    assert abs(spur_x - branch_bundle["b"]) < 0.5, (
+        f"line b's spur descent must fuse onto its bundle member's X, not the "
+        f"other way round: spur={spur_x} bundle={branch_bundle['b']}"
+    )
+
+
 @pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_top_entry_lead_corner_concentric(fixture):
     """A multi-line TOP-entry L-shape must turn its lead-in corner
@@ -2507,6 +2566,30 @@ def test_off_track_outputs_above_and_adjacent_to_producer(fixture):
             f"producer {prod_id} (more than 2 slots) - likely misanchored to "
             f"the section's topmost station instead of its producer"
         )
+
+
+def test_off_track_noop_on_hub_station():
+    """``off_track:`` is a no-op on a station with both a predecessor and a
+    successor (even one crossing to another section) -- it is a pass-through
+    hub, not a pure sink with nothing downstream to reach.  Lifting it anyway
+    forces the line to rise off the trunk and immediately drop back down to
+    reach the outgoing edge, a pointless bump with nothing to protect (#1295).
+    """
+    graph = _layout("off_track_terminal_noop.mmd")
+    assert graph.stations["out1"].off_track is False, (
+        "out1 has an outgoing edge (to s2) besides its incoming edge from n2, "
+        "so it is a hub, not a pure sink -- off_track should not have taken"
+    )
+    n2_y = graph.stations["n2"].y
+    out1_y = graph.stations["out1"].y
+    exit_port_y = graph.stations["s1__exit_right_0"].y
+    assert out1_y == pytest.approx(n2_y, abs=_Y_TOL), (
+        f"out1 y={out1_y} not level with n2 y={n2_y}; off_track lifted it "
+        f"off the trunk despite having nothing to protect"
+    )
+    assert out1_y == pytest.approx(exit_port_y, abs=_Y_TOL), (
+        f"out1 y={out1_y} not level with the exit port y={exit_port_y}"
+    )
 
 
 def test_single_trunk_off_track_step_not_inflated_by_diagonal_band():
@@ -3172,7 +3255,7 @@ def test_tb_exit_corridor_grazes_icon_without_clamp(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK)
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK_ANY)
 def test_off_track_output_icons_do_not_overlap(fixture):
     """Two off-track output icon bboxes in one section never overlap.
 
@@ -3310,7 +3393,7 @@ def test_off_track_output_route_guard_catches_a_crossing():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK)
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK_ANY)
 def test_off_track_output_clears_station_labels(fixture):
     """No on-track station label overlaps an off-track output icon.
 
@@ -3455,7 +3538,7 @@ def test_bubble_label_clears_convergence_diagonal(fixture):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK)
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK_ANY)
 def test_reanchor_off_track_requires_snapped_consumers(fixture):
     """``_reanchor_off_track_to_consumer`` must refuse to run before the
     Stage 6.4 grid snap marks consumers final.
@@ -3476,7 +3559,7 @@ def test_reanchor_off_track_requires_snapped_consumers(fixture):
         _reanchor_off_track_to_consumer(graph, y_spacing)
 
 
-@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK)
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK_ANY)
 def test_reanchor_off_track_bbox_fit_is_reversible(fixture):
     """Re-running the reanchor is order-independent: it recomputes the
     section top to fit, growing **or** shrinking.

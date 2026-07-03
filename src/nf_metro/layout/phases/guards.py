@@ -1805,6 +1805,30 @@ def _guard_off_track_consumer_on_trunk(graph: MetroGraph, phase: str) -> None:
             )
 
 
+def _guard_off_track_not_hub(graph: MetroGraph, phase: str) -> None:
+    """No off-track station has both a predecessor and a successor.
+
+    ``off_track`` lifts a station clear of the trunk so something else can
+    continue past it undisturbed (an input feeding a downstream consumer, or
+    a producer-fed sink with nothing after it). A station with edges on both
+    sides is a pass-through hub: it has no trunk slot to protect, since
+    nothing needs to route around it there. Marking one off-track anyway
+    lifts it for no reason and forces its outgoing edge to detour back down
+    to rejoin the trunk (issue #1295). The parser already refuses to set the
+    flag on a hub; this catches any other path that sets it directly.
+    """
+    junction_ids = graph.junction_ids
+    for sid, st in graph.stations.items():
+        if not st.off_track or st.is_port or sid in junction_ids:
+            continue
+        if graph.is_hub(sid):
+            raise PhaseInvariantError(
+                f"{phase}: off-track station {sid!r} has both a predecessor "
+                f"and a successor; it is a pass-through hub with nothing to "
+                f"protect, so off_track should not have been set"
+            )
+
+
 def _guard_no_stacked_elbow_graze(
     graph: MetroGraph,
     phase: str,
@@ -5042,6 +5066,16 @@ INLINE_GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "Restricted to single-trunk sections, whose lift pitch carries no "
             "stacked horizontal line bands that could legitimately bump an "
             "input past its same-column slot."
+        ),
+    ),
+    GuardSpec(
+        _guard_off_track_not_hub,
+        "B",
+        issue_pin=("#1295",),
+        narrow_reason=(
+            "Restricted to stations with edges on both sides: a genuine "
+            "off-track input or producer-fed sink has edges on only one side, "
+            "so it is never a false positive."
         ),
     ),
     GuardSpec(_guard_rail_above_label_band, "B"),
