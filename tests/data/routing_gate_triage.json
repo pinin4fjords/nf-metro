@@ -87,10 +87,6 @@
     "note": "Empty-bundle guard: all callers (normalize.py 291/1648, inter_section_handlers.py 783/796/2132) derive bundle_widths from a non-empty bundle line count, so n is always >=1; the empty-list arm is never taken.",
     "status": "defensive"
   },
-  "common.py::if not secs:::#2": {
-    "note": "row_bottom_edge empty-result guard: every caller passes a grid row (optionally col-filtered) that contains the routed source/target section after layout, so the section list is never empty; the default-return arm is a guard valid layouts never take.",
-    "status": "defensive"
-  },
   "common.py::if not src or not tgt:::#1": {
     "note": "Null-endpoint guard: the parser creates a Station for every edge endpoint, so graph.stations.get() never returns None for a real edge; the continue arm only guards a malformed graph.",
     "status": "defensive"
@@ -350,6 +346,10 @@
   "inter_section_handlers.py::if fan is not None:::#4": {
     "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
     "status": "needs-review"
+  },
+  "inter_section_handlers.py::if gap_bottom <= gap_top:::#1": {
+    "note": "The row-gap enforcer keeps stacked rows separated, so the inter-row band above a target row (row_bottom_edge(tgt_row-1) up to row_top_edge(tgt_row)) has positive height whenever a RIGHT entry is fed from a higher row; the degenerate-band arm guards an abutting-rows layout placement never produces.",
+    "status": "defensive"
   },
   "inter_section_handlers.py::if gap_right <= gap_left:::#1": {
     "note": "The column-gap enforcer keeps inter-column gaps positive, so gap_right>gap_left always holds at the target row.",
