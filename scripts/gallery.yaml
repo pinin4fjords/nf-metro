@@ -121,6 +121,15 @@ gallery:
       along the flow axis. A short+long pair in one row aligns top-to-bottom with
       a long+short pair packed into the same column below it, freeing the
       bottom-left for the legend."
+  - id: fanout_bundle_plus_spurs
+    source_dir: examples/topologies
+    category: Feature Showcase
+    description:
+      "A shared source fans out three ways at once: a same-column multi-line
+      branch wrapping to the row below, plus single-line spurs peeling off the
+      same junction. The branch bundle keeps its concentric fan order, each
+      spur's descent fuses onto the bundle rather than crossing it, and the
+      single-line spur sections ride their own trunks."
 
   # ── Realistic Pipelines ────────────────────────────────────────────────────
   - id: genomic_pipeline

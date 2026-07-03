@@ -13,6 +13,7 @@ from nf_metro.layout.constants import (
     resolve_offset_step,
 )
 from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.phases._common import iter_corridor_fed_solo_entries
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
     needs_perp_approach_fan,
@@ -1559,40 +1560,34 @@ def _align_flat_tb_exit_to_entry(ctx: _OffsetCtx) -> None:
 
 
 def _recenter_single_line_corridor_entry(ctx: _OffsetCtx) -> None:
-    """Anchor a corridor-fed single-line section's entry port on its trunk.
+    """Anchor a corridor-fed single-line section onto its trunk.
 
     A LEFT/RIGHT entry port of an LR/RL section that carries a single present
     line has no bundle to keep ordered: its global-priority offset is the lane
     the line held in the upstream multi-line section, and keeping it only drags
-    the lone consumer off the section trunk (horizontal reconciliation snaps the
-    station up to match the port), so the section reserves empty space for lines
-    that never enter it.  When every feeder reaches the port on a different base
-    Y -- a vertical corridor -- the lane step resolves in that vertical leg, so
-    re-anchor the port at offset 0 and let reconciliation settle the consumer
-    onto the trunk.  A flat (same-Y) seam is left untouched: re-basing there
+    the lone consumer off the section trunk, so the section reserves empty space
+    for lines that never enter it.  When every feeder reaches the port on a
+    different base Y -- a vertical corridor -- the lane step resolves in that
+    vertical leg, so re-anchor the whole section (entry port and every consumer
+    carrying the line) at offset 0.  Anchoring the consumers too, rather than
+    leaving horizontal reconciliation to settle them, keeps reconciliation's
+    larger-magnitude preference from snapping the port back off the trunk onto
+    the consumer's lane.  A flat (same-Y) seam is left untouched: re-basing there
     would slope the straight-through run into an almost-horizontal segment.
+
+    Scope is exactly :func:`iter_corridor_fed_solo_entries` -- the same set the
+    :func:`_guard_corridor_fed_solo_rides_trunk` invariant certifies.
     """
     graph = ctx.graph
-    present = _section_present_lines(graph)
-    for port_id, port_obj in graph.ports.items():
-        if not port_obj.is_entry:
-            continue
-        if port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
-        if port_obj.section_id not in ctx.lr_rl_sections:
-            continue
-        if len(present.get(port_obj.section_id, set())) != 1:
-            continue
-        port_y = graph.stations[port_id].y
-        feeders = [
-            graph.stations[edge.source]
-            for edge in graph.edges_to(port_id)
-            if edge.source in graph.stations
-        ]
-        if not feeders or any(abs(f.y - port_y) <= _SAME_Y_TOLERANCE for f in feeders):
-            continue
-        for lid in graph.station_lines(port_id):
-            ctx.offsets[(port_id, lid)] = 0.0
+    for sec_id, port_id, line_id in iter_corridor_fed_solo_entries(
+        graph, _SAME_Y_TOLERANCE
+    ):
+        ctx.offsets[(port_id, line_id)] = 0.0
+        for sid in graph.sections[sec_id].station_ids:
+            st = graph.stations.get(sid)
+            if st is None or st.is_port or line_id not in graph.station_lines(sid):
+                continue
+            ctx.offsets[(sid, line_id)] = 0.0
 
 
 def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
