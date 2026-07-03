@@ -618,7 +618,17 @@ def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
     side the branches leave from, and splits off downstream at each own turn Y.
     Unlike the convergent case there is no proximity band: any same-source pair
     overlapping in Y must collapse, however far apart their Xs.
+
+    A descent that opens a multi-line bundle (its source->target edge carries
+    more than one line) sits on an X the bundle's concentric fan places: the
+    lines nest in a fixed order there, so the fused X must keep every such
+    member ordered against its bundle-mates.  The reference is therefore drawn
+    from the bundle-locked members when the group has any -- the free same-line
+    descents snap onto the bundle rather than dragging a member off its slot
+    into a bundle-mate of another line; only an all-free group falls back to the
+    descent nearest the source.
     """
+    lines_per_edge: dict[tuple[str, str], set[str]] = defaultdict(set)
     by_source: dict[tuple[str, str, bool], list[_VChannel]] = defaultdict(list)
     for rp in routes:
         if not rp.is_inter_section:
@@ -626,14 +636,21 @@ def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
         ch = _initial_fanout_descent(rp)
         if ch is None:
             continue
+        lines_per_edge[(rp.edge.source, rp.edge.target)].add(rp.line_id)
         by_source[(rp.edge.source, rp.line_id, ch.down)].append(ch)
+
+    def bundle_locked(ch: _VChannel) -> bool:
+        e = ch.route.edge
+        return len(lines_per_edge[(e.source, e.target)]) > 1
 
     groups: list[_Coincidence] = []
     for chans in by_source.values():
         if len(chans) < 2:
             continue
+        locked = [c for c in chans if bundle_locked(c)]
+        candidates = locked if locked else chans
         sx = chans[0].route.points[0][0]
-        ref_x = min(chans, key=lambda c: abs(c.x - sx)).x
+        ref_x = min(candidates, key=lambda c: abs(c.x - sx)).x
         groups.append(_Coincidence(chans, ref_x))
     return groups
 
