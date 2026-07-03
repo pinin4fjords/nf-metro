@@ -2200,6 +2200,65 @@ def test_near_vertical_junction_hook_renders_cleanly():
     assert_render_curve_invariants(graph, routes, offsets)
 
 
+def _opening_descent_x(route):
+    """The X of *route*'s opening horizontal-then-vertical descent, or None.
+
+    The route leaves its source on a short horizontal lead ``points[0]->[1]``
+    and drops on the vertical ``points[1]->[2]``; the shared X of those two is
+    the descent channel.  Returns None when the route does not open that way.
+    """
+    pts = route.points
+    if len(pts) < 3:
+        return None
+    (_, y0), (x1, y1), (x2, y2) = pts[0], pts[1], pts[2]
+    if abs(y0 - y1) < 0.5 and abs(x1 - x2) < 0.5 and abs(y1 - y2) > 0.5:
+        return x1
+    return None
+
+
+def test_fanout_bundle_plus_spurs_renders_cleanly():
+    """A shared source fanning out to a multi-line branch plus single-line spurs
+    keeps its bundle fan concentric (#1292).
+
+    A junction carries a three-line bundle to a same-column branch a row below
+    (wrapping through the inter-row gap) and single-line spurs off the same
+    junction.  A spur line also carried by the branch bundle has two opening
+    descents from the junction; fusing them onto one stroke must not drag the
+    bundle member off its concentric slot, or it crosses a bundle-mate of a
+    different line and trips the render-curve backstop.  The spur descent fuses
+    onto the bundle member's X instead; a clean render is the lock.
+
+    The fixture lives outside the topology corpus because its hand-authored
+    single-line spur sections are corridor-fed and their entry ports do not
+    re-anchor onto the section trunk -- a separate offset-anchoring quirk of the
+    grid, not the routing-curve defect #1292 is about.
+    """
+    path = Path(__file__).parent / "fixtures" / "curve_invariant_repros"
+    path = path / "fanout_bundle_plus_spurs.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    # Raises CurveInvariantError naming the offending edge on regression.
+    assert_render_curve_invariants(graph, routes, offsets)
+
+    branch_bundle = {
+        r.line_id: _opening_descent_x(r)
+        for r in routes
+        if r.edge.target == "branch__entry_left_1"
+    }
+    assert branch_bundle.keys() == {"a", "b", "c"}, branch_bundle
+    assert branch_bundle["a"] > branch_bundle["b"] > branch_bundle["c"], (
+        f"branch bundle fan order broken: {branch_bundle}"
+    )
+    solo_b = next(r for r in routes if r.edge.target == "solo_b__entry_left_3")
+    spur_x = _opening_descent_x(solo_b)
+    assert abs(spur_x - branch_bundle["b"]) < 0.5, (
+        f"line b's spur descent must fuse onto its bundle member's X, not the "
+        f"other way round: spur={spur_x} bundle={branch_bundle['b']}"
+    )
+
+
 @pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_top_entry_lead_corner_concentric(fixture):
     """A multi-line TOP-entry L-shape must turn its lead-in corner
