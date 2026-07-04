@@ -83,6 +83,44 @@ def test_push_direction_follows_target(
         )
 
 
+def test_squeezed_channel_balances_between_opposing_edges() -> None:
+    """Two opposing sections whose combined clearances don't fit force a
+    balanced midline (#1313).
+
+    A ``left_block`` right edge and a ``right_block`` left edge sit closer
+    together than ``2 * EDGE_TO_BUNDLE_CLEARANCE``, so the channel cannot
+    clear both.  Instead of order-dependently hugging one edge, it must
+    centre between the two so each side shares the available room.
+    """
+    from nf_metro.layout.constants import EDGE_TO_BUNDLE_CLEARANCE
+
+    left_block = Section(
+        id="left_block", name="L", bbox_x=30.0, bbox_y=248.0, bbox_w=170.0, bbox_h=100.0
+    )
+    right_block = Section(
+        id="right_block",
+        name="R",
+        bbox_x=225.0,
+        bbox_y=248.0,
+        bbox_w=200.0,
+        bbox_h=100.0,
+    )
+    graph = MetroGraph(sections={"left_block": left_block, "right_block": right_block})
+
+    left_edge = left_block.bbox_x + left_block.bbox_w  # 200
+    right_edge = right_block.bbox_x  # 225
+    # Gap of 25px < 2 * 16 -> infeasible; balanced midline is (200 + 225) / 2.
+    adjusted = clear_channel_of_section_edge(
+        graph, 210.0, 0.0, 120.0, 448.0, [], target_x=300.0
+    )
+    assert adjusted == pytest.approx((left_edge + right_edge) / 2), (
+        f"expected balanced midline {(left_edge + right_edge) / 2}, got {adjusted}"
+    )
+    # Neither side reaches full clearance, but both share equally.
+    assert (adjusted - left_edge) == pytest.approx(right_edge - adjusted)
+    assert (adjusted - left_edge) < EDGE_TO_BUNDLE_CLEARANCE
+
+
 def test_repro_rna_descent_routes_toward_target() -> None:
     """The hub's ``rna`` fan to a down-and-right target descends on the target's
     side of the wide ``block`` rather than detouring to the far-left margin."""

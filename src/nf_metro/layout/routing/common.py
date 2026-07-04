@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -1171,6 +1172,13 @@ def clear_channel_of_section_edge(
     so the descent keeps heading toward it; the nearer edge is used only
     as a fallback when the target's X falls within the section's own span
     (so neither side is closer to it) or no target is supplied.
+
+    Opposing sections stacked closer than ``2 * (edge_clearance +
+    half_width)`` leave no midline that clears both, so the per-edge outward
+    pushes cannot satisfy both and the channel ends up skimming one wall.  When
+    the skimmed wall and the nearest wall on the far side bound a real
+    (non-overlapping) gap, the channel is re-centred on that gap so the
+    unavoidable shortfall is shared evenly rather than dumped on one edge.
     """
     adjusted = mid_x
     for sec in graph.sections.values():
@@ -1209,6 +1217,38 @@ def clear_channel_of_section_edge(
             adjusted += edge_clearance - clear_of_right
         else:
             adjusted -= edge_clearance - clear_of_left
+
+    if adjusted == mid_x:
+        return adjusted  # nothing grazed, so nothing is being skimmed
+
+    # A second pass over the *settled* position: which wall did the per-edge
+    # pushes leave the channel skimming, and is there a real gap to re-centre in?
+    bundle_lo = adjusted - half_width
+    bundle_hi = adjusted + half_width
+    left_skim = -math.inf  # nearest left wall the bundle skims within clearance
+    right_skim = math.inf  # nearest right wall the bundle skims within clearance
+    left_wall = -math.inf  # nearest wall to the channel's left, any distance
+    right_wall = math.inf  # nearest wall to the channel's right, any distance
+    for sec in graph.sections.values():
+        if sec.bbox_w <= 0:
+            continue
+        if y_hi < sec.bbox_y or y_lo > sec.bbox_y + sec.bbox_h:
+            continue
+        left = sec.bbox_x
+        right = left + sec.bbox_w
+        if 0 <= bundle_lo - right < edge_clearance:
+            left_skim = max(left_skim, right)
+        elif 0 <= left - bundle_hi < edge_clearance:
+            right_skim = min(right_skim, left)
+        if right <= adjusted:
+            left_wall = max(left_wall, right)
+        if left >= adjusted:
+            right_wall = min(right_wall, left)
+
+    if left_skim > -math.inf and right_wall > left_skim:
+        return (left_skim + right_wall) / 2
+    if right_skim < math.inf and left_wall < right_skim:
+        return (left_wall + right_skim) / 2
     return adjusted
 
 

@@ -1117,6 +1117,20 @@ gallery:
       A right-exit bundle wrapping down to a left-entry in the row below. The horizontal
       run sits centred in the inter-row gap, clear of both the section above and the next row's
       header.
+  - id: inter_row_drop_section_clearance
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      An inter-row drop threading the gap between two packed sections whose internal sub-gaps
+      are offset by less than the routing clearance. The vertical channel sits centred in the
+      overlap, sharing the unavoidable shortfall evenly instead of skimming one section's edge.
+  - id: inter_row_drop_section_clearance_row1
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      The same offset packed-section squeeze as inter_row_drop_section_clearance, with the wider
+      section in the lower row so the drop would otherwise hug the row-1 section's edge; the
+      channel is centred in the gap instead.
   - id: cross_col_top_entry
     source_dir: examples/topologies
     category: Inter-section Routing

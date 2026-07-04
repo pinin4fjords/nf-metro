@@ -29,6 +29,7 @@
   "common.py::if right > left and left - tol <= x <= right + tol:::#1",
   "common.py::if s.bbox_h <= 0:::#1",
   "common.py::if sec.bbox_w <= 0:::#1",
+  "common.py::if sec.bbox_w <= 0:::#2",
   "common.py::if sec:::#1",
   "common.py::if sec:::#2",
   "common.py::if seg_len2 == 0:::#1",
