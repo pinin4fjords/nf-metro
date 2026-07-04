@@ -2834,11 +2834,13 @@ def _ensure_routes(
 ) -> list[RoutedPath]:
     """Return *routes*, routing all edges first if the caller didn't supply them.
 
-    Routes with the same ``station_offsets`` the render uses so the guards
-    inspect the route the render actually draws: several dispatch predicates
-    gate on ``bool(ctx.station_offsets)`` (e.g. ``_InterFacts.is_tb_bottom_exit``),
-    so routing bare would fire a different handler than the render and make a
-    ``validate=True`` verdict disagree with the drawn picture (#1319).
+    Routes *with* ``station_offsets`` so the guards dispatch the same handler
+    the render does: several dispatch predicates gate on
+    ``bool(ctx.station_offsets)`` (e.g. ``_InterFacts.is_tb_bottom_exit``), so
+    routing bare would fire a different handler than the render and make a
+    ``validate=True`` verdict disagree with the drawn picture (#1319).  The
+    offset *magnitude* need not match the render's themed ``offset_step``; only
+    its presence gates dispatch.
     """
     if routes is not None:
         return routes

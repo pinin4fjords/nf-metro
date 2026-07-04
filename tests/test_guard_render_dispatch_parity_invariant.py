@@ -12,10 +12,10 @@ sees, or pass a route the render draws badly.
 
 The invariant here is offset-magnitude-independent: it compares the *topology*
 (the H/V/D segment-direction sequence, which is exactly what dispatch selects)
-of every edge's guard-path route against its render-path route.  On the
-un-fixed tree the TB-bottom-exit class diverges (guard draws an ``H,V,H``
-dog-leg where the render drops straight ``V``); the fix aligns the guard's
-``station_offsets`` with the render's so the two paths dispatch identically.
+of every edge's guard-path route against its render-path route.  The
+TB-bottom-exit class is the sharp case: without offsets present the guard would
+draw an ``H,V,H`` dog-leg while the render drops straight ``V``, so the two
+paths must route with matching offset presence to dispatch identically.
 """
 
 from __future__ import annotations
@@ -23,14 +23,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import parse_and_layout
 
-from nf_metro.layout.constants import resolve_offset_step
-from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.constants import SAME_COORD_TOLERANCE, resolve_offset_step
 from nf_metro.layout.phases.guards import _ensure_routes
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import RoutedPath
-from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import MetroGraph
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -58,11 +56,11 @@ def _segment_dirs(points: list[tuple[float, float]]) -> tuple[str, ...]:
     dirs: list[str] = []
     for (x1, y1), (x2, y2) in zip(points, points[1:]):
         dx, dy = x2 - x1, y2 - y1
-        if abs(dx) < 0.5 and abs(dy) < 0.5:
+        if abs(dx) < SAME_COORD_TOLERANCE and abs(dy) < SAME_COORD_TOLERANCE:
             continue
-        if abs(dy) < 0.5:
+        if abs(dy) < SAME_COORD_TOLERANCE:
             dirs.append("H")
-        elif abs(dx) < 0.5:
+        elif abs(dx) < SAME_COORD_TOLERANCE:
             dirs.append("V")
         else:
             dirs.append("D")
@@ -73,15 +71,9 @@ def _by_edge(routes: list[RoutedPath]) -> dict[tuple[str, str, str], RoutedPath]
     return {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
 
 
-def _laid_out(fixture: str) -> MetroGraph:
-    graph = parse_metro_mermaid((EXAMPLES / fixture).read_text())
-    compute_layout(graph, validate=False)
-    return graph
-
-
 @pytest.mark.parametrize("fixture", _FIXTURES)
 def test_guard_and_render_routes_dispatch_identically(fixture: str) -> None:
-    graph = _laid_out(fixture)
+    graph = parse_and_layout((EXAMPLES / fixture).read_text(), validate=False)
 
     guard_routes = _by_edge(_ensure_routes(graph, None))
 
