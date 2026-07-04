@@ -92,6 +92,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _set_vchannel_x,
     _stagger_convergent_distinct_lines,
     _suboptimal_trunk_bands,
+    _unify_coincident_corner_radii,
     _VChannel,
 )
 from nf_metro.layout.routing.postprocess import (  # noqa: F401
@@ -208,6 +209,10 @@ def _route_edges(
     # descents were forced onto one channel (a shared gap left of a wide target).
     _stagger_convergent_distinct_lines(routes, ctx)
     _clear_bypass_v_label_strikes(routes, ctx)
+    # Same-line legs a coincidence pass fused onto one channel each kept their
+    # handler's corner radius; unify every turn they share so the fused stroke
+    # draws one arc rather than concentric duplicates.
+    _unify_coincident_corner_radii(routes)
 
     return routes, moves
 

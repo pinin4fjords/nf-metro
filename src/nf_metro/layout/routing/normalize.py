@@ -47,6 +47,7 @@ from nf_metro.layout.routing.corners import (
     concentric_corner_radius_at,
     corner_radius,
     l_shape_radii,
+    widest_coincident_radius,
 )
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
@@ -493,6 +494,63 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     for group in _merge_feeder_groups(routes, ctx):
         _snap_group(group)
     _join_fanout_upstream_tails(routes, ctx)
+
+
+def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
+    """Give same-line turns shared by several legs one radius.
+
+    Fusing same-line legs onto one channel leaves each with the flanking radius
+    its handler assigned -- a solo leg the base radius, a leg that is the outer
+    member of a concentric multi-line bundle a wider one.  Where fused legs share
+    a turn vertex the two arcs draw concentrically a few pixels apart: the
+    doubled corner :func:`check_coincident_corner_radii` forbids.  Snap each
+    shared turn to the widest coincident radius, the one that nests outside any
+    bundle sharing the vertex, so the fused stroke reads as one clean arc.
+
+    Bundle-mates of different lines sit ``OFFSET_STEP`` apart and never share a
+    vertex, so their concentric nesting is untouched; only truly coincident
+    same-line turns collapse.
+    """
+    buckets: dict[tuple[str, int, int], list[tuple[RoutedPath, int]]] = defaultdict(
+        list
+    )
+    for rp in routes:
+        radii = rp.curve_radii
+        if radii is None:
+            continue
+        pts = rp.points
+        for k in range(1, len(pts) - 1):
+            if k - 1 >= len(radii) or not _is_orthogonal_turn(
+                pts[k - 1], pts[k], pts[k + 1]
+            ):
+                continue
+            key = (rp.line_id, round(pts[k][0]), round(pts[k][1]))
+            buckets[key].append((rp, k - 1))
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        widest = widest_coincident_radius(
+            rp.curve_radii[i]  # type: ignore[index]
+            for rp, i in members
+        )
+        for rp, i in members:
+            rp.curve_radii[i] = widest  # type: ignore[index]
+
+
+def _leg_axis(a: tuple[float, float], b: tuple[float, float]) -> str | None:
+    """``'h'``/``'v'`` for an axis-aligned leg, ``None`` if diagonal or degenerate."""
+    horiz = abs(b[1] - a[1]) <= COORD_TOLERANCE and abs(b[0] - a[0]) > COORD_TOLERANCE
+    vert = abs(b[0] - a[0]) <= COORD_TOLERANCE and abs(b[1] - a[1]) > COORD_TOLERANCE
+    return "h" if horiz else "v" if vert else None
+
+
+def _is_orthogonal_turn(
+    p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float]
+) -> bool:
+    """True when the two legs meeting at *p1* are one horizontal, one vertical."""
+    axis_in = _leg_axis(p0, p1)
+    axis_out = _leg_axis(p1, p2)
+    return axis_in is not None and axis_out is not None and axis_in != axis_out
 
 
 def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
