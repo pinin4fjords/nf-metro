@@ -3451,15 +3451,9 @@ def _leadout_self_meets_sibling_descent(
             continue
         if route.edge.source == edge.source:
             continue
-        for a, b in zip(route.points, route.points[1:]):
-            if (
-                abs(a[0] - b[0]) > COORD_TOLERANCE
-                or abs(a[1] - b[1]) <= COORD_TOLERANCE
-            ):
+        for _k, x, seg_lo, seg_hi, _down in iter_vertical_segments(route):
+            if not (corner_x - COORD_TOLERANCE <= x <= gap_right + COORD_TOLERANCE):
                 continue
-            if not (corner_x - COORD_TOLERANCE <= a[0] <= gap_right + COORD_TOLERANCE):
-                continue
-            seg_lo, seg_hi = min(a[1], b[1]), max(a[1], b[1])
             if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:
                 return True
     return False

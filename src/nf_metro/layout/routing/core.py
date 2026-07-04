@@ -167,10 +167,11 @@ def _route_edges(
         rail_routes = route_rail_edges(graph, rail_edges)
 
     ctx = _build_routing_context(graph, diagonal_run, curve_radius, station_offsets)
-    routes: list[RoutedPath] = list(rail_routes)
-    # Handlers that need to clear an already-placed sibling channel read the
-    # routes settled so far off the context; the list grows as edges route.
-    ctx.built_routes = routes
+    # Route into the context's own list so handlers can read the routes settled
+    # so far (a wrap clearing an already-placed sibling channel); it grows as
+    # edges route and is what every post-loop pass consumes.
+    routes: list[RoutedPath] = ctx.built_routes
+    routes.extend(rail_routes)
 
     for edge in graph.edges:
         if (edge.source, edge.target, edge.line_id) in ctx.skip_edges:
