@@ -2832,12 +2832,19 @@ def _guard_title_band_clearance(
 def _ensure_routes(
     graph: MetroGraph, routes: list[RoutedPath] | None
 ) -> list[RoutedPath]:
-    """Return *routes*, routing all edges first if the caller didn't supply them."""
+    """Return *routes*, routing all edges first if the caller didn't supply them.
+
+    Routes with the same ``station_offsets`` the render uses so the guards
+    inspect the route the render actually draws: several dispatch predicates
+    gate on ``bool(ctx.station_offsets)`` (e.g. ``_InterFacts.is_tb_bottom_exit``),
+    so routing bare would fire a different handler than the render and make a
+    ``validate=True`` verdict disagree with the drawn picture (#1319).
+    """
     if routes is not None:
         return routes
-    from nf_metro.layout.routing import route_edges
+    from nf_metro.layout.routing import compute_station_offsets, route_edges
 
-    return route_edges(graph)
+    return route_edges(graph, station_offsets=compute_station_offsets(graph))
 
 
 def _route_exit_side(graph: MetroGraph, rp: RoutedPath) -> PortSide | None:
