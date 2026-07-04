@@ -28,7 +28,11 @@ from nf_metro.layout.phases.guards import (
     assert_render_layout_invariants,
     render_layout_invariant_specs,
 )
-from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing import (
+    compute_station_offsets,
+    route_edges,
+    route_edges_centred,
+)
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
@@ -459,3 +463,76 @@ def test_tb_exit_terminal_on_carrier_validates_strict() -> None:
         (TOP_FIXTURES / "tb_exit_terminal_on_carrier.mmd").read_text()
     )
     compute_layout(graph, validate=True)
+
+
+def _axis_segment_crossing(
+    a: RoutedPath, b: RoutedPath
+) -> tuple[tuple[float, float], ...] | None:
+    """Return the interior crossing point of an H segment of *a* and a V segment
+    of *b* (or vice versa), or ``None`` when no pair of segments cross.
+
+    All routed legs are axis-aligned, so a proper crossing is a horizontal leg
+    at ``y=h`` spanning ``(x1, x2)`` meeting a vertical leg at ``x=v`` spanning
+    ``(y1, y2)`` with ``v`` strictly inside the horizontal span and ``h``
+    strictly inside the vertical span.  Shared endpoints (the common port) do
+    not count.
+    """
+
+    def legs(rp: RoutedPath) -> list[tuple[float, float, float, float]]:
+        return [
+            (rp.points[i][0], rp.points[i][1], rp.points[i + 1][0], rp.points[i + 1][1])
+            for i in range(len(rp.points) - 1)
+        ]
+
+    tol = 1.0
+    for ha in legs(a):
+        if abs(ha[1] - ha[3]) > tol:  # not horizontal
+            continue
+        hy = ha[1]
+        hx_lo, hx_hi = sorted((ha[0], ha[2]))
+        for vb in legs(b):
+            if abs(vb[0] - vb[2]) > tol:  # not vertical
+                continue
+            vx = vb[0]
+            vy_lo, vy_hi = sorted((vb[1], vb[3]))
+            if hx_lo + tol < vx < hx_hi - tol and vy_lo + tol < hy < vy_hi - tol:
+                return ((vx, hy),)
+    return None
+
+
+CONVERGENT_ENTRY_FIXTURES = [
+    "tb_exit_terminal_on_carrier.mmd",
+]
+
+
+@pytest.mark.parametrize("name", CONVERGENT_ENTRY_FIXTURES)
+def test_convergent_entry_feeders_do_not_cross(name: str) -> None:
+    """Distinct-line feeders converging on one entry port nest without crossing.
+
+    Feeders forced down the single gap left of a wide row-span target are
+    staggered into parallel channels; if the channel order does not account for
+    each feeder's turn-down height, the feeder that turns down higher is placed
+    to the port side and its long descent is raked by the other's horizontal
+    traverse (#1326).  No two feeders sharing a target port may cross before it.
+    """
+    graph = parse_metro_mermaid((TOP_FIXTURES / name).read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges_centred(graph, station_offsets=offsets)
+    by_target: dict[str, list[RoutedPath]] = {}
+    for rp in routes:
+        if rp.is_inter_section:
+            by_target.setdefault(rp.edge.target, []).append(rp)
+    crossings: list[str] = []
+    for target, feeders in by_target.items():
+        for i in range(len(feeders)):
+            for j in range(i + 1, len(feeders)):
+                pt = _axis_segment_crossing(feeders[i], feeders[j])
+                if pt is None:
+                    pt = _axis_segment_crossing(feeders[j], feeders[i])
+                if pt is not None:
+                    crossings.append(
+                        f"{feeders[i].line_id} x {feeders[j].line_id} "
+                        f"into {target} at {pt[0]}"
+                    )
+    assert not crossings, f"{name}: converging feeders cross: {crossings}"
