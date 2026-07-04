@@ -54,6 +54,7 @@ from nf_metro.layout.routing.common import (
     gap_lo_for_x,
     horizontal_direction,
     initial_fanout_descent_span,
+    is_orthogonal_turn,
     iter_horizontal_trunks,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
@@ -2698,17 +2699,10 @@ def check_coincident_corner_radii(
             continue
         radii = _resolved_corner_radii(r, pts)
         for k in range(1, len(pts) - 1):
-            if k - 1 >= len(radii):
-                continue
-            turn_in = _segment_unit(pts[k - 1], pts[k])
-            turn_out = _segment_unit(pts[k], pts[k + 1])
-            if turn_in is None or turn_out is None:
-                continue
-            if (
-                abs(turn_in[0] * turn_out[0] + turn_in[1] * turn_out[1])
-                > COORD_TOLERANCE
+            if k - 1 >= len(radii) or not is_orthogonal_turn(
+                pts[k - 1], pts[k], pts[k + 1]
             ):
-                continue  # straight pass-through, no arc to double
+                continue
             key = (r.line_id, round(pts[k][0]), round(pts[k][1]))
             buckets[key].append((r, pts[k], radii[k - 1]))
 

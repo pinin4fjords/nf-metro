@@ -35,6 +35,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from layout_validator import shared_same_line_turn_vertices
 
 import nf_metro.layout.routing.normalize as normalize
 from nf_metro.layout.constants import CURVE_RADIUS
@@ -104,7 +105,7 @@ def _touched_corner_mismatches(
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
-    shared = _shared_turn_vertices(routes)
+    shared = shared_same_line_turn_vertices(routes)
 
     mismatches: list[tuple[str, int, float, float]] = []
     for rp, k in touched:
@@ -124,29 +125,6 @@ def _touched_corner_mismatches(
             if abs(radii[radius_idx] - expected) > _RADIUS_TOLERANCE:
                 mismatches.append((rp.line_id, radius_idx, radii[radius_idx], expected))
     return mismatches
-
-
-def _shared_turn_vertices(routes: list[RoutedPath]) -> set[tuple[str, int, int]]:
-    """``(line, x, y)`` turn vertices shared by two or more same-line legs.
-
-    Mirrors the bucketing of :func:`_unify_coincident_corner_radii`: these are
-    the corners that pass owns, so the per-leg source re-derivation this file
-    locks does not apply to them.
-    """
-    from collections import defaultdict
-
-    counts: dict[tuple[str, int, int], int] = defaultdict(int)
-    for rp in routes:
-        pts = rp.points
-        for i in range(1, len(pts) - 1):
-            prev, curr, nxt = pts[i - 1], pts[i], pts[i + 1]
-            in_h = abs(curr[1] - prev[1]) <= 1.0 and abs(curr[0] - prev[0]) > 1.0
-            in_v = abs(curr[0] - prev[0]) <= 1.0 and abs(curr[1] - prev[1]) > 1.0
-            out_h = abs(nxt[1] - curr[1]) <= 1.0 and abs(nxt[0] - curr[0]) > 1.0
-            out_v = abs(nxt[0] - curr[0]) <= 1.0 and abs(nxt[1] - curr[1]) > 1.0
-            if (in_h and out_v) or (in_v and out_h):
-                counts[(rp.line_id, round(curr[0]), round(curr[1]))] += 1
-    return {key for key, n in counts.items() if n >= 2}
 
 
 def test_set_vchannel_x_rederives_flanking_corners_from_waypoints() -> None:

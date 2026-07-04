@@ -27,6 +27,7 @@ from nf_metro.layout.routing.common import (
     _grid_row_bands,
     column_gap_edges,
     initial_fanout_descent_span,
+    is_orthogonal_turn,
     iter_horizontal_trunks,
     iter_inter_row_gaps,
     iter_port_peeloff_bundles,
@@ -511,7 +512,7 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
     vertex, so their concentric nesting is untouched; only truly coincident
     same-line turns collapse.
     """
-    buckets: dict[tuple[str, int, int], list[tuple[RoutedPath, int]]] = defaultdict(
+    buckets: dict[tuple[str, int, int], list[tuple[list[float], int]]] = defaultdict(
         list
     )
     for rp in routes:
@@ -520,37 +521,18 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
             continue
         pts = rp.points
         for k in range(1, len(pts) - 1):
-            if k - 1 >= len(radii) or not _is_orthogonal_turn(
+            if k - 1 >= len(radii) or not is_orthogonal_turn(
                 pts[k - 1], pts[k], pts[k + 1]
             ):
                 continue
             key = (rp.line_id, round(pts[k][0]), round(pts[k][1]))
-            buckets[key].append((rp, k - 1))
+            buckets[key].append((radii, k - 1))
     for members in buckets.values():
         if len(members) < 2:
             continue
-        widest = widest_coincident_radius(
-            rp.curve_radii[i]  # type: ignore[index]
-            for rp, i in members
-        )
-        for rp, i in members:
-            rp.curve_radii[i] = widest  # type: ignore[index]
-
-
-def _leg_axis(a: tuple[float, float], b: tuple[float, float]) -> str | None:
-    """``'h'``/``'v'`` for an axis-aligned leg, ``None`` if diagonal or degenerate."""
-    horiz = abs(b[1] - a[1]) <= COORD_TOLERANCE and abs(b[0] - a[0]) > COORD_TOLERANCE
-    vert = abs(b[0] - a[0]) <= COORD_TOLERANCE and abs(b[1] - a[1]) > COORD_TOLERANCE
-    return "h" if horiz else "v" if vert else None
-
-
-def _is_orthogonal_turn(
-    p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float]
-) -> bool:
-    """True when the two legs meeting at *p1* are one horizontal, one vertical."""
-    axis_in = _leg_axis(p0, p1)
-    axis_out = _leg_axis(p1, p2)
-    return axis_in is not None and axis_out is not None and axis_in != axis_out
+        widest = widest_coincident_radius(radii[i] for radii, i in members)
+        for radii, i in members:
+            radii[i] = widest
 
 
 def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:

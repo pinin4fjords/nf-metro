@@ -25,6 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from layout_validator import shared_same_line_turn_vertices
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
@@ -76,24 +77,6 @@ def test_no_doubled_coincident_corner(path: Path) -> None:
     )
 
 
-def _shared_same_line_turns(routes) -> int:
-    """Count turn vertices where two or more same-line legs coincide."""
-    from collections import defaultdict
-
-    counts: dict[tuple[str, int, int], int] = defaultdict(int)
-    for r in routes:
-        pts = r.points
-        for i in range(1, len(pts) - 1):
-            prev, curr, nxt = pts[i - 1], pts[i], pts[i + 1]
-            in_h = abs(curr[1] - prev[1]) <= 1.0 and abs(curr[0] - prev[0]) > 1.0
-            in_v = abs(curr[0] - prev[0]) <= 1.0 and abs(curr[1] - prev[1]) > 1.0
-            out_h = abs(nxt[1] - curr[1]) <= 1.0 and abs(nxt[0] - curr[0]) > 1.0
-            out_v = abs(nxt[0] - curr[0]) <= 1.0 and abs(nxt[1] - curr[1]) > 1.0
-            if (in_h and out_v) or (in_v and out_h):
-                counts[(r.line_id, round(curr[0]), round(curr[1]))] += 1
-    return sum(1 for n in counts.values() if n >= 2)
-
-
 @pytest.mark.parametrize("fixture", COINCIDENT_CORNER_FIXTURES)
 def test_named_fixtures_have_a_coincident_turn(fixture: str) -> None:
     """The named fixtures genuinely route a shared same-line turn.
@@ -104,7 +87,7 @@ def test_named_fixtures_have_a_coincident_turn(fixture: str) -> None:
     ``test_no_doubled_coincident_corner`` would prove nothing here.
     """
     _graph, routes, _offsets = _route(REPO_ROOT / fixture)
-    assert _shared_same_line_turns(routes) >= 1, (
+    assert shared_same_line_turn_vertices(routes), (
         f"{fixture} no longer routes a coincident same-line turn"
     )
 
