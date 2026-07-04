@@ -1023,6 +1023,40 @@ def _guard_no_mixed_entry_directions(graph: MetroGraph) -> None:
         )
 
 
+def _assert_exit_on_carrier_row(
+    graph: MetroGraph,
+    phase: str,
+    anchor: Callable[
+        [MetroGraph, str, Section, set[str]], tuple[float, list[str]] | None
+    ],
+    label: str,
+    consequence: str,
+) -> None:
+    """Raise when an exit *anchor* selects a carrier row the exit is off.
+
+    Shared body for the flow and wrap exit-anchor guards: iterate LEFT/RIGHT
+    exit ports, and for those the *anchor* function claims, require the exit
+    sit on the returned carrier row within ``GUARD_TOLERANCE``.
+    """
+    junction_ids = graph.junction_ids
+    for pid, port in graph.ports.items():
+        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        sec = graph.sections.get(port.section_id)
+        if sec is None:
+            continue
+        found = anchor(graph, pid, sec, junction_ids)
+        if found is None:
+            continue
+        carrier_y, carrier_ids = found
+        port_y = graph.stations[pid].y
+        if abs(port_y - carrier_y) > GUARD_TOLERANCE:
+            raise PhaseInvariantError(
+                f"{phase}: {label} {pid!r} at y={port_y:.1f} is off its carrier "
+                f"row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); {consequence}"
+            )
+
+
 def _guard_flow_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
     """A flow-aligned exit anchoring to a shared carrier row must sit on it.
 
@@ -1033,24 +1067,13 @@ def _guard_flow_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
     is exactly :func:`flow_exit_carrier_anchor`; everything else anchors
     elsewhere by design.
     """
-    junction_ids = graph.junction_ids
-    for pid, port in graph.ports.items():
-        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
-        sec = graph.sections.get(port.section_id)
-        if sec is None:
-            continue
-        anchor = flow_exit_carrier_anchor(graph, pid, sec, junction_ids)
-        if anchor is None:
-            continue
-        carrier_y, carrier_ids = anchor
-        port_y = graph.stations[pid].y
-        if abs(port_y - carrier_y) > GUARD_TOLERANCE:
-            raise PhaseInvariantError(
-                f"{phase}: exit port {pid!r} at y={port_y:.1f} is off its "
-                f"carrier row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); "
-                f"the boundary run will render as a diagonal instead of a riser"
-            )
+    _assert_exit_on_carrier_row(
+        graph,
+        phase,
+        flow_exit_carrier_anchor,
+        "exit port",
+        "the boundary run will render as a diagonal instead of a riser",
+    )
 
 
 def _guard_wrap_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
@@ -1063,24 +1086,13 @@ def _guard_wrap_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
     horizontal with one riser in the corridor.  Scope is exactly
     :func:`wrap_exit_carrier_anchor`.
     """
-    junction_ids = graph.junction_ids
-    for pid, port in graph.ports.items():
-        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
-            continue
-        sec = graph.sections.get(port.section_id)
-        if sec is None:
-            continue
-        anchor = wrap_exit_carrier_anchor(graph, pid, sec, junction_ids)
-        if anchor is None:
-            continue
-        carrier_y, carrier_ids = anchor
-        port_y = graph.stations[pid].y
-        if abs(port_y - carrier_y) > GUARD_TOLERANCE:
-            raise PhaseInvariantError(
-                f"{phase}: wrapping exit port {pid!r} at y={port_y:.1f} is off "
-                f"its carrier row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); "
-                f"the in-section link will render as a diagonal into the box corner"
-            )
+    _assert_exit_on_carrier_row(
+        graph,
+        phase,
+        wrap_exit_carrier_anchor,
+        "wrapping exit port",
+        "the in-section link will render as a diagonal into the box corner",
+    )
 
 
 def _guard_fold_lr_exit_follows_target(graph: MetroGraph, phase: str) -> None:

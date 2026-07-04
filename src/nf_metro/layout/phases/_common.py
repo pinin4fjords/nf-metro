@@ -1307,6 +1307,18 @@ def exit_entry_ports_face(
     return False
 
 
+def _in_section_exit_carriers(
+    graph: MetroGraph, exit_port_id: str, section: Section
+) -> dict[str, float]:
+    """Y of each non-port station inside *section* that feeds *exit_port_id*."""
+    carriers: dict[str, float] = {}
+    for e in graph.edges_to(exit_port_id):
+        s = graph.stations.get(e.source)
+        if s is not None and not s.is_port and s.section_id == section.id:
+            carriers[e.source] = s.y
+    return carriers
+
+
 def flow_exit_carrier_anchor(
     graph: MetroGraph,
     exit_port_id: str,
@@ -1334,22 +1346,19 @@ def flow_exit_carrier_anchor(
         return None
     if not _exit_anchorable_downstream(graph, exit_port_id, junction_ids):
         return None
-    carrier_ys: dict[str, float] = {}
-    exit_lines: set[str] = set()
-    for e in graph.edges_to(exit_port_id):
-        s = graph.stations.get(e.source)
-        if s is not None and not s.is_port and s.section_id == section.id:
-            carrier_ys[e.source] = s.y
-            exit_lines.add(e.line_id)
-    if not carrier_ys:
+    carriers = _in_section_exit_carriers(graph, exit_port_id, section)
+    if not carriers:
         return None
-    ys = list(carrier_ys.values())
-    if len(carrier_ys) > 1:
+    ys = list(carriers.values())
+    if len(carriers) > 1:
+        exit_lines = {
+            e.line_id for e in graph.edges_to(exit_port_id) if e.source in carriers
+        }
         share_row = max(ys) - min(ys) <= SAME_COORD_TOLERANCE
-        one_line_per_carrier = len(carrier_ys) == len(exit_lines)
+        one_line_per_carrier = len(carriers) == len(exit_lines)
         if not (share_row and one_line_per_carrier):
             return None
-    carrier_ids = list(carrier_ys)
+    carrier_ids = list(carriers)
     if not exit_run_corridor_clear(graph, exit_port_id, section, carrier_ids):
         return None
     return min(ys), carrier_ids
@@ -1388,13 +1397,8 @@ def wrap_exit_carrier_anchor(
         return None
     if exit_entry_ports_face(port, entry_port, section, entry_section):
         return None
-    carrier_ys: list[float] = []
-    carrier_ids: list[str] = []
-    for e in graph.edges_to(exit_port_id):
-        s = graph.stations.get(e.source)
-        if s is not None and not s.is_port and s.section_id == section.id:
-            carrier_ys.append(s.y)
-            carrier_ids.append(e.source)
-    if not carrier_ys or max(carrier_ys) - min(carrier_ys) > SAME_COORD_TOLERANCE:
+    carriers = _in_section_exit_carriers(graph, exit_port_id, section)
+    ys = list(carriers.values())
+    if not ys or max(ys) - min(ys) > SAME_COORD_TOLERANCE:
         return None
-    return min(carrier_ys), carrier_ids
+    return min(ys), list(carriers)
