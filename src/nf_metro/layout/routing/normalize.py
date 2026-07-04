@@ -626,10 +626,14 @@ def _stack_distinct_port_descents(
 ) -> None:
     """Re-seat one coincident cluster of distinct-line port descents.
 
-    Lines are ordered by their per-line entry offset at the port and placed one
-    ``OFFSET_STEP`` apart from the cluster's outer edge inward, so the descent-X
-    order matches the entry-Y order (concentric into the port).  A cluster of a
-    single line, or already-separate descents, is left alone.
+    Lines are placed one ``OFFSET_STEP`` apart from the cluster's outer edge
+    inward, ordered longest-descent-first so the feeder that turns down furthest
+    from the port nests outermost.  Each feeder reaches its channel by a
+    horizontal traverse at its turn-down Y before dropping in; seating the
+    longest descent (whose turn spans the widest Y range) on the outer lane
+    keeps every traverse clear of the other feeders' descents, so the
+    convergent lanes stay parallel rather than crossing (#1326).  A cluster of
+    a single line, or already-separate descents, is left alone.
     """
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
     for rp, ch in cluster:
@@ -637,7 +641,10 @@ def _stack_distinct_port_descents(
     if len(by_line) < 2:
         return
     offs = ctx.station_offsets or {}
-    ordered = sorted(by_line, key=lambda lid: offs.get((port.id, lid), 0.0))
+    span = {lid: max(ch.y_hi - ch.y_lo for ch in chs) for lid, chs in by_line.items()}
+    ordered = sorted(
+        by_line, key=lambda lid: (-span[lid], offs.get((port.id, lid), 0.0))
+    )
     xs = [ch.x for _rp, ch in cluster]
     step = ctx.offset_step
     left = port.side is PortSide.LEFT

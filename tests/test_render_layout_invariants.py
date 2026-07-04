@@ -28,8 +28,16 @@ from nf_metro.layout.phases.guards import (
     assert_render_layout_invariants,
     render_layout_invariant_specs,
 )
-from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing import (
+    compute_station_offsets,
+    route_edges,
+    route_edges_centred,
+)
 from nf_metro.layout.routing.common import RoutedPath
+from nf_metro.layout.routing.invariants import (
+    _first_axis_crossing,
+    _route_axis_segments,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render import render_svg
@@ -459,3 +467,41 @@ def test_tb_exit_terminal_on_carrier_validates_strict() -> None:
         (TOP_FIXTURES / "tb_exit_terminal_on_carrier.mmd").read_text()
     )
     compute_layout(graph, validate=True)
+
+
+CONVERGENT_ENTRY_FIXTURES = [
+    "tb_exit_terminal_on_carrier.mmd",
+]
+
+
+@pytest.mark.parametrize("name", CONVERGENT_ENTRY_FIXTURES)
+def test_convergent_entry_feeders_do_not_cross(name: str) -> None:
+    """Distinct-line feeders converging on one entry port nest without crossing.
+
+    Feeders forced down the single gap left of a wide row-span target are
+    staggered into parallel channels; if the channel order does not account for
+    each feeder's turn-down height, the feeder that turns down higher is placed
+    to the port side and its long descent is raked by the other's horizontal
+    traverse (#1326).  No two feeders sharing a target port may cross before it.
+    """
+    graph = parse_metro_mermaid((TOP_FIXTURES / name).read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges_centred(graph, station_offsets=offsets)
+    by_target: dict[str, list[RoutedPath]] = {}
+    for rp in routes:
+        if rp.is_inter_section:
+            by_target.setdefault(rp.edge.target, []).append(rp)
+    crossings: list[str] = []
+    for target, feeders in by_target.items():
+        for i in range(len(feeders)):
+            for j in range(i + 1, len(feeders)):
+                va, ha = _route_axis_segments(feeders[i])
+                vb, hb = _route_axis_segments(feeders[j])
+                hit = _first_axis_crossing(va, hb) or _first_axis_crossing(vb, ha)
+                if hit is not None:
+                    crossings.append(
+                        f"{feeders[i].line_id} x {feeders[j].line_id} "
+                        f"into {target} at {hit}"
+                    )
+    assert not crossings, f"{name}: converging feeders cross: {crossings}"
