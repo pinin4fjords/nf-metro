@@ -34,6 +34,10 @@ from nf_metro.layout.routing import (
     route_edges_centred,
 )
 from nf_metro.layout.routing.common import RoutedPath
+from nf_metro.layout.routing.invariants import (
+    _first_axis_crossing,
+    _route_axis_segments,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render import render_svg
@@ -465,41 +469,6 @@ def test_tb_exit_terminal_on_carrier_validates_strict() -> None:
     compute_layout(graph, validate=True)
 
 
-def _axis_segment_crossing(
-    a: RoutedPath, b: RoutedPath
-) -> tuple[tuple[float, float], ...] | None:
-    """Return the interior crossing point of an H segment of *a* and a V segment
-    of *b* (or vice versa), or ``None`` when no pair of segments cross.
-
-    All routed legs are axis-aligned, so a proper crossing is a horizontal leg
-    at ``y=h`` spanning ``(x1, x2)`` meeting a vertical leg at ``x=v`` spanning
-    ``(y1, y2)`` with ``v`` strictly inside the horizontal span and ``h``
-    strictly inside the vertical span.  Shared endpoints (the common port) do
-    not count.
-    """
-
-    def legs(rp: RoutedPath) -> list[tuple[float, float, float, float]]:
-        return [
-            (rp.points[i][0], rp.points[i][1], rp.points[i + 1][0], rp.points[i + 1][1])
-            for i in range(len(rp.points) - 1)
-        ]
-
-    tol = 1.0
-    for ha in legs(a):
-        if abs(ha[1] - ha[3]) > tol:  # not horizontal
-            continue
-        hy = ha[1]
-        hx_lo, hx_hi = sorted((ha[0], ha[2]))
-        for vb in legs(b):
-            if abs(vb[0] - vb[2]) > tol:  # not vertical
-                continue
-            vx = vb[0]
-            vy_lo, vy_hi = sorted((vb[1], vb[3]))
-            if hx_lo + tol < vx < hx_hi - tol and vy_lo + tol < hy < vy_hi - tol:
-                return ((vx, hy),)
-    return None
-
-
 CONVERGENT_ENTRY_FIXTURES = [
     "tb_exit_terminal_on_carrier.mmd",
 ]
@@ -527,12 +496,12 @@ def test_convergent_entry_feeders_do_not_cross(name: str) -> None:
     for target, feeders in by_target.items():
         for i in range(len(feeders)):
             for j in range(i + 1, len(feeders)):
-                pt = _axis_segment_crossing(feeders[i], feeders[j])
-                if pt is None:
-                    pt = _axis_segment_crossing(feeders[j], feeders[i])
-                if pt is not None:
+                va, ha = _route_axis_segments(feeders[i])
+                vb, hb = _route_axis_segments(feeders[j])
+                hit = _first_axis_crossing(va, hb) or _first_axis_crossing(vb, ha)
+                if hit is not None:
                     crossings.append(
                         f"{feeders[i].line_id} x {feeders[j].line_id} "
-                        f"into {target} at {pt[0]}"
+                        f"into {target} at {hit}"
                     )
     assert not crossings, f"{name}: converging feeders cross: {crossings}"
