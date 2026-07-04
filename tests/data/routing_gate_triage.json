@@ -567,10 +567,6 @@
     "note": "_suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path.",
     "status": "defensive"
   },
-  "normalize.py::if ch is None:::#3": {
-    "note": "Defensive guard: a merge branch route opens horizontal-then-vertical (lead, then descent onto the trunk channel), so its initial fan-out descent is always found; the skip arm is never taken.",
-    "status": "defensive"
-  },
   "normalize.py::if col is None:::#1": {
     "note": "Defensive guard in _convergence_line_order: a peel-off riser channel always resolves to a source-section column, so the unresolved-column early return is never taken on the corpus.",
     "status": "defensive"

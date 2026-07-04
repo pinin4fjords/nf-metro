@@ -193,6 +193,33 @@ def _locate_slot_channel(
     return None
 
 
+def _fused_sibling_spans(
+    routes: list[RoutedPath], chans: list[_VChannel]
+) -> list[tuple[float, float]]:
+    """Vertical spans of descents that will fuse onto this gap's channels.
+
+    :func:`_coincide_same_line_tracks` later snaps every same-source, same-line
+    opening descent onto one shared channel -- including a deep wrap the
+    materialization pass never sees, because its handler owns it
+    (``normalize_exempt``).  A shallow gap bundle centred for its own extent can
+    then be fused-onto by such a sibling whose descent runs on through a section
+    below, plotting the shared stroke over it.  Report those siblings' spans so
+    the gap can be narrowed against the rows they cross too.
+    """
+    keys = {(c.route.edge.source, c.route.line_id, c.down) for c in chans}
+    have = {id(c.route) for c in chans}
+    spans: list[tuple[float, float]] = []
+    for rp in routes:
+        if id(rp) in have or not rp.is_inter_section:
+            continue
+        ch = _initial_fanout_descent(rp)
+        if ch is None:
+            continue
+        if (rp.edge.source, rp.line_id, ch.down) in keys:
+            spans.append((ch.y_lo, ch.y_hi))
+    return spans
+
+
 def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Resolve every declared :class:`GapSlot` to a concentric channel X.
 
@@ -231,9 +258,15 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
         # narrow the gap to the intersection of every crossed row's edges -- else
         # a leg climbing through a row whose section edge sits further out than a
         # sibling row's would centre in the wider gap and step back behind its
-        # source edge.
+        # source edge.  The spans include any deeper same-source, same-line
+        # descent that the coincidence pass will fuse onto this channel, so the
+        # shared stroke clears the rows that sibling crosses as well.
+        crossed_spans = [(c.y_lo, c.y_hi) for c in chans]
+        crossed_spans += _fused_sibling_spans(routes, chans)
         for r, band in bands.items():
-            if not any(c.y_lo < band[1] and band[0] < c.y_hi for c in chans):
+            if not any(
+                y_lo < band[1] and band[0] < y_hi for y_lo, y_hi in crossed_spans
+            ):
                 continue
             r_left, r_right = column_gap_edges(graph, lo, lo + 1, row=r)
             if r_right > r_left:
