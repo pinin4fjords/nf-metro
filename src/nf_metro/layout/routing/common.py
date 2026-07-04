@@ -1174,11 +1174,11 @@ def clear_channel_of_section_edge(
     (so neither side is closer to it) or no target is supplied.
 
     Opposing sections stacked closer than ``2 * (edge_clearance +
-    half_width)`` leave no midline that clears both; the outward pushes then
-    fight and the last one processed wins, hugging the section pushed against
-    first.  When the two binding edges bound a real (non-overlapping) gap, the
-    channel is re-centred on that gap so the unavoidable shortfall is split
-    evenly instead of dumped on one edge.
+    half_width)`` leave no midline that clears both, so the per-edge outward
+    pushes cannot satisfy both and the channel ends up skimming one wall.  When
+    the skimmed wall and the nearest wall on the far side bound a real
+    (non-overlapping) gap, the channel is re-centred on that gap so the
+    unavoidable shortfall is shared evenly rather than dumped on one edge.
     """
     adjusted = mid_x
     for sec in graph.sections.values():
@@ -1218,40 +1218,17 @@ def clear_channel_of_section_edge(
         else:
             adjusted -= edge_clearance - clear_of_left
 
-    return _balance_squeezed_channel(
-        graph, adjusted, half_width, y_lo, y_hi, port_xs, edge_clearance, port_tol
-    )
+    if adjusted == mid_x:
+        return adjusted  # nothing grazed, so nothing is being skimmed
 
-
-def _balance_squeezed_channel(
-    graph: MetroGraph,
-    mid_x: float,
-    half_width: float,
-    y_lo: float,
-    y_hi: float,
-    port_xs: list[float],
-    edge_clearance: float,
-    port_tol: float,
-) -> float:
-    """Re-centre a channel left hugging one section edge inside a real gap.
-
-    The outward-push loop resolves each grazed edge in isolation, so when two
-    sections squeeze the channel from opposite sides it clears one and hugs the
-    other.  If the hugged edge and the nearest opposing section edge bound a
-    genuine gap (the opposing edge is further out than the hugged one), sit the
-    channel at the gap's midpoint so both sides share the shortfall.  A channel
-    already clear by ``edge_clearance``, or squeezed between edges that overlap
-    in X (no gap to sit in), is returned unchanged so the push result stands.
-    """
-    if any(abs(mid_x - px) <= port_tol for px in port_xs):
-        return mid_x
-
-    bundle_lo = mid_x - half_width
-    bundle_hi = mid_x + half_width
-    hugged_left_edge = -math.inf  # right-edge the bundle hugs from the right
-    hugged_right_edge = math.inf  # left-edge the bundle hugs from the left
-    nearest_opposing_left = math.inf  # nearest left-edge to the channel's right
-    nearest_opposing_right = -math.inf  # nearest right-edge to the channel's left
+    # A second pass over the *settled* position: which wall did the per-edge
+    # pushes leave the channel skimming, and is there a real gap to re-centre in?
+    bundle_lo = adjusted - half_width
+    bundle_hi = adjusted + half_width
+    left_skim = -math.inf  # nearest left wall the bundle skims within clearance
+    right_skim = math.inf  # nearest right wall the bundle skims within clearance
+    left_wall = -math.inf  # nearest wall to the channel's left, any distance
+    right_wall = math.inf  # nearest wall to the channel's right, any distance
     for sec in graph.sections.values():
         if sec.bbox_w <= 0:
             continue
@@ -1260,21 +1237,19 @@ def _balance_squeezed_channel(
         left = sec.bbox_x
         right = left + sec.bbox_w
         if 0 <= bundle_lo - right < edge_clearance:
-            hugged_left_edge = max(hugged_left_edge, right)
+            left_skim = max(left_skim, right)
         elif 0 <= left - bundle_hi < edge_clearance:
-            hugged_right_edge = min(hugged_right_edge, left)
-        if left >= mid_x:
-            nearest_opposing_left = min(nearest_opposing_left, left)
-        if right <= mid_x:
-            nearest_opposing_right = max(nearest_opposing_right, right)
+            right_skim = min(right_skim, left)
+        if right <= adjusted:
+            left_wall = max(left_wall, right)
+        if left >= adjusted:
+            right_wall = min(right_wall, left)
 
-    # Hugging a section on the left with a real gap to an opposing section on
-    # the right: centre on that gap.
-    if hugged_left_edge > -math.inf and nearest_opposing_left > hugged_left_edge:
-        return (hugged_left_edge + nearest_opposing_left) / 2
-    if hugged_right_edge < math.inf and nearest_opposing_right < hugged_right_edge:
-        return (nearest_opposing_right + hugged_right_edge) / 2
-    return mid_x
+    if left_skim > -math.inf and right_wall > left_skim:
+        return (left_skim + right_wall) / 2
+    if right_skim < math.inf and left_wall < right_skim:
+        return (left_wall + right_skim) / 2
+    return adjusted
 
 
 def line_source_y_at_port(
