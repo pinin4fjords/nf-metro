@@ -3429,6 +3429,42 @@ def _route_right_entry_over_top(
     return route
 
 
+def _leadout_self_meets_sibling_descent(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    corner_x: float,
+    y_lo: float,
+    y_hi: float,
+    gap_right: float,
+) -> bool:
+    """Whether a same-line descent already sits in this wrap's lead-out band.
+
+    The wrap turns down at ``corner_x`` into the gap between the source column
+    and the next.  A descent of the SAME line from a DIFFERENT source, already
+    routed down that same gap (``corner_x <= x <= gap_right``) across the drop's
+    Y span, would render as one merged corner with this lead-out.  When one is
+    there the caller carries the horizontal on and turns down clear to its right.
+    """
+    lo, hi = (y_lo, y_hi) if y_lo <= y_hi else (y_hi, y_lo)
+    for route in ctx.built_routes:
+        if not route.is_inter_section or route.line_id != edge.line_id:
+            continue
+        if route.edge.source == edge.source:
+            continue
+        for a, b in zip(route.points, route.points[1:]):
+            if (
+                abs(a[0] - b[0]) > COORD_TOLERANCE
+                or abs(a[1] - b[1]) <= COORD_TOLERANCE
+            ):
+                continue
+            if not (corner_x - COORD_TOLERANCE <= a[0] <= gap_right + COORD_TOLERANCE):
+                continue
+            seg_lo, seg_hi = min(a[1], b[1]), max(a[1], b[1])
+            if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:
+                return True
+    return False
+
+
 def _route_right_entry_wrap(
     edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
 ) -> RoutedPath:
@@ -3483,6 +3519,16 @@ def _route_right_entry_wrap(
 
     # Horizontal channel Y centre, below the source row's sections.
     hy = bypass_bottom_y(ctx.graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
+
+    # A same-line descent from another source already in the lead-out gap would
+    # merge with a source-hugging turn-down into one corner.  Carry the
+    # horizontal on and turn down clear to its right (bounded at the target row
+    # so the drop misses the descent but never reaches a right-column section).
+    _gap_left, gap_right = column_gap_edges(
+        ctx.graph, src_col, src_col + 1, row=tgt_row
+    )
+    if _leadout_self_meets_sibling_descent(ctx, edge, corner_x, sy, hy, gap_right):
+        corner_x = max(corner_x, gap_right - ctx.curve_radius - ctx.offset_step)
 
     # V2 descent channel centre, just past the entry port in the gap to the
     # right of the target column.
