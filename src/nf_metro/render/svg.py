@@ -107,6 +107,7 @@ from nf_metro.render.constants import (
     RAIL_LINK_HALF_WIDTH_RATIO,
     SECTION_BOX_RADIUS,
     SECTION_HEADER_ROUTE_PAD,
+    SECTION_LABEL_LINE_HEIGHT_RATIO,
     SECTION_NUM_CIRCLE_R_LARGE,
     SECTION_NUM_FONT_SIZE,
     SECTION_STROKE_WIDTH,
@@ -142,8 +143,10 @@ from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.ns import ns as _ns
 from nf_metro.render.section_header import (
     SectionHeaderClashError,
+    SectionHeaderOverflowError,
     SectionHeaderPlacement,
     check_section_headers_clear_routes,
+    check_section_headers_fit_box_width,
     resolve_all_section_headers,
 )
 from nf_metro.render.style import Theme
@@ -153,8 +156,9 @@ def _compute_canvas_bounds(
     graph: MetroGraph,
     routes: list[RoutedPath],
     debug: bool = False,
+    header_placements: dict[str, SectionHeaderPlacement] | None = None,
 ) -> tuple[float, float]:
-    """Compute max X/Y from stations, section boxes, and route waypoints."""
+    """Compute max X/Y from stations, section boxes, route waypoints, and headers."""
     if debug:
         visible_stations = list(graph.stations.values())
     else:
@@ -180,6 +184,17 @@ def _compute_canvas_bounds(
             if py > max_y:
                 max_y = py
 
+    if header_placements:
+        # Scoped to wrapped (multi-line) headers only: a single-line header
+        # that overhangs its section bbox is a separate, pre-existing
+        # condition, and folding it into the canvas size here would shift
+        # everything anchored to it (watermark, legend) for every such
+        # section, not just the ones a wrapped title actually reaches past.
+        for placement in header_placements.values():
+            if len(placement.label_lines) > 1:
+                max_x = max(max_x, placement.keepout[2])
+                max_y = max(max_y, placement.keepout[3])
+
     return max_x, max_y
 
 
@@ -194,6 +209,7 @@ def _position_legend(
     logo_h: float,
     legend_position: str,
     routes: list[RoutedPath],
+    header_placements: dict[str, SectionHeaderPlacement],
 ) -> tuple[float, float, float, float, bool]:
     """Compute legend position and dimensions.
 
@@ -222,7 +238,7 @@ def _position_legend(
     if graph.legend_at is not None:
         legend_x, legend_y = graph.legend_at
         if _legend_overlaps_content(
-            legend_x, legend_y, legend_w, legend_h, graph, routes
+            legend_x, legend_y, legend_w, legend_h, graph, routes, header_placements
         ):
             warnings.warn(
                 f"legend placed at {graph.legend_at} overlaps a section or route.",
@@ -280,14 +296,14 @@ def _position_legend(
 
     if explicit_pin:
         if _legend_overlaps_content(
-            legend_x, legend_y, legend_w, legend_h, graph, routes
+            legend_x, legend_y, legend_w, legend_h, graph, routes, header_placements
         ):
             warnings.warn(
                 f"legend pinned at '{pos}' overlaps a section or route.",
                 stacklevel=2,
             )
     elif pos not in ("bottom", "right") and _legend_overlaps_content(
-        legend_x, legend_y, legend_w, legend_h, graph, routes
+        legend_x, legend_y, legend_w, legend_h, graph, routes, header_placements
     ):
         legend_x = content_left
         legend_y = max_y + gap
@@ -620,11 +636,12 @@ def _render_svg_scaled(
     # Resolve headers against the final section bboxes (label and group
     # reservations above can grow a box, moving where its header sits).
     header_placements = resolve_all_section_headers(
-        graph, theme.section_label_font_size, header_polylines
+        graph, theme.section_label_font_size, header_polylines, theme.title_font_size
     )
     _guard_section_headers_clear_routes(header_placements, header_polylines)
+    _guard_section_headers_fit_box_width(graph, header_placements)
 
-    max_x, max_y = _compute_canvas_bounds(graph, routes, debug)
+    max_x, max_y = _compute_canvas_bounds(graph, routes, debug, header_placements)
 
     # Group captions can extend below/right of the content; grow the canvas
     # so they are not clipped.
@@ -663,6 +680,7 @@ def _render_svg_scaled(
         logo_h,
         effective_legend_position,
         routes,
+        header_placements,
     )
 
     if show_legend:
@@ -919,6 +937,30 @@ def _legend_overlaps_routes(
     return False
 
 
+def _legend_overlaps_headers(
+    lx: float,
+    ly: float,
+    lw: float,
+    lh: float,
+    header_placements: dict[str, SectionHeaderPlacement],
+) -> bool:
+    """Check if a legend rectangle overlaps a wrapped section header's keepout.
+
+    A wrapped (multi-line) header can extend below its own section's box
+    (``below`` mode) or above it (``above``/``nudge``), reaching outside the
+    section bbox that :func:`_legend_overlaps_sections` checks.  A single-line
+    header is excluded: its own overhang is a separate, pre-existing
+    condition unrelated to wrapping (see :func:`_compute_canvas_bounds`).
+    """
+    for placement in header_placements.values():
+        if len(placement.label_lines) <= 1:
+            continue
+        kx0, ky0, kx1, ky1 = placement.keepout
+        if lx < kx1 and lx + lw > kx0 and ly < ky1 and ly + lh > ky0:
+            return True
+    return False
+
+
 def _legend_overlaps_content(
     lx: float,
     ly: float,
@@ -926,10 +968,13 @@ def _legend_overlaps_content(
     lh: float,
     graph: MetroGraph,
     routes: list[RoutedPath],
+    header_placements: dict[str, SectionHeaderPlacement],
 ) -> bool:
-    """Whether the legend rect overlaps a section box or a routed line."""
-    return _legend_overlaps_sections(lx, ly, lw, lh, graph) or _legend_overlaps_routes(
-        lx, ly, lw, lh, routes, LEGEND_ROUTE_CLEARANCE
+    """Whether the legend rect overlaps a section box, a header, or a routed line."""
+    return (
+        _legend_overlaps_sections(lx, ly, lw, lh, graph)
+        or _legend_overlaps_headers(lx, ly, lw, lh, header_placements)
+        or _legend_overlaps_routes(lx, ly, lw, lh, routes, LEGEND_ROUTE_CLEARANCE)
     )
 
 
@@ -1229,6 +1274,19 @@ def _guard_section_headers_clear_routes(
         raise SectionHeaderClashError("; ".join(c.message() for c in clashes))
 
 
+def _guard_section_headers_fit_box_width(
+    graph: MetroGraph,
+    placements: dict[str, SectionHeaderPlacement],
+) -> None:
+    """Fail loudly if a header's wrapped title overhangs its box width."""
+    overflowing = check_section_headers_fit_box_width(graph, placements)
+    if overflowing:
+        raise SectionHeaderOverflowError(
+            "section header(s) overhang their box width after wrapping: "
+            + ", ".join(sorted(overflowing))
+        )
+
+
 def _render_first_class_sections(
     d: draw.Drawing,
     graph: MetroGraph,
@@ -1308,7 +1366,7 @@ def _render_first_class_sections(
             )
         d.append(
             draw.Text(
-                section.name,
+                "\n".join(placement.label_lines),
                 theme.section_label_font_size,
                 placement.label_x,
                 placement.label_y,
@@ -1316,6 +1374,7 @@ def _render_first_class_sections(
                 font_family=theme.label_font_family,
                 font_weight="bold",
                 dy=TEXT_VCENTER_DY,
+                line_height=SECTION_LABEL_LINE_HEIGHT_RATIO,
                 **label_kwargs,
             )
         )

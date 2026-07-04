@@ -124,6 +124,17 @@ SECTION_LABEL_HALF_HEIGHT_RATIO: float = 0.8
 """Half the visual height of a section label as a fraction of its font size,
 used to extend the header keep-out band above/below the text baseline."""
 
+SECTION_LABEL_LINE_HEIGHT_RATIO: float = 1.2
+"""Line spacing for a wrapped section title, as a multiple of its font size.
+
+Mirrors the layout side's ``LABEL_LINE_HEIGHT`` for station labels."""
+
+HEADER_WRAP_CLEARANCE: float = 8.0
+"""Minimum visible gap a wrapped header's extra lines leave before whatever
+is nearest in their growth direction (the map title, another section's box,
+or the canvas edge).  Matches the buffer ``TITLE_BAND_CLEARANCE`` adds on the
+layout side for the same single-line-header clearance."""
+
 TEXT_VCENTER_DY: str = "0.3em"
 """Downward dy shift applied to text that must be visually centered on
 a companion graphic (badge circles, legend swatches).  Using dy instead
