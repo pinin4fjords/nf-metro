@@ -449,3 +449,23 @@ def test_tb_exit_port_stays_on_bbox_boundary(name: str) -> None:
     assert not off_boundary, (
         f"{name}: an exit port drifted off its section boundary: {off_boundary}"
     )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "#1317 far-side-wrap tail: psite_id's BOTTOM exit feeds te's far-side "
+        "LEFT entry, and no handler wraps it cleanly -- the validator path "
+        "(routing without station_offsets) leads the bundle out rightward past "
+        "psite_id's own corner. Placement defects 1 & 2 are fixed; this last "
+        "crossing is the deferred fold-back routing redesign. When that lands, "
+        "this xpasses -> graduate the fixture out of regressions/.",
+    ),
+)
+def test_tb_exit_terminal_on_carrier_validates_strict() -> None:
+    """The fixture lays out clean under ``validate=True`` once the far-side
+    LEFT-entry wrap from a BOTTOM exit is routed correctly (#1317)."""
+    graph = parse_metro_mermaid(
+        (FIXTURES / "tb_exit_terminal_on_carrier.mmd").read_text()
+    )
+    compute_layout(graph, validate=True)

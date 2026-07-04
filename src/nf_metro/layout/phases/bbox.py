@@ -870,6 +870,13 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
                 st = graph.stations.get(stid)
                 if st is not None:
                     st.y -= slack
+                # Ports carry a separate coordinate that routing reads; keep it
+                # in step so a shifted section's entry/exit ports do not strand
+                # below the moved box (the fold-back connector would then wrap
+                # off-port into the target).
+                port = graph.ports.get(stid)
+                if port is not None:
+                    port.y -= slack
 
 
 def _min_section_bbox_top(graph: MetroGraph, default: float) -> float:
