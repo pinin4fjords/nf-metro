@@ -57,6 +57,7 @@ from nf_metro.layout.phases._common import (
     marker_cross_exempt,
     routes_through_own_section_interior,
     routes_through_unrelated_sections,
+    wrap_exit_carrier_anchor,
 )
 from nf_metro.layout.phases.bbox import (
     _min_drawn_section_bbox_top,
@@ -1049,6 +1050,36 @@ def _guard_flow_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
                 f"{phase}: exit port {pid!r} at y={port_y:.1f} is off its "
                 f"carrier row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); "
                 f"the boundary run will render as a diagonal instead of a riser"
+            )
+
+
+def _guard_wrap_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
+    """A wrapping flow-aligned exit anchoring to a shared carrier row sits on it.
+
+    When the exit and its target entry sit on the same horizontal side, the line
+    wraps vertically around the target rather than hopping straight across the
+    gap; pulling the exit onto the downstream row then leaves the in-section link
+    a diagonal from the carrying station into the box corner instead of a clean
+    horizontal with one riser in the corridor.  Scope is exactly
+    :func:`wrap_exit_carrier_anchor`.
+    """
+    junction_ids = graph.junction_ids
+    for pid, port in graph.ports.items():
+        if port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        sec = graph.sections.get(port.section_id)
+        if sec is None:
+            continue
+        anchor = wrap_exit_carrier_anchor(graph, pid, sec, junction_ids)
+        if anchor is None:
+            continue
+        carrier_y, carrier_ids = anchor
+        port_y = graph.stations[pid].y
+        if abs(port_y - carrier_y) > GUARD_TOLERANCE:
+            raise PhaseInvariantError(
+                f"{phase}: wrapping exit port {pid!r} at y={port_y:.1f} is off "
+                f"its carrier row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); "
+                f"the in-section link will render as a diagonal into the box corner"
             )
 
 
@@ -4691,6 +4722,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_fanout_junction_resolves_upstream, "B"),
     GuardSpec(_guard_entry_port_fed_only_by_ports, "B"),
     GuardSpec(_guard_flow_exit_anchored_to_carrier, "B"),
+    GuardSpec(_guard_wrap_exit_anchored_to_carrier, "B"),
     GuardSpec(_guard_fold_lr_exit_follows_target, "B"),
     GuardSpec(
         _guard_fold_lr_exit_sections_share_bbox_bottom,
