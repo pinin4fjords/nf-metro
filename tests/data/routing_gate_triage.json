@@ -107,6 +107,10 @@
     "note": "Zero-width-section guard: the loop scans all graph.sections, but after compute_layout every placed section has bbox_w>0, so the skip arm only guards an empty/unplaced section that valid layouts don't produce.",
     "status": "defensive"
   },
+  "common.py::if sec.bbox_w <= 0:::#2": {
+    "note": "Zero-width-section guard in the squeeze re-centring loop: like its #1 twin, after compute_layout every placed section has bbox_w>0, so the skip arm only guards an empty/unplaced section that valid layouts do not produce.",
+    "status": "defensive"
+  },
   "common.py::if sec:::#1": {
     "note": "edges_to section-lookup guard: graph.sections.get(section_id) returning None requires a section_id absent from graph.sections, a corrupted state no valid parse produces; null-guard.",
     "status": "defensive"

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro.layout.constants import EDGE_TO_BUNDLE_CLEARANCE
+from nf_metro.layout.constants import EDGE_TO_BUNDLE_CLEARANCE, GUARD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -110,6 +110,52 @@ def test_no_incidental_edge_graze(path: Path) -> None:
     graph, routes = _route(path)
     violations = _incidental_grazes(graph, routes)
     assert not violations, "Incidental section-edge grazes:\n" + "\n".join(violations)
+
+
+def test_inter_row_drop_balanced_between_packed_sections() -> None:
+    """Targeted check for #1313.
+
+    When an inter-row L-shape descent threads the gap between two packed
+    sections stacked in adjacent rows whose internal sub-gaps are offset,
+    a full ``EDGE_TO_BUNDLE_CLEARANCE`` on both sides is geometrically
+    impossible.  The descent must then sit *balanced* between the two
+    binding edges rather than clearing one fully and skimming the other.
+    """
+    fixture = EXAMPLES / "topologies" / "inter_row_drop_section_clearance.mmd"
+    graph, routes = _route(fixture)
+
+    descent_x: float | None = None
+    for route in routes:
+        if not route.is_inter_section:
+            continue
+        if not route.edge.target.startswith("bot_d__entry_left"):
+            continue
+        for (ax, ay), (bx, by) in zip(route.points, route.points[1:]):
+            if abs(bx - ax) <= _V_TOL and abs(by - ay) > _V_TOL:
+                descent_x = (ax + bx) / 2
+    assert descent_x is not None, "expected a vertical descent into bot_d"
+
+    bot_c = graph.sections["bot_c"]  # row 1, left of the descent
+    top_b = graph.sections["top_b"]  # row 0, right of the descent
+    left_edge = bot_c.bbox_x + bot_c.bbox_w
+    right_edge = top_b.bbox_x
+
+    clr_left = descent_x - left_edge
+    clr_right = right_edge - descent_x
+    # The two packed sub-gaps overlap by less than 2*EDGE_TO_BUNDLE_CLEARANCE,
+    # so neither side reaches full clearance; the descent must instead be
+    # centred so both sides share the available room equally.
+    assert abs(clr_left - clr_right) <= 2.0, (
+        f"descent x={descent_x:.1f} is lopsided: clears bot_c right edge "
+        f"({left_edge:.1f}) by {clr_left:.1f} but top_b left edge "
+        f"({right_edge:.1f}) by {clr_right:.1f}"
+    )
+    assert min(clr_left, clr_right) > GUARD_TOLERANCE, (
+        f"descent x={descent_x:.1f} skims a section edge: min clearance "
+        f"{min(clr_left, clr_right):.1f} <= {GUARD_TOLERANCE}"
+    )
+    # The runtime guard agrees the balanced descent is acceptable.
+    compute_layout(parse_metro_mermaid(fixture.read_text()), validate=True)
 
 
 def test_collector_merge_descent_clears_source_right_edge() -> None:
