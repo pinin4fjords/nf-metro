@@ -1115,10 +1115,12 @@ def _shift_lr_perp_entry_stations(
         # same-column drop (entry port within the run's span): an RL run then
         # shifts left, so extend the bbox left to match. A cross-column drop
         # lands beyond the span and the fixed inset under-sizes the bbox.
-        if section.direction == "RL" and run_lo <= port_x <= run_hi:
+        grew_rl = section.direction == "RL" and run_lo <= port_x <= run_hi
+        grew_lr = section.direction == "LR" and port_x > run_hi
+        if grew_rl:
             section.bbox_x -= shift
             section.bbox_w += shift
-        elif section.direction == "LR" and port_x > run_hi:
+        elif grew_lr:
             # Re-wrap the bbox around the shifted run, keeping the run's
             # padding and anchoring the left edge on the entry port (which
             # sits left of the run once it shifts right of the drop).
@@ -1126,3 +1128,31 @@ def _shift_lr_perp_entry_stations(
             right_pad = (section.bbox_x + section.bbox_w) - run_hi
             section.bbox_x = port_x - left_pad
             section.bbox_w = (run_hi + shift + right_pad) - section.bbox_x
+
+        if grew_rl or grew_lr:
+            _repin_flow_axis_exit_ports(section, graph)
+
+
+def _repin_flow_axis_exit_ports(section: Section, graph: MetroGraph) -> None:
+    """Snap an LR/RL section's flow-axis exit ports back onto their bbox edge.
+
+    A LEFT/RIGHT exit port's X is fixed on the section edge in Stage 3.1, but
+    the Stage 3.3 runway grow moves that edge; without re-pinning the port
+    stays on the old edge and its exit leg doubles back over the run.  Only the
+    flow-axis X moves -- the port keeps its carrying-station Y, so the
+    station-as-elbow constraint is untouched -- and perpendicular (TOP/BOTTOM)
+    ports are left alone.
+    """
+    right_x = section.bbox_x + section.bbox_w
+    for pid in section.exit_ports:
+        port = graph.ports.get(pid)
+        station = graph.stations.get(pid)
+        if not port or not station:
+            continue
+        if port.side == PortSide.LEFT:
+            station.x = section.bbox_x
+        elif port.side == PortSide.RIGHT:
+            station.x = right_x
+        else:
+            continue
+        port.x = station.x
