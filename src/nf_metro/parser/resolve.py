@@ -707,8 +707,8 @@ def _reanchor_flow_axis_ports(
         if not ranks or min(ranks.values()) == max(ranks.values()):
             continue
 
-        flow_ports: list[tuple[list[tuple[PortSide, list[str]]], int]] = []
         folds: list[tuple[list[tuple[PortSide, list[str]]], int, PortSide]] = []
+        with_flow = False
         for hints, ep_map, side_map, is_entry in (
             (section.entry_hints, consumers.get(sec_id, {}), consumer_sides, True),
             (section.exit_hints, producers.get(sec_id, {}), producer_sides, False),
@@ -739,7 +739,10 @@ def _reanchor_flow_axis_ports(
                 }
                 if own_side:
                     eps = own_side
-                flow_ports.append((hints, idx))
+                if (is_entry and side == leading) or (
+                    not is_entry and side == trailing
+                ):
+                    with_flow = True
                 target = _port_fold_target(
                     side, eps, ranks, leading, trailing, is_entry=is_entry
                 )
@@ -748,13 +751,16 @@ def _reanchor_flow_axis_ports(
         if not folds:
             continue
 
-        # Re-orienting the section moves every flow extreme to the opposite
-        # edge, so it is safe only when every flow-axis port is folding;
-        # otherwise it would push a with-flow port into a fold.
+        # Re-orienting flips every flow extreme to the opposite edge: a port
+        # running with the flow would be pushed into a fold, so a flip is only
+        # safe when no flow-axis port runs with the flow.  A reversed port whose
+        # connecting station sits at the flow extreme (so it does not itself
+        # double back) becomes a with-flow port once flipped, so it does not
+        # block re-orientation.
         if (
             section.direction in _FLIP_HORIZONTAL
             and sec_id not in graph._explicit_directions
-            and len(folds) == len(flow_ports)
+            and not with_flow
         ):
             new_dir = _FLIP_HORIZONTAL[section.direction]
             warnings.warn(

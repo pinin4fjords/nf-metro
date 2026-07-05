@@ -1038,6 +1038,29 @@ def _adjust_terminus_icon_clearance(
                     section.bbox_w += needed - clearance
 
 
+def _repin_flow_exit_ports(
+    section: Section,
+    graph: MetroGraph,
+    side: PortSide,
+    boundary_x: float,
+) -> None:
+    """Snap exit ports on ``side`` back onto a boundary that just moved.
+
+    ``position_ports`` seats a flow-axis exit port on the trailing edge, but
+    the perp-entry station shift grows that edge outward without carrying the
+    port along, stranding it inside the box where the exit leg would double
+    back to reach it.  Re-pinning the port to the new edge keeps it on the
+    boundary its stations exit through.
+    """
+    from nf_metro.layout.phases.ports import _set_port_x
+
+    for pid in section.exit_ports:
+        port = graph.ports.get(pid)
+        if port is None or port.side != side:
+            continue
+        _set_port_x(graph, pid, boundary_x)
+
+
 def _shift_lr_perp_entry_stations(
     graph: MetroGraph,
     x_spacing: float,
@@ -1118,6 +1141,7 @@ def _shift_lr_perp_entry_stations(
         if section.direction == "RL" and run_lo <= port_x <= run_hi:
             section.bbox_x -= shift
             section.bbox_w += shift
+            _repin_flow_exit_ports(section, graph, PortSide.LEFT, section.bbox_x)
         elif section.direction == "LR" and port_x > run_hi:
             # Re-wrap the bbox around the shifted run, keeping the run's
             # padding and anchoring the left edge on the entry port (which
@@ -1126,3 +1150,6 @@ def _shift_lr_perp_entry_stations(
             right_pad = (section.bbox_x + section.bbox_w) - run_hi
             section.bbox_x = port_x - left_pad
             section.bbox_w = (run_hi + shift + right_pad) - section.bbox_x
+            _repin_flow_exit_ports(
+                section, graph, PortSide.RIGHT, section.bbox_x + section.bbox_w
+            )

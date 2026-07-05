@@ -761,6 +761,14 @@ gallery:
       station below its fold threshold. Adding a station inside Survey must not re-grid the
       downstream Report onto a backward return row: inter-section placement is a function of
       the DAG, not of intra-section size (issue #1082)."
+  - id: rl_entry_right_exit_left
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A return-row section fed from the right that exits left, where the right
+      entry feeds the section's internal flow-sink. The section resolves to RL
+      flow rather than reading the declared ports as an in-place reversal
+      (issue #1298)."
 
   # ── Bypass Routing ─────────────────────────────────────────────────────────
   - id: inrow_skip_breeze
