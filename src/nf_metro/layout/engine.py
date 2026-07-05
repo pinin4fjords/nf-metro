@@ -1355,8 +1355,9 @@ def _compute_section_layout(
 
     # Stage 3.3: Shift internal stations in LR/RL sections with
     # perpendicular (TOP/BOTTOM) entry away from the port.  Needs the
-    # aligned port X from Stage 3.2; only moves internal station X, not
-    # ports or bboxes.
+    # aligned port X from Stage 3.2.  Moves internal station X; where the
+    # runway shift outgrows the section padding it also grows the bbox and
+    # re-pins the flow-axis exit port to the shifted edge.
     _shift_lr_perp_entry_stations(graph, x_spacing)
     _snap(graph, "3.3")
 
