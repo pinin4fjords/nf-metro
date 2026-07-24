@@ -3331,16 +3331,12 @@ def _fan_shares_inter_row_channel(ctx: _RoutingCtx, edge: Edge) -> bool:
 def _fan_corner_run(ctx: _RoutingCtx, pos_n: int) -> float:
     """Run from a fan's source to the centreline of its first corner column.
 
-    A fan lays its centreline down the middle of the bundle, so the lane on the
-    outside of the turn sits half a bundle width further back along the run.  The
-    centreline therefore stands off by that half width beyond the widest lane's
-    own arc (:func:`outer_lane_radius`), which is what lets every lane round at
-    the radius its rank asks for.
+    A fan lays its centreline down the middle of the bundle, so its lanes sit
+    half a bundle width either side.  Standing the centreline off by the base
+    radius plus that half width puts the nearest lane a full base radius clear of
+    the source, which is what every lane's arc is anchored on.
     """
-    return (
-        outer_lane_radius(pos_n, ctx.curve_radius, ctx.offset_step)
-        + bundle_width(pos_n, ctx.offset_step) / 2
-    )
+    return ctx.curve_radius + bundle_width(pos_n, ctx.offset_step) / 2
 
 
 def _wrap_fan_geometry(
