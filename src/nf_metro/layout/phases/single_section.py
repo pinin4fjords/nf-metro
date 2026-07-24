@@ -484,14 +484,22 @@ def _resolve_station_collisions(
         if len(stations) < 2:
             continue
         stations.sort(key=lambda s: (secondary.get(s), order.get(s.id, 0)))
-        used: list[float] = []
+        # A cell blocks a newcomer only when the two cannot share it: markerless
+        # bypass-V helpers carrying one tight exit-bound bundle may stack on a
+        # single track (the offset engine spreads their lines by track_gap),
+        # but a bypass-V and a real marker, or two real markers, may not.
+        used: list[tuple[float, bool]] = []
         for s in stations:
             pos = secondary.get(s)
-            while any(abs(pos - u) < secondary.step - EPS for u in used):
+            s_is_v = is_bypass_v(s.id)
+            while any(
+                abs(pos - u) < secondary.step - EPS and not (s_is_v and u_is_v)
+                for u, u_is_v in used
+            ):
                 pos += secondary.step
             if pos != secondary.get(s):
                 secondary.set(s, pos)
-            used.append(pos)
+            used.append((pos, s_is_v))
 
 
 def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
