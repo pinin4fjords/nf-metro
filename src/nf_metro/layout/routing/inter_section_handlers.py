@@ -2231,7 +2231,9 @@ def _route_bypass(
             if src_sec is not None and src_sec.bbox_w > 0:
                 src_right = src_sec.bbox_x + src_sec.bbox_w
                 if sx >= src_right - COORD_TOLERANCE and gap1_x < src_right:
-                    gap1_x = max(sx, src_right + SECTION_ROUTE_CLEARANCE)
+                    gap1_x = max(
+                        sx + ctx.curve_radius, src_right + SECTION_ROUTE_CLEARANCE
+                    )
                     gap1_x = _clear_channel_x_in_band(
                         graph,
                         gap1_x,
