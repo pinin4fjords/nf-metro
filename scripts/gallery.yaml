@@ -1794,6 +1794,14 @@ gallery:
       station. The output's branch peels off between the two rather than
       overrunning the successor's column, so the icon clears the downstream
       stations and their labels."
+  - id: tn_wes_input_fan_somatic_tree
+    source_dir: examples/topologies
+    category: Feature Showcase
+    description:
+      "A tumour/normal WES map: the input source fans to two CRAM->BAM
+      converters and threads the germline+tumour bundle cleanly between them to
+      the somatic caller, whose dead-end VCF outputs peel off without crowding
+      their neighbours."
 
 pipelines:
   - id: rnaseq_auto
