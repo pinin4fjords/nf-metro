@@ -1014,11 +1014,22 @@ def _equalize_fork_groups(
         # anchor falls to group[0] (the topmost station), keeping
         # hidden hubs and exit ports at the section top rather than
         # drifting to the column centre.
+        # Consecutive through-bundle bypass-V helpers belong to one trunk that
+        # the offset engine spreads by the small track_gap; collapse each run of
+        # them into a single fan slot so the bundle stays tight rather than
+        # splaying its carried lines a full line_gap apart.
+        slot_of: list[int] = []
+        slot = 0
+        for j, sid in enumerate(group):
+            if j and not (is_bypass_v(sid) and is_bypass_v(group[j - 1])):
+                slot += 1
+            slot_of.append(slot)
+
         pred_tracks = [
             tracks[p] for sid in group for p in G.predecessors(sid) if p in tracks
         ]
         anchor_track: float
-        anchor_idx: float
+        anchor_slot: float
         if pred_tracks:
             pred_mean = sum(pred_tracks) / len(pred_tracks)
 
@@ -1029,7 +1040,7 @@ def _equalize_fork_groups(
             # at the group midpoint so the source stays on the midline.
             if v_helpers and len({len(graph.station_lines(s)) for s in group}) == 1:
                 anchor_track = pred_mean
-                anchor_idx = (len(group) - 1) / 2
+                anchor_slot = slot_of[-1] / 2
             else:
 
                 def _anchor_key(sid: str) -> tuple[int, float, float]:
@@ -1038,13 +1049,13 @@ def _equalize_fork_groups(
 
                 idx = min(range(len(group)), key=lambda i: _anchor_key(group[i]))
                 anchor_track = tracks[group[idx]]
-                anchor_idx = idx
+                anchor_slot = slot_of[idx]
         else:
             anchor_track = tracks[group[0]]
-            anchor_idx = 0
+            anchor_slot = slot_of[0]
 
         for i, sid in enumerate(group):
-            tracks[sid] = anchor_track + (i - anchor_idx) * line_gap
+            tracks[sid] = anchor_track + (slot_of[i] - anchor_slot) * line_gap
 
 
 def _reorder_by_span(graph: MetroGraph, line_order: list[str]) -> list[str]:
