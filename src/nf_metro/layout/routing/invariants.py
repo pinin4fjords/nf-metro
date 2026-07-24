@@ -821,6 +821,95 @@ def check_junction_peeloff_rounded(
     return violations
 
 
+# Minimum effective radius an orthogonal inter-section turn must reach unless it
+# deliberately asked for a tighter arc.  Below this, a horizontal-to-vertical
+# turn reads as a hard corner rather than a formed curve.
+_ORTHOGONAL_TURN_FLOOR = 3.0
+_ORTHOGONAL_TURN_TOL = 0.5
+
+
+@dataclass(frozen=True)
+class StarvedTurnViolation:
+    """An inter-section orthogonal turn starved below a formed curve.
+
+    A horizontal-to-vertical turn whose effective (segment-budget-clamped)
+    radius falls below both the floor and the radius its route requested: the
+    run into the corner was shorter than a curve radius, so it draws as a hard
+    90 instead of a rounded arc.  ``requested`` is the handler's desired radius
+    at the corner and ``effective`` is what the adjacent segment budget allowed.
+    """
+
+    source: str
+    target: str
+    line_id: str
+    corner: tuple[float, float]
+    effective: float
+    requested: float
+
+    def message(self) -> str:
+        return (
+            f"edge {self.source!r}->{self.target!r} line {self.line_id!r}: "
+            f"orthogonal turn at ({self.corner[0]:.0f}, {self.corner[1]:.0f}) "
+            f"rounds to radius {self.effective:.1f} (requested {self.requested:.1f}); "
+            f"the run into the turn is shorter than a curve radius, so it draws "
+            f"as a hard corner -- give the descent/turn a full curve radius of "
+            f"runway clear of the section it leaves"
+        )
+
+
+def check_orthogonal_turns_form_curves(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+) -> list[StarvedTurnViolation]:
+    """Flag inter-section orthogonal turns starved below a formed curve.
+
+    Every direction change an inter-section route makes between a horizontal run
+    and a vertical one must round to a real arc.  When the run into the turn is
+    shorter than a curve radius (a descent channel crammed against the section it
+    leaves), :func:`resolve_curve_radii` clamps the corner toward zero and it
+    draws as a hard 90.  A corner is a violation when its effective radius falls
+    below both the floor and the radius the handler asked for; a deliberately
+    tight concentric inner arc (one that requested a radius below the floor) is
+    left alone, since it curves as designed.
+    """
+    violations: list[StarvedTurnViolation] = []
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        pts = rp.points
+        if len(pts) < 3:
+            continue
+        effective = _resolved_corner_radii(rp, pts)
+        desired = rp.curve_radii
+        for k, eff in enumerate(effective):
+            i = k + 1
+            prev, curr, nxt = pts[i - 1], pts[i], pts[i + 1]
+            in_h = abs(curr[0] - prev[0]) > COORD_TOLERANCE
+            in_v = abs(curr[1] - prev[1]) > COORD_TOLERANCE
+            out_h = abs(nxt[0] - curr[0]) > COORD_TOLERANCE
+            out_v = abs(nxt[1] - curr[1]) > COORD_TOLERANCE
+            if not (in_h != in_v and out_h != out_v and in_h != out_h):
+                continue  # not a horizontal<->vertical turn
+            requested = (
+                desired[k]
+                if desired and k < len(desired) and desired[k] is not None
+                else CURVE_RADIUS
+            )
+            floor = min(_ORTHOGONAL_TURN_FLOOR, requested)
+            if eff < floor - _ORTHOGONAL_TURN_TOL:
+                violations.append(
+                    StarvedTurnViolation(
+                        source=rp.edge.source,
+                        target=rp.edge.target,
+                        line_id=rp.line_id,
+                        corner=curr,
+                        effective=eff,
+                        requested=requested,
+                    )
+                )
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Merge-port approach-side slot allocation
 # ---------------------------------------------------------------------------
@@ -4599,6 +4688,10 @@ def assert_render_curve_invariants(
             check_junction_peeloff_rounded(graph, routes),
         ),
         (
+            "inter-section orthogonal turn starved below a formed curve",
+            check_orthogonal_turns_form_curves(graph, routes),
+        ),
+        (
             "merge fan-out branches split off one fork corner",
             check_merge_fanout_pivots_shared(graph, routes, offsets),
         ),
@@ -4696,6 +4789,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
     _check_spec(check_junction_peeloff_rounded, "A"),
+    _check_spec(check_orthogonal_turns_form_curves, "A"),
     _check_spec(check_merge_fanout_pivots_shared, "A"),
     _check_spec(check_port_corner_within_bbox, "A"),
     # --- Tier B: invoked only by a validate-path ``_guard_*`` wrapper ---
@@ -4793,6 +4887,7 @@ __all__ = [
     "check_no_riser_hugs_section_edge",
     "check_stacked_right_ports_bow_out",
     "check_junction_peeloff_rounded",
+    "check_orthogonal_turns_form_curves",
     "check_peeloff_concentric",
     "check_port_corner_within_bbox",
     "check_perp_entry_boundary_consistent",

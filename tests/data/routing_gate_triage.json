@@ -379,10 +379,6 @@
     "note": "A bypass source section always resolves and has bbox_w>0 (the parser never emits an empty section); the None/zero-width arm never fires.",
     "status": "defensive"
   },
-  "inter_section_handlers.py::if sx >= (left_edge + right_edge) / 2:::#1": {
-    "note": "Defensive symmetry: a merge feeder junction sits in the inter-column gap downstream of its fork, i.e. right of its source section's centre, so the exit-right arm always fires in the corpus. The exit-left arm mirrors it for a junction sitting left of centre; no fixture places a merge feeder there.",
-    "status": "defensive"
-  },
   "inter_section_handlers.py::if tgt_col is not None:::#1": {
     "note": "tgt_col from _resolve_section_col on a valid LEFT entry port is always non-None (sections get grid_col>=0 after auto-layout).",
     "status": "defensive"
@@ -981,6 +977,22 @@
   },
   "offsets.py::if src_n <= tgt_n:::#1": {
     "note": "_reconcile_horizontal_offsets' bundle-shift fallback moves the edge endpoint with fewer lines. The else arm (src_n > tgt_n: move the target) was exercised in the corpus solely by the fan-port drag where a many-line entry/exit port is the edge source and a same-Y trunk-row station with fewer lines is the target (funcprofiler_upstream's humann3 at its entry port). The #1480 exit-port ordering fix (merge_trunk_lines in _compute_exit_port_offsets) rides the trunk-continuation merge line out on the trunk slot, so that port and station now agree and the edge no longer needs shifting. The remaining corpus shift (sr_qc into its input exit port) has the fewer-line station as the source, taking the src_n <= tgt_n true arm. The else arm stays defensive for a same-Y bundle conflict whose higher-line-count endpoint is the edge source.",
+    "status": "defensive"
+  },
+  "normalize.py::if abs(delta) <= COORD_TOLERANCE:::#2": {
+    "note": "_snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs.",
+    "status": "defensive"
+  },
+  "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {
+    "note": "_clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines.",
+    "status": "defensive"
+  },
+  "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
+    "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
+    "status": "defensive"
+  },
+  "normalize.py::if abs(ch.x - descent.x) <= COORD_TOLERANCE:::#1": {
+    "note": "_clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns.",
     "status": "defensive"
   },
   "offsets.py::if set(inherited) != set(graph.station_lines(port_id)):::#1": {
