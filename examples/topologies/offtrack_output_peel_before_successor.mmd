@@ -1,0 +1,19 @@
+%%metro title: Off-track output peel-off before successor
+%%metro line: a | Line A | #0570b0
+%%metro line: b | Line B | #d94801
+%%metro file: early_out | VCF | Early
+%%metro off_track: early_out
+
+graph LR
+    subgraph s [Section]
+        filt[Filter step]
+        annot[Annotate step]
+        final[Finalize]
+        early_out[ ]
+        final_out[ ]
+
+        filt -->|a,b| early_out
+        filt -->|a,b| annot
+        annot -->|a,b| final
+        final -->|a,b| final_out
+    end

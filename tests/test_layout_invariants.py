@@ -49,7 +49,11 @@ from nf_metro.layout.engine import (
     compute_min_y_spacing,
     is_loop_side_branch_station,
 )
-from nf_metro.layout.geometry import lanes_run_along_y, segment_intersects_bbox
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    lanes_run_along_y,
+    segment_intersects_bbox,
+)
 from nf_metro.layout.labels import (
     LabelOverlap,
     LabelPlacement,
@@ -2982,6 +2986,59 @@ def test_off_track_outputs_on_lift_side_and_adjacent_to_producer(fixture):
         )
 
 
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_OFF_TRACK_OUTPUT)
+def test_off_track_output_peels_off_before_producer_successor(fixture):
+    """An off-track output's icon sits before its producer's next on-track
+    successor along the flow axis.
+
+    The output's branch peels off the trunk *between* the producer and its
+    onward successor; when the icon overruns the successor's column the
+    divergence lands on the next station instead, and the icon crowds a
+    downstream station's label.  A linear producer must reserve room for its
+    output's diagonal so the successor is pushed clear (issue: the WES somatic
+    fan drew the "Somatic" VCF past GATK Funcotator).
+
+    Scoped to LR/RL sections: there the output's diagonal and icon extend along
+    the flow axis (X) and can overrun the successor's column.  On a TB/BT trunk
+    an off-track output offsets on the cross axis beside the trunk and shares
+    the successor's flow coordinate by construction, so this ordering does not
+    apply.
+    """
+    graph = _layout(fixture)
+    producer_of = _off_track_output_sinks(graph)
+    assert producer_of, f"{fixture}: no off-track output sinks found"
+    for off_id, prod_id in producer_of.items():
+        off_st = graph.stations[off_id]
+        prod_st = graph.stations[prod_id]
+        section = graph.sections[off_st.section_id]
+        direction = section.direction or "LR"
+        if direction not in ("LR", "RL"):
+            continue
+        flow_axis = AxisFrame.axes_for_direction(direction)[0]
+        flow_sign = AxisFrame.flow_sign(direction)
+        prod_f = flow_sign * getattr(prod_st, flow_axis)
+        # The producer's nearest on-track successor further along the flow.
+        successors = []
+        for edge in graph.edges_from(prod_id):
+            succ = graph.stations.get(edge.target)
+            if succ is None or succ.is_port or succ.is_hidden or succ.off_track:
+                continue
+            if graph.section_for_station(edge.target) != section.id:
+                continue
+            succ_f = flow_sign * getattr(succ, flow_axis)
+            if succ_f > prod_f + _Y_TOL:
+                successors.append((succ_f, edge.target))
+        if not successors:
+            continue
+        succ_f, succ_id = min(successors)
+        off_f = flow_sign * getattr(off_st, flow_axis)
+        assert off_f < succ_f - _Y_TOL, (
+            f"{fixture}: off-track output {off_id} (flow={off_f:.1f}) overruns "
+            f"its producer {prod_id}'s next successor {succ_id} (flow={succ_f:.1f}); "
+            f"its branch should peel off before the successor's column"
+        )
+
+
 def test_off_track_output_baseline_ignores_lift_side_fork_branch():
     """A fork branch overshooting the trunk toward the lift side must not
     become the off-track baseline (#1388).
@@ -3954,22 +4011,34 @@ def test_off_track_output_route_clears_non_producer_markers(fixture):
 def test_off_track_output_route_guard_catches_a_crossing():
     """The runtime guard fires when an output's route rakes a non-producer marker.
 
-    Locks the guard's teeth: an output dragged past the trunk stations that
-    follow its producer has its producer-to-icon route cross their markers, and
-    ``_guard_off_track_output_clears_non_producer`` must raise rather than pass.
+    Locks the guard's teeth: route the output cleanly, park a non-producer trunk
+    marker directly on the routed producer-to-icon path, then re-check against
+    that same route -- ``_guard_off_track_output_clears_non_producer`` must
+    raise.  Seeding the marker on the resolved route keeps the check independent
+    of the exact trunk spacing.
     """
     from nf_metro.layout.phases.guards import (
         PhaseInvariantError,
         _guard_off_track_output_clears_non_producer,
     )
+    from nf_metro.layout.routing import compute_station_offsets, route_edges
+    from nf_metro.render.svg import apply_route_offsets
 
     graph = _layout("diagonal_single_trunk_off_track.mmd")
-    # Drag the BAM output well past its producer so the route to its icon rakes
-    # the intervening trunk markers (merge/markdup/bqsr ...).
-    graph.stations["bam_out"].x = graph.stations["applybqsr"].x + 20
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    route = next(
+        r for r in routes if r.edge.source == "bwa" and r.edge.target == "bam_out"
+    )
+    pts = apply_route_offsets(route, offsets)
+    # Park a non-producer trunk marker on the output's routed tail.
+    graph.stations["merge_index"].x = (pts[-2][0] + pts[-1][0]) / 2
+    graph.stations["merge_index"].y = pts[-1][1]
 
     with pytest.raises(PhaseInvariantError, match="non-producer marker"):
-        _guard_off_track_output_clears_non_producer(graph, "test")
+        _guard_off_track_output_clears_non_producer(
+            graph, "test", offsets=offsets, routes=routes
+        )
 
 
 # ---------------------------------------------------------------------------
