@@ -73,6 +73,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _bundle_divergent_distinct_traverses,
     _clamp_inter_row_band_top,
     _clear_channel_x_in_band,
+    _clear_merge_trunk_opposite_arm,
     _coincide_fanout_opening_descents,
     _coincide_merge_fanout_pivots,
     _coincide_same_line_tracks,
@@ -245,6 +246,12 @@ def _route_edges(
     # sharing that gap above the wrap's peak so the local wrap nests beneath it.
     _nest_bypass_above_over_top_wrap(routes, ctx)
     _clear_bypass_v_label_strikes(routes, ctx)
+    # A merge fan-out's down-trunk and an opposite up-arm to a second merge can
+    # settle onto one column over a shared Y span, folding the line back over
+    # itself.  Slide the down-trunk's descent column a curve radius past the
+    # up-arm through the concentric channel machinery so the two clear.  Reads
+    # the settled columns, so it runs after the channel-settling passes.
+    _clear_merge_trunk_opposite_arm(routes, ctx)
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
