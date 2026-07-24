@@ -2556,7 +2556,9 @@ def _gap_channel_base(
     edges = None
     if anchor_section_id is not None and anchor_side is not None:
         edges = packed_cell_neighbor_edges(graph, anchor_section_id, anchor_side)
-    gap_left, gap_right = edges or column_gap_edges(graph, lo, lo + 1, row=row)
+    gap_left, gap_right = edges or column_gap_edges(
+        graph, lo, lo + 1, row=row, require_both_columns=False
+    )
     return symmetric_bundle_midpoint(
         gap_left, gap_right, [max(0, n - 1) * offset_step], 0
     )
