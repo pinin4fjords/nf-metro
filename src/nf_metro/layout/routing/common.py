@@ -455,7 +455,12 @@ def column_gap_midpoint(
 
 
 def column_gap_edges(
-    graph: MetroGraph, col_a: int, col_b: int, row: int | None = None
+    graph: MetroGraph,
+    col_a: int,
+    col_b: int,
+    row: int | None = None,
+    *,
+    require_both_columns: bool = True,
 ) -> tuple[float, float]:
     """Return ``(left_edge, right_edge)`` of the gap between two columns.
 
@@ -466,14 +471,21 @@ def column_gap_edges(
     gap, so a diversion travelling in one row isn't pushed off-centre by a
     section stacked in another row of the same column.
 
-    A gap needs a section on each side to bound it: where a bounding column has
-    no section in *row*, the returned pair is degenerate (``right <= left``),
-    which callers read as "no gap here".  Standing in a default edge instead
-    would report a span reaching past the columns beyond the absent one, and any
-    channel inside that span would match it.
+    A gap needs a section on each side to bound it.  Where a bounding column has
+    no section in *row*, the default reports a degenerate pair (``right <=
+    left``) that callers read as "no gap here", because standing in a default
+    edge would describe a span reaching past the columns beyond the absent one --
+    and a channel anywhere inside that span would be *matched* to this gap and
+    re-seated in it.
+
+    Pass ``require_both_columns=False`` to get that spanning corridor anyway.
+    Placement callers want it: an initial channel X only has to land in roughly
+    the right region, and the band-clearance pass then settles it against
+    whichever box the row actually puts in the way.  Callers that *identify*
+    which gap a channel occupies must keep the default.
     """
     lo, hi = min(col_a, col_b), max(col_a, col_b)
-    if not _sections_in_col(graph, lo, row):
+    if require_both_columns and not _sections_in_col(graph, lo, row):
         edge = col_left_edge(graph, hi, row=row)
         return edge, edge
     right = col_right_edge(graph, lo, row=row)

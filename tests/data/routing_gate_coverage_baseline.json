@@ -198,6 +198,7 @@
   "normalize.py::elif down_ok and (not up_ok or prefer_down):::#1",
   "normalize.py::elif far_y < t.y - COORD_TOLERANCE:::#1",
   "normalize.py::elif is_through:::#1",
+  "normalize.py::elif right_ok:::#1",
   "normalize.py::elif up_ok:::#1",
   "normalize.py::for grp in groups:::#3",
   "normalize.py::for k, x, y_lo, y_hi, seg_down in iter_vertical_segments(rp):::#1",
