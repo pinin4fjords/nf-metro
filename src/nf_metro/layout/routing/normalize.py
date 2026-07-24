@@ -546,6 +546,31 @@ def _snap_group(group: _Coincidence, graph: MetroGraph) -> None:
             _set_vchannel_x(ch, group.ref_x)
 
 
+def _snap_merge_feeder_group(group: _Coincidence, graph: MetroGraph) -> None:
+    """Snap merge-feeder branches onto the trunk descent, carrying each tail.
+
+    A feeder routed as a merge branch (:func:`_route_merge_branch`) opens with a
+    descent and turns onto a short tail that overlaps the trunk's converging run
+    toward the entry port.  Snapping the descent onto the trunk's shared column
+    moves the descent leg but leaves the tail's far end at its routing-time X, so
+    a descent that travels far to reach the trunk drags the tail's terminus past
+    the trunk's own turn as a dead stub.  Translate the tail by the same shift
+    the descent took, preserving its intended short overlap so it terminates on
+    the trunk rather than overshooting it.
+    """
+    for ch in group.channels:
+        delta = group.ref_x - ch.x
+        if abs(delta) <= COORD_TOLERANCE:
+            continue
+        tail_start = ch.idx + 2
+        _reconcile_moved_gap_slot(ch, group.ref_x, graph)
+        _set_vchannel_x(ch, group.ref_x)
+        ch.route.points = [
+            (x + delta, y) if i >= tail_start else (x, y)
+            for i, (x, y) in enumerate(ch.route.points)
+        ]
+
+
 def _route_first_vertical(rp: RoutedPath) -> _VChannel | None:
     """The first vertical leg of a route, whichever way it turns, or ``None``.
 
@@ -669,94 +694,61 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     for group in _convergent_port_groups(routes, ctx):
         _snap_group(group, ctx.graph)
     for group in _merge_feeder_groups(routes, ctx):
-        _snap_group(group, ctx.graph)
+        _snap_merge_feeder_group(group, ctx.graph)
     _join_fanout_upstream_tails(routes, ctx)
 
 
-def _merge_fanout_arm_descents(
-    routes: list[RoutedPath], ctx: _RoutingCtx
-) -> list[tuple[RoutedPath, _VChannel]]:
-    """Every merge-fan-out arm's opening descent, paired with its route.
+def _clear_merge_trunk_opposite_arm(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Slide a merge down-trunk clear of an opposite up-arm it folds onto.
 
-    An arm is an inter-section route leaving a merge fan-out source for a merge
-    junction; its opening descent is the first vertical leg off the shared
-    lead-out, up-turning or down-turning alike.
+    A fork can send one line down a merge trunk and the same line up to a second
+    merge.  When the trunk's shared descent column and the up-arm's ascent column
+    settle within a curve radius while overlapping in Y, the two opposite-going
+    legs of one line draw as a fold-back (:func:`_guard_no_opposing_line_overlap`
+    forbids it).  The down-trunk already clears the fork's exit by a curve radius
+    of runway, so slide its whole descent column -- the trunk and every feeder
+    fused onto it -- a curve radius past the up-arm, re-forming each corner
+    through :func:`_set_vchannel_x`.  Reads the settled columns and fires only on
+    the actual overlap, so well-separated opposite arms are left untouched.
     """
-    out: list[tuple[RoutedPath, _VChannel]] = []
-    for rp in routes:
-        if (
-            rp.is_inter_section
-            and rp.edge.source in ctx.merge_fanouts
-            and rp.edge.target in ctx.merge.junctions
-        ):
-            ch = _initial_fanout_descent(rp)
-            if ch is not None:
-                out.append((rp, ch))
-    return out
-
-
-def _shift_merge_junction_column(
-    routes: list[RoutedPath],
-    merge_id: str,
-    old_x: float,
-    new_x: float,
-) -> None:
-    """Slide a merge junction's shared column to *new_x*, carrying every leg on it.
-
-    Retargets the merge-column waypoint of every route touching *merge_id* -- the
-    arms arriving on its column and the lead leaving it -- so the invisible
-    junction and its whole crossroads move together to the new gap position.
-    Route points only: the junction station is invisible, so moving its column
-    is a routing concern, and leaving the station coordinate untouched keeps this
-    pass idempotent across the several times routing is replayed per render.
-    """
-    for rp in routes:
-        if rp.edge.source != merge_id and rp.edge.target != merge_id:
-            continue
-        rp.points = [
-            (new_x if abs(x - old_x) <= COORD_TOLERANCE else x, y) for x, y in rp.points
-        ]
-
-
-def _separate_merge_trunk_opposite_arm(
-    routes: list[RoutedPath], ctx: _RoutingCtx
-) -> None:
-    """Clear a merge fan-out's up-arm off the down-trunk it doubles a corner with.
-
-    A merge fan-out source can send one line down a merge trunk and up to a
-    second merge whose junction pins the up-arm's own column a few pixels aside.
-    A co-column feeder then fuses its full-span descent onto that trunk
-    (:func:`_coincide_same_line_tracks`), so the trunk and the up-arm run
-    parallel within a curve radius over a shared Y span -- one thick doubled
-    corner of a single line.  Opposite-direction legs may not share a column
-    (:func:`_guard_no_opposing_line_overlap` forbids that fold-back), so slide
-    the up-arm's merge junction one step past a curve radius further into its
-    inter-section gap, away from the trunk; the arm, its co-arriving feeder, and
-    the junction's onward lead all follow.  Only the near-parallel overlap the
-    doubled-corner guard forbids fires this, so well-separated arms are
-    untouched.
-    """
-    if not ctx.merge.junctions or not ctx.merge_fanouts:
+    merge = ctx.merge
+    if not merge.trunk_source or not ctx.merge_fanouts:
         return
     radius = ctx.curve_radius
-    clearance = radius + ctx.offset_step
-    descents = _merge_fanout_arm_descents(routes, ctx)
-    for up_rp, up in descents:
-        merge_id = up_rp.edge.target
-        if abs(up.x - ctx.graph.stations[merge_id].x) > COORD_TOLERANCE:
+    arms = [
+        ch
+        for rp in routes
+        if rp.is_inter_section
+        and rp.edge.source in ctx.merge_fanouts
+        and rp.edge.target in merge.junctions
+        and (ch := _route_first_vertical(rp)) is not None
+    ]
+    downs = [ch for ch in arms if ch.down]
+    ups = [ch for ch in arms if not ch.down]
+    if not downs or not ups:
+        return
+    moved: set[float] = set()
+    for descent in downs:
+        col = round(descent.x, 1)
+        if col in moved:
             continue
-        for other_rp, other in descents:
-            if other_rp.line_id != up_rp.line_id or other.down == up.down:
+        target_x: float | None = None
+        for up in ups:
+            if up.route.line_id != descent.route.line_id:
                 continue
-            gap = up.x - other.x
-            overlap = min(other.y_hi, up.y_hi) - max(other.y_lo, up.y_lo)
-            if not (COORD_TOLERANCE < abs(gap) <= radius) or overlap <= COORD_TOLERANCE:
+            if abs(up.x - descent.x) > radius:
                 continue
-            away = 1.0 if gap >= 0 else -1.0
-            _shift_merge_junction_column(
-                routes, merge_id, up.x, other.x + away * clearance
-            )
-            break
+            overlap = min(up.y_hi, descent.y_hi) - max(up.y_lo, descent.y_lo)
+            if overlap <= COORD_TOLERANCE:
+                continue
+            cand = max(descent.x, up.x) + radius
+            target_x = cand if target_x is None else max(target_x, cand)
+        if target_x is None:
+            continue
+        moved.add(col)
+        for ch in downs:
+            if abs(ch.x - descent.x) <= COORD_TOLERANCE:
+                _set_vchannel_x(ch, target_x)
 
 
 class _TraverseLeg(NamedTuple):

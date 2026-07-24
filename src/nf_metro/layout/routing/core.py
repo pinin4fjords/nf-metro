@@ -73,6 +73,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _bundle_divergent_distinct_traverses,
     _clamp_inter_row_band_top,
     _clear_channel_x_in_band,
+    _clear_merge_trunk_opposite_arm,
     _coincide_fanout_opening_descents,
     _coincide_merge_fanout_pivots,
     _coincide_same_line_tracks,
@@ -95,7 +96,6 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _restack_htrunk,
     _restack_trunk_band,
     _round_junction_perp_peeloff,
-    _separate_merge_trunk_opposite_arm,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
     _stagger_convergent_distinct_lines,
@@ -247,11 +247,11 @@ def _route_edges(
     _nest_bypass_above_over_top_wrap(routes, ctx)
     _clear_bypass_v_label_strikes(routes, ctx)
     # A merge fan-out's down-trunk and an opposite up-arm to a second merge can
-    # settle a curve radius apart over a shared Y span, drawing one doubled
-    # corner of a single line.  Slide the up-arm's merge junction away from the
-    # trunk into the free part of its gap so the two columns clear.  Runs after
-    # the channel-settling passes, reading the trunk column they leave behind.
-    _separate_merge_trunk_opposite_arm(routes, ctx)
+    # settle onto one column over a shared Y span, folding the line back over
+    # itself.  Slide the down-trunk's descent column a curve radius past the
+    # up-arm through the concentric channel machinery so the two clear.  Reads
+    # the settled columns, so it runs after the channel-settling passes.
+    _clear_merge_trunk_opposite_arm(routes, ctx)
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
