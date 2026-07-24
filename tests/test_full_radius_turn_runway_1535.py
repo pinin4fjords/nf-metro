@@ -1,22 +1,26 @@
-"""Turn columns are seated a full concentric radius clear of what they leave.
+"""Every inter-section turn in the example corpus rounds at its full radius.
 
-`check_orthogonal_turns_form_curves` holds every inter-section
-horizontal-to-vertical turn to the radius its bundle asked for, and
-``test_orthogonal_turns_form_curves_corpus`` sweeps that guard over every
-example.  These are the two seatings that starved the runway behind it, pinned
-at the mechanism so a regression names its own cause rather than surfacing as a
-clamped corner somewhere downstream:
+`resolve_curve_radii` clamps a corner to the run its adjacent segments leave,
+and the renderer draws the arc from that clamped value, so a corner seated
+closer than its radius to what it turns beside draws tighter than the bundle's
+concentric spacing intends.
 
-* the inter-column gap a channel is bundled into must be bounded by real section
-  edges in the row it traverses -- a gap reported for a row where one bounding
-  column has no section spans several real columns, and re-centring a channel in
-  that span parks it against the port it turns into;
-* a bundle's lead-in must clear its source by the *outer* lane's arc, since that
-  lane sweeps the base radius plus the whole bundle width.
+The corpus sweep here is a **ratchet, not a live invariant**: the render-time
+guard (`check_orthogonal_turns_form_curves`) holds turns to a floor rather than
+to their full radius, because some topologies -- an L-shape whose two section
+rows sit closer than two curve radii apart -- cannot reach full radius without
+layout-level spacing, and aborting a render over a merely-tight arc would be
+worse than drawing it.  Holding the corpus to the stricter bar keeps the engine
+from regressing where it already achieves it.
+
+The two seatings that starved the runway are pinned individually below, so a
+regression names its own cause rather than surfacing as a clamped corner
+somewhere downstream.
 """
 
 from __future__ import annotations
 
+import glob
 from pathlib import Path
 
 import pytest
@@ -24,12 +28,19 @@ import pytest
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
-from nf_metro.layout.routing.common import column_gap_edges
-from nf_metro.layout.routing.corners import outer_lane_radius
+from nf_metro.layout.routing.common import (
+    RoutedPath,
+    column_gap_edges,
+    is_orthogonal_turn,
+)
+from nf_metro.layout.routing.corners import outer_lane_radius, resolve_curve_radii
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 ROOT = Path(__file__).resolve().parent.parent
 TOPOLOGIES = ROOT / "examples" / "topologies"
+
+CORPUS = sorted(glob.glob(str(ROOT / "examples" / "**" / "*.mmd"), recursive=True))
+CORPUS_IDS = [Path(p).stem for p in CORPUS]
 
 _RADIUS_TOL = 0.5
 
@@ -39,6 +50,43 @@ def _route(path: Path) -> tuple:
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     return graph, route_edges_centred(graph, station_offsets=offsets)
+
+
+def _clamped_turns(routes: list[RoutedPath]) -> list[str]:
+    """Every inter-section H/V turn whose arc falls short of its own request.
+
+    Stricter than the render-time guard, which compares against a floor: this
+    reports any shortfall from the radius the bundle's concentric geometry asked
+    for at that corner.
+    """
+    short: list[str] = []
+    for rp in routes:
+        if not rp.is_inter_section or len(rp.points) < 3:
+            continue
+        for k, eff in enumerate(resolve_curve_radii(rp.points, rp.curve_radii)):
+            i = k + 1
+            if not is_orthogonal_turn(rp.points[i - 1], rp.points[i], rp.points[i + 1]):
+                continue
+            radii = rp.curve_radii
+            requested = (
+                radii[k]
+                if radii and k < len(radii) and radii[k] is not None
+                else CURVE_RADIUS
+            )
+            if eff < requested - _RADIUS_TOL:
+                x, y = rp.points[i]
+                short.append(
+                    f"{rp.edge.source}->{rp.edge.target} [{rp.line_id}] at "
+                    f"({x:.0f},{y:.0f}): radius {eff:.1f} of requested {requested:.1f}"
+                )
+    return short
+
+
+@pytest.mark.parametrize("path", CORPUS, ids=CORPUS_IDS)
+def test_corpus_turns_round_at_full_radius(path: str) -> None:
+    _graph, routes = _route(Path(path))
+    short = _clamped_turns(routes)
+    assert not short, "turns clamped below their requested radius:\n" + "\n".join(short)
 
 
 def test_column_gap_edges_reports_no_gap_where_lower_column_is_absent() -> None:
