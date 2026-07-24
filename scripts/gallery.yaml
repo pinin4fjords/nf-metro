@@ -1794,6 +1794,14 @@ gallery:
       station. The output's branch peels off between the two rather than
       overrunning the successor's column, so the icon clears the downstream
       stations and their labels."
+  - id: paired_input_fan_branch_tree
+    source_dir: examples/topologies
+    category: Feature Showcase
+    description:
+      "A paired-track map: the input source fans to two stacked
+      converters and threads the two-track bundle cleanly between them to
+      the somatic caller, whose dead-end outputs peel off without crowding
+      their neighbours."
 
 pipelines:
   - id: rnaseq_auto

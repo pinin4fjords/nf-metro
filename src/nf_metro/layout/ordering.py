@@ -24,7 +24,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SIDE_BRANCH_NUDGE,
 )
-from nf_metro.parser.model import LineSpread, MetroGraph
+from nf_metro.parser.model import LineSpread, MetroGraph, is_bypass_v
 
 
 def assign_tracks(
@@ -964,12 +964,32 @@ def _equalize_fork_groups(
         # Sort by primary line order first, then by current track position
         # within each line.  This keeps same-line siblings together.
         line_order_map = {lid: i for i, lid in enumerate(graph.lines)}
-        group.sort(
+        reals = sorted(
+            (sid for sid in group if not is_bypass_v(sid)),
             key=lambda sid: (
                 line_order_map.get(node_primary.get(sid) or "", len(line_order_map)),
                 tracks[sid],
-            )
+            ),
         )
+        # A hidden bypass-V carries one line of the exit-bound bundle around a
+        # station that line skips.  Seat it beside the real station on its own
+        # carried line, on the group's trunk-facing side (a sibling in the upper
+        # half takes the helper just below it, one in the lower half just
+        # above), so the bundle helpers gather around the feeder in the middle.
+        v_helpers = [sid for sid in group if is_bypass_v(sid)]
+        ordered = list(reals)
+        for v in v_helpers:
+            v_line = node_primary.get(v)
+            same_line_reals = [r for r in reals if node_primary.get(r) == v_line]
+            if not same_line_reals:
+                ordered.append(v)
+                continue
+            upper_half = reals.index(same_line_reals[0]) < len(reals) / 2
+            if upper_half:
+                ordered.insert(ordered.index(same_line_reals[-1]) + 1, v)
+            else:
+                ordered.insert(ordered.index(same_line_reals[0]), v)
+        group[:] = ordered
 
         # Compute current spacings between consecutive members
         spacings = [
@@ -997,18 +1017,32 @@ def _equalize_fork_groups(
         pred_tracks = [
             tracks[p] for sid in group for p in G.predecessors(sid) if p in tracks
         ]
+        anchor_track: float
+        anchor_idx: float
         if pred_tracks:
             pred_mean = sum(pred_tracks) / len(pred_tracks)
 
-            def _anchor_key(sid: str) -> tuple[int, float, float]:
-                t = tracks[sid]
-                return (-len(graph.station_lines(sid)), abs(t - pred_mean), t)
+            # A bypass-V fan with no distinguished trunk (every member carries
+            # the same line count) has no member to centre on: anchoring on one
+            # would stack the rest to one side and drop the feeding source off
+            # the fan midline (a deep U-well loop).  Anchor on the feeder track
+            # at the group midpoint so the source stays on the midline.
+            if v_helpers and len({len(graph.station_lines(s)) for s in group}) == 1:
+                anchor_track = pred_mean
+                anchor_idx = (len(group) - 1) / 2
+            else:
 
-            anchor_idx = min(range(len(group)), key=lambda i: _anchor_key(group[i]))
+                def _anchor_key(sid: str) -> tuple[int, float, float]:
+                    t = tracks[sid]
+                    return (-len(graph.station_lines(sid)), abs(t - pred_mean), t)
+
+                idx = min(range(len(group)), key=lambda i: _anchor_key(group[i]))
+                anchor_track = tracks[group[idx]]
+                anchor_idx = idx
         else:
+            anchor_track = tracks[group[0]]
             anchor_idx = 0
 
-        anchor_track = tracks[group[anchor_idx]]
         for i, sid in enumerate(group):
             tracks[sid] = anchor_track + (i - anchor_idx) * line_gap
 
