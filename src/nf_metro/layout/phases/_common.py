@@ -1683,13 +1683,18 @@ def flow_exit_carrier_anchor(
 
     The carriers anchor when they are a single internal station, a *parallel
     bundle* (several stations sharing one row, one per distinct carried line, so
-    each line rides its own offset track to the port), or a *single-line chain*
-    (several stations on one row carrying one line, connected feed-forward so
-    the line runs through every carrier to the port as one trunk).  A bypass
-    bundle -- several unconnected stations feeding one line -- is excluded: the
-    farther feeder shares the nearer carrier's track and would run straight
-    through it.  A fold section, a merge junction on the far side, or a
-    corridor blocked by another station keep the downstream-aligned placement.
+    each line rides its own offset track to the port), or a *single-line chain
+    fanning out through a junction* (several stations on one row carrying one
+    line, connected feed-forward so the line runs through every carrier to the
+    port as one trunk, and the port fans out via a junction whose row follows
+    it so the level change becomes gap risers).  A bypass bundle -- several
+    unconnected stations feeding one line -- is excluded: the farther feeder
+    shares the nearer carrier's track and would run straight through it.  A
+    single-line chain feeding one facing entry port directly is likewise a
+    bypass exit that keeps its downstream-aligned placement, since that entry
+    is pinned to its own row and anchoring would kink the straight hop.  A fold
+    section, a merge junction on the far side, or a corridor blocked by another
+    station also keep the downstream-aligned placement.
     """
     if _is_fold_section(section) or section.direction not in ("LR", "RL"):
         return None
@@ -1705,8 +1710,10 @@ def flow_exit_carrier_anchor(
         }
         share_row = max(ys) - min(ys) <= SAME_COORD_TOLERANCE
         one_line_per_carrier = len(carriers) == len(exit_lines)
-        single_line_chain = len(exit_lines) == 1 and _carriers_form_flow_chain(
-            graph, section, list(carriers)
+        single_line_chain = (
+            len(exit_lines) == 1
+            and _carriers_form_flow_chain(graph, section, list(carriers))
+            and _exit_fans_out_via_junction(graph, exit_port_id, junction_ids)
         )
         carriers_anchor = share_row and (one_line_per_carrier or single_line_chain)
         if not carriers_anchor:
@@ -1740,6 +1747,23 @@ def _carriers_form_flow_chain(
         if not _section_span_clear(graph, section, lo, hi, carrier_set):
             return False
     return True
+
+
+def _exit_fans_out_via_junction(
+    graph: MetroGraph, exit_port_id: str, junction_ids: set[str]
+) -> bool:
+    """Whether every edge out of the exit lands on a fan-out junction.
+
+    A fan-out junction's Y follows the exit port, so anchoring the exit to its
+    carrier row drives the junction there and the fan risers fall in the
+    inter-section gap.  An exit feeding a facing entry port directly is a
+    straight-hop target whose entry is pinned to its own row, so a multi-feeder
+    chain there stays downstream-aligned rather than kinking the hop.
+    """
+    edges = list(graph.edges_from(exit_port_id))
+    return bool(edges) and all(
+        e.target in junction_ids and _is_fanout_junction(graph, e.target) for e in edges
+    )
 
 
 def wrap_exit_carrier_anchor(
