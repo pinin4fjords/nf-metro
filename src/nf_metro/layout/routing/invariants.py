@@ -821,22 +821,19 @@ def check_junction_peeloff_rounded(
     return violations
 
 
-# Minimum effective radius an orthogonal inter-section turn must reach unless it
-# deliberately asked for a tighter arc.  Below this, a horizontal-to-vertical
-# turn reads as a hard corner rather than a formed curve.
-_ORTHOGONAL_TURN_FLOOR = 3.0
 _ORTHOGONAL_TURN_TOL = 0.5
 
 
 @dataclass(frozen=True)
 class StarvedTurnViolation:
-    """An inter-section orthogonal turn starved below a formed curve.
+    """An inter-section orthogonal turn starved below its full radius.
 
     A horizontal-to-vertical turn whose effective (segment-budget-clamped)
-    radius falls below both the floor and the radius its route requested: the
-    run into the corner was shorter than a curve radius, so it draws as a hard
-    90 instead of a rounded arc.  ``requested`` is the handler's desired radius
-    at the corner and ``effective`` is what the adjacent segment budget allowed.
+    radius falls below the radius its route requested: one of the runs into the
+    corner is shorter than that radius, so the arc draws tighter than the
+    bundle's concentric spacing intends -- at the limit, as a hard 90.
+    ``requested`` is the handler's desired radius at the corner and ``effective``
+    is what the adjacent segment budget allowed.
     """
 
     source: str
@@ -851,9 +848,10 @@ class StarvedTurnViolation:
             f"edge {self.source!r}->{self.target!r} line {self.line_id!r}: "
             f"orthogonal turn at ({self.corner[0]:.0f}, {self.corner[1]:.0f}) "
             f"rounds to radius {self.effective:.1f} (requested {self.requested:.1f}); "
-            f"the run into the turn is shorter than a curve radius, so it draws "
-            f"as a hard corner -- give the descent/turn a full curve radius of "
-            f"runway clear of the section it leaves"
+            f"a run into the turn is shorter than that radius -- seat the "
+            f"descent/turn column the widest lane's full radius clear of the "
+            f"section or junction it leaves, pushing them apart if the gap "
+            f"cannot otherwise fit it"
         )
 
 
@@ -861,16 +859,17 @@ def check_orthogonal_turns_form_curves(
     graph: MetroGraph,
     routes: list[RoutedPath],
 ) -> list[StarvedTurnViolation]:
-    """Flag inter-section orthogonal turns starved below a formed curve.
+    """Flag inter-section orthogonal turns starved below their full radius.
 
     Every direction change an inter-section route makes between a horizontal run
-    and a vertical one must round to a real arc.  When the run into the turn is
-    shorter than a curve radius (a descent channel crammed against the section it
-    leaves), :func:`resolve_curve_radii` clamps the corner toward zero and it
-    draws as a hard 90.  A corner is a violation when its effective radius falls
-    below both the floor and the radius the handler asked for; a deliberately
-    tight concentric inner arc (one that requested a radius below the floor) is
-    left alone, since it curves as designed.
+    and a vertical one must round at the radius its bundle asked for.  When a run
+    into the turn is shorter than that radius (a descent channel crammed against
+    the section it leaves), :func:`resolve_curve_radii` clamps the corner down to
+    the run -- at the limit toward zero, drawing as a hard 90, but any shortfall
+    already breaks the bundle's concentric spacing.  So a corner is a violation
+    whenever its effective radius falls below the requested one, which holds a
+    deliberately tight inner arc to its own smaller radius rather than exempting
+    it.
     """
     violations: list[StarvedTurnViolation] = []
     for rp in routes:
@@ -895,8 +894,7 @@ def check_orthogonal_turns_form_curves(
                 if desired and k < len(desired) and desired[k] is not None
                 else CURVE_RADIUS
             )
-            floor = min(_ORTHOGONAL_TURN_FLOOR, requested)
-            if eff < floor - _ORTHOGONAL_TURN_TOL:
+            if eff < requested - _ORTHOGONAL_TURN_TOL:
                 violations.append(
                     StarvedTurnViolation(
                         source=rp.edge.source,

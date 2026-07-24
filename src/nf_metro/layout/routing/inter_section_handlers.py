@@ -89,6 +89,7 @@ from nf_metro.layout.routing.context import (
 from nf_metro.layout.routing.corners import (
     bypass_stagger,
     l_shape_stagger,
+    outer_lane_radius,
 )
 from nf_metro.layout.routing.normalize import (
     _clear_channel_x_in_band,
@@ -865,13 +866,16 @@ def _route_left_exit_around_below_left_entry(
     # shift the gap midline left by half that spread to centre the fan in the
     # gap and keep both flanks clear.
     max_exit = max(exit_offs.values(), default=0.0)
-    if src_col is not None and src_col > 0:
-        gap_left, gap_right = column_gap_edges(graph, src_col - 1, src_col, row=src_row)
+    gap_left, gap_right = (
+        column_gap_edges(graph, src_col - 1, src_col, row=src_row)
+        if src_col is not None and src_col > 0
+        else (0.0, 0.0)
+    )
+    if gap_right > gap_left:
         cx = symmetric_bundle_midpoint(gap_left, gap_right, [bw], 0) - max_exit / 2
-        # An empty column left of the source balloons the gap to the canvas edge,
-        # dragging the midpoint into a wide same-row section that occupies that
-        # space; keep the descent hugging the source's own left edge so it stays
-        # clear of that box.
+        # A wide gap's midpoint can sit far left of the source; keep the descent
+        # hugging the source's own left edge so the drop stays beside the box it
+        # leaves rather than out in the open span.
         hug = gap_right - ctx.curve_radius - ctx.offset_step - max_exit
         cx = max(cx, hug)
     else:
@@ -3044,7 +3048,11 @@ def _route_top_entry_l_shape(
         assert drop is not None
         return drop
 
-    lx0 = sx if straight_drop else sx + lead.sign * ctx.curve_radius
+    # The lead-in run covers the widest lane's arc, not just the base radius:
+    # every lane of the bundle turns down through this corner, and a run sized to
+    # the base radius clamps all of them to it.
+    lead_run = outer_lane_radius(n, ctx.curve_radius, ctx.offset_step)
+    lx0 = sx if straight_drop else sx + lead.sign * lead_run
 
     # A same-row horizontal exit whose minimal lead-in would seat the vertical
     # trunk hard against the source box's exit edge runs the riser up that edge.
@@ -3096,9 +3104,7 @@ def _route_top_entry_l_shape(
             # wrap siblings turn at one Y rather than a few px apart.
             mid_y = corridor.band_y
         if not straight_drop:
-            lx0 = sx + lead.sign * (
-                ctx.curve_radius + (pos_n - 1) * ctx.offset_step / 2
-            )
+            lx0 = sx + lead.sign * _fan_corner_run(ctx, pos_n)
             if lead is Direction.R:
                 lx0 = _v1_corner_x(ctx, src, sx, lx0)
 
@@ -3319,6 +3325,21 @@ def _fan_shares_inter_row_channel(ctx: _RoutingCtx, edge: Edge) -> bool:
     return len(lines) >= 2
 
 
+def _fan_corner_run(ctx: _RoutingCtx, pos_n: int) -> float:
+    """Run from a fan's source to the centreline of its first corner column.
+
+    A fan lays its centreline down the middle of the bundle, so the lane on the
+    outside of the turn sits half a bundle width further back along the run.  The
+    centreline therefore stands off by that half width beyond the widest lane's
+    own arc (:func:`outer_lane_radius`), which is what lets every lane round at
+    the radius its rank asks for.
+    """
+    return (
+        outer_lane_radius(pos_n, ctx.curve_radius, ctx.offset_step)
+        + bundle_width(pos_n, ctx.offset_step) / 2
+    )
+
+
 def _wrap_fan_geometry(
     ctx: _RoutingCtx, edge: Edge, src: Station, i: int, n: int, vertical: Direction
 ) -> tuple[tuple[int, int] | None, int, float, float]:
@@ -3335,7 +3356,7 @@ def _wrap_fan_geometry(
     fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
     pos_i, pos_n = fan if fan is not None else (i, n)
     delta = l_shape_stagger(pos_i, pos_n, vertical, ctx.offset_step)
-    mid_x = src.x + ctx.curve_radius + (pos_n - 1) * ctx.offset_step / 2
+    mid_x = src.x + _fan_corner_run(ctx, pos_n)
     corner_x = _v1_corner_x(ctx, src, src.x, mid_x)
     return fan, pos_n, delta, corner_x
 
