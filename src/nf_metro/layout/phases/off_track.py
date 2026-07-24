@@ -247,7 +247,17 @@ def _space_off_track_outputs(
         for sid, t in tracks.items()
         if not sub.stations[sid].off_track and not sub.stations[sid].is_hidden
     ]
-    top_track = min(on_track_tracks) if on_track_tracks else 0.0
+    # Compare a producer against the trunk baseline (the track the through-flow
+    # runs on), not the topmost on-track track: an up-branch elsewhere in the
+    # section drives ``min`` above the trunk and would misread a trunk producer
+    # as sitting on a downward branch.
+    trunk_track = (
+        dominant_value(
+            quantize_coord(t, COORD_GROUP_DIGITS_COARSE) for t in on_track_tracks
+        )
+        if on_track_tracks
+        else 0.0
+    )
 
     output_extra: dict[str, float] = {}
     # Clearance each output demands before the next station: the full output
@@ -267,12 +277,14 @@ def _space_off_track_outputs(
         # A fork producer's branches already spread through its diverge gap, so
         # an output beside them needs no extra trunk room; only a linear
         # producer's single onward edge has to make space for its divergence.
-        on_track_succ = sum(1 for t in targets if not sub.stations[t].off_track)
+        # Count distinct on-track successor stations, not per-line edges: a
+        # single onward station carried by several lines is one successor.
+        on_track_succ = len({t for t in targets if not sub.stations[t].off_track})
         for target_id in targets:
             target = sub.stations[target_id]
             if not target.off_track:
                 continue
-            is_downward = tracks.get(sid, top_track) > top_track
+            is_downward = tracks.get(sid, trunk_track) > trunk_track
             lead = _off_track_output_lead(station, is_downward)
             output_extra[target_id] = lead + DIAGONAL_RUN + _OUTPUT_TAIL
             producer_layer = layers[sid]
