@@ -343,10 +343,6 @@
     "note": "The row-gap enforcer keeps stacked rows separated, so the inter-row band above a target row (row_bottom_edge(tgt_row-1) up to row_top_edge(tgt_row)) has positive height whenever a RIGHT entry is fed from a higher row; the degenerate-band arm guards an abutting-rows layout placement never produces.",
     "status": "defensive"
   },
-  "inter_section_handlers.py::if gap_right <= gap_left:::#1": {
-    "note": "The column-gap enforcer keeps inter-column gaps positive, so gap_right>gap_left always holds at the target row.",
-    "status": "defensive"
-  },
   "inter_section_handlers.py::if lead is Direction.R:::#1": {
     "note": "A top-entry fan branch leading LEFT out of the junction skips the _v1_corner_x right-edge clearance bump; the corpus's fan branches all lead right, so the left-lead arm is unexercised.",
     "status": "needs-review"
@@ -497,10 +493,6 @@
   },
   "normalize.py::elif far_y < t.y - COORD_TOLERANCE:::#1": {
     "note": "Degenerate-leg guard in _trunk_slot_features: a trunk's flanking legs are genuine vertical legs (far_y differs from the trunk y), so neither the below nor the above classification is skipped; the fall-through arm needs a zero-height leg the layout never produces.",
-    "status": "defensive"
-  },
-  "normalize.py::elif right_ok:::#1": {
-    "note": "The both-bounds-fail return of _clear_channel_x_in_band requires a blocking section spanning the entire inter-column gap (so neither cleared edge fits within bound_left/bound_right); a cross-row section cannot span a gap defined as the space between same-row sections. Unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
   "normalize.py::elif up_ok:::#1": {

@@ -284,8 +284,6 @@ def col_right_edge(
 ) -> float:
     """Rightmost X extent of sections in *col* (optionally a single *row*)."""
     secs = _sections_in_col(graph, col, row)
-    if not secs:
-        return default
     return max((s.bbox_x + s.bbox_w for s in secs), default=default)
 
 
@@ -294,7 +292,7 @@ def col_left_edge(
 ) -> float:
     """Leftmost X extent of sections in *col* (optionally a single *row*)."""
     secs = _sections_in_col(graph, col, row)
-    return min((s.bbox_x for s in secs), default=default) if secs else default
+    return min((s.bbox_x for s in secs), default=default)
 
 
 def row_bottom_edge(
@@ -309,8 +307,6 @@ def row_bottom_edge(
     secs = _sections_in_row(graph, row)
     if col is not None:
         secs = [s for s in secs if s.grid_col == col]
-    if not secs:
-        return default
     return max((s.bbox_y + s.bbox_h for s in secs), default=default)
 
 
@@ -321,7 +317,7 @@ def row_top_edge(
     secs = _sections_in_row(graph, row)
     if col is not None:
         secs = [s for s in secs if s.grid_col == col]
-    return min((s.bbox_y for s in secs), default=default) if secs else default
+    return min((s.bbox_y for s in secs), default=default)
 
 
 def lowest_section_bottom_crossing_span(
@@ -469,8 +465,17 @@ def column_gap_edges(
     When *row* is given, only sections occupying that grid row bound the
     gap, so a diversion travelling in one row isn't pushed off-centre by a
     section stacked in another row of the same column.
+
+    A gap needs a section on each side to bound it: where a bounding column has
+    no section in *row*, the returned pair is degenerate (``right <= left``),
+    which callers read as "no gap here".  Standing in a default edge instead
+    would report a span reaching past the columns beyond the absent one, and any
+    channel inside that span would match it.
     """
     lo, hi = min(col_a, col_b), max(col_a, col_b)
+    if not _sections_in_col(graph, lo, row):
+        edge = col_left_edge(graph, hi, row=row)
+        return edge, edge
     right = col_right_edge(graph, lo, row=row)
     left = col_left_edge(graph, hi, default=right, row=row)
     return right, left

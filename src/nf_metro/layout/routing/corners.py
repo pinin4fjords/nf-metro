@@ -27,7 +27,7 @@ from collections.abc import Iterable
 from typing import NamedTuple
 
 from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
-from nf_metro.layout.routing.common import Direction
+from nf_metro.layout.routing.common import Direction, bundle_width
 
 # ---------------------------------------------------------------------------
 # Primitive: reversed (inner/outer) offset
@@ -363,6 +363,26 @@ def reference_anchored_radius(
     if min_radius is not None:
         return max(min_radius, r)
     return r
+
+
+def outer_lane_radius(
+    n_lines: int,
+    base_radius: float = CURVE_RADIUS,
+    offset_step: float = OFFSET_STEP,
+) -> float:
+    """Arc radius the widest lane of an *n_lines* concentric turn takes.
+
+    The bundle's lanes nest one *offset_step* apart, so the lane on the outside
+    of the turn sweeps ``base_radius`` plus the whole bundle width while the
+    innermost sweeps the base radius alone.
+
+    This is the runway a turn needs beside the box or junction it leaves: every
+    lane's own run falls short of its own arc by the same amount, so a corner
+    seated only *base_radius* clear leaves the whole bundle clamped tighter than
+    its concentric spacing intends.  A handler seating a corner column measures
+    from here rather than from *base_radius*.
+    """
+    return reference_anchored_radius(bundle_width(n_lines, offset_step), base_radius)
 
 
 # ---------------------------------------------------------------------------
