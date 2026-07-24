@@ -707,14 +707,17 @@ def _clear_merge_trunk_opposite_arm(routes: list[RoutedPath], ctx: _RoutingCtx) 
     legs of one line draw as a fold-back (:func:`_guard_no_opposing_line_overlap`
     forbids it).  The down-trunk already clears the fork's exit by a curve radius
     of runway, so slide its whole descent column -- the trunk and every feeder
-    fused onto it -- a curve radius past the up-arm, re-forming each corner
-    through :func:`_set_vchannel_x`.  Reads the settled columns and fires only on
-    the actual overlap, so well-separated opposite arms are left untouched.
+    fused onto it -- clear past the up-arm (a curve radius plus one offset step,
+    so the two columns read as distinctly separate rather than a doubled corner),
+    re-forming each corner through :func:`_set_vchannel_x`.  Reads the settled
+    columns and fires only on the actual overlap, so well-separated opposite arms
+    are left untouched.
     """
     merge = ctx.merge
     if not merge.trunk_source or not ctx.merge_fanouts:
         return
     radius = ctx.curve_radius
+    clearance = radius + ctx.offset_step
     arms = [
         ch
         for rp in routes
@@ -741,7 +744,7 @@ def _clear_merge_trunk_opposite_arm(routes: list[RoutedPath], ctx: _RoutingCtx) 
             overlap = min(up.y_hi, descent.y_hi) - max(up.y_lo, descent.y_lo)
             if overlap <= COORD_TOLERANCE:
                 continue
-            cand = max(descent.x, up.x) + radius
+            cand = max(descent.x, up.x) + clearance
             target_x = cand if target_x is None else max(target_x, cand)
         if target_x is None:
             continue
