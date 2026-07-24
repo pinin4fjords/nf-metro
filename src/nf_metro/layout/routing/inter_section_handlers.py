@@ -866,6 +866,9 @@ def _route_left_exit_around_below_left_entry(
     # shift the gap midline left by half that spread to centre the fan in the
     # gap and keep both flanks clear.
     max_exit = max(exit_offs.values(), default=0.0)
+    # No column to the left is the same story as a row that column does not
+    # occupy: no gap to centre the descent in.  Both arrive as the degenerate
+    # pair :func:`column_gap_edges` returns for an unbounded gap.
     gap_left, gap_right = (
         column_gap_edges(graph, src_col - 1, src_col, row=src_row)
         if src_col is not None and src_col > 0
@@ -2420,11 +2423,11 @@ def _l_shape_mid_x(
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
 
-    max_r = ctx.curve_radius + (n - 1) * ctx.offset_step
+    max_r = outer_lane_radius(n, ctx.curve_radius, ctx.offset_step)
     mid_x = inter_column_channel_x(
         ctx.graph, src, tgt, sx, tx, dx, max_r, ctx.offset_step
     )
-    half_width = (n - 1) * ctx.offset_step / 2
+    half_width = bundle_width(n, ctx.offset_step) / 2
     return clear_channel_of_section_edge(
         ctx.graph,
         mid_x,
