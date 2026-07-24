@@ -883,12 +883,8 @@ def check_orthogonal_turns_form_curves(
         for k, eff in enumerate(effective):
             i = k + 1
             prev, curr, nxt = pts[i - 1], pts[i], pts[i + 1]
-            in_h = abs(curr[0] - prev[0]) > COORD_TOLERANCE
-            in_v = abs(curr[1] - prev[1]) > COORD_TOLERANCE
-            out_h = abs(nxt[0] - curr[0]) > COORD_TOLERANCE
-            out_v = abs(nxt[1] - curr[1]) > COORD_TOLERANCE
-            if not (in_h != in_v and out_h != out_v and in_h != out_h):
-                continue  # not a horizontal<->vertical turn
+            if not is_orthogonal_turn(prev, curr, nxt):
+                continue
             requested = (
                 desired[k]
                 if desired and k < len(desired) and desired[k] is not None
@@ -4686,7 +4682,7 @@ def assert_render_curve_invariants(
             check_junction_peeloff_rounded(graph, routes),
         ),
         (
-            "inter-section orthogonal turn starved below a formed curve",
+            "inter-section orthogonal turn starved below its requested radius",
             check_orthogonal_turns_form_curves(graph, routes),
         ),
         (
