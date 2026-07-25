@@ -305,6 +305,14 @@ against it.  Untitled maps keep the tighter ``SECTION_Y_PADDING`` top.
 DIAGONAL_RUN: float = 30.0
 """Length of the diagonal segment in direction changes."""
 
+OFF_TRACK_OUTPUT_TAIL: float = X_SPACING / 2
+"""Flat run into an off-track output icon, after the diagonal.
+
+Half a station gap: enough for the line to read as a settled horizontal approach
+into the icon without stretching the section.  Shared by the layout phase that
+places the icon and the router that seats the diagonal so the tail is uniform.
+"""
+
 CURVE_RADIUS: float = 10.0
 """Default corner radius for routed paths."""
 

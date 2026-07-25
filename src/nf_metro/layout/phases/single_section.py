@@ -195,8 +195,11 @@ def _layout_single_section(
     if not layers:
         return None
 
+    lead_extra = {
+        pid: cols * x_spacing for pid, cols in section.off_track_lead_extra.items()
+    }
     output_extra, output_layer_push = _space_off_track_outputs(
-        sub, layers, tracks, x_spacing
+        sub, layers, tracks, x_spacing, lead_extra=lead_extra
     )
 
     # Snap phantom pass-throughs' successors to the pass-through track
