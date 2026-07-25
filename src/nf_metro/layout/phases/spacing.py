@@ -147,11 +147,8 @@ def _struck_label_station_ids(
     for r in routes:
         pts = apply_route_offsets(r, offsets)
         if _off_track(r.edge.target) and not _off_track(r.edge.source):
-            # An off-track output's lift/drop can rake its own producer's name.
-            # Unlike the general off-track sweep (nothing for the runway to
-            # relocate), the off-track lead lever can seat this divergence past
-            # the label, so it is relocatable -- but only for the producer's own
-            # label, never a foreign station's, which stays the router's job.
+            # Off-track output sweep: relocatable for its own producer's label
+            # only (via the off-track lead lever), per the docstring.
             relocatable_for = r.edge.source
         elif _off_track(r.edge.source) or _off_track(r.edge.target):
             relocatable_for = None
