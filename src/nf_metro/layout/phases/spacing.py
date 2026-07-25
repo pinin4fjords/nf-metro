@@ -104,12 +104,14 @@ def _struck_label_station_ids(
     glyphs either way.
 
     Segments a longer flat run cannot relocate are excluded: flat (near-
-    horizontal) trunk runs, off-track output sweeps (placed by the off-track
-    machinery, not the in-grid runway), and angled labels (handled by their
-    rotated footprint).  A bypass-V leg counts only against its own diverging or
-    merging station's label, since the per-column runway relocates that
-    divergence but not the V's fixed-offset crossing of any other label (see
-    ``relocatable_for`` below).
+    horizontal) trunk runs, off-track input sweeps, and angled labels (handled
+    by their rotated footprint).  An off-track output sweep counts only against
+    its own producer's label -- the off-track lead lever seats that divergence
+    past the producer's name, but the sweep's crossing of any foreign label
+    stays the router's job.  A bypass-V leg likewise counts only against its own
+    diverging or merging station's label, since the per-column runway relocates
+    that divergence but not the V's fixed-offset crossing of any other label
+    (see ``relocatable_for`` below).
     """
     from nf_metro.layout.labels import segment_strikes_label
     from nf_metro.layout.routing.common import apply_route_offsets
@@ -144,7 +146,14 @@ def _struck_label_station_ids(
     seg_lists = []
     for r in routes:
         pts = apply_route_offsets(r, offsets)
-        if _off_track(r.edge.source) or _off_track(r.edge.target):
+        if _off_track(r.edge.target) and not _off_track(r.edge.source):
+            # An off-track output's lift/drop can rake its own producer's name.
+            # Unlike the general off-track sweep (nothing for the runway to
+            # relocate), the off-track lead lever can seat this divergence past
+            # the label, so it is relocatable -- but only for the producer's own
+            # label, never a foreign station's, which stays the router's job.
+            relocatable_for = r.edge.source
+        elif _off_track(r.edge.source) or _off_track(r.edge.target):
             relocatable_for = None
         else:
             relocatable_for = _bypass_endpoint(r) or ANY_STATION

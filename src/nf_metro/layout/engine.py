@@ -16,6 +16,7 @@ __all__ = [
 
 import warnings
 from collections.abc import Callable
+from functools import partial
 
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
@@ -673,24 +674,13 @@ def _compute_layout_scaled(
             break  # can't widen the binding axis (e.g. pinned) -- give up
         x_spacing, y_spacing = new_x, new_y
 
-    _apply_label_strike_clearance(
-        graph,
-        x_spacing=x_spacing,
-        y_spacing=y_spacing,
-        x_offset=x_offset,
-        y_offset=y_offset,
-        section_x_padding=section_x_padding,
-        section_y_padding=section_y_padding,
-        section_x_gap=section_x_gap,
-        section_y_gap=section_y_gap,
-        validate=validate,
-    )
-
     # Assure file-icon leaf sinks off the trunk by construction: a leaf icon
     # the laid-out routes rake a line across is taken off-track and the layout
     # re-run once, so the off-track machinery lifts it clear of the passing
     # line.  Keyed on an observed crossing (not on icon presence), so an
-    # end-of-chain terminus that already sits clear is never disturbed.
+    # end-of-chain terminus that already sits clear is never disturbed.  Runs
+    # before the strike-clearance loop so that loop probes the settled off-track
+    # geometry and can clear an output diagonal that rakes its producer's label.
     crossed_sinks = _line_crossed_file_icon_sinks(graph)
     if crossed_sinks:
         for sid in crossed_sinks:
@@ -707,6 +697,19 @@ def _compute_layout_scaled(
             section_y_gap=section_y_gap,
             validate=validate,
         )
+
+    _apply_label_strike_clearance(
+        graph,
+        x_spacing=x_spacing,
+        y_spacing=y_spacing,
+        x_offset=x_offset,
+        y_offset=y_offset,
+        section_x_padding=section_x_padding,
+        section_y_padding=section_y_padding,
+        section_x_gap=section_x_gap,
+        section_y_gap=section_y_gap,
+        validate=validate,
+    )
 
     _retrofit_section_rails_phase(
         graph,
@@ -822,6 +825,69 @@ def _clear_bypass_label_rakes(
     relay()
 
 
+def _adjust_strike_lever(
+    graph: MetroGraph, lever: tuple[str, str, int | str], delta: int
+) -> None:
+    """Add ``delta`` to the section field a strike-clearance lever addresses.
+
+    Levers are ``(kind, section_id, key)``: ``entry``/``exit`` runway columns,
+    a per-producer ``off_lead`` (key is the producer station id), or a
+    per-layer ``gap`` (key is the layer index).  A count that drops to zero is
+    removed from its dict so an ungrown lever leaves no residue.
+    """
+    kind, sid, key = lever
+    sec = graph.sections[sid]
+    if kind == "entry":
+        sec.label_strike_entry_cols += delta
+    elif kind == "exit":
+        sec.label_strike_exit_cols += delta
+    elif kind == "off_lead":
+        ole = sec.off_track_lead_extra
+        producer_id = str(key)
+        ole[producer_id] = ole.get(producer_id, 0) + delta
+        if ole[producer_id] <= 0:
+            del ole[producer_id]
+    else:
+        layer = int(key)
+        lg = sec.label_strike_layer_gaps
+        lg[layer] = lg.get(layer, 0) + delta
+        if lg[layer] <= 0:
+            del lg[layer]
+
+
+def _strike_lever_value(graph: MetroGraph, lever: tuple[str, str, int | str]) -> int:
+    """Current column count held by a strike-clearance lever.
+
+    See :func:`_adjust_strike_lever` for the lever encoding.
+    """
+    kind, sid, key = lever
+    sec = graph.sections[sid]
+    if kind == "entry":
+        return sec.label_strike_entry_cols
+    if kind == "exit":
+        return sec.label_strike_exit_cols
+    if kind == "off_lead":
+        return sec.off_track_lead_extra.get(str(key), 0)
+    return sec.label_strike_layer_gaps.get(int(key), 0)
+
+
+def _off_track_output_producers(graph: MetroGraph) -> set[str]:
+    """On-track stations that feed an off-track output.
+
+    A struck producer here carries the rake of its own output's diagonal, which
+    the off-track lead lever clears by seating the divergence past the producer's
+    name; the general in-grid runway cannot, since the label moves with the
+    producer.
+    """
+    producers: set[str] = set()
+    for edge in graph.edges:
+        tgt = graph.stations.get(edge.target)
+        src = graph.stations.get(edge.source)
+        if tgt is not None and tgt.off_track and src is not None and not src.off_track:
+            producers.add(edge.source)
+    return producers
+
+
 def _apply_label_strike_clearance(
     graph: MetroGraph,
     *,
@@ -891,27 +957,8 @@ def _apply_label_strike_clearance(
             return None
         return sec, st.layer
 
-    def _adjust(lever: tuple[str, str, int], delta: int) -> None:
-        kind, sid, layer = lever
-        sec = graph.sections[sid]
-        if kind == "entry":
-            sec.label_strike_entry_cols += delta
-        elif kind == "exit":
-            sec.label_strike_exit_cols += delta
-        else:
-            lg = sec.label_strike_layer_gaps
-            lg[layer] = lg.get(layer, 0) + delta
-            if lg[layer] <= 0:
-                del lg[layer]
-
-    def _lever_value(lever: tuple[str, str, int]) -> int:
-        kind, sid, layer = lever
-        sec = graph.sections[sid]
-        if kind == "entry":
-            return sec.label_strike_entry_cols
-        if kind == "exit":
-            return sec.label_strike_exit_cols
-        return sec.label_strike_layer_gaps.get(layer, 0)
+    _adjust = partial(_adjust_strike_lever, graph)
+    _lever_value = partial(_strike_lever_value, graph)
 
     # A station a bypass V diverges from is the diagonal's source, so its strike
     # is relocated by lengthening the run *after* it: a gap before the next
@@ -924,10 +971,30 @@ def _apply_label_strike_clearance(
         if is_bypass_v(edge.target) and not is_bypass_v(edge.source)
     }
 
+    off_track_output_producers = _off_track_output_producers(graph)
+
     def _issues() -> tuple[set[str], bool, set[tuple[str, str, int]]]:
         struck_, collinear_, flat_gaps_ = _label_clearance_issues(graph)
         flat_levers_ = {("gap", sid, layer) for sid, layer in flat_gaps_}
         return struck_, collinear_, flat_levers_
+
+    def _levers_for_struck(sid: str) -> set[tuple[str, str, int | str]]:
+        # Every lever that could relocate a strike at ``sid``; the minimization
+        # pass later strips whichever turn out not to be load-bearing.
+        target = _growable_target(sid)
+        if target is None:
+            return set()
+        sec, layer = target
+        levers: set[tuple[str, str, int | str]] = {
+            ("entry", sec.id, 0),
+            ("exit", sec.id, 0),
+            ("gap", sec.id, layer),
+        }
+        if sid in bypass_divergence_sources:
+            levers.add(("gap", sec.id, layer + 1))
+        if sid in off_track_output_producers:
+            levers.add(("off_lead", sec.id, sid))
+        return levers
 
     _clear_bypass_label_rakes(
         graph,
@@ -942,19 +1009,9 @@ def _apply_label_strike_clearance(
     struck, _, flat_levers = _issues()
     count = len(struck) + len(flat_levers)
     for _ in range(_MAX_SPREAD_ITERS):
-        levers: set[tuple[str, str, int]] = set(flat_levers)
+        levers: set[tuple[str, str, int | str]] = set(flat_levers)
         for sid in struck:
-            target = _growable_target(sid)
-            if target is None:
-                continue
-            sec, layer = target
-            levers |= {
-                ("entry", sec.id, 0),
-                ("exit", sec.id, 0),
-                ("gap", sec.id, layer),
-            }
-            if sid in bypass_divergence_sources:
-                levers.add(("gap", sec.id, layer + 1))
+            levers |= _levers_for_struck(sid)
         if not levers:
             break
         for lever in levers:
@@ -974,7 +1031,7 @@ def _apply_label_strike_clearance(
     # flat re-collapses, so every lever lands at its least load-bearing value.
     # Skipped entirely when nothing grew, so a clean layout never pays a re-lay
     # (and is never perturbed by one).
-    grown: list[tuple[str, str, int]] = (
+    grown: list[tuple[str, str, int | str]] = (
         [
             ("entry", sid, 0)
             for sid, sec in graph.sections.items()
@@ -989,6 +1046,11 @@ def _apply_label_strike_clearance(
             ("gap", sid, layer)
             for sid, sec in graph.sections.items()
             for layer in list(sec.label_strike_layer_gaps)
+        ]
+        + [
+            ("off_lead", sid, producer_id)
+            for sid, sec in graph.sections.items()
+            for producer_id in list(sec.off_track_lead_extra)
         ]
     )
     if grown:
