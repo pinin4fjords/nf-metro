@@ -144,7 +144,7 @@ def _struck_label_station_ids(
         return relocatable_for in (ANY_STATION, station_id)
 
     seg_lists = []
-    off_track_output = False
+    any_off_track_output = False
     for r in routes:
         pts = apply_route_offsets(r, offsets)
         is_off_output = _off_track(r.edge.target) and not _off_track(r.edge.source)
@@ -152,7 +152,7 @@ def _struck_label_station_ids(
             # Off-track output sweep: relocatable for its own producer's label
             # only (via the off-track lead lever), per the docstring.
             relocatable_for = r.edge.source
-            off_track_output = True
+            any_off_track_output = True
         elif _off_track(r.edge.source) or _off_track(r.edge.target):
             relocatable_for = None
         else:
@@ -160,15 +160,12 @@ def _struck_label_station_ids(
         seg_lists.append((pts, relocatable_for, is_off_output))
 
     # The renderer sides a producer's name label against nearby terminus icons;
-    # this probe places labels icon-blind, so a producer whose own output icon
-    # flips its label onto the sweep reads clear here yet struck on screen.  An
-    # off-track output sweep is tested against both its producer's icon-blind and
-    # its icon-aware label, so a rake either siding shows counts.  Only this
-    # off-track-output-vs-producer check consults the icon-aware placements;
-    # fan, convergence, and bypass strikes read the icon-blind placements alone,
-    # leaving the general strike/spread search on its established geometry.
+    # this icon-blind probe would miss a strike that only appears once that
+    # siding happens.  So an off-track output sweep is additionally tested
+    # against its producer's icon-aware label; other segment kinds have no
+    # icon-siding interaction and stay icon-blind.
     icon_placements: dict[str, LabelPlacement] = {}
-    if off_track_output:
+    if any_off_track_output:
         from nf_metro.render.svg import _compute_icon_obstacles
         from nf_metro.themes import THEMES
 
