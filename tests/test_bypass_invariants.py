@@ -41,6 +41,9 @@ from nf_metro.parser.model import is_bypass_v
 from nf_metro.render.svg import apply_route_offsets
 
 GUIDE = Path(__file__).resolve().parent.parent / "examples" / "guide"
+TOPOLOGIES = Path(__file__).resolve().parent.parent / "examples" / "topologies"
+
+_Y_TOL = 1.0
 
 _GUIDE_BYPASS_FIXTURES = [
     "05_file_icons.mmd",
@@ -263,3 +266,39 @@ def test_is_bypass_v_recognises_resolve_generated_helpers(name):
     for st in flagged:
         assert st.is_hidden, f"{name}: {st.id!r} flagged as bypass-V but is visible"
         assert not st.label.strip(), f"{name}: bypass-V {st.id!r} carries a label"
+
+
+def test_source_fan_bypass_v_stays_between_its_fan_siblings():
+    """A source fanning to two stacked stations plus an exit-bound bundle must
+    keep the bundle's hidden bypass-V helpers between the two real fan
+    siblings, not stacked beyond the outer one.
+
+    In the tumour/normal WES input section ``pairs_in`` fans to ``convert_g``
+    (top) and ``convert_t`` (bottom) and sends the germline+tumour bundle
+    straight to the somatic section.  The bundle's bypass-Vs skirt the two
+    converters; when one is ordered by the line it *skirts* it lands beyond
+    ``convert_t``, stretching the section and forcing a deep U-well loop.  Both
+    Vs must sit within the converters' band so the bundle threads the middle
+    gap.
+    """
+    graph = parse_metro_mermaid(
+        (TOPOLOGIES / "tn_wes_input_fan_somatic_tree.mmd").read_text()
+    )
+    compute_layout(graph)
+    top = graph.stations["convert_g"].y
+    bottom = graph.stations["convert_t"].y
+    lo, hi = min(top, bottom), max(top, bottom)
+    section = graph.section_for_station("convert_g")
+    v_ids = [
+        sid
+        for sid in graph.sections[section].station_ids
+        if is_bypass_v(sid) and sid in graph.stations
+    ]
+    assert v_ids, "expected bypass-V helpers in the input fan"
+    for sid in v_ids:
+        vy = graph.stations[sid].y
+        assert lo - _Y_TOL <= vy <= hi + _Y_TOL, (
+            f"bypass-V {sid!r} y={vy:.1f} sits outside the converter band "
+            f"[{lo:.1f}, {hi:.1f}] - a bundle helper stacked beyond a fan "
+            f"sibling forces the input-section U-well loop"
+        )

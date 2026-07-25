@@ -15,6 +15,7 @@ from nf_metro.layout.constants import (
     ICON_HALF_HEIGHT,
     LABEL_BBOX_MARGIN,
     MIN_STRAIGHT_EDGE,
+    OFF_TRACK_OUTPUT_TAIL,
     OFF_TRACK_TRUNK_CLEARANCE_MARGIN,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
@@ -54,10 +55,7 @@ from nf_metro.parser.model import (
 # any genuine one-slot branch column.
 _DOWNWARD_BRANCH_SLOP: float = ICON_HALF_HEIGHT
 
-# Flat run reserved on the output icon's side after the diagonal, before the
-# icon.  Half a station gap: enough for the line to read as a settled
-# horizontal approach into the icon, without stretching the section.
-_OUTPUT_TAIL: float = X_SPACING / 2
+_OUTPUT_TAIL: float = OFF_TRACK_OUTPUT_TAIL
 
 # How far past its station the following producer must sit so the next
 # output's divergence passes cleanly under this output's icon (the next
@@ -195,6 +193,7 @@ def _materialize_pass_through_lines(
 def _off_track_output_lead(
     producer: Station,
     is_downward: bool,
+    extra: float = 0.0,
 ) -> float:
     """Flat run reserved on the producer's side of an off-track output diagonal.
 
@@ -203,11 +202,16 @@ def _off_track_output_lead(
     keeps every upward output the same distance from its producer.  A downward
     drop turns toward the label, so it holds the diagonal past the label's far
     edge to clear the text.
+
+    ``extra`` is a render-time widening the strike-clearance loop adds when the
+    output's diagonal (upward or downward) is found to rake the producer's name
+    at the settled, label-side-known geometry -- the base lead cannot anticipate
+    an upward output's label side, so the loop grows this once it knows.
     """
     lead = MIN_STRAIGHT_EDGE
     if is_downward and producer.label.strip():
         lead = max(lead, label_text_width(producer.label) / 2 + LABEL_BBOX_MARGIN)
-    return lead
+    return lead + extra
 
 
 def _space_off_track_outputs(
@@ -215,6 +219,7 @@ def _space_off_track_outputs(
     layers: dict[str, int],
     tracks: dict[str, float],
     x_spacing: float = X_SPACING,
+    lead_extra: dict[str, float] | None = None,
 ) -> tuple[dict[str, float], dict[int, float]]:
     """Per-output X offset, plus a per-layer push to widen producer gaps.
 
@@ -247,7 +252,17 @@ def _space_off_track_outputs(
         for sid, t in tracks.items()
         if not sub.stations[sid].off_track and not sub.stations[sid].is_hidden
     ]
-    top_track = min(on_track_tracks) if on_track_tracks else 0.0
+    # Compare a producer against the trunk baseline (the track the through-flow
+    # runs on), not the topmost on-track track: an up-branch elsewhere in the
+    # section drives ``min`` above the trunk and would misread a trunk producer
+    # as sitting on a downward branch.
+    trunk_track = (
+        dominant_value(
+            quantize_coord(t, COORD_GROUP_DIGITS_COARSE) for t in on_track_tracks
+        )
+        if on_track_tracks
+        else 0.0
+    )
 
     output_extra: dict[str, float] = {}
     # Clearance each output demands before the next station: the full output
@@ -267,13 +282,16 @@ def _space_off_track_outputs(
         # A fork producer's branches already spread through its diverge gap, so
         # an output beside them needs no extra trunk room; only a linear
         # producer's single onward edge has to make space for its divergence.
-        on_track_succ = sum(1 for t in targets if not sub.stations[t].off_track)
+        # Count distinct on-track successor stations, not per-line edges: a
+        # single onward station carried by several lines is one successor.
+        on_track_succ = len({t for t in targets if not sub.stations[t].off_track})
         for target_id in targets:
             target = sub.stations[target_id]
             if not target.off_track:
                 continue
-            is_downward = tracks.get(sid, top_track) > top_track
-            lead = _off_track_output_lead(station, is_downward)
+            is_downward = tracks.get(sid, trunk_track) > trunk_track
+            producer_extra = lead_extra.get(sid, 0.0) if lead_extra else 0.0
+            lead = _off_track_output_lead(station, is_downward, producer_extra)
             output_extra[target_id] = lead + DIAGONAL_RUN + _OUTPUT_TAIL
             producer_layer = layers[sid]
             layers[target_id] = producer_layer
