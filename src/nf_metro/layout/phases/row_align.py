@@ -14,8 +14,10 @@ from nf_metro.layout.constants import (
     resolve_offset_step,
 )
 from nf_metro.layout.geometry import (
+    AxisFrame,
     lanes_run_along_x,
     lanes_run_along_y,
+    perpendicular_port_sides,
     shift_section,
 )
 from nf_metro.layout.labels import active_font_scale
@@ -33,6 +35,7 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.layout.phases.single_section import (
     _multiline_label_padding,
+    _terminus_flow_overhang,
     _terminus_y_overhang,
 )
 from nf_metro.parser.model import (
@@ -40,6 +43,7 @@ from nf_metro.parser.model import (
     PortSide,
     RowGridInfo,
     Section,
+    Station,
     is_bypass_v,
 )
 
@@ -728,6 +732,65 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
                         _set_port_y(graph, pid, target_y)
 
 
+def _perp_port_lead_edge_reserve(
+    graph: MetroGraph, section: Section, section_padding: float
+) -> float:
+    """Room this section's perpendicular ports owe the low edge of its flow axis.
+
+    A section's perpendicular ports are pinned to a lane-axis edge and free
+    along the flow axis, so each owns a clearance to the flow-axis edge it faces:
+    the top and bottom edges for a vertical (TB/BT) flow, the left and right ones
+    for a horizontal (LR/RL) flow.  The high edge's clearance is settled before
+    any compaction runs -- that edge trails the outermost content by
+    ``section_padding``, and port and content move by the same shift, so no shift
+    can change their separation.  Reserving it for the low edge is therefore what
+    leaves the two ends of the section alike.
+
+    Read on the flow axis rather than on Y, so the rotated shape (an LR section's
+    TOP/BOTTOM pair clearing its left and right edges) resolves through this same
+    rule instead of needing its own.  Balancing outermost port against outermost
+    port keeps it independent of which end is the entry, so a reversed flow needs
+    no special case either.
+
+    A section with fewer than two perpendicular ports has no pair to balance and
+    keeps the bare ``PERP_PORT_EDGE_CLEARANCE`` floor, so it does not pay padding
+    for a symmetry it cannot show; the floor also wins outright where a port sits
+    closer to its own edge than the floor allows.
+    """
+    sec_dir = section.direction or "LR"
+    axis = AxisFrame.axes_for_direction(sec_dir)[0]
+
+    def coord(station: Station) -> float:
+        return station.y if axis == "y" else station.x
+
+    content_high = [
+        coord(st) + _terminus_flow_overhang(st, sec_dir, graph)[1]
+        for sid in section.station_ids
+        if (st := graph.stations.get(sid)) is not None and not st.is_port
+    ]
+    if not content_high:
+        return PERP_PORT_EDGE_CLEARANCE
+
+    perp_sides = perpendicular_port_sides(sec_dir)
+    perp_coords = []
+    port_coords = []
+    for pid in section.port_ids:
+        port = graph.ports.get(pid)
+        station = graph.stations.get(pid)
+        if port is None or station is None:
+            continue
+        port_coords.append(coord(station))
+        if port.side in perp_sides:
+            perp_coords.append(coord(station))
+    if len(perp_coords) < 2:
+        return PERP_PORT_EDGE_CLEARANCE
+
+    desired_high = max(content_high) + section_padding
+    if port_coords:
+        desired_high = max(desired_high, max(port_coords))
+    return max(PERP_PORT_EDGE_CLEARANCE, desired_high - max(perp_coords))
+
+
 def _compact_row_content_to_bbox_top(
     graph: MetroGraph, section_y_padding: float, y_spacing: float
 ) -> None:
@@ -813,17 +876,17 @@ def _compact_row_content_to_bbox_top(
                 # station.  Pulling content to bbox_y+padding would shift that
                 # port above the shrunk top edge, sending its L-shaped entry
                 # across the boundary.  Cap the shift so each such port keeps
-                # ``PERP_PORT_EDGE_CLEARANCE`` inside the box: a port flush
+                # ``_perp_port_lead_edge_reserve`` inside the box: a port flush
                 # against the top edge draws its inbound run on the border,
                 # leaving the section header no clear above-left position.
                 if lanes_run_along_x(section.direction):
+                    reserve = _perp_port_lead_edge_reserve(
+                        graph, section, section_y_padding
+                    )
                     for pid in (*section.entry_ports, *section.exit_ports):
                         p = graph.ports.get(pid)
                         if p is not None and p.side in (PortSide.LEFT, PortSide.RIGHT):
-                            shift = min(
-                                shift,
-                                p.y - section.bbox_y - PERP_PORT_EDGE_CLEARANCE,
-                            )
+                            shift = min(shift, p.y - section.bbox_y - reserve)
                 allowed_shifts.append(max(0.0, shift))
             delta = min(allowed_shifts) if allowed_shifts else 0.0
 
