@@ -1020,10 +1020,14 @@ def _equalize_fork_groups(
         # splaying its carried lines a full line_gap apart.
         slot_of: list[int] = []
         slot = 0
+        prev_is_v = False
         for j, sid in enumerate(group):
-            if j and not (is_bypass_v(sid) and is_bypass_v(group[j - 1])):
+            is_v = is_bypass_v(sid)
+            continues_bypass_run = is_v and prev_is_v
+            if j and not continues_bypass_run:
                 slot += 1
             slot_of.append(slot)
+            prev_is_v = is_v
 
         pred_tracks = [
             tracks[p] for sid in group for p in G.predecessors(sid) if p in tracks
