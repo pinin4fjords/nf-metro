@@ -569,6 +569,13 @@ gallery:
       A BT section's trailing TOP (perpendicular) exit taking the up-and-over corridor
       into the LEFT entry of a neighbouring LR section, a two-line bundle staying parallel across
       the seam (#1044).
+  - id: bt_perp_left_entry_right_exit
+    source_dir: examples/topologies
+    category: TB / BT Sections
+    description:
+      "A BT section carrying both perpendicular ports at once: a LEFT entry and a
+      RIGHT exit, each seated clear of the flow end it faces. An upward flow starts
+      at the bottom, so the entry seats below the row rather than above it (#1494)."
   - id: bt_to_tb
     source_dir: examples/topologies
     category: TB / BT Sections
