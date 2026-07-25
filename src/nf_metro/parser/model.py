@@ -368,6 +368,13 @@ class Section:
     # downstream layer along the flow axis).  Lengthens the flat run into a
     # station whose own descent/ascent diagonal would otherwise rake its label.
     label_strike_layer_gaps: dict[int, int] = field(default_factory=dict)
+    # Extra whole grid columns of flat lead reserved before an off-track output's
+    # diagonal, keyed by the producer station id.  The strike-clearance loop
+    # grows this when an off-track output's diagonal rakes its own producer's
+    # name label: a longer lead seats the divergence past the label's x-extent
+    # and cascades through the off-track ``layer_push`` to shift the downstream
+    # subtree along.  Empty (a no-op) for every layout that draws no such strike.
+    off_track_lead_extra: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

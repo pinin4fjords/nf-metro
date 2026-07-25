@@ -21,6 +21,7 @@ from nf_metro.layout.constants import (
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
+    OFF_TRACK_OUTPUT_TAIL,
     STATION_RADIUS_APPROX,
 )
 from nf_metro.layout.geometry import (
@@ -690,6 +691,23 @@ def _route_diagonal(
             room = abs(dx) - src_min - tgt_min
             diagonal_run = max(diagonal_run, min(drop, room))
 
+    # An off-track output whose producer carries a strike-clearance lead lever
+    # seats its divergence at the layout's reserved lead (icon offset minus the
+    # diagonal and the uniform tail), so the flat tail into the icon stays
+    # ``OFF_TRACK_OUTPUT_TAIL`` for every output while the divergence moves past
+    # the producer's name.  Scoped to a grown lever so no other output's
+    # divergence model changes.
+    section = ctx.graph.sections.get(src.section_id or "")
+    if (
+        tgt.off_track
+        and section is not None
+        and section.off_track_lead_extra.get(edge.source, 0)
+        and not is_bypass_edge
+    ):
+        src_min = max(min_straight, abs(dx) - diagonal_run - OFF_TRACK_OUTPUT_TAIL)
+        is_fork_flag = True
+        is_join_flag = False
+
     diag_start_x, diag_end_x = _compute_diagonal_placement(
         sx,
         tx,
@@ -700,7 +718,6 @@ def _route_diagonal(
         is_join_flag,
     )
 
-    section = ctx.graph.sections.get(src.section_id or "")
     direction = section.direction if section else "LR"
     return RoutedPath(
         edge=edge,

@@ -104,14 +104,16 @@ def _struck_label_station_ids(
     glyphs either way.
 
     Segments a longer flat run cannot relocate are excluded: flat (near-
-    horizontal) trunk runs, off-track output sweeps (placed by the off-track
-    machinery, not the in-grid runway), and angled labels (handled by their
-    rotated footprint).  A bypass-V leg counts only against its own diverging or
-    merging station's label, since the per-column runway relocates that
-    divergence but not the V's fixed-offset crossing of any other label (see
-    ``relocatable_for`` below).
+    horizontal) trunk runs, off-track input sweeps, and angled labels (handled
+    by their rotated footprint).  An off-track output sweep counts only against
+    its own producer's label -- the off-track lead lever seats that divergence
+    past the producer's name, but the sweep's crossing of any foreign label
+    stays the router's job.  A bypass-V leg likewise counts only against its own
+    diverging or merging station's label, since the per-column runway relocates
+    that divergence but not the V's fixed-offset crossing of any other label
+    (see ``relocatable_for`` below).
     """
-    from nf_metro.layout.labels import segment_strikes_label
+    from nf_metro.layout.labels import place_labels, segment_strikes_label
     from nf_metro.layout.routing.common import apply_route_offsets
 
     def _off_track(node_id: str) -> bool:
@@ -142,26 +144,66 @@ def _struck_label_station_ids(
         return relocatable_for in (ANY_STATION, station_id)
 
     seg_lists = []
+    any_off_track_output = False
     for r in routes:
         pts = apply_route_offsets(r, offsets)
-        if _off_track(r.edge.source) or _off_track(r.edge.target):
+        is_off_output = _off_track(r.edge.target) and not _off_track(r.edge.source)
+        if is_off_output:
+            # Off-track output sweep: relocatable for its own producer's label
+            # only (via the off-track lead lever), per the docstring.
+            relocatable_for = r.edge.source
+            any_off_track_output = True
+        elif _off_track(r.edge.source) or _off_track(r.edge.target):
             relocatable_for = None
         else:
             relocatable_for = _bypass_endpoint(r) or ANY_STATION
-        seg_lists.append((pts, relocatable_for))
+        seg_lists.append((pts, relocatable_for, is_off_output))
+
+    # The renderer sides a producer's name label against nearby terminus icons;
+    # this icon-blind probe would miss a strike that only appears once that
+    # siding happens.  So an off-track output sweep is additionally tested
+    # against its producer's icon-aware label; other segment kinds have no
+    # icon-siding interaction and stay icon-blind.
+    icon_placements: dict[str, LabelPlacement] = {}
+    if any_off_track_output:
+        from nf_metro.render.svg import _compute_icon_obstacles
+        from nf_metro.themes import THEMES
+
+        # ``place_labels`` grows a section's ``bbox_h`` to seat labels; restore
+        # the geometry it touches so this side probe never perturbs the layout.
+        with _restoring_layout_geometry(graph):
+            icon_obstacles = _compute_icon_obstacles(graph, THEMES["nfcore"], offsets)
+            icon_placements = {
+                ip.station_id: ip
+                for ip in place_labels(
+                    graph,
+                    station_offsets=offsets,
+                    routes=routes,
+                    allow_hyphenation=True,
+                    label_angle=graph.label_angle or 0.0,
+                    lift_wrapped_off_trunks=False,
+                    icon_obstacles=icon_obstacles,
+                )
+                if ip.station_id
+            }
+
+    def _rakes(pts: list[tuple[float, float]], place: LabelPlacement) -> bool:
+        return not place.angle and any(
+            segment_strikes_label(x1, y1, x2, y2, place)
+            and abs(y2 - y1) >= max(abs(x2 - x1), 1.0) * DIAGONAL_SLOPE_RATIO
+            for (x1, y1), (x2, y2) in zip(pts, pts[1:])
+        )
+
     struck: set[str] = set()
     for p in placements:
         station = graph.stations.get(p.station_id)
         if station is None or not station.label.strip() or p.angle:
             continue
-        for pts, relocatable_for in seg_lists:
+        for pts, relocatable_for, is_off_output in seg_lists:
             if not _segment_applies(relocatable_for, p.station_id):
                 continue
-            if any(
-                segment_strikes_label(x1, y1, x2, y2, p)
-                and abs(y2 - y1) >= max(abs(x2 - x1), 1.0) * DIAGONAL_SLOPE_RATIO
-                for (x1, y1), (x2, y2) in zip(pts, pts[1:])
-            ):
+            icon_place = icon_placements.get(p.station_id) if is_off_output else None
+            if _rakes(pts, p) or (icon_place is not None and _rakes(pts, icon_place)):
                 struck.add(p.station_id)
                 break
     return struck
