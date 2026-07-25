@@ -579,11 +579,13 @@ def _guard_ports_clear_unanchored_box_edges(graph: MetroGraph, phase: str) -> No
     transient flush window through Stage 6.4), so the clearance is a property
     of the settled layout, not of every stage boundary.
     """
-    tolerance = GUARD_TOLERANCE
+    # Sub-pixel: GUARD_TOLERANCE is half the reservation, wide enough to admit
+    # a run that reads as sitting on the border.
+    tolerance = SAME_COORD_TOLERANCE
     for pid, port in graph.ports.items():
         st = graph.stations.get(pid)
         sec = graph.sections.get(st.section_id or "") if st else None
-        if not st or not sec or sec.bbox_w == 0 or sec.bbox_h == 0:
+        if not st or not sec or sec.bbox_w <= 0 or sec.bbox_h <= 0:
             continue
         if port.side in (PortSide.LEFT, PortSide.RIGHT):
             axis = "y"
