@@ -1793,6 +1793,22 @@ gallery:
       through its `entry: top` port. The leg carries the full width past the
       box's right side, rises above it, and returns over the top into the port
       without ever entering the interior."
+  - id: offtrack_output_peel_before_successor
+    source_dir: examples/topologies
+    category: Feature Showcase
+    description:
+      "A two-line filter fans to a dead-end file output and on to the next
+      station. The output's branch peels off between the two rather than
+      overrunning the successor's column, so the icon clears the downstream
+      stations and their labels."
+  - id: paired_input_fan_branch_tree
+    source_dir: examples/topologies
+    category: Feature Showcase
+    description:
+      "A paired-track map: the input source fans to two stacked
+      converters and threads the two-track bundle cleanly between them to
+      the somatic caller, whose dead-end outputs peel off without crowding
+      their neighbours."
   - id: single_line_dual_source_stacked_exit
     source_dir: examples/topologies
     category: Fan-out and Fan-in
