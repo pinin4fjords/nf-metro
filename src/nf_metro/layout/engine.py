@@ -238,6 +238,7 @@ from nf_metro.layout.phases.off_track import (  # noqa: F401
     _insert_phantom_pass_throughs,
     _lift_off_track_stations,
     _line_crossed_file_icon_sinks,
+    _off_track_anchor_of,
     _off_track_groups,
     _off_track_output_below,
     _place_off_track_relative_to_anchors,
@@ -872,20 +873,20 @@ def _strike_lever_value(graph: MetroGraph, lever: tuple[str, str, int | str]) ->
 
 
 def _off_track_output_producers(graph: MetroGraph) -> set[str]:
-    """On-track stations that feed an off-track output.
+    """On-track stations that feed an off-track output (a producer-fed sink).
 
     A struck producer here carries the rake of its own output's diagonal, which
     the off-track lead lever clears by seating the divergence past the producer's
     name; the general in-grid runway cannot, since the label moves with the
-    producer.
+    producer.  Anchors resolve through :func:`_off_track_anchor_of` (ports,
+    junctions and cross-section neighbours excluded); an off-track station that
+    also feeds its anchor is an input, not a producer-fed sink.
     """
-    producers: set[str] = set()
-    for edge in graph.edges:
-        tgt = graph.stations.get(edge.target)
-        src = graph.stations.get(edge.source)
-        if tgt is not None and tgt.off_track and src is not None and not src.off_track:
-            producers.add(edge.source)
-    return producers
+    return {
+        anchor_id
+        for off_id, anchor_id in _off_track_anchor_of(graph).items()
+        if not any(e.target == anchor_id for e in graph.edges_from(off_id))
+    }
 
 
 def _apply_label_strike_clearance(
