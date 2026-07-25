@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro.layout.constants import PERP_PORT_EDGE_CLEARANCE
+from nf_metro.layout.constants import PERP_PORT_EDGE_CLEARANCE, SAME_COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
@@ -42,7 +42,8 @@ from nf_metro.render.section_header import resolve_all_section_headers
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CARRIER_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
 
-TOLERANCE = 0.5
+EPSILON = SAME_COORD_TOLERANCE
+"""Sub-pixel slack, shared with the runtime guard so the two agree on the floor."""
 
 
 def _gather_fixtures() -> list[Path]:
@@ -92,7 +93,7 @@ def test_ports_clear_unanchored_box_edges(path: Path) -> None:
     flush = [
         (sid, pid, clear)
         for sid, pid, clear in _unanchored_edge_clearances(graph)
-        if clear < PERP_PORT_EDGE_CLEARANCE - TOLERANCE
+        if clear < PERP_PORT_EDGE_CLEARANCE - EPSILON
     ]
     assert not flush, (
         "ports sit within "
@@ -120,7 +121,7 @@ def test_carrier_row_entry_port_keeps_headroom() -> None:
     section = graph.sections["quantification"]
     pid = next(iter(section.entry_ports))
     clearance = graph.stations[pid].y - section.bbox_y
-    assert clearance >= PERP_PORT_EDGE_CLEARANCE - TOLERANCE, (
+    assert clearance >= PERP_PORT_EDGE_CLEARANCE - EPSILON, (
         f"{pid} sits {clearance:.1f}px below its box top; the inbound bundle "
         "rides the border"
     )
@@ -142,5 +143,5 @@ def test_carrier_row_header_anchors_at_box_corner() -> None:
     section = graph.sections["quantification"]
     assert placement.mode == "above"
     assert placement.badge_cx == pytest.approx(
-        section.bbox_x + SECTION_NUM_CIRCLE_R_LARGE, abs=TOLERANCE
+        section.bbox_x + SECTION_NUM_CIRCLE_R_LARGE, abs=EPSILON
     )
