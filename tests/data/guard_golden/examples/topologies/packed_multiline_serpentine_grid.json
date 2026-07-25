@@ -351,6 +351,7 @@
     "_guard_inter_row_run_clearance|after final",
     "_guard_trunk_bands_crossing_optimal|after final",
     "_guard_inter_section_descent_edge_clearance|after final",
-    "_guard_fan_bundles_coincide_or_separate|after final"
+    "_guard_fan_bundles_coincide_or_separate|after final",
+    "_guard_ports_clear_unanchored_box_edges|after final"
   ]
 }
