@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
-    from nf_metro.parser.model import MetroGraph, Section, Station
+    from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
 
 _Box = tuple[float, float, float, float]
 
@@ -264,6 +264,21 @@ def lanes_run_along_x(direction: str) -> bool:
     return AxisFrame.axes_for_direction(direction)[1] == "x"
 
 
+def perpendicular_port_sides(direction: str) -> tuple[PortSide, PortSide]:
+    """The two port sides that run perpendicular to *direction*'s flow.
+
+    A perpendicular port is pinned to one of the section's lane-axis edges and
+    is free to slide along the flow axis: LEFT/RIGHT on a vertical (TB/BT) flow,
+    TOP/BOTTOM on a horizontal (LR/RL) one.  Read from the lane axis so the pair
+    follows the rotation rather than a direction literal.
+    """
+    from nf_metro.parser.model import PortSide
+
+    if lanes_run_along_x(direction):
+        return (PortSide.LEFT, PortSide.RIGHT)
+    return (PortSide.TOP, PortSide.BOTTOM)
+
+
 Point = tuple[float, float]
 
 
@@ -500,17 +515,13 @@ def _route_is_side_entry_turn_in(graph: MetroGraph, rp: RoutedPath) -> bool:
     leg is the entry, bounded by the section width, not a serpentine fold-back,
     so backtrack accounting excludes it.
     """
-    from nf_metro.parser.model import PortSide
-
     port = graph.ports.get(rp.edge.source)
     if not port or not port.is_entry:
         return False
     section = graph.sections.get(port.section_id)
     if section is None:
         return False
-    if lanes_run_along_y(section.direction):
-        return port.side in (PortSide.TOP, PortSide.BOTTOM)
-    return port.side in (PortSide.LEFT, PortSide.RIGHT)
+    return port.side in perpendicular_port_sides(section.direction)
 
 
 def iter_serpentine_backtracks(
