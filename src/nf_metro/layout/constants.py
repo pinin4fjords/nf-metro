@@ -218,6 +218,17 @@ SECTION_X_PADDING: float = 50.0
 SECTION_Y_PADDING: float = 50.0
 """Vertical padding around section content."""
 
+PERP_PORT_EDGE_CLEARANCE: float = 10.0
+"""Minimum room a port keeps from the two bbox edges it is *not* anchored to.
+
+A port is pinned to one edge (a LEFT/RIGHT port to a vertical one, a TOP/BOTTOM
+port to a horizontal one) and is free along its other axis.  Flush against a
+second edge, its inbound run is drawn along the box border and the two read as
+one stroke; it also blocks the section header's above-left position, pushing
+the badge away from the corner it labels.  One curve radius is the shortest
+separation that still reads as a route inside the box rather than on its edge.
+"""
+
 MIN_BUNDLE_EDGE_CLEARANCE: float = 28.0
 """Minimum room a station's drawn multi-line bundle pill keeps from its
 section's bbox edge, independent of ``SECTION_Y_PADDING``.

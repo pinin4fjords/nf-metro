@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
     ICON_HALF_HEIGHT,
     INTER_ROW_EDGE_CLEARANCE,
     OFFSET_STEP,
+    PERP_PORT_EDGE_CLEARANCE,
     ROW_BAND_SLACK,
     SAME_COORD_TOLERANCE,
     SAME_Y_TOLERANCE,
@@ -559,6 +560,45 @@ def _guard_ports_on_boundaries(graph: MetroGraph, phase: str) -> None:
                 f"not on any edge of section {st.section_id!r} bbox "
                 f"({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
                 f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f})"
+            )
+
+
+def _guard_ports_clear_unanchored_box_edges(graph: MetroGraph, phase: str) -> None:
+    """Final: a port keeps clearance from the box edges it is not anchored to.
+
+    A port is pinned to one edge -- LEFT/RIGHT to a vertical one, TOP/BOTTOM to
+    a horizontal one -- and is free along its other axis.  Flush against a
+    second edge, its inbound run is drawn along the box border and the two read
+    as one stroke; it also blocks the section header's above-left position, so
+    the placement chain falls through to ``nudge`` and the number badge slides
+    away from the corner it labels.  The free axis therefore owes
+    ``PERP_PORT_EDGE_CLEARANCE``.
+
+    Final-only: a port sits well outside its box for most of placement (bboxes
+    are not sized until Stage 2.1, and the content-hug shrink leaves a
+    transient flush window through Stage 6.4), so the clearance is a property
+    of the settled layout, not of every stage boundary.
+    """
+    tolerance = GUARD_TOLERANCE
+    for pid, port in graph.ports.items():
+        st = graph.stations.get(pid)
+        sec = graph.sections.get(st.section_id or "") if st else None
+        if not st or not sec or sec.bbox_w == 0 or sec.bbox_h == 0:
+            continue
+        if port.side in (PortSide.LEFT, PortSide.RIGHT):
+            axis = "y"
+            clearance = min(st.y - sec.bbox_y, sec.bbox_y + sec.bbox_h - st.y)
+        else:
+            axis = "x"
+            clearance = min(st.x - sec.bbox_x, sec.bbox_x + sec.bbox_w - st.x)
+        if clearance < PERP_PORT_EDGE_CLEARANCE - tolerance:
+            raise PhaseInvariantError(
+                f"{phase}: {port.side.name} port {pid!r} at "
+                f"({st.x:.1f}, {st.y:.1f}) leaves {clearance:.1f}px "
+                f"{axis}-clearance to the nearest unanchored edge of section "
+                f"{st.section_id!r} bbox ({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
+                f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f}); expected >= "
+                f"{PERP_PORT_EDGE_CLEARANCE:.1f}"
             )
 
 
@@ -5396,6 +5436,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "B",
         needs=frozenset({"offsets", "routes"}),
     ),
+    GuardSpec(_guard_ports_clear_unanchored_box_edges, "A"),
 )
 
 

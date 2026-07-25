@@ -8,6 +8,7 @@ from collections import defaultdict
 from nf_metro.layout.constants import (
     FONT_HEIGHT,
     LABEL_OFFSET,
+    PERP_PORT_EDGE_CLEARANCE,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
     resolve_offset_step,
@@ -811,13 +812,18 @@ def _compact_row_content_to_bbox_top(
                 # to the flow; a cross-row entry sits lifted above the top
                 # station.  Pulling content to bbox_y+padding would shift that
                 # port above the shrunk top edge, sending its L-shaped entry
-                # across the boundary.  Cap the shift so each such port stays
-                # inside the box (its own row is the reserved input band).
+                # across the boundary.  Cap the shift so each such port keeps
+                # ``PERP_PORT_EDGE_CLEARANCE`` inside the box: flush against the
+                # top edge its inbound run is drawn on the border, and the
+                # section header can then never take its above-left position.
                 if lanes_run_along_x(section.direction):
                     for pid in (*section.entry_ports, *section.exit_ports):
                         p = graph.ports.get(pid)
                         if p is not None and p.side in (PortSide.LEFT, PortSide.RIGHT):
-                            shift = min(shift, p.y - section.bbox_y)
+                            shift = min(
+                                shift,
+                                p.y - section.bbox_y - PERP_PORT_EDGE_CLEARANCE,
+                            )
                 allowed_shifts.append(max(0.0, shift))
             delta = min(allowed_shifts) if allowed_shifts else 0.0
 
