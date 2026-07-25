@@ -813,9 +813,9 @@ def _compact_row_content_to_bbox_top(
                 # station.  Pulling content to bbox_y+padding would shift that
                 # port above the shrunk top edge, sending its L-shaped entry
                 # across the boundary.  Cap the shift so each such port keeps
-                # ``PERP_PORT_EDGE_CLEARANCE`` inside the box: flush against the
-                # top edge its inbound run is drawn on the border, and the
-                # section header can then never take its above-left position.
+                # ``PERP_PORT_EDGE_CLEARANCE`` inside the box: a port flush
+                # against the top edge draws its inbound run on the border,
+                # leaving the section header no clear above-left position.
                 if lanes_run_along_x(section.direction):
                     for pid in (*section.entry_ports, *section.exit_ports):
                         p = graph.ports.get(pid)
