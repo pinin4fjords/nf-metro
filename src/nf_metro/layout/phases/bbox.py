@@ -12,9 +12,11 @@ from nf_metro.layout.constants import (
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
+    PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
 )
+from nf_metro.layout.geometry import AxisFrame, perpendicular_port_sides
 from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
@@ -26,6 +28,7 @@ from nf_metro.layout.phases._common import (
     _side_entered_vertical_feeder_pairs,
     _station_bundle_offset_span,
     _trunk_symmetric_fan_ids,
+    grow_section_bbox_max_edge,
     grow_section_bbox_min_edge,
     move_section_bbox_min_edge,
     port_bundle_edge_reach,
@@ -734,6 +737,72 @@ def _section_content_hug_top(
     if port_min_ys:
         target = min(target, min(port_min_ys))
     return target
+
+
+def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
+    """Hold a horizontal flow's left and right box edges clear of its perp ports.
+
+    A horizontal-flow (LR/RL) section pins each perpendicular port to a
+    horizontal edge and leaves it free along X, so the port crosses the flow
+    axis and owes ``PERP_PORT_EDGE_INSET`` to the two edges normal to it -- the
+    rotation of what :func:`_section_content_hug_top` and
+    :func:`_predict_section_content_bottom` fold into the Y extent for a
+    vertical flow.  X sizing measures real stations only, so a port seated past
+    the trailing station or dragged onto a drop column lands inside the padding
+    band with nothing to push the edge out.  Growing the edge is the only move
+    available: pulling the port back inside would cost it the elbow runway it
+    was seated for.
+
+    Two perpendicular ports make a pair whose ends should read alike, and only
+    the left edge can be moved to level them: the right edge already trails the
+    rightmost content by the section padding, so its clearance is settled.  The
+    left reserve therefore rises to the right clearance, mirroring
+    :func:`nf_metro.layout.phases.row_align._perp_port_lead_edge_reserve` on the
+    other axis.  A lone port has no pair to level against and keeps the bare
+    inset, so it does not pay for a symmetry it cannot show.
+
+    Measured from each port's outermost drawn lane rather than the port station
+    (:func:`port_bundle_edge_reach`), so a staggered bundle gets the whole inset
+    and not the inset less its own width.
+
+    Returns whether any box grew, so the caller can re-check inter-column gaps.
+    """
+    grew = False
+    offsets: dict[tuple[str, str], float] | None = None
+    for section in graph.sections.values():
+        direction = section.direction or "LR"
+        axis = AxisFrame.axes_for_direction(direction)[0]
+        if axis != "x" or section.bbox_w <= 0:
+            continue
+        perp_sides = perpendicular_port_sides(direction)
+        perp_ids = [
+            pid
+            for pid in section.port_ids
+            if (port := graph.ports.get(pid)) is not None
+            and port.side in perp_sides
+            and pid in graph.stations
+        ]
+        if not perp_ids:
+            continue
+        if offsets is None:
+            from nf_metro.layout.routing import compute_station_offsets
+
+            offsets = compute_station_offsets(graph)
+        lanes = [
+            (graph.stations[pid].x, port_bundle_edge_reach(graph, pid, offsets, axis))
+            for pid in perp_ids
+        ]
+        lo = min(x - reach[0] for x, reach in lanes)
+        hi = max(x + reach[1] for x, reach in lanes)
+        low_reserve = PERP_PORT_EDGE_INSET
+        if len(lanes) >= 2:
+            low_reserve = max(low_reserve, section.bbox_x + section.bbox_w - hi)
+        before = (section.bbox_x, section.bbox_w)
+        grow_section_bbox_min_edge(graph, section, axis, lo - low_reserve)
+        grow_section_bbox_max_edge(graph, section, axis, hi + PERP_PORT_EDGE_INSET)
+        if (section.bbox_x, section.bbox_w) != before:
+            grew = True
+    return grew
 
 
 def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:

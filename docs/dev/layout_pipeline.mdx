@@ -147,6 +147,11 @@ them.
   sections with the target section's Y. Pushing a target down drops its
   bbox top below its row-mates', so the move finishes by top-aligning the
   rows it disturbed (contiguous column groups sharing their bbox tops).
+- **Stage 3.5**: Grow an LR / RL section's left and right bbox edges so
+  its perpendicular (TOP / BOTTOM) ports keep the designed inset from
+  them, the X-axis rotation of the clearance the Y sizing keeps for a
+  TB / BT section's LEFT / RIGHT ports. A grow can widen a section into
+  its column neighbour, so the inter-column gaps are re-enforced.
 
 Pass A leaves ports on bbox edges with first-approximation alignment.
 Subsequent passes refine.
