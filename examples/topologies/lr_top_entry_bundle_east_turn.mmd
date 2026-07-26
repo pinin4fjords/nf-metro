@@ -1,0 +1,31 @@
+%%metro title: Top-entry bundle east
+%%metro style: dark
+%%metro line: dna | DNA | #e6007e
+%%metro line: rna | RNA | #3f51b5
+%%metro grid: intake | 0,0
+%%metro grid: align | 0,1
+%%metro grid: report | 1,1
+
+graph LR
+    subgraph intake [Intake]
+        %%metro exit: bottom | dna, rna
+        samplesheet[Samplesheet]
+        fastqc[FastQC]
+        samplesheet -->|dna,rna| fastqc
+    end
+
+    subgraph align [Alignment]
+        %%metro entry: top | dna, rna
+        %%metro exit: right | dna, rna
+        bwa[BWA-MEM2]
+        sort[Sort BAM]
+        bwa -->|dna,rna| sort
+    end
+
+    subgraph report [Reporting]
+        %%metro entry: left | dna, rna
+        multiqc[MultiQC]
+    end
+
+    fastqc -->|dna,rna| bwa
+    sort -->|dna,rna| multiqc

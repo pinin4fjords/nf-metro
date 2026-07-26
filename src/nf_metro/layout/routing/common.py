@@ -187,6 +187,15 @@ def trailing_perp_side(direction: str) -> PortSide:
     return PortSide.BOTTOM if AxisFrame.flow_sign(direction) > 0 else PortSide.TOP
 
 
+def perp_entry_consumer(graph: MetroGraph, port_id: str) -> Station | None:
+    """The internal station a perpendicular entry port turns into."""
+    for edge in graph.edges_from(port_id):
+        consumer = graph.station_for_edge_target(edge)
+        if not consumer.is_port:
+            return consumer
+    return None
+
+
 def needs_perp_approach_fan(graph: MetroGraph, port_id: str) -> bool:
     """Whether *port_id* needs its distinct lines fanned onto parallel channels.
 
