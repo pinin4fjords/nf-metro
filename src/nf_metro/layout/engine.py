@@ -1483,10 +1483,11 @@ def _compute_section_layout(
         reenforce_column_gaps(graph)
     _snap(graph, "3.5")
 
-    # Stage 3.6: Level the left edges of a grid column's boxes, the X mirror of
-    # the row top-align at Stage 5.3.  Runs once every X-axis box mover has
-    # settled (Stage 1.1 sizing, the Stage 3.3 runway grow, the Stage 3.5 perp
-    # inset), so the levelled edge is not re-broken by a later widen.
+    # Stage 3.6: Level the left edges of the boxes in a grid column that start
+    # their content at one X, the X mirror of the row top-align at Stage 5.3.
+    # Runs once every X-axis box mover has settled (Stage 1.1 sizing, the Stage
+    # 3.3 runway grow, the Stage 3.5 perp inset), so the levelled edge is not
+    # re-broken by a later widen.
     _left_align_column_bboxes_only(graph)
     _snap(graph, "3.6")
 
