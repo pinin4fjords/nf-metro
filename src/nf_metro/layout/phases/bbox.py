@@ -9,6 +9,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
     MIN_BUNDLE_EDGE_CLEARANCE,
+    MIN_INTER_SECTION_GAP,
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
@@ -19,6 +20,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
+    _column_contiguous_row_groups,
     _content_station_ids,
     _content_station_ys,
     _is_side_entered_vertical_section,
@@ -805,6 +807,99 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
         if (section.bbox_x, section.bbox_w) != before:
             grew = True
     return grew
+
+
+def _column_left_neighbour_limit(graph: MetroGraph, section: Section) -> float:
+    """Leftmost X ``section``'s box may reach without crowding a left neighbour.
+
+    A section already clear to the left of ``section`` and sharing vertical
+    extent with it (headers included, since a badge protrudes above its box top)
+    keeps ``MIN_INTER_SECTION_GAP`` of routing corridor.  Inter-column gaps are
+    enforced per overlapping row band rather than per column, so the column's
+    leftmost box being clear says nothing about a row-mate further down.
+    ``-inf`` when nothing sits to the left.
+    """
+    top = section.bbox_y - SECTION_HEADER_PROTRUSION
+    bottom = section.bbox_y + section.bbox_h
+    limit = float("-inf")
+    for other in graph.sections.values():
+        if other is section or other.bbox_w <= 0:
+            continue
+        right = other.bbox_x + other.bbox_w
+        if right > section.bbox_x + SAME_COORD_TOLERANCE:
+            continue
+        if (
+            other.bbox_y - SECTION_HEADER_PROTRUSION >= bottom
+            or top >= other.bbox_y + other.bbox_h
+        ):
+            continue
+        limit = max(limit, right + MIN_INTER_SECTION_GAP)
+    return limit
+
+
+def _shared_left_runway_runs(
+    graph: MetroGraph, group: list[Section]
+) -> list[list[Section]]:
+    """Split ``group`` into runs whose boxes start their content at one X.
+
+    A grid row's sections share a trunk Y, so a levelled box top always frames
+    the same thing in each and lines up something a viewer reads.  A grid
+    column's sections share no trunk X: the space left of a box's first station
+    is that section's entry runway, and two column mates only mean the same
+    thing by it when their first stations stand at one X.  Level those and the
+    shared edge reads as one runway; level a mate whose content starts further
+    right and it gains an empty band the width of the difference instead.
+
+    A rail-flagged section is a break in the run either way: its internal
+    geometry is re-derived from its bbox downstream
+    (:func:`...engine._retrofit_section_rails_phase`), so growing its left edge
+    slides its stations along with it rather than widening a runway in front of
+    them.
+    """
+    runs: list[list[Section]] = []
+    current: list[Section] = []
+    anchor = 0.0
+    for section in group:
+        xs = [graph.stations[sid].x for sid in _content_station_ids(graph, section)]
+        first = None if graph.is_rail_section(section.id) or not xs else min(xs)
+        if first is None:
+            if len(current) >= 2:
+                runs.append(current)
+            current = []
+            continue
+        if current and abs(first - anchor) <= SAME_COORD_TOLERANCE:
+            current.append(section)
+            continue
+        if len(current) >= 2:
+            runs.append(current)
+        current, anchor = [section], first
+    if len(current) >= 2:
+        runs.append(current)
+    return runs
+
+
+def _left_align_column_bboxes_only(graph: MetroGraph) -> None:
+    """Align bbox left edges within each grid column by growing boxes leftward.
+
+    The X mirror of :func:`...row_align._top_align_row_bboxes_only`, restricted
+    to column mates that share a left runway (:func:`_shared_left_runway_runs`).
+    Only ``bbox_x`` and ``bbox_w`` move, so the interior and the cross-max edge
+    are left as they were -- a column placement right-aligned keeps its shared
+    right edge and gains a shared left edge.  LEFT ports ride the left edge and
+    are carried out to it.
+
+    A run's leftmost box sets the target; a left neighbour whose own row band
+    the growth would eat into holds a box short of it
+    (:func:`_column_left_neighbour_limit`).
+    """
+    for group in _column_contiguous_row_groups(graph):
+        for run in _shared_left_runway_runs(graph, group):
+            target = min(s.bbox_x for s in run)
+            for section in run:
+                if section.bbox_x - target <= SAME_COORD_TOLERANCE:
+                    continue
+                limit = _column_left_neighbour_limit(graph, section)
+                grow_section_bbox_min_edge(graph, section, "x", max(target, limit))
 
 
 def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:

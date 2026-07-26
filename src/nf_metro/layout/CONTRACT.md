@@ -523,6 +523,41 @@ in pipeline order.
   `::test_horizontal_perp_port_pair_is_balanced`.
 - **Lifecycle:** invariant - the inset holds at the final boundary.
 
+### Stage 3.6: level a grid column's shared-runway left edges
+- **Purpose**: Give column mates that start their content at one X a
+  common bbox left edge, so the runway in front of that shared content
+  column is the same width in each. The X mirror of the row top-align
+  (Stages 5.3 / 6.9), narrowed: a grid row's sections share a trunk Y, so
+  their tops are always comparable, whereas a grid column's sections share
+  no trunk X, and levelling boxes whose content starts at different X
+  moves an edge without moving anything a viewer reads.
+- **Helper**: `_left_align_column_bboxes_only` (`phases/bbox.py`), grouping
+  via `_column_contiguous_row_groups` (`phases/_common.py`) then
+  `_shared_left_runway_runs` (`phases/bbox.py`).
+- **Precondition**: Every X-axis box mover has run - Stage 1.1 sizing,
+  the Stage 3.3 perp-entry runway grow, the Stage 3.5 perp inset - so the
+  levelled edge is not re-broken by a later widen.
+- **Postcondition**: Within each maximal run of adjacent grid rows in one
+  column whose sections' leftmost content stations share an X, every
+  section shares the run's leftmost `bbox_x`, except one held short by a
+  left neighbour overlapping its own row band (which keeps
+  `MIN_INTER_SECTION_GAP` of inter-column corridor). Members of a packed
+  cell are out of scope: they sit side-by-side along X inside one cell, so
+  no common vertical edge exists. A rail-flagged section breaks the run:
+  `_retrofit_section_rails_phase` re-derives its interior from its bbox, so
+  growing its left edge would slide its stations rather than widen a
+  runway in front of them.
+- **Invariants preserved**: Station coords (only `bbox_x` / `bbox_w`
+  move); the cross-max (right) edge; every port's own edge anchoring
+  (LEFT ports move with the edge they are pinned to). Because a run's
+  members share a content X, growing each to the run's leftmost edge can
+  only raise a narrower runway to the widest already present in the run,
+  so the spread of runway widths within a grid column never grows.
+- **Validate guard after**: `_guard_ports_on_boundaries`.
+- **Related tests**: `test_column_left_edge_alignment.py`.
+- **Lifecycle:** invariant - the levelled edge holds at the final
+  boundary for the sections the stage moved.
+
 ### Stage 4.1: align ports to downstream
 - **Purpose**: For non-fold LR/RL sections, pull exit-entry port
   pairs toward the downstream section's internal stations so lines
