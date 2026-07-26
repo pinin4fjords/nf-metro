@@ -16,6 +16,7 @@ from nf_metro.layout.geometry import (
     iter_section_overlaps,
     iter_serpentine_backtracks,
     iter_stations_outside_bbox,
+    perpendicular_port_sides,
 )
 from nf_metro.layout.phases._common import (
     routes_through_unrelated_sections,
@@ -660,8 +661,11 @@ def check_station_as_elbow(
 
     Only flags ports that are perpendicular to the section's flow direction,
     where the line must bend and could pass through a station:
-    - LEFT/RIGHT ports on TB sections (horizontal entry into vertical flow)
-    - TOP/BOTTOM ports on LR/RL sections (vertical entry into horizontal flow)
+    - LEFT/RIGHT ports on a vertical (TB/BT) flow
+    - TOP/BOTTOM ports on a horizontal (LR/RL) flow
+
+    The pair is read from :func:`perpendicular_port_sides`, so it follows the
+    section's lane axis rather than enumerating flow directions.
 
     Ports along the flow direction (e.g. LEFT entry on LR section) naturally
     share coordinates with stations on the main track and are not checked.
@@ -696,16 +700,7 @@ def check_station_as_elbow(
             continue
 
         # Only check perpendicular ports (where a bend is required)
-        is_perpendicular = False
-        if direction == "TB" and port.side in (PortSide.LEFT, PortSide.RIGHT):
-            is_perpendicular = True
-        elif direction in ("LR", "RL") and port.side in (
-            PortSide.TOP,
-            PortSide.BOTTOM,
-        ):
-            is_perpendicular = True
-
-        if not is_perpendicular:
+        if port.side not in perpendicular_port_sides(direction):
             continue
 
         # LEFT/RIGHT ports: line runs horizontally at port.y, check Y
