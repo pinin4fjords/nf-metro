@@ -14,7 +14,6 @@ from nf_metro.layout.constants import (
     resolve_offset_step,
 )
 from nf_metro.layout.geometry import (
-    AxisFrame,
     lanes_run_along_x,
     lanes_run_along_y,
     perpendicular_port_sides,
@@ -42,7 +41,6 @@ from nf_metro.parser.model import (
     PortSide,
     RowGridInfo,
     Section,
-    Station,
     is_bypass_v,
 )
 
@@ -745,11 +743,11 @@ def _perp_port_lead_edge_reserve(
     can change their separation.  Reserving it for the low edge is therefore what
     leaves the two ends of the section alike.
 
-    Read on the flow axis rather than on Y, so the rotated shape (an LR section's
-    TOP/BOTTOM pair clearing its left and right edges) resolves through this same
-    rule instead of needing its own.  Balancing outermost port against outermost
-    port keeps it independent of which end is the entry, so a reversed flow needs
-    no special case either.
+    Balancing outermost port against outermost port keeps this independent of
+    which end is the entry, so a reversed flow needs no special case.  The
+    rotation -- a horizontal flow's TOP/BOTTOM pair clearing its left and right
+    edges -- is Stage 3.5's job, since X sizing has no per-section predictor to
+    fold a port term into.
 
     A section with fewer than two perpendicular ports has no pair to balance and
     keeps the bare ``PERP_PORT_EDGE_INSET`` floor, so it does not pay padding
@@ -757,37 +755,30 @@ def _perp_port_lead_edge_reserve(
     closer to its own edge than the floor allows.
     """
     sec_dir = section.direction or "LR"
-    axis = AxisFrame.axes_for_direction(sec_dir)[0]
-
-    def coord(station: Station) -> float:
-        return station.y if axis == "y" else station.x
-
-    content_high = [
-        coord(st) + _terminus_y_overhang(st, sec_dir, graph)[1]
+    content_bottoms = [
+        st.y + _terminus_y_overhang(st, sec_dir, graph)[1]
         for sid in section.station_ids
         if (st := graph.stations.get(sid)) is not None and not st.is_port
     ]
-    if not content_high:
+    if not content_bottoms:
         return PERP_PORT_EDGE_INSET
 
     perp_sides = perpendicular_port_sides(sec_dir)
-    perp_coords = []
-    port_coords = []
+    port_ys = []
+    perp_ys = []
     for pid in section.port_ids:
         port = graph.ports.get(pid)
         station = graph.stations.get(pid)
         if port is None or station is None:
             continue
-        port_coords.append(coord(station))
+        port_ys.append(station.y)
         if port.side in perp_sides:
-            perp_coords.append(coord(station))
-    if len(perp_coords) < 2:
+            perp_ys.append(station.y)
+    if len(perp_ys) < 2:
         return PERP_PORT_EDGE_INSET
 
-    desired_high = max(content_high) + section_padding
-    if port_coords:
-        desired_high = max(desired_high, max(port_coords))
-    return max(PERP_PORT_EDGE_INSET, desired_high - max(perp_coords))
+    desired_bottom = max(max(content_bottoms) + section_padding, max(port_ys))
+    return max(PERP_PORT_EDGE_INSET, desired_bottom - max(perp_ys))
 
 
 def _compact_row_content_to_bbox_top(
@@ -884,7 +875,9 @@ def _compact_row_content_to_bbox_top(
                     )
                     for pid in (*section.entry_ports, *section.exit_ports):
                         p = graph.ports.get(pid)
-                        if p is not None and p.side in (PortSide.LEFT, PortSide.RIGHT):
+                        if p is not None and p.side in perpendicular_port_sides(
+                            section.direction
+                        ):
                             shift = min(shift, p.y - section.bbox_y - reserve)
                 allowed_shifts.append(max(0.0, shift))
             delta = min(allowed_shifts) if allowed_shifts else 0.0
