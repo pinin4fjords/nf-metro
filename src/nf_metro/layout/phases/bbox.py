@@ -834,80 +834,69 @@ def _column_left_neighbour_limit(graph: MetroGraph, section: Section) -> float:
     return limit
 
 
-def _left_port_shares_a_line_channel(graph: MetroGraph, section: Section) -> bool:
-    """Whether a LEFT port of *section* sits on a line channel shared with others.
+def _shared_left_runway_runs(
+    graph: MetroGraph, group: list[Section]
+) -> list[list[Section]]:
+    """Split ``group`` into runs whose boxes start their content at one X.
 
-    A junction carrying one line between just two sections passes a single stroke
-    through: moving either end only lengthens it.  A junction carrying that line
-    between three or more sections fans it, and the legs fuse onto one channel
-    turning at one corner -- so the X of any leg's port is what seats geometry the
-    other legs draw too, and levelling this port's edge would reseat their shared
-    turn.  Such a port keeps the edge it was seated on.
+    A grid row's sections share a trunk Y, so a levelled box top always frames
+    the same thing in each and lines up something a viewer reads.  A grid
+    column's sections share no trunk X: the space left of a box's first station
+    is that section's entry runway, and two column mates only mean the same
+    thing by it when their first stations stand at one X.  Level those and the
+    shared edge reads as one runway; level a mate whose content starts further
+    right and it gains an empty band the width of the difference instead.
+
+    A rail-flagged section is a break in the run either way: its internal
+    geometry is re-derived from its bbox downstream
+    (:func:`...engine._retrofit_section_rails_phase`), so growing its left edge
+    slides its stations along with it rather than widening a runway in front of
+    them.
     """
-    junction_ids = graph.junction_ids
-
-    def other_sections_on_line(junction_id: str, line: str) -> set[str]:
-        # Both directions: a fan is visible downstream of the junction and a merge
-        # upstream, and either shape puts several legs of *line* on one channel.
-        seen: set[str] = set()
-        stack = [junction_id]
-        others: set[str] = set()
-        while stack:
-            nid = stack.pop()
-            if nid in seen:
-                continue
-            seen.add(nid)
-            if nid in junction_ids:
-                stack += [
-                    node
-                    for e in (*graph.edges_from(nid), *graph.edges_to(nid))
-                    if e.line_id == line
-                    for node in (e.source, e.target)
-                ]
-                continue
-            node = graph.ports.get(nid) or graph.stations.get(nid)
-            sec_id = getattr(node, "section_id", None)
-            if sec_id and sec_id != section.id:
-                others.add(sec_id)
-        return others
-
-    for pid in section.port_ids:
-        port = graph.ports.get(pid)
-        if port is None or port.side is not PortSide.LEFT:
+    runs: list[list[Section]] = []
+    current: list[Section] = []
+    anchor = 0.0
+    for section in group:
+        xs = [graph.stations[sid].x for sid in _content_station_ids(graph, section)]
+        first = None if graph.is_rail_section(section.id) or not xs else min(xs)
+        if first is None:
+            if len(current) >= 2:
+                runs.append(current)
+            current = []
             continue
-        for e in (*graph.edges_from(pid), *graph.edges_to(pid)):
-            for hop in (e.source, e.target):
-                if hop in junction_ids and (
-                    len(other_sections_on_line(hop, e.line_id)) > 1
-                ):
-                    return True
-    return False
+        if current and abs(first - anchor) <= SAME_COORD_TOLERANCE:
+            current.append(section)
+            continue
+        if len(current) >= 2:
+            runs.append(current)
+        current, anchor = [section], first
+    if len(current) >= 2:
+        runs.append(current)
+    return runs
 
 
 def _left_align_column_bboxes_only(graph: MetroGraph) -> None:
     """Align bbox left edges within each grid column by growing boxes leftward.
 
-    The X mirror of :func:`...row_align._top_align_row_bboxes_only`: only
-    ``bbox_x`` and ``bbox_w`` move, so interior stations stay put and the
-    cross-max edge is preserved -- a column placement right-aligned keeps its
-    shared right edge and gains a shared left edge.  LEFT ports ride the left
-    edge and are carried out to it.
+    The X mirror of :func:`...row_align._top_align_row_bboxes_only`, restricted
+    to column mates that share a left runway (:func:`_shared_left_runway_runs`).
+    Only ``bbox_x`` and ``bbox_w`` move, so the interior and the cross-max edge
+    are left as they were -- a column placement right-aligned keeps its shared
+    right edge and gains a shared left edge.  LEFT ports ride the left edge and
+    are carried out to it.
 
-    The column's leftmost box sets the target.  Two things hold a box short of
-    it: a left neighbour whose own row band it would grow over
-    (:func:`_column_left_neighbour_limit`), and a LEFT port that seats a corner
-    shared with a sibling leg of the same line
-    (:func:`_left_port_shares_a_line_channel`).
+    A run's leftmost box sets the target; a left neighbour whose own row band
+    the growth would eat into holds a box short of it
+    (:func:`_column_left_neighbour_limit`).
     """
     for group in _column_contiguous_row_groups(graph):
-        target = min(s.bbox_x for s in group)
-        for section in group:
-            if section.bbox_x - target <= SAME_COORD_TOLERANCE:
-                continue
-            if _left_port_shares_a_line_channel(graph, section):
-                continue
-            limit = _column_left_neighbour_limit(graph, section)
-            grow_section_bbox_min_edge(graph, section, "x", max(target, limit))
+        for run in _shared_left_runway_runs(graph, group):
+            target = min(s.bbox_x for s in run)
+            for section in run:
+                if section.bbox_x - target <= SAME_COORD_TOLERANCE:
+                    continue
+                limit = _column_left_neighbour_limit(graph, section)
+                grow_section_bbox_min_edge(graph, section, "x", max(target, limit))
 
 
 def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:
