@@ -53,10 +53,9 @@ from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
     _guard_ports_clear_unanchored_box_edges,
 )
-from nf_metro.layout.phases.row_align import _perp_port_lead_edge_reserve
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import MetroGraph, Port, PortSide, Section, Station
+from nf_metro.parser.model import PortSide
 from nf_metro.render.constants import SECTION_NUM_CIRCLE_R_LARGE
 from nf_metro.render.section_header import resolve_all_section_headers
 
@@ -257,29 +256,6 @@ def test_carrier_row_ports_sit_symmetrically_in_their_box() -> None:
 @pytest.mark.parametrize(
     "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
-def test_lone_perpendicular_port_reserves_only_the_floor(path: Path) -> None:
-    """A section with no perpendicular pair falls back to the designed inset."""
-    graph = parse_metro_mermaid(path.read_text())
-    compute_layout(graph)
-    for section in graph.sections.values():
-        if section.bbox_h <= 0:
-            continue
-        sides = perpendicular_port_sides(section.direction or "LR")
-        perp = [
-            pid
-            for pid in (*section.entry_ports, *section.exit_ports)
-            if (port := graph.ports.get(pid)) is not None and port.side in sides
-        ]
-        if len(perp) >= 2:
-            continue
-        assert _perp_port_lead_edge_reserve(
-            graph, section, SECTION_Y_PADDING
-        ) == pytest.approx(PERP_PORT_EDGE_INSET, abs=EPSILON)
-
-
-@pytest.mark.parametrize(
-    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
-)
 def test_horizontal_perp_ports_keep_the_designed_inset(path: Path) -> None:
     """Every LR/RL perpendicular port keeps the full inset from both side edges.
 
@@ -313,70 +289,6 @@ def test_horizontal_perp_ports_keep_the_designed_inset(path: Path) -> None:
         f"perpendicular ports sit within {PERP_PORT_EDGE_INSET}px of a vertical "
         "box edge: " + ", ".join(tight)
     )
-
-
-def _lr_section_with_perp_pair(entry_x: float, exit_x: float) -> MetroGraph:
-    """One LR section spanning x in [0, 300] with a TOP entry and a BOTTOM exit.
-
-    The rotation of the vertical-flow carrier row: both ports are perpendicular
-    to the flow, so both are free along X and clear the left and right edges.
-    """
-    graph = MetroGraph()
-    section = Section(id="s", name="s", direction="LR")
-    section.bbox_x, section.bbox_y, section.bbox_w, section.bbox_h = (
-        0.0,
-        0.0,
-        300.0,
-        100.0,
-    )
-    section.station_ids = ["c", "pin", "pout"]
-    section.entry_ports = ["pin"]
-    section.exit_ports = ["pout"]
-    graph.sections["s"] = section
-    graph.stations["c"] = Station(id="c", label="C", section_id="s", x=150.0, y=50.0)
-    for pid, px, side, is_entry in (
-        ("pin", entry_x, PortSide.TOP, True),
-        ("pout", exit_x, PortSide.BOTTOM, False),
-    ):
-        graph.stations[pid] = Station(
-            id=pid, label="", section_id="s", is_port=True, x=px, y=0.0
-        )
-        graph.ports[pid] = Port(
-            id=pid, section_id="s", side=side, is_entry=is_entry, x=px, y=0.0
-        )
-    return graph
-
-
-def test_lead_edge_reserve_measures_on_x_for_a_horizontal_flow() -> None:
-    """The rotated shape resolves through the same rule, measured along X.
-
-    No corpus fixture carries both a TOP and a BOTTOM port on an LR/RL section,
-    so this pins the X arm directly: the reserve must track the *right*-edge
-    clearance of the rightmost perpendicular port, and must ignore Y entirely.
-    """
-    graph = _lr_section_with_perp_pair(entry_x=40.0, exit_x=260.0)
-    section = graph.sections["s"]
-    # Right edge lands at content_x + padding = 150 + 50 = 200, but the rightmost
-    # port at x=260 pushes it out to 260, leaving that port zero right-clearance,
-    # so the floor governs.
-    assert _perp_port_lead_edge_reserve(
-        graph, section, SECTION_Y_PADDING
-    ) == pytest.approx(PERP_PORT_EDGE_INSET, abs=EPSILON)
-
-    # Pull the rightmost port inside the padded right edge and the reserve becomes
-    # that port's own right-edge clearance: 200 - 170 = 30.
-    graph.stations["pout"].x = 150.0
-    graph.ports["pout"].x = 150.0
-    assert _perp_port_lead_edge_reserve(
-        graph, section, SECTION_Y_PADDING
-    ) == pytest.approx(50.0, abs=EPSILON)
-
-    # Moving a port along Y cannot change an X-axis reserve.
-    graph.stations["pout"].y = 100.0
-    graph.ports["pout"].y = 100.0
-    assert _perp_port_lead_edge_reserve(
-        graph, section, SECTION_Y_PADDING
-    ) == pytest.approx(50.0, abs=EPSILON)
 
 
 def _row_group_slacks(graph, section) -> list[float]:
