@@ -1421,7 +1421,7 @@ def _place_tb_label(
     # accessor uses -- a downward (TB) rotation rides x - offset, its upward (BT)
     # image x + offset -- so the label clears the real pill rather than a mirror
     # of it.  A positive-fan section overrides that to the +x side.
-    # _places_label_beside_pill only admits a station whose section resolves.
+    # Only reached for a station whose section_id resolves.
     section = graph.sections[station.section_id or ""]
     sign = AxisFrame.secondary_sign_for(section.direction)
     if station.section_id in ctx.tb_positive_fan:

@@ -12,6 +12,7 @@ doubles back over the run, and the bundle's lanes swap sides through the bend.
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 
 from nf_metro.layout.constants import STATION_ELBOW_TOLERANCE
 from nf_metro.layout.engine import compute_layout
@@ -23,7 +24,8 @@ from nf_metro.layout.routing.invariants import (
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
 
-FIXTURE = "examples/topologies/lr_perp_top_entry_bottom_exit.mmd"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FIXTURE = REPO_ROOT / "examples/topologies/lr_perp_top_entry_bottom_exit.mmd"
 
 # The two-line bundle from the issue: a TOP entry fanning to two aligners that
 # reconverge on one sorter, whose track leaves through the BOTTOM exit.
@@ -96,12 +98,12 @@ def _perp_exit_ports(graph):
 
 def test_fixture_validates() -> None:
     """The fixture lays out with every stage-boundary and final guard armed."""
-    compute_layout(parse_metro_mermaid(open(FIXTURE).read()), validate=True)
+    compute_layout(parse_metro_mermaid(FIXTURE.read_text()), validate=True)
 
 
 def test_run_stays_inside_its_own_box() -> None:
     """No station the perpendicular-entry runway shift moved leaves its section."""
-    for graph in (_laid_out(open(FIXTURE).read()), _laid_out(BUNDLE_MAP)):
+    for graph in (_laid_out(FIXTURE.read_text()), _laid_out(BUNDLE_MAP)):
         for sid, station in graph.stations.items():
             if station.is_port or not station.section_id:
                 continue
@@ -119,7 +121,7 @@ def test_perp_exit_seats_past_the_trailing_station() -> None:
     can eat into the requested seat, so the bar is the elbow tolerance rather than
     the full requested clearance."""
     clearance = STATION_ELBOW_TOLERANCE
-    for graph in (_laid_out(open(FIXTURE).read()), _laid_out(BUNDLE_MAP)):
+    for graph in (_laid_out(FIXTURE.read_text()), _laid_out(BUNDLE_MAP)):
         for pid, port in _perp_exit_ports(graph):
             sec = graph.sections[port.section_id]
             internal_xs = [
