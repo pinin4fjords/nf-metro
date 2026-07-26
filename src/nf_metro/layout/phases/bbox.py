@@ -755,13 +755,14 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
     available: pulling the port back inside would cost it the elbow runway it
     was seated for.
 
-    Two perpendicular ports make a pair whose ends should read alike, and only
-    the left edge can be moved to level them: the right edge already trails the
-    rightmost content by the section padding, so its clearance is settled.  The
-    left reserve therefore rises to the right clearance, mirroring
+    Two perpendicular ports make a pair whose ends should read alike, so both
+    reserves rise to the wider of the two measured clearances, mirroring
     :func:`nf_metro.layout.phases.row_align._perp_port_lead_edge_reserve` on the
-    other axis.  A lone port has no pair to level against and keeps the bare
-    inset, so it does not pay for a symmetry it cannot show.
+    other axis.  Levelling only the left edge is not enough: an exit seated past
+    the trailing station eats into the right padding band, so that side becomes
+    the narrow one and the pair reads lopsided the other way.  A lone port has no
+    pair to level against and keeps the bare inset, so it does not pay for a
+    symmetry it cannot show.
 
     Measured from each port's outermost drawn lane rather than the port station
     (:func:`port_bundle_edge_reach`), so a staggered bundle gets the whole inset
@@ -793,12 +794,14 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
         ]
         lo = min(x - reach[0] for x, reach in lanes)
         hi = max(x + reach[1] for x, reach in lanes)
-        low_reserve = PERP_PORT_EDGE_INSET
+        low_reserve = high_reserve = PERP_PORT_EDGE_INSET
         if len(lanes) >= 2:
-            low_reserve = max(low_reserve, section.bbox_x + section.bbox_w - hi)
+            level = max(lo - section.bbox_x, section.bbox_x + section.bbox_w - hi)
+            low_reserve = max(low_reserve, level)
+            high_reserve = max(high_reserve, level)
         before = (section.bbox_x, section.bbox_w)
         grow_section_bbox_min_edge(graph, section, "x", lo - low_reserve)
-        grow_section_bbox_max_edge(graph, section, "x", hi + PERP_PORT_EDGE_INSET)
+        grow_section_bbox_max_edge(graph, section, "x", hi + high_reserve)
         if (section.bbox_x, section.bbox_w) != before:
             grew = True
     return grew
