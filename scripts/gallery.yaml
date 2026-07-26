@@ -1007,6 +1007,15 @@ gallery:
       fold threshold the serpentine packer skips that branch column as a fold point - folding
       it would strand Genome's consumer (Post) behind it - and folds the spine instead, so
       every inter-section edge flows forward and Genome's exit faces Post (issue #1080)."
+  - id: fold_connector_reverses_to_bt
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A fold-bridging connector (Post) declares its entry on the trailing edge,
+      but that edge feeds a station other than the connector's own flow-sink, so
+      the entry folds back through the connector's stations. The connector's
+      inferred TB direction reverses to BT instead of the port being moved, the
+      same remedy an equivalent horizontal fold already gets (issue #1545)."
   - id: branch_fold_stability
     source_dir: examples/topologies
     category: Serpentine Layout

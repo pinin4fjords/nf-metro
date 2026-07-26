@@ -66,11 +66,18 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
             "tb_two_line_vert_seam",
         )
     },
-    # A folded flow-axis port is resolved either by reversing the section's flow
-    # or by re-anchoring the port, but _FLIP_HORIZONTAL makes the reversal
-    # reachable only for LR/RL, so a vertical flow takes the other remedy.
+    # _infer_flow_exit_hints_with_drops's perpendicular-drop exception checks
+    # only whether the TARGET section is TB/BT; it has no counterpart for a
+    # vertical-flow SOURCE feeding a same-row horizontal target, so that
+    # source's exit stays flow-aligned instead of turning toward its
+    # neighbour.  Both fixtures' sections carry an explicit direction, so
+    # _reanchor_flow_axis_ports's fold remedies (reverse or re-anchor) never
+    # apply to either one; the divergence is unrelated to that choice.
     **{
-        (stem, family): "flow reversal unavailable to vertical flows (#1545)"
+        (stem, family): (
+            "auto-inferred exit has no drop exception for a vertical-flow "
+            "source facing a same-row horizontal target (#1545)"
+        )
         for stem in ("lr_to_tb_top_drop", "top_entry_header_clash")
         for family in ("port_side", "port_perpendicular")
     },
