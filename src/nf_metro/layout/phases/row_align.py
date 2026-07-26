@@ -31,6 +31,7 @@ from nf_metro.layout.phases._common import (
     _section_trunk_y,
     iter_stacked_rows_in_rowspan_band,
 )
+from nf_metro.layout.phases.bbox import level_group_anchor_edges
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.layout.phases.single_section import (
     _multiline_label_padding,
@@ -590,8 +591,6 @@ def _top_align_row_bboxes_only(graph: MetroGraph) -> None:
     one section doesn't leave other row-mates with misaligned bbox
     tops.
     """
-    from nf_metro.layout.phases.bbox import level_group_anchor_edges
-
     for group in _row_contiguous_column_groups(graph):
         level_group_anchor_edges(graph, group, "y", 1.0)
 

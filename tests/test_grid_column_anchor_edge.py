@@ -52,6 +52,7 @@ from nf_metro.layout.phases.bbox import (
     _level_column_anchor_edges,
     _shared_anchor_runway_runs,
 )
+from nf_metro.layout.phases.guards import _column_run_anchor_shortfalls
 from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, Section
@@ -82,23 +83,15 @@ def _runway(graph: MetroGraph, section: Section, sign: float = 1.0) -> float | N
 
 def _unexplained_short_edges(graph: MetroGraph) -> list[tuple[str, float]]:
     """``(section_id, shortfall)`` for every box short of its run's anchored
-    edge that the neighbour-corridor bound does not account for."""
-    out: list[tuple[str, float]] = []
-    for group in _column_contiguous_row_groups(graph):
-        for sign in COLUMN_ANCHOR_SIGNS:
-            for run in _shared_anchor_runway_runs(graph, group, sign):
-                edges = [section_anchor_edge(s, "x", sign) for s in run]
-                target = min(edges) if sign > 0 else max(edges)
-                for section in run:
-                    here = section_anchor_edge(section, "x", sign)
-                    shortfall = (target - here) * -sign
-                    if shortfall <= SAME_COORD_TOLERANCE:
-                        continue
-                    limit = _column_neighbour_anchor_limit(graph, section, sign)
-                    if (here - limit) * sign <= SAME_COORD_TOLERANCE:
-                        continue
-                    out.append((section.id, shortfall))
-    return out
+    edge that the neighbour-corridor bound does not account for.
+
+    Reads the scan the guard raises from, so the two cannot disagree about what
+    counts as a shortfall.
+    """
+    return [
+        (short.section.id, short.shortfall)
+        for short in _column_run_anchor_shortfalls(graph)
+    ]
 
 
 @pytest.mark.parametrize(

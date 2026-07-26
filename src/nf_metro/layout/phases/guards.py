@@ -733,15 +733,26 @@ def _guard_side_entered_vertical_top_not_below_feeder(
             )
 
 
-def _guard_column_run_shares_its_anchored_edge(graph: MetroGraph, phase: str) -> None:
-    """Final: column mates sharing a runway meet on the edge nearest that runway.
+class _ShortAnchorEdge(NamedTuple):
+    """A column-run member whose anchored edge falls short of the run's."""
+
+    section: Section
+    sign: float
+    here: float
+    target: float
+    shortfall: float
+    run: tuple[Section, ...]
+
+
+def _column_run_anchor_shortfalls(graph: MetroGraph) -> Iterator[_ShortAnchorEdge]:
+    """Yield column-run members short of the anchored edge their run shares.
 
     Within a contiguous run of rows in one grid column whose members' content
     nearest an X edge stands at one X (:func:`...bbox._shared_anchor_runway_runs`)
     that edge is common, so a box short of it is a member the seating or the
     Stage 3.6 levelling left behind.  A neighbour whose own row band the reach
     would eat into is the one legitimate shortfall
-    (:func:`...bbox._column_neighbour_anchor_limit`).
+    (:func:`...bbox._column_neighbour_anchor_limit`) and is not yielded.
     """
     tol = SAME_COORD_TOLERANCE
     for group in _column_contiguous_row_groups(graph):
@@ -757,14 +768,25 @@ def _guard_column_run_shares_its_anchored_edge(graph: MetroGraph, phase: str) ->
                     limit = _column_neighbour_anchor_limit(graph, section, sign)
                     if (here - limit) * sign <= tol:
                         continue
-                    side = "left" if sign > 0 else "right"
-                    raise PhaseInvariantError(
-                        f"{phase}: section {section.id!r} {side} edge x={here:.1f} "
-                        f"sits {shortfall:.1f}px short of the x={target:.1f} its "
-                        f"grid column {section.grid_col} shares with "
-                        f"{sorted(s.id for s in run if s is not section)}, with no "
-                        f"neighbour corridor to explain it"
+                    yield _ShortAnchorEdge(
+                        section, sign, here, target, shortfall, tuple(run)
                     )
+
+
+def _guard_column_run_shares_its_anchored_edge(graph: MetroGraph, phase: str) -> None:
+    """Final: column mates sharing a runway meet on the edge nearest that runway.
+
+    Raises on the first shortfall :func:`_column_run_anchor_shortfalls` reports.
+    """
+    for short in _column_run_anchor_shortfalls(graph):
+        side = "left" if short.sign > 0 else "right"
+        raise PhaseInvariantError(
+            f"{phase}: section {short.section.id!r} {side} edge x={short.here:.1f} "
+            f"sits {short.shortfall:.1f}px short of the x={short.target:.1f} its "
+            f"grid column {short.section.grid_col} shares with "
+            f"{sorted(s.id for s in short.run if s is not short.section)}, with no "
+            f"neighbour corridor to explain it"
+        )
 
 
 def _guard_symmetric_diamond_branches_straddle_trunk(
