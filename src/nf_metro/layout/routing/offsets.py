@@ -12,7 +12,7 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
     resolve_offset_step,
 )
-from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.geometry import lanes_run_along_x, perpendicular_port_sides
 from nf_metro.layout.phases._common import (
     iter_corridor_fed_solo_entries,
     iter_flat_seam_solo_entries,
@@ -2481,7 +2481,7 @@ def _allocate_merge_ports_by_approach(ctx: _OffsetCtx) -> None:
 def _apply_offsets_along_bundle(
     ctx: _OffsetCtx,
     port_id: str,
-    sec_id: str | None,
+    sec_id: str,
     new_offs: dict[str, float],
 ) -> None:
     """Set ``new_offs`` at ``port_id`` and carry it along the bundle.
@@ -2493,9 +2493,15 @@ def _apply_offsets_along_bundle(
     keeps that slot all the way to its consumer rather than crossing back on
     the outgoing run.  A line that turns off the row stops the walk there and
     transitions its slot at the turn.
+
+    A port on one of the section's own lane-axis edges continues the bundle too:
+    it never sits on the run's row, yet the trunk turns into its drop column
+    through one concentric corner that carries the run's order across.  Leaving
+    it on the pre-reslot order crosses the bundle at that turn.
     """
     graph = ctx.graph
     row_y = graph.stations[port_id].y
+    lane_edge_sides = perpendicular_port_sides(graph.sections[sec_id].direction)
     for lid, off in new_offs.items():
         ctx.offsets[(port_id, lid)] = off
 
@@ -2508,7 +2514,10 @@ def _apply_offsets_along_bundle(
             if tgt_id in visited:
                 continue
             tgt = graph.stations[tgt_id]
-            in_section = not tgt.is_port and tgt.section_id == sec_id
+            tgt_port = graph.ports.get(tgt_id)
+            in_section = tgt.section_id == sec_id and (
+                tgt_port is None or tgt_port.side in lane_edge_sides
+            )
             on_row = abs(tgt.y - row_y) <= _SAME_Y_TOLERANCE
             if not in_section and not on_row:
                 continue
