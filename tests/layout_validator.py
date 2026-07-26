@@ -12,10 +12,12 @@ from enum import Enum
 
 from nf_metro.layout.constants import Y_SPACING
 from nf_metro.layout.geometry import (
+    AxisFrame,
     iter_coincident_stations,
     iter_section_overlaps,
     iter_serpentine_backtracks,
     iter_stations_outside_bbox,
+    lanes_run_along_x,
     perpendicular_port_sides,
 )
 from nf_metro.layout.phases._common import (
@@ -96,6 +98,7 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
         )
     violations.extend(check_single_layer_centering(graph))
     violations.extend(check_station_as_elbow(graph))
+    violations.extend(check_perp_entry_precedes_flow_start(graph))
     violations.extend(check_intra_section_chain_alignment(graph))
     violations.extend(check_exit_port_feeder_alignment(graph))
     violations.extend(check_inter_section_line_crossings(graph))
@@ -792,6 +795,72 @@ def check_station_as_elbow(
                 )
             )
 
+    return violations
+
+
+def check_perp_entry_precedes_flow_start(
+    graph: MetroGraph, tolerance: float = 10.0
+) -> list[Violation]:
+    """Check a vertical-flow section's perpendicular entry seats before its
+    flow-start row.
+
+    A LEFT/RIGHT entry on a TB/BT section is perpendicular to the flow, so the
+    incoming line must bend to join the trunk. The seat must fall before the
+    flow-start station in flow order -- above the topmost station for a
+    downward (TB) flow, below the bottommost one for an upward (BT) flow.
+    Seating it past that row instead routes the entry back through the
+    section's own stations to reach its target further up the flow.
+
+    Only checked on sections with 2+ internal stations: a single-station
+    section has no row order to violate.
+    """
+    violations: list[Violation] = []
+
+    section_stations: dict[str, list[float]] = defaultdict(list)
+    for station in graph.stations.values():
+        if station.is_port or station.section_id is None:
+            continue
+        section_stations[station.section_id].append(station.y)
+
+    for pid, port in graph.ports.items():
+        if not port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        section = graph.sections.get(port.section_id)
+        if section is None or not lanes_run_along_x(section.direction):
+            continue
+        ys = section_stations.get(port.section_id, [])
+        if len(ys) < 2:
+            continue
+        port_station = graph.stations.get(pid)
+        if port_station is None:
+            continue
+
+        downward = AxisFrame.flow_sign(section.direction) > 0
+        flow_start_y = min(ys) if downward else max(ys)
+        past_start = (
+            port_station.y > flow_start_y + tolerance
+            if downward
+            else port_station.y < flow_start_y - tolerance
+        )
+        if past_start:
+            violations.append(
+                Violation(
+                    check="perp_entry_precedes_flow_start",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"Port '{pid}' ({port.side.value}, y={port_station.y:.1f}) "
+                        f"in section '{port.section_id}' seats past the flow-start "
+                        f"row (y={flow_start_y:.1f}) - the entry doubles back "
+                        f"through the section's own stations"
+                    ),
+                    context={
+                        "port": pid,
+                        "section": port.section_id,
+                        "port_coord": port_station.y,
+                        "flow_start_coord": flow_start_y,
+                    },
+                )
+            )
     return violations
 
 
