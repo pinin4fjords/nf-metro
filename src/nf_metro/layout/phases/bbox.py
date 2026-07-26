@@ -9,6 +9,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
     MIN_BUNDLE_EDGE_CLEARANCE,
+    MIN_INTER_SECTION_GAP,
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
@@ -18,6 +19,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
+    _column_contiguous_row_groups,
     _content_station_ids,
     _content_station_ys,
     _is_side_entered_vertical_section,
@@ -26,8 +28,11 @@ from nf_metro.layout.phases._common import (
     _side_entered_vertical_feeder_pairs,
     _station_bundle_offset_span,
     _trunk_symmetric_fan_ids,
+    grow_section_bbox_max_edge,
     grow_section_bbox_min_edge,
     move_section_bbox_min_edge,
+    port_bundle_edge_reach,
+    port_edge_inset,
 )
 from nf_metro.layout.phases.single_section import (
     _terminus_y_overhang,
@@ -447,7 +452,7 @@ def _predict_section_content_bottom(
         from nf_metro.layout.rail_mode import rail_above_label_ids
 
         rail_above_ids = rail_above_label_ids(graph, section)
-    if is_horizontal and offsets is None:
+    if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
@@ -485,6 +490,12 @@ def _predict_section_content_bottom(
     ]
     port_max_ys = [
         graph.stations[sid].y
+        + port_edge_inset(
+            graph.ports.get(sid),
+            section_dir,
+            "y",
+            port_bundle_edge_reach(graph, sid, offsets, "y")[1],
+        )
         for sid in section.station_ids
         if sid in graph.stations and graph.stations[sid].is_port
     ]
@@ -680,7 +691,7 @@ def _section_content_hug_top(
     section_dir = section.direction or "LR"
     is_horizontal = section_dir in ("LR", "RL")
     fan_ids = _trunk_symmetric_fan_ids(graph, section) if is_horizontal else ()
-    if is_horizontal and offsets is None:
+    if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
@@ -710,6 +721,12 @@ def _section_content_hug_top(
     ]
     port_min_ys = [
         graph.stations[sid].y
+        - port_edge_inset(
+            graph.ports.get(sid),
+            section_dir,
+            "y",
+            port_bundle_edge_reach(graph, sid, offsets, "y")[0],
+        )
         for sid in section.station_ids
         if sid in graph.stations and graph.stations[sid].is_port
     ]
@@ -720,6 +737,169 @@ def _section_content_hug_top(
     if port_min_ys:
         target = min(target, min(port_min_ys))
     return target
+
+
+def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
+    """Hold a section's left and right edges clear of its TOP/BOTTOM ports.
+
+    A TOP or BOTTOM port is pinned to a horizontal edge and free along X, so it
+    crosses the left and right edges and owes them ``PERP_PORT_EDGE_INSET`` --
+    the rotation of what :func:`_section_content_hug_top` and
+    :func:`_predict_section_content_bottom` fold into the Y extent for a LEFT or
+    RIGHT port.  Which side the port sits on settles this, not the direction the
+    section flows, since a seam joins a BOTTOM exit to a TOP entry at one X and
+    the two halves owe that X the same room.
+
+    X sizing measures real stations only, so a port seated past the trailing
+    station or dragged onto a drop column lands inside the padding band with
+    nothing to push the edge out.  Growing the edge is the only move available:
+    pulling the port back inside would cost it the elbow runway it was seated for.
+
+    Each port owes its facing edges the inset independently.  The two are not
+    levelled against each other, because an edge held further out by content or a
+    routing band is not the port's doing, and mirroring it onto the opposite edge
+    would buy symmetry with dead space.
+
+    Measured from each port's outermost drawn lane rather than the port station
+    (:func:`port_bundle_edge_reach`), so a staggered bundle gets the whole inset
+    and not the inset less its own width.
+
+    Returns whether any box grew, so the caller can re-check inter-column gaps.
+    """
+    grew = False
+    offsets: dict[tuple[str, str], float] | None = None
+    for section in graph.sections.values():
+        if section.bbox_w <= 0:
+            continue
+        perp_ids = [
+            pid
+            for pid in section.port_ids
+            if (port := graph.ports.get(pid)) is not None
+            and port.side in (PortSide.TOP, PortSide.BOTTOM)
+            and pid in graph.stations
+        ]
+        if not perp_ids:
+            continue
+        if offsets is None:
+            from nf_metro.layout.routing import compute_station_offsets
+
+            offsets = compute_station_offsets(graph)
+        sec_dir = section.direction or "LR"
+        lanes = [
+            (
+                graph.stations[pid].x,
+                graph.ports[pid],
+                port_bundle_edge_reach(graph, pid, offsets, "x"),
+            )
+            for pid in perp_ids
+        ]
+        lo = min(
+            x - port_edge_inset(port, sec_dir, "x", reach[0])
+            for x, port, reach in lanes
+        )
+        hi = max(
+            x + port_edge_inset(port, sec_dir, "x", reach[1])
+            for x, port, reach in lanes
+        )
+        before = (section.bbox_x, section.bbox_w)
+        grow_section_bbox_min_edge(graph, section, "x", lo)
+        grow_section_bbox_max_edge(graph, section, "x", hi)
+        if (section.bbox_x, section.bbox_w) != before:
+            grew = True
+    return grew
+
+
+def _column_left_neighbour_limit(graph: MetroGraph, section: Section) -> float:
+    """Leftmost X ``section``'s box may reach without crowding a left neighbour.
+
+    A section already clear to the left of ``section`` and sharing vertical
+    extent with it (headers included, since a badge protrudes above its box top)
+    keeps ``MIN_INTER_SECTION_GAP`` of routing corridor.  Inter-column gaps are
+    enforced per overlapping row band rather than per column, so the column's
+    leftmost box being clear says nothing about a row-mate further down.
+    ``-inf`` when nothing sits to the left.
+    """
+    top = section.bbox_y - SECTION_HEADER_PROTRUSION
+    bottom = section.bbox_y + section.bbox_h
+    limit = float("-inf")
+    for other in graph.sections.values():
+        if other is section or other.bbox_w <= 0:
+            continue
+        right = other.bbox_x + other.bbox_w
+        if right > section.bbox_x + SAME_COORD_TOLERANCE:
+            continue
+        if (
+            other.bbox_y - SECTION_HEADER_PROTRUSION >= bottom
+            or top >= other.bbox_y + other.bbox_h
+        ):
+            continue
+        limit = max(limit, right + MIN_INTER_SECTION_GAP)
+    return limit
+
+
+def _shared_left_runway_runs(
+    graph: MetroGraph, group: list[Section]
+) -> list[list[Section]]:
+    """Split ``group`` into runs whose boxes start their content at one X.
+
+    A grid row's sections share a trunk Y, so a levelled box top always frames
+    the same thing in each and lines up something a viewer reads.  A grid
+    column's sections share no trunk X: the space left of a box's first station
+    is that section's entry runway, and two column mates only mean the same
+    thing by it when their first stations stand at one X.  Level those and the
+    shared edge reads as one runway; level a mate whose content starts further
+    right and it gains an empty band the width of the difference instead.
+
+    A rail-flagged section is a break in the run either way: its internal
+    geometry is re-derived from its bbox downstream
+    (:func:`...engine._retrofit_section_rails_phase`), so growing its left edge
+    slides its stations along with it rather than widening a runway in front of
+    them.
+    """
+    runs: list[list[Section]] = []
+    current: list[Section] = []
+    anchor = 0.0
+    for section in group:
+        xs = [graph.stations[sid].x for sid in _content_station_ids(graph, section)]
+        first = None if graph.is_rail_section(section.id) or not xs else min(xs)
+        if first is None:
+            if len(current) >= 2:
+                runs.append(current)
+            current = []
+            continue
+        if current and abs(first - anchor) <= SAME_COORD_TOLERANCE:
+            current.append(section)
+            continue
+        if len(current) >= 2:
+            runs.append(current)
+        current, anchor = [section], first
+    if len(current) >= 2:
+        runs.append(current)
+    return runs
+
+
+def _left_align_column_bboxes_only(graph: MetroGraph) -> None:
+    """Align bbox left edges within each grid column by growing boxes leftward.
+
+    The X mirror of :func:`...row_align._top_align_row_bboxes_only`, restricted
+    to column mates that share a left runway (:func:`_shared_left_runway_runs`).
+    Only ``bbox_x`` and ``bbox_w`` move, so the interior and the cross-max edge
+    are left as they were -- a column placement right-aligned keeps its shared
+    right edge and gains a shared left edge.  LEFT ports ride the left edge and
+    are carried out to it.
+
+    A run's leftmost box sets the target; a left neighbour whose own row band
+    the growth would eat into holds a box short of it
+    (:func:`_column_left_neighbour_limit`).
+    """
+    for group in _column_contiguous_row_groups(graph):
+        for run in _shared_left_runway_runs(graph, group):
+            target = min(s.bbox_x for s in run)
+            for section in run:
+                if section.bbox_x - target <= SAME_COORD_TOLERANCE:
+                    continue
+                limit = _column_left_neighbour_limit(graph, section)
+                grow_section_bbox_min_edge(graph, section, "x", max(target, limit))
 
 
 def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:
@@ -836,6 +1016,7 @@ def _fit_bboxes_to_content_top(
     ceiling pushed down is grown rather than shrunk into the badge.  Both
     moves go through the bidirectional :func:`move_section_bbox_min_edge`
     (TOP ports follow the new edge).
+
     """
     from nf_metro.layout.routing import compute_station_offsets
 
@@ -855,6 +1036,49 @@ def _fit_bboxes_to_content_top(
             and hug > section.bbox_y + SAME_COORD_TOLERANCE
             and _section_band_is_empty(graph, section)
         ):
+            move_section_bbox_min_edge(graph, section, "y", hug)
+
+
+def refit_tops_after_entry_resnap(
+    graph: MetroGraph,
+    section_ids: set[str],
+    section_y_padding: float,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """Give back top slack a re-snapped perpendicular entry port no longer needs.
+
+    Stage 6.16 is the last mover of these ports.  A section whose port it shifts
+    *down* keeps the taller top it was given while the port sat higher, so it ends
+    up carrying more space above its content than a mirror-image row-mate whose
+    port -- being an exit -- that stage never touches.
+
+    Lowers the top to :func:`_section_content_hug_top`, which reserves
+    ``PERP_PORT_EDGE_INSET`` beyond the port itself, so this cannot shrink into
+    the port's own approach.  Clamped to the feeder row-mate's top, because a
+    side-entered vertical section's top must not drop below it
+    (:func:`_guard_side_entered_vertical_top_not_below_feeder`), and never raises
+    the top: growing is Stage 6.15a's job, bounded there by the row above.
+    """
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+
+    feeder_tops = {
+        section.id: neighbour.bbox_y
+        for section, neighbour in _side_entered_vertical_feeder_pairs(graph)
+    }
+    for sid in section_ids:
+        section = graph.sections.get(sid)
+        if section is None or section.bbox_h <= 0:
+            continue
+        hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
+        if hug is None:
+            continue
+        feeder_top = feeder_tops.get(sid)
+        if feeder_top is not None:
+            hug = min(hug, feeder_top)
+        if hug > section.bbox_y + SAME_COORD_TOLERANCE:
             move_section_bbox_min_edge(graph, section, "y", hug)
 
 

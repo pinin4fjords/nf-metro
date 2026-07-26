@@ -29,6 +29,7 @@ from nf_metro.layout.constants import (
     LABEL_OFFSET,
     MIN_Y_SPACING_FLOOR,
     ROW_GAP,
+    SAME_COORD_TOLERANCE,
     SECTION_GAP,
     SECTION_ROUTE_CLEARANCE,
     SECTION_X_GAP,
@@ -41,6 +42,7 @@ from nf_metro.layout.constants import (
     Y_SPACING,
     resolve_offset_step,
 )
+from nf_metro.layout.geometry import perpendicular_port_sides
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
 from nf_metro.layout.phases._common import (  # noqa: F401
@@ -79,10 +81,12 @@ from nf_metro.layout.phases.balancing import (  # noqa: F401
 from nf_metro.layout.phases.bbox import (  # noqa: F401
     _aggregate_bypass_spans,
     _fit_bboxes_to_content_top,
+    _left_align_column_bboxes_only,
     _lift_would_cause_uturn,
     _loop_corner_x,
     _min_section_bbox_top,
     _predicted_bypass_bottom_in_row,
+    _reserve_perp_port_edge_inset,
     _reserve_row_gap_for_top_padding,
     _section_fit_top,
     _shrink_and_tighten_rows,
@@ -91,6 +95,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     _tighten_lower_rows_after_shrink,
     _top_align_side_entered_vertical_to_feeder,
     push_lower_rows_after_bbox_grow,
+    refit_tops_after_entry_resnap,
 )
 from nf_metro.layout.phases.canvas import (  # noqa: F401
     _renumber_sections_by_grid,
@@ -1468,6 +1473,24 @@ def _compute_section_layout(
     _align_exit_ports(graph)
     _snap(graph, "3.4")
 
+    # Stage 3.5: Hold each horizontal-flow section's left and right edges clear
+    # of the perpendicular (TOP/BOTTOM) ports Stages 3.2 to 3.4 just seated
+    # along X, the rotation of the inset the Y-axis sizing keeps for a vertical
+    # flow's LEFT/RIGHT ports.  Runs here because those stages are the last to
+    # move a perpendicular port relative to its own box; a grow can widen a
+    # section into its column neighbour, so re-enforce the inter-column gaps.
+    if _reserve_perp_port_edge_inset(graph):
+        reenforce_column_gaps(graph)
+    _snap(graph, "3.5")
+
+    # Stage 3.6: Level the left edges of the boxes in a grid column that start
+    # their content at one X, the X mirror of the row top-align at Stage 5.3.
+    # Runs once every X-axis box mover has settled (Stage 1.1 sizing, the Stage
+    # 3.3 runway grow, the Stage 3.5 perp inset), so the levelled edge is not
+    # re-broken by a later widen.
+    _left_align_column_bboxes_only(graph)
+    _snap(graph, "3.6")
+
     if validate:
         _guard_ports_on_boundaries(graph, "after top-align")
 
@@ -1951,7 +1974,26 @@ def _finalize_layout(
     # re-anchor to the settled exit/entry port Ys regardless of direction
     # (they live in inter-section space and aren't moved by the settling
     # phases, so otherwise a fan-out bundle dips to a stale junction Y).
+    perp_entry_ys_before_resnap = {
+        pid: graph.stations[pid].y
+        for sec in graph.sections.values()
+        for pid in sec.entry_ports
+        if pid in graph.stations
+        and pid in graph.ports
+        and graph.ports[pid].side in perpendicular_port_sides(sec.direction or "LR")
+    }
     _align_entry_ports(graph, vertical_only=True)
+    # The re-snap above is the last mover of these ports, so a top sized while
+    # one sat higher may be lowered.  Scoped to the sections
+    # that actually moved: replaying the fit corpus-wide re-opens the transient
+    # row-flush the content-hug pass is entitled to undo.
+    resnapped = {
+        graph.stations[pid].section_id or ""
+        for pid, was in perp_entry_ys_before_resnap.items()
+        if abs(graph.stations[pid].y - was) > SAME_COORD_TOLERANCE
+    }
+    if resnapped:
+        refit_tops_after_entry_resnap(graph, resnapped, section_y_padding)
     _position_junctions(graph)
     _snap(graph, "6.16")
     if validate:

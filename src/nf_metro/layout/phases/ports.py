@@ -33,7 +33,6 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.phases.bbox import _predict_section_content_bottom
 from nf_metro.layout.phases.guards import (
     _exit_off_consumer_trunk,
-    _section_lacks_flow_aligned_port,
 )
 from nf_metro.layout.phases.junctions import (
     _resolve_source_section_id,
@@ -220,7 +219,7 @@ def _align_lr_entry_port(
             continue
 
         if entry_section.grid_row != src_section.grid_row:
-            _lift_perp_entry_port_above_stations(graph, entry_section, port, port_id)
+            _seat_perp_entry_port_before_stations(graph, entry_section, port, port_id)
             break
 
         # A source exit whose Y is a structural boundary, not a consumer-aligned
@@ -254,7 +253,7 @@ def _align_lr_entry_port(
                     )
                 )
                 if not mirrored:
-                    _lift_perp_entry_port_above_stations(
+                    _seat_perp_entry_port_before_stations(
                         graph, entry_section, port, port_id
                     )
                 break
@@ -1051,19 +1050,16 @@ def _align_exit_ports(graph: MetroGraph) -> None:
         # section's perpendicular entry is positioned past the last station so
         # the trunk curves out after the marker.  A fold's BOTTOM exit (which
         # feeds a sideways entry, not a drop) has no such target and keeps its
-        # own placement.  A single-row section places its perpendicular exit
-        # past the last station only when it also has a flow-aligned port to
-        # anchor the horizontal run; a section with ONLY perpendicular ports is
-        # an unsupported shape rejected downstream, so it keeps its placement.
+        # own placement.  A single-row section always seats its perpendicular
+        # exit past the trailing station: sharing the station's X collapses the
+        # turn to a zero-length corner that the lane fan then splays the wrong
+        # way round.
         if (
             exit_section.direction in ("LR", "RL")
             and port.side in (PortSide.TOP, PortSide.BOTTOM)
             and (
                 next(_drop_targets(graph, port_id), None) is not None
-                or (
-                    exit_section.grid_row_span == 1
-                    and not _section_lacks_flow_aligned_port(graph, exit_section)
-                )
+                or exit_section.grid_row_span == 1
             )
         ):
             _align_perpendicular_exit_port(graph, port_id, port, exit_section)
@@ -1602,10 +1598,13 @@ def _clamp_tb_entry_port(
     return target_y
 
 
-def _lift_perp_entry_port_above_stations(
+def _seat_perp_entry_port_before_stations(
     graph: MetroGraph, entry_section: Section, port: Port, port_id: str
 ) -> None:
-    """Raise a vertical-flow section's perpendicular entry port above its row.
+    """Seat a vertical-flow section's perpendicular entry port before its row.
+
+    "Before" is in flow order, so the seat is above the topmost station for a
+    downward (TB) flow and below the bottom-most one for an upward (BT) flow.
 
     When the feeder lives in a different grid row, Y alignment to the feeder
     is skipped, leaving the port on the first internal station's row.  A side
@@ -1635,11 +1634,22 @@ def _lift_perp_entry_port_above_stations(
         return
     base_y = graph._base_y_spacing
     gap = base_y * ENTRY_SHIFT_TB if base_y else CURVE_RADIUS + MIN_STATION_FLAT_LENGTH
-    target_y = min(internal_ys) - gap
-    if port_st.y <= target_y:
-        return
+    # Seat the port clear of the flow-START end of the row: the top of a downward
+    # (TB) flow, the bottom of an upward (BT) one.  Seating it past the opposite
+    # end instead leaves the entry doubling back through the section's own
+    # markers to reach its target station.
+    if AxisFrame.flow_sign(entry_section.direction) > 0:
+        target_y = min(internal_ys) - gap
+        if port_st.y <= target_y:
+            return
+        outside_bbox = target_y < entry_section.bbox_y
+    else:
+        target_y = max(internal_ys) + gap
+        if port_st.y >= target_y:
+            return
+        outside_bbox = target_y > entry_section.bbox_y + entry_section.bbox_h
     _set_port_y(graph, port_id, target_y)
-    if target_y < entry_section.bbox_y:
+    if outside_bbox:
         _expand_bbox_for_y(entry_section, target_y)
 
 

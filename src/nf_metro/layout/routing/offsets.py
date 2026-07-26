@@ -12,7 +12,11 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
     resolve_offset_step,
 )
-from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    lanes_run_along_x,
+    perpendicular_port_sides,
+)
 from nf_metro.layout.phases._common import (
     iter_corridor_fed_solo_entries,
     iter_flat_seam_solo_entries,
@@ -21,6 +25,7 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
     needs_perp_approach_fan,
+    perp_entry_consumer,
     tb_right_entry_sections,
     vertical_flow_sections,
 )
@@ -1504,11 +1509,8 @@ def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     port_st = graph.stations.get(port_id)
     if port_st is None:
         return False
-    for edge in graph.edges_from(port_id):
-        consumer = graph.station_for_edge_target(edge)
-        if not consumer.is_port:
-            return consumer.x > port_st.x + COORD_TOLERANCE_FINE
-    return False
+    consumer = perp_entry_consumer(graph, port_id)
+    return consumer is not None and consumer.x > port_st.x + COORD_TOLERANCE_FINE
 
 
 def _slot_perp_fan_bundle(ctx: _OffsetCtx, port_id: str) -> None:
@@ -1610,6 +1612,115 @@ def _entry_top_from_tb_bottom_exits(ctx: _OffsetCtx) -> None:
                     new_offs[lid] = exit_off if keep_order else max_exit_off - exit_off
                 _apply_offsets_along_bundle(ctx, port_id, entry_section.id, new_offs)
             break
+
+
+def _deal_slots_in_order(
+    ctx: _OffsetCtx, station_id: str, order: Sequence[str]
+) -> dict[str, float]:
+    """*station_id*'s own slots for ``order``'s lines, dealt in that sequence.
+
+    Re-dealing the offsets already stored there keeps the bundle's spread and its
+    place inside any wider bundle at that station, so only which line rides which
+    slot changes.
+    """
+    slots = sorted(ctx.offsets.get((station_id, lid), 0.0) for lid in order)
+    return dict(zip(order, slots))
+
+
+def _straight_drop_feeder_exit(ctx: _OffsetCtx, port_id: str) -> Port | None:
+    """The horizontal-flow BOTTOM exit dropping straight down into *port_id*.
+
+    This is the seam whose per-line drop column is ``port_x + offset``, read off
+    this entry port both by the drop (:func:`perp._perp_entry_crossing_x` for a
+    horizontal-flow feeder) and by the feeding exit's own column
+    (:func:`perp._perp_riser_lateral`).  ``None`` for every other feed, whose
+    column comes from elsewhere: a vertical-flow feeder crosses on its own
+    section lane, a distinct-line approach fan channels by bundle index, and an
+    exit sharing the entry's Y rises into the inter-row corridor and comes back
+    down on the reflected lateral.
+    """
+    graph = ctx.graph
+    sources = {edge.source for edge in graph.edges_to(port_id)}
+    if len(sources) != 1 or needs_perp_approach_fan(graph, port_id):
+        return None
+    exit_port = graph.ports.get(next(iter(sources)))
+    if exit_port is None or exit_port.is_entry or exit_port.side is not PortSide.BOTTOM:
+        return None
+    if lanes_run_along_x(graph.section_for_port(exit_port).direction):
+        return None
+    exit_st, entry_st = graph.stations[exit_port.id], graph.stations[port_id]
+    if exit_st.y >= entry_st.y or abs(exit_st.x - entry_st.x) > COORD_TOLERANCE_FINE:
+        return None
+    return exit_port
+
+
+def _perp_exit_feed_lanes(ctx: _OffsetCtx, exit_port_id: str) -> dict[str, float]:
+    """Lane offsets of the run arriving at perpendicular exit *exit_port_id*.
+
+    Read off the in-section stations feeding the exit, which carry the lane each
+    line rides right up to the turn down onto its drop column.
+    """
+    graph = ctx.graph
+    return {
+        lid: ctx.offsets.get((src.id, lid), 0.0)
+        for edge in graph.edges_to(exit_port_id)
+        if not (src := graph.station_for_edge_source(edge)).is_port
+        for lid in graph.station_lines(src.id)
+    }
+
+
+def _order_perp_entry_seam_lanes(ctx: _OffsetCtx) -> None:
+    """Nest a straight-drop TOP-entry seam's column and trunk against its turns.
+
+    A horizontal-flow section entered through a TOP port fed by the BOTTOM exit
+    straight above it (:func:`_straight_drop_feeder_exit`) carries the bundle
+    through two 90-degree turns: the feeder's run turns down onto a per-line drop
+    column, and that column turns into the receiver's trunk.  Both corners
+    translate wholesale per line, so each nests concentrically only where the
+    orders either side of it agree with the side it turns to.
+
+    The column is ``port_x + offset`` read off the entry port, so the two orders
+    settled here are the entry port's own offset (the column, west to east) and
+    the receiver's trunk lane (top to bottom):
+
+    * turning down out of the feeder's run puts the lane nearest the turn side on
+      the inside of the bend -- an eastward (LR) run lands its topmost lane on the
+      eastmost channel, a westward (RL) run its bottommost -- so the column
+      reverses the feeder's lane order for LR and copies it for RL;
+    * turning out of the column into the trunk puts the eastmost channel on the
+      inside of an eastward turn, and the inside of that bend is the topmost trunk
+      lane, so the trunk reverses the column there and copies it turning westward.
+
+    The two are settled independently because the column has to nest against the
+    feeder's turn as well: reversing the port along with the trunk would fix one
+    corner by crossing the other.
+    """
+    graph = ctx.graph
+    for port_id, port_obj in graph.ports.items():
+        if not port_obj.is_entry or port_obj.side is not PortSide.TOP:
+            continue
+        section = graph.section_for_port(port_obj)
+        if lanes_run_along_x(section.direction):
+            continue
+        feeder = _straight_drop_feeder_exit(ctx, port_id)
+        if feeder is None:
+            continue
+        feed_lanes = _perp_exit_feed_lanes(ctx, feeder.id)
+        seam = [lid for lid in graph.station_lines(port_id) if lid in feed_lanes]
+        consumer = perp_entry_consumer(graph, port_id)
+        if len(seam) < 2 or consumer is None:
+            continue
+        column = sorted(seam, key=lambda lid: (feed_lanes[lid], lid))
+        if AxisFrame.flow_sign(graph.section_for_port(feeder).direction) > 0:
+            column.reverse()
+        trunk = column[::-1] if _perp_entry_run_turns_right(graph, port_id) else column
+        _apply_offsets_along_bundle(
+            ctx, consumer.id, section.id, _deal_slots_in_order(ctx, consumer.id, trunk)
+        )
+        ctx.offsets.update(
+            ((port_id, lid), off)
+            for lid, off in _deal_slots_in_order(ctx, port_id, column).items()
+        )
 
 
 def _propagate_lr_rl_exit_to_entry(ctx: _OffsetCtx) -> None:
@@ -1835,15 +1946,18 @@ def _recenter_single_line_corridor_entry(ctx: _OffsetCtx) -> None:
 def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
     """Compute entry port offsets and propagate to downstream stations.
 
-    Handles three cases:
+    Handles four cases:
     1. TOP entry ports fed by TB BOTTOM exits: match the reversed offset
        scheme used by inter-section routing.
-    2. LEFT/RIGHT entry ports fed by a single LR/RL exit: propagate
+    2. TOP entry ports fed by the BOTTOM exit straight above: nest the drop
+       column and the trunk against the two turns the seam makes.
+    3. LEFT/RIGHT entry ports fed by a single LR/RL exit: propagate
        spatial ordering to prevent bundle crossings.
-    3. Corridor-fed single-line sections: re-anchor the entry port on the
+    4. Corridor-fed single-line sections: re-anchor the entry port on the
        trunk so the lone consumer is not dragged into a phantom bundle lane.
     """
     _entry_top_from_tb_bottom_exits(ctx)
+    _order_perp_entry_seam_lanes(ctx)
     _propagate_lr_rl_exit_to_entry(ctx)
     _inherit_level_convergence_entry_offsets(ctx)
     _recenter_single_line_corridor_entry(ctx)
@@ -2480,27 +2594,37 @@ def _allocate_merge_ports_by_approach(ctx: _OffsetCtx) -> None:
 
 def _apply_offsets_along_bundle(
     ctx: _OffsetCtx,
-    port_id: str,
-    sec_id: str | None,
+    start_id: str,
+    sec_id: str,
     new_offs: dict[str, float],
 ) -> None:
-    """Set ``new_offs`` at ``port_id`` and carry it along the bundle.
+    """Set ``new_offs`` at ``start_id`` and carry it along the bundle.
 
-    Walks ``edges_from`` from the port, copying each moved line's new offset
-    onto downstream stations.  In-section non-port stations always continue
-    the bundle; ports and downstream sections continue only while the run
-    stays on the merge port's row, so a line re-slotted at the merge port
-    keeps that slot all the way to its consumer rather than crossing back on
-    the outgoing run.  A line that turns off the row stops the walk there and
-    transitions its slot at the turn.
+    Walks ``edges_from`` from the start station, copying each moved line's new
+    offset onto downstream stations.  In-section non-port stations always
+    continue the bundle; ports and downstream sections continue only while the
+    run stays on the start station's row, so a line re-slotted there keeps that
+    slot all the way to its consumer rather than crossing back on the outgoing
+    run.  A line that turns off the row stops the walk there and transitions its
+    slot at the turn.
+
+    A caller re-slotting at a perpendicular port passes the station the port
+    turns into rather than the port itself: the port sits on the box edge, so a
+    row measured from it holds nothing the run continues through.
+
+    A port on one of the section's own lane-axis edges continues the bundle too:
+    it never sits on the run's row, yet the trunk turns into its drop column
+    through one concentric corner that carries the run's order across.  Leaving
+    it on the pre-reslot order crosses the bundle at that turn.
     """
     graph = ctx.graph
-    row_y = graph.stations[port_id].y
+    row_y = graph.stations[start_id].y
+    lane_edge_sides = perpendicular_port_sides(graph.sections[sec_id].direction)
     for lid, off in new_offs.items():
-        ctx.offsets[(port_id, lid)] = off
+        ctx.offsets[(start_id, lid)] = off
 
-    visited = {port_id}
-    queue = deque([port_id])
+    visited = {start_id}
+    queue = deque([start_id])
     while queue:
         cur = queue.popleft()
         for edge in graph.edges_from(cur):
@@ -2508,7 +2632,10 @@ def _apply_offsets_along_bundle(
             if tgt_id in visited:
                 continue
             tgt = graph.stations[tgt_id]
-            in_section = not tgt.is_port and tgt.section_id == sec_id
+            tgt_port = graph.ports.get(tgt_id)
+            in_section = tgt.section_id == sec_id and (
+                tgt_port is None or tgt_port.side in lane_edge_sides
+            )
             on_row = abs(tgt.y - row_y) <= _SAME_Y_TOLERANCE
             if not in_section and not on_row:
                 continue
@@ -3001,7 +3128,8 @@ def compute_station_offsets(
        Y ordering with hub propagation.
     6. **Junction inheritance** - copies exit port offsets to junctions.
     7. **Entry port offsets** - TOP entry override for TB BOTTOM exits,
-       LR/RL exit-to-entry propagation, compact entry separation.
+       straight-drop TOP entry column/trunk nesting, LR/RL exit-to-entry
+       propagation, compact entry separation.
     7b. **Merge-port approach-side allocation** - at multi-feeder LR/RL
        entry ports, re-slots a perpendicular re-joining line to the
        bundle slot nearest its approach side (non-compact only).

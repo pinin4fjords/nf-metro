@@ -92,6 +92,14 @@ class LineSpread(str, Enum):
 
 VALID_LINE_STYLES = ("solid", "dashed", "dotted")
 
+FLOW_DIRECTIONS: tuple[str, ...] = ("LR", "RL", "TB", "BT")
+"""Every flow direction a section may declare, in rotation order.
+
+Both the accepted set for ``%%metro direction:`` and the set a layout rule
+quantifies over when it needs to know whether some property of the axis frame is
+settled across all flows or differs between them.
+"""
+
 MARKER_SHAPE_CIRCLE = "circle"
 MARKER_SHAPE_SQUARE = "square"
 MARKER_SHAPE_PILL = "pill"

@@ -62,6 +62,7 @@ from nf_metro.layout.routing.common import (
     merge_fanout_pivot_reference,
     merge_junction_ids,
     peeloff_target_slots,
+    perp_entry_consumer,
     perp_peeloff_off_horizontal_junction,
     resolve_section,
     tail_on_slot,
@@ -1369,6 +1370,24 @@ class ExitBundleOrderViolation:
         )
 
 
+def _entry_order_reference(
+    graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
+    entry_id: str,
+) -> str:
+    """The station holding the lane order an exit port must inherit.
+
+    A flow-aligned (LEFT/RIGHT) entry stores the run's own lane order, so it is
+    its own reference.  A perpendicular (TOP/BOTTOM) entry stores a lateral on
+    the crossing axis instead -- the per-line drop column -- which the entry
+    corner transposes into the trunk, so the order to inherit is the one at the
+    station the drop turns into.
+    """
+    if graph.ports[entry_id].side in (PortSide.LEFT, PortSide.RIGHT):
+        return entry_id
+    consumer = perp_entry_consumer(graph, entry_id)
+    return consumer.id if consumer is not None else entry_id
+
+
 def check_exit_inherits_entry_bundle_order(
     graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
     offsets: dict[tuple[str, str], float],
@@ -1382,6 +1401,9 @@ def check_exit_inherits_entry_bundle_order(
     straight through keeps its slot and no slot is left reserved for a line
     that terminates inside the section without reaching this port. TB
     sections are exempt: their exit reverses offsets for concentric arcs.
+
+    The order an exit inherits comes from :func:`_entry_order_reference`, which
+    for a perpendicular entry is the trunk rather than the port itself.
     """
 
     def _order(port_id: str, lines: set[str]) -> tuple[str, ...]:
@@ -1400,12 +1422,13 @@ def check_exit_inherits_entry_bundle_order(
         if len(entry_ports) != 1:
             continue
         entry_id = entry_ports[0]
+        reference_id = _entry_order_reference(graph, entry_id)
         exit_lines = set(graph.station_lines(port_id))
         if len(exit_lines) < 2 or not exit_lines.issubset(
-            graph.station_lines(entry_id)
+            graph.station_lines(reference_id)
         ):
             continue
-        entry_order = _order(entry_id, exit_lines)
+        entry_order = _order(reference_id, exit_lines)
         exit_order = _order(port_id, exit_lines)
         if entry_order != exit_order:
             violations.append(
