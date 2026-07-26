@@ -1583,6 +1583,14 @@ gallery:
       TOP entry of a same-row neighbour in another column. The bundle rises over the header
       band and drops into the consumer trunk, keeping a single left/right order across the shared
       entry port so it stays parallel without crossing at the drop.
+  - id: lr_perp_top_entry_bottom_exit
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      An LR section carrying both of its perpendicular ports - a TOP entry and a
+      BOTTOM exit. The drop lands left of the trunk, the run passes through the section, and the
+      exit seats past the trailing station so the line turns out after the marker instead of
+      folding back over its own track.
   - id: lr_perp_bottom_exit_perp_entry
     source_dir: examples/topologies
     category: Inter-section Routing

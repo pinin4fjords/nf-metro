@@ -1,0 +1,30 @@
+%%metro title: LR perpendicular pair (top entry, bottom exit)
+%%metro style: dark
+%%metro line: dna | DNA | #e6007e
+%%metro grid: intake | 0,0
+%%metro grid: mid | 0,1
+%%metro grid: report | 0,2
+
+graph LR
+    subgraph intake [Intake]
+        %%metro exit: bottom | dna
+        samplesheet[Samplesheet]
+        fastqc[FastQC]
+        samplesheet -->|dna| fastqc
+    end
+
+    subgraph mid [Alignment]
+        %%metro entry: top | dna
+        %%metro exit: bottom | dna
+        bwa[BWA-MEM2]
+        sort[Sort BAM]
+        bwa -->|dna| sort
+    end
+
+    subgraph report [Reporting]
+        %%metro entry: top | dna
+        multiqc[MultiQC]
+    end
+
+    fastqc -->|dna| bwa
+    sort -->|dna| multiqc
