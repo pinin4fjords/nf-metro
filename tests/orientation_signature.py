@@ -146,6 +146,18 @@ class RelationalSignature:
     # edge of the pair agrees only when the members happen to be equally deep --
     # an accident of glyph extents. That the group agrees on *an* edge is the
     # part the engine decides, so that is what the signature records.
+    #
+    # This family is weaker than the rest of the signature, and a divergence in
+    # it is a lead rather than a proof.  A pass that levels a group's edges can
+    # be followed by one that reclaims each box back to its own content, and
+    # content extents are glyph-driven: two boxes then share an edge only where
+    # their content offsets happen to coincide.  So a group_alignment difference
+    # between two orientations can come from label metrics rather than from two
+    # code paths, and each one needs its mechanism identified before it is
+    # treated as a defect.
+    #
+    # The other families do not have this weakness: they are ordinals or
+    # constant-driven clearances, with no dependence on text.
     aligned_groups: dict[tuple[str, int], bool] = field(default_factory=dict)
 
 
