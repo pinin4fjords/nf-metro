@@ -758,7 +758,11 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
     was seated for.
 
     Two perpendicular ports make a pair whose ends should read alike, so both
-    reserves rise to the wider of the two measured clearances, mirroring
+    reserves are the inset alone, deliberately not levelled to the wider of the
+    two measured clearances: an edge held out by content or a routing band is not
+    the port's doing, and mirroring it onto the opposite edge buys symmetry with
+    dead space -- ``tb_bottom_exit_fork_diamond``'s ``mid`` grew 39px past its
+    column mates that way.  Cf.
     :func:`nf_metro.layout.phases.row_align._perp_port_lead_edge_reserve` on the
     other axis.  Levelling only the left edge is not enough: an exit seated past
     the trailing station eats into the right padding band, so that side becomes
@@ -797,10 +801,6 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
         lo = min(x - reach[0] for x, reach in lanes)
         hi = max(x + reach[1] for x, reach in lanes)
         low_reserve = high_reserve = PERP_PORT_EDGE_INSET
-        if len(lanes) >= 2:
-            level = max(lo - section.bbox_x, section.bbox_x + section.bbox_w - hi)
-            low_reserve = max(low_reserve, level)
-            high_reserve = max(high_reserve, level)
         before = (section.bbox_x, section.bbox_w)
         grow_section_bbox_min_edge(graph, section, "x", lo - low_reserve)
         grow_section_bbox_max_edge(graph, section, "x", hi + high_reserve)
