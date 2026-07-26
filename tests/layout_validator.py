@@ -13,6 +13,7 @@ from enum import Enum
 from nf_metro.layout.constants import Y_SPACING
 from nf_metro.layout.geometry import (
     AxisFrame,
+    flow_start_coord,
     iter_coincident_stations,
     iter_section_overlaps,
     iter_serpentine_backtracks,
@@ -657,6 +658,18 @@ def check_single_layer_centering(
     return violations
 
 
+def _internal_stations_by_section(
+    graph: MetroGraph,
+) -> dict[str, list[tuple[str, float, float]]]:
+    """``(station_id, x, y)`` per section, ports and unsectioned stations dropped."""
+    grouped: dict[str, list[tuple[str, float, float]]] = defaultdict(list)
+    for sid, station in graph.stations.items():
+        if station.is_port or station.section_id is None:
+            continue
+        grouped[station.section_id].append((sid, station.x, station.y))
+    return grouped
+
+
 def check_station_as_elbow(
     graph: MetroGraph, tolerance: float = 10.0
 ) -> list[Violation]:
@@ -678,15 +691,7 @@ def check_station_as_elbow(
     """
     violations: list[Violation] = []
 
-    # Group internal (non-port) stations by section
-    section_stations: dict[str, list[tuple[str, float, float]]] = {}
-    for sid, station in graph.stations.items():
-        if station.is_port or station.section_id is None:
-            continue
-        sec_id = station.section_id
-        if sec_id not in section_stations:
-            section_stations[sec_id] = []
-        section_stations[sec_id].append((sid, station.x, station.y))
+    section_stations = _internal_stations_by_section(graph)
 
     for pid, port in graph.ports.items():
         port_station = graph.stations.get(pid)
@@ -816,33 +821,29 @@ def check_perp_entry_precedes_flow_start(
     """
     violations: list[Violation] = []
 
-    section_stations: dict[str, list[float]] = defaultdict(list)
-    for station in graph.stations.values():
-        if station.is_port or station.section_id is None:
-            continue
-        section_stations[station.section_id].append(station.y)
+    section_stations = _internal_stations_by_section(graph)
 
     for pid, port in graph.ports.items():
-        if not port.is_entry or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        if not port.is_entry:
             continue
         section = graph.sections.get(port.section_id)
         if section is None or not lanes_run_along_x(section.direction):
             continue
-        ys = section_stations.get(port.section_id, [])
-        if len(ys) < 2:
+        if port.side not in perpendicular_port_sides(section.direction):
+            continue
+        entries = section_stations.get(port.section_id, [])
+        if len(entries) < 2:
             continue
         port_station = graph.stations.get(pid)
         if port_station is None:
             continue
 
-        downward = AxisFrame.flow_sign(section.direction) > 0
-        flow_start_y = min(ys) if downward else max(ys)
-        past_start = (
-            port_station.y > flow_start_y + tolerance
-            if downward
-            else port_station.y < flow_start_y - tolerance
-        )
-        if past_start:
+        sign = AxisFrame.flow_sign(section.direction)
+        flow_start_y = flow_start_coord(section.direction, (y for _, _, y in entries))
+        assert flow_start_y is not None
+        # Scaling both sides by the flow sign makes one comparison cover a
+        # downward and an upward flow.
+        if port_station.y * sign > (flow_start_y + tolerance * sign) * sign:
             violations.append(
                 Violation(
                     check="perp_entry_precedes_flow_start",
