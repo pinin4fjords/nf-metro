@@ -587,22 +587,44 @@ _TRAILING_SIDE = {
     "TB": PortSide.BOTTOM,
     "BT": PortSide.TOP,
 }
-_FLIP_HORIZONTAL = {"LR": "RL", "RL": "LR"}
+# The section direction a flow reversal produces: reversing swaps which edge
+# is the flow-start and which is the flow-end, independent of which axis the
+# flow runs along.
+_FLOW_REVERSAL = {"LR": "RL", "RL": "LR", "TB": "BT", "BT": "TB"}
 
 
-def _connecting_flow_side(near: Section, far: Section) -> PortSide | None:
-    """The flow-axis side ``far`` sits on relative to ``near``.
+def _flow_axis_is_x(direction: str) -> bool:
+    """Whether *direction*'s flow runs along the X axis (LR/RL) rather than Y (TB/BT)."""
+    from nf_metro.layout.geometry import AxisFrame
 
-    ``LEFT``/``RIGHT`` for a horizontal ``near`` (by grid column), ``TOP``/
+    return AxisFrame.axes_for_direction(direction)[0] == "x"
+
+
+def _connecting_flow_side(
+    graph: MetroGraph, near_id: str, far_id: str
+) -> PortSide | None:
+    """The flow-axis side ``far_id`` sits on relative to ``near_id``.
+
+    ``LEFT``/``RIGHT`` for a horizontal ``near_id`` (by grid column), ``TOP``/
     ``BOTTOM`` for a vertical one (by grid row); ``None`` when the two share the
     axis coordinate, so neither side is implied.
+
+    Reads positions through :func:`_effective_grid_pos`: an explicit
+    ``%%metro grid:`` directive lands in ``graph.grid_overrides`` at parse
+    time, and only reaches ``Section.grid_col``/``grid_row`` later, in
+    section placement, so this stage must not read those fields directly.
     """
-    if near.direction in _FLIP_HORIZONTAL:
+    from nf_metro.layout.auto_layout import _effective_grid_pos
+
+    near = graph.sections[near_id]
+    near_col, near_row, *_ = _effective_grid_pos(graph, near_id)
+    far_col, far_row, *_ = _effective_grid_pos(graph, far_id)
+    if _flow_axis_is_x(near.direction):
         low, high = PortSide.LEFT, PortSide.RIGHT
-        near_pos, far_pos = near.grid_col, far.grid_col
+        near_pos, far_pos = near_col, far_col
     else:
         low, high = PortSide.TOP, PortSide.BOTTOM
-        near_pos, far_pos = near.grid_row, far.grid_row
+        near_pos, far_pos = near_row, far_row
     if far_pos < near_pos:
         return low
     if far_pos > near_pos:
@@ -710,7 +732,7 @@ def _reside_folded_flow_ports_to_grid(
 
     for sec_id in relocated:
         section = graph.sections[sec_id]
-        if section.direction not in _FLIP_HORIZONTAL:  # LR/RL carry flow on x
+        if not _flow_axis_is_x(section.direction):  # LR/RL carry flow on x
             continue
         col = section.grid_col
         for hints, cols_by_line, is_entry in (
@@ -740,16 +762,16 @@ def _reanchor_flow_axis_ports(
 ) -> None:
     """Keep a flow-axis entry/exit port on the same end as its consumer/producer.
 
-    A LEFT/RIGHT (LR/RL) or TOP/BOTTOM (TB) port lies on the section's flow
+    A LEFT/RIGHT (LR/RL) or TOP/BOTTOM (TB/BT) port lies on the section's flow
     axis.  When an entry sits on the edge opposite its consumer -- or an exit
     opposite its producer -- the connecting leg runs the length of the trunk
     and doubles straight back, folding through every intervening station
-    (#885).  Two corrections resolve it: a horizontal section whose direction
-    was inferred is re-oriented (LR<->RL) so the flow runs toward the declared
-    port and the connecting station lands beside it; a section with an explicit
-    direction (or a vertical TB one, which has no horizontal twin) instead has
-    the offending port moved to its connecting station's own edge.  Ports that
-    run with the flow, and cross-axis ports, are left alone.
+    (#885).  Two corrections resolve it: a section whose direction was
+    inferred is reversed (LR<->RL or TB<->BT) so the flow runs toward the
+    declared port and the connecting station lands beside it; a section with
+    an explicit direction instead has the offending port moved to its
+    connecting station's own edge.  Ports that run with the flow, and
+    cross-axis ports, are left alone.
     """
     consumers: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     producers: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
@@ -767,16 +789,12 @@ def _reanchor_flow_axis_ports(
         if tgt_sec:
             consumers[tgt_sec][e.line_id].add(e.target)
             if src_sec:
-                side = _connecting_flow_side(
-                    graph.sections[tgt_sec], graph.sections[src_sec]
-                )
+                side = _connecting_flow_side(graph, tgt_sec, src_sec)
                 consumer_sides[tgt_sec][e.line_id][e.target].add(side)
         if src_sec:
             producers[src_sec][e.line_id].add(e.source)
             if tgt_sec:
-                side = _connecting_flow_side(
-                    graph.sections[src_sec], graph.sections[tgt_sec]
-                )
+                side = _connecting_flow_side(graph, src_sec, tgt_sec)
                 producer_sides[src_sec][e.line_id][e.source].add(side)
 
     for sec_id, section in graph.sections.items():
@@ -790,6 +808,16 @@ def _reanchor_flow_axis_ports(
 
         folds: list[tuple[list[tuple[PortSide, list[str]]], int, PortSide]] = []
         with_flow = False
+        # Reversal re-seats a port at the section's opposite edge without
+        # moving it, trusting that the connecting station is genuinely on
+        # that edge already (only the section's own internal flow assumption
+        # is backwards).  A folding port whose connecting station resolves to
+        # no side, or the wrong one, is not actually adjacent to either edge
+        # -- the router has no direct-approach route for it regardless of
+        # which way the section faces, so reversal would just trade one
+        # unroutable shape for another.  Re-anchoring the port's declared
+        # side is the remedy left for that case.
+        misplaced_fold = False
         for hints, ep_map, side_map, is_entry in (
             (section.entry_hints, consumers.get(sec_id, {}), consumer_sides, True),
             (section.exit_hints, producers.get(sec_id, {}), producer_sides, False),
@@ -829,6 +857,14 @@ def _reanchor_flow_axis_ports(
                 )
                 if target is not None:
                     folds.append((hints, idx, target))
+                    resolved_sides = {
+                        d
+                        for lid in lines
+                        for s in eps
+                        for d in sides_for_sec.get(lid, {}).get(s, set())
+                    }
+                    if resolved_sides != {side}:
+                        misplaced_fold = True
         if not folds:
             continue
 
@@ -839,11 +875,12 @@ def _reanchor_flow_axis_ports(
         # double back) becomes a with-flow port once flipped, so it does not
         # block re-orientation.
         if (
-            section.direction in _FLIP_HORIZONTAL
+            section.direction in _FLOW_REVERSAL
             and sec_id not in graph._explicit_directions
             and not with_flow
+            and not misplaced_fold
         ):
-            new_dir = _FLIP_HORIZONTAL[section.direction]
+            new_dir = _FLOW_REVERSAL[section.direction]
             warnings.warn(
                 f"Section '{sec_id}': flow re-oriented {section.direction}->"
                 f"{new_dir} so its declared port faces its connecting section "
