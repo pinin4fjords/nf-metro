@@ -13,7 +13,6 @@ from nf_metro.layout.constants import (
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
-    PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
 )
@@ -741,34 +740,25 @@ def _section_content_hug_top(
 
 
 def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
-    """Hold a horizontal flow's left and right box edges clear of its perp ports.
+    """Hold a section's left and right edges clear of its TOP/BOTTOM ports.
 
     A TOP or BOTTOM port is pinned to a horizontal edge and free along X, so it
-    crosses the left and right edges and owes them ``PERP_PORT_EDGE_INSET`` -- the
-    rotation of what :func:`_section_content_hug_top` and
+    crosses the left and right edges and owes them ``PERP_PORT_EDGE_INSET`` --
+    the rotation of what :func:`_section_content_hug_top` and
     :func:`_predict_section_content_bottom` fold into the Y extent for a LEFT or
     RIGHT port.  Which side the port sits on settles this, not the direction the
-    section flows: a seam joins a BOTTOM exit to a TOP entry at one X, and gating
-    on flow left the two halves' right edges disagreeing by the inset.
+    section flows, since a seam joins a BOTTOM exit to a TOP entry at one X and
+    the two halves owe that X the same room.
 
     X sizing measures real stations only, so a port seated past the trailing
     station or dragged onto a drop column lands inside the padding band with
-    nothing to push the edge out.  Growing the edge is the only move
-    available: pulling the port back inside would cost it the elbow runway it
-    was seated for.
+    nothing to push the edge out.  Growing the edge is the only move available:
+    pulling the port back inside would cost it the elbow runway it was seated for.
 
-    Two perpendicular ports make a pair whose ends should read alike, so both
-    reserves are the inset alone, deliberately not levelled to the wider of the
-    two measured clearances: an edge held out by content or a routing band is not
-    the port's doing, and mirroring it onto the opposite edge buys symmetry with
-    dead space -- ``tb_bottom_exit_fork_diamond``'s ``mid`` grew 39px past its
-    column mates that way.  Cf.
-    :func:`nf_metro.layout.phases.row_align._perp_port_lead_edge_reserve` on the
-    other axis.  Levelling only the left edge is not enough: an exit seated past
-    the trailing station eats into the right padding band, so that side becomes
-    the narrow one and the pair reads lopsided the other way.  A lone port has no
-    pair to level against and keeps the bare inset, so it does not pay for a
-    symmetry it cannot show.
+    Each port owes its facing edges the inset independently.  The two are not
+    levelled against each other, because an edge held further out by content or a
+    routing band is not the port's doing, and mirroring it onto the opposite edge
+    would buy symmetry with dead space.
 
     Measured from each port's outermost drawn lane rather than the port station
     (:func:`port_bundle_edge_reach`), so a staggered bundle gets the whole inset
@@ -794,16 +784,26 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
             from nf_metro.layout.routing import compute_station_offsets
 
             offsets = compute_station_offsets(graph)
+        sec_dir = section.direction or "LR"
         lanes = [
-            (graph.stations[pid].x, port_bundle_edge_reach(graph, pid, offsets, "x"))
+            (
+                graph.stations[pid].x,
+                graph.ports[pid],
+                port_bundle_edge_reach(graph, pid, offsets, "x"),
+            )
             for pid in perp_ids
         ]
-        lo = min(x - reach[0] for x, reach in lanes)
-        hi = max(x + reach[1] for x, reach in lanes)
-        low_reserve = high_reserve = PERP_PORT_EDGE_INSET
+        lo = min(
+            x - port_edge_inset(port, sec_dir, "x", reach[0])
+            for x, port, reach in lanes
+        )
+        hi = max(
+            x + port_edge_inset(port, sec_dir, "x", reach[1])
+            for x, port, reach in lanes
+        )
         before = (section.bbox_x, section.bbox_w)
-        grow_section_bbox_min_edge(graph, section, "x", lo - low_reserve)
-        grow_section_bbox_max_edge(graph, section, "x", hi + high_reserve)
+        grow_section_bbox_min_edge(graph, section, "x", lo)
+        grow_section_bbox_max_edge(graph, section, "x", hi)
         if (section.bbox_x, section.bbox_w) != before:
             grew = True
     return grew

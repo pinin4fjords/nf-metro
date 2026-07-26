@@ -501,9 +501,10 @@ in pipeline order.
   vertical flow's LEFT/RIGHT ports. X sizing measures real stations
   only, so a port seated past the trailing station (Stage 3.4) or
   dragged onto a drop column lands inside the padding band with nothing
-  to push the edge out. Where a section carries two such ports both edges
-  level to the wider of the two measured clearances so the two ends read
-  alike.
+  to push the edge out. Each such port owes its facing edges the inset on
+  its own; the two edges are not levelled against each other, because an
+  edge already held further out by content or a routing band is not the
+  port's doing.
 - **Helper**: `_reserve_perp_port_edge_inset` (`phases/bbox.py`),
   followed by `reenforce_column_gaps` (`section_placement.py`) when any
   box grew.
@@ -511,16 +512,13 @@ in pipeline order.
   the last to move one relative to its own box).
 - **Postcondition**: No LR/RL TOP/BOTTOM port's outermost drawn lane sits
   within `PERP_PORT_EDGE_INSET` of its section's left or right edge
-  (`port_bundle_edge_reach`, as on the Y axis); where a section carries two
-  such ports both edges hold the wider of the two measured clearances, so
-  the pair reads alike whichever end is the tighter; adjacent columns still
-  keep `MIN_INTER_SECTION_GAP`.
+  (`port_bundle_edge_reach`, as on the Y axis); adjacent columns still keep
+  `MIN_INTER_SECTION_GAP`.
 - **Invariants preserved**: Station coords; every port's own edge
   anchoring (LEFT/RIGHT ports move with the edge they are pinned to).
 - **Validate guard after**: `_guard_ports_on_boundaries`.
 - **Related tests**:
-  `test_perp_port_edge_clearance_1494.py::test_horizontal_perp_ports_keep_the_designed_inset`,
-  `::test_horizontal_perp_port_pair_is_balanced`.
+  `test_perp_port_edge_clearance_1494.py::test_horizontal_perp_ports_keep_the_designed_inset`.
 - **Lifecycle:** invariant - the inset holds at the final boundary.
 
 ### Stage 3.6: level a grid column's shared-runway left edges

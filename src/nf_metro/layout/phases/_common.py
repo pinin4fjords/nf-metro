@@ -1477,8 +1477,8 @@ def port_edge_inset(
     ``PERP_PORT_EDGE_INSET`` beyond it.
 
     On X that is every TOP/BOTTOM port, whichever way its section flows: a seam
-    joins a BOTTOM exit to a TOP entry at one X, so gating on flow there left the
-    two halves' right edges disagreeing about the same bundle.
+    joins a BOTTOM exit to a TOP entry at one X, and both halves owe that X the
+    same room.
 
     On Y it is only a vertical flow's LEFT/RIGHT port.  A horizontal flow's
     LEFT/RIGHT port is its trunk arriving or leaving, not a run crossing the box,
