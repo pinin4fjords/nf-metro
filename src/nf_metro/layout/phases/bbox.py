@@ -9,6 +9,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
     MIN_BUNDLE_EDGE_CLEARANCE,
+    MIN_INTER_SECTION_GAP,
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
@@ -19,6 +20,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
+    _column_contiguous_row_groups,
     _content_station_ids,
     _content_station_ys,
     _is_side_entered_vertical_section,
@@ -802,6 +804,110 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
         if (section.bbox_x, section.bbox_w) != before:
             grew = True
     return grew
+
+
+def _column_left_neighbour_limit(graph: MetroGraph, section: Section) -> float:
+    """Leftmost X ``section``'s box may reach without crowding a left neighbour.
+
+    A section already clear to the left of ``section`` and sharing vertical
+    extent with it (headers included, since a badge protrudes above its box top)
+    keeps ``MIN_INTER_SECTION_GAP`` of routing corridor.  Inter-column gaps are
+    enforced per overlapping row band rather than per column, so the column's
+    leftmost box being clear says nothing about a row-mate further down.
+    ``-inf`` when nothing sits to the left.
+    """
+    top = section.bbox_y - SECTION_HEADER_PROTRUSION
+    bottom = section.bbox_y + section.bbox_h
+    limit = float("-inf")
+    for other in graph.sections.values():
+        if other is section or other.bbox_w <= 0:
+            continue
+        right = other.bbox_x + other.bbox_w
+        if right > section.bbox_x + SAME_COORD_TOLERANCE:
+            continue
+        if (
+            other.bbox_y - SECTION_HEADER_PROTRUSION >= bottom
+            or top >= other.bbox_y + other.bbox_h
+        ):
+            continue
+        limit = max(limit, right + MIN_INTER_SECTION_GAP)
+    return limit
+
+
+def _left_port_shares_a_line_channel(graph: MetroGraph, section: Section) -> bool:
+    """Whether a LEFT port of *section* sits on a line channel shared with others.
+
+    A junction carrying one line between just two sections passes a single stroke
+    through: moving either end only lengthens it.  A junction carrying that line
+    between three or more sections fans it, and the legs fuse onto one channel
+    turning at one corner -- so the X of any leg's port is what seats geometry the
+    other legs draw too, and levelling this port's edge would reseat their shared
+    turn.  Such a port keeps the edge it was seated on.
+    """
+    junction_ids = graph.junction_ids
+
+    def other_sections_on_line(junction_id: str, line: str) -> set[str]:
+        # Both directions: a fan is visible downstream of the junction and a merge
+        # upstream, and either shape puts several legs of *line* on one channel.
+        seen: set[str] = set()
+        stack = [junction_id]
+        others: set[str] = set()
+        while stack:
+            nid = stack.pop()
+            if nid in seen:
+                continue
+            seen.add(nid)
+            if nid in junction_ids:
+                stack += [
+                    node
+                    for e in (*graph.edges_from(nid), *graph.edges_to(nid))
+                    if e.line_id == line
+                    for node in (e.source, e.target)
+                ]
+                continue
+            node = graph.ports.get(nid) or graph.stations.get(nid)
+            sec_id = getattr(node, "section_id", None)
+            if sec_id and sec_id != section.id:
+                others.add(sec_id)
+        return others
+
+    for pid in section.port_ids:
+        port = graph.ports.get(pid)
+        if port is None or port.side is not PortSide.LEFT:
+            continue
+        for e in (*graph.edges_from(pid), *graph.edges_to(pid)):
+            for hop in (e.source, e.target):
+                if hop in junction_ids and (
+                    len(other_sections_on_line(hop, e.line_id)) > 1
+                ):
+                    return True
+    return False
+
+
+def _left_align_column_bboxes_only(graph: MetroGraph) -> None:
+    """Align bbox left edges within each grid column by growing boxes leftward.
+
+    The X mirror of :func:`...row_align._top_align_row_bboxes_only`: only
+    ``bbox_x`` and ``bbox_w`` move, so interior stations stay put and the
+    cross-max edge is preserved -- a column placement right-aligned keeps its
+    shared right edge and gains a shared left edge.  LEFT ports ride the left
+    edge and are carried out to it.
+
+    The column's leftmost box sets the target.  Two things hold a box short of
+    it: a left neighbour whose own row band it would grow over
+    (:func:`_column_left_neighbour_limit`), and a LEFT port that seats a corner
+    shared with a sibling leg of the same line
+    (:func:`_left_port_shares_a_line_channel`).
+    """
+    for group in _column_contiguous_row_groups(graph):
+        target = min(s.bbox_x for s in group)
+        for section in group:
+            if section.bbox_x - target <= SAME_COORD_TOLERANCE:
+                continue
+            if _left_port_shares_a_line_channel(graph, section):
+                continue
+            limit = _column_left_neighbour_limit(graph, section)
+            grow_section_bbox_min_edge(graph, section, "x", max(target, limit))
 
 
 def _section_band_is_empty(graph: MetroGraph, section: Section) -> bool:

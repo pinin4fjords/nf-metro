@@ -81,6 +81,7 @@ from nf_metro.layout.phases.balancing import (  # noqa: F401
 from nf_metro.layout.phases.bbox import (  # noqa: F401
     _aggregate_bypass_spans,
     _fit_bboxes_to_content_top,
+    _left_align_column_bboxes_only,
     _lift_would_cause_uturn,
     _loop_corner_x,
     _min_section_bbox_top,
@@ -1481,6 +1482,13 @@ def _compute_section_layout(
     if _reserve_perp_port_edge_inset(graph):
         reenforce_column_gaps(graph)
     _snap(graph, "3.5")
+
+    # Stage 3.6: Level the left edges of a grid column's boxes, the X mirror of
+    # the row top-align at Stage 5.3.  Runs once every X-axis box mover has
+    # settled (Stage 1.1 sizing, the Stage 3.3 runway grow, the Stage 3.5 perp
+    # inset), so the levelled edge is not re-broken by a later widen.
+    _left_align_column_bboxes_only(graph)
+    _snap(graph, "3.6")
 
     if validate:
         _guard_ports_on_boundaries(graph, "after top-align")
