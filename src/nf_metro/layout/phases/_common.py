@@ -1419,6 +1419,22 @@ def _fan_offsets(n: int) -> list[int]:
     return list(range(-(n // 2), n // 2 + 1))
 
 
+_LANE_SIGNS_ON_AXIS: dict[str, frozenset[float]] = {
+    axis: frozenset(
+        AxisFrame.secondary_sign_for(direction)
+        for direction in FLOW_DIRECTIONS
+        if AxisFrame.axes_for_direction(direction)[1] == axis
+    )
+    for axis in ("x", "y")
+}
+"""Lane-fan signs of the flows that stack their lines on each axis.
+
+A pure function of the axis over immutable inputs, so it is settled at import
+rather than per call: ``port_bundle_edge_reach`` asks it once per port per sizing
+pass, thousands of times over a corpus render.
+"""
+
+
 def port_bundle_edge_reach(
     graph: MetroGraph,
     pid: str,
@@ -1449,12 +1465,7 @@ def port_bundle_edge_reach(
     if axis == travel_axis:
         return 0.0, 0.0
     min_off, max_off = _station_bundle_offset_span(graph, pid, offsets)
-    lane_signs = {
-        AxisFrame.secondary_sign_for(direction)
-        for direction in FLOW_DIRECTIONS
-        if AxisFrame.axes_for_direction(direction)[1] == axis
-    }
-    if lane_signs == {1.0}:
+    if _LANE_SIGNS_ON_AXIS[axis] == frozenset({1.0}):
         return max(0.0, -min_off), max(0.0, max_off)
     reach = max(abs(min_off), abs(max_off))
     return reach, reach

@@ -1040,7 +1040,10 @@ def _fit_bboxes_to_content_top(
 
 
 def refit_tops_after_entry_resnap(
-    graph: MetroGraph, section_ids: set[str], section_y_padding: float
+    graph: MetroGraph,
+    section_ids: set[str],
+    section_y_padding: float,
+    offsets: dict[tuple[str, str], float] | None = None,
 ) -> None:
     """Give back top slack a re-snapped perpendicular entry port no longer needs.
 
@@ -1056,13 +1059,15 @@ def refit_tops_after_entry_resnap(
     (:func:`_guard_side_entered_vertical_top_not_below_feeder`), and never raises
     the top: growing is Stage 6.15a's job, bounded there by the row above.
     """
-    from nf_metro.layout.routing import compute_station_offsets
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
 
     feeder_tops = {
         section.id: neighbour.bbox_y
         for section, neighbour in _side_entered_vertical_feeder_pairs(graph)
     }
-    offsets = compute_station_offsets(graph)
     for sid in section_ids:
         section = graph.sections.get(sid)
         if section is None or section.bbox_h <= 0:
