@@ -289,9 +289,11 @@ def _section_lacks_flow_aligned_port(graph: MetroGraph, section: Section) -> boo
 
     An internally-horizontal (LR/RL) section whose only ports are on the
     top/bottom (or a vertical section with only left/right ports) has no
-    flow-aligned edge to pin its run to the bbox, so the engine lays the
-    run out past the box.  The bbox-containment guard uses this to emit an
-    actionable error for that unsupported directive combination.
+    flow-aligned edge to pin its run to the bbox.  Stage 3.3 opens the
+    perpendicular-entry runway and carries the bbox with it, so such a section
+    lays out inside its own box; this remains the diagnosis the
+    bbox-containment guard reaches for when one nonetheless spills, because
+    that combination is where the run has nothing anchoring it.
     """
     flow_sides = _FLOW_ALIGNED_SIDES.get(section.direction)
     if flow_sides is None:
@@ -307,10 +309,14 @@ def _guard_stations_within_bbox(graph: MetroGraph, phase: str) -> None:
     Unlike :func:`_guard_stations_in_sections` (which runs only under
     ``validate`` mid-layout and checks marker-edge containment on the Y
     axis), this guard runs on every layout -- including the default render
-    path -- and checks the *settled* bbox on both axes.  Forcing
-    perpendicular ports on a horizontal section lays its stations out past
-    the right of its own bbox, and the engine must reject that loudly
-    rather than render it silently.
+    path -- and checks the *settled* bbox on both axes, so a station left
+    outside its own box is refused rather than drawn.
+
+    A section whose ports are all perpendicular to its flow gets the extra
+    advice in :data:`FLOW_ALIGNED_PORT_ADVICE`, since that shape has no
+    flow-aligned port anchoring its run; it is no longer sufficient on its own
+    to put a station outside the box (see
+    ``test_lr_section_all_perpendicular_ports_lays_out_in_its_box``).
     """
     for sid, st, sec in iter_stations_outside_bbox(graph, GUARD_TOLERANCE):
         detail = (
@@ -590,9 +596,6 @@ def _guard_ports_clear_unanchored_box_edges(
     transient flush window through Stage 6.4), so the clearance is a property
     of the settled layout, not of every stage boundary.
     """
-    # Sub-pixel, so a port a few px inside the border still counts as a
-    # violation of a floor this small.
-    tolerance = SAME_COORD_TOLERANCE
     if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
 
@@ -609,7 +612,7 @@ def _guard_ports_clear_unanchored_box_edges(
         else:
             coord, box_low, box_high = st.x, sec.bbox_x, sec.bbox_x + sec.bbox_w
         clearance = min(coord - low_reach - box_low, box_high - coord - high_reach)
-        if clearance < PERP_PORT_EDGE_CLEARANCE - tolerance:
+        if clearance < PERP_PORT_EDGE_CLEARANCE - SAME_COORD_TOLERANCE:
             bundle = (
                 ""
                 if not (low_reach or high_reach)
