@@ -693,8 +693,11 @@ in pipeline order.
 - **Helper**: `_compact_row_content_to_bbox_top` (`phases/row_align.py`).
 - **Precondition**: Bbox tops aligned (Stage 5.3).
 - **Postcondition**: Each row's contiguous column group's bbox top
-  sits at `min(content_top) - section_y_padding`. Stations shift up
-  by the same delta as their bbox.
+  sits at `min(content_top) - section_y_padding`, except where
+  `_perp_port_lead_edge_reserve` caps the shift so a perpendicular port
+  keeps `PERP_PORT_EDGE_INSET` inside the edge -- there the top stays
+  higher and the group's content keeps more than the padding above it.
+  Stations shift up by the same delta as their bbox.
 - **Invariants preserved**: Inter-station relative positions inside
   each section. Trunk Y stays aligned across the row.
 - **Related tests**: `test_section_bbox_has_bottom_padding`.
@@ -1029,9 +1032,10 @@ in pipeline order.
   `_shift_graph_into_canvas`.
 - **Precondition**: All content Ys final (post-6.14).
 - **Postcondition**: Each bbox top sits `section_y_padding` above its
-  highest marker, bounded by the row above. For a section with an empty
-  band (no port / bypass above content) this is an equality, not just a
-  floor: the excess band is reclaimed.
+  highest marker, or `PERP_PORT_EDGE_INSET` above a perpendicular port
+  that reaches higher, whichever is further out. For a section with an
+  empty band (no port / bypass above content) the padding term is an
+  equality, not just a floor: the excess band is reclaimed.
 - **Invariants preserved**: Station Ys (only bbox tops move). Resolves #406.
 - **Related tests**: `test_section_bbox_has_top_padding`,
   `test_section_bbox_top_hugs_content`.

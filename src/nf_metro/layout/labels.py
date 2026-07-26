@@ -44,7 +44,6 @@ from nf_metro.layout.constants import (
     LABEL_WRAP_MIN_LINE_CHARS,
     PORT_LABEL_MAX_DX,
     RAIL_KNOB_RADIUS_RATIO,
-    ROTATION_LANE_SIGN,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
     STATION_STROKE_APPROX,
@@ -1422,12 +1421,9 @@ def _place_tb_label(
     # accessor uses -- a downward (TB) rotation rides x - offset, its upward (BT)
     # image x + offset -- so the label clears the real pill rather than a mirror
     # of it.  A positive-fan section overrides that to the +x side.
-    section = graph.sections.get(station.section_id or "")
-    sign = (
-        AxisFrame.secondary_sign_for(section.direction)
-        if section is not None
-        else ROTATION_LANE_SIGN
-    )
+    # _places_label_beside_pill only admits a station whose section resolves.
+    section = graph.sections[station.section_id or ""]
+    sign = AxisFrame.secondary_sign_for(section.direction)
     if station.section_id in ctx.tb_positive_fan:
         sign = 1.0
     offsets = ctx.station_offsets
