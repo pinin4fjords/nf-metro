@@ -5702,18 +5702,16 @@ def test_section_bbox_contains_all_content(fixture, params):
             )
 
 
-def test_lr_section_all_perpendicular_ports_rejected():
+def test_lr_section_all_perpendicular_ports_lays_out_in_its_box():
     """An internally-LR/RL section whose only ports are perpendicular
-    (every entry/exit on top/bottom) has no flow-aligned edge to anchor
-    its horizontal run, so its stations are laid out past the right of
-    its own bbox.  The render path must flag this loudly with an actionable
-    message naming the section, rather than rendering it silently (#424).
+    (every entry/exit on top/bottom) keeps its horizontal run inside its own
+    bbox and renders without the Tier-A containment guard firing.
 
-    The Tier-A bbox guard runs on the render path (#923): a default render
-    warns and proceeds best-effort, ``--strict`` raises ``LayoutInvariantError``.
+    The TOP entry drop opens a runway before the first column and the BOTTOM
+    exit seats past the trailing one, so the box has to grow with the run; the
+    stricter render path (#923) is the backstop that the growth actually
+    happened.
     """
-    from nf_metro.layout.phases.guards import LayoutInvariantError
-
     text = (
         FIXTURES / "regressions" / "lr_perpendicular_ports_overflow.mmd"
     ).read_text()
@@ -5724,19 +5722,16 @@ def test_lr_section_all_perpendicular_ports_rejected():
         compute_layout(graph)
         return graph
 
-    with pytest.warns(UserWarning, match="Tier-A invariants") as record:
-        render_svg(_laid_out(), THEMES["nfcore"])
-    warned = "\n".join(str(w.message).lower() for w in record)
-    assert "annotation" in warned
-    assert "perpendicular" in warned or "flow-aligned" in warned
+    graph = _laid_out()
+    assert not _bbox_spilled_stations(graph)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        render_svg(graph, THEMES["nfcore"])
+    assert not [w for w in record if "Tier-A invariants" in str(w.message)]
 
     strict_graph = _laid_out()
     strict_graph.strict = True
-    with pytest.raises(LayoutInvariantError) as excinfo:
-        render_svg(strict_graph, THEMES["nfcore"])
-    msg = str(excinfo.value).lower()
-    assert "annotation" in msg
-    assert "perpendicular" in msg or "flow-aligned" in msg
+    render_svg(strict_graph, THEMES["nfcore"])
 
 
 def _bbox_spilled_stations(graph: MetroGraph) -> list[str]:

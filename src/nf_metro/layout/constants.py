@@ -331,6 +331,17 @@ across the gap width so the elbows stay clear.  Sized at twice the corner
 radius: an overlap that small is entirely inside the two corners' rounding
 zones, never a real parallel run."""
 
+PERP_PORT_EDGE_CLEARANCE: float = CURVE_RADIUS
+"""Minimum room a port keeps from the two bbox edges it is *not* anchored to.
+
+A port is pinned to one edge (a LEFT/RIGHT port to a vertical one, a TOP/BOTTOM
+port to a horizontal one) and is free along its other axis.  Flush against a
+second edge, its inbound run is drawn along the box border and the two read as
+one stroke; it also blocks the section header's above-left position, pushing
+the badge away from the corner it labels.  One curve radius is the shortest
+separation that still reads as a route inside the box rather than on its edge.
+"""
+
 MERGE_ROUTE_MARGIN: float = 2 * CURVE_RADIUS
 """Distance between a section bbox edge and any merge branch/trunk
 vertical line in the inter-section gap."""
@@ -585,6 +596,19 @@ fixtures (n=1, 2) while still ensuring clearance for wide fans (n>=3).
 
 MIN_PORT_STATION_GAP: float = 16.0
 """Minimum gap between entry port and internal stations (TB perpendicular)."""
+
+PERP_PORT_EDGE_INSET: float = SECTION_Y_PADDING - MIN_PORT_STATION_GAP
+"""Room a perpendicular port keeps from the flow-axis bbox edge it faces.
+
+A port seated the minimum station gap beyond the outermost station already earns
+this much, because the edge itself trails that station by ``SECTION_Y_PADDING``.
+A port seated further out -- a perpendicular entry sits a whole entry shift clear
+of the row -- would otherwise be left with only the remainder and read as pinched
+against the border, so the box extends to give it the same room instead.
+
+Distinct from ``PERP_PORT_EDGE_CLEARANCE``: that is the hard floor a runtime
+guard enforces, this is the wider spacing placement aims for.
+"""
 
 STATION_ELBOW_TOLERANCE: float = 12.0
 """Tolerance for station-as-elbow detection."""

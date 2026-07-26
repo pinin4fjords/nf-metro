@@ -569,6 +569,13 @@ gallery:
       A BT section's trailing TOP (perpendicular) exit taking the up-and-over corridor
       into the LEFT entry of a neighbouring LR section, a two-line bundle staying parallel across
       the seam (#1044).
+  - id: bt_perp_left_entry_right_exit
+    source_dir: examples/topologies
+    category: TB / BT Sections
+    description:
+      "A BT section carrying both perpendicular ports at once: a LEFT entry and a
+      RIGHT exit, each seated clear of the flow end it faces. An upward flow starts
+      at the bottom, so the entry seats below the row rather than above it (#1494)."
   - id: bt_to_tb
     source_dir: examples/topologies
     category: TB / BT Sections
@@ -1576,6 +1583,31 @@ gallery:
       TOP entry of a same-row neighbour in another column. The bundle rises over the header
       band and drops into the consumer trunk, keeping a single left/right order across the shared
       entry port so it stays parallel without crossing at the drop.
+  - id: lr_perp_top_entry_bottom_exit
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      An LR section carrying both of its perpendicular ports - a TOP entry and a
+      BOTTOM exit. The drop lands left of the trunk, the run passes through the section, and the
+      exit seats past the trailing station so the line turns out after the marker instead of
+      folding back over its own track.
+  - id: lr_top_entry_bundle_east_turn
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      A two-line bundle dropping through an LR section's TOP entry, turning east
+      into its first station and carrying on out of the flow-aligned RIGHT exit. The feeder's
+      run turns down onto the drop column and the column turns into the trunk, so the orders
+      either side of those two corners have to nest opposite ways for both bends to draw as
+      concentric arcs.
+  - id: rl_bottom_exit_lr_top_entry_bundle
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "The same seam with a westward-running feeder: an RL row's BOTTOM exit
+      drops into an LR section's TOP entry. The feeder turns down the other way, so its
+      bottommost lane takes the eastmost drop channel and the column order is the mirror of
+      the eastward-feeder case."
   - id: lr_perp_bottom_exit_perp_entry
     source_dir: examples/topologies
     category: Inter-section Routing

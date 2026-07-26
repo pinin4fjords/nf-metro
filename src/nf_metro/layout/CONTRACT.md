@@ -155,7 +155,7 @@ groupings, not axis swaps, and likewise stay.
 | after Stage 1.1 | `_guard_section_bboxes_positive` |
 | after Stage 2.1 | finite coords, stations-in-sections, bboxes-positive |
 | after Stage 3.1 | ports-on-boundaries |
-| after exit-port align + row re-flush (Stage 3.4) | ports-on-boundaries |
+| after exit-port align + row re-flush and the X-axis perp-port inset (Stages 3.4 to 3.5) | ports-on-boundaries |
 | after each Pass C sub-stage (bisection) | finite coords, bboxes-positive, ports-on-boundaries, station-x-column-drift, plus three phase-gated guards (see below) |
 | after final | bisection set (all unconditional) + off-track-above-anchor, row-trunk-cy-consistent, inter-section-routes-in-row-band |
 
@@ -447,11 +447,15 @@ in pipeline order.
 - **Precondition**: Stage 3.2 finalised LR/RL entry-port X for perp
   entries.
 - **Postcondition**: Internal stations in such sections sit at least
-  `x_spacing` away from the perp entry port X.
-- **Invariants preserved**: Station Y, ports, bboxes (X shift is
-  bbox-bounded).
+  `ENTRY_SHIFT_LR * x_spacing` away from the perp entry port X, and the
+  section's own bbox still contains the shifted run: a drop inside the
+  run's span shifts the run further than `_adjust_lr_entry_inset`
+  reserved, so the trailing edge grows by the uncovered remainder.
+- **Invariants preserved**: Station Y, ports (the flow-axis exit ports
+  re-pin to a moved edge), bboxes (X shift is bbox-bounded).
 - **Related tests**: `test_terminus_not_directly_after_diagonal`,
-  `test_no_kink_at_section_boundary` (entry-side geometry).
+  `test_no_kink_at_section_boundary` (entry-side geometry),
+  `test_lr_perp_port_pair_1539.py::test_run_stays_inside_its_own_box`.
 - **Lifecycle:** invariant - the perpendicular-entry runway
   (internal-station X clearance) holds at the final boundary.
 
@@ -461,6 +465,11 @@ in pipeline order.
   push the target section down via `_resolve_tb_exit_y`; the move then
   re-flushes the tops of the rows it pushed so it cleans up after
   itself rather than leaving the correction to a separate stage.
+  Also seats every single-row LR/RL section's TOP/BOTTOM exit past its
+  trailing station (`_align_perpendicular_exit_port`), whether or not
+  the section also carries a flow-aligned port: an exit left on its
+  feeder's own X collapses the turn to a zero-length corner that the
+  lane fan then splays the wrong way round.
 - **Helper**: `_align_exit_ports` (`phases/ports.py`), dispatching to
   `_align_lr_exit_port` and finishing with a `_top_align_row_sections`
   (`phases/row_align.py`) call scoped to the pushed rows.
@@ -484,6 +493,68 @@ in pipeline order.
   `test_exit_port_row_reflush`.
 - **Lifecycle:** invariant - the fold/TB exit-port no-kink Y holds at
   the end (re-asserted by Stage 5.5).
+
+### Stage 3.5: reserve the perpendicular-port edge inset on X
+- **Purpose**: Grow a horizontal-flow (LR/RL) section's left and right
+  bbox edges so each TOP/BOTTOM port keeps `PERP_PORT_EDGE_INSET` from
+  them, the X-axis rotation of the inset the Y sizing keeps for a
+  vertical flow's LEFT/RIGHT ports. X sizing measures real stations
+  only, so a port seated past the trailing station (Stage 3.4) or
+  dragged onto a drop column lands inside the padding band with nothing
+  to push the edge out. Each such port owes its facing edges the inset on
+  its own; the two edges are not levelled against each other, because an
+  edge already held further out by content or a routing band is not the
+  port's doing.
+- **Helper**: `_reserve_perp_port_edge_inset` (`phases/bbox.py`),
+  followed by `reenforce_column_gaps` (`section_placement.py`) when any
+  box grew.
+- **Precondition**: Perpendicular port X settled (Stages 3.2 to 3.4 are
+  the last to move one relative to its own box).
+- **Postcondition**: No LR/RL TOP/BOTTOM port's outermost drawn lane sits
+  within `PERP_PORT_EDGE_INSET` of its section's left or right edge
+  (`port_bundle_edge_reach`, as on the Y axis); adjacent columns still keep
+  `MIN_INTER_SECTION_GAP`.
+- **Invariants preserved**: Station coords; every port's own edge
+  anchoring (LEFT/RIGHT ports move with the edge they are pinned to).
+- **Validate guard after**: `_guard_ports_on_boundaries`.
+- **Related tests**:
+  `test_perp_port_edge_clearance_1494.py::test_horizontal_perp_ports_keep_the_designed_inset`.
+- **Lifecycle:** invariant - the inset holds at the final boundary.
+
+### Stage 3.6: level a grid column's shared-runway left edges
+- **Purpose**: Give column mates that start their content at one X a
+  common bbox left edge, so the runway in front of that shared content
+  column is the same width in each. The X mirror of the row top-align
+  (Stages 5.3 / 6.9), narrowed: a grid row's sections share a trunk Y, so
+  their tops are always comparable, whereas a grid column's sections share
+  no trunk X, and levelling boxes whose content starts at different X
+  moves an edge without moving anything a viewer reads.
+- **Helper**: `_left_align_column_bboxes_only` (`phases/bbox.py`), grouping
+  via `_column_contiguous_row_groups` (`phases/_common.py`) then
+  `_shared_left_runway_runs` (`phases/bbox.py`).
+- **Precondition**: Every X-axis box mover has run - Stage 1.1 sizing,
+  the Stage 3.3 perp-entry runway grow, the Stage 3.5 perp inset - so the
+  levelled edge is not re-broken by a later widen.
+- **Postcondition**: Within each maximal run of adjacent grid rows in one
+  column whose sections' leftmost content stations share an X, every
+  section shares the run's leftmost `bbox_x`, except one held short by a
+  left neighbour overlapping its own row band (which keeps
+  `MIN_INTER_SECTION_GAP` of inter-column corridor). Members of a packed
+  cell are out of scope: they sit side-by-side along X inside one cell, so
+  no common vertical edge exists. A rail-flagged section breaks the run:
+  `_retrofit_section_rails_phase` re-derives its interior from its bbox, so
+  growing its left edge would slide its stations rather than widen a
+  runway in front of them.
+- **Invariants preserved**: Station coords (only `bbox_x` / `bbox_w`
+  move); the cross-max (right) edge; every port's own edge anchoring
+  (LEFT ports move with the edge they are pinned to). Because a run's
+  members share a content X, growing each to the run's leftmost edge can
+  only raise a narrower runway to the widest already present in the run,
+  so the spread of runway widths within a grid column never grows.
+- **Validate guard after**: `_guard_ports_on_boundaries`.
+- **Related tests**: `test_column_left_edge_alignment.py`.
+- **Lifecycle:** invariant - the levelled edge holds at the final
+  boundary for the sections the stage moved.
 
 ### Stage 4.1: align ports to downstream
 - **Purpose**: For non-fold LR/RL sections, pull exit-entry port
@@ -693,8 +764,14 @@ in pipeline order.
 - **Helper**: `_compact_row_content_to_bbox_top` (`phases/row_align.py`).
 - **Precondition**: Bbox tops aligned (Stage 5.3).
 - **Postcondition**: Each row's contiguous column group's bbox top
-  sits at `min(content_top) - section_y_padding`. Stations shift up
-  by the same delta as their bbox.
+  sits at `min(content_top) - section_y_padding`, except where
+  `_perp_port_lead_edge_reserve` caps the shift so a perpendicular port
+  keeps `PERP_PORT_EDGE_INSET` inside the edge -- there the top stays
+  higher and the group's content keeps more than the padding above it.
+  The reserve is measured from the port station, which is also its topmost
+  drawn lane: a port's bundle staggers below it, never above
+  (`port_bundle_edge_reach`).
+  Stations shift up by the same delta as their bbox.
 - **Invariants preserved**: Inter-station relative positions inside
   each section. Trunk Y stays aligned across the row.
 - **Related tests**: `test_section_bbox_has_bottom_padding`.
@@ -977,9 +1054,12 @@ in pipeline order.
 - **Precondition**: All content Ys final.
 - **Postcondition**: Section bbox bottoms sit `section_y_padding`
   below the deepest content (trunk alignment unaffected -- only
-  bottom shrinks).  For each row pair, the row gap is `section_y_gap`
-  (no more, no less, except where rowspan sections filled their full
-  row claim).
+  bottom shrinks), and clear the lowest drawn lane of every port the box
+  holds: `PERP_PORT_EDGE_INSET` for a perpendicular port, otherwise
+  `PERP_PORT_EDGE_CLEARANCE`, both measured from the port's outermost lane
+  rather than the port station (`port_bundle_edge_reach`).  For each row pair,
+  the row gap is `section_y_gap` (no more, no less, except where rowspan
+  sections filled their full row claim).
 - **Invariants preserved**: Bbox tops. Within-row trunk Ys. Bbox
   heights of upper rows.
 - **Related tests**: `test_section_bbox_has_bottom_padding`,
@@ -1029,9 +1109,13 @@ in pipeline order.
   `_shift_graph_into_canvas`.
 - **Precondition**: All content Ys final (post-6.14).
 - **Postcondition**: Each bbox top sits `section_y_padding` above its
-  highest marker, bounded by the row above. For a section with an empty
-  band (no port / bypass above content) this is an equality, not just a
-  floor: the excess band is reclaimed.
+  highest marker, or `PERP_PORT_EDGE_INSET` above the topmost drawn lane of a
+  perpendicular port that reaches higher, whichever is further out. For a
+  section with an empty band (no port / bypass above content) the padding term
+  is an equality, not just a floor: the excess band is reclaimed. Both port
+  terms are measured from the port's outermost lane rather than the port
+  station (`port_bundle_edge_reach`), and a port the inset does not cover still
+  owes `PERP_PORT_EDGE_CLEARANCE` past that lane.
 - **Invariants preserved**: Station Ys (only bbox tops move). Resolves #406.
 - **Related tests**: `test_section_bbox_has_top_padding`,
   `test_section_bbox_top_hugs_content`.

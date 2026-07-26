@@ -12,6 +12,8 @@ from nf_metro.layout.constants import (
     COORD_GROUP_DIGITS_COARSE,
     COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
+    PERP_PORT_EDGE_CLEARANCE,
+    PERP_PORT_EDGE_INSET,
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
@@ -25,6 +27,7 @@ from nf_metro.layout.geometry import (
 )
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.parser.model import (
+    FLOW_DIRECTIONS,
     Edge,
     MetroGraph,
     Port,
@@ -1014,6 +1017,46 @@ def _row_contiguous_column_groups(
     return result
 
 
+def _column_contiguous_row_groups(
+    graph: MetroGraph,
+) -> list[list[Section]]:
+    """Group laid-out sections by grid column into contiguous row runs.
+
+    The X mirror of :func:`_row_contiguous_column_groups`: each returned group
+    has at least 2 sections in adjacent grid rows within one column.  Adjacency
+    reads the start row only, matching the row version's use of the start
+    column, so a section spanning several rows joins only its start row's
+    neighbours.
+
+    Members of a packed cell are excluded.  A packed cell lays its sections
+    side-by-side along X inside one grid cell, so they share a column while
+    sitting at different X -- there is no common vertical edge for them to
+    reach without one growing over another.
+    """
+    packed = {m for members in graph.cell_packs.values() for m in members}
+    by_col: dict[int, list[Section]] = defaultdict(list)
+    for section in graph.sections.values():
+        if section.bbox_w > 0 and section.grid_col >= 0 and section.id not in packed:
+            by_col[section.grid_col].append(section)
+
+    result: list[list[Section]] = []
+    for col in by_col.values():
+        if len(col) < 2:
+            continue
+        col_sorted = sorted(col, key=lambda s: s.grid_row)
+        group = [col_sorted[0]]
+        for s in col_sorted[1:]:
+            if s.grid_row - group[-1].grid_row <= 1:
+                group.append(s)
+            else:
+                if len(group) >= 2:
+                    result.append(group)
+                group = [s]
+        if len(group) >= 2:
+            result.append(group)
+    return result
+
+
 def _is_side_entered_vertical_section(graph: MetroGraph, section: Section) -> bool:
     """Whether *section* is a vertical-flow (TB/BT) section entered from a
     perpendicular side.
@@ -1374,6 +1417,105 @@ def _fan_offsets(n: int) -> list[int]:
     if n % 2 == 0:
         return list(range(-(n // 2), 0)) + list(range(1, n // 2 + 1))
     return list(range(-(n // 2), n // 2 + 1))
+
+
+_LANE_SIGNS_ON_AXIS: dict[str, frozenset[float]] = {
+    axis: frozenset(
+        AxisFrame.secondary_sign_for(direction)
+        for direction in FLOW_DIRECTIONS
+        if AxisFrame.axes_for_direction(direction)[1] == axis
+    )
+    for axis in ("x", "y")
+}
+"""Lane-fan signs of the flows that stack their lines on each axis.
+
+A pure function of the axis over immutable inputs, so it is settled at import
+rather than per call: ``port_bundle_edge_reach`` asks it once per port per sizing
+pass, thousands of times over a corpus render.
+"""
+
+
+def port_bundle_edge_reach(
+    graph: MetroGraph,
+    pid: str,
+    offsets: dict[tuple[str, str], float] | None,
+    axis: str,
+) -> tuple[float, float]:
+    """``(low, high)`` reach of *pid*'s drawn bundle past the port station on *axis*.
+
+    The port analogue of :func:`_bundle_edge_padding`'s ``edge_reach``: a port's
+    lines cross its edge staggered by their per-line offsets
+    (:func:`_station_bundle_offset_span`), so the outermost drawn lane sits that
+    far off the port station and room measured from the station alone over-states
+    what the lane gets.
+
+    The run through a port is normal to the edge the port is pinned to, so its
+    stagger lands on the port's *free* axis and nowhere else -- hence
+    ``(0.0, 0.0)`` for the other one.  Which side of the station it lands on is
+    the lane sign (:meth:`AxisFrame.secondary_sign_for`) of the flows that stack
+    lines on *axis*: the flows stacking on Y all sign it ``+1``, so a LEFT/RIGHT
+    port's bundle rides wholly on the +Y side of it, while the flows stacking on X
+    disagree (TB fans one way, BT the other), leaving a TOP/BOTTOM port's bundle
+    free to sit either side and both sides to be assumed.
+    """
+    port = graph.ports.get(pid)
+    if port is None or offsets is None:
+        return 0.0, 0.0
+    travel_axis = "x" if port.side in (PortSide.LEFT, PortSide.RIGHT) else "y"
+    if axis == travel_axis:
+        return 0.0, 0.0
+    min_off, max_off = _station_bundle_offset_span(graph, pid, offsets)
+    if _LANE_SIGNS_ON_AXIS[axis] == frozenset({1.0}):
+        return max(0.0, -min_off), max(0.0, max_off)
+    reach = max(abs(min_off), abs(max_off))
+    return reach, reach
+
+
+def port_edge_inset(
+    port: Port | None,
+    section_direction: str,
+    axis: str,
+    lane_reach: float = 0.0,
+) -> float:
+    """Room *port* owes a bbox edge normal to *axis* (``"x"`` or ``"y"``).
+
+    A station flagged as a port but carrying no ``Port`` record has no side to
+    judge by, so it owes nothing and stays hard-contained.
+
+    A port pinned to that edge belongs on it and owes nothing: an LR section's
+    TOP port *is* its top edge.  A port free along *axis* crosses the edges normal
+    to it and reads as running along the border unless the box keeps
+    ``PERP_PORT_EDGE_INSET`` beyond it.
+
+    On X that is every TOP/BOTTOM port, whichever way its section flows: a seam
+    joins a BOTTOM exit to a TOP entry at one X, and both halves owe that X the
+    same room.
+
+    On Y it is only a vertical flow's LEFT/RIGHT port.  A horizontal flow's
+    LEFT/RIGHT port is its trunk arriving or leaving, not a run crossing the box,
+    so how far it sits from the top and bottom edges is the content padding's
+    business -- reserving against it instead grows a box into its neighbours.
+
+    ``lane_reach`` is how far the port's drawn bundle extends past the port
+    station toward that edge (:func:`port_bundle_edge_reach`).  Both insets are
+    room the outermost *drawn lane* owes the border rather than room the station
+    owes it, so the reach adds on top: a bundle staggered 12px off its port would
+    otherwise leave its outer lane 12px short of what the inset advertises.  A
+    port the wider inset does not cover still owes
+    ``PERP_PORT_EDGE_CLEARANCE`` past its outermost lane, the floor
+    :func:`...guards._guard_ports_clear_unanchored_box_edges` enforces.
+    """
+    if port is None:
+        return 0.0
+    reach = max(0.0, lane_reach)
+    if axis == "y" and port.side in (PortSide.LEFT, PortSide.RIGHT):
+        if lanes_run_along_x(section_direction):
+            return reach + PERP_PORT_EDGE_INSET
+    elif axis == "x" and port.side in (PortSide.TOP, PortSide.BOTTOM):
+        return reach + PERP_PORT_EDGE_INSET
+    if reach:
+        return reach + PERP_PORT_EDGE_CLEARANCE
+    return 0.0
 
 
 def _expand_bbox_for_y(section: Section, y: float) -> None:

@@ -16,6 +16,7 @@ from typing import Literal
 from nf_metro.options import INVALID, LAYOUT_OPTIONS, LayoutOption, coerce
 from nf_metro.parser.grammar import _split_csv, _unquote
 from nf_metro.parser.model import (
+    FLOW_DIRECTIONS,
     MARKER_FILL_OPEN,
     MARKER_FILL_SOLID,
     MARKER_SHAPE_CIRCLE,
@@ -538,7 +539,7 @@ def _apply_scoped_directive(
         _warn_directive(key, "must appear inside a subgraph; ignoring")
     elif key == "direction":
         direction = value.upper()
-        if direction in ("LR", "RL", "TB", "BT"):
+        if direction in FLOW_DIRECTIONS:
             graph.sections[section_id].direction = direction
             graph._explicit_directions.add(section_id)
         else:

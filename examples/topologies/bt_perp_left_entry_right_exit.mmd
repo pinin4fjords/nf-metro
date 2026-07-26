@@ -1,0 +1,47 @@
+%%metro title: BT Left-Entry / Right-Exit Perpendicular Ports
+%%metro style: dark
+%%metro line: dna | DNA | #e63946
+%%metro line: rna | RNA | #2db572
+
+%%metro grid: qc | 0,0
+%%metro grid: rna_prep | 0,1
+%%metro grid: align | 1,0
+%%metro grid: calling | 2,0
+
+graph LR
+    subgraph qc [Quality Control]
+        %%metro direction: BT
+        %%metro exit: right | dna
+        fastqc[FastQC]
+        trim[Trim Galore]
+        fastqc -->|dna| trim
+    end
+
+    subgraph rna_prep [RNA Prep]
+        %%metro direction: BT
+        %%metro exit: right | rna
+        umi[UMI Extract]
+    end
+
+    subgraph align [Alignment]
+        %%metro direction: BT
+        %%metro entry: left | dna,rna
+        %%metro exit: right | dna,rna
+        bwa[BWA-MEM2]
+        star[STAR]
+        sort[Sort BAM]
+        bwa -->|dna| sort
+        star -->|rna| sort
+    end
+
+    subgraph calling [Downstream Analysis]
+        %%metro direction: BT
+        %%metro entry: left | dna,rna
+        variant[GATK Variant Calling]
+        quant[Salmon Quant]
+    end
+
+    trim -->|dna| bwa
+    umi -->|rna| star
+    sort -->|dna| variant
+    sort -->|rna| quant
