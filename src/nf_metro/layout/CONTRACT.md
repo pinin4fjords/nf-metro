@@ -512,6 +512,31 @@ in pipeline order.
   `::test_horizontal_perp_port_pair_is_balanced`.
 - **Lifecycle:** invariant - the inset holds at the final boundary.
 
+### Stage 3.6: level a grid column's bbox left edges
+- **Purpose**: Give the sections stacked in one grid column a common bbox
+  left edge, so the space left of each section's first station is
+  structural rather than arbitrary. The X mirror of the row top-align
+  (Stages 5.3 / 6.9), which levels a grid row's bbox tops.
+- **Helper**: `_left_align_column_bboxes_only` (`phases/bbox.py`), grouping
+  via `_column_contiguous_row_groups` (`phases/_common.py`).
+- **Precondition**: Every X-axis box mover has run - Stage 1.1 sizing,
+  the Stage 3.3 perp-entry runway grow, the Stage 3.5 perp inset - so the
+  levelled edge is not re-broken by a later widen.
+- **Postcondition**: Within each column's contiguous run of grid rows,
+  every section shares the run's leftmost `bbox_x`, except a section held
+  back by one of two bounds: a left neighbour overlapping its own row band
+  (which keeps `MIN_INTER_SECTION_GAP` of inter-column corridor), or a
+  LEFT port on a line channel the column shares with two or more other
+  sections. Members of a packed cell are out of scope: they sit
+  side-by-side along X inside one cell, so no common vertical edge exists.
+- **Invariants preserved**: Station coords (only `bbox_x` / `bbox_w`
+  move); the cross-max (right) edge; every port's own edge anchoring
+  (LEFT ports move with the edge they are pinned to).
+- **Validate guard after**: `_guard_ports_on_boundaries`.
+- **Related tests**: `test_column_left_edge_alignment.py`.
+- **Lifecycle:** invariant - the levelled edge holds at the final
+  boundary for the sections the stage moved.
+
 ### Stage 4.1: align ports to downstream
 - **Purpose**: For non-fold LR/RL sections, pull exit-entry port
   pairs toward the downstream section's internal stations so lines
