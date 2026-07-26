@@ -33,7 +33,6 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.phases.bbox import _predict_section_content_bottom
 from nf_metro.layout.phases.guards import (
     _exit_off_consumer_trunk,
-    _section_lacks_flow_aligned_port,
 )
 from nf_metro.layout.phases.junctions import (
     _resolve_source_section_id,
@@ -1051,19 +1050,16 @@ def _align_exit_ports(graph: MetroGraph) -> None:
         # section's perpendicular entry is positioned past the last station so
         # the trunk curves out after the marker.  A fold's BOTTOM exit (which
         # feeds a sideways entry, not a drop) has no such target and keeps its
-        # own placement.  A single-row section places its perpendicular exit
-        # past the last station only when it also has a flow-aligned port to
-        # anchor the horizontal run; a section with ONLY perpendicular ports is
-        # an unsupported shape rejected downstream, so it keeps its placement.
+        # own placement.  A single-row section always seats its perpendicular
+        # exit past the trailing station: sharing the station's X collapses the
+        # turn to a zero-length corner that the lane fan then splays the wrong
+        # way round.
         if (
             exit_section.direction in ("LR", "RL")
             and port.side in (PortSide.TOP, PortSide.BOTTOM)
             and (
                 next(_drop_targets(graph, port_id), None) is not None
-                or (
-                    exit_section.grid_row_span == 1
-                    and not _section_lacks_flow_aligned_port(graph, exit_section)
-                )
+                or exit_section.grid_row_span == 1
             )
         ):
             _align_perpendicular_exit_port(graph, port_id, port, exit_section)

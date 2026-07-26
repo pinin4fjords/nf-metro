@@ -447,11 +447,15 @@ in pipeline order.
 - **Precondition**: Stage 3.2 finalised LR/RL entry-port X for perp
   entries.
 - **Postcondition**: Internal stations in such sections sit at least
-  `x_spacing` away from the perp entry port X.
-- **Invariants preserved**: Station Y, ports, bboxes (X shift is
-  bbox-bounded).
+  `ENTRY_SHIFT_LR * x_spacing` away from the perp entry port X, and the
+  section's own bbox still contains the shifted run: a drop inside the
+  run's span shifts the run further than `_adjust_lr_entry_inset`
+  reserved, so the trailing edge grows by the uncovered remainder.
+- **Invariants preserved**: Station Y, ports (the flow-axis exit ports
+  re-pin to a moved edge), bboxes (X shift is bbox-bounded).
 - **Related tests**: `test_terminus_not_directly_after_diagonal`,
-  `test_no_kink_at_section_boundary` (entry-side geometry).
+  `test_no_kink_at_section_boundary` (entry-side geometry),
+  `test_lr_perp_port_pair_1539.py::test_run_stays_inside_its_own_box`.
 - **Lifecycle:** invariant - the perpendicular-entry runway
   (internal-station X clearance) holds at the final boundary.
 
@@ -461,6 +465,11 @@ in pipeline order.
   push the target section down via `_resolve_tb_exit_y`; the move then
   re-flushes the tops of the rows it pushed so it cleans up after
   itself rather than leaving the correction to a separate stage.
+  Also seats every single-row LR/RL section's TOP/BOTTOM exit past its
+  trailing station (`_align_perpendicular_exit_port`), whether or not
+  the section also carries a flow-aligned port: an exit left on its
+  feeder's own X collapses the turn to a zero-length corner that the
+  lane fan then splays the wrong way round.
 - **Helper**: `_align_exit_ports` (`phases/ports.py`), dispatching to
   `_align_lr_exit_port` and finishing with a `_top_align_row_sections`
   (`phases/row_align.py`) call scoped to the pushed rows.
@@ -492,9 +501,9 @@ in pipeline order.
   vertical flow's LEFT/RIGHT ports. X sizing measures real stations
   only, so a port seated past the trailing station (Stage 3.4) or
   dragged onto a drop column lands inside the padding band with nothing
-  to push the edge out. Where a section carries two such ports the left
-  edge additionally levels to the right edge's clearance so the two ends
-  read alike.
+  to push the edge out. Where a section carries two such ports both edges
+  level to the wider of the two measured clearances so the two ends read
+  alike.
 - **Helper**: `_reserve_perp_port_edge_inset` (`phases/bbox.py`),
   followed by `reenforce_column_gaps` (`section_placement.py`) when any
   box grew.
@@ -502,8 +511,10 @@ in pipeline order.
   the last to move one relative to its own box).
 - **Postcondition**: No LR/RL TOP/BOTTOM port's outermost drawn lane sits
   within `PERP_PORT_EDGE_INSET` of its section's left or right edge
-  (`port_bundle_edge_reach`, as on the Y axis); adjacent columns still keep
-  `MIN_INTER_SECTION_GAP`.
+  (`port_bundle_edge_reach`, as on the Y axis); where a section carries two
+  such ports both edges hold the wider of the two measured clearances, so
+  the pair reads alike whichever end is the tighter; adjacent columns still
+  keep `MIN_INTER_SECTION_GAP`.
 - **Invariants preserved**: Station coords; every port's own edge
   anchoring (LEFT/RIGHT ports move with the edge they are pinned to).
 - **Validate guard after**: `_guard_ports_on_boundaries`.

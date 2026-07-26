@@ -1142,16 +1142,18 @@ def _shift_lr_perp_entry_stations(
                 s.x -= shift
 
         # Keep the trailing station inside the bbox after the shift.
-        # _adjust_lr_entry_inset reserves a fixed inset that only covers a
-        # same-column drop (entry port within the run's span): a right-entry run
-        # then shifts left, so extend the bbox left to match. A cross-column drop
-        # lands beyond the span and the fixed inset under-sizes the bbox.
-        grew_right_entry = not entry_on_left and run_lo <= port_x <= run_hi
-        grew_left_entry = entry_on_left and port_x > run_hi
-        if grew_right_entry:
+        # _adjust_lr_entry_inset reserves one `desired_gap` of width, enough for
+        # a drop seated at the run's leading edge. A right-entry run shifts
+        # left, so extend the bbox left to match. A left-entry drop inside the
+        # span shifts the run right by the reserve *plus* the port's offset into
+        # the span, so the right edge absorbs the uncovered remainder. A drop
+        # beyond the trailing station (cross-column) needs the box re-wrapped.
+        drop_in_span = run_lo <= port_x <= run_hi
+        grew = True
+        if not entry_on_left and drop_in_span:
             section.bbox_x -= shift
             section.bbox_w += shift
-        elif grew_left_entry:
+        elif entry_on_left and port_x > run_hi:
             # Re-wrap the bbox around the shifted run, keeping the run's
             # padding and anchoring the left edge on the entry port (which
             # sits left of the run once it shifts right of the drop).
@@ -1159,8 +1161,12 @@ def _shift_lr_perp_entry_stations(
             right_pad = (section.bbox_x + section.bbox_w) - run_hi
             section.bbox_x = port_x - left_pad
             section.bbox_w = (run_hi + shift + right_pad) - section.bbox_x
+        elif entry_on_left and drop_in_span and shift > desired_gap:
+            section.bbox_w += shift - desired_gap
+        else:
+            grew = False
 
-        if grew_right_entry or grew_left_entry:
+        if grew:
             _repin_flow_axis_exit_ports(section, graph)
             any_grew = True
 
