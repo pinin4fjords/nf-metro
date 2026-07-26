@@ -14,20 +14,26 @@ which end of the flow a port is seated at, and which grid groups are aligned.
 :mod:`orientation_signature` defines those measures.
 
 ``KNOWN_DIVERGENCES`` records the residuals that do not hold yet, each naming the
-defect behind it.  Entries are strict xfails, so completing a fix reds this suite
-until the entry is removed.
+defect behind it.  Which families an orbit member exhibits is only known once it
+is laid out, so the exception is applied in the test body rather than as a
+collection-time marker; a fixed defect therefore turns its orbit member into a
+plain pass rather than an XPASS.  ``test_known_divergences_all_still_bite`` is
+what reds the suite in that case, by failing on any entry whose divergence the
+corpus does not exhibit.
 """
 
 from __future__ import annotations
 
+import re
 import warnings
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
-from orientation_signature import divergences
+from conftest import content_corpus
+from orientation_signature import DIVERGENCE_FAMILIES, divergences
 from orientation_transform import (
     Orientation,
-    grid_dims,
     non_identity_orientations,
     transform_source,
     transformable_reason,
@@ -35,13 +41,7 @@ from orientation_transform import (
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CORPUS_DIRS = (
-    REPO_ROOT / "examples" / "topologies",
-    REPO_ROOT / "examples",
-    REPO_ROOT / "tests" / "fixtures",
-)
+from nf_metro.parser.model import MetroGraph
 
 # Each entry is (fixture stem, divergence family) -> why it does not hold yet.
 # A residual is excepted by the *kind* of defect behind it, so one entry covers
@@ -91,10 +91,25 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
 
 
 def _corpus() -> list[Path]:
-    return sorted({p for d in CORPUS_DIRS for p in d.glob("*.mmd")})
+    """Every ``.mmd`` in the shared render corpus that this oracle can transform.
+
+    The Nextflow-DAG fixtures are dropped: they need converting before they are
+    metro sources at all, so there are no directives to rewrite.  Rail-mode
+    fixtures are already absent from ``content_corpus``, which suits the oracle
+    for the same reason it suits the declarative tests -- a rail section's
+    geometry comes from its own pipeline rather than the phases under test.
+    """
+    return [path for _id, path, is_nextflow in content_corpus() if not is_nextflow]
 
 
-def _laid_out(source: str):
+@lru_cache(maxsize=None)
+def _laid_out(source: str) -> MetroGraph:
+    """Lay *source* out, memoised on the text.
+
+    Each fixture's reference is compared against all seven of its images, and the
+    staleness check walks the same orbit again, so the same few hundred sources
+    are laid out repeatedly.  The signatures only read the result.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = parse_metro_mermaid(source)
@@ -102,14 +117,34 @@ def _laid_out(source: str):
         return graph
 
 
+_SUBGRAPH = re.compile(r"^\s*subgraph\s+\S+", re.MULTILINE)
+_DIRECTION_DIRECTIVE = re.compile(r"^\s*%%metro\s+direction\s*:", re.MULTILINE)
+
+
+def _could_be_transformable(source: str) -> bool:
+    """Whether *source* is worth parsing to check transformability.
+
+    ``%%metro direction:`` is section-scoped, so a source declaring fewer of them
+    than it has subgraphs must be leaving at least one flow to inference.
+    Rejecting those on the text alone keeps collection from parsing the whole
+    corpus to find the handful that qualify; it never rejects a fixture the full
+    check would accept.
+    """
+    sections = len(_SUBGRAPH.findall(source))
+    return sections >= 2 and len(_DIRECTION_DIRECTIVE.findall(source)) >= sections
+
+
 def _transformable_fixtures() -> list[Path]:
     """Corpus fixtures whose geometry is stated explicitly enough to transform."""
     out = []
     for path in _corpus():
+        source = path.read_text()
+        if not _could_be_transformable(source):
+            continue
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                graph = parse_metro_mermaid(path.read_text())
+                graph = parse_metro_mermaid(source)
         except Exception:
             continue
         if transformable_reason(graph) is None:
@@ -147,7 +182,7 @@ def test_layout_is_congruent_under_orientation(
     reference = _laid_out(source)
     image = _laid_out(transform_source(source, orientation))
 
-    found = divergences(reference, image, orientation, grid_dims(source))
+    found = divergences(reference, image, orientation)
     excepted = [d for d in found if (source_path.stem, d.family) in KNOWN_DIVERGENCES]
     live = [d for d in found if d not in excepted]
 
@@ -180,16 +215,30 @@ def test_known_divergences_all_still_bite() -> None:
     for path in TRANSFORMABLE:
         source = path.read_text()
         reference = _laid_out(source)
-        dims = grid_dims(source)
         for orientation in non_identity_orientations():
             image = _laid_out(transform_source(source, orientation))
-            for d in divergences(reference, image, orientation, dims):
+            for d in divergences(reference, image, orientation):
                 live.add((path.stem, d.family))
 
     stale = sorted(set(KNOWN_DIVERGENCES) - live)
     assert not stale, (
         f"{len(stale)} stated exception(s) no longer diverge: {stale}. "
         "Remove them from KNOWN_DIVERGENCES so the invariant is enforced."
+    )
+
+
+def test_stated_exceptions_name_real_families() -> None:
+    """Each exception keys on a family the oracle reports.
+
+    A misspelled family matches no divergence, which surfaces as an unexcepted
+    failure in one test and a stale entry in another; neither names the typo.
+    """
+    unknown = sorted(
+        key for key in KNOWN_DIVERGENCES if key[1] not in DIVERGENCE_FAMILIES
+    )
+    assert not unknown, (
+        f"unknown divergence family in KNOWN_DIVERGENCES: {unknown}. "
+        f"Known families: {sorted(DIVERGENCE_FAMILIES)}"
     )
 
 
