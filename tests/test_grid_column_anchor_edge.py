@@ -1,29 +1,33 @@
-"""Column mates that share a left runway share a bbox left edge.
+"""A grid column's boxes meet on each X edge their content is anchored to.
 
 A grid row's sections share a trunk Y, so levelling their bbox tops always lines
-up something a viewer reads.  A grid column's sections share no trunk X: the
-space left of a box's first station is that section's entry runway, and two
-column mates only mean the same thing by it when their first stations stand at
-one X.  ``_left_align_column_bboxes_only`` (Stage 3.6) levels exactly those,
-growing the narrower boxes leftward so interior stations and the right edge stay
-put.  Column mates whose content starts at different X keep their own edges --
-levelling those would buy an aligned edge at the price of an empty band the width
-of the difference.
+up something a viewer reads, and it is the header badge -- text -- that rides the
+box top.  A grid column's sections share no trunk X and neither X edge carries
+anything comparable, so both are levelled: the space between a box edge and the
+content nearest it is that section's runway on that side, and two column mates
+only mean the same thing by it when that content stands at one X.
+``_level_column_anchor_edges`` (Stage 3.6) levels exactly those, growing the
+shorter boxes outward so interiors and the opposite edge stay put.  Column mates
+whose content starts at different X keep their own edges -- levelling those would
+buy an aligned edge at the price of an empty band the width of the difference.
 
 Covers:
 
 * Corpus: within every shared-runway run, each member either sits on the run's
-  left edge or a left neighbour in its own row band explains the shortfall.
+  edge for that side or a neighbour in its own row band explains the shortfall.
 * Corpus: the runway spread within a grid column never exceeds what the stage's
   own inputs already had, so levelling can only equalise interior space.
 * Meaningfulness: shipped fixtures hold runs the stage actually levelled, and
   column mates it declined because their content starts at different X, so
-  neither the property nor the restriction is vacuous.
+  neither the property nor the restriction is vacuous; and both X sides occur,
+  so the right-edge half is not vacuous either.
 * Regression: ``convergence_fold_diamond``'s two mirror branches end on one left
   edge with equal runways, while the ``finish`` box below them -- whose content
   starts 90px further left relative to its box -- keeps its own edge.
+* Regression: ``foldback_exit_peeloff`` and ``fold_bypass_creep``, columns whose
+  RL member has section placement seat them on the right, end on one right edge.
 * Regression: ``foldback_exit_peeloff``'s ``reporting`` box, whose content starts
-  197.5px right of its column mate's, is left alone.
+  197.5px right of its column mate's, keeps its own left edge.
 * The neighbour-corridor bound, on a hand-built grid: no shipped fixture stacks a
   wide left-column section beside a narrow column mate.
 """
@@ -40,11 +44,13 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.phases._common import (
     _column_contiguous_row_groups,
     _content_station_ids,
+    section_anchor_edge,
 )
 from nf_metro.layout.phases.bbox import (
-    _column_left_neighbour_limit,
-    _left_align_column_bboxes_only,
-    _shared_left_runway_runs,
+    COLUMN_ANCHOR_SIGNS,
+    _column_neighbour_anchor_limit,
+    _level_column_anchor_edges,
+    _shared_anchor_runway_runs,
 )
 from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -65,55 +71,62 @@ def _gather_fixtures() -> list[Path]:
     return paths
 
 
-def _runway(graph: MetroGraph, section: Section) -> float | None:
+def _runway(graph: MetroGraph, section: Section, sign: float = 1.0) -> float | None:
+    """Distance from the *sign*-anchored box edge to the content nearest it."""
     xs = [graph.stations[sid].x for sid in _content_station_ids(graph, section)]
-    return min(xs) - section.bbox_x if xs else None
+    if not xs:
+        return None
+    nearest = min(xs) if sign > 0 else max(xs)
+    return (nearest - section_anchor_edge(section, "x", sign)) * sign
 
 
 def _unexplained_short_edges(graph: MetroGraph) -> list[tuple[str, float]]:
-    """``(section_id, shortfall)`` for every box right of its run's left edge
-    that the neighbour-corridor bound does not account for."""
+    """``(section_id, shortfall)`` for every box short of its run's anchored
+    edge that the neighbour-corridor bound does not account for."""
     out: list[tuple[str, float]] = []
     for group in _column_contiguous_row_groups(graph):
-        for run in _shared_left_runway_runs(graph, group):
-            target = min(s.bbox_x for s in run)
-            for section in run:
-                shortfall = section.bbox_x - target
-                if shortfall <= SAME_COORD_TOLERANCE:
-                    continue
-                if section.bbox_x <= _column_left_neighbour_limit(graph, section) + (
-                    SAME_COORD_TOLERANCE
-                ):
-                    continue
-                out.append((section.id, shortfall))
+        for sign in COLUMN_ANCHOR_SIGNS:
+            for run in _shared_anchor_runway_runs(graph, group, sign):
+                edges = [section_anchor_edge(s, "x", sign) for s in run]
+                target = min(edges) if sign > 0 else max(edges)
+                for section in run:
+                    here = section_anchor_edge(section, "x", sign)
+                    shortfall = (target - here) * -sign
+                    if shortfall <= SAME_COORD_TOLERANCE:
+                        continue
+                    limit = _column_neighbour_anchor_limit(graph, section, sign)
+                    if (here - limit) * sign <= SAME_COORD_TOLERANCE:
+                        continue
+                    out.append((section.id, shortfall))
     return out
 
 
 @pytest.mark.parametrize(
     "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
-def test_shared_runway_runs_share_a_left_edge(path: Path) -> None:
+def test_shared_runway_runs_share_an_anchored_edge(path: Path) -> None:
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
     unexplained = _unexplained_short_edges(graph)
     assert not unexplained, (
-        f"{path.name}: sections sit right of the left edge of the run they share a "
-        f"runway with, with no left neighbour to explain it: {unexplained}"
+        f"{path.name}: sections sit short of the anchored edge of the run they "
+        f"share a runway with, with no neighbour to explain it: {unexplained}"
     )
 
 
-def _column_runway_spreads(graph: MetroGraph) -> dict[int, float]:
-    """Widest minus narrowest content runway, per grid column."""
-    by_col: dict[int, list[float]] = defaultdict(list)
+def _column_runway_spreads(graph: MetroGraph) -> dict[tuple[int, float], float]:
+    """Widest minus narrowest content runway, per grid column and X side."""
+    by_col: dict[tuple[int, float], list[float]] = defaultdict(list)
     for section in graph.sections.values():
         if section.bbox_w <= 0 or section.grid_col < 0:
             continue
-        runway = _runway(graph, section)
-        if runway is not None:
-            by_col[section.grid_col].append(runway)
+        for sign in COLUMN_ANCHOR_SIGNS:
+            runway = _runway(graph, section, sign)
+            if runway is not None:
+                by_col[(section.grid_col, sign)].append(runway)
     return {
-        col: max(runways) - min(runways)
-        for col, runways in by_col.items()
+        key: max(runways) - min(runways)
+        for key, runways in by_col.items()
         if len(runways) >= 2
     }
 
@@ -129,13 +142,13 @@ def test_levelling_never_spreads_a_column_runway(
     at different X.  Compares every corpus fixture against the same layout with
     the stage stubbed out.
     """
-    worse: list[tuple[str, int, float, float]] = []
+    worse: list[tuple[str, tuple[int, float], float, float]] = []
     for path in _gather_fixtures():
         text = path.read_text()
         try:
             with monkeypatch.context() as patched:
                 patched.setattr(
-                    "nf_metro.layout.engine._left_align_column_bboxes_only",
+                    "nf_metro.layout.engine._level_column_anchor_edges",
                     lambda graph: None,
                 )
                 without = parse_metro_mermaid(text)
@@ -148,16 +161,17 @@ def test_levelling_never_spreads_a_column_runway(
             continue
         before = _column_runway_spreads(without)
         after = _column_runway_spreads(graph)
-        for col, spread in after.items():
-            if spread > before.get(col, spread) + SAME_COORD_TOLERANCE:
-                worse.append((path.name, col, before[col], spread))
+        for key, spread in after.items():
+            if spread > before.get(key, spread) + SAME_COORD_TOLERANCE:
+                worse.append((path.name, key, before[key], spread))
     assert not worse, f"columns left with wider-spread runways: {worse}"
 
 
 def test_corpus_levels_shared_runways_and_leaves_the_rest() -> None:
-    """The property and the shared-runway restriction are both exercised."""
+    """The property, the restriction and both anchor sides are all exercised."""
     levelled = 0
     declined = 0
+    signs: set[float] = set()
     for path in _gather_fixtures():
         graph = parse_metro_mermaid(path.read_text())
         try:
@@ -165,13 +179,22 @@ def test_corpus_levels_shared_runways_and_leaves_the_rest() -> None:
         except CurveInvariantError:
             continue
         for group in _column_contiguous_row_groups(graph):
-            runs = _shared_left_runway_runs(graph, group)
-            levelled += sum(
-                1 for run in runs if len({round(s.bbox_x, 1) for s in run}) == 1
-            )
-            declined += len(group) - sum(len(run) for run in runs)
+            for sign in COLUMN_ANCHOR_SIGNS:
+                runs = _shared_anchor_runway_runs(graph, group, sign)
+                if runs:
+                    signs.add(sign)
+                levelled += sum(
+                    1
+                    for run in runs
+                    if len({round(section_anchor_edge(s, "x", sign), 1) for s in run})
+                    == 1
+                )
+                declined += len(group) - sum(len(run) for run in runs)
     assert levelled > 0, "no shipped fixture has a levelled grid column"
     assert declined > 0, "no shipped column mate is held out of the levelling"
+    assert signs == {1.0, -1.0}, (
+        f"only anchor sides {sorted(signs)} are levelled; the property is half-vacuous"
+    )
 
 
 def _stacked_column_graph() -> MetroGraph:
@@ -213,10 +236,12 @@ def _seat_one_station(graph: MetroGraph, section_id: str, x: float) -> None:
 def test_neighbour_limit_keeps_the_inter_column_corridor() -> None:
     """A left neighbour sharing the row band reserves the routing corridor."""
     graph = _stacked_column_graph()
-    assert _column_left_neighbour_limit(graph, graph.sections["lower"]) == (
+    assert _column_neighbour_anchor_limit(graph, graph.sections["lower"], 1.0) == (
         330.0 + MIN_INTER_SECTION_GAP
     )
-    assert _column_left_neighbour_limit(graph, graph.sections["upper"]) == float("-inf")
+    assert _column_neighbour_anchor_limit(graph, graph.sections["upper"], 1.0) == float(
+        "-inf"
+    )
 
 
 def test_alignment_stops_at_the_neighbour_corridor() -> None:
@@ -224,7 +249,7 @@ def test_alignment_stops_at_the_neighbour_corridor() -> None:
     graph = _stacked_column_graph()
     for section_id in ("upper", "lower"):
         _seat_one_station(graph, section_id, 450.0)
-    _left_align_column_bboxes_only(graph)
+    _level_column_anchor_edges(graph)
     lower = graph.sections["lower"]
     assert lower.bbox_x == 330.0 + MIN_INTER_SECTION_GAP
     assert lower.bbox_x + lower.bbox_w == 500.0
@@ -236,8 +261,8 @@ def test_column_mates_with_different_content_columns_keep_their_edges() -> None:
     _seat_one_station(graph, "upper", 450.0)
     _seat_one_station(graph, "lower", 500.0)
     upper, lower = graph.sections["upper"], graph.sections["lower"]
-    assert _shared_left_runway_runs(graph, [upper, lower]) == []
-    _left_align_column_bboxes_only(graph)
+    assert _shared_anchor_runway_runs(graph, [upper, lower], 1.0) == []
+    _level_column_anchor_edges(graph)
     assert lower.bbox_x == 380.0
 
 
@@ -257,8 +282,29 @@ def test_mirror_branches_share_a_left_edge_and_runway() -> None:
     )
 
 
-def test_peeloff_reporting_box_keeps_its_own_edge() -> None:
-    """A column mate whose content starts far right is not grown out to the edge."""
+@pytest.mark.parametrize(
+    ("fixture", "section_ids"),
+    [
+        ("foldback_exit_peeloff", ("preprocessing", "reporting")),
+        ("fold_bypass_creep", ("prep", "report")),
+    ],
+)
+def test_right_anchored_column_shares_its_right_edge(
+    fixture: str, section_ids: tuple[str, ...]
+) -> None:
+    """A column an RL member anchors on the right ends on one right edge."""
+    path = REPO_ROOT / "examples" / "topologies" / f"{fixture}.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    rights = {
+        round(graph.sections[sid].bbox_x + graph.sections[sid].bbox_w, 1)
+        for sid in section_ids
+    }
+    assert len(rights) == 1, f"{fixture}: right edges {sorted(rights)} disagree"
+
+
+def test_peeloff_reporting_box_keeps_its_own_left_edge() -> None:
+    """A column mate whose content starts far right keeps its unanchored edge."""
     path = REPO_ROOT / "examples" / "topologies" / "foldback_exit_peeloff.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
