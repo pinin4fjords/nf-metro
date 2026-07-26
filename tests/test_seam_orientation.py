@@ -165,6 +165,16 @@ EXPECTED_RESIDUALS = frozenset(
         # classifier preserves while the machinery reverses them.
         ("folded_corridor_distinct_lanes", "variant_calling", "normalization", "B->T"),
         ("folded_corridor_distinct_lanes", "consensus", "realignment", "L->R"),
+        # A column of LR sections chained BOTTOM exit -> TOP entry: each drop is a
+        # B->T continuation the classifier preserves, while the machinery marks
+        # every receiver reversed off the section-absolute BOTTOM-exit flag.
+        ("lr_perp_top_entry_bottom_exit", "intake", "mid", "B->T"),
+        ("lr_perp_top_entry_bottom_exit", "mid", "report", "B->T"),
+        # The multi-line members of that same family, plus the RIGHT-exit
+        # continuation the marked receiver propagates along its own row.
+        ("lr_top_entry_bundle_east_turn", "intake", "align", "B->T"),
+        ("lr_top_entry_bundle_east_turn", "align", "report", "R->L"),
+        ("rl_bottom_exit_lr_top_entry_bundle", "intake", "align", "B->T"),
     }
 )
 

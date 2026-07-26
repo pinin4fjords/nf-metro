@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
     ICON_HALF_HEIGHT,
     INTER_ROW_EDGE_CLEARANCE,
     OFFSET_STEP,
+    PERP_PORT_EDGE_CLEARANCE,
     ROW_BAND_SLACK,
     SAME_COORD_TOLERANCE,
     SAME_Y_TOLERANCE,
@@ -64,6 +65,7 @@ from nf_metro.layout.phases._common import (
     iter_stacked_rows_in_rowspan_band,
     line_forks_within_section,
     marker_cross_exempt,
+    port_bundle_edge_reach,
     routes_through_own_section_interior,
     routes_through_unrelated_sections,
     section_axes,
@@ -287,9 +289,11 @@ def _section_lacks_flow_aligned_port(graph: MetroGraph, section: Section) -> boo
 
     An internally-horizontal (LR/RL) section whose only ports are on the
     top/bottom (or a vertical section with only left/right ports) has no
-    flow-aligned edge to pin its run to the bbox, so the engine lays the
-    run out past the box.  The bbox-containment guard uses this to emit an
-    actionable error for that unsupported directive combination.
+    flow-aligned edge to pin its run to the bbox.  Stage 3.3 opens the
+    perpendicular-entry runway and carries the bbox with it, so such a section
+    lays out inside its own box; this remains the diagnosis the
+    bbox-containment guard reaches for when one nonetheless spills, because
+    that combination is where the run has nothing anchoring it.
     """
     flow_sides = _FLOW_ALIGNED_SIDES.get(section.direction)
     if flow_sides is None:
@@ -305,10 +309,14 @@ def _guard_stations_within_bbox(graph: MetroGraph, phase: str) -> None:
     Unlike :func:`_guard_stations_in_sections` (which runs only under
     ``validate`` mid-layout and checks marker-edge containment on the Y
     axis), this guard runs on every layout -- including the default render
-    path -- and checks the *settled* bbox on both axes.  Forcing
-    perpendicular ports on a horizontal section lays its stations out past
-    the right of its own bbox, and the engine must reject that loudly
-    rather than render it silently.
+    path -- and checks the *settled* bbox on both axes, so a station left
+    outside its own box is refused rather than drawn.
+
+    A section whose ports are all perpendicular to its flow gets the extra
+    advice in :data:`FLOW_ALIGNED_PORT_ADVICE`, since that shape has no
+    flow-aligned port anchoring its run; it is no longer sufficient on its own
+    to put a station outside the box (see
+    ``test_lr_section_all_perpendicular_ports_lays_out_in_its_box``).
     """
     for sid, st, sec in iter_stations_outside_bbox(graph, GUARD_TOLERANCE):
         detail = (
@@ -559,6 +567,64 @@ def _guard_ports_on_boundaries(graph: MetroGraph, phase: str) -> None:
                 f"not on any edge of section {st.section_id!r} bbox "
                 f"({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
                 f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f})"
+            )
+
+
+def _guard_ports_clear_unanchored_box_edges(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """Final: a port keeps clearance from the box edges it is not anchored to.
+
+    A port is pinned to one edge -- LEFT/RIGHT to a vertical one, TOP/BOTTOM to
+    a horizontal one -- and is free along its other axis.  Flush against a
+    second edge, its inbound run is drawn along the box border and the two read
+    as one stroke; it also blocks the section header's above-left position, so
+    the placement chain falls through to ``nudge`` and the number badge slides
+    away from the corner it labels.  The free axis therefore owes
+    ``PERP_PORT_EDGE_CLEARANCE``.
+
+    Measured from the port's outermost *drawn* lane rather than from the port
+    station: the bundle crossing a port is staggered off it along exactly this
+    free axis (:func:`port_bundle_edge_reach`), so a station comfortably clear of
+    the border can still have its outer lane riding it.
+
+    Final-only: a port sits well outside its box for most of placement (bboxes
+    are not sized until Stage 2.1, and the content-hug shrink leaves a
+    transient flush window through Stage 6.4), so the clearance is a property
+    of the settled layout, not of every stage boundary.
+    """
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+    for pid, port in graph.ports.items():
+        st = graph.stations.get(pid)
+        sec = graph.sections.get(st.section_id or "") if st else None
+        if not st or not sec or sec.bbox_w <= 0 or sec.bbox_h <= 0:
+            continue
+        axis = "y" if port.side in (PortSide.LEFT, PortSide.RIGHT) else "x"
+        low_reach, high_reach = port_bundle_edge_reach(graph, pid, offsets, axis)
+        if axis == "y":
+            coord, box_low, box_high = st.y, sec.bbox_y, sec.bbox_y + sec.bbox_h
+        else:
+            coord, box_low, box_high = st.x, sec.bbox_x, sec.bbox_x + sec.bbox_w
+        clearance = min(coord - low_reach - box_low, box_high - coord - high_reach)
+        if clearance < PERP_PORT_EDGE_CLEARANCE - SAME_COORD_TOLERANCE:
+            bundle = (
+                ""
+                if not (low_reach or high_reach)
+                else f", bundle -{low_reach:.1f}/+{high_reach:.1f} on {axis},"
+            )
+            raise PhaseInvariantError(
+                f"{phase}: {port.side.name} port {pid!r} at "
+                f"({st.x:.1f}, {st.y:.1f}){bundle} leaves {clearance:.1f}px "
+                f"{axis}-clearance to the nearest unanchored edge of section "
+                f"{st.section_id!r} bbox ({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
+                f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f}); expected >= "
+                f"{PERP_PORT_EDGE_CLEARANCE:.1f}"
             )
 
 
@@ -5395,6 +5461,17 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         _guard_fan_bundles_coincide_or_separate,
         "B",
         needs=frozenset({"offsets", "routes"}),
+    ),
+    GuardSpec(
+        _guard_ports_clear_unanchored_box_edges,
+        "A",
+        needs=frozenset({"offsets"}),
+        issue_pin=("#1494", "#1540"),
+        narrow_reason=(
+            "Scoped to a port's clearance from the box edges it is not anchored "
+            "to; the wider question of how close any routed run may pass an edge "
+            "it parallels is a separate property with its own threshold."
+        ),
     ),
 )
 

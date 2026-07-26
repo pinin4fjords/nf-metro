@@ -147,6 +147,21 @@ them.
   sections with the target section's Y. Pushing a target down drops its
   bbox top below its row-mates', so the move finishes by top-aligning the
   rows it disturbed (contiguous column groups sharing their bbox tops).
+- **Stage 3.5**: Grow an LR / RL section's left and right bbox edges so
+  its perpendicular (TOP / BOTTOM) ports keep the designed inset from
+  them, the X-axis rotation of the clearance the Y sizing keeps for a
+  TB / BT section's LEFT / RIGHT ports. A grow can widen a section into
+  its column neighbour, so the inter-column gaps are re-enforced.
+- **Stage 3.6**: Level the bbox left edges of column mates that start
+  their content at one X, growing the narrower boxes leftward - the X
+  mirror of the row top-align at Stage 5.3, restricted to boxes whose
+  left band is the same runway. A grid row's sections share a trunk Y so
+  their tops always frame the same thing, but a grid column's do not
+  share a trunk X, so levelling boxes whose content starts at different X
+  buys an aligned edge at the price of an empty band. Stations and the
+  right edge stay put; LEFT ports ride the edge out to the column line. A
+  box stops short where a left neighbour in its own row band needs the
+  inter-column corridor.
 
 Pass A leaves ports on bbox edges with first-approximation alignment.
 Subsequent passes refine.
