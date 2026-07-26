@@ -10,15 +10,21 @@ above-left position is never clear, so the placement chain falls through to
 
 ``_compact_row_content_to_bbox_top`` (Stage 5.4) is what pulls a perpendicular
 port toward the top edge, and it reserves ``PERP_PORT_EDGE_CLEARANCE`` so the
-port stops short of it.
+port stops short of it.  The rotated case -- a horizontal flow's TOP/BOTTOM port
+approaching a vertical edge -- is held by ``_reserve_perp_port_edge_inset``
+(Stage 3.5), which grows the edge instead.
 
 Covers:
 
-* Corpus: no shipped fixture seats a port flush on an unanchored box edge.
+* Corpus: no shipped fixture seats a port flush on an unanchored box edge, and
+  every horizontal-flow perpendicular port keeps the full designed inset from
+  both vertical edges.
 * Meaningfulness: a hand-planted flush port is caught, so the corpus check is
   not vacuous.
 * Regression: ``tb_exit_terminal_on_carrier``'s carrier row keeps entry-port
   headroom and anchors its header at the box's top-left corner.
+* Rotation: both axes read their perpendicular pair off the flow axis, and a
+  pair on either axis ends up equidistant from the edges it faces.
 """
 
 from __future__ import annotations
@@ -203,6 +209,44 @@ def test_lone_perpendicular_port_reserves_only_the_floor(path: Path) -> None:
         assert _perp_port_lead_edge_reserve(
             graph, section, SECTION_Y_PADDING
         ) == pytest.approx(PERP_PORT_EDGE_INSET, abs=EPSILON)
+
+
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_horizontal_perp_ports_keep_the_designed_inset(path: Path) -> None:
+    """Every LR/RL perpendicular port keeps the full inset from both side edges.
+
+    A corpus ratchet, not a runtime guard.  A render only aborts below the much
+    smaller ``PERP_PORT_EDGE_CLEARANCE``, which leaves a novel map free to land
+    a port short of the designed inset; the shipped corpus is held to it here.
+    """
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    tight: list[str] = []
+    for section in graph.sections.values():
+        direction = section.direction or "LR"
+        if section.bbox_w <= 0 or AxisFrame.axes_for_direction(direction)[0] != "x":
+            continue
+        for pid in (*section.entry_ports, *section.exit_ports):
+            port = graph.ports.get(pid)
+            station = graph.stations.get(pid)
+            if (
+                port is None
+                or station is None
+                or port.side not in perpendicular_port_sides(direction)
+            ):
+                continue
+            near = min(
+                station.x - section.bbox_x,
+                section.bbox_x + section.bbox_w - station.x,
+            )
+            if near < PERP_PORT_EDGE_INSET - EPSILON:
+                tight.append(f"{section.id}/{pid} clearance={near:.1f}")
+    assert not tight, (
+        f"perpendicular ports sit within {PERP_PORT_EDGE_INSET}px of a vertical "
+        "box edge: " + ", ".join(tight)
+    )
 
 
 def _lr_section_with_perp_pair(entry_x: float, exit_x: float) -> MetroGraph:
@@ -390,11 +434,6 @@ the clearance this module is about.
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#1542: nothing enforces the inset or the balance on the X axis, so a "
-    "horizontal flow's TOP/BOTTOM pair keeps whatever placement left it",
-)
 def test_horizontal_perp_port_pair_is_balanced() -> None:
     """The rotation of the vertical rule: an LR/RL TOP+BOTTOM pair sits alike.
 
