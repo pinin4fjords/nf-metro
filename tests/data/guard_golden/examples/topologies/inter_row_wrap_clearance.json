@@ -180,6 +180,7 @@
     "_guard_station_x_column_drift|after final",
     "_guard_port_station_coords_synced|after final",
     "_guard_no_section_overlap|after final",
+    "_guard_column_run_shares_its_anchored_edge|after final",
     "_guard_row_trunk_cy_consistent|after final",
     "_guard_off_track_clear_of_anchor|after final",
     "_guard_fanout_junction_shares_exit_port_y|after final",

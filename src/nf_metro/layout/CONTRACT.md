@@ -142,9 +142,8 @@ perpendicular case), `_clamp_tb_entry_port`, `_resolve_tb_exit_y`,
 `_align_tb_section_bbox_bottoms`, and `_tb_trunk_x` (the secondary-axis trunk
 coordinate is a *median* for a vertical section but the bundle-connected topmost
 for a horizontal one - `_section_trunk_y` - so the two are not the same code and
-should not be forced behind one name). The `section_placement.py` RL-or-TB
-column right-alignment and `_apply_tb_fold_spans` selection are domain
-groupings, not axis swaps, and likewise stay.
+should not be forced behind one name). The `_apply_tb_fold_spans` selection is a
+domain grouping, not an axis swap, and likewise stays.
 
 ## Validate-mode guards
 
@@ -345,6 +344,13 @@ in pipeline order.
   positions from `auto_layout`. Still all local-coord.
 - **Postcondition**: Every section has `offset_x`, `offset_y` set such
   that `(local + offset)` lands sections on a non-overlapping grid.
+- **Column seating**: A column is seated on the edge its members' box
+  extents grow away from (`box_growth_sign`, `layout/geometry.py`): the left
+  one by default, the right one when a member's extent grows leftward (its
+  flow runs that way, or its lanes fan that way). A right-seated member's
+  slack is its column's width minus its own `_effective_section_width`, the
+  same measure the column width was reserved from, so the column's boxes
+  land on one X.
 - **Disconnected graphs**: When the section meta-graph has 2+
   weakly-connected components and the author pinned no explicit
   `%%metro grid:` positions, each component is placed in its own local
@@ -521,40 +527,52 @@ in pipeline order.
   `test_perp_port_edge_clearance_1494.py::test_horizontal_perp_ports_keep_the_designed_inset`.
 - **Lifecycle:** invariant - the inset holds at the final boundary.
 
-### Stage 3.6: level a grid column's shared-runway left edges
+### Stage 3.6: level a grid column's shared-runway X edges
 - **Purpose**: Give column mates that start their content at one X a
-  common bbox left edge, so the runway in front of that shared content
-  column is the same width in each. The X mirror of the row top-align
-  (Stages 5.3 / 6.9), narrowed: a grid row's sections share a trunk Y, so
-  their tops are always comparable, whereas a grid column's sections share
-  no trunk X, and levelling boxes whose content starts at different X
-  moves an edge without moving anything a viewer reads.
-- **Helper**: `_left_align_column_bboxes_only` (`phases/bbox.py`), grouping
+  common bbox edge on that side, so the runway between that edge and the
+  shared content column is the same width in each. The X half of the same
+  levelling primitive the row top-align uses (Stages 5.3 / 6.9), narrowed:
+  a grid row's sections share a trunk Y, so their tops are always
+  comparable, whereas a grid column's sections share no trunk X, and
+  levelling boxes whose content starts at different X moves an edge
+  without moving anything a viewer reads. Both X edges are levelled,
+  because unlike the box top - which carries the header badge, and so is
+  privileged by text a rotation does not carry with it - neither X edge is
+  the one a column must agree on.
+- **Helper**: `_level_column_anchor_edges` (`phases/bbox.py`), grouping
   via `_column_contiguous_row_groups` (`phases/_common.py`) then
-  `_shared_left_runway_runs` (`phases/bbox.py`).
+  `_shared_anchor_runway_runs` (`phases/bbox.py`), levelling each run
+  through `level_group_anchor_edges` (`phases/bbox.py`, shared with the
+  row top-align).
 - **Precondition**: Every X-axis box mover has run - Stage 1.1 sizing,
-  the Stage 3.3 perp-entry runway grow, the Stage 3.5 perp inset - so the
-  levelled edge is not re-broken by a later widen.
-- **Postcondition**: Within each maximal run of adjacent grid rows in one
-  column whose sections' leftmost content stations share an X, every
-  section shares the run's leftmost `bbox_x`, except one held short by a
-  left neighbour overlapping its own row band (which keeps
-  `MIN_INTER_SECTION_GAP` of inter-column corridor). Members of a packed
-  cell are out of scope: they sit side-by-side along X inside one cell, so
-  no common vertical edge exists. A rail-flagged section breaks the run:
-  `_retrofit_section_rails_phase` re-derives its interior from its bbox, so
-  growing its left edge would slide its stations rather than widen a
-  runway in front of them.
+  the Stage 1.3 column seating, the Stage 3.3 perp-entry runway grow, the
+  Stage 3.5 perp inset - so the levelled edge is not re-broken by a later
+  widen.
+- **Postcondition**: For each X side, within each maximal run of adjacent
+  grid rows in one column whose sections' content stations nearest that
+  side share an X, every section shares the run's outermost edge on that
+  side, except one held short by a neighbour overlapping its own row band
+  (which keeps `MIN_INTER_SECTION_GAP` of inter-column corridor). Members
+  of a packed cell are out of scope: they sit side-by-side along X inside
+  one cell, so no common vertical edge exists. Two kinds of section break a
+  run: a rail-flagged one, because `_retrofit_section_rails_phase`
+  re-derives its interior from its bbox, so growing its edge would slide
+  its stations rather than widen a runway in front of them; and one whose
+  exit port rides the edge under test, because that port's coordinate is
+  where the inter-section route leaves and the clearances downstream of it
+  are measured from there.
 - **Invariants preserved**: Station coords (only `bbox_x` / `bbox_w`
-  move); the cross-max (right) edge; every port's own edge anchoring
-  (LEFT ports move with the edge they are pinned to). Because a run's
-  members share a content X, growing each to the run's leftmost edge can
-  only raise a narrower runway to the widest already present in the run,
-  so the spread of runway widths within a grid column never grows.
+  move); the opposite edge of the pair being levelled; every port's own
+  edge anchoring (LEFT/RIGHT ports move with the edge they are pinned
+  to). Because a run's members share a content X on the side being
+  levelled, growing each to the run's outermost edge on that side can only
+  raise a narrower runway to the widest already present in the run, so the
+  spread of runway widths within a grid column never grows.
 - **Validate guard after**: `_guard_ports_on_boundaries`.
-- **Related tests**: `test_column_left_edge_alignment.py`.
+- **Related tests**: `test_grid_column_anchor_edge.py`.
 - **Lifecycle:** invariant - the levelled edge holds at the final
-  boundary for the sections the stage moved.
+  boundary for the sections the stage moved
+  (`_guard_column_run_shares_its_anchored_edge`).
 
 ### Stage 4.1: align ports to downstream
 - **Purpose**: For non-fold LR/RL sections, pull exit-entry port
