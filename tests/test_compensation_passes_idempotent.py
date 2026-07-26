@@ -78,11 +78,16 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # after Stage 6.15a: it immediately reds ``test_section_bbox_top_hugs_content``
 # on these exact fixtures).
 #
-# The vertical-flow entries added for the perpendicular-port inset
+# The three vertical-flow entries added for the perpendicular-port inset
 # (``bt_perp_left_entry_right_exit``, ``bt_to_tb``, ``longread_variant_calling``)
-# are the same intentional class: the box now extends past its content to keep
-# ``PERP_PORT_EDGE_INSET`` beyond a perpendicular port, so replaying the row
-# realign finds the same movement the content-hug pass is entitled to undo.
+# are intentional for the OPPOSITE reason to the block above, and should not be
+# read as part of it.  There, replay movement is fine because the box hugs its
+# content exactly.  Here the box deliberately extends PAST its content to keep
+# ``PERP_PORT_EDGE_INSET`` beyond a perpendicular port (#1540), so
+# ``test_section_bbox_top_hugs_content`` holds only because its yardstick,
+# ``_section_content_hug_top``, now includes that port term -- the content-hug
+# equality itself is knowingly given up for these sections.  Replaying the row
+# realign therefore finds movement that no longer has a hug to converge on.
 #
 # ``topologies/tb_off_track_inputs``'s "6.6" entry is unrelated and NOT
 # confirmed intentional: replaying ``_reanchor_off_track_to_consumer`` swaps

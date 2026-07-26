@@ -276,6 +276,8 @@ def _row_group_slacks(graph, section) -> list[float]:
     taking the group minimum: how far content could rise before it would breach
     ``SECTION_Y_PADDING`` under the box top.
     """
+    if AxisFrame.axes_for_direction(section.direction or "LR")[0] != "y":
+        return []
     slacks = []
     for mate in graph.sections.values():
         if (
@@ -294,48 +296,119 @@ def _row_group_slacks(graph, section) -> list[float]:
     return slacks
 
 
-@pytest.mark.parametrize(
-    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
-)
-def test_perp_port_pair_is_balanced_or_its_row_is_blocked(path: Path) -> None:
-    """A perpendicular port pair is equidistant unless its row cannot compact.
+def _perp_pair_clearances(graph, section, axis):
+    """``(low, high)`` clearance of the outermost perpendicular ports, or None."""
+    sides = perpendicular_port_sides(section.direction or "LR")
+    coords = [
+        (graph.stations[pid].y if axis == "y" else graph.stations[pid].x)
+        for pid in (*section.entry_ports, *section.exit_ports)
+        if (port := graph.ports.get(pid)) is not None
+        and port.side in sides
+        and pid in graph.stations
+    ]
+    if len(coords) < 2:
+        return None
+    low = section.bbox_y if axis == "y" else section.bbox_x
+    high = low + (section.bbox_h if axis == "y" else section.bbox_w)
+    return min(coords) - low, high - max(coords)
 
-    Compaction shifts a whole grid row by one uniform delta so the row's shared
-    trunk Y survives it, so the delta is the minimum slack across the row's
-    sections.  A row-mate with no slack pins the delta at zero, and the reserve
-    then has nothing to act on -- the section keeps whatever clearance placement
-    left it.  Balancing one section alone would drag its trunk off the row.
 
-    Every asymmetric section in the corpus must therefore have a blocked
-    row-mate; an asymmetric section in a row with slack would be a real gap.
-    """
-    graph = parse_metro_mermaid(path.read_text())
-    compute_layout(graph)
+def _iter_perp_pairs(graph, want_axis):
     for section in graph.sections.values():
         if section.bbox_h <= 0 or section.bbox_w <= 0:
             continue
-        direction = section.direction or "LR"
-        axis = AxisFrame.axes_for_direction(direction)[0]
-        sides = perpendicular_port_sides(direction)
-        coords = [
-            (graph.stations[pid].y if axis == "y" else graph.stations[pid].x)
-            for pid in (*section.entry_ports, *section.exit_ports)
-            if (port := graph.ports.get(pid)) is not None
-            and port.side in sides
-            and pid in graph.stations
-        ]
-        if len(coords) < 2:
+        axis = AxisFrame.axes_for_direction(section.direction or "LR")[0]
+        if axis != want_axis:
             continue
-        low = section.bbox_y if axis == "y" else section.bbox_x
-        high = low + (section.bbox_h if axis == "y" else section.bbox_w)
-        low_clearance = min(coords) - low
-        high_clearance = high - max(coords)
-        if abs(low_clearance - high_clearance) < EPSILON:
+        pair = _perp_pair_clearances(graph, section, axis)
+        if pair is not None:
+            yield section, pair
+
+
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_vertical_perp_port_pair_is_balanced_or_its_row_is_blocked(path: Path) -> None:
+    """A vertical flow's perpendicular pair is equidistant unless its row is stuck.
+
+    Compaction shifts a whole grid row by one uniform delta so the row's shared
+    trunk Y survives it, so the delta is the minimum slack across the row.  A
+    row-mate with no slack pins it at zero and the reserve has nothing to act on;
+    balancing one section alone would drag its trunk off the row.
+    """
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    for section, (low, high) in _iter_perp_pairs(graph, "y"):
+        if abs(low - high) < EPSILON:
             continue
         slacks = _row_group_slacks(graph, section)
         assert slacks and min(slacks) <= EPSILON, (
             f"{section.id!r} perpendicular ports are asymmetric "
-            f"({low_clearance:.1f} vs {high_clearance:.1f}) yet its row group has "
-            f"slack {min(slacks) if slacks else None}; the reserve should have "
+            f"({low:.1f} vs {high:.1f}) yet its row group has slack "
+            f"{min(slacks) if slacks else None}; the reserve should have "
             "balanced them"
         )
+
+
+_LR_PERP_PAIR_MMD = """\
+%%metro title: LR perpendicular pair (top entry, bottom exit)
+%%metro line: dna | DNA | #e6007e
+%%metro grid: intake | 0,0
+%%metro grid: mid | 0,1
+%%metro grid: report | 0,2
+
+graph LR
+    subgraph intake [Intake]
+        %%metro exit: bottom | dna
+        samplesheet[Samplesheet]
+        fastqc[FastQC]
+        samplesheet -->|dna| fastqc
+    end
+
+    subgraph mid [Alignment]
+        %%metro entry: top | dna
+        %%metro exit: bottom | dna
+        bwa[BWA-MEM2]
+        sort[Sort BAM]
+        bwa -->|dna| sort
+    end
+
+    subgraph report [Reporting]
+        %%metro entry: top | dna
+        multiqc[MultiQC]
+    end
+
+    fastqc -->|dna| bwa
+    sort -->|dna| multiqc
+"""
+"""An LR section carrying both perpendicular ports, so both are free along X.
+
+Held inline rather than as a corpus fixture: the shape also trips
+``test_no_line_folds_back_over_its_track`` and the placement-purity suites, so
+shipping it under ``examples/topologies/`` would red CI on defects unrelated to
+the clearance this module is about.
+"""
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="#1542: nothing enforces the inset or the balance on the X axis, so a "
+    "horizontal flow's TOP/BOTTOM pair keeps whatever placement left it",
+)
+def test_horizontal_perp_port_pair_is_balanced() -> None:
+    """The rotation of the vertical rule: an LR/RL TOP+BOTTOM pair sits alike.
+
+    Deliberately has no row-blocked escape.  The vertical excuse mirrors a Y-axis
+    compaction pass with no column-wise counterpart, so borrowing it here would
+    make this assertion unfailable -- which is how the gap stayed invisible.
+    """
+    graph = parse_metro_mermaid(_LR_PERP_PAIR_MMD)
+    compute_layout(graph)
+    pairs = list(_iter_perp_pairs(graph, "x"))
+    assert pairs, "the inline map no longer produces an X-axis perpendicular pair"
+    offenders = [
+        f"{section.id}: {low:.1f} vs {high:.1f}"
+        for section, (low, high) in pairs
+        if abs(low - high) >= EPSILON
+    ]
+    assert not offenders, "; ".join(offenders)
