@@ -1,0 +1,35 @@
+%%metro title: Orbit - Perpendicular Exit into the Row Behind
+%%metro style: dark
+%%metro line: a | A | #e63946
+%%metro line: b | B | #0570b0
+
+%%metro grid: prepare | 0,0
+%%metro grid: process | 1,0
+%%metro grid: archive | 0,1
+
+graph LR
+    subgraph prepare [Prepare]
+        %%metro direction: LR
+        %%metro exit: right | a,b
+        q1[Stage]
+        q2[Check]
+        q1 -->|a,b| q2
+    end
+
+    subgraph process [Process]
+        %%metro direction: TB
+        %%metro entry: top | a,b
+        %%metro exit: left | a,b
+        w1[Compute]
+        w2[Reduce]
+        w1 -->|a,b| w2
+    end
+
+    subgraph archive [Archive]
+        %%metro direction: LR
+        %%metro entry: right | a,b
+        v1[Store]
+    end
+
+    q2 -->|a,b| w1
+    w2 -->|a,b| v1

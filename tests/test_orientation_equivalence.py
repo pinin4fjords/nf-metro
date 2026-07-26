@@ -63,6 +63,7 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
             "lr_to_tb_top_drop_two_lines",
             "lr_top_entry_cross_column",
             "lr_top_entry_cross_column_two_line",
+            "orbit_perp_exit_back_row_entry",
             "tb_two_line_vert_seam",
         )
     },
