@@ -155,7 +155,7 @@ groupings, not axis swaps, and likewise stay.
 | after Stage 1.1 | `_guard_section_bboxes_positive` |
 | after Stage 2.1 | finite coords, stations-in-sections, bboxes-positive |
 | after Stage 3.1 | ports-on-boundaries |
-| after exit-port align + row re-flush (Stage 3.4) | ports-on-boundaries |
+| after exit-port align + row re-flush and the X-axis perp-port inset (Stages 3.4 to 3.5) | ports-on-boundaries |
 | after each Pass C sub-stage (bisection) | finite coords, bboxes-positive, ports-on-boundaries, station-x-column-drift, plus three phase-gated guards (see below) |
 | after final | bisection set (all unconditional) + off-track-above-anchor, row-trunk-cy-consistent, inter-section-routes-in-row-band |
 
@@ -484,6 +484,32 @@ in pipeline order.
   `test_exit_port_row_reflush`.
 - **Lifecycle:** invariant - the fold/TB exit-port no-kink Y holds at
   the end (re-asserted by Stage 5.5).
+
+### Stage 3.5: reserve the perpendicular-port edge inset on X
+- **Purpose**: Grow a horizontal-flow (LR/RL) section's left and right
+  bbox edges so each TOP/BOTTOM port keeps `PERP_PORT_EDGE_INSET` from
+  them, the X-axis rotation of the inset the Y sizing keeps for a
+  vertical flow's LEFT/RIGHT ports. X sizing measures real stations
+  only, so a port seated past the trailing station (Stage 3.4) or
+  dragged onto a drop column lands inside the padding band with nothing
+  to push the edge out. Where a section carries two such ports the left
+  edge additionally levels to the right edge's clearance so the two ends
+  read alike.
+- **Helper**: `_reserve_perp_port_edge_inset` (`phases/bbox.py`),
+  followed by `reenforce_column_gaps` (`section_placement.py`) when any
+  box grew.
+- **Precondition**: Perpendicular port X settled (Stages 3.2 to 3.4 are
+  the last to move one relative to its own box).
+- **Postcondition**: No LR/RL TOP/BOTTOM port sits within
+  `PERP_PORT_EDGE_INSET` of its section's left or right edge; adjacent
+  columns still keep `MIN_INTER_SECTION_GAP`.
+- **Invariants preserved**: Station coords; every port's own edge
+  anchoring (LEFT/RIGHT ports move with the edge they are pinned to).
+- **Validate guard after**: `_guard_ports_on_boundaries`.
+- **Related tests**:
+  `test_perp_port_edge_clearance_1494.py::test_horizontal_perp_ports_keep_the_designed_inset`,
+  `::test_horizontal_perp_port_pair_is_balanced`.
+- **Lifecycle:** invariant - the inset holds at the final boundary.
 
 ### Stage 4.1: align ports to downstream
 - **Purpose**: For non-fold LR/RL sections, pull exit-entry port

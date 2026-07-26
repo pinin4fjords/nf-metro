@@ -85,6 +85,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     _loop_corner_x,
     _min_section_bbox_top,
     _predicted_bypass_bottom_in_row,
+    _reserve_perp_port_edge_inset,
     _reserve_row_gap_for_top_padding,
     _section_fit_top,
     _shrink_and_tighten_rows,
@@ -1470,6 +1471,16 @@ def _compute_section_layout(
     # delta, preserving entry-port alignment.
     _align_exit_ports(graph)
     _snap(graph, "3.4")
+
+    # Stage 3.5: Hold each horizontal-flow section's left and right edges clear
+    # of the perpendicular (TOP/BOTTOM) ports Stages 3.2 to 3.4 just seated
+    # along X, the rotation of the inset the Y-axis sizing keeps for a vertical
+    # flow's LEFT/RIGHT ports.  Runs here because those stages are the last to
+    # move a perpendicular port relative to its own box; a grow can widen a
+    # section into its column neighbour, so re-enforce the inter-column gaps.
+    if _reserve_perp_port_edge_inset(graph):
+        reenforce_column_gaps(graph)
+    _snap(graph, "3.5")
 
     if validate:
         _guard_ports_on_boundaries(graph, "after top-align")
