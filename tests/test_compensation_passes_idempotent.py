@@ -78,16 +78,16 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # after Stage 6.15a: it immediately reds ``test_section_bbox_top_hugs_content``
 # on these exact fixtures).
 #
-# The three vertical-flow entries added for the perpendicular-port inset
-# (``bt_perp_left_entry_right_exit``, ``bt_to_tb``, ``longread_variant_calling``)
-# are intentional for the OPPOSITE reason to the block above, and should not be
-# read as part of it.  There, replay movement is fine because the box hugs its
-# content exactly.  Here the box deliberately extends PAST its content to keep
-# ``PERP_PORT_EDGE_INSET`` beyond a perpendicular port (#1540), so
-# ``test_section_bbox_top_hugs_content`` holds only because its yardstick,
-# ``_section_content_hug_top``, now includes that port term -- the content-hug
-# equality itself is knowingly given up for these sections.  Replaying the row
-# realign therefore finds movement that no longer has a hug to converge on.
+# ``topologies/bt_perp_left_entry_right_exit``'s "4.7" entry is intentional for
+# the OPPOSITE reason to the block above, and should not be read as part of it.
+# There, replay movement is fine because the box hugs its content exactly.  Here
+# the box deliberately extends PAST its content to keep ``PERP_PORT_EDGE_INSET``
+# beyond a perpendicular port (#1540), so ``test_section_bbox_top_hugs_content``
+# holds only because its yardstick, ``_section_content_hug_top``, now includes
+# that port term -- the content-hug equality itself is knowingly given up here.
+# The section carries two perpendicular ports, so Stage 6.16's re-snap leaves one
+# of them off the hug line that ``refit_tops_after_entry_resnap`` settles the
+# other against, and the row realign still finds movement on replay.
 #
 # ``topologies/tb_off_track_inputs``'s "6.6" entry is unrelated and NOT
 # confirmed intentional: replaying ``_reanchor_off_track_to_consumer`` swaps
@@ -100,12 +100,10 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # dict can't silently drift out of sync with engine behaviour.
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "examples/differentialabundance": frozenset({"4.7"}),
-    "examples/longread_variant_calling": frozenset({"4.7"}),
     "examples/differentialabundance_default": frozenset({"4.7"}),
     "tests/da_pipeline": frozenset({"4.7"}),
     "tests/trunk_align_matching_bundle": frozenset({"4.7"}),
     "topologies/bt_perp_left_entry_right_exit": frozenset({"4.7"}),
-    "topologies/bt_to_tb": frozenset({"4.7"}),
     "topologies/fanout_hub_two_line_trunk": frozenset({"4.7"}),
     "topologies/internal_source_equal_sibling_2fan": frozenset({"4.7"}),
     "topologies/off_track_convergence": frozenset({"4.7"}),
