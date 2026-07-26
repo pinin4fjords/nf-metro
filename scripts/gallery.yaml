@@ -1859,6 +1859,37 @@ gallery:
       feed-forward chain, so the line leaves on the feeders' row as one horizontal
       trunk and drops on a single riser in the gap, rather than dragging both
       feeders into near-parallel diagonals through the section's bottom corner."
+  - id: orbit_perp_exit_perp_entry
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A perpendicular exit (TOP on a horizontal flow) feeding another
+      perpendicular entry. States its flow, grid cell and port sides explicitly so
+      the orientation-equivalence oracle can rotate and reflect it, covering this
+      seam shape in all eight orientations rather than the one the corpus happened
+      to carry."
+  - id: orbit_perp_exit_flow_entry
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A perpendicular exit feeding a flow-aligned entry, so the two halves of one
+      seam are classified differently: the exit turns out of its section's flow
+      while the entry runs with its consumer's. Fully explicit for the
+      orientation-equivalence oracle."
+  - id: orbit_perp_exit_turning_entry
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A perpendicular exit crossing the gap into a section whose flow runs on the
+      other axis, so the line turns through ninety degrees at the seam. Fully
+      explicit for the orientation-equivalence oracle."
+  - id: orbit_perp_exit_back_row_entry
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A vertical section's perpendicular exit reaching back to a section in the
+      row behind it, the seam shape with the fewest corpus instances. Fully
+      explicit for the orientation-equivalence oracle."
 
 pipelines:
   - id: rnaseq_auto
