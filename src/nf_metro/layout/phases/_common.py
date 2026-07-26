@@ -1683,6 +1683,35 @@ def grow_section_bbox_max_edge(
     move_section_bbox_max_edge(graph, section, axis, new_max)
 
 
+def section_anchor_edge(section: Section, axis: str, sign: float) -> float:
+    """The *axis* box edge a *sign*-anchored section's content starts at.
+
+    ``sign`` is a :func:`...geometry.box_growth_sign` value: ``+1`` reads the
+    axis-min edge (left / top), ``-1`` the axis-max one (right / bottom).  The
+    single accessor a group-levelling pass needs so the anchor side is a
+    parameter rather than a second code path.
+    """
+    origin_attr, size_attr = _CROSS_BBOX_FIELDS[axis]
+    origin = getattr(section, origin_attr)
+    return origin if sign > 0 else origin + getattr(section, size_attr)
+
+
+def grow_section_bbox_to_anchor(
+    graph: MetroGraph, section: Section, axis: str, sign: float, target: float
+) -> None:
+    """Extend a section's *sign*-anchored *axis* edge out to *target*.
+
+    The signed counterpart of :func:`grow_section_bbox_min_edge` /
+    :func:`grow_section_bbox_max_edge`, dispatched on the anchor side that
+    :func:`section_anchor_edge` reads.  Grow-only in both directions, and the
+    ports on the moved edge follow it.
+    """
+    if sign > 0:
+        grow_section_bbox_min_edge(graph, section, axis, target)
+    else:
+        grow_section_bbox_max_edge(graph, section, axis, target)
+
+
 def exit_run_corridor_clear(
     graph: MetroGraph,
     exit_port_id: str,
