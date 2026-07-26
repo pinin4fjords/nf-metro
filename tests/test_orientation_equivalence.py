@@ -57,7 +57,6 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
             "bt_exit_top_above",
             "bt_exit_top_above_2line",
             "bt_perp_left_entry_right_exit",
-            "bt_right_entry_rl_feed",
             "bt_to_tb",
             "lr_to_tb_top_cross_col",
             "lr_to_tb_top_drop_two_lines",
