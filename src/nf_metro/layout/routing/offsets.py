@@ -25,6 +25,7 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
     needs_perp_approach_fan,
+    perp_entry_consumer,
     tb_right_entry_sections,
     vertical_flow_sections,
 )
@@ -1495,15 +1496,6 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
                 break
 
 
-def _perp_entry_consumer(graph: MetroGraph, port_id: str) -> Station | None:
-    """The internal station a perpendicular entry port turns into."""
-    for edge in graph.edges_from(port_id):
-        consumer = graph.station_for_edge_target(edge)
-        if not consumer.is_port:
-            return consumer
-    return None
-
-
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     """Whether the run leaving a TOP/BOTTOM entry port heads to larger X.
 
@@ -1517,7 +1509,7 @@ def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     port_st = graph.stations.get(port_id)
     if port_st is None:
         return False
-    consumer = _perp_entry_consumer(graph, port_id)
+    consumer = perp_entry_consumer(graph, port_id)
     return consumer is not None and consumer.x > port_st.x + COORD_TOLERANCE_FINE
 
 
@@ -1715,7 +1707,7 @@ def _order_perp_entry_seam_lanes(ctx: _OffsetCtx) -> None:
             continue
         feed_lanes = _perp_exit_feed_lanes(ctx, feeder.id)
         seam = [lid for lid in graph.station_lines(port_id) if lid in feed_lanes]
-        consumer = _perp_entry_consumer(graph, port_id)
+        consumer = perp_entry_consumer(graph, port_id)
         if len(seam) < 2 or consumer is None:
             continue
         column = sorted(seam, key=lambda lid: (feed_lanes[lid], lid))
