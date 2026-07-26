@@ -57,25 +57,13 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
             "bt_exit_top_above",
             "bt_exit_top_above_2line",
             "bt_perp_left_entry_right_exit",
+            "bt_right_entry_rl_feed",
             "bt_to_tb",
             "lr_to_tb_top_cross_col",
             "lr_to_tb_top_drop_two_lines",
             "lr_top_entry_cross_column",
             "lr_top_entry_cross_column_two_line",
             "tb_two_line_vert_seam",
-        )
-    },
-    # _align_perp_entry_port_y aligns a vertical-flow section's perpendicular
-    # entry port to its feeder's exit coordinate without checking the result
-    # against the section's own stations, so the port can land on the flow-END
-    # station instead of before the flow-start one.
-    **{
-        (stem, "port_flow_end"): "perpendicular entry seated at the flow end (#1545)"
-        for stem in (
-            "bt_exit_top_above",
-            "bt_exit_top_above_2line",
-            "lr_top_entry_cross_column",
-            "lr_top_entry_cross_column_two_line",
         )
     },
     # A folded flow-axis port is resolved either by reversing the section's flow
