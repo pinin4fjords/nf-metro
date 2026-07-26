@@ -579,8 +579,8 @@ def _guard_ports_clear_unanchored_box_edges(graph: MetroGraph, phase: str) -> No
     transient flush window through Stage 6.4), so the clearance is a property
     of the settled layout, not of every stage boundary.
     """
-    # Sub-pixel: GUARD_TOLERANCE is half the reservation, wide enough to admit
-    # a run that reads as sitting on the border.
+    # Sub-pixel, so a port a few px inside the border still counts as a
+    # violation of a floor this small.
     tolerance = SAME_COORD_TOLERANCE
     for pid, port in graph.ports.items():
         st = graph.stations.get(pid)
@@ -5438,7 +5438,16 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "B",
         needs=frozenset({"offsets", "routes"}),
     ),
-    GuardSpec(_guard_ports_clear_unanchored_box_edges, "A"),
+    GuardSpec(
+        _guard_ports_clear_unanchored_box_edges,
+        "A",
+        issue_pin=("#1494", "#1540"),
+        narrow_reason=(
+            "Scoped to a port's clearance from the box edges it is not anchored "
+            "to; the wider question of how close any routed run may pass an edge "
+            "it parallels is a separate property with its own threshold."
+        ),
+    ),
 )
 
 

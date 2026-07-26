@@ -648,12 +648,6 @@ is a clear gap between the pill and the tilted text."""
 TB_PILL_EDGE_OFFSET: float = 5.0
 """Pill edge offset for TB vertical station labels."""
 
-ROTATION_LANE_SIGN: float = -1.0
-"""Lane-fan sign of the unrotated vertical flow, for a section-less fallback.
-
-``AxisFrame.secondary_sign_for`` derives this per direction; this names the
-value to assume when a station carries no resolvable section to read it from.
-"""
 
 TB_LABEL_H_SPACING: float = 6.0
 """Horizontal spacing for TB vertical station labels."""
