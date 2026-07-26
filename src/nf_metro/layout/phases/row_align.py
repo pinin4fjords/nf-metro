@@ -755,14 +755,6 @@ def _perp_port_lead_edge_reserve(
     closer to its own edge than the floor allows.
     """
     sec_dir = section.direction or "LR"
-    content_bottoms = [
-        st.y + _terminus_y_overhang(st, sec_dir, graph)[1]
-        for sid in section.station_ids
-        if (st := graph.stations.get(sid)) is not None and not st.is_port
-    ]
-    if not content_bottoms:
-        return PERP_PORT_EDGE_INSET
-
     perp_sides = perpendicular_port_sides(sec_dir)
     port_ys = []
     perp_ys = []
@@ -775,6 +767,14 @@ def _perp_port_lead_edge_reserve(
         if port.side in perp_sides:
             perp_ys.append(station.y)
     if len(perp_ys) < 2:
+        return PERP_PORT_EDGE_INSET
+
+    content_bottoms = [
+        st.y + _terminus_y_overhang(st, sec_dir, graph)[1]
+        for sid in section.station_ids
+        if (st := graph.stations.get(sid)) is not None and not st.is_port
+    ]
+    if not content_bottoms:
         return PERP_PORT_EDGE_INSET
 
     desired_bottom = max(max(content_bottoms) + section_padding, max(port_ys))
