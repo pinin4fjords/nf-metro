@@ -35,7 +35,6 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.layout.phases.single_section import (
     _multiline_label_padding,
-    _terminus_flow_overhang,
     _terminus_y_overhang,
 )
 from nf_metro.parser.model import (
@@ -764,7 +763,7 @@ def _perp_port_lead_edge_reserve(
         return station.y if axis == "y" else station.x
 
     content_high = [
-        coord(st) + _terminus_flow_overhang(st, sec_dir, graph)[1]
+        coord(st) + _terminus_y_overhang(st, sec_dir, graph)[1]
         for sid in section.station_ids
         if (st := graph.stations.get(sid)) is not None and not st.is_port
     ]
