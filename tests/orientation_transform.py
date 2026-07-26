@@ -22,6 +22,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterator
 
+from nf_metro.parser.model import MetroGraph
+
 # A quarter turn clockwise sends a rightward flow downward, a downward flow
 # leftward, and so on around the cycle.
 _TURN_DIRECTION = {"LR": "TB", "TB": "RL", "RL": "BT", "BT": "LR"}
@@ -159,7 +161,7 @@ def grid_dims(source: str) -> tuple[int, int]:
     return (cols, rows)
 
 
-def transformable_reason(graph: object) -> str | None:
+def transformable_reason(graph: MetroGraph) -> str | None:
     """Why *graph*'s source cannot be transformed, or ``None`` when it can.
 
     Rewriting the directives only carries a map's geometry when the author
@@ -170,15 +172,13 @@ def transformable_reason(graph: object) -> str | None:
     ``resolve`` adds a fold-reoriented section to ``_explicit_directions``, so
     those are subtracted to leave author-declared flows only.
     """
-    sections = set(graph.sections)  # type: ignore[attr-defined]
+    sections = set(graph.sections)
     if len(sections) < 2:
         return "single section: every transform is the identity"
-    authored = (
-        graph._explicit_directions - graph._fold_reoriented_sections  # type: ignore[attr-defined]
-    )
+    authored = graph._explicit_directions - graph._fold_reoriented_sections
     if inferred := sections - authored:
         return f"inferred flow direction: {sorted(inferred)}"
-    if ungridded := sections - graph._explicit_grid:  # type: ignore[attr-defined]
+    if ungridded := sections - graph._explicit_grid:
         return f"inferred grid cell: {sorted(ungridded)}"
     return None
 

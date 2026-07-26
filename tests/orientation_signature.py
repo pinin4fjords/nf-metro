@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from orientation_transform import Orientation
 
 from nf_metro.layout.geometry import AxisFrame, perpendicular_port_sides
-from nf_metro.parser.model import MetroGraph, Section
+from nf_metro.parser.model import MetroGraph, PortSide, Section
 
 _PORT_ID = re.compile(
     r"^(?P<section>.+)__(?P<kind>entry|exit)_(?P<side>\w+)_(?P<n>\d+)$"
@@ -108,7 +108,12 @@ def _port_coord_on(axis: str, port_x: float, port_y: float) -> float:
 
 # The side a port is pinned to fixes it on one axis; the other axis is the one it
 # is free to slide along.
-_SIDE_AXIS = {"left": "x", "right": "x", "top": "y", "bottom": "y"}
+_SIDE_AXIS = {
+    PortSide.LEFT: "x",
+    PortSide.RIGHT: "x",
+    PortSide.TOP: "y",
+    PortSide.BOTTOM: "y",
+}
 
 
 @dataclass(frozen=True)
@@ -169,9 +174,10 @@ def relational_signature(graph: MetroGraph) -> RelationalSignature:
             continue
         frame = _frame(section)
         edges = _box_edges(section)
-        side = port.side.value
-        pinned_axis = _SIDE_AXIS[side]
-        clearance = abs(_port_coord_on(pinned_axis, port.x, port.y) - edges[side])
+        pinned_axis = _SIDE_AXIS[port.side]
+        clearance = abs(
+            _port_coord_on(pinned_axis, port.x, port.y) - edges[port.side.value]
+        )
         extent = _flow_extent(graph, section)
         precedes = follows = None
         if extent is not None:
@@ -183,7 +189,7 @@ def relational_signature(graph: MetroGraph) -> RelationalSignature:
             precedes = here <= first + 0.5
             follows = here >= last - 0.5
         ports[port_key(port.id)] = PortRelation(
-            side=side,
+            side=port.side.value,
             is_entry=port.is_entry,
             is_perpendicular=port.side in perpendicular_port_sides(section.direction),
             edge_clearance=round(clearance, 3),
@@ -209,6 +215,27 @@ def relational_signature(graph: MetroGraph) -> RelationalSignature:
     return RelationalSignature(ports=ports, aligned_groups=aligned)
 
 
+DIVERGENCE_FAMILIES = frozenset(
+    {
+        "sections",
+        "direction",
+        "cell",
+        "station_ordinal",
+        "port_side",
+        "port_perpendicular",
+        "port_clearance",
+        "port_flow_end",
+        "group_alignment",
+    }
+)
+"""Every property :func:`divergences` reports on.
+
+A caller excepting a residual keys on one of these, so the set is shared rather
+than restated: a misspelled family would otherwise match nothing and read as an
+unexcepted divergence in one test and a stale exception in another.
+"""
+
+
 @dataclass(frozen=True)
 class Divergence:
     """One way a transformed layout failed to be the reference's image.
@@ -219,6 +246,10 @@ class Divergence:
 
     family: str
     detail: str
+
+    def __post_init__(self) -> None:
+        if self.family not in DIVERGENCE_FAMILIES:
+            raise ValueError(f"unknown divergence family {self.family!r}")
 
     def __str__(self) -> str:
         return f"[{self.family}] {self.detail}"
@@ -243,11 +274,20 @@ def _map_group_key(
     return (axis, index)
 
 
+def _grid_dims(ordinals: dict[str, SectionOrdinals]) -> tuple[int, int]:
+    """The ``(cols, rows)`` extent the sections occupy, spans included."""
+    cols = rows = 1
+    for section in ordinals.values():
+        col, row, rowspan, colspan = section.cell
+        cols = max(cols, col + colspan)
+        rows = max(rows, row + rowspan)
+    return (cols, rows)
+
+
 def divergences(
     reference: MetroGraph,
     image: MetroGraph,
     orientation: Orientation,
-    dims: tuple[int, int],
 ) -> list[Divergence]:
     """Every way *image* differs from *reference*'s image under *orientation*."""
     found: list[Divergence] = []
@@ -256,6 +296,7 @@ def divergences(
         return [
             Divergence("sections", f"section set differs: {set(ref_o) ^ set(img_o)}")
         ]
+    dims = _grid_dims(ref_o)
 
     for sid, ref in ref_o.items():
         img = img_o[sid]
