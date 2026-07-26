@@ -12,11 +12,20 @@ above-left position is never clear, so the placement chain falls through to
 port toward the top edge, and it reserves ``PERP_PORT_EDGE_CLEARANCE`` so the
 port stops short of it.
 
+Every clearance here is measured from the port's outermost *drawn* lane, not from
+the port station: the bundle crossing a port is staggered off it along exactly
+the free axis these clearances are measured on, so a station well clear of the
+border can still have its outer lane riding it.
+
 Covers:
 
-* Corpus: no shipped fixture seats a port flush on an unanchored box edge.
-* Meaningfulness: a hand-planted flush port is caught, so the corpus check is
-  not vacuous.
+* Corpus: no shipped fixture seats a port's drawn bundle flush on an unanchored
+  box edge, and every perpendicular port on a vertical flow keeps the full
+  ``PERP_PORT_EDGE_INSET`` from the flow-axis edge it faces.
+* Meaningfulness: a hand-planted flush port is caught, and so is one whose
+  station is clear while its bundle is not, so neither corpus check is vacuous.
+* Rotation: the bundle sits on the same side of a LEFT/RIGHT port under a TB flow
+  and its BT mirror, since the run carrying it is horizontal either way.
 * Regression: ``tb_exit_terminal_on_carrier``'s carrier row keeps entry-port
   headroom and anchors its header at the box's top-left corner.
 """
@@ -35,6 +44,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import AxisFrame, perpendicular_port_sides
+from nf_metro.layout.phases._common import port_bundle_edge_reach
 from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
     _guard_ports_clear_unanchored_box_edges,
@@ -48,6 +58,10 @@ from nf_metro.render.section_header import resolve_all_section_headers
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CARRIER_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
+FOUR_LANE_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "tb_right_exit_feeder_slots.mmd"
+"""A TB section whose perpendicular exit carries four lines, so its bundle reaches
+further off the port than the guard floor -- the only shape in which a station can
+be clear of an edge its outermost lane rides."""
 
 EPSILON = SAME_COORD_TOLERANCE
 """Sub-pixel slack, shared with the runtime guard so the two agree on the floor."""
@@ -66,8 +80,10 @@ def _gather_fixtures() -> list[Path]:
 
 
 def _unanchored_edge_clearances(graph) -> list[tuple[str, str, float]]:
-    """``(section_id, port_id, clearance)`` for every port, measured to the
-    nearer of the two box edges the port is *not* anchored to."""
+    """``(section_id, port_id, clearance)`` for every port, measured from its
+    outermost drawn lane to the nearer of the two box edges it is *not* anchored
+    to."""
+    offsets = compute_station_offsets(graph)
     out: list[tuple[str, str, float]] = []
     for sec in graph.sections.values():
         if sec.bbox_w <= 0 or sec.bbox_h <= 0:
@@ -77,17 +93,27 @@ def _unanchored_edge_clearances(graph) -> list[tuple[str, str, float]]:
             station = graph.stations.get(pid)
             if port is None or station is None:
                 continue
-            if port.side in (PortSide.LEFT, PortSide.RIGHT):
-                near = min(
-                    station.y - sec.bbox_y,
-                    sec.bbox_y + sec.bbox_h - station.y,
+            axis = "y" if port.side in (PortSide.LEFT, PortSide.RIGHT) else "x"
+            low, high = port_bundle_edge_reach(graph, pid, offsets, axis)
+            if axis == "y":
+                coord, box_low, box_high = (
+                    station.y,
+                    sec.bbox_y,
+                    sec.bbox_y + sec.bbox_h,
                 )
             else:
-                near = min(
-                    station.x - sec.bbox_x,
-                    sec.bbox_x + sec.bbox_w - station.x,
+                coord, box_low, box_high = (
+                    station.x,
+                    sec.bbox_x,
+                    sec.bbox_x + sec.bbox_w,
                 )
-            out.append((sec.id, pid, near))
+            out.append(
+                (
+                    sec.id,
+                    pid,
+                    min(coord - low - box_low, box_high - coord - high),
+                )
+            )
     return out
 
 
@@ -119,6 +145,31 @@ def test_guard_catches_planted_flush_port() -> None:
     graph.ports[pid].y = section.bbox_y
 
     with pytest.raises(PhaseInvariantError, match="clearance"):
+        _guard_ports_clear_unanchored_box_edges(graph, "planted")
+
+
+def test_guard_catches_a_port_whose_bundle_alone_rides_the_edge() -> None:
+    """The bundle arm of the guard is not vacuous.
+
+    Seats the exit port so its *station* keeps more than the floor from the box
+    bottom while its outermost lane sits on the border.  Measured at the station
+    the layout reads as clean, so only a bundle-aware guard can fail it.
+    """
+    graph = parse_metro_mermaid(FOUR_LANE_FIXTURE.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    section = graph.sections["sec"]
+    pid = next(iter(section.exit_ports))
+    reach = port_bundle_edge_reach(graph, pid, offsets, "y")[1]
+    assert reach > PERP_PORT_EDGE_CLEARANCE + EPSILON, (
+        f"{pid} carries only a {reach:.1f}px bundle reach; the plant needs one "
+        "wider than the guard floor to hide a violation behind the station"
+    )
+    planted = section.bbox_y + section.bbox_h - reach
+    graph.stations[pid].y = planted
+    graph.ports[pid].y = planted
+
+    with pytest.raises(PhaseInvariantError, match="bundle"):
         _guard_ports_clear_unanchored_box_edges(graph, "planted")
 
 
@@ -168,17 +219,34 @@ def test_perpendicular_port_sides_follow_the_flow_axis() -> None:
 
 
 def test_carrier_row_ports_sit_symmetrically_in_their_box() -> None:
-    """The two perpendicular ports end equidistant from the edges they face."""
+    """The two perpendicular ports' drawn lanes end equidistant from their edges.
+
+    Measured off the outermost lane rather than the port station: the exit's
+    bundle is staggered toward the bottom edge and the entry's away from the top
+    one, so equal *station* clearances would put the two drawn ends unlike.
+    """
     graph = parse_metro_mermaid(CARRIER_FIXTURE.read_text())
     compute_layout(graph)
+    offsets = compute_station_offsets(graph)
     section = graph.sections["quantification"]
-    entry = graph.stations[next(iter(section.entry_ports))]
-    exit_ = graph.stations[next(iter(section.exit_ports))]
-    top_clearance = entry.y - section.bbox_y
-    bottom_clearance = section.bbox_y + section.bbox_h - exit_.y
+    entry_id = next(iter(section.entry_ports))
+    exit_id = next(iter(section.exit_ports))
+    entry = graph.stations[entry_id]
+    exit_ = graph.stations[exit_id]
+    top_clearance = (
+        entry.y
+        - port_bundle_edge_reach(graph, entry_id, offsets, "y")[0]
+        - section.bbox_y
+    )
+    bottom_clearance = (
+        section.bbox_y
+        + section.bbox_h
+        - exit_.y
+        - port_bundle_edge_reach(graph, exit_id, offsets, "y")[1]
+    )
     assert top_clearance == pytest.approx(bottom_clearance, abs=EPSILON), (
-        f"entry sits {top_clearance:.1f}px below the box top but the exit sits "
-        f"{bottom_clearance:.1f}px above its bottom"
+        f"the entry's top lane sits {top_clearance:.1f}px below the box top but "
+        f"the exit's bottom lane sits {bottom_clearance:.1f}px above its bottom"
     )
 
 
@@ -296,31 +364,42 @@ def _row_group_slacks(graph, section) -> list[float]:
     return slacks
 
 
-def _perp_pair_clearances(graph, section, axis):
-    """``(low, high)`` clearance of the outermost perpendicular ports, or None."""
+def _perp_pair_clearances(graph, section, axis, offsets):
+    """``(low, high)`` clearance of the outermost perpendicular lanes, or None.
+
+    Read off each port's outermost drawn lane, so a bundle staggered toward one
+    edge is judged on what the viewer sees rather than on the port station.
+    """
     sides = perpendicular_port_sides(section.direction or "LR")
-    coords = [
-        (graph.stations[pid].y if axis == "y" else graph.stations[pid].x)
+    lanes = [
+        (
+            (graph.stations[pid].y if axis == "y" else graph.stations[pid].x),
+            port_bundle_edge_reach(graph, pid, offsets, axis),
+        )
         for pid in (*section.entry_ports, *section.exit_ports)
         if (port := graph.ports.get(pid)) is not None
         and port.side in sides
         and pid in graph.stations
     ]
-    if len(coords) < 2:
+    if len(lanes) < 2:
         return None
     low = section.bbox_y if axis == "y" else section.bbox_x
     high = low + (section.bbox_h if axis == "y" else section.bbox_w)
-    return min(coords) - low, high - max(coords)
+    return (
+        min(coord - reach[0] for coord, reach in lanes) - low,
+        high - max(coord + reach[1] for coord, reach in lanes),
+    )
 
 
 def _iter_perp_pairs(graph, want_axis):
+    offsets = compute_station_offsets(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0 or section.bbox_w <= 0:
             continue
         axis = AxisFrame.axes_for_direction(section.direction or "LR")[0]
         if axis != want_axis:
             continue
-        pair = _perp_pair_clearances(graph, section, axis)
+        pair = _perp_pair_clearances(graph, section, axis, offsets)
         if pair is not None:
             yield section, pair
 
@@ -348,6 +427,93 @@ def test_vertical_perp_port_pair_is_balanced_or_its_row_is_blocked(path: Path) -
             f"{min(slacks) if slacks else None}; the reserve should have "
             "balanced them"
         )
+
+
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_perp_port_bundle_keeps_the_full_inset(path: Path) -> None:
+    """A perpendicular port's outermost lane keeps ``PERP_PORT_EDGE_INSET``.
+
+    The inset is what the bbox phases reserve beyond a perpendicular port toward
+    the flow-axis edges (``port_edge_inset``), and it is room the drawn lane owes
+    the border, not room the port station owes it.  Scoped to the vertical flows,
+    the axis where the reservation exists at all; the horizontal rotation gets no
+    inset yet (#1542, ``test_horizontal_perp_port_pair_is_balanced``).
+    """
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    short: list[str] = []
+    for section in graph.sections.values():
+        if section.bbox_h <= 0:
+            continue
+        direction = section.direction or "LR"
+        if AxisFrame.axes_for_direction(direction)[0] != "y":
+            continue
+        for pid in (*section.entry_ports, *section.exit_ports):
+            port = graph.ports.get(pid)
+            station = graph.stations.get(pid)
+            if port is None or station is None:
+                continue
+            if port.side not in perpendicular_port_sides(direction):
+                continue
+            low, high = port_bundle_edge_reach(graph, pid, offsets, "y")
+            clearance = min(
+                station.y - low - section.bbox_y,
+                section.bbox_y + section.bbox_h - station.y - high,
+            )
+            if clearance < PERP_PORT_EDGE_INSET - EPSILON:
+                short.append(f"{section.id}/{pid} clearance={clearance:.1f}")
+    assert not short, (
+        "perpendicular ports whose outermost drawn lane sits within "
+        f"{PERP_PORT_EDGE_INSET}px of the flow-axis box edge it faces: "
+        + ", ".join(short)
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "section_id", "direction"),
+    (
+        (REPO_ROOT / "tests/fixtures/tb_right_exit_feeder_slots.mmd", "sec", "TB"),
+        (
+            REPO_ROOT / "examples/topologies/bt_perp_left_entry_right_exit.mmd",
+            "align",
+            "BT",
+        ),
+    ),
+    ids=("TB", "BT"),
+)
+def test_perp_port_bundle_sits_below_its_port_in_either_vertical_flow(
+    path: Path, section_id: str, direction: str
+) -> None:
+    """A TB flow and its BT mirror stagger a perpendicular port's lanes alike.
+
+    A vertical flow fans its *own* stations' lanes to one side under TB and the
+    other under BT, so the mirror is where a sign error hides.  A perpendicular
+    port's lanes are not on that axis: the run crossing its edge is horizontal,
+    and every horizontal flow stacks lanes on +Y, so both mirrors put the bundle
+    below the port and leave nothing above it.
+    """
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    section = graph.sections[section_id]
+    assert section.direction == direction
+    reaches = {
+        pid: port_bundle_edge_reach(graph, pid, offsets, "y")
+        for pid in (*section.entry_ports, *section.exit_ports)
+        if (port := graph.ports.get(pid)) is not None
+        and port.side in perpendicular_port_sides(direction)
+    }
+    assert reaches, f"{section_id} carries no perpendicular port to measure"
+    assert any(high > 0.0 for _low, high in reaches.values()), (
+        f"no perpendicular port in {section_id} carries a multi-line bundle, so "
+        "the fan side is unobservable here"
+    )
+    assert all(low == 0.0 for low, _high in reaches.values()), (
+        f"a perpendicular port in {section_id} reaches above its station: {reaches}"
+    )
 
 
 _LR_PERP_PAIR_MMD = """\
