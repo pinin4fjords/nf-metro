@@ -78,6 +78,12 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # after Stage 6.15a: it immediately reds ``test_section_bbox_top_hugs_content``
 # on these exact fixtures).
 #
+# The vertical-flow entries added for the perpendicular-port inset
+# (``bt_perp_left_entry_right_exit``, ``bt_to_tb``, ``longread_variant_calling``)
+# are the same intentional class: the box now extends past its content to keep
+# ``PERP_PORT_EDGE_INSET`` beyond a perpendicular port, so replaying the row
+# realign finds the same movement the content-hug pass is entitled to undo.
+#
 # ``topologies/tb_off_track_inputs``'s "6.6" entry is unrelated and NOT
 # confirmed intentional: replaying ``_reanchor_off_track_to_consumer`` swaps
 # the X positions of two off-track sibling stations instead of reproducing
@@ -89,9 +95,12 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # dict can't silently drift out of sync with engine behaviour.
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "examples/differentialabundance": frozenset({"4.7"}),
+    "examples/longread_variant_calling": frozenset({"4.7"}),
     "examples/differentialabundance_default": frozenset({"4.7"}),
     "tests/da_pipeline": frozenset({"4.7"}),
     "tests/trunk_align_matching_bundle": frozenset({"4.7"}),
+    "topologies/bt_perp_left_entry_right_exit": frozenset({"4.7"}),
+    "topologies/bt_to_tb": frozenset({"4.7"}),
     "topologies/fanout_hub_two_line_trunk": frozenset({"4.7"}),
     "topologies/internal_source_equal_sibling_2fan": frozenset({"4.7"}),
     "topologies/off_track_convergence": frozenset({"4.7"}),

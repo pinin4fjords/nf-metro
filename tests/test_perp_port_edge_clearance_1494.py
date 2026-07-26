@@ -29,6 +29,7 @@ import pytest
 
 from nf_metro.layout.constants import (
     PERP_PORT_EDGE_CLEARANCE,
+    PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
 )
@@ -185,7 +186,7 @@ def test_carrier_row_ports_sit_symmetrically_in_their_box() -> None:
     "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
 def test_lone_perpendicular_port_reserves_only_the_floor(path: Path) -> None:
-    """A section with no perpendicular pair pays no padding for symmetry."""
+    """A section with no perpendicular pair falls back to the designed inset."""
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
     for section in graph.sections.values():
@@ -201,7 +202,7 @@ def test_lone_perpendicular_port_reserves_only_the_floor(path: Path) -> None:
             continue
         assert _perp_port_lead_edge_reserve(
             graph, section, SECTION_Y_PADDING
-        ) == pytest.approx(PERP_PORT_EDGE_CLEARANCE, abs=EPSILON)
+        ) == pytest.approx(PERP_PORT_EDGE_INSET, abs=EPSILON)
 
 
 def _lr_section_with_perp_pair(entry_x: float, exit_x: float) -> MetroGraph:
@@ -250,22 +251,22 @@ def test_lead_edge_reserve_measures_on_x_for_a_horizontal_flow() -> None:
     # so the floor governs.
     assert _perp_port_lead_edge_reserve(
         graph, section, SECTION_Y_PADDING
-    ) == pytest.approx(PERP_PORT_EDGE_CLEARANCE, abs=EPSILON)
+    ) == pytest.approx(PERP_PORT_EDGE_INSET, abs=EPSILON)
 
     # Pull the rightmost port inside the padded right edge and the reserve becomes
     # that port's own right-edge clearance: 200 - 170 = 30.
-    graph.stations["pout"].x = 170.0
-    graph.ports["pout"].x = 170.0
+    graph.stations["pout"].x = 150.0
+    graph.ports["pout"].x = 150.0
     assert _perp_port_lead_edge_reserve(
         graph, section, SECTION_Y_PADDING
-    ) == pytest.approx(30.0, abs=EPSILON)
+    ) == pytest.approx(50.0, abs=EPSILON)
 
     # Moving a port along Y cannot change an X-axis reserve.
     graph.stations["pout"].y = 100.0
     graph.ports["pout"].y = 100.0
     assert _perp_port_lead_edge_reserve(
         graph, section, SECTION_Y_PADDING
-    ) == pytest.approx(30.0, abs=EPSILON)
+    ) == pytest.approx(50.0, abs=EPSILON)
 
 
 def _row_group_slacks(graph, section) -> list[float]:

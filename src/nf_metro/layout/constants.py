@@ -597,6 +597,19 @@ fixtures (n=1, 2) while still ensuring clearance for wide fans (n>=3).
 MIN_PORT_STATION_GAP: float = 16.0
 """Minimum gap between entry port and internal stations (TB perpendicular)."""
 
+PERP_PORT_EDGE_INSET: float = SECTION_Y_PADDING - MIN_PORT_STATION_GAP
+"""Room a perpendicular port keeps from the flow-axis bbox edge it faces.
+
+A port seated the minimum station gap beyond the outermost station already earns
+this much, because the edge itself trails that station by ``SECTION_Y_PADDING``.
+A port seated further out -- a perpendicular entry sits a whole entry shift clear
+of the row -- would otherwise be left with only the remainder and read as pinched
+against the border, so the box extends to give it the same room instead.
+
+Distinct from ``PERP_PORT_EDGE_CLEARANCE``: that is the hard floor a runtime
+guard enforces, this is the wider spacing placement aims for.
+"""
+
 STATION_ELBOW_TOLERANCE: float = 12.0
 """Tolerance for station-as-elbow detection."""
 
