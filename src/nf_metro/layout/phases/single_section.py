@@ -995,31 +995,6 @@ def _terminus_icons_extend_forward(is_source: bool, section_dir: str) -> bool:
     return is_source if section_dir in ("RL", "BT") else not is_source
 
 
-def _terminus_flow_overhang(
-    station: Station, section_dir: str, graph: MetroGraph
-) -> tuple[float, float]:
-    """``(before, after)`` px a terminus's icons extend past its marker along flow.
-
-    The flow-axis counterpart of :func:`_terminus_y_overhang`, defined for every
-    rotation: ``before``/``after`` are in *screen* order along the section's flow
-    axis (up/down for TB/BT, left/right for LR/RL), so a caller reading a bbox's
-    low and high edge can use them directly.  Magnitude comes from
-    :func:`_terminus_icon_clearance_vertical` and the side from
-    :func:`_terminus_icons_extend_forward`, so this stays consistent with what
-    ``render.svg`` draws on either axis.
-    """
-    if not station.is_terminus:
-        return 0.0, 0.0
-    is_source = not graph.edges_to(station.id)
-    extent = _terminus_icon_clearance_vertical(
-        len(station.terminus_labels), station.terminus_names
-    )
-    forward = _terminus_icons_extend_forward(is_source, section_dir)
-    # A reversed flow (RL/BT) runs its forward direction toward the low edge.
-    toward_high = forward == (AxisFrame.flow_sign(section_dir) > 0)
-    return (0.0, extent) if toward_high else (extent, 0.0)
-
-
 def _terminus_y_overhang(
     station: Station, section_dir: str, graph: MetroGraph
 ) -> tuple[float, float]:
