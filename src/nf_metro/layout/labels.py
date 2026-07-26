@@ -44,6 +44,7 @@ from nf_metro.layout.constants import (
     LABEL_WRAP_MIN_LINE_CHARS,
     PORT_LABEL_MAX_DX,
     RAIL_KNOB_RADIUS_RATIO,
+    ROTATION_LANE_SIGN,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
     STATION_STROKE_APPROX,
@@ -53,6 +54,7 @@ from nf_metro.layout.constants import (
     X_SPACING,
 )
 from nf_metro.layout.geometry import (
+    AxisFrame,
     lanes_run_along_x,
     segment_intersects_bbox,
     segment_intersects_quad,
@@ -1415,11 +1417,19 @@ def _place_tb_label(
     """Place a TB-section label beside the horizontal pill (left, else right)."""
     graph = ctx.graph
     lines = graph.station_lines(station.id)
-    # The pill spans the bundle as drawn: the rotation lane rides x - offset
-    # (x + offset for a positive-fan section), so the bundle sits to one side of
-    # the station X rather than centred.  Span the label to those edges so it
-    # clears the trunk by the same gap regardless of the draw side.
-    sign = 1.0 if station.section_id in ctx.tb_positive_fan else -1.0
+    # The pill spans the bundle as drawn, which sits to one side of the station
+    # X rather than centred.  Read the side from the same lane sign the draw
+    # accessor uses -- a downward (TB) rotation rides x - offset, its upward (BT)
+    # image x + offset -- so the label clears the real pill rather than a mirror
+    # of it.  A positive-fan section overrides that to the +x side.
+    section = graph.sections.get(station.section_id or "")
+    sign = (
+        AxisFrame.secondary_sign_for(section.direction)
+        if section is not None
+        else ROTATION_LANE_SIGN
+    )
+    if station.section_id in ctx.tb_positive_fan:
+        sign = 1.0
     offsets = ctx.station_offsets
     if offsets is not None:
         drawn = [sign * offsets.get((station.id, lid), 0.0) for lid in lines]
