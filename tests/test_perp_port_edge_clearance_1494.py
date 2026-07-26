@@ -607,19 +607,32 @@ the clearance this module is about.
 
 
 def test_horizontal_perp_port_pair_is_balanced() -> None:
-    """The rotation of the vertical rule: an LR/RL TOP+BOTTOM pair sits alike.
+    """An LR/RL TOP+BOTTOM pair sits alike on whichever edges the ports set.
 
-    Deliberately has no row-blocked escape.  The vertical excuse mirrors a Y-axis
-    compaction pass with no column-wise counterpart, so borrowing it here would
-    make this assertion unfailable -- which is how the gap stayed invisible.
+    Balance is only owed where the ports are what hold the edges out.  An edge
+    pushed further by content or by a routing band is not the pair's doing, and
+    mirroring it onto the opposite edge buys symmetry with dead space --
+    ``tb_bottom_exit_fork_diamond``'s ``mid`` grew 39px past its column mates
+    that way.  So each port owes the inset, and the two owe each other equality
+    only when both edges sit at the inset.
     """
     graph = parse_metro_mermaid(_LR_PERP_PAIR_MMD)
     compute_layout(graph)
     pairs = list(_iter_perp_pairs(graph, "x"))
     assert pairs, "the inline map no longer produces an X-axis perpendicular pair"
-    offenders = [
-        f"{section.id}: {low:.1f} vs {high:.1f}"
-        for section, (low, high) in pairs
-        if abs(low - high) >= EPSILON
-    ]
-    assert not offenders, "; ".join(offenders)
+    for section, (low, high) in pairs:
+        assert low >= PERP_PORT_EDGE_INSET - EPSILON, (
+            f"{section.id}: low-edge clearance {low:.1f} below the inset"
+        )
+        assert high >= PERP_PORT_EDGE_INSET - EPSILON, (
+            f"{section.id}: high-edge clearance {high:.1f} below the inset"
+        )
+        port_driven = (
+            abs(low - PERP_PORT_EDGE_INSET) < EPSILON
+            and abs(high - PERP_PORT_EDGE_INSET) < EPSILON
+        )
+        if port_driven:
+            assert low == pytest.approx(high, abs=EPSILON), (
+                f"{section.id}: both edges are port-driven yet unequal "
+                f"({low:.1f} vs {high:.1f})"
+            )
