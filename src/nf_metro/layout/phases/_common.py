@@ -12,6 +12,7 @@ from nf_metro.layout.constants import (
     COORD_GROUP_DIGITS_COARSE,
     COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
+    PERP_PORT_EDGE_CLEARANCE,
     PERP_PORT_EDGE_INSET,
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
@@ -27,6 +28,7 @@ from nf_metro.layout.geometry import (
 )
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.parser.model import (
+    FLOW_DIRECTIONS,
     Edge,
     MetroGraph,
     Port,
@@ -1378,7 +1380,53 @@ def _fan_offsets(n: int) -> list[int]:
     return list(range(-(n // 2), n // 2 + 1))
 
 
-def port_edge_inset(port: Port | None, section_direction: str, axis: str) -> float:
+def port_bundle_edge_reach(
+    graph: MetroGraph,
+    pid: str,
+    offsets: dict[tuple[str, str], float] | None,
+    axis: str,
+) -> tuple[float, float]:
+    """``(low, high)`` reach of *pid*'s drawn bundle past the port station on *axis*.
+
+    The port analogue of :func:`_bundle_edge_padding`'s ``edge_reach``: a port's
+    lines cross its edge staggered by their per-line offsets
+    (:func:`_station_bundle_offset_span`), so the outermost drawn lane sits that
+    far off the port station and room measured from the station alone over-states
+    what the lane gets.
+
+    The run through a port is normal to the edge the port is pinned to, so its
+    stagger lands on the port's *free* axis and nowhere else -- hence
+    ``(0.0, 0.0)`` for the other one.  Which side of the station it lands on is
+    the lane sign (:meth:`AxisFrame.secondary_sign_for`) of the flows that stack
+    lines on *axis*: the flows stacking on Y all sign it ``+1``, so a LEFT/RIGHT
+    port's bundle rides wholly on the +Y side of it, while the flows stacking on X
+    disagree (TB fans one way, BT the other), leaving a TOP/BOTTOM port's bundle
+    free to sit either side and both sides to be assumed.
+    """
+    port = graph.ports.get(pid)
+    if port is None or offsets is None:
+        return 0.0, 0.0
+    travel_axis = "x" if port.side in (PortSide.LEFT, PortSide.RIGHT) else "y"
+    if axis == travel_axis:
+        return 0.0, 0.0
+    min_off, max_off = _station_bundle_offset_span(graph, pid, offsets)
+    lane_signs = {
+        AxisFrame.secondary_sign_for(direction)
+        for direction in FLOW_DIRECTIONS
+        if AxisFrame.axes_for_direction(direction)[1] == axis
+    }
+    if lane_signs == {1.0}:
+        return max(0.0, -min_off), max(0.0, max_off)
+    reach = max(abs(min_off), abs(max_off))
+    return reach, reach
+
+
+def port_edge_inset(
+    port: Port | None,
+    section_direction: str,
+    axis: str,
+    lane_reach: float = 0.0,
+) -> float:
     """Room *port* owes a bbox edge normal to *axis* (``"x"`` or ``"y"``).
 
     A station flagged as a port but carrying no ``Port`` record has no side to
@@ -1390,13 +1438,24 @@ def port_edge_inset(port: Port | None, section_direction: str, axis: str) -> flo
     beyond it -- and a port crosses the axis exactly when it is free along it,
     which is when it is perpendicular to its section's flow and that flow runs
     down *axis*.
+
+    ``lane_reach`` is how far the port's drawn bundle extends past the port
+    station toward that edge (:func:`port_bundle_edge_reach`).  Both insets are
+    room the outermost *drawn lane* owes the border rather than room the station
+    owes it, so the reach adds on top: a bundle staggered 12px off its port would
+    otherwise leave its outer lane 12px short of what the inset advertises.  A
+    port the wider inset does not cover still owes
+    ``PERP_PORT_EDGE_CLEARANCE`` past its outermost lane, the floor
+    :func:`...guards._guard_ports_clear_unanchored_box_edges` enforces.
     """
     if port is None:
         return 0.0
-    if AxisFrame.axes_for_direction(section_direction)[0] != axis:
-        return 0.0
-    if port.side in perpendicular_port_sides(section_direction):
-        return PERP_PORT_EDGE_INSET
+    reach = max(0.0, lane_reach)
+    on_flow_axis = AxisFrame.axes_for_direction(section_direction)[0] == axis
+    if on_flow_axis and port.side in perpendicular_port_sides(section_direction):
+        return reach + PERP_PORT_EDGE_INSET
+    if reach:
+        return reach + PERP_PORT_EDGE_CLEARANCE
     return 0.0
 
 

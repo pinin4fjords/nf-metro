@@ -65,6 +65,7 @@ from nf_metro.layout.phases._common import (
     iter_stacked_rows_in_rowspan_band,
     line_forks_within_section,
     marker_cross_exempt,
+    port_bundle_edge_reach,
     routes_through_own_section_interior,
     routes_through_unrelated_sections,
     section_axes,
@@ -563,7 +564,12 @@ def _guard_ports_on_boundaries(graph: MetroGraph, phase: str) -> None:
             )
 
 
-def _guard_ports_clear_unanchored_box_edges(graph: MetroGraph, phase: str) -> None:
+def _guard_ports_clear_unanchored_box_edges(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
     """Final: a port keeps clearance from the box edges it is not anchored to.
 
     A port is pinned to one edge -- LEFT/RIGHT to a vertical one, TOP/BOTTOM to
@@ -574,6 +580,11 @@ def _guard_ports_clear_unanchored_box_edges(graph: MetroGraph, phase: str) -> No
     away from the corner it labels.  The free axis therefore owes
     ``PERP_PORT_EDGE_CLEARANCE``.
 
+    Measured from the port's outermost *drawn* lane rather than from the port
+    station: the bundle crossing a port is staggered off it along exactly this
+    free axis (:func:`port_bundle_edge_reach`), so a station comfortably clear of
+    the border can still have its outer lane riding it.
+
     Final-only: a port sits well outside its box for most of placement (bboxes
     are not sized until Stage 2.1, and the content-hug shrink leaves a
     transient flush window through Stage 6.4), so the clearance is a property
@@ -582,21 +593,31 @@ def _guard_ports_clear_unanchored_box_edges(graph: MetroGraph, phase: str) -> No
     # Sub-pixel, so a port a few px inside the border still counts as a
     # violation of a floor this small.
     tolerance = SAME_COORD_TOLERANCE
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
     for pid, port in graph.ports.items():
         st = graph.stations.get(pid)
         sec = graph.sections.get(st.section_id or "") if st else None
         if not st or not sec or sec.bbox_w <= 0 or sec.bbox_h <= 0:
             continue
-        if port.side in (PortSide.LEFT, PortSide.RIGHT):
-            axis = "y"
-            clearance = min(st.y - sec.bbox_y, sec.bbox_y + sec.bbox_h - st.y)
+        axis = "y" if port.side in (PortSide.LEFT, PortSide.RIGHT) else "x"
+        low_reach, high_reach = port_bundle_edge_reach(graph, pid, offsets, axis)
+        if axis == "y":
+            coord, box_low, box_high = st.y, sec.bbox_y, sec.bbox_y + sec.bbox_h
         else:
-            axis = "x"
-            clearance = min(st.x - sec.bbox_x, sec.bbox_x + sec.bbox_w - st.x)
+            coord, box_low, box_high = st.x, sec.bbox_x, sec.bbox_x + sec.bbox_w
+        clearance = min(coord - low_reach - box_low, box_high - coord - high_reach)
         if clearance < PERP_PORT_EDGE_CLEARANCE - tolerance:
+            bundle = (
+                ""
+                if not (low_reach or high_reach)
+                else f", bundle -{low_reach:.1f}/+{high_reach:.1f} on {axis},"
+            )
             raise PhaseInvariantError(
                 f"{phase}: {port.side.name} port {pid!r} at "
-                f"({st.x:.1f}, {st.y:.1f}) leaves {clearance:.1f}px "
+                f"({st.x:.1f}, {st.y:.1f}){bundle} leaves {clearance:.1f}px "
                 f"{axis}-clearance to the nearest unanchored edge of section "
                 f"{st.section_id!r} bbox ({sec.bbox_x:.1f}, {sec.bbox_y:.1f}, "
                 f"w={sec.bbox_w:.1f}, h={sec.bbox_h:.1f}); expected >= "
@@ -5441,6 +5462,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(
         _guard_ports_clear_unanchored_box_edges,
         "A",
+        needs=frozenset({"offsets"}),
         issue_pin=("#1494", "#1540"),
         narrow_reason=(
             "Scoped to a port's clearance from the box edges it is not anchored "
