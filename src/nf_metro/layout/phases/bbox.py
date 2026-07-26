@@ -16,7 +16,6 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
 )
-from nf_metro.layout.geometry import AxisFrame, perpendicular_port_sides
 from nf_metro.layout.labels import font_scale_context, label_text_width
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
@@ -742,14 +741,17 @@ def _section_content_hug_top(
 def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
     """Hold a horizontal flow's left and right box edges clear of its perp ports.
 
-    A horizontal-flow (LR/RL) section pins each perpendicular port to a
-    horizontal edge and leaves it free along X, so the port crosses the flow
-    axis and owes ``PERP_PORT_EDGE_INSET`` to the two edges normal to it -- the
+    A TOP or BOTTOM port is pinned to a horizontal edge and free along X, so it
+    crosses the left and right edges and owes them ``PERP_PORT_EDGE_INSET`` -- the
     rotation of what :func:`_section_content_hug_top` and
-    :func:`_predict_section_content_bottom` fold into the Y extent for a
-    vertical flow.  X sizing measures real stations only, so a port seated past
-    the trailing station or dragged onto a drop column lands inside the padding
-    band with nothing to push the edge out.  Growing the edge is the only move
+    :func:`_predict_section_content_bottom` fold into the Y extent for a LEFT or
+    RIGHT port.  Which side the port sits on settles this, not the direction the
+    section flows: a seam joins a BOTTOM exit to a TOP entry at one X, and gating
+    on flow left the two halves' right edges disagreeing by the inset.
+
+    X sizing measures real stations only, so a port seated past the trailing
+    station or dragged onto a drop column lands inside the padding band with
+    nothing to push the edge out.  Growing the edge is the only move
     available: pulling the port back inside would cost it the elbow runway it
     was seated for.
 
@@ -770,16 +772,13 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
     grew = False
     offsets: dict[tuple[str, str], float] | None = None
     for section in graph.sections.values():
-        direction = section.direction or "LR"
-        axis = AxisFrame.axes_for_direction(direction)[0]
-        if axis != "x" or section.bbox_w <= 0:
+        if section.bbox_w <= 0:
             continue
-        perp_sides = perpendicular_port_sides(direction)
         perp_ids = [
             pid
             for pid in section.port_ids
             if (port := graph.ports.get(pid)) is not None
-            and port.side in perp_sides
+            and port.side in (PortSide.TOP, PortSide.BOTTOM)
             and pid in graph.stations
         ]
         if not perp_ids:
@@ -789,7 +788,7 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
 
             offsets = compute_station_offsets(graph)
         lanes = [
-            (graph.stations[pid].x, port_bundle_edge_reach(graph, pid, offsets, axis))
+            (graph.stations[pid].x, port_bundle_edge_reach(graph, pid, offsets, "x"))
             for pid in perp_ids
         ]
         lo = min(x - reach[0] for x, reach in lanes)
@@ -798,8 +797,8 @@ def _reserve_perp_port_edge_inset(graph: MetroGraph) -> bool:
         if len(lanes) >= 2:
             low_reserve = max(low_reserve, section.bbox_x + section.bbox_w - hi)
         before = (section.bbox_x, section.bbox_w)
-        grow_section_bbox_min_edge(graph, section, axis, lo - low_reserve)
-        grow_section_bbox_max_edge(graph, section, axis, hi + PERP_PORT_EDGE_INSET)
+        grow_section_bbox_min_edge(graph, section, "x", lo - low_reserve)
+        grow_section_bbox_max_edge(graph, section, "x", hi + PERP_PORT_EDGE_INSET)
         if (section.bbox_x, section.bbox_w) != before:
             grew = True
     return grew

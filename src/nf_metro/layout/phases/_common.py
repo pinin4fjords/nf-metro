@@ -23,7 +23,6 @@ from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_x,
     lanes_run_along_y,
-    perpendicular_port_sides,
     quantize_coord,
 )
 from nf_metro.layout.phase_state import require_phase_field
@@ -1433,11 +1432,18 @@ def port_edge_inset(
     judge by, so it owes nothing and stays hard-contained.
 
     A port pinned to that edge belongs on it and owes nothing: an LR section's
-    TOP port *is* its top edge.  A port merely crossing the axis reads as
-    running along the border unless the box keeps ``PERP_PORT_EDGE_INSET``
-    beyond it -- and a port crosses the axis exactly when it is free along it,
-    which is when it is perpendicular to its section's flow and that flow runs
-    down *axis*.
+    TOP port *is* its top edge.  A port free along *axis* crosses the edges normal
+    to it and reads as running along the border unless the box keeps
+    ``PERP_PORT_EDGE_INSET`` beyond it.
+
+    On X that is every TOP/BOTTOM port, whichever way its section flows: a seam
+    joins a BOTTOM exit to a TOP entry at one X, so gating on flow there left the
+    two halves' right edges disagreeing about the same bundle.
+
+    On Y it is only a vertical flow's LEFT/RIGHT port.  A horizontal flow's
+    LEFT/RIGHT port is its trunk arriving or leaving, not a run crossing the box,
+    so how far it sits from the top and bottom edges is the content padding's
+    business -- reserving against it instead grows a box into its neighbours.
 
     ``lane_reach`` is how far the port's drawn bundle extends past the port
     station toward that edge (:func:`port_bundle_edge_reach`).  Both insets are
@@ -1451,8 +1457,10 @@ def port_edge_inset(
     if port is None:
         return 0.0
     reach = max(0.0, lane_reach)
-    on_flow_axis = AxisFrame.axes_for_direction(section_direction)[0] == axis
-    if on_flow_axis and port.side in perpendicular_port_sides(section_direction):
+    if axis == "y" and port.side in (PortSide.LEFT, PortSide.RIGHT):
+        if lanes_run_along_x(section_direction):
+            return reach + PERP_PORT_EDGE_INSET
+    elif axis == "x" and port.side in (PortSide.TOP, PortSide.BOTTOM):
         return reach + PERP_PORT_EDGE_INSET
     if reach:
         return reach + PERP_PORT_EDGE_CLEARANCE
