@@ -1017,6 +1017,46 @@ def _row_contiguous_column_groups(
     return result
 
 
+def _column_contiguous_row_groups(
+    graph: MetroGraph,
+) -> list[list[Section]]:
+    """Group laid-out sections by grid column into contiguous row runs.
+
+    The X mirror of :func:`_row_contiguous_column_groups`: each returned group
+    has at least 2 sections in adjacent grid rows within one column.  Adjacency
+    reads the start row only, matching the row version's use of the start
+    column, so a section spanning several rows joins only its start row's
+    neighbours.
+
+    Members of a packed cell are excluded.  A packed cell lays its sections
+    side-by-side along X inside one grid cell, so they share a column while
+    sitting at different X -- there is no common vertical edge for them to
+    reach without one growing over another.
+    """
+    packed = {m for members in graph.cell_packs.values() for m in members}
+    by_col: dict[int, list[Section]] = defaultdict(list)
+    for section in graph.sections.values():
+        if section.bbox_w > 0 and section.grid_col >= 0 and section.id not in packed:
+            by_col[section.grid_col].append(section)
+
+    result: list[list[Section]] = []
+    for col in by_col.values():
+        if len(col) < 2:
+            continue
+        col_sorted = sorted(col, key=lambda s: s.grid_row)
+        group = [col_sorted[0]]
+        for s in col_sorted[1:]:
+            if s.grid_row - group[-1].grid_row <= 1:
+                group.append(s)
+            else:
+                if len(group) >= 2:
+                    result.append(group)
+                group = [s]
+        if len(group) >= 2:
+            result.append(group)
+    return result
+
+
 def _is_side_entered_vertical_section(graph: MetroGraph, section: Section) -> bool:
     """Whether *section* is a vertical-flow (TB/BT) section entered from a
     perpendicular side.
