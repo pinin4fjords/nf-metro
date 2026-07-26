@@ -46,6 +46,7 @@ from nf_metro.layout.phases.bbox import (
     _left_align_column_bboxes_only,
     _shared_left_runway_runs,
 )
+from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, Section
 
@@ -141,7 +142,9 @@ def test_levelling_never_spreads_a_column_runway(
                 compute_layout(without)
             graph = parse_metro_mermaid(text)
             compute_layout(graph)
-        except Exception:
+        except CurveInvariantError:
+            # twoline_fanout_up is a known-bug fixture that aborts on the render
+            # path; every other abort is a regression this ratchet must surface.
             continue
         before = _column_runway_spreads(without)
         after = _column_runway_spreads(graph)
@@ -159,7 +162,7 @@ def test_corpus_levels_shared_runways_and_leaves_the_rest() -> None:
         graph = parse_metro_mermaid(path.read_text())
         try:
             compute_layout(graph)
-        except Exception:
+        except CurveInvariantError:
             continue
         for group in _column_contiguous_row_groups(graph):
             runs = _shared_left_runway_runs(graph, group)

@@ -1974,7 +1974,7 @@ def _finalize_layout(
     # re-anchor to the settled exit/entry port Ys regardless of direction
     # (they live in inter-section space and aren't moved by the settling
     # phases, so otherwise a fan-out bundle dips to a stale junction Y).
-    _perp_entry_ys_before_resnap = {
+    perp_entry_ys_before_resnap = {
         pid: graph.stations[pid].y
         for sec in graph.sections.values()
         for pid in sec.entry_ports
@@ -1984,16 +1984,16 @@ def _finalize_layout(
     }
     _align_entry_ports(graph, vertical_only=True)
     # The re-snap above is the last mover of these ports, so a top sized while
-    # one sat higher can finally give the slack back.  Scoped to the sections
+    # one sat higher may be lowered.  Scoped to the sections
     # that actually moved: replaying the fit corpus-wide re-opens the transient
     # row-flush the content-hug pass is entitled to undo.
-    _resnapped = {
+    resnapped = {
         graph.stations[pid].section_id or ""
-        for pid, was in _perp_entry_ys_before_resnap.items()
+        for pid, was in perp_entry_ys_before_resnap.items()
         if abs(graph.stations[pid].y - was) > SAME_COORD_TOLERANCE
     }
-    if _resnapped:
-        refit_tops_after_entry_resnap(graph, _resnapped, section_y_padding)
+    if resnapped:
+        refit_tops_after_entry_resnap(graph, resnapped, section_y_padding)
     _position_junctions(graph)
     _snap(graph, "6.16")
     if validate:
