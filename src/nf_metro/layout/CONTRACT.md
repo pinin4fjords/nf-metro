@@ -697,6 +697,9 @@ in pipeline order.
   `_perp_port_lead_edge_reserve` caps the shift so a perpendicular port
   keeps `PERP_PORT_EDGE_INSET` inside the edge -- there the top stays
   higher and the group's content keeps more than the padding above it.
+  The reserve is measured from the port station, which is also its topmost
+  drawn lane: a port's bundle staggers below it, never above
+  (`port_bundle_edge_reach`).
   Stations shift up by the same delta as their bbox.
 - **Invariants preserved**: Inter-station relative positions inside
   each section. Trunk Y stays aligned across the row.
@@ -980,9 +983,12 @@ in pipeline order.
 - **Precondition**: All content Ys final.
 - **Postcondition**: Section bbox bottoms sit `section_y_padding`
   below the deepest content (trunk alignment unaffected -- only
-  bottom shrinks).  For each row pair, the row gap is `section_y_gap`
-  (no more, no less, except where rowspan sections filled their full
-  row claim).
+  bottom shrinks), and clear the lowest drawn lane of every port the box
+  holds: `PERP_PORT_EDGE_INSET` for a perpendicular port, otherwise
+  `PERP_PORT_EDGE_CLEARANCE`, both measured from the port's outermost lane
+  rather than the port station (`port_bundle_edge_reach`).  For each row pair,
+  the row gap is `section_y_gap` (no more, no less, except where rowspan
+  sections filled their full row claim).
 - **Invariants preserved**: Bbox tops. Within-row trunk Ys. Bbox
   heights of upper rows.
 - **Related tests**: `test_section_bbox_has_bottom_padding`,
@@ -1032,10 +1038,13 @@ in pipeline order.
   `_shift_graph_into_canvas`.
 - **Precondition**: All content Ys final (post-6.14).
 - **Postcondition**: Each bbox top sits `section_y_padding` above its
-  highest marker, or `PERP_PORT_EDGE_INSET` above a perpendicular port
-  that reaches higher, whichever is further out. For a section with an
-  empty band (no port / bypass above content) the padding term is an
-  equality, not just a floor: the excess band is reclaimed.
+  highest marker, or `PERP_PORT_EDGE_INSET` above the topmost drawn lane of a
+  perpendicular port that reaches higher, whichever is further out. For a
+  section with an empty band (no port / bypass above content) the padding term
+  is an equality, not just a floor: the excess band is reclaimed. Both port
+  terms are measured from the port's outermost lane rather than the port
+  station (`port_bundle_edge_reach`), and a port the inset does not cover still
+  owes `PERP_PORT_EDGE_CLEARANCE` past that lane.
 - **Invariants preserved**: Station Ys (only bbox tops move). Resolves #406.
 - **Related tests**: `test_section_bbox_has_top_padding`,
   `test_section_bbox_top_hugs_content`.

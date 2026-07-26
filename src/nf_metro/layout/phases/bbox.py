@@ -28,6 +28,7 @@ from nf_metro.layout.phases._common import (
     _trunk_symmetric_fan_ids,
     grow_section_bbox_min_edge,
     move_section_bbox_min_edge,
+    port_bundle_edge_reach,
     port_edge_inset,
 )
 from nf_metro.layout.phases.single_section import (
@@ -448,7 +449,7 @@ def _predict_section_content_bottom(
         from nf_metro.layout.rail_mode import rail_above_label_ids
 
         rail_above_ids = rail_above_label_ids(graph, section)
-    if is_horizontal and offsets is None:
+    if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
@@ -485,7 +486,13 @@ def _predict_section_content_bottom(
         if sid in graph.stations and is_bypass_v(sid)
     ]
     port_max_ys = [
-        graph.stations[sid].y + port_edge_inset(graph.ports.get(sid), section_dir, "y")
+        graph.stations[sid].y
+        + port_edge_inset(
+            graph.ports.get(sid),
+            section_dir,
+            "y",
+            port_bundle_edge_reach(graph, sid, offsets, "y")[1],
+        )
         for sid in section.station_ids
         if sid in graph.stations and graph.stations[sid].is_port
     ]
@@ -681,7 +688,7 @@ def _section_content_hug_top(
     section_dir = section.direction or "LR"
     is_horizontal = section_dir in ("LR", "RL")
     fan_ids = _trunk_symmetric_fan_ids(graph, section) if is_horizontal else ()
-    if is_horizontal and offsets is None:
+    if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
@@ -710,7 +717,13 @@ def _section_content_hug_top(
         if sid in graph.stations and is_bypass_v(sid)
     ]
     port_min_ys = [
-        graph.stations[sid].y - port_edge_inset(graph.ports.get(sid), section_dir, "y")
+        graph.stations[sid].y
+        - port_edge_inset(
+            graph.ports.get(sid),
+            section_dir,
+            "y",
+            port_bundle_edge_reach(graph, sid, offsets, "y")[0],
+        )
         for sid in section.station_ids
         if sid in graph.stations and graph.stations[sid].is_port
     ]
