@@ -28,6 +28,7 @@ from nf_metro.layout.phases._common import (
     _trunk_symmetric_fan_ids,
     grow_section_bbox_min_edge,
     move_section_bbox_min_edge,
+    port_edge_inset,
 )
 from nf_metro.layout.phases.single_section import (
     _terminus_y_overhang,
@@ -484,7 +485,7 @@ def _predict_section_content_bottom(
         if sid in graph.stations and is_bypass_v(sid)
     ]
     port_max_ys = [
-        graph.stations[sid].y
+        graph.stations[sid].y + port_edge_inset(graph.ports.get(sid), section_dir, "y")
         for sid in section.station_ids
         if sid in graph.stations and graph.stations[sid].is_port
     ]
@@ -709,7 +710,7 @@ def _section_content_hug_top(
         if sid in graph.stations and is_bypass_v(sid)
     ]
     port_min_ys = [
-        graph.stations[sid].y
+        graph.stations[sid].y - port_edge_inset(graph.ports.get(sid), section_dir, "y")
         for sid in section.station_ids
         if sid in graph.stations and graph.stations[sid].is_port
     ]

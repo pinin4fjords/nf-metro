@@ -12,6 +12,7 @@ from nf_metro.layout.constants import (
     COORD_GROUP_DIGITS_COARSE,
     COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
+    PERP_PORT_EDGE_INSET,
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
@@ -21,6 +22,7 @@ from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_x,
     lanes_run_along_y,
+    perpendicular_port_sides,
     quantize_coord,
 )
 from nf_metro.layout.phase_state import require_phase_field
@@ -1374,6 +1376,28 @@ def _fan_offsets(n: int) -> list[int]:
     if n % 2 == 0:
         return list(range(-(n // 2), 0)) + list(range(1, n // 2 + 1))
     return list(range(-(n // 2), n // 2 + 1))
+
+
+def port_edge_inset(port: Port | None, section_direction: str, axis: str) -> float:
+    """Room *port* owes a bbox edge normal to *axis* (``"x"`` or ``"y"``).
+
+    A station flagged as a port but carrying no ``Port`` record has no side to
+    judge by, so it owes nothing and stays hard-contained.
+
+    A port pinned to that edge belongs on it and owes nothing: an LR section's
+    TOP port *is* its top edge.  A port merely crossing the axis reads as
+    running along the border unless the box keeps ``PERP_PORT_EDGE_INSET``
+    beyond it -- and a port crosses the axis exactly when it is free along it,
+    which is when it is perpendicular to its section's flow and that flow runs
+    down *axis*.
+    """
+    if port is None:
+        return 0.0
+    if AxisFrame.axes_for_direction(section_direction)[0] != axis:
+        return 0.0
+    if port.side in perpendicular_port_sides(section_direction):
+        return PERP_PORT_EDGE_INSET
+    return 0.0
 
 
 def _expand_bbox_for_y(section: Section, y: float) -> None:

@@ -8,7 +8,7 @@ from collections import defaultdict
 from nf_metro.layout.constants import (
     FONT_HEIGHT,
     LABEL_OFFSET,
-    PERP_PORT_EDGE_CLEARANCE,
+    PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
     resolve_offset_step,
@@ -753,7 +753,7 @@ def _perp_port_lead_edge_reserve(
     no special case either.
 
     A section with fewer than two perpendicular ports has no pair to balance and
-    keeps the bare ``PERP_PORT_EDGE_CLEARANCE`` floor, so it does not pay padding
+    keeps the bare ``PERP_PORT_EDGE_INSET`` floor, so it does not pay padding
     for a symmetry it cannot show; the floor also wins outright where a port sits
     closer to its own edge than the floor allows.
     """
@@ -769,7 +769,7 @@ def _perp_port_lead_edge_reserve(
         if (st := graph.stations.get(sid)) is not None and not st.is_port
     ]
     if not content_high:
-        return PERP_PORT_EDGE_CLEARANCE
+        return PERP_PORT_EDGE_INSET
 
     perp_sides = perpendicular_port_sides(sec_dir)
     perp_coords = []
@@ -783,12 +783,12 @@ def _perp_port_lead_edge_reserve(
         if port.side in perp_sides:
             perp_coords.append(coord(station))
     if len(perp_coords) < 2:
-        return PERP_PORT_EDGE_CLEARANCE
+        return PERP_PORT_EDGE_INSET
 
     desired_high = max(content_high) + section_padding
     if port_coords:
         desired_high = max(desired_high, max(port_coords))
-    return max(PERP_PORT_EDGE_CLEARANCE, desired_high - max(perp_coords))
+    return max(PERP_PORT_EDGE_INSET, desired_high - max(perp_coords))
 
 
 def _compact_row_content_to_bbox_top(
