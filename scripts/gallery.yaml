@@ -582,15 +582,6 @@ gallery:
     description:
       "A BT section's RIGHT exit feeding a TB section's LEFT entry: an upward flow
       handing off to a downward one across the column seam (#1044)."
-  - id: bt_right_entry_rl_feed
-    source_dir: examples/topologies
-    category: TB / BT Sections
-    description:
-      "A BT section's RIGHT (perpendicular) entry fed by a same-row RL section's
-      flow-aligned LEFT exit: the entry seats below the upward flow's bottom
-      (flow-start) station rather than on the flow-end one it used to align to,
-      so the line no longer doubles back through the section's own markers
-      (#1545)."
   - id: tb_fork_lane_transpose
     source_dir: examples/topologies
     category: TB / BT Sections
