@@ -837,6 +837,7 @@ def _fit_bboxes_to_content_top(
     ceiling pushed down is grown rather than shrunk into the badge.  Both
     moves go through the bidirectional :func:`move_section_bbox_min_edge`
     (TOP ports follow the new edge).
+
     """
     from nf_metro.layout.routing import compute_station_offsets
 
@@ -856,6 +857,44 @@ def _fit_bboxes_to_content_top(
             and hug > section.bbox_y + SAME_COORD_TOLERANCE
             and _section_band_is_empty(graph, section)
         ):
+            move_section_bbox_min_edge(graph, section, "y", hug)
+
+
+def refit_tops_after_entry_resnap(
+    graph: MetroGraph, section_ids: set[str], section_y_padding: float
+) -> None:
+    """Give back top slack a re-snapped perpendicular entry port no longer needs.
+
+    Stage 6.16 is the last mover of these ports.  A section whose port it shifts
+    *down* keeps the taller top it was given while the port sat higher, so it ends
+    up carrying more space above its content than a mirror-image row-mate whose
+    port -- being an exit -- that stage never touches.
+
+    Lowers the top to :func:`_section_content_hug_top`, which reserves
+    ``PERP_PORT_EDGE_INSET`` beyond the port itself, so this cannot shrink into
+    the port's own approach.  Clamped to the feeder row-mate's top, because a
+    side-entered vertical section's top must not drop below it
+    (:func:`_guard_side_entered_vertical_top_not_below_feeder`), and never raises
+    the top: growing is Stage 6.15a's job, bounded there by the row above.
+    """
+    from nf_metro.layout.routing import compute_station_offsets
+
+    feeder_tops = {
+        section.id: neighbour.bbox_y
+        for section, neighbour in _side_entered_vertical_feeder_pairs(graph)
+    }
+    offsets = compute_station_offsets(graph)
+    for sid in section_ids:
+        section = graph.sections.get(sid)
+        if section is None or section.bbox_h <= 0:
+            continue
+        hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
+        if hug is None:
+            continue
+        feeder_top = feeder_tops.get(sid)
+        if feeder_top is not None:
+            hug = min(hug, feeder_top)
+        if hug > section.bbox_y + SAME_COORD_TOLERANCE:
             move_section_bbox_min_edge(graph, section, "y", hug)
 
 
