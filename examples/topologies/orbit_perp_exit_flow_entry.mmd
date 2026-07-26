@@ -1,0 +1,33 @@
+%%metro title: Orbit - Perpendicular Exit into Flow-Aligned Entry
+%%metro style: dark
+%%metro line: fwd | Forward | #e63946
+%%metro line: alt | Alternate | #0570b0
+
+%%metro grid: source | 0,0
+%%metro grid: transform | 1,0
+%%metro grid: sink | 2,0
+
+graph LR
+    subgraph source [Source]
+        %%metro direction: LR
+        %%metro exit: right | fwd,alt
+        s1[Read]
+    end
+
+    subgraph transform [Transform]
+        %%metro direction: LR
+        %%metro entry: left | fwd,alt
+        %%metro exit: top | fwd,alt
+        t1[Filter]
+        t2[Score]
+        t1 -->|fwd,alt| t2
+    end
+
+    subgraph sink [Sink]
+        %%metro direction: LR
+        %%metro entry: left | fwd,alt
+        k1[Collect]
+    end
+
+    s1 -->|fwd,alt| t1
+    t2 -->|fwd,alt| k1

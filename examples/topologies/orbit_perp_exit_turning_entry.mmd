@@ -1,0 +1,27 @@
+%%metro title: Orbit - Perpendicular Exit into a Turning Section
+%%metro style: dark
+%%metro line: reads | Reads | #1f77b4
+
+%%metro grid: align | 0,0
+%%metro grid: report | 1,0
+
+graph LR
+    subgraph align [Alignment]
+        %%metro direction: LR
+        %%metro exit: top | reads
+        g1[Load]
+        g2[Trim]
+        g3[Map]
+        g1 -->|reads| g2
+        g2 -->|reads| g3
+    end
+
+    subgraph report [Report]
+        %%metro direction: TB
+        %%metro entry: top | reads
+        r1[Collect]
+        r2[Summarise]
+        r1 -->|reads| r2
+    end
+
+    g3 -->|reads| r1

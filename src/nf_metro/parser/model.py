@@ -93,7 +93,11 @@ class LineSpread(str, Enum):
 VALID_LINE_STYLES = ("solid", "dashed", "dotted")
 
 FLOW_DIRECTIONS: tuple[str, ...] = ("LR", "RL", "TB", "BT")
-"""Every flow direction a section may declare, in rotation order.
+"""Every flow direction a section may declare, paired by axis.
+
+Each axis contributes a flow and its reverse: the X pair first, then the Y pair.
+A quarter turn instead cycles ``LR -> TB -> RL -> BT``, so this order is not the
+rotation order and iterating it does not walk the map's orientations.
 
 Both the accepted set for ``%%metro direction:`` and the set a layout rule
 quantifies over when it needs to know whether some property of the axis frame is
