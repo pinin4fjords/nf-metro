@@ -852,6 +852,44 @@ def _bundle_divergent_distinct_traverses(
             _set_htrunk_y(m.route, m.idx, ty, off, 0.0)
 
 
+def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Drop a merge -> entry hop that every feeder already runs for itself.
+
+    The merge station is placed at ``max(feeder.x) + margin``, which is not the
+    column the feeders' channels finally converge in, so the hop drawn from it
+    starts short of their shared corner and overhangs it.  The hop earns its
+    place only while some feeder stops at the merge station rather than carrying
+    on to the port; once they all reach the port, the overhang is the only part
+    of the hop that is not already drawn.
+
+    Runs after the coincidence passes, since only the settled channels say where
+    the feeders converge.
+    """
+    feeders_by_merge: dict[str, list[RoutedPath]] = defaultdict(list)
+    for rp in routes:
+        if rp.edge.target in ctx.merge.junctions:
+            feeders_by_merge[rp.edge.target].append(rp)
+
+    for mjid in ctx.merge.junctions:
+        ep_id = ctx.merge.entry_port_for.get(mjid)
+        feeders = feeders_by_merge.get(mjid)
+        if ep_id is None or not feeders:
+            continue
+        hop = next(
+            (r for r in routes if (r.edge.source, r.edge.target) == (mjid, ep_id)),
+            None,
+        )
+        if hop is None:
+            continue
+        port_end = hop.points[-1]
+        if all(
+            abs(r.points[-1][0] - port_end[0]) <= COORD_TOLERANCE
+            and abs(r.points[-1][1] - port_end[1]) <= COORD_TOLERANCE
+            for r in feeders
+        ):
+            routes.remove(hop)
+
+
 def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
     """Give same-line turns shared by several legs one radius.
 

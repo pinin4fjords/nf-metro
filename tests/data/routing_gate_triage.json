@@ -599,6 +599,10 @@
     "note": "Same-line dogleg side selection. The crossing-decided true arm (->1297, pick the side whose riser does not pierce the exempt run) is exercised by dogleg_exempt_sameline. The false fall-through (->1298) needs either an out-of-band side or a crossing-equal tie, neither reachable by a clean topology: the reachable dogleg regime rigidly fixes the inter-row band so down_room/up_room stay >= min_sep=6 (observed 14/26 across the corpus and every constructed variant; perturbing the grid loses the regime), and the only realizable tie is both-cross (a crossing-free tie needs degenerate zero-length exempt risers) which co-occurs with section-crossing / dogleg-crosses-exempt guard failures and is never a shippable render.",
     "status": "defensive"
   },
+  "normalize.py::if ep_id is None or not feeders:::#1": {
+    "note": "A merge junction is defined by having N>1 feeders and an entry-port successor, so neither lookup comes back empty and the skip arm never fires.",
+    "status": "defensive"
+  },
   "normalize.py::if feats is None:::#1": {
     "note": "Unused default-arg branch: all three callers of _band_order_crossings pass feats explicitly, so the feats-is-None compute-it arm is never taken.",
     "status": "defensive"
