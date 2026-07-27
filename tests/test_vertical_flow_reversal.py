@@ -9,9 +9,8 @@ connecting station is actually on.
 The choice is keyed to the flow axis, and deliberately so.  A horizontal
 section is reversed; a vertical one has its port re-anchored, because reversing
 it re-seats the trailing exit on the far edge and the route out then wraps
-around the section and back through its target's interior.  These tests pin
-that split so the asymmetry is a stated contract rather than an accident of
-which directions someone happened to put in a lookup table.
+around the section and back through its target's interior.  These tests pin that
+split, so the asymmetry is a stated contract.
 """
 
 from __future__ import annotations
@@ -119,10 +118,5 @@ def test_vertical_fold_reanchors_the_port(direction: str) -> None:
     [("LR", True), ("RL", True), ("TB", False), ("BT", False)],
 )
 def test_flow_axis_is_x_covers_every_direction(direction: str, expected: bool) -> None:
-    """The axis question is answered from the frame, for all four flows.
-
-    The same lookup once answered it by membership, tying "does this flow run
-    along X" to "can this flow be reversed" -- two different questions that
-    happen to have the same answer only for the horizontal pair.
-    """
+    """The axis question is answered from the frame, for all four flows."""
     assert _flow_axis_is_x(direction) is expected

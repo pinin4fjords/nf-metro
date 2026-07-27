@@ -587,14 +587,9 @@ _TRAILING_SIDE = {
     "TB": PortSide.BOTTOM,
     "BT": PortSide.TOP,
 }
-# Reversing a section's flow is the remedy for a folded flow-axis port on a
-# horizontal section only.  The map is deliberately not widened to TB/BT: a
-# vertical reversal re-seats the trailing exit on the far edge, and the route
-# out of it then wraps around the section and back through its target's
-# interior, which the re-anchor remedy below avoids.  Verified on a
-# fold-bridging TB connector, where reversing to BT replaced a clean
-# down-and-out route with a looped one that trips
-# _guard_inter_section_route_clears_own_section_interior.
+# Horizontal flows only: a vertical reversal re-seats the trailing exit on the
+# far edge, and the route out of it wraps around the section and back through
+# its target's interior, which the re-anchor remedy avoids.
 _HORIZONTAL_FLOW_REVERSAL = {"LR": "RL", "RL": "LR"}
 
 
