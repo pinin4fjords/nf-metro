@@ -27,6 +27,7 @@ from nf_metro.layout.routing.common import (
     HTrunkSeg,
     RoutedPath,
     _grid_row_bands,
+    _h_segment_penetrates_section,
     column_gap_edges,
     gap_lo_for_x,
     initial_fanout_descent_span,
@@ -55,7 +56,7 @@ from nf_metro.layout.routing.corners import (
     l_shape_radii,
     widest_coincident_radius,
 )
-from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
+from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
 @dataclass
@@ -849,6 +850,45 @@ def _bundle_divergent_distinct_traverses(
         # is where the line peels off alone, so it keeps the base radius.
         for m, ty, off in moves:
             _set_htrunk_y(m.route, m.idx, ty, off, 0.0)
+
+
+def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Drop a merge -> entry hop that every feeder already runs for itself.
+
+    The merge station is placed at ``max(feeder.x) + margin``, which is not the
+    column the feeders' channels finally converge in, so the hop drawn from it
+    starts short of their shared corner and overhangs it.  The hop earns its
+    place only while some feeder stops at the merge station rather than carrying
+    on to the port; once they all reach the port, the overhang is the only part
+    of the hop that is not already drawn.
+
+    Runs after the coincidence passes, since only the settled channels say where
+    the feeders converge.  Every arrival counts, whatever its scope: a route
+    ending short of the port is the evidence that keeps the hop, so narrowing
+    what counts risks dropping a hop that is load-bearing.
+    """
+    if not ctx.merge.junctions:
+        return
+    feeders_by_merge: dict[str, list[RoutedPath]] = defaultdict(list)
+    hop_by_merge: dict[str, RoutedPath] = {}
+    for rp in routes:
+        if rp.edge.target in ctx.merge.junctions:
+            feeders_by_merge[rp.edge.target].append(rp)
+        elif ctx.merge.entry_port_for.get(rp.edge.source) == rp.edge.target:
+            hop_by_merge[rp.edge.source] = rp
+
+    covered = {
+        id(hop)
+        for mjid, hop in hop_by_merge.items()
+        if (feeders := feeders_by_merge.get(mjid))
+        and all(
+            abs(r.points[-1][0] - hop.points[-1][0]) <= COORD_TOLERANCE
+            and abs(r.points[-1][1] - hop.points[-1][1]) <= COORD_TOLERANCE
+            for r in feeders
+        )
+    }
+    if covered:
+        routes[:] = [r for r in routes if id(r) not in covered]
 
 
 def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
@@ -2614,23 +2654,6 @@ def _clear_channel_x_in_band(
         else:
             return x
     return x
-
-
-def _h_segment_penetrates_section(
-    lo_x: float, hi_x: float, y: float, section: Section, margin: float = 0.0
-) -> bool:
-    """Whether a horizontal segment ``[lo_x, hi_x]`` at *y* penetrates *section*.
-
-    Open-interior test: the segment must enter past the left edge and reach
-    past the right edge (a boundary graze does not count).  ``y`` is inside
-    when it falls within ``[bbox_y - margin, bbox_y + bbox_h + margin]``.
-    """
-    if section.bbox_w <= 0:
-        return False
-    right = section.bbox_x + section.bbox_w
-    if hi_x <= section.bbox_x or lo_x >= right:
-        return False
-    return section.bbox_y - margin <= y <= section.bbox_y + section.bbox_h + margin
 
 
 def _h_segment_crosses_other_section(

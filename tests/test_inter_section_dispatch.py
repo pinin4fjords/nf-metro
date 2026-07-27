@@ -49,7 +49,7 @@ def _facts(**overrides: object) -> H._InterFacts:
         bottom_exit_junctions=set(),
         tb_sections=set(),
         station_offsets={},
-        merge=SimpleNamespace(trunk_source={}),
+        merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
         graph=SimpleNamespace(sections={}),
     )
     defaults: dict[str, object] = dict(
@@ -101,7 +101,7 @@ _CASES = [
                 bottom_exit_junctions=set(),
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
-                merge=SimpleNamespace(trunk_source={}),
+                merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
                 graph=SimpleNamespace(
                     sections={"src_sec": SimpleNamespace(direction="TB", bbox_w=0.0)}
                 ),
@@ -124,7 +124,7 @@ _CASES = [
                 bottom_exit_junctions=set(),
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
-                merge=SimpleNamespace(trunk_source={}),
+                merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
                 graph=SimpleNamespace(
                     sections={
                         "src_sec": SimpleNamespace(direction="TB", bbox_w=0.0),
@@ -152,7 +152,7 @@ _CASES = [
                 bottom_exit_junctions=set(),
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
-                merge=SimpleNamespace(trunk_source={}),
+                merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
                 graph=SimpleNamespace(
                     sections={"src_sec": SimpleNamespace(direction="BT", bbox_w=0.0)}
                 ),
@@ -189,7 +189,7 @@ _CASES = [
                 bottom_exit_junctions={"j"},
                 tb_sections=set(),
                 station_offsets={},
-                merge=SimpleNamespace(trunk_source={}),
+                merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
             ),
         ),
         "bottom-exit junction",
@@ -206,7 +206,7 @@ _CASES = [
                 bottom_exit_junctions=set(),
                 tb_sections=set(),
                 station_offsets={},
-                merge=SimpleNamespace(trunk_source={"m": "t"}),
+                merge=SimpleNamespace(trunk_source={"m": "t"}, branch_edges=set()),
             ),
         ),
         "merge trunk",
@@ -224,7 +224,10 @@ _CASES = [
                 bottom_exit_junctions=set(),
                 tb_sections=set(),
                 station_offsets={},
-                merge=SimpleNamespace(trunk_source={"m": "t"}),
+                merge=SimpleNamespace(
+                    trunk_source={"m": "t"},
+                    branch_edges={("b", "m", "L")},
+                ),
             ),
         ),
         "merge branch",
@@ -240,7 +243,7 @@ _CASES = [
                 bottom_exit_junctions=set(),
                 tb_sections=set(),
                 station_offsets={},
-                merge=SimpleNamespace(trunk_source={}),
+                merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
             ),
         ),
         "near-vertical same-col junction",
