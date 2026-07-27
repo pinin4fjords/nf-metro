@@ -1310,6 +1310,15 @@ gallery:
       "A merge whose entry sits in the bottommost grid row: the trunk's inter-row
       bypass routes in the cramped gap above that row. Placement reserves the gap so the channel
       clears the upper row's section boxes instead of grazing them."
+  - id: merge_adjacent_feeder
+    source_dir: examples/topologies
+    category: Merge & Convergence
+    description:
+      "One line converges on a merge from a distant feeder and from the section
+      next door. The distant one carries the trunk's bypass below the rows; the neighbour's
+      hop is clear and the channel sits past its target, so it runs into the merge directly
+      and the two fuse into one ascent rather than running parallel a bundle-gap apart
+      (#1576)."
   - id: merge_pullaway
     source_dir: examples/topologies
     category: Merge & Convergence
