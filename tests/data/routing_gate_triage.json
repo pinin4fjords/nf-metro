@@ -99,6 +99,10 @@
     "note": "prefer_upstream=False section-lookup guard: graph.sections.get(section_id) returning None requires a missing section_id (corrupted state); null-guard.",
     "status": "defensive"
   },
+  "common.py::if section.bbox_w <= 0:::#1": {
+    "note": "Degenerate-bbox guard in _h_segment_penetrates_section (the single-section predicate shared by _h_segment_crosses_other_section and _packed_cell_mate_obstructs): sections always have positive width after layout.",
+    "status": "defensive"
+  },
   "common.py::if seg_len2 == 0:::#1": {
     "note": "point_on_polyline degenerate-segment branch, reached only via the --animate renderer (render/animate.py); the render-path coverage sweep doesn't animate. Exercised by test_animation.py / test_routing.py, not the corpus.",
     "status": "defensive"
@@ -155,16 +159,16 @@
     "note": "Same merge-junction invariant in the skip-edge pass: the junction's lone successor is its entry port, so the loop-back over a non-entry edge never fires.",
     "status": "defensive"
   },
-  "context.py::if m_col is not None:::#1": {
-    "note": "Reached only for junctions in trunk_source, which by construction resolved a column, so m_col is never None and the no-column skip arm never fires.",
-    "status": "defensive"
-  },
-  "context.py::if m_col is not None:::#2": {
-    "note": "As the first occurrence, in the index-exclude pass: a trunk-source junction always has a resolved column, so the no-column skip arm never fires.",
-    "status": "defensive"
-  },
   "context.py::if jst is None:::#2": {
     "note": "In _compute_fan_corridors, jid ranges over junction_fan_info sources, all present in graph.stations; the missing-station continue never fires.",
+    "status": "defensive"
+  },
+  "context.py::if len(set(tx.values())) < 2:::#1": {
+    "note": "Defensive guard in fanout_divergence_peel_order's packed-cell branch: distinct sections sharing one grid cell have distinct entry-port X, so the same-X arm (which bails to declaration order) is unreachable in the corpus.",
+    "status": "defensive"
+  },
+  "context.py::if m_col is None:::#1": {
+    "note": "Reached only for junctions in trunk_source, which by construction resolved a column, so m_col is never None and the skip arm never fires.",
     "status": "defensive"
   },
   "context.py::if not ctx.station_offsets:::#1": {
@@ -179,12 +183,12 @@
     "note": "mjid ranges over junctions, a subset of junction_ids all present in graph.stations; the missing-station continue never fires.",
     "status": "defensive"
   },
-  "context.py::if src_row is None or col is None:::#1": {
-    "note": "In _compute_fan_corridors, a fanning junction always resolves to a section column and row; the unresolved continue guards a malformed graph the render path never produces.",
-    "status": "defensive"
-  },
   "context.py::if port_st is None:::#1": {
     "note": "Ports listed in a section's entry_ports/exit_ports always have a backing station; the missing-station continue never fires.",
+    "status": "defensive"
+  },
+  "context.py::if pred_col is None:::#1": {
+    "note": "A merge feeder is a junction fed by an exit port, which always resolves a column, so the skip arm never fires.",
     "status": "defensive"
   },
   "context.py::if pst is None:::#1": {
@@ -203,8 +207,20 @@
     "note": "_resolve_section_colrow is called for ports/junctions that always resolve to a section; the None-section early-return never fires (mirrors the grid-sentinel guards at L395/L403).",
     "status": "defensive"
   },
+  "context.py::if sec is None:::#2": {
+    "note": "packed_cell_mate_obstructs iterates the endpoints' own resolved sections, so neither is None and the skip arm never fires.",
+    "status": "defensive"
+  },
+  "context.py::if src_col is None or tgt_col is None:::#1": {
+    "note": "hop_needs_bypass is called only for endpoints whose columns the caller already resolved, so the no-column early-return never fires.",
+    "status": "defensive"
+  },
   "context.py::if src_col is None:::#1": {
     "note": "A fan-out junction always resolves to a grid column; the unresolved-column continue never fires.",
+    "status": "defensive"
+  },
+  "context.py::if src_row is None or col is None:::#1": {
+    "note": "In _compute_fan_corridors, a fanning junction always resolves to a section column and row; the unresolved continue guards a malformed graph the render path never produces.",
     "status": "defensive"
   },
   "context.py::if st is None:::#1": {
@@ -222,6 +238,10 @@
   "context.py::if tgt_col is None:::#2": {
     "note": "A junction's port/junction target always resolves to a grid column; the unresolved-column continue never fires.",
     "status": "defensive"
+  },
+  "context.py::if tgt_col is None:::#3": {
+    "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
+    "status": "needs-review"
   },
   "core.py::if result is not None:::#1": {
     "note": "Append-guard after the priority-ordered handler chain. The final handler _route_intra_section is total: its three early returns and its _route_diagonal fallback (annotated -> RoutedPath, single return statement) always yield a RoutedPath, so result is never None and every edge appends. The None arm is unreachable.",
@@ -243,6 +263,10 @@
     "note": "Handedness-change counter inside TurnSequence.parity. Off the render path for the same reason (inter_section.py never loaded during rendering); both arms are exercised by test_inter_section_descriptor.py's parity-contract tests.",
     "status": "defensive"
   },
+  "inter_section_handlers.py::and corridor.bypass_band_y >= base_y - COORD_TOLERANCE::#1": {
+    "note": "Safety fallback: the shared bypass band is the deepest sibling's bypass_bottom_y, so a branch's own base_y never exceeds it; the arm that would decline a shallower shared band (guarding a predicate mismatch) is unexercised in the corpus.",
+    "status": "needs-review"
+  },
   "inter_section_handlers.py::and f.src_row is not None::#1": {
     "note": "LEFT-entry inter-row L-shape guard. Every LEFT-entry inter-section edge reaching this condition has a resolved source grid row (f.src_col/f.tgt_col are asserted non-None just above and the row resolves alongside), so the `f.src_row is None` short-circuit out of the L-shape branch is never taken.",
     "status": "defensive"
@@ -258,6 +282,10 @@
   "inter_section_handlers.py::and tgt_sec is not None::#1": {
     "note": "Companion to src_sec in the same n>1 mid-Y clearance branch: the target section always resolves there, so the `tgt_sec is None` short-circuit past the bump is never taken.",
     "status": "defensive"
+  },
+  "inter_section_handlers.py::elif fan is not None:::#1": {
+    "note": "Corridor-feeder fallback for a fan whose junction earned no corridor (its in-column gap below does not fit the bundle); the corpus's fans all earn a corridor, so this global-band branch is unexercised.",
+    "status": "needs-review"
   },
   "inter_section_handlers.py::elif gap_bottom > gap_top:::#1": {
     "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
@@ -319,21 +347,9 @@
     "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
     "status": "needs-review"
   },
-  "inter_section_handlers.py::elif fan is not None:::#1": {
-    "note": "Corridor-feeder fallback for a fan whose junction earned no corridor (its in-column gap below does not fit the bundle); the corpus's fans all earn a corridor, so this global-band branch is unexercised.",
+  "inter_section_handlers.py::if fan is not None and corridor is not None and corridor.band_y is not None:::#2": {
+    "note": "Corridor-feeder shared inter-row band gate: the corpus's corridor feeders belong to fans whose corridor carries a band_y, so the short-circuit past it (no corridor or bypass-only) is unexercised; it falls to the elif fan-is-not-None global-band branch.",
     "status": "needs-review"
-  },
-  "inter_section_handlers.py::if tgt_sec is None:::#1": {
-    "note": "Defensive guard in _fan_shares_inter_row_channel: the edge is a fan branch into an entry port, which always resolves to a section, so the None arm is unreachable in practice.",
-    "status": "defensive"
-  },
-  "inter_section_handlers.py::if src_sec is not None:::#1": {
-    "note": "Defensive guard in the fanned entry-wrap source-clearance lift: a fan-out junction always resolves to its source section, so the None arm is unreachable in practice.",
-    "status": "defensive"
-  },
-  "context.py::if len(set(tx.values())) < 2:::#1": {
-    "note": "Defensive guard in fanout_divergence_peel_order's packed-cell branch: distinct sections sharing one grid cell have distinct entry-port X, so the same-X arm (which bails to declaration order) is unreachable in the corpus.",
-    "status": "defensive"
   },
   "inter_section_handlers.py::if fan is not None and ep_col is not None:::#1": {
     "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
@@ -375,8 +391,16 @@
     "note": "A bypass source section always resolves and has bbox_w>0 (the parser never emits an empty section); the None/zero-width arm never fires.",
     "status": "defensive"
   },
+  "inter_section_handlers.py::if src_sec is not None:::#1": {
+    "note": "Defensive guard in the fanned entry-wrap source-clearance lift: a fan-out junction always resolves to its source section, so the None arm is unreachable in practice.",
+    "status": "defensive"
+  },
   "inter_section_handlers.py::if tgt_col is not None:::#1": {
     "note": "tgt_col from _resolve_section_col on a valid LEFT entry port is always non-None (sections get grid_col>=0 after auto-layout).",
+    "status": "defensive"
+  },
+  "inter_section_handlers.py::if tgt_sec is None:::#1": {
+    "note": "Defensive guard in _fan_shares_inter_row_channel: the edge is a fan branch into an entry port, which always resolves to a section, so the None arm is unreachable in practice.",
     "status": "defensive"
   },
   "inter_section_handlers.py::if trunk_src is None or trunk_src == edge.source:::#1": {
@@ -519,6 +543,14 @@
     "note": "Bounds guard in _reseat_concentric_flanking: radius_idx in (k-1, k) for a real moved segment stays in range; the out-of-range skip arm is defensive.",
     "status": "defensive"
   },
+  "normalize.py::if abs(ch.x - descent.x) <= COORD_TOLERANCE:::#1": {
+    "note": "_clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns.",
+    "status": "defensive"
+  },
+  "normalize.py::if abs(delta) <= COORD_TOLERANCE:::#2": {
+    "note": "_snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs.",
+    "status": "defensive"
+  },
   "normalize.py::if abs(ly - pts[1][1]) < COORD_TOLERANCE:::#1": {
     "note": "A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
@@ -550,6 +582,10 @@
   "normalize.py::if best < cur:::#1": {
     "note": "_suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path.",
     "status": "defensive"
+  },
+  "normalize.py::if ca != cb:::#1": {
+    "note": "Peel-off ordering tie-break by deep-end crossings: after the fan-band sharing pins bypass siblings on one shared trunk, no corpus fan reaches this comparator with the approach-crossing counts equal but the peel crossings differing, so the arm is unexercised.",
+    "status": "needs-review"
   },
   "normalize.py::if col is None:::#1": {
     "note": "Defensive guard in _convergence_line_order: a peel-off riser channel always resolves to a source-section column, so the unresolved-column early return is never taken on the corpus.",
@@ -599,6 +635,10 @@
     "note": "_suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path.",
     "status": "defensive"
   },
+  "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
+    "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
+    "status": "defensive"
+  },
   "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
     "note": "The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
@@ -627,10 +667,6 @@
     "note": "Degenerate-bbox guard in _v_segment_crosses_other_section: mirror of the _h_segment_penetrates_section guard; sections always have positive width.",
     "status": "defensive"
   },
-  "normalize.py::if section.bbox_w <= 0:::#1": {
-    "note": "Degenerate-bbox guard in _h_segment_penetrates_section (the single-section predicate shared by _h_segment_crosses_other_section and _packed_cell_mate_obstructs): sections always have positive width after layout.",
-    "status": "defensive"
-  },
   "normalize.py::if sg[0].sign_x != t.sign_x:::#1": {
     "note": "Both callers of _coincident_trunk_slots pre-filter input to a single traversal direction (band = [t for t in grp if t.sign_x == sign]), so within the function sg[0].sign_x != t.sign_x is always False; the opposing-direction continue is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
@@ -641,6 +677,10 @@
   },
   "normalize.py::if trunk_rp is None or trunk_src_st is None:::#1": {
     "note": "Defensive guard in _merge_feeder_groups: a merge with a trunk_source always has a routed trunk edge and a resolvable trunk station, so the skip arm is never taken.",
+    "status": "defensive"
+  },
+  "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {
+    "note": "_clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines.",
     "status": "defensive"
   },
   "offsets.py::elif feeding_exit != edge.source:::#1": {
@@ -736,7 +776,7 @@
     "status": "defensive"
   },
   "offsets.py::if lid not in seen:::#1": {
-    "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable — the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
+    "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable \u2014 the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
   "offsets.py::if max_steps <= 0:::#1": {
@@ -791,8 +831,16 @@
     "note": "Same argument as L1084: id_b in graph.ports requires the station to have been registered via graph.add_port(), which always supplies a non-None section_id for the created station. A station with section_id=None (sec_b is None) is a junction created by add_junction(), which never calls add_port(). The precondition sec_b is None AND id_b in graph.ports is therefore unsatisfiable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
+  "offsets.py::if set(inherited) != set(graph.station_lines(port_id)):::#1": {
+    "note": "_inherit_level_convergence_entry_offsets skips a convergence entry port when the lines it inherits from its immediate feeders do not cover every line the port carries. A convergence entry's lines are, by construction, exactly the union of its inbound edges' lines, and each inbound edge supplies that line's feeder offset, so the inherited set always equals the port's line set and the mismatch arm is never taken. Defensive against a port line with no inbound edge (a malformed graph).",
+    "status": "defensive"
+  },
   "offsets.py::if single_exit and feeding_exit is not None:::#1": {
     "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive. Its False arm (->1147) is additionally defensive: a >=2-line junction reaching this body is always a single-exit-port-fed fan-out junction (merge junctions carry one line and are skipped by len(j_lines)<2).",
+    "status": "defensive"
+  },
+  "offsets.py::if src_n <= tgt_n:::#1": {
+    "note": "_reconcile_horizontal_offsets' bundle-shift fallback moves the edge endpoint with fewer lines. The else arm (src_n > tgt_n: move the target) was exercised in the corpus solely by the fan-port drag where a many-line entry/exit port is the edge source and a same-Y trunk-row station with fewer lines is the target (funcprofiler_upstream's humann3 at its entry port). The #1480 exit-port ordering fix (merge_trunk_lines in _compute_exit_port_offsets) rides the trunk-continuation merge line out on the trunk slot, so that port and station now agree and the edge no longer needs shifting. The remaining corpus shift (sr_qc into its input exit port) has the fewer-line station as the source, taking the src_n <= tgt_n true arm. The else arm stays defensive for a same-Y bundle conflict whose higher-line-count endpoint is the edge source.",
     "status": "defensive"
   },
   "offsets.py::if src_port and not src_port.is_entry:::#2": {
@@ -949,46 +997,6 @@
   },
   "tb_handlers.py::if tgt_sec is not None and tgt_sec.direction not in (\"TB\", \"BT\"):::#1": {
     "note": "Perp-entry drop crossing-X override: the edge's target is always a sectioned station, so tgt_sec resolves and the `tgt_sec is None` short-circuit to the plain drop is never taken; the `direction in (TB, BT)` arm (a drop continuing into a vertical-flow trunk) and the horizontal-target arm are both exercised.",
-    "status": "defensive"
-  },
-  "inter_section_handlers.py::if fan is not None and corridor is not None and corridor.band_y is not None:::#2": {
-    "note": "Corridor-feeder shared inter-row band gate: the corpus's corridor feeders belong to fans whose corridor carries a band_y, so the short-circuit past it (no corridor or bypass-only) is unexercised; it falls to the elif fan-is-not-None global-band branch.",
-    "status": "needs-review"
-  },
-  "inter_section_handlers.py::and corridor.bypass_band_y >= base_y - COORD_TOLERANCE::#1": {
-    "note": "Safety fallback: the shared bypass band is the deepest sibling's bypass_bottom_y, so a branch's own base_y never exceeds it; the arm that would decline a shallower shared band (guarding a predicate mismatch) is unexercised in the corpus.",
-    "status": "needs-review"
-  },
-  "context.py::if tgt_col is None:::#3": {
-    "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
-    "status": "needs-review"
-  },
-  "normalize.py::if ca != cb:::#1": {
-    "note": "Peel-off ordering tie-break by deep-end crossings: after the fan-band sharing pins bypass siblings on one shared trunk, no corpus fan reaches this comparator with the approach-crossing counts equal but the peel crossings differing, so the arm is unexercised.",
-    "status": "needs-review"
-  },
-  "offsets.py::if src_n <= tgt_n:::#1": {
-    "note": "_reconcile_horizontal_offsets' bundle-shift fallback moves the edge endpoint with fewer lines. The else arm (src_n > tgt_n: move the target) was exercised in the corpus solely by the fan-port drag where a many-line entry/exit port is the edge source and a same-Y trunk-row station with fewer lines is the target (funcprofiler_upstream's humann3 at its entry port). The #1480 exit-port ordering fix (merge_trunk_lines in _compute_exit_port_offsets) rides the trunk-continuation merge line out on the trunk slot, so that port and station now agree and the edge no longer needs shifting. The remaining corpus shift (sr_qc into its input exit port) has the fewer-line station as the source, taking the src_n <= tgt_n true arm. The else arm stays defensive for a same-Y bundle conflict whose higher-line-count endpoint is the edge source.",
-    "status": "defensive"
-  },
-  "normalize.py::if abs(delta) <= COORD_TOLERANCE:::#2": {
-    "note": "_snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs.",
-    "status": "defensive"
-  },
-  "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {
-    "note": "_clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines.",
-    "status": "defensive"
-  },
-  "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
-    "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
-    "status": "defensive"
-  },
-  "normalize.py::if abs(ch.x - descent.x) <= COORD_TOLERANCE:::#1": {
-    "note": "_clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns.",
-    "status": "defensive"
-  },
-  "offsets.py::if set(inherited) != set(graph.station_lines(port_id)):::#1": {
-    "note": "_inherit_level_convergence_entry_offsets skips a convergence entry port when the lines it inherits from its immediate feeders do not cover every line the port carries. A convergence entry's lines are, by construction, exactly the union of its inbound edges' lines, and each inbound edge supplies that line's feeder offset, so the inherited set always equals the port's line set and the mismatch arm is never taken. Defensive against a port line with no inbound edge (a malformed graph).",
     "status": "defensive"
   }
 }

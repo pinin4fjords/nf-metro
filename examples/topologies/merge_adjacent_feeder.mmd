@@ -1,0 +1,30 @@
+%%metro title: Merge Adjacent Feeder
+%%metro style: dark
+%%metro line: main | Main | #0570b0
+%%metro line: side | Side | #f59e0b
+
+graph LR
+    subgraph source [Source]
+        s1[Produce]
+    end
+
+    subgraph middle [Middle]
+        m1[Score]
+        m2[Plot]
+        m3[Filter]
+        m1 -->|main| m2
+        m1 -->|main| m3
+    end
+
+    subgraph sink [Sink]
+        k1[Collect]
+    end
+
+    subgraph report [Report]
+        r1[Summarise]
+    end
+
+    s1 -->|main| m1
+    m2 -->|main| r1
+    s1 -->|side| k1
+    m3 -->|side| k1

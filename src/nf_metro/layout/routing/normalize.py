@@ -27,6 +27,7 @@ from nf_metro.layout.routing.common import (
     HTrunkSeg,
     RoutedPath,
     _grid_row_bands,
+    _h_segment_penetrates_section,
     column_gap_edges,
     gap_lo_for_x,
     initial_fanout_descent_span,
@@ -55,7 +56,7 @@ from nf_metro.layout.routing.corners import (
     l_shape_radii,
     widest_coincident_radius,
 )
-from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
+from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
 @dataclass
@@ -2614,23 +2615,6 @@ def _clear_channel_x_in_band(
         else:
             return x
     return x
-
-
-def _h_segment_penetrates_section(
-    lo_x: float, hi_x: float, y: float, section: Section, margin: float = 0.0
-) -> bool:
-    """Whether a horizontal segment ``[lo_x, hi_x]`` at *y* penetrates *section*.
-
-    Open-interior test: the segment must enter past the left edge and reach
-    past the right edge (a boundary graze does not count).  ``y`` is inside
-    when it falls within ``[bbox_y - margin, bbox_y + bbox_h + margin]``.
-    """
-    if section.bbox_w <= 0:
-        return False
-    right = section.bbox_x + section.bbox_w
-    if hi_x <= section.bbox_x or lo_x >= right:
-        return False
-    return section.bbox_y - margin <= y <= section.bbox_y + section.bbox_h + margin
 
 
 def _h_segment_crosses_other_section(

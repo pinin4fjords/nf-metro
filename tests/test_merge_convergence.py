@@ -2,12 +2,15 @@
 
 A merge junction has N>1 feeders of one metro line converging on a single
 entry port.  The farthest feeder carries a full bypass to the entry (the
-"trunk"); every other feeder is a branch that descends onto the trunk's bypass
+"trunk"); a feeder classified as a branch descends onto the trunk's bypass
 channel, so the converging line is a single stroke up to the point it genuinely
-diverges.  Two invariants pin that: no two same-line feeders run offset-parallel
-(which would draw as duplicate tracks, or abort the render when their descents
-land an offset-step apart), and each non-trunk feeder terminates on the trunk's
-channel rather than reaching the entry port on an independent path.
+diverges.  A feeder in the column next to the merge whose short hop is clear
+and whose channel sits past the merge is NOT a branch: for that one the channel
+is a detour away from its target and back, which draws the second stroke the
+branch rule exists to prevent.  Three invariants pin this: no two same-line
+feeders run offset-parallel (which would draw as duplicate tracks, or abort the
+render when their descents land an offset-step apart), a branch terminates on
+the trunk's channel, and a feeder that is not a branch never visits it.
 """
 
 from __future__ import annotations
@@ -38,7 +41,12 @@ _TOPOLOGIES = _ROOT / "examples" / "topologies"
 
 _FIXTURES = {
     name: (_TOPOLOGIES / f"{name}.mmd").read_text()
-    for name in ("merge_bottom_row_bypass", "merge_pullaway", "merge_right_entry")
+    for name in (
+        "merge_adjacent_feeder",
+        "merge_bottom_row_bypass",
+        "merge_pullaway",
+        "merge_right_entry",
+    )
 }
 
 
@@ -61,7 +69,7 @@ def test_no_same_line_parallel_merge_descents(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(_FIXTURES))
 def test_merge_branches_join_trunk_channel(name: str) -> None:
-    """Each non-trunk feeder terminates on the trunk's bypass channel.
+    """Each feeder classified a branch terminates on the trunk's bypass channel.
 
     A branch that ends at the channel ``Y`` (``trunk_by``) has dropped onto the
     trunk to travel as one stroke; one that ends elsewhere (at the entry port,
@@ -69,23 +77,57 @@ def test_merge_branches_join_trunk_channel(name: str) -> None:
     """
     graph, routes, _offsets, ctx = _layout_and_route(_FIXTURES[name])
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
-    checked = 0
-    for mjid, trunk_src in ctx.merge.trunk_source.items():
+    for mjid in ctx.merge.trunk_source:
         trunk_by = ctx.merge.trunk_by[mjid]
         for e in graph.edges_to(mjid):
-            if e.source == trunk_src:
+            key = (e.source, e.target, e.line_id)
+            if key not in ctx.merge.branch_edges:
                 continue
-            rp = by_key.get((e.source, e.target, e.line_id))
+            rp = by_key.get(key)
             if rp is None:
                 continue
-            checked += 1
             end_y = rp.points[-1][1]
             assert abs(end_y - trunk_by) <= COORD_TOLERANCE, (
-                f"{name}: non-trunk feeder {e.source}->{mjid} ends at "
+                f"{name}: branch feeder {e.source}->{mjid} ends at "
                 f"y={end_y:.1f}, not on the trunk channel y={trunk_by:.1f} -- "
                 "routed as a separate stroke rather than joining the trunk"
             )
-    assert checked, f"{name}: expected at least one non-trunk merge feeder"
+
+
+def test_clear_adjacent_feeder_does_not_detour_to_the_trunk_channel() -> None:
+    """A clear one-gap hop into the merge stays between its ends.
+
+    ``merge_adjacent_feeder`` puts the trunk's channel well below a feeder that
+    sits one column from the merge with nothing in the way.  Dropping that
+    feeder onto the channel would carry it past the merge and straight back,
+    which lands its descent beside the trunk's ascent and leaves a stub where
+    the trunk has turned away -- so its route must stay within the band its own
+    two endpoints span.
+    """
+    graph, routes, _offsets, ctx = _layout_and_route(_FIXTURES["merge_adjacent_feeder"])
+    (mjid,) = ctx.merge.trunk_source
+    trunk_src = ctx.merge.trunk_source[mjid]
+    channel_y = ctx.merge.trunk_by[mjid]
+    merge_y = graph.stations[mjid].y
+
+    feeders = [e for e in graph.edges_to(mjid) if e.source != trunk_src]
+    assert feeders, "fixture no longer has a non-trunk merge feeder"
+    for e in feeders:
+        assert (e.source, e.target, e.line_id) not in ctx.merge.branch_edges, (
+            f"clear adjacent feeder {e.source}->{mjid} was classified a branch"
+        )
+        rp = next(
+            r for r in routes if (r.edge.source, r.edge.target) == (e.source, mjid)
+        )
+        start_y = rp.points[0][1]
+        lo_y = min(start_y, merge_y) - COORD_TOLERANCE
+        hi_y = max(start_y, merge_y) + COORD_TOLERANCE
+        strayed = [(x, y) for x, y in rp.points if not lo_y <= y <= hi_y]
+        assert not strayed, (
+            f"feeder {e.source}->{mjid} leaves the band its endpoints span "
+            f"({lo_y:.1f}..{hi_y:.1f}) at {strayed} -- detoured toward the "
+            f"trunk channel at y={channel_y:.1f}"
+        )
 
 
 @pytest.mark.parametrize("name", sorted(_FIXTURES))
