@@ -1597,6 +1597,23 @@ def junction_source_ports(graph: MetroGraph, junction_id: str) -> Iterator[Port]
             yield port
 
 
+def _h_segment_penetrates_section(
+    lo_x: float, hi_x: float, y: float, section: Section, margin: float = 0.0
+) -> bool:
+    """Whether a horizontal segment ``[lo_x, hi_x]`` at *y* penetrates *section*.
+
+    Open-interior test: the segment must enter past the left edge and reach
+    past the right edge (a boundary graze does not count).  ``y`` is inside
+    when it falls within ``[bbox_y - margin, bbox_y + bbox_h + margin]``.
+    """
+    if section.bbox_w <= 0:
+        return False
+    right = section.bbox_x + section.bbox_w
+    if hi_x <= section.bbox_x or lo_x >= right:
+        return False
+    return section.bbox_y - margin <= y <= section.bbox_y + section.bbox_h + margin
+
+
 def resolve_section(
     graph: MetroGraph,
     station: Station | None,
