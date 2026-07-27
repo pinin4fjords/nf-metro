@@ -247,9 +247,10 @@ pass:
   grid snap (6.4).
 - `graph.half_grid_station_ids` - written by Stage 6.3 (`center_ports` only)
   and Stage 6.17 (`diamond_style='symmetric'`); read by the Stage 6.4 grid
-  snap, which must skip these half-pitch stations. Stage 6.17 runs after the
-  last snap, so its writes mark branches for the invariant tests / straddle
-  guard rather than feeding a later snap.
+  snap, which must skip these half-pitch stations. Stage 6.18 both reads the
+  set and clears the marking off any station it seats back on a full row, so
+  the post-layout readers (the straddle guard, the co-fanned drop-clearance
+  rule in `routing/intra_handlers.py`) see only stations still at half pitch.
 - `graph.symfan_trunk_station_ids` - written by Stage 6.3 (`center_ports` only);
   read by the Stage 6.4 grid snap, which must skip these source/trunk stations
   so they stay on the symfan's local frame instead of snapping to a rowspan
@@ -878,7 +879,8 @@ in pipeline order.
 - **Related tests**: `test_symfan_pairs_share_y`.
 - **Lifecycle:** invariant - 2-branch symfan pairs keep their half-pitch
   offsets at the final boundary (Stage 6.4 skips
-  `graph.half_grid_station_ids`).
+  `graph.half_grid_station_ids`); only Stage 6.18 may seat one on a full
+  row, and only once its straddling partner has moved away.
 
 ### Stage 6.4: snap all Y to grid (engine.py)
 - **Purpose**: Final pass snapping every station and port Y to the
@@ -959,7 +961,9 @@ in pipeline order.
   are temporarily broken; both are restored before leaving the
   `if center_ports:` block.
 - **Lifecycle:** invariant - full-bundle columns are symmetric around
-  the row's final trunk Y at the boundary; no later stage re-fans them.
+  the row's final trunk Y at the boundary; no later stage re-fans them,
+  though Stage 6.18 seats a half-pitch member on a full row once its
+  straddling partner has moved away.
   *liftable:* no - one-shot, order-dependent (computes against the final
   trunk Y, so a premature run is wrong).
 
@@ -1223,10 +1227,10 @@ in pipeline order.
   Per-diamond, so a diamond compacts even when it shares a section with a
   wider fan (which keeps its full-pitch slots) and regardless of
   `center_ports`. Records the branches on
-  `MetroGraph.half_grid_station_ids`. Runs last, after every
-  trunk-settling pass, so the branches straddle the section trunk's final
-  Y exactly; the compaction only moves them inward toward the trunk, so it
-  never breaks bbox containment.
+  `MetroGraph.half_grid_station_ids`. Runs after every trunk-settling
+  pass, so the branches straddle the section trunk's final Y exactly; the
+  compaction only moves them inward toward the trunk, so it never breaks
+  bbox containment.
 - **Helper**: `_apply_half_grid_symmetric_diamonds`.
 - **Precondition**: Trunk Ys settled (post-6.16); `diamond_style`
   is `symmetric`.
@@ -1239,7 +1243,41 @@ in pipeline order.
   `test_symmetric_diamond_both_branches_deviate`,
   `_guard_symmetric_diamond_branches_straddle_trunk`.
 - **Lifecycle:** invariant - symmetric diamond branches keep their
-  half-pitch offsets at the final boundary (no later Y mutation).
+  half-pitch offsets at the final boundary; only Stage 6.18 may move one,
+  and only when its straddling partner is gone.
+
+### Stage 6.18: orphaned half-pitch expansion (engine.py)
+- **Purpose**: A half-pitch offset encodes one side of a symmetric pair
+  straddling the section trunk, so the pair reads as one compact grid
+  unit. Stage 6.10's `_align_terminus_to_upstream` may pull a terminus
+  member onto its producer's trunk Y, leaving the other member holding an
+  offset that straddles nothing and rendering as a branch stranded
+  between two grid rows. `_straddles_nothing` mirrors each marked
+  station's offset about the section's LR/RL port anchor; with no station
+  at the mirrored slot, the branch is seated one full row from the anchor
+  on the side it already sits, its half-grid marking cleared, and the
+  section bbox grown over the moved branch alone. Stations marked
+  half-grid whose settled Y is already a whole number of rows from the
+  anchor are left alone.
+- **Helper**: `_expand_orphaned_half_grid_stations`
+  (`phases/fan_bundles.py`), sharing `_half_grid_frame` /
+  `_straddles_nothing` with the invariant test.
+- **Precondition**: Every pass that places or dissolves a half-pitch pair
+  has run (post-6.17), so the half-grid marks are final.
+- **Postcondition**: No station in `graph.half_grid_station_ids` sits half
+  a pitch off its section's LR/RL port anchor with the mirrored slot
+  empty.
+- **Invariants preserved**: Trunk station Y, ports, bbox containment.
+  Deliberately not preserved: the half-grid marker set (the seated
+  station's id is discarded, so the post-layout readers see only stations
+  still at half pitch) and the section bbox extent, which grows over the
+  seated branch. No runtime `_guard_*` arms this postcondition:
+  `test_half_grid_stations_straddle_in_pairs` covers it across the corpus
+  without the abort risk a live guard would add to novel input.
+- **Related tests**: `test_half_grid_stations_straddle_in_pairs`.
+- **Lifecycle:** invariant - the expanded branch keeps its full-row Y at
+  the final boundary (no later Y mutation). The cleared marker reaches the
+  next `_layout_once` pass, which re-derives the marks from scratch.
 
 ## Unclear / structural-debt signals
 
