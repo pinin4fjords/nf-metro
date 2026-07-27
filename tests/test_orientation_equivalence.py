@@ -104,11 +104,15 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
         )
         for stem in ("orbit_perp_exit_back_row_entry",)
     },
-    # A folded flow-axis port is resolved either by reversing the section's flow
-    # or by re-anchoring the port, but _FLIP_HORIZONTAL makes the reversal
-    # reachable only for LR/RL, so a vertical flow takes the other remedy.
+    # _infer_flow_exit_hints_with_drops's perpendicular-drop exception tests only
+    # whether the TARGET section is vertical, so a vertical-flow source feeding a
+    # same-row horizontal target keeps a flow-aligned exit instead of turning
+    # toward its neighbour.
     **{
-        (stem, family): "flow reversal unavailable to vertical flows (#1545)"
+        (stem, family): (
+            "auto-inferred exit has no drop exception for a vertical-flow "
+            "source facing a same-row horizontal target (#1545)"
+        )
         for stem in ("lr_to_tb_top_drop", "top_entry_header_clash")
         for family in ("port_side", "port_perpendicular")
     },
