@@ -9806,6 +9806,23 @@ def _direct_fork_children(
     return triples
 
 
+def _shared_successors(graph: MetroGraph, a: Station, b: Station) -> list[Station]:
+    """The real, on-track stations both *a* and *b* feed directly."""
+    targets = {
+        sid: [
+            graph.station_for_edge_target(e).id
+            for e in graph.edges_from(sid)
+            if not (t := graph.station_for_edge_target(e)).is_port
+            and not t.is_hidden
+            and not t.off_track
+        ]
+        for sid in (a.id, b.id)
+    }
+    return [
+        graph.stations[sid] for sid in sorted(set(targets[a.id]) & set(targets[b.id]))
+    ]
+
+
 _SYMMETRIC_DEADEND_FANOUT_FIXTURES = [
     "topologies/symmetric_deadend_fanout.mmd",
     "topologies/symmetric_deadend_fanout_relay.mmd",
@@ -9949,21 +9966,27 @@ def test_symmetric_fork_entry_port_stays_on_feeder_trunk(fixture):
 
 _SYMMETRIC_RECONVERGING_DIAMOND_FIXTURES = [
     "topologies/symmetric_diamond_odd_slot_entry.mmd",
+    "topologies/tn_wes_input_fan_somatic_tree.mmd",
+    "topologies/rowmate_tb_side_entry_top_align.mmd",
 ]
 
 
 @pytest.mark.parametrize("fixture", _SYMMETRIC_RECONVERGING_DIAMOND_FIXTURES)
 def test_symmetric_reconverging_diamond_entry_port_centres_on_fork(fixture):
-    """A reconverging symmetric diamond centres its LR entry port on the fork.
+    """A reconverging symmetric diamond closes on its LR entry port's centreline.
 
     When a ``diamond_style: symmetric`` fork reconverges at an in-section join,
-    the join sits at the branch midpoint, so the entry port fanning into that
-    fork must sit there too -- even when the branches are an odd number of grid
-    slots apart and the midpoint lands off-grid.  Otherwise the entry fork reads
-    lopsided (the run lands level with one branch, the other kinks off it) while
-    the exit fork about the join is symmetric.  The off-grid-midpoint skip
-    applies only to a non-reconverging dead-end fan, whose port stays on its
-    feeder trunk.
+    the branches straddle the entry port's Y and the join returns to it, so the
+    diamond reads as a bubble on the incoming bundle -- even when the branches
+    are an odd number of grid slots apart and the centreline lands off-grid.
+    Otherwise the diamond reads lopsided: the run lands level with one branch
+    and the other kinks off it, the two legs differing in length.  The
+    off-grid-midpoint skip applies only to a non-reconverging dead-end fan,
+    whose port stays on its feeder trunk.
+
+    A station fork closes on its centreline for free, the join inheriting the
+    fork's own trunk track.  A port fork has no station on the centreline to
+    inherit from, so its join has to be seated there explicitly.
     """
     graph = _layout_diamond(fixture, "symmetric")
     checked = 0
@@ -9983,6 +10006,12 @@ def test_symmetric_reconverging_diamond_entry_port_centres_on_fork(fixture):
             f"{fixture}: entry port {fork.id!r} station y={fork.y:.1f} but port "
             f"record y={None if port is None else round(port.y, 1)} -- desynced"
         )
+        for join in _shared_successors(graph, lo, hi):
+            assert abs(join.y - fork.y) < 1.0, (
+                f"{fixture}: diamond fed by entry port {fork.id!r} rejoins at "
+                f"{join.id!r} (y={join.y:.1f}), off the port's centreline "
+                f"y={fork.y:.1f} -- the diamond closes lopsided"
+            )
         checked += 1
     assert checked, f"{fixture}: no entry-port fork found to check"
 

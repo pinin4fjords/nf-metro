@@ -1802,9 +1802,9 @@ def _place_pass_c_content(
             y_spacing,
         )
         # Stage 6.7b: carry each symmetric fork's dead-end continuation onto its
-        # branch track.  Stage 6.7c/6.7d then pin the section and its entry port
-        # to the incoming bundle -- both must follow the recenter that fixes the
-        # branch Ys they align to.
+        # branch track.  Stage 6.7c/6.7d then pin the section, its entry port and
+        # the reconvergence spine that port feeds to the incoming bundle -- all
+        # must follow the recenter that fixes the branch Ys they align to.
         _carry_symmetric_branch_continuations(graph, section_y_padding)
         _align_symfan_section_to_row_feeder(graph)
         _center_lr_entry_ports_on_fork(graph, y_spacing)

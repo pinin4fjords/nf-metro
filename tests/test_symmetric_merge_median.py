@@ -1,17 +1,21 @@
-"""A symmetric-mode multi-track merge anchors on the median of its feeders.
+"""A symmetric-mode multi-track merge anchors between its innermost feeders.
 
 When 3+ metro lines on distinct tracks converge on a single shared station and
 no single predecessor already carries the full bundle, the station is a genuine
-multi-track merge.  In ``diamond_style: symmetric`` the merge must sit on the
-median predecessor track so each feeder bends toward it by the least amount --
+multi-track merge.  In ``diamond_style: symmetric`` the merge must sit in the
+middle of its feeder spread so each feeder bends toward it by the least amount --
 not snap to the first-declared line's (extreme) track, which forces every other
 feeder into a longer detour (#1277).
+
+The least-detour seat is the closed band between the two innermost feeders: an
+odd count collapses it to the single median track, and across an even count's
+band the total feeder bend is constant, so anywhere in it is equally good.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from statistics import median_low
+from statistics import median_high, median_low
 
 import networkx as nx
 import pytest
@@ -70,15 +74,16 @@ def _convergence_merges(graph) -> list[tuple[str, list[float]]]:
 
 
 @pytest.mark.parametrize("name", _SYMMETRIC_FIXTURES)
-def test_symmetric_merge_sits_on_median_feeder_track(name: str) -> None:
+def test_symmetric_merge_sits_between_its_innermost_feeders(name: str) -> None:
     graph = _layout(name)
     for sid, pred_ys in _convergence_merges(graph):
-        expected = median_low(pred_ys)
+        lo, hi = median_low(pred_ys), median_high(pred_ys)
         actual = graph.stations[sid].y
-        assert abs(actual - expected) <= SAME_COORD_TOLERANCE, (
-            f"{name}: merge {sid!r} sits at y={actual:.1f}, not on the median "
-            f"feeder track y={expected:.1f} (feeders {pred_ys}) -- snapped to an "
-            "extreme track, forcing other feeders into longer detours"
+        assert lo - SAME_COORD_TOLERANCE <= actual <= hi + SAME_COORD_TOLERANCE, (
+            f"{name}: merge {sid!r} sits at y={actual:.1f}, outside the "
+            f"[{lo:.1f}, {hi:.1f}] band between its innermost feeders "
+            f"(feeders {pred_ys}) -- it snapped toward an extreme track, "
+            "forcing other feeders into longer detours"
         )
 
 
