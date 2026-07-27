@@ -1,0 +1,37 @@
+%%metro title: Orbit - Perpendicular Exit into Perpendicular Entry
+%%metro style: dark
+%%metro line: main | Main | #e63946
+%%metro line: aux | Aux | #2db572
+
+%%metro grid: intake | 0,0
+%%metro grid: assemble | 1,0
+%%metro grid: publish | 2,0
+
+graph LR
+    subgraph intake [Intake]
+        %%metro direction: LR
+        %%metro exit: right | main,aux
+        i1[Fetch]
+        i2[Verify]
+        i1 -->|main,aux| i2
+    end
+
+    subgraph assemble [Assemble]
+        %%metro direction: LR
+        %%metro entry: left | main,aux
+        %%metro exit: top | main,aux
+        a1[Merge]
+        a2[Index]
+        a1 -->|main,aux| a2
+    end
+
+    subgraph publish [Publish]
+        %%metro direction: LR
+        %%metro entry: top | main,aux
+        p1[Render]
+        p2[Upload]
+        p1 -->|main,aux| p2
+    end
+
+    i2 -->|main,aux| a1
+    a2 -->|main,aux| p1

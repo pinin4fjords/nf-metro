@@ -291,6 +291,26 @@ def _align_lr_entry_port(
                 src,
                 junction_ids,
             )
+        elif lanes_run_along_x(entry_section.direction):
+            # A vertical flow not covered by the TB clamp above (i.e. BT): the
+            # source-aligned target_y can land at or past the section's own
+            # flow-start row, which would route the entry back through the
+            # section's stations to reach its target. Reseat before the row
+            # instead of trusting the raw source alignment.
+            internal_ys = _internal_station_ys(graph, entry_section)
+            if internal_ys:
+                downward = AxisFrame.flow_sign(entry_section.direction) > 0
+                flow_start_y = min(internal_ys) if downward else max(internal_ys)
+                seats_past_start = (
+                    target_y > flow_start_y - MIN_PORT_STATION_GAP
+                    if downward
+                    else target_y < flow_start_y + MIN_PORT_STATION_GAP
+                )
+                if seats_past_start:
+                    _seat_perp_entry_port_before_stations(
+                        graph, entry_section, port, port_id
+                    )
+                    break
 
         _set_port_y(graph, port_id, target_y)
         break
