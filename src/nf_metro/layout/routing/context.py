@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from typing import NamedTuple
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
@@ -71,9 +72,9 @@ class _MergeRouting:
     branch_edges: set[_EdgeKey]
     """Feeder edges that descend onto the trunk's channel instead of the entry.
 
-    The one place branch-ness is decided: the dispatch reads this rather than
-    re-deriving it, so classification and routing cannot disagree about which
-    feeders end short of the entry port."""
+    The dispatch reads branch-ness from here, so classification and routing
+    cannot disagree about which feeders end short of the entry port.
+    """
 
     skip_edges: set[_EdgeKey]
     """Edges not routed at all (trunk covers them)."""
@@ -175,12 +176,6 @@ def _classify_merge_edges(
     trunk_by: dict[str, float] = {}
     entry_port_for: dict[str, str] = {}
 
-    def _col_for_id(sid: str) -> int | None:
-        st = graph.stations.get(sid)
-        if st is None:
-            return None
-        return _resolve_section_col(graph, st)
-
     for mjid in junctions:
         mst = graph.stations.get(mjid)
         if not mst:
@@ -245,53 +240,36 @@ def _classify_merge_edges(
     index_exclude: set[_EdgeKey] = set()
 
     for mjid, trunk_src in trunk_source.items():
-        m_col = _col_for_id(mjid)
+        mst = graph.stations[mjid]
+        m_col, m_row = _resolve_section_colrow(graph, mst)
         if m_col is None:
             continue
-        mst = graph.stations[mjid]
-        _, m_row = _resolve_section_colrow(graph, mst)
+        merge_end = HopEnd(mst, m_col, m_row)
 
         has_adjacent_junction_pred = False
         for edge in graph.edges_to(mjid):
+            # A port predecessor is redirected into the merge rather than routed
+            # to it, so only junction feeders reach here as routes of their own.
             if edge.source == trunk_src or edge.source not in junction_ids:
                 continue
             pred = graph.station_for_edge_source(edge)
             pred_col, pred_row = _resolve_section_colrow(graph, pred)
             if pred_col is None:
                 continue
-            if abs(m_col - pred_col) <= 1:
-                # An adjacent feeder stops at the merge station rather than
-                # carrying on to the entry port, so the merge -> entry hop has
-                # to be routed to cover the rest of the gap.
+            adjacent = abs(m_col - pred_col) <= 1
+            if adjacent:
                 has_adjacent_junction_pred = True
-            # Riding the trunk's channel is what keeps a converging line one
-            # stroke, and it costs a feeder nothing while the channel lies
-            # between it and the merge, or while it shares most of the trunk's
-            # way, or while its own run is obstructed anyway.  One feeder pays
-            # for it: the neighbouring-column one whose short hop across a
-            # single gap is clear and whose channel sits past the merge rather
-            # than on the way to it.  That one would travel away from the merge
-            # to reach the channel and climb straight back, laying its descent
-            # beside the trunk's ascent instead of merging with it, and ending
-            # in a stub where the trunk has already turned away.
-            lo_y, hi_y = sorted((pred.y, mst.y))
-            channel_on_the_way = (
-                lo_y - COORD_TOLERANCE <= trunk_by[mjid] <= hi_y + COORD_TOLERANCE
-            )
-            if (
-                abs(m_col - pred_col) <= 1
-                and not channel_on_the_way
-                and not hop_needs_bypass(
-                    graph, pred, mst, pred_col, pred_row, m_col, m_row
-                )
-            ):
-                continue
+                if _adjacent_feeder_reaches_merge_directly(
+                    graph, HopEnd(pred, pred_col, pred_row), merge_end, trunk_by[mjid]
+                ):
+                    continue
             branch_edges.add((edge.source, edge.target, edge.line_id))
-            if abs(m_col - pred_col) > 1:
-                # Truncated branches shouldn't occupy bundle slots.
+            if not adjacent:
                 index_exclude.add((edge.source, edge.target, edge.line_id))
 
-        # merge -> entry: redundant once every feeder runs the full gap itself.
+        # With no adjacent feeder every route into the merge is a branch ending
+        # on the trunk's channel, and the trunk itself runs on into the entry
+        # port, so the hop would re-draw ground the trunk already covers.
         if not has_adjacent_junction_pred:
             for edge in graph.edges_from(mjid):
                 ep = graph.ports.get(edge.target)
@@ -672,7 +650,7 @@ def _intervening_section_obstructs(
     )
 
 
-def packed_cell_mate_obstructs(
+def _packed_cell_mate_obstructs(
     graph: MetroGraph,
     src: Station,
     tgt: Station,
@@ -717,15 +695,22 @@ def packed_cell_mate_obstructs(
     )
 
 
-def hop_needs_bypass(
-    graph: MetroGraph,
-    src: Station,
-    tgt: Station,
-    src_col: int | None,
-    src_row: int | None,
-    tgt_col: int | None,
-    tgt_row: int | None,
-) -> bool:
+class HopEnd(NamedTuple):
+    """One end of an inter-section hop: its station and resolved grid cell."""
+
+    station: Station
+    col: int | None
+    row: int | None
+
+
+class BypassNeed(NamedTuple):
+    """Whether a hop must leave its row, and whether a cell-mate is why."""
+
+    needed: bool
+    cellmate_blocks_source_row: bool
+
+
+def _hop_needs_bypass(graph: MetroGraph, src: HopEnd, tgt: HopEnd) -> BypassNeed:
     """Whether a straight run from *src* to *tgt* would plough through a box.
 
     Two independent triggers force a bypass: a multi-column hop blocked by an
@@ -734,18 +719,47 @@ def hop_needs_bypass(
     gap - a cell-mate can obstruct even an adjacent-column hop where it never
     registers as an intervening column, and whether the target is same-row or
     a row below, since the L-shape's first leg spans the full source row
-    before turning (see :func:`packed_cell_mate_obstructs`).
+    before turning (see :func:`_packed_cell_mate_obstructs`).
 
     The merge classifier and the inter-section dispatch both decide whether a
-    feeder leaves its row by this one predicate, so a feeder can never be
-    classified as needing the trunk's bypass channel while the dispatch routes
-    it straight, or the reverse.
+    feeder leaves its row by this predicate, so a feeder cannot be classified as
+    needing the trunk's bypass channel while the dispatch routes it straight, or
+    the reverse.  The cell-mate term is reported alongside the verdict because
+    the dispatch keys a separate decision on it and it is the costly half to
+    compute.
     """
-    if src_col is None or tgt_col is None:
+    if src.col is None or tgt.col is None:
+        return BypassNeed(False, False)
+    cellmate = _packed_cell_mate_obstructs(
+        graph, src.station, tgt.station, src.row, tgt.row
+    )
+    intervening = _intervening_section_obstructs(
+        graph, src.col, src.row, tgt.col, tgt.row
+    )
+    return BypassNeed(intervening or cellmate, cellmate)
+
+
+def _adjacent_feeder_reaches_merge_directly(
+    graph: MetroGraph, feeder: HopEnd, merge: HopEnd, channel_y: float
+) -> bool:
+    """Whether an adjacent *feeder* is better off running into the merge itself.
+
+    Riding the trunk's bypass channel is what keeps a converging line one
+    stroke, and it costs a feeder nothing while the channel already lies between
+    it and the merge, or while its own run has to leave the row anyway.  It
+    costs the feeder next door: one clear gap from the merge, with the channel
+    sitting past the merge rather than on the way to it.  That one would travel
+    away from the merge to reach the channel and climb straight back, laying its
+    descent beside the trunk's ascent instead of merging with it, and ending in
+    a stub where the trunk has already turned away.
+
+    Only meaningful for a feeder one column from the merge; a feeder further out
+    shares enough of the trunk's way that the channel is never a detour.
+    """
+    lo_y, hi_y = sorted((feeder.station.y, merge.station.y))
+    if lo_y - COORD_TOLERANCE <= channel_y <= hi_y + COORD_TOLERANCE:
         return False
-    return _intervening_section_obstructs(
-        graph, src_col, src_row, tgt_col, tgt_row
-    ) or packed_cell_mate_obstructs(graph, src, tgt, src_row, tgt_row)
+    return not _hop_needs_bypass(graph, feeder, merge).needed
 
 
 def is_far_side_around_below_left_entry(graph: MetroGraph, port: Port) -> bool:

@@ -76,16 +76,16 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
 )
 from nf_metro.layout.routing.context import (
+    HopEnd,
     _get_offset,
     _has_intervening_sections,
+    _hop_needs_bypass,
     _resolve_section_col,
     _resolve_section_colrow,
     _resolve_section_row,
     _RoutingCtx,
     _tb_x_offset,
-    hop_needs_bypass,
     is_near_vertical_drop,
-    packed_cell_mate_obstructs,
 )
 from nf_metro.layout.routing.corners import (
     bypass_stagger,
@@ -422,12 +422,9 @@ def _build_inter_facts(
     graph = ctx.graph
     src_col, src_row = _resolve_section_colrow(graph, src)
     tgt_col, tgt_row = _resolve_section_colrow(graph, tgt)
-    cellmate_blocks_source_row = (
-        src_col is not None
-        and tgt_col is not None
-        and packed_cell_mate_obstructs(graph, src, tgt, src_row, tgt_row)
+    bypass = _hop_needs_bypass(
+        graph, HopEnd(src, src_col, src_row), HopEnd(tgt, tgt_col, tgt_row)
     )
-    needs_bypass = hop_needs_bypass(graph, src, tgt, src_col, src_row, tgt_col, tgt_row)
     ep_id = ctx.merge.entry_port_for.get(edge.target)
     i, n = ctx.bundle_info.get((edge.source, edge.target, edge.line_id), (0, 1))
     return _InterFacts(
@@ -447,8 +444,8 @@ def _build_inter_facts(
         src_row=src_row,
         tgt_col=tgt_col,
         tgt_row=tgt_row,
-        needs_bypass=needs_bypass,
-        cellmate_blocks_source_row=cellmate_blocks_source_row,
+        needs_bypass=bypass.needed,
+        cellmate_blocks_source_row=bypass.cellmate_blocks_source_row,
         merge_ep=graph.stations.get(ep_id) if ep_id else None,
     )
 
