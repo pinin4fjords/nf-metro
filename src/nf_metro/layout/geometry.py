@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -251,6 +251,20 @@ def lanes_run_along_y(direction: str) -> bool:
     so it has no row-Y lane grid to share and the row passes leave its Y alone.
     """
     return AxisFrame.axes_for_direction(direction)[1] == "y"
+
+
+def flow_start_coord(direction: str, coords: Iterable[float]) -> float | None:
+    """The flow-axis coordinate *direction*'s flow starts from, among *coords*.
+
+    The smallest coordinate for a forward flow (LR/TB) and the largest for a
+    reversed one (RL/BT).  Callers comparing something against "the end the flow
+    starts at" get the extreme that means it without branching on the sense, and
+    can order against it by scaling both sides by :meth:`AxisFrame.flow_sign`.
+
+    ``None`` for an empty *coords*.
+    """
+    sign = AxisFrame.flow_sign(direction)
+    return min(coords, key=lambda c: c * sign, default=None)
 
 
 def lanes_run_along_x(direction: str) -> bool:

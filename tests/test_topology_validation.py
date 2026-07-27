@@ -19,6 +19,7 @@ from layout_validator import (
     check_excessive_column_gaps,
     check_exit_port_feeder_alignment,
     check_intra_section_chain_alignment,
+    check_perp_entry_precedes_flow_start,
     check_port_boundary,
     check_route_segment_crossings,
     check_section_overlap,
@@ -107,6 +108,11 @@ class TestTopologyValidation:
 
     def test_no_edge_section_crossing(self, topology_graph):
         violations = check_edge_section_crossing(topology_graph)
+        errors = [v for v in violations if v.severity == Severity.ERROR]
+        assert not errors, "\n".join(v.message for v in errors)
+
+    def test_perp_entry_precedes_flow_start(self, topology_graph):
+        violations = check_perp_entry_precedes_flow_start(topology_graph)
         errors = [v for v in violations if v.severity == Severity.ERROR]
         assert not errors, "\n".join(v.message for v in errors)
 

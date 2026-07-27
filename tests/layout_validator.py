@@ -12,10 +12,14 @@ from enum import Enum
 
 from nf_metro.layout.constants import Y_SPACING
 from nf_metro.layout.geometry import (
+    AxisFrame,
+    flow_start_coord,
     iter_coincident_stations,
     iter_section_overlaps,
     iter_serpentine_backtracks,
     iter_stations_outside_bbox,
+    lanes_run_along_x,
+    perpendicular_port_sides,
 )
 from nf_metro.layout.phases._common import (
     routes_through_unrelated_sections,
@@ -95,6 +99,7 @@ def validate_layout(graph: MetroGraph) -> list[Violation]:
         )
     violations.extend(check_single_layer_centering(graph))
     violations.extend(check_station_as_elbow(graph))
+    violations.extend(check_perp_entry_precedes_flow_start(graph))
     violations.extend(check_intra_section_chain_alignment(graph))
     violations.extend(check_exit_port_feeder_alignment(graph))
     violations.extend(check_inter_section_line_crossings(graph))
@@ -653,6 +658,18 @@ def check_single_layer_centering(
     return violations
 
 
+def _internal_stations_by_section(
+    graph: MetroGraph,
+) -> dict[str, list[tuple[str, float, float]]]:
+    """``(station_id, x, y)`` per section, ports and unsectioned stations dropped."""
+    grouped: dict[str, list[tuple[str, float, float]]] = defaultdict(list)
+    for sid, station in graph.stations.items():
+        if station.is_port or station.section_id is None:
+            continue
+        grouped[station.section_id].append((sid, station.x, station.y))
+    return grouped
+
+
 def check_station_as_elbow(
     graph: MetroGraph, tolerance: float = 10.0
 ) -> list[Violation]:
@@ -660,8 +677,11 @@ def check_station_as_elbow(
 
     Only flags ports that are perpendicular to the section's flow direction,
     where the line must bend and could pass through a station:
-    - LEFT/RIGHT ports on TB sections (horizontal entry into vertical flow)
-    - TOP/BOTTOM ports on LR/RL sections (vertical entry into horizontal flow)
+    - LEFT/RIGHT ports on a vertical (TB/BT) flow
+    - TOP/BOTTOM ports on a horizontal (LR/RL) flow
+
+    The pair is read from :func:`perpendicular_port_sides`, so it follows the
+    section's lane axis rather than enumerating flow directions.
 
     Ports along the flow direction (e.g. LEFT entry on LR section) naturally
     share coordinates with stations on the main track and are not checked.
@@ -671,15 +691,7 @@ def check_station_as_elbow(
     """
     violations: list[Violation] = []
 
-    # Group internal (non-port) stations by section
-    section_stations: dict[str, list[tuple[str, float, float]]] = {}
-    for sid, station in graph.stations.items():
-        if station.is_port or station.section_id is None:
-            continue
-        sec_id = station.section_id
-        if sec_id not in section_stations:
-            section_stations[sec_id] = []
-        section_stations[sec_id].append((sid, station.x, station.y))
+    section_stations = _internal_stations_by_section(graph)
 
     for pid, port in graph.ports.items():
         port_station = graph.stations.get(pid)
@@ -696,16 +708,7 @@ def check_station_as_elbow(
             continue
 
         # Only check perpendicular ports (where a bend is required)
-        is_perpendicular = False
-        if direction == "TB" and port.side in (PortSide.LEFT, PortSide.RIGHT):
-            is_perpendicular = True
-        elif direction in ("LR", "RL") and port.side in (
-            PortSide.TOP,
-            PortSide.BOTTOM,
-        ):
-            is_perpendicular = True
-
-        if not is_perpendicular:
+        if port.side not in perpendicular_port_sides(direction):
             continue
 
         # LEFT/RIGHT ports: line runs horizontally at port.y, check Y
@@ -797,6 +800,68 @@ def check_station_as_elbow(
                 )
             )
 
+    return violations
+
+
+def check_perp_entry_precedes_flow_start(
+    graph: MetroGraph, tolerance: float = 10.0
+) -> list[Violation]:
+    """Check a vertical-flow section's perpendicular entry seats before its
+    flow-start row.
+
+    A LEFT/RIGHT entry on a TB/BT section is perpendicular to the flow, so the
+    incoming line must bend to join the trunk. The seat must fall before the
+    flow-start station in flow order -- above the topmost station for a
+    downward (TB) flow, below the bottommost one for an upward (BT) flow.
+    Seating it past that row instead routes the entry back through the
+    section's own stations to reach its target further up the flow.
+
+    Only checked on sections with 2+ internal stations: a single-station
+    section has no row order to violate.
+    """
+    violations: list[Violation] = []
+
+    section_stations = _internal_stations_by_section(graph)
+
+    for pid, port in graph.ports.items():
+        if not port.is_entry:
+            continue
+        section = graph.sections.get(port.section_id)
+        if section is None or not lanes_run_along_x(section.direction):
+            continue
+        if port.side not in perpendicular_port_sides(section.direction):
+            continue
+        entries = section_stations.get(port.section_id, [])
+        if len(entries) < 2:
+            continue
+        port_station = graph.stations.get(pid)
+        if port_station is None:
+            continue
+
+        sign = AxisFrame.flow_sign(section.direction)
+        flow_start_y = flow_start_coord(section.direction, (y for _, _, y in entries))
+        assert flow_start_y is not None
+        # Scaling both sides by the flow sign makes one comparison cover a
+        # downward and an upward flow.
+        if port_station.y * sign > (flow_start_y + tolerance * sign) * sign:
+            violations.append(
+                Violation(
+                    check="perp_entry_precedes_flow_start",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"Port '{pid}' ({port.side.value}, y={port_station.y:.1f}) "
+                        f"in section '{port.section_id}' seats past the flow-start "
+                        f"row (y={flow_start_y:.1f}) - the entry doubles back "
+                        f"through the section's own stations"
+                    ),
+                    context={
+                        "port": pid,
+                        "section": port.section_id,
+                        "port_coord": port_station.y,
+                        "flow_start_coord": flow_start_y,
+                    },
+                )
+            )
     return violations
 
 
