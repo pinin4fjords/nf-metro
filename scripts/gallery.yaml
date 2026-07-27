@@ -1837,9 +1837,9 @@ gallery:
     source_dir: examples/topologies
     category: Feature Showcase
     description:
-      "A paired-track map: the input source fans to two stacked
-      converters and threads the two-track bundle cleanly between them to
-      the somatic caller, whose dead-end outputs peel off without crowding
+      "A paired-input map: the source fans to two stacked converters and
+      threads the two-track bundle cleanly between them to the branch tree,
+      whose dead-end outputs peel off onto full grid rows without crowding
       their neighbours."
   - id: single_line_dual_source_stacked_exit
     source_dir: examples/topologies

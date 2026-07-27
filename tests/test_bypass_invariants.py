@@ -273,22 +273,21 @@ def test_source_fan_bypass_v_stays_between_its_fan_siblings():
     keep the bundle's hidden bypass-V helpers between the two real fan
     siblings, not stacked beyond the outer one.
 
-    In the paired-track input section ``pairs_in`` fans to ``convert_g``
-    (top) and ``convert_t`` (bottom) and sends the two-track bundle
-    straight to the branch-tree section.  The bundle's bypass-Vs skirt the two
-    converters; when one is ordered by the line it *skirts* it lands beyond
-    ``convert_t``, stretching the section and forcing a deep U-well loop.  Both
-    Vs must sit within the converters' band so the bundle threads the middle
-    gap.
+    In the paired-input section ``pairs_in`` fans to ``convert_a`` (top) and
+    ``convert_b`` (bottom) and sends the two-track bundle straight to the
+    branch-tree section.  The bundle's bypass-Vs skirt the two converters; when
+    one is ordered by the line it *skirts* it lands beyond ``convert_b``,
+    stretching the section and forcing a deep U-well loop.  Both Vs must sit
+    within the converters' band so the bundle threads the middle gap.
     """
     graph = parse_metro_mermaid(
         (TOPOLOGIES / "paired_input_fan_branch_tree.mmd").read_text()
     )
     compute_layout(graph)
-    top = graph.stations["convert_g"].y
-    bottom = graph.stations["convert_t"].y
+    top = graph.stations["convert_a"].y
+    bottom = graph.stations["convert_b"].y
     lo, hi = min(top, bottom), max(top, bottom)
-    section = graph.section_for_station("convert_g")
+    section = graph.section_for_station("convert_a")
     v_ids = [
         sid
         for sid in graph.sections[section].station_ids

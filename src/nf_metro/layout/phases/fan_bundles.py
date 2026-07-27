@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Iterator
 
@@ -9,7 +10,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
 )
-from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.geometry import lanes_run_along_x, shift_section
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.layout.phases._common import (
     _fan_offsets,
@@ -989,13 +990,7 @@ def _carry_symmetric_branch_continuations(
             for s in section.station_ids
             if s in graph.stations and not graph.stations[s].is_port
         ]
-        if content_ys:
-            grow_section_bbox_min_edge(
-                graph, section, "y", min(content_ys) - section_y_padding
-            )
-            grow_section_bbox_max_edge(
-                graph, section, "y", max(content_ys) + section_y_padding
-            )
+        _grow_section_bbox_over_ys(graph, section, content_ys, section_y_padding)
 
 
 def _section_lr_entry_port(graph: MetroGraph, section: Section) -> str | None:
@@ -1240,3 +1235,116 @@ def _pull_continuation_onto(
     for sid in carried:
         graph.stations[sid].y = branch.y
     return carried
+
+
+def _section_occupants(graph: MetroGraph, section: Section) -> list[Station]:
+    """The section's visible stations -- the ones that can occupy a row slot."""
+    return [
+        st
+        for sid in section.station_ids
+        if (st := graph.stations.get(sid)) is not None
+        and not st.is_port
+        and not st.is_hidden
+    ]
+
+
+def _grow_section_bbox_over_ys(
+    graph: MetroGraph, section: Section, ys: list[float], section_y_padding: float
+) -> None:
+    """Grow *section*'s bbox so *ys* sit inside it with padding on both edges."""
+    if not ys:
+        return
+    grow_section_bbox_min_edge(graph, section, "y", min(ys) - section_y_padding)
+    grow_section_bbox_max_edge(graph, section, "y", max(ys) + section_y_padding)
+
+
+def _half_grid_frame(
+    graph: MetroGraph, section: Section, y_spacing: float
+) -> tuple[float, float] | None:
+    """``(anchor_y, row_pitch)`` for *section*, or None when it has no frame.
+
+    The anchor is the LR/RL port Y that the half-pitch passes fan about, so a
+    vertical flow (which stacks its lines along X) and a section without an
+    LR/RL port both have nothing to measure against.
+    """
+    if lanes_run_along_x(section.direction):
+        return None
+    anchor = _section_lr_port_anchor_y(graph, section)
+    if anchor is None:
+        return None
+    pitch = _section_row_pitch(graph, section.id, y_spacing)
+    return (anchor, pitch) if pitch > 0 else None
+
+
+def _straddles_nothing(
+    station: Station, anchor: float, pitch: float, occupants: list[Station]
+) -> bool:
+    """True when *station* sits half a pitch off *anchor* with its mirror empty.
+
+    A half-pitch offset is meaningful only as one side of a pair straddling the
+    anchor, so the slot at the mirrored offset has to be occupied for the offset
+    to buy anything.  Stations a whole number of rows from the anchor are
+    already on the grid and never qualify.
+    """
+    offset = station.y - anchor
+    if abs(abs(offset) - 0.5 * pitch) > SAME_COORD_TOLERANCE:
+        return False
+    mirror = anchor - offset
+    return not any(
+        other is not station and abs(other.y - mirror) < SAME_COORD_TOLERANCE
+        for other in occupants
+    )
+
+
+def _expand_orphaned_half_grid_stations(
+    graph: MetroGraph,
+    y_spacing: float,
+    section_y_padding: float = SECTION_Y_PADDING,
+) -> None:
+    """Seat on a full row any half-pitch station whose pair partner moved away.
+
+    ``_recenter_full_bundle_columns``, ``_apply_half_grid_2branch_symfan`` and
+    ``_apply_half_grid_symmetric_diamonds`` place both members of a two-way
+    fork at ``anchor +/- 0.5 * pitch`` together, and
+    ``_carry_symmetric_branch_continuations`` marks each member's onward chain
+    on that member's Y.  ``_align_terminus_to_upstream`` is entitled to pull a
+    terminus member onto its producer's Y, and :func:`_straddles_nothing`
+    detects the partner left behind.
+
+    Seating derives the new Y from the row pitch rather than doubling the
+    measured offset, so the branch lands exactly on the row even though it
+    qualified within a tolerance band.
+
+    An off-track icon counts as a straddle partner while never being seated
+    itself: the off-track lift owns its Y, so it can hold a slot it must not be
+    moved out of.
+    """
+    require_phase_field(graph, "half_grid_station_ids")
+    half_grid = graph.half_grid_station_ids
+    if not half_grid:
+        return
+    for section in graph.sections.values():
+        marked = [sid for sid in section.station_ids if sid in half_grid]
+        if not marked:
+            continue
+        frame = _half_grid_frame(graph, section, y_spacing)
+        if frame is None:
+            continue
+        anchor, pitch = frame
+        occupants = _section_occupants(graph, section)
+        moved_ys: list[float] = []
+        for sid in marked:
+            st = graph.stations.get(sid)
+            if st is None or st.is_port or st.off_track or st.is_hidden:
+                continue
+            if not _straddles_nothing(st, anchor, pitch, occupants):
+                continue
+            st.y = anchor + math.copysign(pitch, st.y - anchor)
+            half_grid.discard(sid)
+            moved_ys.append(st.y)
+        if not moved_ys:
+            continue
+        # Only the expanded branch can have crossed an edge; sizing against the
+        # whole section instead would hand the bbox slack that the row-compact
+        # passes then take up by dragging unrelated content off its row.
+        _grow_section_bbox_over_ys(graph, section, moved_ys, section_y_padding)
