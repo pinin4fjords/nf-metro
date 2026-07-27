@@ -35,6 +35,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
+    box_growth_sign,
     lanes_run_along_x,
     lanes_run_along_y,
     shift_section,
@@ -214,11 +215,13 @@ def _compute_section_offsets(
         scoped, row_assign, row_offsets, row_heights, max_row, section_y_gap
     )
 
-    # Right-align columns containing RL or TB sections
-    right_align_cols: set[int] = set()
-    for sid, section in scoped.items():
-        if section.direction in ("RL", "TB") and section.grid_col_span == 1:
-            right_align_cols.add(col_assign.get(sid, 0))
+    # A section whose box extent grows leftward starts its content at the
+    # column's right edge, so the whole column is anchored there.
+    right_align_cols: set[int] = {
+        col_assign.get(sid, 0)
+        for sid, section in scoped.items()
+        if section.grid_col_span == 1 and box_growth_sign(section.direction, "x") < 0
+    }
 
     # Set section offsets and adjust for spanning.  Packed members keep their
     # row offset here but defer their column offset to ``_pack_cells``, which
@@ -231,12 +234,16 @@ def _compute_section_offsets(
             continue
         section.offset_x = col_offsets.get(section.grid_col, 0)
 
-        if section.grid_col_span == 1 and (
-            section.direction in ("RL", "TB") or section.grid_col in right_align_cols
-        ):
-            col_w = col_widths.get(section.grid_col, 0)
-            if col_w > section.bbox_w:
-                section.offset_x += col_w - section.bbox_w
+        if section.grid_col_span == 1 and section.grid_col in right_align_cols:
+            # The slack must be measured in the frame the column width was
+            # reserved in - a right reach re-anchored to the standard left edge
+            # (:func:`_effective_section_width`) - or each box lands displaced
+            # by its own leftward overhang and the column's right edges scatter.
+            slack = col_widths.get(section.grid_col, 0) - _effective_section_width(
+                section
+            )
+            if slack > 0:
+                section.offset_x += slack
 
     _pack_cells(scoped, packs, col_offsets, col_widths, right_align_cols, section_x_gap)
 
