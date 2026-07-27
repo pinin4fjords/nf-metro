@@ -1,0 +1,69 @@
+%%metro title: Paired-track demo
+%%metro diamond_style: symmetric
+%%metro style: dark
+%%metro legend: bl
+%%metro files: pairs_in | FILE | Input set
+%%metro files: out_a1 | OUT | Track A
+%%metro file: out_a2 | OUT | Output A2
+%%metro file: out_a3 | OUT | Output three
+%%metro file: out_b | OUT | Probe value
+%%metro files: out_c | OUT | Chain out
+%%metro line: track_a | Track A | #0570b0
+%%metro line: track_b | Track B | #d94801
+
+graph LR
+    subgraph input_sec [Inputs]
+        pairs_in[ ]
+        convert_a[Convert one\ntrack a]
+        convert_b[Convert two\ntrack b]
+
+        pairs_in -->|track_a| convert_a
+        pairs_in -->|track_b| convert_b
+    end
+
+    subgraph branch_sec [Branching stage]
+        stage_a1[Upstream\nprimary stage]
+        stage_a2[Filter step]
+        stage_a3[Fork\nannotation]
+        stage_a4[Terminal\nsegment]
+        out_a1[ ]
+        out_a2[ ]
+        out_a3[ ]
+
+        pairs_in -->|track_a| stage_a1
+        pairs_in -->|track_b| stage_a1
+        stage_a1 -->|track_a,track_b| stage_a2
+        stage_a2 -->|track_a,track_b| out_a1
+        stage_a2 -->|track_a,track_b| stage_a3
+        stage_a3 -->|track_a,track_b| out_a2
+        stage_a3 -->|track_a,track_b| stage_a4
+        stage_a4 -->|track_a,track_b| out_a3
+    end
+
+    subgraph probe_sec [Hub]
+        stage_b1[merge node]
+        out_b[ ]
+
+        convert_a -->|track_a| stage_b1
+        convert_b -->|track_b| stage_b1
+        stage_b1 -->|track_a,track_b| out_b
+    end
+
+    subgraph chain_sec [Downstream chain]
+        split_a[Region split\ntrack a]
+        split_b[Region split\ntrack b]
+        stage_c1[Assemble\nstage]
+        stage_c2[Collate\nmerge step]
+        stage_c3[Fit and rank\nstage]
+        stage_c4[Adjust to\nscale]
+        out_c[ ]
+
+        convert_a -->|track_a| split_a
+        convert_b -->|track_b| split_b
+        split_a -->|track_a| stage_c1
+        split_b -->|track_b| stage_c1
+        stage_c1 -->|track_a,track_b| stage_c2
+        stage_c2 -->|track_a,track_b| stage_c3
+        stage_c3 -->|track_a,track_b| stage_c4
+        stage_c4 -->|track_a,track_b| out_c
+    end

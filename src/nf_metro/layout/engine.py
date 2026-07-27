@@ -110,6 +110,7 @@ from nf_metro.layout.phases.fan_bundles import (  # noqa: F401
     _center_lr_entry_ports_on_fork,
     _convergence_source_ys,
     _divergence_target_ys,
+    _expand_orphaned_half_grid_stations,
     _iter_symmetric_diamonds,
     _recenter_full_bundle_columns,
     _redistribute_fanout_siblings,
@@ -2006,6 +2007,13 @@ def _finalize_layout(
     if graph.diamond_style == "symmetric":
         _apply_half_grid_symmetric_diamonds(graph, y_spacing)
         _snap(graph, "6.17")
+
+    # Stage 6.18: Seat orphaned half-pitch stations on a full grid row (see
+    # _expand_orphaned_half_grid_stations and CONTRACT.md Stage 6.18).  Must
+    # follow every pass that places or dissolves a half-pitch pair, so the
+    # half-grid marks are final.
+    _expand_orphaned_half_grid_stations(graph, y_spacing, section_y_padding)
+    _snap(graph, "6.18")
 
     if validate:
         if graph._defer_final_guards:
