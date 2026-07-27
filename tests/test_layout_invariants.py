@@ -10068,30 +10068,26 @@ _SYMMETRIC_EXIT_JOIN_FIXTURES = [
 
 
 @pytest.mark.parametrize("fixture", _SYMMETRIC_EXIT_JOIN_FIXTURES)
-def test_symmetric_exit_port_join_seats_on_a_feeder_or_the_centreline(fixture):
-    """A two-way join seats its exit port on a feeder's track or their midpoint.
+def test_symmetric_exit_port_join_stays_within_its_feeders_span(fixture):
+    """A two-way join keeps its exit port between the two branches feeding it.
 
     Two branches whose only successor is the section's flow-aligned exit port
-    reunite at that port, so it carries the centreline role a join station
-    carries for an in-section reconvergence.  Either seat reads as deliberate:
-    on a feeder's track the run continues along the trunk that branch defines,
-    and on the midpoint the diamond closes symmetrically about the outgoing
-    bundle.
+    reunite at that port.  Seated between them the port is straddled, so one
+    leg descends onto it and the other climbs, which is what a join looks like.
+    Seated outside their span it reads as an unexplained step above (or below)
+    the whole join, and both legs leave turning the same way to reach it.
 
-    A third position -- level with neither feeder and off their midpoint --
-    reads as an unexplained step, and both legs kink to reach it.  That is what
-    a section holding half-pitch branch offsets produces when nothing seats the
-    port onto the frame its feeders adopted.
+    Being *between* the feeders is the property enforced, not being exactly on
+    their midpoint: a port already straddled sits on a flat inter-section run
+    worth more than the last few pixels of leg symmetry.
     """
     graph = _layout_diamond(fixture, "symmetric")
     checked = 0
     for port, lo, hi in _exit_port_joins(graph):
-        midpoint = (lo.y + hi.y) / 2.0
-        seats = (lo.y, hi.y, midpoint)
-        assert min(abs(port.y - seat) for seat in seats) < 1.0, (
-            f"{fixture}: exit port {port.id!r} sits at y={port.y:.1f}, level with "
-            f"neither feeder ({lo.id!r} y={lo.y:.1f}, {hi.id!r} y={hi.y:.1f}) nor "
-            f"their midpoint y={midpoint:.1f} -- both legs kink to reach it"
+        assert lo.y - 1.0 <= port.y <= hi.y + 1.0, (
+            f"{fixture}: exit port {port.id!r} sits at y={port.y:.1f}, outside the "
+            f"span of the feeders that reunite there ({lo.id!r} y={lo.y:.1f}, "
+            f"{hi.id!r} y={hi.y:.1f}) -- both legs turn the same way to reach it"
         )
         checked += 1
     assert checked, f"{fixture}: no two-way exit-port join found to check"
