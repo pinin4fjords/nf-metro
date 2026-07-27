@@ -81,6 +81,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _collect_htrunks,
     _distinct_line_order,
     _dogleg_off_exempt_trunks,
+    _drop_covered_merge_entry_hops,
     _final_port_approach,
     _gap_channel_base,
     _group_channel_trunks,
@@ -256,6 +257,10 @@ def _route_edges(
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
     _unify_coincident_corner_radii(routes)
+    # Last: the feeders' convergence column is only settled once the coincidence
+    # passes have run, and that is what says whether the merge -> entry hop still
+    # covers ground of its own or is now just an overhang past their corner.
+    _drop_covered_merge_entry_hops(routes, ctx)
 
     return routes, moves
 
