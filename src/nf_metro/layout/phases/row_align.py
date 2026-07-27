@@ -31,6 +31,7 @@ from nf_metro.layout.phases._common import (
     _section_trunk_y,
     iter_stacked_rows_in_rowspan_band,
 )
+from nf_metro.layout.phases.bbox import level_group_anchor_edges
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.layout.phases.single_section import (
     _multiline_label_padding,
@@ -581,24 +582,17 @@ def _top_align_row_bboxes_only(graph: MetroGraph) -> None:
     off-track inputs to lift; TOP ports, which ride the top edge, are
     carried up to the new top so they stay on the boundary.
 
+    The Y half of :func:`...bbox.level_group_anchor_edges`.  A row's boxes are
+    levelled on their tops whichever way their flows run, because it is the
+    header badge -- text, which a rotation does not carry with it -- that rides
+    the box top.
+
     Used after ``_lift_off_track_stations`` so off-track expansion in
     one section doesn't leave other row-mates with misaligned bbox
     tops.
     """
     for group in _row_contiguous_column_groups(graph):
-        min_top = min(s.bbox_y for s in group)
-        for section in group:
-            delta = section.bbox_y - min_top
-            if delta <= 0:
-                continue
-            section.bbox_y = min_top
-            section.bbox_h += delta
-            # TOP ports ride the top edge; the upward growth must carry them to
-            # the new top so they don't strand inside the box.
-            for pid in (*section.entry_ports, *section.exit_ports):
-                port = graph.ports.get(pid)
-                if port is not None and port.side == PortSide.TOP:
-                    _set_port_y(graph, pid, min_top)
+        level_group_anchor_edges(graph, group, "y", 1.0)
 
 
 def _align_row_trunk_ys(graph: MetroGraph) -> None:
