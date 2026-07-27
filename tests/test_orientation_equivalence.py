@@ -104,13 +104,10 @@ KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
         )
         for stem in ("orbit_perp_exit_back_row_entry",)
     },
-    # _infer_flow_exit_hints_with_drops's perpendicular-drop exception checks
-    # only whether the TARGET section is TB/BT; it has no counterpart for a
-    # vertical-flow SOURCE feeding a same-row horizontal target, so that
-    # source's exit stays flow-aligned instead of turning toward its
-    # neighbour.  Both fixtures' sections carry an explicit direction, so
-    # _reanchor_flow_axis_ports's fold remedies (reverse or re-anchor) never
-    # apply to either one; the divergence is unrelated to that choice.
+    # _infer_flow_exit_hints_with_drops's perpendicular-drop exception tests only
+    # whether the TARGET section is vertical, so a vertical-flow source feeding a
+    # same-row horizontal target keeps a flow-aligned exit instead of turning
+    # toward its neighbour.
     **{
         (stem, family): (
             "auto-inferred exit has no drop exception for a vertical-flow "
