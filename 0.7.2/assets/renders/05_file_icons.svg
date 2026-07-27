@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="605" height="306" viewBox="0 0 605 306">
+<defs>
+</defs>
+<rect x="0" y="0" width="605" height="306" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">File Icons</text>
+<rect x="22.0" y="70.0" width="305.0" height="110.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="analysis" data-section-lines="main,qc" />
+<circle cx="33.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="analysis" />
+<text x="33.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="analysis">1</text>
+<text x="49.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="analysis">Analysis</text>
+<rect x="377.0" y="70.0" width="168.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="reporting" data-section-lines="qc" />
+<circle cx="388.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="reporting" />
+<text x="388.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="reporting">2</text>
+<text x="404.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="reporting">Reporting</text>
+<path d="M80.0,123.0 L140.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M427.0,123.0 L487.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M377.0,123.0 L427.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M260.0,123.0 L327.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M327.0,123.0 L377.0,123.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M140.0,123.0 L140.0,123.0 Q150.0,123.0,156.0,131.0 L174.0,155.0 Q180.0,163.0,190.0,163.0 L200.0,163.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M200.0,163.0 L210.0,163.0 Q220.0,163.0,226.0,155.0 L244.0,131.0 Q250.0,123.0,260.0,123.0 L327.0,123.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M140.0,120.0 L200.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M200.0,120.0 L260.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<rect x="75.0" y="115.0" width="10.0" height="13.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="reads_in" data-station-lines="main,qc" data-station-label="reads_in" data-section-id="analysis" data-section-name="Analysis" />
+<g data-station-id="reads_in">
+<path d="M43.0,105.5 L61.0,105.5 L69.0,113.5 L69.0,135.5 Q69.0,137.5,67.0,137.5 L43.0,137.5 Q41.0,137.5,41.0,135.5 L41.0,107.5 Q41.0,105.5,43.0,105.5 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M61.0,105.5 L61.0,113.5 L69.0,113.5 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M61.0,105.5 L61.0,113.5 L69.0,113.5" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="55.0" y="122.7" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">FASTQ</text>
+</g>
+<rect x="135.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="trim" data-station-lines="main,qc" data-station-label="Trimming" data-section-id="analysis" data-section-name="Analysis" />
+<rect x="195.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="align" data-station-lines="main" data-station-label="Alignment" data-section-id="analysis" data-section-name="Analysis" />
+<rect x="255.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="quant" data-station-lines="main,qc" data-station-label="Quantification" data-section-id="analysis" data-section-name="Analysis" />
+<rect x="422.0" y="118.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="multiqc" data-station-lines="qc" data-station-label="MultiQC" data-section-id="reporting" data-section-name="Reporting" />
+<rect x="482.0" y="118.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="report_out" data-station-lines="qc" data-station-label="report_out" data-section-id="reporting" data-section-name="Reporting" />
+<g data-station-id="report_out">
+<path d="M500.0,107.0 L518.0,107.0 L526.0,115.0 L526.0,137.0 Q526.0,139.0,524.0,139.0 L500.0,139.0 Q498.0,139.0,498.0,137.0 L498.0,109.0 Q498.0,107.0,500.0,107.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M518.0,107.0 L518.0,115.0 L526.0,115.0 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M518.0,107.0 L518.0,115.0 L526.0,115.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="512.0" y="124.2" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">HTML</text>
+</g>
+<text x="427.0" y="134.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="multiqc" class="nf-metro-station-label">MultiQC</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="trim" class="nf-metro-station-label">Trimming</text>
+<text x="200.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="align" class="nf-metro-station-label">Alignment</text>
+<text x="260.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="quant" class="nf-metro-station-label">Quantification</text>
+<rect x="22.0" y="210.0" width="175.5" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M34.0,234.0 L58.0,234.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<text x="70.0" y="234.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
+<path d="M34.0,258.0 L58.0,258.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<text x="70.0" y="258.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Quality Control</text>
+<text x="575.0" y="298.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.2+dev</text>
+</svg>

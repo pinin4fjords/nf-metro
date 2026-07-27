@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1108" height="452" viewBox="0 0 1108 452">
+<defs>
+</defs>
+<rect x="0" y="0" width="1108" height="452" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Preprocess / Alignment / Quantification Pipeline</text>
+<rect x="60.0" y="70.0" width="136.0" height="140.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="preprocess" data-section-lines="main,preprocess_reporting" />
+<circle cx="71.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="preprocess" />
+<text x="71.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="preprocess">1</text>
+<text x="87.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="preprocess">Preprocess</text>
+<rect x="246.0" y="70.0" width="426.5" height="180.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="alignment" data-section-lines="alignment_reporting,main,spur" />
+<circle cx="257.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="alignment" />
+<text x="257.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="alignment">2</text>
+<text x="273.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="alignment">Alignment</text>
+<rect x="752.5" y="70.0" width="116.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="quantification" data-section-lines="main" />
+<circle cx="763.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="quantification" />
+<text x="763.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="quantification">3</text>
+<text x="779.5" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="quantification">Quantification</text>
+<rect x="948.5" y="70.0" width="100.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="reporting" data-section-lines="alignment_reporting,main,preprocess_reporting" />
+<circle cx="959.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="reporting" />
+<text x="959.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="reporting">4</text>
+<text x="975.5" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="reporting">Reporting</text>
+<path d="M487.0,166.0 L535.5,166.0 Q545.5,166.0,551.5,174.0 L569.5,198.0 Q575.5,206.0,585.5,206.0 L605.5,206.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-spur" data-line-id="spur" />
+<path d="M128.0,120.0 L196.0,120.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-preprocess_reporting" data-line-id="preprocess_reporting" />
+<path d="M948.5,126.0 L998.5,126.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-preprocess_reporting" data-line-id="preprocess_reporting" />
+<path d="M128.0,160.0 L140.25,160.0 Q150.25,160.0,156.25,152.0 L174.25,128.0 Q180.25,120.0,190.25,120.0 L196.0,120.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-preprocess_reporting" data-line-id="preprocess_reporting" />
+<path d="M196.0,120.0 L206.0,120.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-preprocess_reporting" data-line-id="preprocess_reporting" />
+<path d="M206.0,120.0 L206.0,120.0 Q216.0,120.0,216.0,130.0 L216.0,265.0 Q216.0,278.0,229.0,278.0 L911.5,278.0 Q924.5,278.0,924.5,265.0 L924.5,136.0 Q924.5,126.0,934.5,126.0 L948.5,126.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-preprocess_reporting" data-line-id="preprocess_reporting" />
+<path d="M487.0,160.0 L534.75,160.0 Q544.75,160.0,551.0480195842122,152.23244251280497 L568.4519804157878,130.76755748719503 Q574.75,123.0,584.75,123.0 L672.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-alignment_reporting" data-line-id="alignment_reporting" />
+<path d="M948.5,123.0 L998.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-alignment_reporting" data-line-id="alignment_reporting" />
+<path d="M672.5,123.0 L682.5,123.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-alignment_reporting" data-line-id="alignment_reporting" />
+<path d="M682.5,123.0 L682.5,123.0 Q692.5,123.0,692.5,133.0 L692.5,185.0 Q692.5,195.0,702.5,195.0 L911.5,195.0 Q921.5,195.0,921.5,185.0 L921.5,136.0 Q921.5,123.0,934.5,123.0 L948.5,123.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-alignment_reporting" data-line-id="alignment_reporting" />
+<path d="M322.0,120.0 L342.0,120.0 Q352.0,120.0,355.5112344158839,129.36329177569044 L378.4887655841161,190.63670822430956 Q382.0,200.0,392.0,200.0 L427.0,200.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M427.0,200.0 L432.0,200.0 Q442.0,200.0,448.29801958421217,192.23244251280497 L465.70198041578783,170.76755748719503 Q472.0,163.0,482.0,163.0 L487.0,163.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M810.5,120.0 L868.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M948.5,120.0 L998.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M128.0,163.0 L141.75,163.0 Q151.75,163.0,157.75,155.0 L175.75,131.0 Q181.75,123.0,191.75,123.0 L196.0,123.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M246.0,200.0 L427.0,200.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M487.0,163.0 L536.25,163.0 Q546.25,163.0,551.9718159602409,154.79873045698815 L570.5281840397591,128.20126954301185 Q576.25,120.0,586.25,120.0 L672.5,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M752.5,120.0 L810.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M868.5,120.0 L948.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M196.0,123.0 L206.0,123.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M206.0,123.0 L206.0,123.0 Q219.0,123.0,219.0,136.0 L219.0,190.0 Q219.0,200.0,229.0,200.0 L246.0,200.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M672.5,120.0 L682.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M682.5,120.0 L752.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<rect x="123.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastqc" data-station-lines="preprocess_reporting" data-station-label="Fastqc" data-section-id="preprocess" data-section-name="Preprocess" />
+<rect x="123.0" y="155.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="trimgalore" data-station-lines="main,preprocess_reporting" data-station-label="Trimgalore" data-section-id="preprocess" data-section-name="Preprocess" />
+<rect x="317.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="star_genomegenerate" data-station-lines="main" data-station-label="Star Genomegener" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="422.0" y="195.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="star_align" data-station-lines="main" data-station-label="Star Align" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="482.0" y="155.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="samtools_sort" data-station-lines="alignment_reporting,main,spur" data-station-label="Samtools Sort" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="600.5" y="201.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="samtools_index" data-station-lines="spur" data-station-label="Samtools Index" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="805.5" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="salmon_quant" data-station-lines="main" data-station-label="Salmon Quant" data-section-id="quantification" data-section-name="Quantification" />
+<rect x="993.5" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="multiqc" data-station-lines="alignment_reporting,main,preprocess_reporting" data-station-label="Multiqc" data-section-id="reporting" data-section-name="Reporting" />
+<text x="322.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="star_genomegenerate" class="nf-metro-station-label">Star Genomegener</text>
+<text x="128.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="fastqc" class="nf-metro-station-label">Fastqc</text>
+<text x="810.5" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="salmon_quant" class="nf-metro-station-label">Salmon Quant</text>
+<text x="998.5" y="137.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="multiqc" class="nf-metro-station-label">Multiqc</text>
+<text x="128.0" y="174.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="trimgalore" class="nf-metro-station-label">Trimgalore</text>
+<text x="427.0" y="211.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="star_align" class="nf-metro-station-label">Star Align</text>
+<text x="487.0" y="146.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="samtools_sort" class="nf-metro-station-label">Samtools Sort</text>
+<text x="605.5" y="217.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="samtools_index" class="nf-metro-station-label">Samtools Index</text>
+<rect x="60.0" y="308.0" width="229.40000000000003" height="120.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M72.0,332.0 L96.0,332.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="332.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
+<path d="M72.0,356.0 L96.0,356.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="356.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Alignment - Reporting</text>
+<path d="M72.0,380.0 L96.0,380.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="380.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Preprocess - Reporting</text>
+<path d="M72.0,404.0 L96.0,404.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="404.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Spur</text>
+<text x="1078.0" y="444.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.0+dev</text>
+</svg>

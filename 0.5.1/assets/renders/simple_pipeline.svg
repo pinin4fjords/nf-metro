@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="488" height="286" viewBox="0 0 488 286">
+<defs>
+</defs>
+<rect x="0" y="0" width="488" height="286" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Simple Pipeline</text>
+<path d="M272.0,163.0 L428.0,163.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<path d="M80.0,123.0 L92.5,123.0 Q102.5,123.0,108.5,131.0 L126.5,155.0 Q132.5,163.0,142.5,163.0 L272.0,163.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M176.0,123.0 L202.0,123.0 Q212.0,123.0,218.0,131.0 L236.0,155.0 Q242.0,163.0,252.0,163.0 L272.0,163.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M332.0,123.0 L356.5,123.0 Q366.5,123.0,372.5,131.0 L390.5,155.0 Q396.5,163.0,406.5,163.0 L428.0,163.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+<path d="M80.0,120.0 L176.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<path d="M176.0,120.0 L272.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<path d="M272.0,120.0 L332.0,120.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<rect x="75.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="267.0" y="158.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="171.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="267.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="327.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<rect x="423.0" y="158.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" />
+<text x="80.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Input</text>
+<text x="176.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Trimming</text>
+<text x="272.0" y="128.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Alignment</text>
+<text x="272.0" y="171.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">FastQC</text>
+<text x="332.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto">Quantification</text>
+<text x="428.0" y="171.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">MultiQC</text>
+<rect x="60.0" y="190.0" width="160.8" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M72.0,214.0 L96.0,214.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="214.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
+<path d="M72.0,238.0 L96.0,238.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="238.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Quality Control</text>
+<text x="458.0" y="278.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.5.1+dev</text>
+</svg>

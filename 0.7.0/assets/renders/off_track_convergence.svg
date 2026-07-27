@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="736" height="485" viewBox="0 0 736 485">
+<defs>
+</defs>
+<rect x="0" y="0" width="736" height="485" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Off-Track Convergence</text>
+<rect x="30.0" y="50.0" width="160.0" height="333.6" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="input" data-section-lines="main" />
+<circle cx="41.0" cy="35.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="input" />
+<text x="41.0" y="35.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="input">1</text>
+<text x="57.0" y="35.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="input">Input</text>
+<rect x="232.0" y="50.0" width="264.0" height="333.6" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="process" data-section-lines="main" />
+<circle cx="243.0" cy="35.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="process" />
+<text x="243.0" y="35.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="process">2</text>
+<text x="259.0" y="35.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="process">Process</text>
+<rect x="576.0" y="50.0" width="100.0" height="333.6" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="output" data-section-lines="main" />
+<circle cx="587.0" cy="35.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="output" />
+<text x="587.0" y="35.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="output">3</text>
+<text x="603.0" y="35.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="output">Output</text>
+<path d="M80.0,333.6 L140.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M290.0,100.00000000000003 L323.5,100.00000000000003 Q333.5,100.00000000000003,334.77378533062273,109.91854177444905 L362.22621466937727,323.681458225551 Q363.5,333.6,373.5,333.6 L386.0,333.6" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M290.0,158.40000000000003 L323.5,158.40000000000003 Q333.5,158.40000000000003,335.1877643140396,168.2565435939915 L361.8122356859604,323.74345640600853 Q363.5,333.6,373.5,333.6 L386.0,333.6" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M290.0,216.8 L323.5,216.8 Q333.5,216.8,335.9877435036134,226.48561470740137 L361.0122564963866,323.91438529259864 Q363.5,333.6,373.5,333.6 L386.0,333.6" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M290.0,275.20000000000005 L323.5,275.20000000000005 Q333.5,275.20000000000005,338.0693498139703,284.0950009711956 L358.9306501860297,324.7049990288045 Q363.5,333.6,373.5,333.6 L386.0,333.6" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M386.0,333.6 L446.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M140.0,333.6 L190.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M232.0,333.6 L386.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M446.0,333.6 L496.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M576.0,333.6 L626.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M190.0,333.6 L232.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M496.0,333.6 L576.0,333.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<rect x="75.0" y="328.6" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="reads" data-station-lines="main" data-station-label="Reads" data-section-id="input" data-section-name="Input" />
+<rect x="135.0" y="328.6" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="prep" data-station-lines="main" data-station-label="Prepare" data-section-id="input" data-section-name="Input" />
+<rect x="285.0" y="95.00000000000003" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="ref_in" data-station-lines="main" data-station-label="ref_in" data-section-id="process" data-section-name="Process" />
+<g data-station-id="ref_in">
+<path d="M253.0,84.00000000000003 L271.0,84.00000000000003 L279.0,92.00000000000003 L279.0,114.00000000000003 Q279.0,116.00000000000003,277.0,116.00000000000003 L253.0,116.00000000000003 Q251.0,116.00000000000003,251.0,114.00000000000003 L251.0,86.00000000000003 Q251.0,84.00000000000003,253.0,84.00000000000003 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M271.0,84.00000000000003 L271.0,92.00000000000003 L279.0,92.00000000000003 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M271.0,84.00000000000003 L271.0,92.00000000000003 L279.0,92.00000000000003" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="265.0" y="101.20000000000003" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">FASTA</text>
+<text x="265.0" y="120.00000000000003" font-size="7.8" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Reference</text>
+</g>
+<rect x="285.0" y="153.40000000000003" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="gtf_in" data-station-lines="main" data-station-label="gtf_in" data-section-id="process" data-section-name="Process" />
+<g data-station-id="gtf_in">
+<path d="M253.0,142.40000000000003 L271.0,142.40000000000003 L279.0,150.40000000000003 L279.0,172.40000000000003 Q279.0,174.40000000000003,277.0,174.40000000000003 L253.0,174.40000000000003 Q251.0,174.40000000000003,251.0,172.40000000000003 L251.0,144.40000000000003 Q251.0,142.40000000000003,253.0,142.40000000000003 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M271.0,142.40000000000003 L271.0,150.40000000000003 L279.0,150.40000000000003 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M271.0,142.40000000000003 L271.0,150.40000000000003 L279.0,150.40000000000003" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="265.0" y="159.60000000000002" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">GTF</text>
+<text x="265.0" y="178.40000000000003" font-size="7.8" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Annotation</text>
+</g>
+<rect x="285.0" y="211.8" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="vcf_in" data-station-lines="main" data-station-label="vcf_in" data-section-id="process" data-section-name="Process" />
+<g data-station-id="vcf_in">
+<path d="M253.0,200.8 L271.0,200.8 L279.0,208.8 L279.0,230.8 Q279.0,232.8,277.0,232.8 L253.0,232.8 Q251.0,232.8,251.0,230.8 L251.0,202.8 Q251.0,200.8,253.0,200.8 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M271.0,200.8 L271.0,208.8 L279.0,208.8 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M271.0,200.8 L271.0,208.8 L279.0,208.8" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="265.0" y="218.0" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">VCF</text>
+<text x="265.0" y="236.8" font-size="7.8" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Known Variants</text>
+</g>
+<rect x="285.0" y="270.20000000000005" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bed_in" data-station-lines="main" data-station-label="bed_in" data-section-id="process" data-section-name="Process" />
+<g data-station-id="bed_in">
+<path d="M253.0,259.20000000000005 L271.0,259.20000000000005 L279.0,267.20000000000005 L279.0,289.20000000000005 Q279.0,291.20000000000005,277.0,291.20000000000005 L253.0,291.20000000000005 Q251.0,291.20000000000005,251.0,289.20000000000005 L251.0,261.20000000000005 Q251.0,259.20000000000005,253.0,259.20000000000005 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M271.0,259.20000000000005 L271.0,267.20000000000005 L279.0,267.20000000000005 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M271.0,259.20000000000005 L271.0,267.20000000000005 L279.0,267.20000000000005" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="265.0" y="276.40000000000003" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">BED</text>
+<text x="265.0" y="295.20000000000005" font-size="7.8" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging">Targets</text>
+</g>
+<rect x="381.0" y="328.6" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="align" data-station-lines="main" data-station-label="Align" data-section-id="process" data-section-name="Process" />
+<rect x="441.0" y="328.6" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="annotate" data-station-lines="main" data-station-label="Annotate" data-section-id="process" data-section-name="Process" />
+<rect x="621.0" y="328.6" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="report" data-station-lines="main" data-station-label="Report" data-section-id="output" data-section-name="Output" />
+<text x="80.0" y="344.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="reads" class="nf-metro-station-label">Reads</text>
+<text x="626.0" y="344.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="report" class="nf-metro-station-label">Report</text>
+<text x="140.0" y="319.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="prep" class="nf-metro-station-label">Prepare</text>
+<text x="386.0" y="319.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="align" class="nf-metro-station-label">Align</text>
+<text x="446.0" y="344.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="annotate" class="nf-metro-station-label">Annotate</text>
+<rect x="30.0" y="413.6" width="90.80000000000001" height="48.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M42.0,437.6 L66.0,437.6" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="437.6" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
+<text x="706.0" y="477.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.0+dev</text>
+</svg>

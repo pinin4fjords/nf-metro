@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="832" height="656" viewBox="0 0 832 656">
+<defs>
+</defs>
+<rect x="0" y="0" width="832" height="656" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Upward Bypass Test</text>
+<rect x="60.0" y="70.0" width="100.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="input" data-section-lines="a,b,c,d,e,f,g" />
+<circle cx="71.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="input" />
+<text x="71.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="input">1</text>
+<text x="87.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="input">Input</text>
+<rect x="240.0" y="70.0" width="172.0" height="340.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="wide" data-section-lines="a,b,c,d,e,f,g" />
+<circle cx="251.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="wide" />
+<text x="251.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="wide">2</text>
+<text x="267.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="wide">Wide Fan-out</text>
+<rect x="492.0" y="70.0" width="100.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="adjacent" data-section-lines="a" />
+<circle cx="503.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="adjacent" />
+<text x="503.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="adjacent">3</text>
+<text x="519.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="adjacent">Adjacent</text>
+<rect x="672.0" y="70.0" width="100.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="far" data-section-lines="a,b,c,d,e,f,g" />
+<circle cx="683.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="far" />
+<text x="683.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="far">4</text>
+<text x="699.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="far">Far Target</text>
+<path d="M110.0,138.0 L160.0,138.0" stroke="#CDDC39" stroke-width="3.0" stroke-linecap="round" class="metro-line-g" data-line-id="g" />
+<path d="M240.0,138.0 L241.25,138.0 Q251.25,138.0,252.58917896001395,147.90992430410324 L279.91082103998605,350.09007569589676 Q281.25,360.0,291.25,360.0 L326.0,360.0" stroke="#CDDC39" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-g" data-line-id="g" />
+<path d="M326.0,360.0 L360.75,360.0 Q370.75,360.0,372.08917896001395,350.09007569589676 L399.41082103998605,147.90992430410324 Q400.75,138.0,410.75,138.0 L412.0,138.0" stroke="#CDDC39" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-g" data-line-id="g" />
+<path d="M672.0,138.0 L722.0,138.0" stroke="#CDDC39" stroke-width="3.0" stroke-linecap="round" class="metro-line-g" data-line-id="g" />
+<path d="M160.0,138.0 L240.0,138.0" stroke="#CDDC39" stroke-width="3.0" stroke-linecap="round" class="metro-line-g" data-line-id="g" />
+<path d="M412.0,138.0 L422.0,138.0" stroke="#CDDC39" stroke-width="3.0" stroke-linecap="round" class="metro-line-g" data-line-id="g" />
+<path d="M422.0,138.0 L422.0,138.0 Q432.0,138.0,432.0,148.0 L432.0,185.0 Q432.0,213.0,460.0,213.0 L634.0,213.0 Q662.0,213.0,662.0,185.0 L662.0,148.0 Q662.0,138.0,672.0,138.0 L672.0,138.0" stroke="#CDDC39" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-g" data-line-id="g" />
+<path d="M110.0,135.0 L160.0,135.0" stroke="#00BCD4" stroke-width="3.0" stroke-linecap="round" class="metro-line-f" data-line-id="f" />
+<path d="M240.0,135.0 L242.75,135.0 Q252.75,135.0,254.35071158553663,144.87105477747585 L281.1492884144634,310.1289452225241 Q282.75,320.0,292.75,320.0 L326.0,320.0" stroke="#00BCD4" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-f" data-line-id="f" />
+<path d="M326.0,320.0 L359.25,320.0 Q369.25,320.0,370.8507115855366,310.1289452225241 L397.6492884144634,144.87105477747585 Q399.25,135.0,409.25,135.0 L412.0,135.0" stroke="#00BCD4" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-f" data-line-id="f" />
+<path d="M672.0,135.0 L722.0,135.0" stroke="#00BCD4" stroke-width="3.0" stroke-linecap="round" class="metro-line-f" data-line-id="f" />
+<path d="M160.0,135.0 L240.0,135.0" stroke="#00BCD4" stroke-width="3.0" stroke-linecap="round" class="metro-line-f" data-line-id="f" />
+<path d="M412.0,135.0 L422.0,135.0" stroke="#00BCD4" stroke-width="3.0" stroke-linecap="round" class="metro-line-f" data-line-id="f" />
+<path d="M422.0,135.0 L422.0,135.0 Q435.0,135.0,435.0,148.0 L435.0,185.0 Q435.0,210.0,460.0,210.0 L634.0,210.0 Q659.0,210.0,659.0,185.0 L659.0,148.0 Q659.0,135.0,672.0,135.0 L672.0,135.0" stroke="#00BCD4" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-f" data-line-id="f" />
+<path d="M110.0,132.0 L160.0,132.0" stroke="#9C27B0" stroke-width="3.0" stroke-linecap="round" class="metro-line-e" data-line-id="e" />
+<path d="M240.0,132.0 L244.25,132.0 Q254.25,132.0,256.23662427795256,141.80067977123267 L282.26337572204744,270.1993202287673 Q284.25,280.0,294.25,280.0 L326.0,280.0" stroke="#9C27B0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-e" data-line-id="e" />
+<path d="M326.0,280.0 L357.75,280.0 Q367.75,280.0,369.73662427795256,270.1993202287673 L395.76337572204744,141.80067977123267 Q397.75,132.0,407.75,132.0 L412.0,132.0" stroke="#9C27B0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-e" data-line-id="e" />
+<path d="M672.0,132.0 L722.0,132.0" stroke="#9C27B0" stroke-width="3.0" stroke-linecap="round" class="metro-line-e" data-line-id="e" />
+<path d="M160.0,132.0 L240.0,132.0" stroke="#9C27B0" stroke-width="3.0" stroke-linecap="round" class="metro-line-e" data-line-id="e" />
+<path d="M412.0,132.0 L422.0,132.0" stroke="#9C27B0" stroke-width="3.0" stroke-linecap="round" class="metro-line-e" data-line-id="e" />
+<path d="M422.0,132.0 L422.0,132.0 Q438.0,132.0,438.0,148.0 L438.0,185.0 Q438.0,207.0,460.0,207.0 L634.0,207.0 Q656.0,207.0,656.0,185.0 L656.0,148.0 Q656.0,132.0,672.0,132.0 L672.0,132.0" stroke="#9C27B0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-e" data-line-id="e" />
+<path d="M110.0,129.0 L160.0,129.0" stroke="#E91E63" stroke-width="3.0" stroke-linecap="round" class="metro-line-d" data-line-id="d" />
+<path d="M240.0,129.0 L245.75,129.0 Q255.75,129.0,258.35909025142774,138.65363393028267 L283.14090974857226,230.34636606971733 Q285.75,240.0,295.75,240.0 L326.0,240.0" stroke="#E91E63" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-d" data-line-id="d" />
+<path d="M326.0,240.0 L356.25,240.0 Q366.25,240.0,368.85909025142774,230.34636606971733 L393.64090974857226,138.65363393028267 Q396.25,129.0,406.25,129.0 L412.0,129.0" stroke="#E91E63" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-d" data-line-id="d" />
+<path d="M672.0,129.0 L722.0,129.0" stroke="#E91E63" stroke-width="3.0" stroke-linecap="round" class="metro-line-d" data-line-id="d" />
+<path d="M160.0,129.0 L240.0,129.0" stroke="#E91E63" stroke-width="3.0" stroke-linecap="round" class="metro-line-d" data-line-id="d" />
+<path d="M412.0,129.0 L422.0,129.0" stroke="#E91E63" stroke-width="3.0" stroke-linecap="round" class="metro-line-d" data-line-id="d" />
+<path d="M422.0,129.0 L422.0,129.0 Q441.0,129.0,441.0,148.0 L441.0,185.0 Q441.0,204.0,460.0,204.0 L634.0,204.0 Q653.0,204.0,653.0,185.0 L653.0,148.0 Q653.0,129.0,672.0,129.0 L672.0,129.0" stroke="#E91E63" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-d" data-line-id="d" />
+<path d="M110.0,126.0 L160.0,126.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-c" data-line-id="c" />
+<path d="M240.0,126.0 L247.25,126.0 Q257.25,126.0,261.0070510873922,135.26739268223406 L283.4929489126078,190.73260731776594 Q287.25,200.0,297.25,200.0 L326.0,200.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-c" data-line-id="c" />
+<path d="M326.0,200.0 L354.75,200.0 Q364.75,200.0,368.5070510873922,190.73260731776594 L390.9929489126078,135.26739268223406 Q394.75,126.0,404.75,126.0 L412.0,126.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-c" data-line-id="c" />
+<path d="M672.0,126.0 L722.0,126.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-c" data-line-id="c" />
+<path d="M160.0,126.0 L240.0,126.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-c" data-line-id="c" />
+<path d="M412.0,126.0 L422.0,126.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" class="metro-line-c" data-line-id="c" />
+<path d="M422.0,126.0 L422.0,126.0 Q444.0,126.0,444.0,148.0 L444.0,185.0 Q444.0,201.0,460.0,201.0 L634.0,201.0 Q650.0,201.0,650.0,185.0 L650.0,148.0 Q650.0,126.0,672.0,126.0 L672.0,126.0" stroke="#2196F3" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-c" data-line-id="c" />
+<path d="M110.0,123.0 L160.0,123.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-b" data-line-id="b" />
+<path d="M240.0,123.0 L248.75,123.0 Q258.75,123.0,265.04801958421217,130.76755748719503 L282.45198041578783,152.23244251280497 Q288.75,160.0,298.75,160.0 L326.0,160.0" stroke="#4CAF50" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-b" data-line-id="b" />
+<path d="M326.0,160.0 L353.25,160.0 Q363.25,160.0,369.54801958421217,152.23244251280497 L386.95198041578783,130.76755748719503 Q393.25,123.0,403.25,123.0 L412.0,123.0" stroke="#4CAF50" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-b" data-line-id="b" />
+<path d="M672.0,123.0 L722.0,123.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-b" data-line-id="b" />
+<path d="M160.0,123.0 L240.0,123.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-b" data-line-id="b" />
+<path d="M412.0,123.0 L422.0,123.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" class="metro-line-b" data-line-id="b" />
+<path d="M422.0,123.0 L422.0,123.0 Q447.0,123.0,447.0,148.0 L447.0,185.0 Q447.0,198.0,460.0,198.0 L634.0,198.0 Q647.0,198.0,647.0,185.0 L647.0,148.0 Q647.0,123.0,672.0,123.0 L672.0,123.0" stroke="#4CAF50" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-b" data-line-id="b" />
+<path d="M110.0,120.0 L160.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M240.0,120.0 L326.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M326.0,120.0 L412.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M492.0,120.0 L542.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M672.0,120.0 L722.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M542.0,120.0 L592.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M160.0,120.0 L240.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M412.0,120.0 L422.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M422.0,120.0 L492.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<path d="M422.0,120.0 L422.0,120.0 Q450.0,120.0,450.0,148.0 L450.0,185.0 Q450.0,195.0,460.0,195.0 L634.0,195.0 Q644.0,195.0,644.0,185.0 L644.0,148.0 Q644.0,120.0,672.0,120.0 L672.0,120.0" stroke="#FF9800" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-a" data-line-id="a" />
+<path d="M592.0,120.0 L672.0,120.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" class="metro-line-a" data-line-id="a" />
+<rect x="105.0" y="115.0" width="10.0" height="28.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="hub" data-station-lines="a,b,c,d,e,f,g" data-station-label="Hub" data-section-id="input" data-section-name="Input" />
+<rect x="321.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w1" data-station-lines="a" data-station-label="Tool 1" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="321.0" y="155.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w2" data-station-lines="b" data-station-label="Tool 2" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="321.0" y="195.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w3" data-station-lines="c" data-station-label="Tool 3" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="321.0" y="235.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w4" data-station-lines="d" data-station-label="Tool 4" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="321.0" y="275.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w5" data-station-lines="e" data-station-label="Tool 5" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="321.0" y="315.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w6" data-station-lines="f" data-station-label="Tool 6" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="321.0" y="355.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="w7" data-station-lines="g" data-station-label="Tool 7" data-section-id="wide" data-section-name="Wide Fan-out" />
+<rect x="537.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="adj" data-station-lines="a" data-station-label="Collect" data-section-id="adjacent" data-section-name="Adjacent" />
+<rect x="717.0" y="115.0" width="10.0" height="28.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="out" data-station-lines="a,b,c,d,e,f,g" data-station-label="Output" data-section-id="far" data-section-name="Far Target" />
+<text x="110.0" y="149.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="hub" class="nf-metro-station-label">Hub</text>
+<text x="326.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="w1" class="nf-metro-station-label">Tool 1</text>
+<text x="542.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="adj" class="nf-metro-station-label">Collect</text>
+<text x="722.0" y="149.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="out" class="nf-metro-station-label">Output</text>
+<text x="326.0" y="170.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="w2" class="nf-metro-station-label">Tool 2</text>
+<text x="326.0" y="210.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="w3" class="nf-metro-station-label">Tool 3</text>
+<text x="326.0" y="250.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="w4" class="nf-metro-station-label">Tool 4</text>
+<text x="326.0" y="290.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="w5" class="nf-metro-station-label">Tool 5</text>
+<text x="326.0" y="330.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="w6" class="nf-metro-station-label">Tool 6</text>
+<text x="326.0" y="371.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="w7" class="nf-metro-station-label">Tool 7</text>
+<rect x="60.0" y="440.0" width="106.2" height="192.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M72.0,464.0 L96.0,464.0" stroke="#FF9800" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="464.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line A</text>
+<path d="M72.0,488.0 L96.0,488.0" stroke="#4CAF50" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="488.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line B</text>
+<path d="M72.0,512.0 L96.0,512.0" stroke="#2196F3" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="512.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line C</text>
+<path d="M72.0,536.0 L96.0,536.0" stroke="#E91E63" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="536.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line D</text>
+<path d="M72.0,560.0 L96.0,560.0" stroke="#9C27B0" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="560.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line E</text>
+<path d="M72.0,584.0 L96.0,584.0" stroke="#00BCD4" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="584.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line F</text>
+<path d="M72.0,608.0 L96.0,608.0" stroke="#CDDC39" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="608.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Line G</text>
+<text x="802.0" y="648.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.1+dev</text>
+</svg>

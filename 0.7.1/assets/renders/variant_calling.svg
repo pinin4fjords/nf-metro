@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1678" height="582" viewBox="0 0 1678 582">
+<defs>
+</defs>
+<rect x="0" y="0" width="1678" height="582" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Variant Calling Pipeline</text>
+<rect x="30.0" y="70.0" width="352.0" height="144.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="input_qc" data-section-lines="panel,rna_var,wes,wgs" />
+<circle cx="41.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="input_qc" />
+<text x="41.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="input_qc">1</text>
+<text x="57.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="input_qc">Input &amp; QC</text>
+<rect x="432.0" y="70.0" width="374.5" height="144.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="alignment" data-section-lines="panel,rna_var,wes,wgs" />
+<circle cx="443.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="alignment" />
+<text x="443.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="alignment">2</text>
+<text x="459.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="alignment">Alignment</text>
+<rect x="856.5" y="70.0" width="241.0" height="188.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="dna_calling" data-section-lines="panel,wes,wgs" />
+<circle cx="867.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="dna_calling" />
+<text x="867.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="dna_calling">3</text>
+<text x="883.5" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="dna_calling">DNA Variant Calling</text>
+<rect x="856.5" y="308.0" width="240.5" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="rna_calling" data-section-lines="rna_var" />
+<circle cx="867.5" cy="293.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="rna_calling" />
+<text x="867.5" y="293.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="rna_calling">4</text>
+<text x="883.5" y="293.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="rna_calling">RNA Variant Calling</text>
+<rect x="1147.5" y="70.0" width="223.5" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="annotation" data-section-lines="panel,rna_var,wes,wgs" />
+<circle cx="1158.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="annotation" />
+<text x="1158.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="annotation">5</text>
+<text x="1174.5" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="annotation">Annotation &amp; Filtering</text>
+<rect x="1421.0" y="70.0" width="197.5" height="180.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="reporting" data-section-lines="panel,rna_var,wes,wgs" />
+<circle cx="1432.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="reporting" />
+<text x="1432.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="reporting">6</text>
+<text x="1448.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="reporting">Reporting</text>
+<path d="M80.0,129.0 L140.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M140.0,129.0 L236.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M140.0,129.0 L154.6217389726705,129.0 Q164.6217389726705,129.0,170.2551072190856,137.26227342807547 L188.9883707262554,164.73772657192453 Q194.6217389726705,173.0,204.6217389726705,173.0 L236.0,173.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M236.0,129.0 L332.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M236.0,173.0 L267.37826102732953,173.0 Q277.37826102732953,173.0,283.01162927374463,164.73772657192453 L301.7448927809144,137.26227342807547 Q307.37826102732953,129.0,317.37826102732953,129.0 L332.0,129.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M518.0,173.0 L543.5,173.0 Q553.5,173.0,559.1333682464151,164.73772657192453 L577.8666317535849,137.26227342807547 Q583.5,129.0,593.5,129.0 L636.5,129.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M636.5,129.0 L696.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M696.5,129.0 L756.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M910.0,367.0 L970.0,367.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M970.0,367.0 L1030.0,367.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1197.5,129.0 L1257.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1257.5,129.0 L1317.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1568.5,160.0 L1568.5,200.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M332.0,129.0 L382.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M432.0,129.0 L442.5,129.0 Q452.5,129.0,458.1333682464151,137.26227342807547 L476.8666317535849,164.73772657192453 Q482.5,173.0,492.5,173.0 L518.0,173.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M756.5,129.0 L806.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M856.5,367.0 L910.0,367.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1030.0,367.0 L1097.0,367.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1147.5,129.0 L1197.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1317.5,129.0 L1371.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1421.0,129.0 L1558.5,129.0 Q1568.5,129.0,1568.5,139.0 L1568.5,160.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M382.0,129.0 L432.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M806.5,129.0 L816.5,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M816.5,129.0 L819.5,129.0 Q829.5,129.0,829.5,139.0 L829.5,357.0 Q829.5,367.0,839.5,367.0 L856.5,367.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1097.0,367.0 L1112.5,367.0 Q1122.5,367.0,1122.5,357.0 L1122.5,139.0 Q1122.5,129.0,1132.5,129.0 L1147.5,129.0" stroke="#e63946" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M1371.0,129.0 L1421.0,129.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-rna_var" data-line-id="rna_var" />
+<path d="M80.0,126.0 L140.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M140.0,126.0 L236.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M140.0,126.0 L156.2072463242235,126.0 Q166.2072463242235,126.0,171.8406145706386,134.26227342807547 L190.5738780778084,161.73772657192453 Q196.2072463242235,170.0,206.2072463242235,170.0 L236.0,170.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M236.0,126.0 L332.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M236.0,170.0 L265.7927536757765,170.0 Q275.7927536757765,170.0,281.4261219221916,161.73772657192453 L300.1593854293614,134.26227342807547 Q305.7927536757765,126.0,315.7927536757765,126.0 L332.0,126.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M518.0,126.0 L636.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M636.5,126.0 L696.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M696.5,126.0 L756.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M942.5,214.0 L963.2927536757765,214.0 Q973.2927536757765,214.0,976.5194929536578,204.5348981182146 L1000.0660143978951,135.4651018817854 Q1003.2927536757765,126.0,1013.2927536757765,126.0 L1047.5,126.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1197.5,126.0 L1257.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1257.5,126.0 L1317.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1571.5,160.0 L1571.5,200.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M332.0,126.0 L382.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M432.0,126.0 L518.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M756.5,126.0 L806.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M856.5,126.0 L860.7072463242235,126.0 Q870.7072463242235,126.0,873.9339856021049,135.4651018817854 L897.4805070463422,204.5348981182146 Q900.7072463242235,214.0,910.7072463242235,214.0 L942.5,214.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1047.5,126.0 L1097.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1147.5,126.0 L1197.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1317.5,126.0 L1371.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1421.0,126.0 L1558.5,126.0 Q1571.5,126.0,1571.5,139.0 L1571.5,160.0" stroke="#f5c542" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M382.0,126.0 L432.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M806.5,126.0 L816.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M816.5,126.0 L856.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1097.5,126.0 L1147.5,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M1371.0,126.0 L1421.0,126.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M80.0,123.0 L140.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M140.0,123.0 L236.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M140.0,123.0 L157.7927536757765,123.0 Q167.7927536757765,123.0,173.4261219221916,131.26227342807547 L192.1593854293614,158.73772657192453 Q197.7927536757765,167.0,207.7927536757765,167.0 L236.0,167.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M236.0,123.0 L332.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M236.0,167.0 L264.2072463242235,167.0 Q274.2072463242235,167.0,279.8406145706386,158.73772657192453 L298.5738780778084,131.26227342807547 Q304.2072463242235,123.0,314.2072463242235,123.0 L332.0,123.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M518.0,123.0 L636.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M636.5,123.0 L696.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M696.5,123.0 L756.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M942.5,167.0 L961.7072463242235,167.0 Q971.7072463242235,167.0,977.3406145706386,158.73772657192453 L996.0738780778084,131.26227342807547 Q1001.7072463242235,123.0,1011.7072463242235,123.0 L1047.5,123.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1197.5,123.0 L1257.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1257.5,123.0 L1317.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1574.5,160.0 L1574.5,200.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M332.0,123.0 L382.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M432.0,123.0 L518.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M756.5,123.0 L806.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M856.5,123.0 L862.2927536757765,123.0 Q872.2927536757765,123.0,877.9261219221916,131.26227342807547 L896.6593854293614,158.73772657192453 Q902.2927536757765,167.0,912.2927536757765,167.0 L942.5,167.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1047.5,123.0 L1097.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1147.5,123.0 L1197.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1317.5,123.0 L1371.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1421.0,123.0 L1558.5,123.0 Q1574.5,123.0,1574.5,139.0 L1574.5,160.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M382.0,123.0 L432.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M806.5,123.0 L816.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M816.5,123.0 L856.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1097.5,123.0 L1147.5,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M1371.0,123.0 L1421.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M140.0,120.0 L236.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M140.0,120.0 L159.3782610273295,120.0 Q169.3782610273295,120.0,175.0116292737446,128.26227342807547 L193.7448927809144,155.73772657192453 Q199.3782610273295,164.0,209.3782610273295,164.0 L236.0,164.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M236.0,120.0 L332.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M236.0,164.0 L262.62173897267047,164.0 Q272.62173897267047,164.0,278.2551072190856,155.73772657192453 L296.98837072625537,128.26227342807547 Q302.62173897267047,120.0,312.62173897267047,120.0 L332.0,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M518.0,120.0 L636.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M636.5,120.0 L696.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M696.5,120.0 L756.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M942.5,120.0 L1047.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1197.5,120.0 L1257.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1257.5,120.0 L1317.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1577.5,160.0 L1577.5,200.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M332.0,120.0 L382.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M432.0,120.0 L518.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M756.5,120.0 L806.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M856.5,120.0 L942.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1047.5,120.0 L1097.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1147.5,120.0 L1197.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1317.5,120.0 L1371.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1421.0,120.0 L1558.5,120.0 Q1577.5,120.0,1577.5,139.0 L1577.5,160.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M382.0,120.0 L432.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M806.5,120.0 L816.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M816.5,120.0 L856.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1097.5,120.0 L1147.5,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M1371.0,120.0 L1421.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<rect x="75.0" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="input" data-station-lines="panel,rna_var,wes,wgs" data-station-label="Input" data-section-id="input_qc" data-section-name="Input &amp; QC" />
+<rect x="135.0" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastqc" data-station-lines="panel,rna_var,wes,wgs" data-station-label="FastQC" data-section-id="input_qc" data-section-name="Input &amp; QC" />
+<rect x="231.0" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastp" data-station-lines="panel,rna_var,wes,wgs" data-station-label="FastP" data-section-id="input_qc" data-section-name="Input &amp; QC" />
+<rect x="231.0" y="159.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="trimgalore" data-station-lines="panel,rna_var,wes,wgs" data-station-label="Trim Galore!" data-section-id="input_qc" data-section-name="Input &amp; QC" />
+<rect x="327.0" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastqc_trim" data-station-lines="panel,rna_var,wes,wgs" data-station-label="FastQC" data-section-id="input_qc" data-section-name="Input &amp; QC" />
+<rect x="513.0" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bwa" data-station-lines="panel,wes,wgs" data-station-label="BWA-MEM2" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="513.0" y="168.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="star_align" data-station-lines="rna_var" data-station-label="STAR" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="631.5" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="samtools" data-station-lines="panel,rna_var,wes,wgs" data-station-label="SAMtools sort" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="691.5" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="markdup" data-station-lines="panel,rna_var,wes,wgs" data-station-label="MarkDuplicates" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="751.5" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bqsr" data-station-lines="panel,rna_var,wes,wgs" data-station-label="BQSR" data-section-id="alignment" data-section-name="Alignment" />
+<rect x="937.5" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="haplotypecaller" data-station-lines="wgs" data-station-label="HaplotypeCaller" data-section-id="dna_calling" data-section-name="DNA Variant Calling" />
+<rect x="937.5" y="162.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="deepvariant" data-station-lines="wes" data-station-label="DeepVariant" data-section-id="dna_calling" data-section-name="DNA Variant Calling" />
+<rect x="937.5" y="209.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="strelka" data-station-lines="panel" data-station-label="Strelka2" data-section-id="dna_calling" data-section-name="DNA Variant Calling" />
+<rect x="1042.5" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="merge_vcf" data-station-lines="panel,wes,wgs" data-station-label="Merge VCFs" data-section-id="dna_calling" data-section-name="DNA Variant Calling" />
+<rect x="905.0" y="362.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="splitncigar" data-station-lines="rna_var" data-station-label="SplitNCigar" data-section-id="rna_calling" data-section-name="RNA Variant Calling" />
+<rect x="965.0" y="362.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rna_hc" data-station-lines="rna_var" data-station-label="HaplotypeCaller" data-section-id="rna_calling" data-section-name="RNA Variant Calling" />
+<rect x="1025.0" y="362.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rna_filter" data-station-lines="rna_var" data-station-label="FilterVariants" data-section-id="rna_calling" data-section-name="RNA Variant Calling" />
+<rect x="1192.5" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="vep" data-station-lines="panel,rna_var,wes,wgs" data-station-label="VEP" data-section-id="annotation" data-section-name="Annotation &amp; Filtering" />
+<rect x="1252.5" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="snpsift" data-station-lines="panel,rna_var,wes,wgs" data-station-label="SnpSift" data-section-id="annotation" data-section-name="Annotation &amp; Filtering" />
+<rect x="1312.5" y="115.0" width="10.0" height="19.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="filter_pass" data-station-lines="panel,rna_var,wes,wgs" data-station-label="Filter PASS" data-section-id="annotation" data-section-name="Annotation &amp; Filtering" />
+<rect x="1563.5" y="155.0" width="19.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bcftools_stats" data-station-lines="panel,rna_var,wes,wgs" data-station-label="bcftools stats" data-section-id="reporting" data-section-name="Reporting" />
+<rect x="1563.5" y="195.0" width="19.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="multiqc" data-station-lines="panel,rna_var,wes,wgs" data-station-label="MultiQC" data-section-id="reporting" data-section-name="Reporting" />
+<text x="80.0" y="140.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="input" class="nf-metro-station-label">Input</text>
+<text x="518.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="bwa" class="nf-metro-station-label">BWA-MEM2</text>
+<text x="942.5" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="haplotypecaller" class="nf-metro-station-label">HaplotypeCaller</text>
+<text x="1197.5" y="140.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="vep" class="nf-metro-station-label">VEP</text>
+<text x="1553.0" y="160.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="end" dominant-baseline="central" data-station-id="bcftools_stats" class="nf-metro-station-label">bcftools stats</text>
+<text x="518.0" y="184.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="star_align" class="nf-metro-station-label">STAR</text>
+<text x="942.5" y="153.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="deepvariant" class="nf-metro-station-label">DeepVariant</text>
+<text x="942.5" y="225.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="strelka" class="nf-metro-station-label">Strelka2</text>
+<text x="910.0" y="378.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="splitncigar" class="nf-metro-station-label">SplitNCigar</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="fastqc" class="nf-metro-station-label">FastQC</text>
+<text x="636.5" y="140.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="samtools" class="nf-metro-station-label">SAMtools sort</text>
+<text x="1047.5" y="137.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="merge_vcf" class="nf-metro-station-label">Merge VCFs</text>
+<text x="1257.5" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="snpsift" class="nf-metro-station-label">SnpSift</text>
+<text x="1553.0" y="200.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="end" dominant-baseline="central" data-station-id="multiqc" class="nf-metro-station-label">MultiQC</text>
+<text x="970.0" y="353.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="rna_hc" class="nf-metro-station-label">HaplotypeCaller</text>
+<text x="236.0" y="137.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="fastp" class="nf-metro-station-label">FastP</text>
+<text x="696.5" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="markdup" class="nf-metro-station-label">MarkDuplicates</text>
+<text x="1317.5" y="140.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="filter_pass" class="nf-metro-station-label">Filter PASS</text>
+<text x="236.0" y="184.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="trimgalore" class="nf-metro-station-label">Trim Galore!</text>
+<text x="1030.0" y="378.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="rna_filter" class="nf-metro-station-label">FilterVariants</text>
+<text x="332.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="fastqc_trim" class="nf-metro-station-label">FastQC</text>
+<text x="756.5" y="140.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="bqsr" class="nf-metro-station-label">BQSR</text>
+<rect x="30.0" y="438.0" width="167.8" height="120.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M42.0,462.0 L66.0,462.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="462.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Whole Genome</text>
+<path d="M42.0,486.0 L66.0,486.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="486.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Whole Exome</text>
+<path d="M42.0,510.0 L66.0,510.0" stroke="#f5c542" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="510.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Targeted Panel</text>
+<path d="M42.0,534.0 L66.0,534.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="534.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">RNA Variants</text>
+<text x="1648.0" y="574.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.1+dev</text>
+</svg>

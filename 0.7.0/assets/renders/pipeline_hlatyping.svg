@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1062" height="376" viewBox="0 0 1062 376">
+<defs>
+</defs>
+<rect x="0" y="0" width="1062" height="376" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">nf-core/hlatyping</text>
+<rect x="22.0" y="70.0" width="324.0" height="140.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="preprocessing" data-section-lines="bam,fastq" />
+<circle cx="33.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="preprocessing" />
+<text x="33.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="preprocessing">1</text>
+<text x="49.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="preprocessing">Pre-processing</text>
+<rect x="396.0" y="70.0" width="352.0" height="180.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="hla_typing" data-section-lines="bam,fastq" />
+<circle cx="407.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="hla_typing" />
+<text x="407.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="hla_typing">2</text>
+<text x="423.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="hla_typing">HLA Typing</text>
+<rect x="798.0" y="70.0" width="204.0" height="140.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="reporting" data-section-lines="bam,fastq" />
+<circle cx="809.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="reporting" />
+<text x="809.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="reporting">3</text>
+<text x="825.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="reporting">Reporting</text>
+<path d="M80.0,163.0 L140.0,163.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M140.0,163.0 L200.0,163.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M200.0,163.0 L229.0,163.0 Q239.0,163.0,245.0,155.0 L263.0,131.0 Q269.0,123.0,279.0,123.0 L296.0,123.0" stroke="#e6842a" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M482.0,123.0 L542.0,123.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M542.0,123.0 L602.0,123.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M602.0,123.0 L647.25,123.0 Q657.25,123.0,663.25,131.0 L681.25,155.0 Q687.25,163.0,697.25,163.0 L698.0,163.0" stroke="#e6842a" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M482.0,203.0 L542.0,203.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M542.0,203.0 L602.0,203.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M602.0,203.0 L648.0,203.0 Q658.0,203.0,664.0,195.0 L682.0,171.0 Q688.0,163.0,698.0,163.0 L698.0,163.0" stroke="#e6842a" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M884.0,123.0 L944.0,123.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M296.0,123.0 L346.0,123.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M396.0,123.0 L482.0,123.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M396.0,123.0 L399.96049929775296,123.0 Q409.96049929775296,123.0,413.47173371363687,132.36329177569044 L436.44926488186906,193.63670822430956 Q439.96049929775296,203.0,449.96049929775296,203.0 L482.0,203.0" stroke="#e6842a" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M698.0,163.0 L748.0,163.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M798.0,163.0 L884.0,163.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M798.0,163.0 L803.75,163.0 Q813.75,163.0,819.75,155.0 L837.75,131.0 Q843.75,123.0,853.75,123.0 L884.0,123.0" stroke="#e6842a" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M346.0,123.0 L396.0,123.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M748.0,163.0 L798.0,163.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" class="metro-line-bam" data-line-id="bam" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M140.0,120.0 L200.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M200.0,120.0 L296.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M482.0,120.0 L542.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M542.0,120.0 L602.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M602.0,120.0 L648.0,120.0 Q658.0,120.0,664.0,128.0 L682.0,152.0 Q688.0,160.0,698.0,160.0 L698.0,160.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M482.0,200.0 L542.0,200.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M542.0,200.0 L602.0,200.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M602.0,200.0 L647.25,200.0 Q657.25,200.0,663.25,192.0 L681.25,168.0 Q687.25,160.0,697.25,160.0 L698.0,160.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M884.0,120.0 L944.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M296.0,120.0 L346.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M396.0,120.0 L482.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M396.0,120.0 L402.03950070224704,120.0 Q412.03950070224704,120.0,415.55073511813094,129.36329177569044 L438.52826628636313,190.63670822430956 Q442.03950070224704,200.0,452.03950070224704,200.0 L482.0,200.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M698.0,160.0 L748.0,160.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M798.0,160.0 L884.0,160.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M798.0,160.0 L802.25,160.0 Q812.25,160.0,818.25,152.0 L836.25,128.0 Q842.25,120.0,852.25,120.0 L884.0,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M346.0,120.0 L396.0,120.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<path d="M748.0,160.0 L798.0,160.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-fastq" data-line-id="fastq" />
+<rect x="75.0" y="115.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastq_in" data-station-lines="fastq" data-station-label="fastq_in" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<g data-station-id="fastq_in">
+<path d="M43.0,104.0 L61.0,104.0 L69.0,112.0 L69.0,134.0 Q69.0,136.0,67.0,136.0 L43.0,136.0 Q41.0,136.0,41.0,134.0 L41.0,106.0 Q41.0,104.0,43.0,104.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M61.0,104.0 L61.0,112.0 L69.0,112.0 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M61.0,104.0 L61.0,112.0 L69.0,112.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="55.0" y="121.2" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">FASTQ</text>
+</g>
+<rect x="75.0" y="158.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bam_in" data-station-lines="bam" data-station-label="bam_in" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<g data-station-id="bam_in">
+<path d="M43.0,147.0 L61.0,147.0 L69.0,155.0 L69.0,177.0 Q69.0,179.0,67.0,179.0 L43.0,179.0 Q41.0,179.0,41.0,177.0 L41.0,149.0 Q41.0,147.0,43.0,147.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M61.0,147.0 L61.0,155.0 L69.0,155.0 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M61.0,147.0 L61.0,155.0 L69.0,155.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="55.0" y="164.2" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">BAM</text>
+</g>
+<rect x="135.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="cat_fastq" data-station-lines="fastq" data-station-label="cat FASTQ" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<rect x="135.0" y="158.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="check_paired" data-station-lines="bam" data-station-label="Check Paired" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<rect x="195.0" y="158.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="collatefastq" data-station-lines="bam" data-station-label="BAM to FASTQ" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<rect x="291.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastqc" data-station-lines="bam,fastq" data-station-label="FastQC" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<rect x="477.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="yara_index" data-station-lines="bam,fastq" data-station-label="Yara Index" data-section-id="hla_typing" data-section-name="HLA Typing" />
+<rect x="537.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="yara_mapper" data-station-lines="bam,fastq" data-station-label="Yara Mapper" data-section-id="hla_typing" data-section-name="HLA Typing" />
+<rect x="597.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="optitype_run" data-station-lines="bam,fastq" data-station-label="OptiType" data-section-id="hla_typing" data-section-name="HLA Typing" />
+<rect x="537.0" y="195.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="hlahd_run" data-station-lines="bam,fastq" data-station-label="HLA-HD" data-section-id="hla_typing" data-section-name="HLA Typing" />
+<rect x="879.0" y="155.0" width="10.0" height="13.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="report_tsv" data-station-lines="bam,fastq" data-station-label="report_tsv" data-section-id="reporting" data-section-name="Reporting" />
+<g data-station-id="report_tsv">
+<path d="M897.0,145.5 L915.0,145.5 L923.0,153.5 L923.0,175.5 Q923.0,177.5,921.0,177.5 L897.0,177.5 Q895.0,177.5,895.0,175.5 L895.0,147.5 Q895.0,145.5,897.0,145.5 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M915.0,145.5 L915.0,153.5 L923.0,153.5 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M915.0,145.5 L915.0,153.5 L923.0,153.5" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="909.0" y="162.7" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">TSV</text>
+</g>
+<rect x="879.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="multiqc" data-station-lines="bam,fastq" data-station-label="MultiQC" data-section-id="reporting" data-section-name="Reporting" />
+<rect x="939.0" y="115.0" width="10.0" height="13.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="report_html" data-station-lines="bam,fastq" data-station-label="report_html" data-section-id="reporting" data-section-name="Reporting" />
+<g data-station-id="report_html">
+<path d="M957.0,105.5 L975.0,105.5 L983.0,113.5 L983.0,135.5 Q983.0,137.5,981.0,137.5 L957.0,137.5 Q955.0,137.5,955.0,135.5 L955.0,107.5 Q955.0,105.5,957.0,105.5 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M975.0,105.5 L975.0,113.5 L983.0,113.5 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M975.0,105.5 L975.0,113.5 L983.0,113.5" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="969.0" y="122.7" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">HTML</text>
+</g>
+<text x="482.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="yara_index" class="nf-metro-station-label">Yara Index</text>
+<text x="884.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="multiqc" class="nf-metro-station-label">MultiQC</text>
+<text x="542.0" y="134.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="yara_mapper" class="nf-metro-station-label">Yara Mapper</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="cat_fastq" class="nf-metro-station-label">cat FASTQ</text>
+<text x="542.0" y="214.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="hlahd_run" class="nf-metro-station-label">HLA-HD</text>
+<text x="140.0" y="149.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="check_paired" class="nf-metro-station-label">Check Paired</text>
+<text x="602.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="optitype_run" class="nf-metro-station-label">OptiType</text>
+<text x="200.0" y="174.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="collatefastq" class="nf-metro-station-label">BAM to FASTQ</text>
+<text x="296.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="fastqc" class="nf-metro-station-label">FastQC</text>
+<circle cx="239.0" cy="163.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="269.0" cy="123.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="658.0" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="688.0" cy="160.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="657.25" cy="123.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="687.25" cy="163.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="657.25" cy="200.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="687.25" cy="160.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="658.0" cy="203.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="688.0" cy="163.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="412.03950070224704" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="442.03950070224704" cy="200.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="409.96049929775296" cy="123.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="439.96049929775296" cy="203.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="812.25" cy="160.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="842.25" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="813.75" cy="163.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="843.75" cy="123.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<path d="M346.0,115.0 L351.0,120.0 L346.0,125.0 L341.0,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="346.0" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">preprocessing__exit_right_0 (right)</text>
+<path d="M748.0,155.0 L753.0,160.0 L748.0,165.0 L743.0,160.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="748.0" y="152.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">hla_typing__exit_right_1 (right)</text>
+<path d="M396.0,115.0 L401.0,120.0 L396.0,125.0 L391.0,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="396.0" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">hla_typing__entry_left_2 (left)</text>
+<path d="M798.0,155.0 L803.0,160.0 L798.0,165.0 L793.0,160.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="798.0" y="152.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">reporting__entry_left_3 (left)</text>
+<path d="M371.0,50.0 L371.0,270.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="371.0" y="46.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle">col 0|1</text>
+<path d="M773.0,50.0 L773.0,270.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="773.0" y="46.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle">col 1|2</text>
+<path d="M12.0,120.0 L1012.0,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="8.0" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M12.0,160.0 L1012.0,160.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M12.0,200.0 L1012.0,200.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<circle cx="200.0" cy="120.0" r="5" fill="none" stroke="rgba(180, 80, 255, 0.7)" stroke-width="1.5" stroke-dasharray="3,2" />
+<text x="200.0" y="112.0" font-size="7" fill="rgba(180, 80, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">_fastq_delay</text>
+<circle cx="482.0" cy="200.0" r="5" fill="none" stroke="rgba(180, 80, 255, 0.7)" stroke-width="1.5" stroke-dasharray="3,2" />
+<text x="482.0" y="192.0" font-size="7" fill="rgba(180, 80, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">_hlahd_delay</text>
+<circle cx="602.0" cy="200.0" r="5" fill="none" stroke="rgba(180, 80, 255, 0.7)" stroke-width="1.5" stroke-dasharray="3,2" />
+<text x="602.0" y="192.0" font-size="7" fill="rgba(180, 80, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">_hlahd_delay2</text>
+<circle cx="698.0" cy="160.0" r="5" fill="none" stroke="rgba(180, 80, 255, 0.7)" stroke-width="1.5" stroke-dasharray="3,2" />
+<text x="698.0" y="152.0" font-size="7" fill="rgba(180, 80, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">_merge1</text>
+<rect x="22.0" y="280.0" width="98.5" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M34.0,304.0 L58.0,304.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="70.0" y="304.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">FASTQ</text>
+<path d="M34.0,328.0 L58.0,328.0" stroke="#e6842a" stroke-width="3.0" stroke-linecap="round" />
+<text x="70.0" y="328.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">BAM</text>
+<text x="1032.0" y="368.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.0+dev</text>
+</svg>

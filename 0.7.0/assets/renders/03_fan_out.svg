@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="714" height="620" viewBox="0 0 714 620">
+<defs>
+</defs>
+<rect x="0" y="0" width="714" height="620" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Fan-out Pipeline</text>
+<rect x="30.0" y="70.0" width="160.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="preprocessing" data-section-lines="panel,wes,wgs" />
+<circle cx="41.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="preprocessing" />
+<text x="41.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="preprocessing">1</text>
+<text x="57.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="preprocessing">Pre-processing</text>
+<rect x="240.0" y="70.0" width="204.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="wgs_analysis" data-section-lines="wgs" />
+<circle cx="251.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="wgs_analysis" />
+<text x="251.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="wgs_analysis">2</text>
+<text x="267.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="wgs_analysis">WGS Analysis</text>
+<rect x="240.0" y="220.0" width="168.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="wes_analysis" data-section-lines="wes" />
+<circle cx="251.0" cy="205.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="wes_analysis" />
+<text x="251.0" y="205.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="wes_analysis">3</text>
+<text x="267.0" y="205.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="wes_analysis">WES Analysis</text>
+<rect x="240.0" y="370.0" width="160.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="panel_analysis" data-section-lines="panel" />
+<circle cx="251.0" cy="355.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="panel_analysis" />
+<text x="251.0" y="355.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="panel_analysis">4</text>
+<text x="267.0" y="355.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="panel_analysis">Panel Analysis</text>
+<rect x="494.0" y="70.0" width="160.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="annotation" data-section-lines="panel,wes,wgs" />
+<circle cx="505.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="annotation" />
+<text x="505.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="annotation">5</text>
+<text x="521.0" y="55.0" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="annotation">Annotation</text>
+<path d="M80.0,126.0 L140.0,126.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M290.0,426.0 L350.0,426.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M544.0,126.0 L604.0,126.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M140.0,126.0 L190.0,126.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M240.0,426.0 L290.0,426.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M350.0,426.0 L400.0,426.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M494.0,126.0 L544.0,126.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M190.0,126.0 L200.0,126.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M200.0,126.0 L204.5,126.0 Q214.5,126.0,214.5,136.0 L214.5,413.0 Q214.5,426.0,227.5,426.0 L240.0,426.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M400.0,426.0 L457.5,426.0 Q470.5,426.0,470.5,413.0 L470.5,136.0 Q470.5,126.0,480.5,126.0 L494.0,126.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-panel" data-line-id="panel" />
+<path d="M80.0,123.0 L140.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M290.0,273.0 L350.0,273.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M544.0,123.0 L604.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M140.0,123.0 L190.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M240.0,273.0 L290.0,273.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M350.0,273.0 L408.0,273.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M494.0,123.0 L544.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M190.0,123.0 L200.0,123.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M200.0,123.0 L204.5,123.0 Q217.5,123.0,217.5,136.0 L217.5,263.0 Q217.5,273.0,227.5,273.0 L240.0,273.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M408.0,273.0 L457.5,273.0 Q467.5,273.0,467.5,263.0 L467.5,136.0 Q467.5,123.0,480.5,123.0 L494.0,123.0" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-wes" data-line-id="wes" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M290.0,120.0 L350.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M544.0,120.0 L604.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M140.0,120.0 L190.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M240.0,120.0 L290.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M350.0,120.0 L444.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M494.0,120.0 L544.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M190.0,120.0 L200.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M200.0,120.0 L240.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<path d="M444.0,120.0 L494.0,120.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" class="metro-line-wgs" data-line-id="wgs" />
+<rect x="75.0" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastqc" data-station-lines="panel,wes,wgs" data-station-label="FastQC" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<rect x="135.0" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="trim" data-station-lines="panel,wes,wgs" data-station-label="Trimming" data-section-id="preprocessing" data-section-name="Pre-processing" />
+<rect x="285.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bwa_wgs" data-station-lines="wgs" data-station-label="BWA-MEM" data-section-id="wgs_analysis" data-section-name="WGS Analysis" />
+<rect x="345.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="gatk_wgs" data-station-lines="wgs" data-station-label="GATK HaplotypeCaller" data-section-id="wgs_analysis" data-section-name="WGS Analysis" />
+<rect x="285.0" y="268.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bwa_wes" data-station-lines="wes" data-station-label="BWA-MEM" data-section-id="wes_analysis" data-section-name="WES Analysis" />
+<rect x="345.0" y="268.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="gatk_wes" data-station-lines="wes" data-station-label="GATK Mutect2" data-section-id="wes_analysis" data-section-name="WES Analysis" />
+<rect x="285.0" y="421.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="minimap" data-station-lines="panel" data-station-label="Minimap2" data-section-id="panel_analysis" data-section-name="Panel Analysis" />
+<rect x="345.0" y="421.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="freebayes" data-station-lines="panel" data-station-label="FreeBayes" data-section-id="panel_analysis" data-section-name="Panel Analysis" />
+<rect x="539.0" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="vep" data-station-lines="panel,wes,wgs" data-station-label="VEP" data-section-id="annotation" data-section-name="Annotation" />
+<rect x="599.0" y="115.0" width="10.0" height="16.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="report" data-station-lines="panel,wes,wgs" data-station-label="Report" data-section-id="annotation" data-section-name="Annotation" />
+<text x="80.0" y="137.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="fastqc" class="nf-metro-station-label">FastQC</text>
+<text x="290.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="bwa_wgs" class="nf-metro-station-label">BWA-MEM</text>
+<text x="544.0" y="137.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="vep" class="nf-metro-station-label">VEP</text>
+<text x="290.0" y="284.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="bwa_wes" class="nf-metro-station-label">BWA-MEM</text>
+<text x="290.0" y="437.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="minimap" class="nf-metro-station-label">Minimap2</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="trim" class="nf-metro-station-label">Trimming</text>
+<text x="350.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="gatk_wgs" class="nf-metro-station-label">GATK HaplotypeCaller</text>
+<text x="604.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="report" class="nf-metro-station-label">Report</text>
+<text x="350.0" y="259.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="gatk_wes" class="nf-metro-station-label">GATK Mutect2</text>
+<text x="350.0" y="412.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="freebayes" class="nf-metro-station-label">FreeBayes</text>
+<rect x="30.0" y="500.0" width="167.8" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M42.0,524.0 L66.0,524.0" stroke="#e63946" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="524.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Whole Genome</text>
+<path d="M42.0,548.0 L66.0,548.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="548.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Whole Exome</text>
+<path d="M42.0,572.0 L66.0,572.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="572.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Targeted Panel</text>
+<text x="684.0" y="612.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.0+dev</text>
+</svg>

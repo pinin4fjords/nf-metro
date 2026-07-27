@@ -1,0 +1,1094 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Metro-map-style SVG diagrams from Mermaid definitions">
+      
+      
+      
+        <link rel="canonical" href="https://pinin4fjords.github.io/nf-metro/0.7.0/dev/layout_pipeline/">
+      
+      
+        <link rel="prev" href="../../gallery/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Layout pipeline - nf-metro</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="light-green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#layout-pipeline" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="nf-metro" class="md-header__button md-logo" aria-label="nf-metro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            nf-metro
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Layout pipeline
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pinin4fjords/nf-metro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pinin4fjords/nf-metro
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="nf-metro" class="md-nav__button md-logo" aria-label="nf-metro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    nf-metro
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pinin4fjords/nf-metro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pinin4fjords/nf-metro
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pipelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nf-core Pipelines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Internals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout pipeline
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-layout-means-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What "layout" means here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-six-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The six stages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The six stages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-section-construction-local-coords" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1 - Section construction (local coords)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-globalise-local-global-coords" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2 - Globalise (local -&gt; global coords)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-3-pass-a-port-initialisation-section-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 3 - Pass A: port initialisation &amp; section geometry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-4-pass-b-downstream-alignment-trunk-y-consolidation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 4 - Pass B: downstream alignment &amp; trunk-Y consolidation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-5-pass-c-junctions-off-track-lift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 5 - Pass C: junctions &amp; off-track lift
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-6-pass-c-vertical-settling-finishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 6 - Pass C: vertical settling &amp; finishing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#passes-vs-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Passes vs stages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-something-breaks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When something breaks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-so-many-sub-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why so many sub-stages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-layout-means-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What "layout" means here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-six-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The six stages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The six stages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-section-construction-local-coords" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1 - Section construction (local coords)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-globalise-local-global-coords" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2 - Globalise (local -&gt; global coords)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-3-pass-a-port-initialisation-section-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 3 - Pass A: port initialisation &amp; section geometry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-4-pass-b-downstream-alignment-trunk-y-consolidation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 4 - Pass B: downstream alignment &amp; trunk-Y consolidation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-5-pass-c-junctions-off-track-lift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 5 - Pass C: junctions &amp; off-track lift
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-6-pass-c-vertical-settling-finishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 6 - Pass C: vertical settling &amp; finishing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#passes-vs-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Passes vs stages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-something-breaks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When something breaks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-so-many-sub-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why so many sub-stages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="layout-pipeline">Layout pipeline<a class="headerlink" href="#layout-pipeline" title="Permanent link">&para;</a></h1>
+<p>A reader-friendly walkthrough of how nf-metro turns a parsed metro graph
+into placed coordinates.  If you're hunting a layout bug, fixing a
+visual regression, or adding a new transformation pass, start here.</p>
+<p>For the rigorous per-sub-stage contract (preconditions,
+postconditions, invariants preserved, related tests), see
+<a href="https://github.com/pinin4fjords/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md"><code>src/nf_metro/layout/CONTRACT.md</code></a>.
+For the source itself, the orchestrator is <code>_compute_section_layout</code>
+in <code>src/nf_metro/layout/engine.py</code>.</p>
+<h2 id="what-layout-means-here">What "layout" means here<a class="headerlink" href="#what-layout-means-here" title="Permanent link">&para;</a></h2>
+<p>Parsing produces a <code>MetroGraph</code> with sections, stations, edges, lines,
+and ports - but with no coordinates yet (other than the optional
+<code>%%metro grid:</code> directives).  The layout pipeline assigns every station,
+port, junction, and section bbox an <code>(x, y)</code> on the canvas, subject to:</p>
+<ul>
+<li>Sections don't overlap each other.</li>
+<li>Stations sit inside their section's bbox.</li>
+<li>Ports sit on their section's bbox edge.</li>
+<li>Lines route between connected stations without crossing unrelated
+  station markers.</li>
+<li>Same-row sections share a trunk Y so the inter-section bundle stays
+  horizontal across boundaries.</li>
+<li>A bunch of other invariants documented in
+  <code>tests/test_layout_invariants.py</code>.</li>
+</ul>
+<p>Achieving all of this in one pass is intractable - some constraints are
+naturally local (each section's internal layout) and some are global
+(trunk Y alignment across an entire row).  The pipeline solves this by
+chaining many small passes, each of which mutates the graph and
+preserves the invariants of preceding passes.</p>
+<h2 id="the-six-stages">The six stages<a class="headerlink" href="#the-six-stages" title="Permanent link">&para;</a></h2>
+<p>The pipeline groups into six stages.  Stage boundaries align with
+coord-regime transitions (when station coordinates become global,
+when ports become positioned) and with the traditional Pass A / Pass B
+/ Pass C divisions referenced throughout the codebase.</p>
+<h3 id="stage-1-section-construction-local-coords">Stage 1 - Section construction (local coords)<a class="headerlink" href="#stage-1-section-construction-local-coords" title="Permanent link">&para;</a></h3>
+<p>Lay out each section's internal stations on its own private coordinate
+system, then place the sections on the global grid (still local-coord).</p>
+<ul>
+<li><strong>Stage 1.1</strong>: Lay out each section independently via layer / track
+  assignment (real stations only; ports and junctions stay
+  unpositioned).</li>
+<li><strong>Stage 1.2</strong>: Snap same-row, same-direction sections to a shared Y
+  grid so they agree on pitch and slot count.</li>
+<li><strong>Stage 1.3</strong>: Place sections on the canvas grid by topological
+  layering of the section DAG.</li>
+<li><strong>Stage 1.4</strong>: Renumber sections by visual reading order (column
+  first, then row) so the legend numbering follows the eye.</li>
+<li><strong>Stage 1.5</strong>: Grow <code>x_offset</code> / <code>y_offset</code> if section local extents
+  overshoot the canvas origin.</li>
+</ul>
+<p>At the end of Stage 1, every section has a <code>(local_x, local_y, w, h)</code>
+bbox and an <code>(offset_x, offset_y)</code> placement.  No global coords yet.</p>
+<h3 id="stage-2-globalise-local-global-coords">Stage 2 - Globalise (local -&gt; global coords)<a class="headerlink" href="#stage-2-globalise-local-global-coords" title="Permanent link">&para;</a></h3>
+<p>A single-step coord-regime transition.</p>
+<ul>
+<li><strong>Stage 2.1</strong>: Translate every real station's <code>(x, y)</code> and every
+  section's bbox into global canvas coordinates.</li>
+</ul>
+<p>After this, all subsequent stages operate in global coords.  Ports and
+junctions still have no positions.</p>
+<h3 id="stage-3-pass-a-port-initialisation-section-geometry">Stage 3 - Pass A: port initialisation &amp; section geometry<a class="headerlink" href="#stage-3-pass-a-port-initialisation-section-geometry" title="Permanent link">&para;</a></h3>
+<p>Ports first appear on bbox edges, then get aligned with their incoming /
+outgoing connections, then the section layout is adjusted to accommodate
+them.</p>
+<ul>
+<li><strong>Stage 3.1</strong>: Position every port on its section's bbox edge at the
+  edge midpoint.</li>
+<li><strong>Stage 3.2</strong>: Align LEFT / RIGHT entry ports to the incoming source
+  Y so the inter-section horizontal run is straight; align TOP / BOTTOM
+  entry ports analogously.</li>
+<li><strong>Stage 3.3</strong>: For LR / RL sections with perpendicular (TOP / BOTTOM)
+  entry, shift internal stations' X so the entry port has runway
+  before stations begin.</li>
+<li><strong>Stage 3.4</strong>: Align LEFT / RIGHT exit ports on row-spanning (fold)
+  sections with the target section's Y.</li>
+<li><strong>Stage 3.5</strong>: Top-align sections within each grid row so contiguous
+  column groups share their bbox tops.</li>
+</ul>
+<p>Pass A leaves ports on bbox edges with first-approximation alignment.
+Subsequent passes refine.</p>
+<h3 id="stage-4-pass-b-downstream-alignment-trunk-y-consolidation">Stage 4 - Pass B: downstream alignment &amp; trunk-Y consolidation<a class="headerlink" href="#stage-4-pass-b-downstream-alignment-trunk-y-consolidation" title="Permanent link">&para;</a></h3>
+<p>Pull ports toward downstream stations to remove unnecessary detours;
+consolidate the inter-section trunk Y across each row; redistribute
+fan-out and full-bundle columns around the trunk.</p>
+<ul>
+<li><strong>Stage 4.1</strong>: For non-fold LR / RL sections, pull exit-entry port
+  pairs toward the downstream section's connected station Y.</li>
+<li><strong>Stages 4.2 to 4.4</strong>: Snap port pairs to grid-group / sole-layer
+  station Ys so port-to-station connections are horizontal.</li>
+<li><strong>Stage 4.5</strong>: Ensure ports maintain at least <code>y_spacing</code> from
+  terminus stations so file icons don't overlap routed lines.
+  (May expand bboxes.)</li>
+<li><strong>Stages 4.6 to 4.7</strong>: Recompute grid-group bboxes; re-run row
+  top-align after the Stage 4.5 expansions.</li>
+<li><strong>Stage 4.8</strong>: Align trunk Ys across same-row sections.  Shifts
+  shallower sections' content down so the inter-section bundle passes
+  through at a single Y per row.</li>
+<li><strong>Stages 4.9 to 4.10</strong>: Redistribute fan-out siblings and full-bundle
+  columns symmetrically around the trunk.  Both gated on <code>center_ports</code>.</li>
+</ul>
+<p>By the end of Pass B, all port Ys are final.</p>
+<h3 id="stage-5-pass-c-junctions-off-track-lift">Stage 5 - Pass C: junctions &amp; off-track lift<a class="headerlink" href="#stage-5-pass-c-junctions-off-track-lift" title="Permanent link">&para;</a></h3>
+<p>Position junctions for the first time, lift off-track file inputs above
+their consumers, then a few post-lift fixups.</p>
+<ul>
+<li><strong>Stage 5.1</strong>: Position every junction station in the inter-section
+  gap.  Fan-out junctions sit at the exit port's Y; merge junctions sit
+  near the entry port.</li>
+<li><strong>Stage 5.2</strong>: Lift off-track stations (file inputs that should sit
+  above the trunk, not on it) to the row above their consumer, growing
+  bboxes upward.</li>
+<li><strong>Stages 5.3 to 5.4</strong>: Re-align row bbox tops to match the lifted
+  sections, then compact each row's content to its bbox top.</li>
+<li><strong>Stage 5.5</strong>: Snap inter-section LR / RL port pairs to a shared Y
+  (the compaction in Stage 5.4 may have drifted them) and re-position
+  junctions to follow.</li>
+</ul>
+<h3 id="stage-6-pass-c-vertical-settling-finishing">Stage 6 - Pass C: vertical settling &amp; finishing<a class="headerlink" href="#stage-6-pass-c-vertical-settling-finishing" title="Permanent link">&para;</a></h3>
+<p>The long settle.  15 sub-stages clean up the consequences of Stages 1
+through 5, snap everything to the grid, restore invariants broken by
+each cleanup pass, then handle the final geometric details (loop-side
+X recenter, bbox shrink, captioned-icon spacing).</p>
+<ul>
+<li><strong>Stages 6.1 to 6.3</strong>: Fan free content / source inputs upward into
+  empty top bands; collapse 2-branch symmetric fans onto half-grid
+  offsets (gated on <code>center_ports</code>).</li>
+<li><strong>Stage 6.4</strong>: Snap every station and port Y to the row's grid
+  pitch, removing fractional drift from earlier passes.</li>
+<li><strong>Stages 6.5 to 6.6</strong>: Grow TB-section bbox bottoms to match
+  downstream LR / RL targets; re-anchor off-track inputs to their
+  consumers' post-snap Y.</li>
+<li><strong>Stages 6.7 to 6.9</strong>: Re-center full-bundle columns around the
+  row's final trunk Y; restore the off-track-above-consumer and row
+  top-align invariants that the recenter breaks.  All gated on
+  <code>center_ports</code>.</li>
+<li><strong>Stages 6.10 to 6.12</strong>: Pin single-station downstream columns to
+  their unique upstream Y; auto-balance content around the trunk;
+  re-center loop-side stations on their loop midpoint (X-axis pass).</li>
+<li><strong>Stages 6.13 to 6.14</strong>: Shrink bbox bottoms to content and close
+  vertical slack between rows in one two-phase helper; shift sparse
+  loop-side stations onto half-pitch Ys to clear bundle
+  pass-throughs (the same helper pushes lower rows down internally
+  when a shift grew a bbox).</li>
+<li><strong>Stage 6.15</strong>: Pad stacked captioned file-icon columns so
+  under-icon captions don't overlap the icon below.</li>
+</ul>
+<p>Stage 6 is where most of the historical organic-suffix sprawl (the old
+13d / 13d2 / 13h.1 / 13k2 names) lived.  The flat Stage.N scheme makes
+the sequence walkable; the per-sub-stage CONTRACT.md entries explain
+each one's necessity.</p>
+<h2 id="passes-vs-stages">Passes vs stages<a class="headerlink" href="#passes-vs-stages" title="Permanent link">&para;</a></h2>
+<p>The codebase has two overlapping group labels.  They are not redundant
+- they encode different axes of the structure:</p>
+<ul>
+<li><strong>Stage</strong> (1-6) groups by <strong>what kind of mutation</strong> the pass
+  performs: section construction, globalisation, port positioning,
+  port refinement, junctions / off-track lift, vertical settling.</li>
+<li><strong>Pass</strong> (A / B / C) groups by <strong>how much of the layout is final</strong>
+  when the pass runs.  Pass A operates on a fresh station layout to
+  position ports.  Pass B refines ports on a fixed station layout.
+  Pass C operates on finalised stations and ports.</li>
+</ul>
+<p>The Stage and Pass labels line up cleanly:</p>
+<table>
+<thead>
+<tr>
+<th>Pass</th>
+<th>Stages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pre-pass setup</td>
+<td>1, 2</td>
+</tr>
+<tr>
+<td>Pass A</td>
+<td>3</td>
+</tr>
+<tr>
+<td>Pass B</td>
+<td>4</td>
+</tr>
+<tr>
+<td>Pass C</td>
+<td>5, 6</td>
+</tr>
+</tbody>
+</table>
+<h2 id="when-something-breaks">When something breaks<a class="headerlink" href="#when-something-breaks" title="Permanent link">&para;</a></h2>
+<p>Common scenarios and where to start looking:</p>
+<ul>
+<li><strong>A station moved when it shouldn't have</strong>: which stage's
+  postcondition does it violate?  Run <code>pytest tests/test_layout_invariants.py</code></li>
+<li>the failing invariant's "related tests" entry in CONTRACT.md
+  names the stage that establishes the relevant property.</li>
+<li><strong>A guard fired with <code>after Stage X.Y: ...</code> at <code>validate=True</code></strong>:
+  Stage X.Y is the <em>latest</em> sub-stage where the invariant could
+  still have been broken.  Bisect by toggling preceding sub-stages.</li>
+<li><strong>A guard fired with <code>after final: ...</code></strong>: the invariant only
+  holds at the very end, so the regression could be anywhere in
+  Pass C.  Run with <code>validate=True</code> and use the per-checkpoint
+  bisection (<code>_run_pass_c_guards</code>) to localise.</li>
+<li><strong>A new fixture lays out badly</strong>: render it with <code>nf-metro render</code>,
+  inspect the SVG against the stage descriptions above to guess
+  which stage handles the problem area, then read the corresponding
+  sub-stage entry in CONTRACT.md.</li>
+</ul>
+<h2 id="why-so-many-sub-stages">Why so many sub-stages<a class="headerlink" href="#why-so-many-sub-stages" title="Permanent link">&para;</a></h2>
+<p>The Pass C tail (Stages 6.1 to 6.15) looks excessive at first glance.
+Each sub-stage exists because:</p>
+<ol>
+<li>A bug was found in some real-world fixture.</li>
+<li>A targeted helper was written to fix it.</li>
+<li>The helper was placed at the point in the pipeline where it has
+   the inputs it needs and won't disrupt earlier-established
+   invariants.</li>
+</ol>
+<p>Some sub-stages exist purely to <strong>restore</strong> an invariant that an
+earlier sub-stage broke (e.g. Stages 6.8 and 6.9 restore the
+off-track-above-consumer and row-top-align invariants that Stage 6.7's
+full-bundle recenter breaks).  These "repair-only" sub-stages are
+candidates for being folded back into the breaking stage, but each
+fold is per-pair investigation and risks regressing other pipelines.</p>
+<p>The flat Stage.N numbering replaces an earlier organic suffix tree
+(<code>Phase 13</code>, <code>13a</code>, <code>13d2</code>, <code>13h.1</code>, <code>13k2</code>, ...) that grew suffixes
+each time a sub-stage was inserted between two existing ones.  The new
+scheme keeps the same ordering but makes the sequence walkable; the
+historical context lives in the git log and in the "Adding a new stage"
+section of CONTRACT.md.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "navigation.sections", "content.code.copy", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

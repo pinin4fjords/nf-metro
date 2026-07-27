@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="332" height="286" viewBox="0 0 332 286">
+<defs>
+</defs>
+<rect x="0" y="0" width="332" height="286" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Test Pipeline</text>
+<path d="M80.0,123.0 L94.75,123.0 Q104.75,123.0,110.75,131.0 L128.75,155.0 Q134.75,163.0,144.75,163.0 L176.0,163.0" stroke="#0000ff" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-alt" data-line-id="alt" />
+<path d="M176.0,163.0 L207.25,163.0 Q217.25,163.0,223.25,155.0 L241.25,131.0 Q247.25,123.0,257.25,123.0 L272.0,123.0" stroke="#0000ff" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-alt" data-line-id="alt" />
+<path d="M80.0,120.0 L176.0,120.0" stroke="#ff0000" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,120.0 L272.0,120.0" stroke="#ff0000" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<rect x="75.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="a" data-station-lines="alt,main" data-station-label="Input" />
+<rect x="171.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b" data-station-lines="main" data-station-label="Process A" />
+<rect x="171.0" y="158.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="c" data-station-lines="alt" data-station-label="Process B" />
+<rect x="267.0" y="115.0" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="d" data-station-lines="alt,main" data-station-label="Output" />
+<text x="80.0" y="134.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="a" class="nf-metro-station-label">Input</text>
+<text x="176.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="b" class="nf-metro-station-label">Process A</text>
+<text x="176.0" y="149.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="c" class="nf-metro-station-label">Process B</text>
+<text x="272.0" y="134.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="d" class="nf-metro-station-label">Output</text>
+<rect x="60.0" y="190.0" width="144.70000000000002" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M72.0,214.0 L96.0,214.0" stroke="#ff0000" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="214.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Main</text>
+<path d="M72.0,238.0 L96.0,238.0" stroke="#0000ff" stroke-width="3.0" stroke-linecap="round" />
+<text x="108.0" y="238.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Alternative</text>
+<text x="302.0" y="278.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.1+dev</text>
+</svg>

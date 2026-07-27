@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="496" height="319" viewBox="0 0 496 319">
+<defs>
+</defs>
+<rect x="0" y="0" width="496" height="319" fill="#2b2b2b" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Multi-line Label Test</text>
+<rect x="30.0" y="53.2" width="196.0" height="140.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="input" data-section-lines="longreads,shortreads" />
+<circle cx="41.0" cy="38.2" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="input" />
+<text x="41.0" y="38.2" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="input">1</text>
+<text x="57.0" y="38.2" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="input">Input Processing</text>
+<rect x="276.0" y="53.2" width="160.0" height="99.99999999999999" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="qc" data-section-lines="longreads,shortreads" />
+<circle cx="287.0" cy="38.2" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="qc" />
+<text x="287.0" y="38.2" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="qc">2</text>
+<text x="303.0" y="38.2" font-size="16.0" fill="#aaaaaa" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="qc">Quality Control</text>
+<path d="M80.0,146.2 L140.0,146.2" stroke="#d9aa00" stroke-width="3.0" stroke-linecap="round" class="metro-line-longreads" data-line-id="longreads" />
+<path d="M326.0,106.2 L386.0,106.2" stroke="#d9aa00" stroke-width="3.0" stroke-linecap="round" class="metro-line-longreads" data-line-id="longreads" />
+<path d="M140.0,146.2 L171.0,146.2 Q181.0,146.2,187.0,138.2 L205.0,114.2 Q211.0,106.2,221.0,106.2 L226.0,106.2" stroke="#d9aa00" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-longreads" data-line-id="longreads" />
+<path d="M276.0,106.2 L326.0,106.2" stroke="#d9aa00" stroke-width="3.0" stroke-linecap="round" class="metro-line-longreads" data-line-id="longreads" />
+<path d="M226.0,106.2 L276.0,106.2" stroke="#d9aa00" stroke-width="3.0" stroke-linecap="round" class="metro-line-longreads" data-line-id="longreads" />
+<path d="M80.0,103.2 L140.0,103.2" stroke="#004b86" stroke-width="3.0" stroke-linecap="round" class="metro-line-shortreads" data-line-id="shortreads" />
+<path d="M326.0,103.2 L386.0,103.2" stroke="#004b86" stroke-width="3.0" stroke-linecap="round" class="metro-line-shortreads" data-line-id="shortreads" />
+<path d="M140.0,103.2 L226.0,103.2" stroke="#004b86" stroke-width="3.0" stroke-linecap="round" class="metro-line-shortreads" data-line-id="shortreads" />
+<path d="M276.0,103.2 L326.0,103.2" stroke="#004b86" stroke-width="3.0" stroke-linecap="round" class="metro-line-shortreads" data-line-id="shortreads" />
+<path d="M226.0,103.2 L276.0,103.2" stroke="#004b86" stroke-width="3.0" stroke-linecap="round" class="metro-line-shortreads" data-line-id="shortreads" />
+<rect x="75.0" y="98.2" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="input_fastq" data-station-lines="shortreads" data-station-label=".fq" data-section-id="input" data-section-name="Input Processing" />
+<rect x="75.0" y="141.2" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="input_fasta" data-station-lines="longreads" data-station-label=".fa" data-section-id="input" data-section-name="Input Processing" />
+<rect x="135.0" y="98.2" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="short_clipper" data-station-lines="shortreads" data-station-label="fastp
+AdapterRemoval" data-section-id="input" data-section-name="Input Processing" />
+<rect x="135.0" y="141.2" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="long_clipper" data-station-lines="longreads" data-station-label="Porechop ABI
+Porechop" data-section-id="input" data-section-name="Input Processing" />
+<rect x="321.0" y="98.2" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fastqc" data-station-lines="longreads,shortreads" data-station-label="FastQC
+falco" data-section-id="qc" data-section-name="Quality Control" />
+<rect x="381.0" y="98.2" width="10.0" height="13.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="multiqc" data-station-lines="longreads,shortreads" data-station-label="MultiQC" data-section-id="qc" data-section-name="Quality Control" />
+<text x="80.0" y="114.2" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="input_fastq" class="nf-metro-station-label">.fq</text>
+<text x="326.0" y="117.2" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="fastqc" class="nf-metro-station-label"><tspan x="326.0" dy="0em">FastQC</tspan><tspan x="326.0" dy="1.2em">falco</tspan></text>
+<text x="80.0" y="157.2" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="input_fasta" class="nf-metro-station-label">.fa</text>
+<text x="140.0" y="73.60000000000001" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="short_clipper" class="nf-metro-station-label"><tspan x="140.0" dy="0em">fastp</tspan><tspan x="140.0" dy="1.2em">AdapterRemoval</tspan></text>
+<text x="386.0" y="89.2" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="multiqc" class="nf-metro-station-label">MultiQC</text>
+<text x="149.6" y="157.2" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="long_clipper" class="nf-metro-station-label"><tspan x="149.6" dy="0em">Porechop ABI</tspan><tspan x="149.6" dy="1.2em">Porechop</tspan></text>
+<rect x="30.0" y="223.2" width="144.70000000000002" height="72.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" />
+<path d="M42.0,247.2 L66.0,247.2" stroke="#004b86" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="247.2" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Short reads</text>
+<path d="M42.0,271.2 L66.0,271.2" stroke="#d9aa00" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="271.2" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em">Long reads</text>
+<text x="466.0" y="311.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v0.7.2+dev</text>
+</svg>

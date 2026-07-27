@@ -1,0 +1,1369 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Metro-map-style SVG diagrams from Mermaid definitions">
+      
+      
+      
+        <link rel="canonical" href="https://pinin4fjords.github.io/nf-metro/0.7.1/pipelines/">
+      
+      
+        <link rel="prev" href="../nextflow/">
+      
+      
+        <link rel="next" href="../gallery/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>nf-core Pipelines - nf-metro</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="light-green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#nf-core-pipelines" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="nf-metro" class="md-header__button md-logo" aria-label="nf-metro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            nf-metro
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              nf-core Pipelines
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pinin4fjords/nf-metro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pinin4fjords/nf-metro
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="nf-metro" class="md-nav__button md-logo" aria-label="nf-metro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    nf-metro
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pinin4fjords/nf-metro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pinin4fjords/nf-metro
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../nextflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nextflow Import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nf-core Pipelines
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nf-core Pipelines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corernaseq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/rnaseq
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-coreepitopeprediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/epitopeprediction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corehlatyping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/hlatyping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corevariantprioritization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/variantprioritization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corevariantbenchmarking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/variantbenchmarking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sanger-tolgenomeassembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sanger-tol/genomeassembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Internals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev/layout_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corernaseq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/rnaseq
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-coreepitopeprediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/epitopeprediction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corehlatyping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/hlatyping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corevariantprioritization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/variantprioritization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nf-corevariantbenchmarking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        nf-core/variantbenchmarking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sanger-tolgenomeassembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sanger-tol/genomeassembly
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="nf-core-pipelines">nf-core Pipelines<a class="headerlink" href="#nf-core-pipelines" title="Permanent link">&para;</a></h1>
+<p>Real-world pipelines rendered with nf-metro. These are maintained as <code>.mmd</code> files alongside the pipeline source code and rendered automatically.</p>
+<p>See the <a href="../gallery/">Gallery</a> for layout pattern examples and the <a href="../guide/">Guide</a> for how to write your own.</p>
+<h2 id="nf-corernaseq"><a href="https://github.com/nf-core/rnaseq">nf-core/rnaseq</a><a class="headerlink" href="#nf-corernaseq" title="Permanent link">&para;</a></h2>
+<p>RNA-seq analysis with multiple aligner and quantification routes (STAR/RSEM, STAR/Salmon, HISAT2, Salmon pseudo-alignment, Kallisto).</p>
+<p><img alt="nf-core/rnaseq" src="../assets/renders/pipeline_rnaseq_auto.svg" /></p>
+<details class="note">
+<summary>Mermaid source</summary>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>%%metro title: nf-core/rnaseq
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>%%metro logo: examples/nf-core-rnaseq_logo_dark.png
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>%%metro style: dark
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>%%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>%%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>%%metro line: hisat2 | Aligner: HISAT2, Quantification: None | #f5c542
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>%%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>%%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>%%metro legend: bl
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>graph LR
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    subgraph preprocessing [Pre-processing]
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        cat_fastq[cat fastq]
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        fastqc_raw[FastQC]
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        infer_strandedness[infer strandedness]
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        umi_tools_extract[UMI-tools extract]
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        fastp[FastP]
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>        trimgalore[Trim Galore!]
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        fastqc_trimmed[FastQC]
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        bbsplit[BBSplit]
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>        sortmerna[SortMeRNA]
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>        cat_fastq --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_raw
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>        fastqc_raw --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| infer_strandedness
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>        infer_strandedness --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| umi_tools_extract
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>        umi_tools_extract --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastp
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>        umi_tools_extract --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| trimgalore
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>        fastp --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_trimmed
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>        trimgalore --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_trimmed
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>        fastqc_trimmed --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| bbsplit
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>        bbsplit --&gt;|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| sortmerna
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    end
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    subgraph genome_align [Genome alignment &amp; quantification]
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>        star[STAR]
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>        hisat2_align[HISAT2]
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>        rsem[RSEM]
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>        salmon_quant[Salmon]
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>        umi_tools_dedup[UMI-tools dedup]
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>        star --&gt;|star_rsem| rsem
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>        star --&gt;|star_salmon| umi_tools_dedup
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>        umi_tools_dedup --&gt;|star_salmon| salmon_quant
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>        hisat2_align --&gt;|hisat2| umi_tools_dedup
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    end
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    subgraph postprocessing [Post-processing]
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>        samtools[SAMtools]
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>        picard[Picard]
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>        bedtools[BEDTools]
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>        bedgraph[bedGraphToBigWig]
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>        stringtie[StringTie]
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>        samtools --&gt;|star_salmon,star_rsem,hisat2| picard
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>        picard --&gt;|star_salmon,star_rsem,hisat2| bedtools
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>        bedtools --&gt;|star_salmon,star_rsem,hisat2| bedgraph
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>        bedgraph --&gt;|star_salmon,star_rsem,hisat2| stringtie
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>    end
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a>    subgraph pseudo_align [Pseudo-alignment &amp; quantification]
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a>        salmon_pseudo[Salmon]
+<a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>        kallisto[Kallisto]
+<a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a>        multiqc_pseudo[MultiQC]
+<a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>
+<a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a>        salmon_pseudo --&gt;|pseudo_salmon| multiqc_pseudo
+<a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a>        kallisto --&gt;|pseudo_kallisto| multiqc_pseudo
+<a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a>    end
+<a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a>
+<a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a>    subgraph qc_report [Quality control &amp; reporting]
+<a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a>        rseqc[RSeQC]
+<a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a>        preseq[Preseq]
+<a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a>        qualimap[Qualimap]
+<a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a>        dupradar[dupRadar]
+<a id="__codelineno-0-76" name="__codelineno-0-76" href="#__codelineno-0-76"></a>        deseq2_pca[DESeq2 PCA]
+<a id="__codelineno-0-77" name="__codelineno-0-77" href="#__codelineno-0-77"></a>        kraken2[Kraken2/Bracken]
+<a id="__codelineno-0-78" name="__codelineno-0-78" href="#__codelineno-0-78"></a>        multiqc_final[MultiQC]
+<a id="__codelineno-0-79" name="__codelineno-0-79" href="#__codelineno-0-79"></a>
+<a id="__codelineno-0-80" name="__codelineno-0-80" href="#__codelineno-0-80"></a>        rseqc --&gt;|star_salmon,star_rsem,hisat2| preseq
+<a id="__codelineno-0-81" name="__codelineno-0-81" href="#__codelineno-0-81"></a>        preseq --&gt;|star_salmon,star_rsem,hisat2| qualimap
+<a id="__codelineno-0-82" name="__codelineno-0-82" href="#__codelineno-0-82"></a>        qualimap --&gt;|star_salmon,star_rsem,hisat2| dupradar
+<a id="__codelineno-0-83" name="__codelineno-0-83" href="#__codelineno-0-83"></a>        dupradar --&gt;|star_salmon,star_rsem,hisat2| deseq2_pca
+<a id="__codelineno-0-84" name="__codelineno-0-84" href="#__codelineno-0-84"></a>        deseq2_pca --&gt;|star_salmon,star_rsem,hisat2| kraken2
+<a id="__codelineno-0-85" name="__codelineno-0-85" href="#__codelineno-0-85"></a>        kraken2 --&gt;|star_salmon,star_rsem,hisat2| multiqc_final
+<a id="__codelineno-0-86" name="__codelineno-0-86" href="#__codelineno-0-86"></a>    end
+<a id="__codelineno-0-87" name="__codelineno-0-87" href="#__codelineno-0-87"></a>
+<a id="__codelineno-0-88" name="__codelineno-0-88" href="#__codelineno-0-88"></a>    %% Inter-section edges
+<a id="__codelineno-0-89" name="__codelineno-0-89" href="#__codelineno-0-89"></a>    sortmerna --&gt;|star_salmon,star_rsem| star
+<a id="__codelineno-0-90" name="__codelineno-0-90" href="#__codelineno-0-90"></a>    sortmerna --&gt;|hisat2| hisat2_align
+<a id="__codelineno-0-91" name="__codelineno-0-91" href="#__codelineno-0-91"></a>    sortmerna --&gt;|pseudo_salmon| salmon_pseudo
+<a id="__codelineno-0-92" name="__codelineno-0-92" href="#__codelineno-0-92"></a>    sortmerna --&gt;|pseudo_kallisto| kallisto
+<a id="__codelineno-0-93" name="__codelineno-0-93" href="#__codelineno-0-93"></a>    salmon_quant --&gt;|star_salmon| samtools
+<a id="__codelineno-0-94" name="__codelineno-0-94" href="#__codelineno-0-94"></a>    rsem --&gt;|star_rsem| samtools
+<a id="__codelineno-0-95" name="__codelineno-0-95" href="#__codelineno-0-95"></a>    umi_tools_dedup --&gt;|hisat2| samtools
+<a id="__codelineno-0-96" name="__codelineno-0-96" href="#__codelineno-0-96"></a>    stringtie --&gt;|star_salmon,star_rsem,hisat2| rseqc
+</code></pre></div>
+</details>
+<h2 id="nf-coreepitopeprediction"><a href="https://github.com/nf-core/epitopeprediction">nf-core/epitopeprediction</a><a class="headerlink" href="#nf-coreepitopeprediction" title="Permanent link">&para;</a></h2>
+<p>MHC binding prediction from VCF, protein FASTA, or peptide TSV inputs through five prediction tools.</p>
+<p><img alt="nf-core/epitopeprediction" src="../assets/renders/pipeline_epitopeprediction.svg" /></p>
+<details class="note">
+<summary>Mermaid source</summary>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>%%metro title: nf-core/epitopeprediction
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>%%metro style: dark
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>%%metro line_order: span
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>%%metro logo: docs/images/nf-core-epitopeprediction_logo_dark.png
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>%%metro legend: bl
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>%%metro line: vcf | Variant Input | #2db572
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>%%metro line: protein | Protein Input | #e6550d
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>%%metro line: peptide | Peptide Input | #756bb1
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>%%metro file: VCF_IN | VCF
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>%%metro file: FASTA_IN | FASTA
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>%%metro file: TSV_IN | TSV
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>%%metro file: TSV_OUT | TSV
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>%%metro file: HTML_OUT | HTML
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>graph LR
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    subgraph input_processing [Input Processing]
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>        VCF_IN[ ]
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>        gunzip_vcf([Gunzip VCF])
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>        snpsift_split([SnpSift Split])
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>        variant_pred([Variant Pred])
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>        FASTA_IN[ ]
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>        fasta2peptides([Fasta2Peptides])
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>        TSV_IN[ ]
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>        VCF_IN --&gt;|vcf| gunzip_vcf
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>        gunzip_vcf --&gt;|vcf| snpsift_split
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>        snpsift_split --&gt;|vcf| variant_pred
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>        FASTA_IN --&gt;|protein| fasta2peptides
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>    end
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>    subgraph binding_prediction [Binding Prediction]
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>        split_peptides([Split Peptides])
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>        prepare_input([Prepare Input])
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>        mhcflurry([MHCflurry])
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>        mhcnuggets([MHCnuggets])
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>        mhcnuggetsii([MHCnuggetsII])
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>        netmhcpan([NetMHCpan])
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>        netmhciipan([NetMHCIIpan])
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>        merge_pred([Merge Pred])
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>        split_peptides --&gt;|vcf,protein,peptide| prepare_input
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>        prepare_input --&gt;|vcf,protein,peptide| mhcflurry
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>        prepare_input --&gt;|vcf,protein,peptide| mhcnuggets
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>        prepare_input --&gt;|vcf,protein,peptide| mhcnuggetsii
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>        prepare_input --&gt;|vcf,protein,peptide| netmhcpan
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>        prepare_input --&gt;|vcf,protein,peptide| netmhciipan
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>        mhcflurry --&gt;|vcf,protein,peptide| merge_pred
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>        mhcnuggets --&gt;|vcf,protein,peptide| merge_pred
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>        mhcnuggetsii --&gt;|vcf,protein,peptide| merge_pred
+<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>        netmhcpan --&gt;|vcf,protein,peptide| merge_pred
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>        netmhciipan --&gt;|vcf,protein,peptide| merge_pred
+<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>    end
+<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>
+<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>        summarize([Summarize Results])
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>        _tsv_pad[ ]
+<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>        multiqc([MultiQC])
+<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>        TSV_OUT[ ]
+<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>        HTML_OUT[ ]
+<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>
+<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>        summarize --&gt;|vcf,protein,peptide| _tsv_pad
+<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>        summarize --&gt;|vcf,protein,peptide| multiqc
+<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>        _tsv_pad --&gt;|vcf,protein,peptide| TSV_OUT
+<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>        multiqc --&gt;|vcf,protein,peptide| HTML_OUT
+<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>    end
+<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>
+<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>    %% Inter-section edges
+<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>    variant_pred --&gt;|vcf| split_peptides
+<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>    fasta2peptides --&gt;|protein| split_peptides
+<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>    TSV_IN --&gt;|peptide| split_peptides
+<a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>    merge_pred --&gt;|vcf,protein,peptide| summarize
+</code></pre></div>
+</details>
+<h2 id="nf-corehlatyping"><a href="https://github.com/nf-core/hlatyping">nf-core/hlatyping</a><a class="headerlink" href="#nf-corehlatyping" title="Permanent link">&para;</a></h2>
+<p>HLA typing from FASTQ or BAM inputs via OptiType and HLA-HD.</p>
+<p><img alt="nf-core/hlatyping" src="../assets/renders/pipeline_hlatyping.svg" /></p>
+<details class="note">
+<summary>Mermaid source</summary>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>%%metro title: nf-core/hlatyping
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>%%metro style: dark
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>%%metro logo: docs/images/nf-core-hlatyping_logo_dark.png
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>%%metro file: fastq_in | FASTQ
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>%%metro file: bam_in | BAM
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>%%metro file: report_tsv | TSV
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>%%metro file: report_html | HTML
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>%%metro line: fastq | FASTQ | #2db572
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>%%metro line: bam | BAM | #e6842a
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>%%metro legend: bl
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>graph LR
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    subgraph preprocessing [Pre-processing]
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        %%metro exit: right | fastq, bam
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        fastq_in[ ]
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>        bam_in[ ]
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        cat_fastq[cat FASTQ]
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>        _fastq_delay[ ]
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>        check_paired[Check Paired]
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>        collatefastq[BAM to FASTQ]
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>        fastqc[FastQC]
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>        fastq_in --&gt;|fastq| cat_fastq
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>        cat_fastq --&gt;|fastq| _fastq_delay
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>        _fastq_delay --&gt;|fastq| fastqc
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>        bam_in --&gt;|bam| check_paired
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>        check_paired --&gt;|bam| collatefastq
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>        collatefastq --&gt;|bam| fastqc
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>    end
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>    subgraph hla_typing [HLA Typing]
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>        %%metro entry: left | fastq, bam
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>        %%metro exit: right | fastq, bam
+<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>        yara_index[Yara Index]
+<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>        yara_mapper[Yara Mapper]
+<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>        optitype_run[OptiType]
+<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>        _hlahd_delay[ ]
+<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>        hlahd_run[HLA-HD]
+<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>        _hlahd_delay2[ ]
+<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a>        _merge1[ ]
+<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a>
+<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>        yara_index --&gt;|fastq,bam| yara_mapper
+<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>        yara_mapper --&gt;|fastq,bam| optitype_run
+<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a>        optitype_run --&gt;|fastq,bam| _merge1
+<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a>        _hlahd_delay --&gt;|fastq,bam| hlahd_run
+<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a>        hlahd_run --&gt;|fastq,bam| _hlahd_delay2
+<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a>        _hlahd_delay2 --&gt;|fastq,bam| _merge1
+<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a>    end
+<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a>
+<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>    subgraph reporting [Reporting]
+<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a>        %%metro entry: left | fastq, bam
+<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a>        report_tsv[ ]
+<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a>        multiqc[MultiQC]
+<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a>        report_html[ ]
+<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>
+<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a>        multiqc --&gt;|fastq,bam| report_html
+<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a>    end
+<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a>
+<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a>    %% Inter-section edges
+<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a>    fastqc --&gt;|fastq,bam| yara_index
+<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a>    fastqc --&gt;|fastq,bam| _hlahd_delay
+<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a>    _merge1 --&gt;|fastq,bam| report_tsv
+<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a>    _merge1 --&gt;|fastq,bam| multiqc
+</code></pre></div>
+</details>
+<h2 id="nf-corevariantprioritization"><a href="https://github.com/nf-core/variantprioritization">nf-core/variantprioritization</a><a class="headerlink" href="#nf-corevariantprioritization" title="Permanent link">&para;</a></h2>
+<p>Somatic and germline variant prioritization using PCGR and CPSR.</p>
+<p><img alt="nf-core/variantprioritization" src="../assets/renders/pipeline_variantprioritization.svg" /></p>
+<details class="note">
+<summary>Mermaid source</summary>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>%%metro title: nf-core/variantprioritization
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>%%metro file: cna_in | CNA
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>%%metro file: vcf_in | VCF
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>%%metro file: report_pcgr | HTML
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>%%metro file: report_cpsr | HTML
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>%%metro line: somatic | Somatic | #4CAF50
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>%%metro line: germline | Germline | #9923A0
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>%%metro line: reference | Reference | #2196F3
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>graph LR
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    subgraph preprocessing [Pre-processing of vcf files]
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>        vcf_in[ ]
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>        tabix[tabix]
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>        bcftools_norm[bcftools/norm]
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>        bcftools_filter[bcftools/filter]
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>        vcf_in --&gt;|somatic,germline| tabix
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>        tabix --&gt;|somatic,germline| bcftools_norm
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>        bcftools_norm --&gt;|somatic,germline| bcftools_filter
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>    end
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>    subgraph format_files [Prepare files for PCGR]
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>        reformat_vcf[Reformat VCF]
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a>        intersect[Intersect VCF]
+<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>        prepare_pcgr[Prepare VCF]
+<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a>        cna_in[ ]
+<a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a>        reformat_cna[Reformat CNA]
+<a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>
+<a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a>        reformat_vcf --&gt;|somatic| intersect
+<a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a>        reformat_vcf --&gt;|somatic| prepare_pcgr
+<a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a>        intersect --&gt;|somatic| prepare_pcgr
+<a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a>        cna_in --&gt;|somatic| reformat_cna
+<a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a>    end
+<a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a>
+<a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a>    subgraph get_reference [Reference]
+<a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a>        get_pcgr[PCGR DB]
+<a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a>        get_vep[VEP Cache]
+<a id="__codelineno-3-39" name="__codelineno-3-39" href="#__codelineno-3-39"></a>    end
+<a id="__codelineno-3-40" name="__codelineno-3-40" href="#__codelineno-3-40"></a>
+<a id="__codelineno-3-41" name="__codelineno-3-41" href="#__codelineno-3-41"></a>    subgraph run_pcgr [PCGR]
+<a id="__codelineno-3-42" name="__codelineno-3-42" href="#__codelineno-3-42"></a>        pcgr[PCGR]
+<a id="__codelineno-3-43" name="__codelineno-3-43" href="#__codelineno-3-43"></a>        report_pcgr[ ]
+<a id="__codelineno-3-44" name="__codelineno-3-44" href="#__codelineno-3-44"></a>
+<a id="__codelineno-3-45" name="__codelineno-3-45" href="#__codelineno-3-45"></a>        pcgr --&gt;|somatic| report_pcgr
+<a id="__codelineno-3-46" name="__codelineno-3-46" href="#__codelineno-3-46"></a>    end
+<a id="__codelineno-3-47" name="__codelineno-3-47" href="#__codelineno-3-47"></a>
+<a id="__codelineno-3-48" name="__codelineno-3-48" href="#__codelineno-3-48"></a>    subgraph run_cpsr [CPSR]
+<a id="__codelineno-3-49" name="__codelineno-3-49" href="#__codelineno-3-49"></a>        cpsr[CPSR]
+<a id="__codelineno-3-50" name="__codelineno-3-50" href="#__codelineno-3-50"></a>        report_cpsr[ ]
+<a id="__codelineno-3-51" name="__codelineno-3-51" href="#__codelineno-3-51"></a>
+<a id="__codelineno-3-52" name="__codelineno-3-52" href="#__codelineno-3-52"></a>        cpsr --&gt;|germline| report_cpsr
+<a id="__codelineno-3-53" name="__codelineno-3-53" href="#__codelineno-3-53"></a>    end
+<a id="__codelineno-3-54" name="__codelineno-3-54" href="#__codelineno-3-54"></a>
+<a id="__codelineno-3-55" name="__codelineno-3-55" href="#__codelineno-3-55"></a>    %% Inter-section edges
+<a id="__codelineno-3-56" name="__codelineno-3-56" href="#__codelineno-3-56"></a>    get_pcgr --&gt;|reference| cpsr
+<a id="__codelineno-3-57" name="__codelineno-3-57" href="#__codelineno-3-57"></a>    get_vep --&gt;|reference| cpsr
+<a id="__codelineno-3-58" name="__codelineno-3-58" href="#__codelineno-3-58"></a>    bcftools_filter --&gt;|germline| cpsr
+<a id="__codelineno-3-59" name="__codelineno-3-59" href="#__codelineno-3-59"></a>    bcftools_filter --&gt;|somatic| reformat_vcf
+<a id="__codelineno-3-60" name="__codelineno-3-60" href="#__codelineno-3-60"></a>    reformat_cna --&gt;|somatic| pcgr
+<a id="__codelineno-3-61" name="__codelineno-3-61" href="#__codelineno-3-61"></a>    prepare_pcgr --&gt;|somatic| pcgr
+<a id="__codelineno-3-62" name="__codelineno-3-62" href="#__codelineno-3-62"></a>    get_pcgr --&gt;|reference| pcgr
+<a id="__codelineno-3-63" name="__codelineno-3-63" href="#__codelineno-3-63"></a>    get_vep --&gt;|reference| pcgr
+</code></pre></div>
+</details>
+<h2 id="nf-corevariantbenchmarking"><a href="https://github.com/nf-core/variantbenchmarking">nf-core/variantbenchmarking</a><a class="headerlink" href="#nf-corevariantbenchmarking" title="Permanent link">&para;</a></h2>
+<p>Benchmarking of variant callers against truth sets with Truvari, hap.py, RTGtools, and more.</p>
+<p><img alt="nf-core/variantbenchmarking" src="../assets/renders/pipeline_variantbenchmarking.svg" /></p>
+<details class="note">
+<summary>Mermaid source</summary>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>%%metro title: nf-core/variantbenchmarking
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>%%metro style: dark
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>%%metro line_order: span
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>%%metro legend: bl
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>%%metro compact_offsets: true
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>%%metro grid: inputs | 0,0
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>%%metro grid: preprocess | 1,0
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>%%metro grid: normalization | 2,0
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>%%metro grid: filtering | 3,0
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>%%metro grid: stats | 4,0
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>%%metro grid: benchmarking | 3,1
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>%%metro grid: ensembl_truth | 4,1
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>%%metro grid: output_processing | 1,1,1,2
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>%%metro file: ref_genome_file | FASTA
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>%%metro file: truth_vcf_file | VCF
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>%%metro file: regions_bed_file | BED
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>%%metro file: targets_bed_file | BED
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>%%metro file: samplesheet_file | TSV
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>%%metro file: snv_stats_out | TSV
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>%%metro file: sv_stats_out | TSV
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>%%metro file: merged_csvs_out | CSV
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>%%metro file: html_report_out | HTML
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>%%metro file: multiqc_out | HTML
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>%%metro line: truth | Truth Preprocessing | #4CAF50
+<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>%%metro line: test | Test Preprocessing | #ff9800
+<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>%%metro line: sv_cnv | SV/CNV Benchmarking | #E53935
+<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a>%%metro line: snv_indel | SNV/INDEL Benchmarking | #AB47BC
+<a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a>%%metro line: concordance | Concordance | #FFB300
+<a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a>%%metro line: intersection | Intersection | #26A69A
+<a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a>%%metro line: output | Output Processing | #03A9F4
+<a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a>
+<a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a>graph LR
+<a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a>    subgraph inputs [Inputs]
+<a id="__codelineno-4-34" name="__codelineno-4-34" href="#__codelineno-4-34"></a>        %%metro exit: right | truth, test
+<a id="__codelineno-4-35" name="__codelineno-4-35" href="#__codelineno-4-35"></a>        ref_genome_file[ ]
+<a id="__codelineno-4-36" name="__codelineno-4-36" href="#__codelineno-4-36"></a>        ref_genome[Reference Genome]
+<a id="__codelineno-4-37" name="__codelineno-4-37" href="#__codelineno-4-37"></a>        truth_vcf_file[ ]
+<a id="__codelineno-4-38" name="__codelineno-4-38" href="#__codelineno-4-38"></a>        truth_vcf[Truth VCF]
+<a id="__codelineno-4-39" name="__codelineno-4-39" href="#__codelineno-4-39"></a>        regions_bed_file[ ]
+<a id="__codelineno-4-40" name="__codelineno-4-40" href="#__codelineno-4-40"></a>        regions_bed[Regions BED]
+<a id="__codelineno-4-41" name="__codelineno-4-41" href="#__codelineno-4-41"></a>        targets_bed_file[ ]
+<a id="__codelineno-4-42" name="__codelineno-4-42" href="#__codelineno-4-42"></a>        targets_bed[Targets BED]
+<a id="__codelineno-4-43" name="__codelineno-4-43" href="#__codelineno-4-43"></a>        samplesheet_file[ ]
+<a id="__codelineno-4-44" name="__codelineno-4-44" href="#__codelineno-4-44"></a>        samplesheet[Samplesheet]
+<a id="__codelineno-4-45" name="__codelineno-4-45" href="#__codelineno-4-45"></a>        _inputs_hub[hidden]
+<a id="__codelineno-4-46" name="__codelineno-4-46" href="#__codelineno-4-46"></a>
+<a id="__codelineno-4-47" name="__codelineno-4-47" href="#__codelineno-4-47"></a>        ref_genome_file --&gt;|truth| ref_genome
+<a id="__codelineno-4-48" name="__codelineno-4-48" href="#__codelineno-4-48"></a>        truth_vcf_file --&gt;|truth| truth_vcf
+<a id="__codelineno-4-49" name="__codelineno-4-49" href="#__codelineno-4-49"></a>        regions_bed_file --&gt;|truth| regions_bed
+<a id="__codelineno-4-50" name="__codelineno-4-50" href="#__codelineno-4-50"></a>        targets_bed_file --&gt;|truth| targets_bed
+<a id="__codelineno-4-51" name="__codelineno-4-51" href="#__codelineno-4-51"></a>        samplesheet_file --&gt;|test| samplesheet
+<a id="__codelineno-4-52" name="__codelineno-4-52" href="#__codelineno-4-52"></a>        ref_genome --&gt;|truth| _inputs_hub
+<a id="__codelineno-4-53" name="__codelineno-4-53" href="#__codelineno-4-53"></a>        truth_vcf --&gt;|truth| _inputs_hub
+<a id="__codelineno-4-54" name="__codelineno-4-54" href="#__codelineno-4-54"></a>        regions_bed --&gt;|truth| _inputs_hub
+<a id="__codelineno-4-55" name="__codelineno-4-55" href="#__codelineno-4-55"></a>        targets_bed --&gt;|truth| _inputs_hub
+<a id="__codelineno-4-56" name="__codelineno-4-56" href="#__codelineno-4-56"></a>        samplesheet --&gt;|test| _inputs_hub
+<a id="__codelineno-4-57" name="__codelineno-4-57" href="#__codelineno-4-57"></a>    end
+<a id="__codelineno-4-58" name="__codelineno-4-58" href="#__codelineno-4-58"></a>
+<a id="__codelineno-4-59" name="__codelineno-4-59" href="#__codelineno-4-59"></a>    subgraph preprocess [Preprocessing (Optional)]
+<a id="__codelineno-4-60" name="__codelineno-4-60" href="#__codelineno-4-60"></a>        %%metro entry: left | truth, test
+<a id="__codelineno-4-61" name="__codelineno-4-61" href="#__codelineno-4-61"></a>        %%metro exit: right | truth, test
+<a id="__codelineno-4-62" name="__codelineno-4-62" href="#__codelineno-4-62"></a>        subsample[Subsample]
+<a id="__codelineno-4-63" name="__codelineno-4-63" href="#__codelineno-4-63"></a>        liftover[Liftover\n(Picard, UCSC)]
+<a id="__codelineno-4-64" name="__codelineno-4-64" href="#__codelineno-4-64"></a>        subsample --&gt;|test| liftover
+<a id="__codelineno-4-65" name="__codelineno-4-65" href="#__codelineno-4-65"></a>    end
+<a id="__codelineno-4-66" name="__codelineno-4-66" href="#__codelineno-4-66"></a>
+<a id="__codelineno-4-67" name="__codelineno-4-67" href="#__codelineno-4-67"></a>    subgraph normalization [Variant Normalization (Optional)]
+<a id="__codelineno-4-68" name="__codelineno-4-68" href="#__codelineno-4-68"></a>        %%metro entry: left | truth, test
+<a id="__codelineno-4-69" name="__codelineno-4-69" href="#__codelineno-4-69"></a>        %%metro exit: right | truth, test
+<a id="__codelineno-4-70" name="__codelineno-4-70" href="#__codelineno-4-70"></a>        sv_processing[SV\nProcessing]
+<a id="__codelineno-4-71" name="__codelineno-4-71" href="#__codelineno-4-71"></a>        var_norm[Variant\nNormalization]
+<a id="__codelineno-4-72" name="__codelineno-4-72" href="#__codelineno-4-72"></a>        sv_processing --&gt;|test| var_norm
+<a id="__codelineno-4-73" name="__codelineno-4-73" href="#__codelineno-4-73"></a>    end
+<a id="__codelineno-4-74" name="__codelineno-4-74" href="#__codelineno-4-74"></a>
+<a id="__codelineno-4-75" name="__codelineno-4-75" href="#__codelineno-4-75"></a>    subgraph filtering [Variant Filtering (Optional)]
+<a id="__codelineno-4-76" name="__codelineno-4-76" href="#__codelineno-4-76"></a>        %%metro entry: left | test
+<a id="__codelineno-4-77" name="__codelineno-4-77" href="#__codelineno-4-77"></a>        %%metro exit: right | test
+<a id="__codelineno-4-78" name="__codelineno-4-78" href="#__codelineno-4-78"></a>        filter_contigs[Filter\nContigs]
+<a id="__codelineno-4-79" name="__codelineno-4-79" href="#__codelineno-4-79"></a>        bcftools_filter[bcftools\nfilter]
+<a id="__codelineno-4-80" name="__codelineno-4-80" href="#__codelineno-4-80"></a>        survivor_filter[SURVIVOR\nfilter]
+<a id="__codelineno-4-81" name="__codelineno-4-81" href="#__codelineno-4-81"></a>        filter_contigs --&gt;|test| bcftools_filter
+<a id="__codelineno-4-82" name="__codelineno-4-82" href="#__codelineno-4-82"></a>        filter_contigs --&gt;|test| survivor_filter
+<a id="__codelineno-4-83" name="__codelineno-4-83" href="#__codelineno-4-83"></a>    end
+<a id="__codelineno-4-84" name="__codelineno-4-84" href="#__codelineno-4-84"></a>
+<a id="__codelineno-4-85" name="__codelineno-4-85" href="#__codelineno-4-85"></a>    subgraph ensembl_truth [Ensembl Truth]
+<a id="__codelineno-4-86" name="__codelineno-4-86" href="#__codelineno-4-86"></a>        %%metro direction: TB
+<a id="__codelineno-4-87" name="__codelineno-4-87" href="#__codelineno-4-87"></a>        %%metro entry: top | test
+<a id="__codelineno-4-88" name="__codelineno-4-88" href="#__codelineno-4-88"></a>        %%metro exit: left | truth
+<a id="__codelineno-4-89" name="__codelineno-4-89" href="#__codelineno-4-89"></a>        _ensembl_hub[hidden]
+<a id="__codelineno-4-90" name="__codelineno-4-90" href="#__codelineno-4-90"></a>        survivor_merge[SURVIVOR\nmerge]
+<a id="__codelineno-4-91" name="__codelineno-4-91" href="#__codelineno-4-91"></a>        bcftools_merge[bcftools\nmerge]
+<a id="__codelineno-4-92" name="__codelineno-4-92" href="#__codelineno-4-92"></a>        consensus_filter[Consensus\nFilter]
+<a id="__codelineno-4-93" name="__codelineno-4-93" href="#__codelineno-4-93"></a>        _ensembl_hub --&gt;|test| survivor_merge
+<a id="__codelineno-4-94" name="__codelineno-4-94" href="#__codelineno-4-94"></a>        _ensembl_hub --&gt;|test| bcftools_merge
+<a id="__codelineno-4-95" name="__codelineno-4-95" href="#__codelineno-4-95"></a>        survivor_merge --&gt;|test| consensus_filter
+<a id="__codelineno-4-96" name="__codelineno-4-96" href="#__codelineno-4-96"></a>        bcftools_merge --&gt;|test| consensus_filter
+<a id="__codelineno-4-97" name="__codelineno-4-97" href="#__codelineno-4-97"></a>    end
+<a id="__codelineno-4-98" name="__codelineno-4-98" href="#__codelineno-4-98"></a>
+<a id="__codelineno-4-99" name="__codelineno-4-99" href="#__codelineno-4-99"></a>    subgraph benchmarking [Benchmarking]
+<a id="__codelineno-4-100" name="__codelineno-4-100" href="#__codelineno-4-100"></a>        %%metro direction: RL
+<a id="__codelineno-4-101" name="__codelineno-4-101" href="#__codelineno-4-101"></a>        %%metro entry: top | test, truth
+<a id="__codelineno-4-102" name="__codelineno-4-102" href="#__codelineno-4-102"></a>        %%metro entry: right | test, truth
+<a id="__codelineno-4-103" name="__codelineno-4-103" href="#__codelineno-4-103"></a>        bench_hub[ ]
+<a id="__codelineno-4-104" name="__codelineno-4-104" href="#__codelineno-4-104"></a>        truvari[Truvari]
+<a id="__codelineno-4-105" name="__codelineno-4-105" href="#__codelineno-4-105"></a>        rtg_vcfeval[RTGtools vcfeval]
+<a id="__codelineno-4-106" name="__codelineno-4-106" href="#__codelineno-4-106"></a>        svanalyzer[SVanalyzer]
+<a id="__codelineno-4-107" name="__codelineno-4-107" href="#__codelineno-4-107"></a>        rtg_bndeval[RTGtools bndeval]
+<a id="__codelineno-4-108" name="__codelineno-4-108" href="#__codelineno-4-108"></a>        happy[hap.py]
+<a id="__codelineno-4-109" name="__codelineno-4-109" href="#__codelineno-4-109"></a>        wittyer[wittyer]
+<a id="__codelineno-4-110" name="__codelineno-4-110" href="#__codelineno-4-110"></a>        sompy[som.py]
+<a id="__codelineno-4-111" name="__codelineno-4-111" href="#__codelineno-4-111"></a>        intersection_tool[Intersection]
+<a id="__codelineno-4-112" name="__codelineno-4-112" href="#__codelineno-4-112"></a>        gatk4_conc[GATK4 Concordance]
+<a id="__codelineno-4-113" name="__codelineno-4-113" href="#__codelineno-4-113"></a>        bench_hub --&gt;|sv_cnv| truvari
+<a id="__codelineno-4-114" name="__codelineno-4-114" href="#__codelineno-4-114"></a>        bench_hub --&gt;|snv_indel| rtg_vcfeval
+<a id="__codelineno-4-115" name="__codelineno-4-115" href="#__codelineno-4-115"></a>        bench_hub --&gt;|sv_cnv| svanalyzer
+<a id="__codelineno-4-116" name="__codelineno-4-116" href="#__codelineno-4-116"></a>        bench_hub --&gt;|sv_cnv| rtg_bndeval
+<a id="__codelineno-4-117" name="__codelineno-4-117" href="#__codelineno-4-117"></a>        bench_hub --&gt;|snv_indel| happy
+<a id="__codelineno-4-118" name="__codelineno-4-118" href="#__codelineno-4-118"></a>        bench_hub --&gt;|sv_cnv| wittyer
+<a id="__codelineno-4-119" name="__codelineno-4-119" href="#__codelineno-4-119"></a>        bench_hub --&gt;|snv_indel| sompy
+<a id="__codelineno-4-120" name="__codelineno-4-120" href="#__codelineno-4-120"></a>        bench_hub --&gt;|intersection| intersection_tool
+<a id="__codelineno-4-121" name="__codelineno-4-121" href="#__codelineno-4-121"></a>        bench_hub --&gt;|concordance| gatk4_conc
+<a id="__codelineno-4-122" name="__codelineno-4-122" href="#__codelineno-4-122"></a>        %%metro exit: left | sv_cnv, snv_indel, concordance, intersection
+<a id="__codelineno-4-123" name="__codelineno-4-123" href="#__codelineno-4-123"></a>    end
+<a id="__codelineno-4-124" name="__codelineno-4-124" href="#__codelineno-4-124"></a>
+<a id="__codelineno-4-125" name="__codelineno-4-125" href="#__codelineno-4-125"></a>    subgraph output_processing [Output Processing]
+<a id="__codelineno-4-126" name="__codelineno-4-126" href="#__codelineno-4-126"></a>        %%metro direction: RL
+<a id="__codelineno-4-127" name="__codelineno-4-127" href="#__codelineno-4-127"></a>        %%metro entry: right | sv_cnv, snv_indel, concordance, intersection
+<a id="__codelineno-4-128" name="__codelineno-4-128" href="#__codelineno-4-128"></a>        results_hub[ ]
+<a id="__codelineno-4-129" name="__codelineno-4-129" href="#__codelineno-4-129"></a>        merge_res[Merge\nTP/FP/FN]
+<a id="__codelineno-4-130" name="__codelineno-4-130" href="#__codelineno-4-130"></a>        vcf2csv[VCF to\nCSV]
+<a id="__codelineno-4-131" name="__codelineno-4-131" href="#__codelineno-4-131"></a>        sum_stats[Summary\nStats]
+<a id="__codelineno-4-132" name="__codelineno-4-132" href="#__codelineno-4-132"></a>        plots[Plots]
+<a id="__codelineno-4-133" name="__codelineno-4-133" href="#__codelineno-4-133"></a>        datavzrd_tool[datavzrd]
+<a id="__codelineno-4-134" name="__codelineno-4-134" href="#__codelineno-4-134"></a>        merged_csvs[Merged\nCSVs]
+<a id="__codelineno-4-135" name="__codelineno-4-135" href="#__codelineno-4-135"></a>        merged_csvs_out[ ]
+<a id="__codelineno-4-136" name="__codelineno-4-136" href="#__codelineno-4-136"></a>        bench_summaries[Benchmarking\nSummaries]
+<a id="__codelineno-4-137" name="__codelineno-4-137" href="#__codelineno-4-137"></a>        html_report[HTML\nReport]
+<a id="__codelineno-4-138" name="__codelineno-4-138" href="#__codelineno-4-138"></a>        html_report_out[ ]
+<a id="__codelineno-4-139" name="__codelineno-4-139" href="#__codelineno-4-139"></a>        multiqc[MultiQC\nReport]
+<a id="__codelineno-4-140" name="__codelineno-4-140" href="#__codelineno-4-140"></a>        multiqc_out[ ]
+<a id="__codelineno-4-141" name="__codelineno-4-141" href="#__codelineno-4-141"></a>
+<a id="__codelineno-4-142" name="__codelineno-4-142" href="#__codelineno-4-142"></a>        results_hub --&gt;|output| merge_res
+<a id="__codelineno-4-143" name="__codelineno-4-143" href="#__codelineno-4-143"></a>        merge_res --&gt;|output| vcf2csv
+<a id="__codelineno-4-144" name="__codelineno-4-144" href="#__codelineno-4-144"></a>        results_hub --&gt;|output| sum_stats
+<a id="__codelineno-4-145" name="__codelineno-4-145" href="#__codelineno-4-145"></a>        sum_stats --&gt;|output| plots
+<a id="__codelineno-4-146" name="__codelineno-4-146" href="#__codelineno-4-146"></a>        sum_stats --&gt;|output| datavzrd_tool
+<a id="__codelineno-4-147" name="__codelineno-4-147" href="#__codelineno-4-147"></a>        vcf2csv --&gt;|output| plots
+<a id="__codelineno-4-148" name="__codelineno-4-148" href="#__codelineno-4-148"></a>        vcf2csv --&gt;|output| merged_csvs
+<a id="__codelineno-4-149" name="__codelineno-4-149" href="#__codelineno-4-149"></a>        merged_csvs --&gt;|output| merged_csvs_out
+<a id="__codelineno-4-150" name="__codelineno-4-150" href="#__codelineno-4-150"></a>        results_hub --&gt;|output| bench_summaries
+<a id="__codelineno-4-151" name="__codelineno-4-151" href="#__codelineno-4-151"></a>        datavzrd_tool --&gt;|output| html_report
+<a id="__codelineno-4-152" name="__codelineno-4-152" href="#__codelineno-4-152"></a>        html_report --&gt;|output| html_report_out
+<a id="__codelineno-4-153" name="__codelineno-4-153" href="#__codelineno-4-153"></a>        sum_stats --&gt;|output| multiqc
+<a id="__codelineno-4-154" name="__codelineno-4-154" href="#__codelineno-4-154"></a>        bench_summaries --&gt;|output| multiqc
+<a id="__codelineno-4-155" name="__codelineno-4-155" href="#__codelineno-4-155"></a>        plots --&gt;|output| multiqc
+<a id="__codelineno-4-156" name="__codelineno-4-156" href="#__codelineno-4-156"></a>        multiqc --&gt;|output| multiqc_out
+<a id="__codelineno-4-157" name="__codelineno-4-157" href="#__codelineno-4-157"></a>    end
+<a id="__codelineno-4-158" name="__codelineno-4-158" href="#__codelineno-4-158"></a>
+<a id="__codelineno-4-159" name="__codelineno-4-159" href="#__codelineno-4-159"></a>    subgraph stats [Variant Statistics]
+<a id="__codelineno-4-160" name="__codelineno-4-160" href="#__codelineno-4-160"></a>        %%metro entry: left | test
+<a id="__codelineno-4-161" name="__codelineno-4-161" href="#__codelineno-4-161"></a>        %%metro exit: right | test, output
+<a id="__codelineno-4-162" name="__codelineno-4-162" href="#__codelineno-4-162"></a>        bcftools_stats[bcftools\nstats]
+<a id="__codelineno-4-163" name="__codelineno-4-163" href="#__codelineno-4-163"></a>        survivor_stats[SURVIVOR\nstats]
+<a id="__codelineno-4-164" name="__codelineno-4-164" href="#__codelineno-4-164"></a>        snv_stats[SNV stats]
+<a id="__codelineno-4-165" name="__codelineno-4-165" href="#__codelineno-4-165"></a>        sv_stats[SV stats]
+<a id="__codelineno-4-166" name="__codelineno-4-166" href="#__codelineno-4-166"></a>        snv_stats_out[ ]
+<a id="__codelineno-4-167" name="__codelineno-4-167" href="#__codelineno-4-167"></a>        sv_stats_out[ ]
+<a id="__codelineno-4-168" name="__codelineno-4-168" href="#__codelineno-4-168"></a>        bcftools_stats --&gt;|output| snv_stats
+<a id="__codelineno-4-169" name="__codelineno-4-169" href="#__codelineno-4-169"></a>        survivor_stats --&gt;|output| sv_stats
+<a id="__codelineno-4-170" name="__codelineno-4-170" href="#__codelineno-4-170"></a>        snv_stats --&gt;|output| snv_stats_out
+<a id="__codelineno-4-171" name="__codelineno-4-171" href="#__codelineno-4-171"></a>        sv_stats --&gt;|output| sv_stats_out
+<a id="__codelineno-4-172" name="__codelineno-4-172" href="#__codelineno-4-172"></a>    end
+<a id="__codelineno-4-173" name="__codelineno-4-173" href="#__codelineno-4-173"></a>
+<a id="__codelineno-4-174" name="__codelineno-4-174" href="#__codelineno-4-174"></a>    %% Section 1 -&gt; 2: test through Subsample, truth to Liftover
+<a id="__codelineno-4-175" name="__codelineno-4-175" href="#__codelineno-4-175"></a>    _inputs_hub --&gt;|test| subsample
+<a id="__codelineno-4-176" name="__codelineno-4-176" href="#__codelineno-4-176"></a>    _inputs_hub --&gt;|truth| liftover
+<a id="__codelineno-4-177" name="__codelineno-4-177" href="#__codelineno-4-177"></a>    %% Section 2 -&gt; 3: test to SV Processing, truth to Var Norm
+<a id="__codelineno-4-178" name="__codelineno-4-178" href="#__codelineno-4-178"></a>    liftover --&gt;|test| sv_processing
+<a id="__codelineno-4-179" name="__codelineno-4-179" href="#__codelineno-4-179"></a>    liftover --&gt;|truth| var_norm
+<a id="__codelineno-4-180" name="__codelineno-4-180" href="#__codelineno-4-180"></a>    %% Section 1 -&gt; 3 (bypass section 2)
+<a id="__codelineno-4-181" name="__codelineno-4-181" href="#__codelineno-4-181"></a>    _inputs_hub --&gt;|test| sv_processing
+<a id="__codelineno-4-182" name="__codelineno-4-182" href="#__codelineno-4-182"></a>    _inputs_hub --&gt;|truth| var_norm
+<a id="__codelineno-4-183" name="__codelineno-4-183" href="#__codelineno-4-183"></a>    %% Section 3 -&gt; 4
+<a id="__codelineno-4-184" name="__codelineno-4-184" href="#__codelineno-4-184"></a>    var_norm --&gt;|test| filter_contigs
+<a id="__codelineno-4-185" name="__codelineno-4-185" href="#__codelineno-4-185"></a>    %% Section 4 -&gt; 5: each filter to its corresponding stats
+<a id="__codelineno-4-186" name="__codelineno-4-186" href="#__codelineno-4-186"></a>    bcftools_filter --&gt;|test| bcftools_stats
+<a id="__codelineno-4-187" name="__codelineno-4-187" href="#__codelineno-4-187"></a>    survivor_filter --&gt;|test| survivor_stats
+<a id="__codelineno-4-188" name="__codelineno-4-188" href="#__codelineno-4-188"></a>    %% Section 4 -&gt; Ensembl Truth
+<a id="__codelineno-4-189" name="__codelineno-4-189" href="#__codelineno-4-189"></a>    bcftools_filter --&gt;|test| _ensembl_hub
+<a id="__codelineno-4-190" name="__codelineno-4-190" href="#__codelineno-4-190"></a>    survivor_filter --&gt;|test| _ensembl_hub
+<a id="__codelineno-4-191" name="__codelineno-4-191" href="#__codelineno-4-191"></a>    %% Multiple sections -&gt; Benchmarking
+<a id="__codelineno-4-192" name="__codelineno-4-192" href="#__codelineno-4-192"></a>    filter_contigs --&gt;|test| bench_hub
+<a id="__codelineno-4-193" name="__codelineno-4-193" href="#__codelineno-4-193"></a>    var_norm --&gt;|truth| bench_hub
+<a id="__codelineno-4-194" name="__codelineno-4-194" href="#__codelineno-4-194"></a>    consensus_filter --&gt;|truth| bench_hub
+<a id="__codelineno-4-195" name="__codelineno-4-195" href="#__codelineno-4-195"></a>    %% Benchmarking -&gt; Output Processing
+<a id="__codelineno-4-196" name="__codelineno-4-196" href="#__codelineno-4-196"></a>    truvari --&gt;|sv_cnv| results_hub
+<a id="__codelineno-4-197" name="__codelineno-4-197" href="#__codelineno-4-197"></a>    svanalyzer --&gt;|sv_cnv| results_hub
+<a id="__codelineno-4-198" name="__codelineno-4-198" href="#__codelineno-4-198"></a>    rtg_bndeval --&gt;|sv_cnv| results_hub
+<a id="__codelineno-4-199" name="__codelineno-4-199" href="#__codelineno-4-199"></a>    wittyer --&gt;|sv_cnv| results_hub
+<a id="__codelineno-4-200" name="__codelineno-4-200" href="#__codelineno-4-200"></a>    rtg_vcfeval --&gt;|snv_indel| results_hub
+<a id="__codelineno-4-201" name="__codelineno-4-201" href="#__codelineno-4-201"></a>    happy --&gt;|snv_indel| results_hub
+<a id="__codelineno-4-202" name="__codelineno-4-202" href="#__codelineno-4-202"></a>    sompy --&gt;|snv_indel| results_hub
+<a id="__codelineno-4-203" name="__codelineno-4-203" href="#__codelineno-4-203"></a>    intersection_tool --&gt;|intersection| results_hub
+<a id="__codelineno-4-204" name="__codelineno-4-204" href="#__codelineno-4-204"></a>    gatk4_conc --&gt;|concordance| results_hub
+</code></pre></div>
+</details>
+<h2 id="sanger-tolgenomeassembly"><a href="https://github.com/sanger-tol/genomeassembly">sanger-tol/genomeassembly</a><a class="headerlink" href="#sanger-tolgenomeassembly" title="Permanent link">&para;</a></h2>
+<p>Genome assembly from long reads and Hi-C data through purging, polishing, scaffolding, and QC.</p>
+<p><img alt="sanger-tol/genomeassembly" src="../assets/renders/pipeline_genomeassembly.svg" /></p>
+<details class="note">
+<summary>Mermaid source</summary>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>%%metro title: sanger-tol/genomeassembly
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>%%metro style: dark
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>%%metro line: long_reads | Long reads | #2db572
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>%%metro line: hic_reads | Hi-C reads | #e6842a
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>%%metro line: i10x_reads | 10X reads | #756bb1
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>%%metro line: assemblies | Assembly | #0570b0
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>%%metro file: input_long_reads | FASTX
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>%%metro file: input_hic_reads | CRAM
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>%%metro file: input_10x_reads | FASTQ
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>%%metro grid: raw_asm | 0, 0, 2
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>%%metro grid: purging | 1, 0, 2
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>%%metro grid: polishing | 2, 0, 2
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>%%metro grid: scaffolding | 3, 0, 4
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>%%metro grid: genome_statistics | 4, 0, 4
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>%%metro line_order: span
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>%%metro compact_offsets: true
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>%%metro legend: bl
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>graph LR
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>    subgraph raw_asm [Raw assembly]
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>        %%metro exit: bottom | hic_reads
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>        %%metro exit: right | assemblies,long_reads
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>        input_long_reads[ ]
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>        input_hic_reads[ ]
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>        hifiasm[Hifiasm]
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>        input_long_reads --&gt;|long_reads| hifiasm
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>        input_hic_reads --&gt;|hic_reads| hifiasm
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>    end
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>    subgraph purging [Purging]
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>        %%metro entry: left | assemblies,long_reads
+<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>        %%metro exit: right | assemblies
+<a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a>        purging_minimap2[minimap2]
+<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>        purge_dups[purge_dups]
+<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a>        purging_minimap2 --&gt;|assemblies,long_reads| purge_dups
+<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a>    end
+<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a>    subgraph polishing [Polishing]
+<a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a>        %%metro entry: left | assemblies
+<a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a>        %%metro exit: right | assemblies
+<a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a>        input_10x_reads[ ]
+<a id="__codelineno-5-39" name="__codelineno-5-39" href="#__codelineno-5-39"></a>        longranger[Longranger]
+<a id="__codelineno-5-40" name="__codelineno-5-40" href="#__codelineno-5-40"></a>        freebayes[FreeBayes]
+<a id="__codelineno-5-41" name="__codelineno-5-41" href="#__codelineno-5-41"></a>        input_10x_reads --&gt;|i10x_reads| longranger
+<a id="__codelineno-5-42" name="__codelineno-5-42" href="#__codelineno-5-42"></a>        longranger --&gt;|i10x_reads,assemblies| freebayes
+<a id="__codelineno-5-43" name="__codelineno-5-43" href="#__codelineno-5-43"></a>    end
+<a id="__codelineno-5-44" name="__codelineno-5-44" href="#__codelineno-5-44"></a>    subgraph scaffolding [Scaffolding]
+<a id="__codelineno-5-45" name="__codelineno-5-45" href="#__codelineno-5-45"></a>        %%metro entry: left | assemblies
+<a id="__codelineno-5-46" name="__codelineno-5-46" href="#__codelineno-5-46"></a>        %%metro entry: bottom | hic_reads
+<a id="__codelineno-5-47" name="__codelineno-5-47" href="#__codelineno-5-47"></a>        %%metro exit: right | assemblies
+<a id="__codelineno-5-48" name="__codelineno-5-48" href="#__codelineno-5-48"></a>        scaffolding_bwamem2[bwa-mem2]
+<a id="__codelineno-5-49" name="__codelineno-5-49" href="#__codelineno-5-49"></a>        scaffolding_minimap2[minimap2]
+<a id="__codelineno-5-50" name="__codelineno-5-50" href="#__codelineno-5-50"></a>        yahs[YaHS]
+<a id="__codelineno-5-51" name="__codelineno-5-51" href="#__codelineno-5-51"></a>        pretextmap[PretextMap]
+<a id="__codelineno-5-52" name="__codelineno-5-52" href="#__codelineno-5-52"></a>        juicer[Juicer]
+<a id="__codelineno-5-53" name="__codelineno-5-53" href="#__codelineno-5-53"></a>        cooler[Cooler]
+<a id="__codelineno-5-54" name="__codelineno-5-54" href="#__codelineno-5-54"></a>        scaffolding_bwamem2 --&gt;|assemblies,hic_reads| yahs
+<a id="__codelineno-5-55" name="__codelineno-5-55" href="#__codelineno-5-55"></a>        scaffolding_minimap2 --&gt;|assemblies,hic_reads| yahs
+<a id="__codelineno-5-56" name="__codelineno-5-56" href="#__codelineno-5-56"></a>        yahs --&gt;|assemblies,hic_reads| pretextmap
+<a id="__codelineno-5-57" name="__codelineno-5-57" href="#__codelineno-5-57"></a>        yahs --&gt;|assemblies,hic_reads| juicer
+<a id="__codelineno-5-58" name="__codelineno-5-58" href="#__codelineno-5-58"></a>        yahs --&gt;|assemblies,hic_reads| cooler
+<a id="__codelineno-5-59" name="__codelineno-5-59" href="#__codelineno-5-59"></a>    end
+<a id="__codelineno-5-60" name="__codelineno-5-60" href="#__codelineno-5-60"></a>    subgraph genome_statistics [Genome QC]
+<a id="__codelineno-5-61" name="__codelineno-5-61" href="#__codelineno-5-61"></a>        %%metro entry: left | assemblies
+<a id="__codelineno-5-62" name="__codelineno-5-62" href="#__codelineno-5-62"></a>        asmstats[asmstats]
+<a id="__codelineno-5-63" name="__codelineno-5-63" href="#__codelineno-5-63"></a>        gfastats[GFAStats]
+<a id="__codelineno-5-64" name="__codelineno-5-64" href="#__codelineno-5-64"></a>        busco[BUSCO]
+<a id="__codelineno-5-65" name="__codelineno-5-65" href="#__codelineno-5-65"></a>        merquryfk[MerquryFK]
+<a id="__codelineno-5-66" name="__codelineno-5-66" href="#__codelineno-5-66"></a>        asmstats --&gt;|assemblies| gfastats
+<a id="__codelineno-5-67" name="__codelineno-5-67" href="#__codelineno-5-67"></a>        asmstats --&gt;|assemblies| busco
+<a id="__codelineno-5-68" name="__codelineno-5-68" href="#__codelineno-5-68"></a>        asmstats --&gt;|assemblies| merquryfk
+<a id="__codelineno-5-69" name="__codelineno-5-69" href="#__codelineno-5-69"></a>    end
+<a id="__codelineno-5-70" name="__codelineno-5-70" href="#__codelineno-5-70"></a>
+<a id="__codelineno-5-71" name="__codelineno-5-71" href="#__codelineno-5-71"></a>    %% Inter-section edges
+<a id="__codelineno-5-72" name="__codelineno-5-72" href="#__codelineno-5-72"></a>    hifiasm --&gt;|assemblies,long_reads| purging_minimap2
+<a id="__codelineno-5-73" name="__codelineno-5-73" href="#__codelineno-5-73"></a>    hifiasm --&gt;|hic_reads| scaffolding_bwamem2
+<a id="__codelineno-5-74" name="__codelineno-5-74" href="#__codelineno-5-74"></a>    hifiasm --&gt;|hic_reads| scaffolding_minimap2
+<a id="__codelineno-5-75" name="__codelineno-5-75" href="#__codelineno-5-75"></a>    hifiasm --&gt;|assemblies| longranger
+<a id="__codelineno-5-76" name="__codelineno-5-76" href="#__codelineno-5-76"></a>    hifiasm --&gt;|assemblies| scaffolding_bwamem2
+<a id="__codelineno-5-77" name="__codelineno-5-77" href="#__codelineno-5-77"></a>    hifiasm --&gt;|assemblies| scaffolding_minimap2
+<a id="__codelineno-5-78" name="__codelineno-5-78" href="#__codelineno-5-78"></a>    purge_dups --&gt;|assemblies| longranger
+<a id="__codelineno-5-79" name="__codelineno-5-79" href="#__codelineno-5-79"></a>    purge_dups --&gt;|assemblies| scaffolding_bwamem2
+<a id="__codelineno-5-80" name="__codelineno-5-80" href="#__codelineno-5-80"></a>    purge_dups --&gt;|assemblies| scaffolding_minimap2
+<a id="__codelineno-5-81" name="__codelineno-5-81" href="#__codelineno-5-81"></a>    freebayes --&gt;|assemblies| scaffolding_bwamem2
+<a id="__codelineno-5-82" name="__codelineno-5-82" href="#__codelineno-5-82"></a>    freebayes --&gt;|assemblies| scaffolding_minimap2
+<a id="__codelineno-5-83" name="__codelineno-5-83" href="#__codelineno-5-83"></a>    hifiasm --&gt;|assemblies| asmstats
+<a id="__codelineno-5-84" name="__codelineno-5-84" href="#__codelineno-5-84"></a>    purge_dups --&gt;|assemblies| asmstats
+<a id="__codelineno-5-85" name="__codelineno-5-85" href="#__codelineno-5-85"></a>    freebayes --&gt;|assemblies| asmstats
+<a id="__codelineno-5-86" name="__codelineno-5-86" href="#__codelineno-5-86"></a>    yahs --&gt;|assemblies| asmstats
+</code></pre></div>
+</details>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "navigation.sections", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
