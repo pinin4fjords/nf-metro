@@ -1,0 +1,40 @@
+%%metro title: Symmetric join on an exit port
+%%metro diamond_style: symmetric
+%%metro line: main | Main | #e6007e
+%%metro file: report_out | HTML | Report
+
+graph LR
+    subgraph up [Upstream]
+        %%metro exit: right | main
+        u1[Dedup]
+        u2[Sort]
+        u1 -->|main| u2
+    end
+
+    subgraph psite [P-site identification]
+        %%metro entry: left | main
+        %%metro exit: right | main
+        ribowaltz[riboWaltz]
+        plastid_psite[plastid P-site]
+        plastid_wiggle[plastid Wiggle]
+        psite_counts[P-site counts]
+        quantify[Quantify ORF P-sites]
+
+        ribowaltz -->|main| report_out
+        plastid_psite -->|main| plastid_wiggle
+        plastid_wiggle -->|main| psite_counts
+        plastid_wiggle -->|main| quantify
+    end
+
+    subgraph te [Translational efficiency]
+        %%metro entry: left | main
+        te_prep[Prep TE counts]
+        anota[anota2seq]
+        te_prep -->|main| anota
+    end
+
+    u2 -->|main| ribowaltz
+    u2 -->|main| plastid_psite
+    u2 -->|main| quantify
+    psite_counts -->|main| te_prep
+    quantify -->|main| anota

@@ -952,10 +952,16 @@ in pipeline order.
 - **Purpose**: Re-fan full-bundle columns around the row's final trunk
   Y (Stage 4.10 used the local port Y which may now be stale).
   Gated on `center_ports`.
-- **Helper**: `_recenter_full_bundle_columns`.
+- **Helper**: `_recenter_full_bundle_columns`, then the port-seating pair
+  `_center_lr_entry_ports_on_fork` / `_center_lr_exit_ports_on_join`, which
+  seat a flow-aligned port on the centreline of the two-way fork it feeds or
+  the two-way join that feeds it. A port already level with one of those
+  branches is left there: that is a dead-end fan's legitimate seat, where the
+  branch's track is the trunk the inter-section run continues along.
 - **Precondition**: Final inter-section trunk Y known (post-snap).
 - **Postcondition**: Full-bundle columns are symmetric around the
-  row's final trunk Y.
+  row's final trunk Y; a flow-aligned port bounding a two-way fork or join
+  sits on one of its branches' tracks or on their midpoint.
 - **Invariants preserved**: Off-track Y anchoring (re-established by
   Stage 6.8) and bbox-top alignment (re-established by Stage 6.9)
   are temporarily broken; both are restored before leaving the

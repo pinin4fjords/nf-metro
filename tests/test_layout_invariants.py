@@ -52,6 +52,7 @@ from nf_metro.layout.engine import (
 from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_y,
+    perpendicular_port_sides,
     segment_intersects_bbox,
 )
 from nf_metro.layout.labels import (
@@ -10014,6 +10015,86 @@ def test_symmetric_reconverging_diamond_entry_port_centres_on_fork(fixture):
             )
         checked += 1
     assert checked, f"{fixture}: no entry-port fork found to check"
+
+
+def _exit_port_joins(graph: MetroGraph) -> list[tuple[Station, Station, Station]]:
+    """Yield ``(exit_port, feeder_lo, feeder_hi)`` for each two-way join on a
+    flow-aligned exit port.
+
+    The exit-side mirror of :func:`_direct_fork_children`.  Requiring the port
+    to be each feeder's only successor keeps it the point where the whole
+    bundle reunites, so no onward in-section track has a competing claim on
+    the feeders' Ys.
+    """
+    succ: dict[str, set[str]] = defaultdict(set)
+    pred: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges:
+        if edge.source in graph.stations and edge.target in graph.stations:
+            succ[edge.source].add(edge.target)
+            pred[edge.target].add(edge.source)
+    triples: list[tuple[Station, Station, Station]] = []
+    for section in graph.sections.values():
+        direction = section.direction or "LR"
+        if not lanes_run_along_y(direction):
+            continue
+        perpendicular = perpendicular_port_sides(direction)
+        for pid in section.exit_ports:
+            port = graph.ports.get(pid)
+            if port is None or port.side in perpendicular:
+                continue
+            feeders = sorted(
+                f
+                for f in pred[pid]
+                if not (s := graph.stations[f]).is_port
+                and not s.is_hidden
+                and not s.off_track
+            )
+            if len(feeders) != 2 or any(succ[f] != {pid} for f in feeders):
+                continue
+            lo, hi = sorted(
+                (graph.stations[feeders[0]], graph.stations[feeders[1]]),
+                key=lambda s: s.y,
+            )
+            triples.append((graph.stations[pid], lo, hi))
+    return triples
+
+
+_SYMMETRIC_EXIT_JOIN_FIXTURES = [
+    "topologies/symmetric_join_exit_port_centre.mmd",
+    "topologies/internal_source_equal_sibling_2fan.mmd",
+    "topologies/near_edge_exit_corner.mmd",
+    "topologies/section_trunk_short_output_branch.mmd",
+]
+
+
+@pytest.mark.parametrize("fixture", _SYMMETRIC_EXIT_JOIN_FIXTURES)
+def test_symmetric_exit_port_join_seats_on_a_feeder_or_the_centreline(fixture):
+    """A two-way join seats its exit port on a feeder's track or their midpoint.
+
+    Two branches whose only successor is the section's flow-aligned exit port
+    reunite at that port, so it carries the centreline role a join station
+    carries for an in-section reconvergence.  Either seat reads as deliberate:
+    on a feeder's track the run continues along the trunk that branch defines,
+    and on the midpoint the diamond closes symmetrically about the outgoing
+    bundle.
+
+    A third position -- level with neither feeder and off their midpoint --
+    reads as an unexplained step, and both legs kink to reach it.  That is what
+    a section holding half-pitch branch offsets produces when nothing seats the
+    port onto the frame its feeders adopted.
+    """
+    graph = _layout_diamond(fixture, "symmetric")
+    checked = 0
+    for port, lo, hi in _exit_port_joins(graph):
+        midpoint = (lo.y + hi.y) / 2.0
+        seats = (lo.y, hi.y, midpoint)
+        assert min(abs(port.y - seat) for seat in seats) < 1.0, (
+            f"{fixture}: exit port {port.id!r} sits at y={port.y:.1f}, level with "
+            f"neither feeder ({lo.id!r} y={lo.y:.1f}, {hi.id!r} y={hi.y:.1f}) nor "
+            f"their midpoint y={midpoint:.1f} -- both legs kink to reach it"
+        )
+        checked += 1
+    assert checked, f"{fixture}: no two-way exit-port join found to check"
 
 
 def _interior_fan_branches(graph: MetroGraph) -> list[tuple[str, str, str]]:

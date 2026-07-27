@@ -131,6 +131,7 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/symmetric_deadend_fanout_deep": frozenset({"4.7"}),
     "topologies/symmetric_deadend_fanout_exit": frozenset({"4.7"}),
     "topologies/symmetric_deadend_fanout_relay": frozenset({"4.7"}),
+    "topologies/symmetric_join_exit_port_centre": frozenset({"4.7"}),
     "topologies/tb_off_track_inputs": frozenset({"6.6"}),
     "topologies/terminal_symmetric_fan": frozenset({"4.7"}),
     "topologies/trunk_through_fan": frozenset({"4.7"}),
