@@ -9966,7 +9966,7 @@ def test_symmetric_fork_entry_port_stays_on_feeder_trunk(fixture):
 
 _SYMMETRIC_RECONVERGING_DIAMOND_FIXTURES = [
     "topologies/symmetric_diamond_odd_slot_entry.mmd",
-    "topologies/tn_wes_input_fan_somatic_tree.mmd",
+    "topologies/paired_input_fan_branch_tree.mmd",
     "topologies/rowmate_tb_side_entry_top_align.mmd",
 ]
 
@@ -10203,3 +10203,49 @@ graph LR
     assert _choose_wrap_offender([marker_overlap], by_id, wrappable, graph) == "ta", (
         "a TB label stays eligible for narrowing when it overlaps a marker"
     )
+
+
+# ---------------------------------------------------------------------------
+# Half-pitch placement is only legal as a straddling pair
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_half_grid_stations_straddle_in_pairs(fixture):
+    """A station sitting half a pitch off the trunk must have a partner
+    mirrored across it.
+
+    The half-pitch idiom draws a two-way symmetric fork as one compact grid
+    unit, so both members are placed at ``anchor +/- 0.5 * pitch`` together and
+    a lone member's offset balances nothing.
+    ``_align_terminus_to_upstream`` can pull a terminus member onto its
+    producer's trunk Y, leaving its partner alone at half pitch.
+
+    Shares ``_half_grid_frame`` / ``_straddles_nothing`` with the expansion
+    pass, so the oracle and the fix cannot disagree on which stations are
+    legitimately half-pitch.
+    """
+    from nf_metro.layout.phases.fan_bundles import (
+        _half_grid_frame,
+        _section_occupants,
+        _straddles_nothing,
+    )
+
+    y_spacing = 55.0
+    graph = _layout(fixture, y_spacing=y_spacing)
+
+    for section in graph.sections.values():
+        frame = _half_grid_frame(graph, section, y_spacing)
+        if frame is None:
+            continue
+        anchor, pitch = frame
+        occupants = _section_occupants(graph, section)
+        for st in occupants:
+            if st.off_track:
+                continue
+            assert not _straddles_nothing(st, anchor, pitch, occupants), (
+                f"{fixture}: station {st.id!r} in section {section.id!r} sits at "
+                f"y={st.y:.1f}, half a pitch ({0.5 * pitch:.1f}) off the trunk "
+                f"anchor y={anchor:.1f}, with nothing at the mirrored slot "
+                f"y={2 * anchor - st.y:.1f} to straddle it"
+            )

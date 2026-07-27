@@ -1833,13 +1833,13 @@ gallery:
       station. The output's branch peels off between the two rather than
       overrunning the successor's column, so the icon clears the downstream
       stations and their labels."
-  - id: tn_wes_input_fan_somatic_tree
+  - id: paired_input_fan_branch_tree
     source_dir: examples/topologies
     category: Feature Showcase
     description:
-      "A tumour/normal WES map: the input source fans to two CRAM->BAM
-      converters and threads the germline+tumour bundle cleanly between them to
-      the somatic caller, whose dead-end VCF outputs peel off without crowding
+      "A paired-input map: the source fans to two stacked converters and
+      threads the two-track bundle cleanly between them to the branch tree,
+      whose dead-end outputs peel off onto full grid rows without crowding
       their neighbours."
   - id: single_line_dual_source_stacked_exit
     source_dir: examples/topologies
