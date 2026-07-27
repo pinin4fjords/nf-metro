@@ -1253,10 +1253,12 @@ def _center_lr_exit_ports_on_join(graph: MetroGraph) -> None:
     section layout gave it -- or, when the branches hold half-pitch offsets,
     a track belonging to neither -- and both legs kink to reach it.
 
-    A port already level with one of its feeders is left alone: that is the
-    dead-end fan's legitimate seat, where the feeder's track *is* the trunk the
-    inter-section run continues along, and centring it would drag that run off
-    the row for no gain.
+    Only a port seated *outside* its two feeders' span is moved.  There both
+    legs leave the join turning the same way to reach it, so the port reads as
+    an unexplained step above (or below) the whole join.  A port between its
+    feeders is already straddled by them, and nudging it to the exact midpoint
+    would trade a flat inter-section run for a step down onto the port and a
+    step back up off it -- two direction changes bought with one.
     """
     if graph.diamond_style != "symmetric":
         return
@@ -1272,13 +1274,11 @@ def _center_lr_exit_ports_on_join(graph: MetroGraph) -> None:
             feeders = _exit_join_feeders(graph, section, pid)
             if feeders is None:
                 continue
-            feeder_ys = sorted(graph.stations[f].y for f in feeders)
+            low, high = sorted(graph.stations[f].y for f in feeders)
             port_y = graph.stations[pid].y
-            if any(abs(port_y - fy) < 1.0 for fy in feeder_ys):
+            if low - 1.0 <= port_y <= high + 1.0:
                 continue
-            midpoint = (feeder_ys[0] + feeder_ys[1]) / 2.0
-            if abs(port_y - midpoint) >= 1.0:
-                _set_port_y(graph, pid, midpoint)
+            _set_port_y(graph, pid, (low + high) / 2.0)
 
 
 def _exit_join_feeders(
