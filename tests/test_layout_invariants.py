@@ -52,6 +52,7 @@ from nf_metro.layout.engine import (
 from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_y,
+    perpendicular_port_sides,
     segment_intersects_bbox,
 )
 from nf_metro.layout.labels import (
@@ -10014,6 +10015,82 @@ def test_symmetric_reconverging_diamond_entry_port_centres_on_fork(fixture):
             )
         checked += 1
     assert checked, f"{fixture}: no entry-port fork found to check"
+
+
+def _exit_port_joins(graph: MetroGraph) -> list[tuple[Station, Station, Station]]:
+    """Yield ``(exit_port, feeder_lo, feeder_hi)`` for each two-way join on a
+    flow-aligned exit port.
+
+    The exit-side mirror of :func:`_direct_fork_children`.  Requiring the port
+    to be each feeder's only successor keeps it the point where the whole
+    bundle reunites, so no onward in-section track has a competing claim on
+    the feeders' Ys.
+    """
+    succ: dict[str, set[str]] = defaultdict(set)
+    pred: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges:
+        if edge.source in graph.stations and edge.target in graph.stations:
+            succ[edge.source].add(edge.target)
+            pred[edge.target].add(edge.source)
+    triples: list[tuple[Station, Station, Station]] = []
+    for section in graph.sections.values():
+        direction = section.direction or "LR"
+        if not lanes_run_along_y(direction):
+            continue
+        perpendicular = perpendicular_port_sides(direction)
+        for pid in section.exit_ports:
+            port = graph.ports.get(pid)
+            if port is None or port.side in perpendicular:
+                continue
+            feeders = sorted(
+                f
+                for f in pred[pid]
+                if not (s := graph.stations[f]).is_port
+                and not s.is_hidden
+                and not s.off_track
+            )
+            if len(feeders) != 2 or any(succ[f] != {pid} for f in feeders):
+                continue
+            lo, hi = sorted(
+                (graph.stations[feeders[0]], graph.stations[feeders[1]]),
+                key=lambda s: s.y,
+            )
+            triples.append((graph.stations[pid], lo, hi))
+    return triples
+
+
+_SYMMETRIC_EXIT_JOIN_FIXTURES = [
+    "topologies/symmetric_join_exit_port_centre.mmd",
+    "topologies/internal_source_equal_sibling_2fan.mmd",
+    "topologies/near_edge_exit_corner.mmd",
+    "topologies/section_trunk_short_output_branch.mmd",
+]
+
+
+@pytest.mark.parametrize("fixture", _SYMMETRIC_EXIT_JOIN_FIXTURES)
+def test_symmetric_exit_port_join_stays_within_its_feeders_span(fixture):
+    """A two-way join keeps its exit port between the two branches feeding it.
+
+    Two branches whose only successor is the section's flow-aligned exit port
+    reunite at that port.  Seated between them the port is straddled, so one
+    leg descends onto it and the other climbs, which is what a join looks like.
+    Seated outside their span it reads as an unexplained step above (or below)
+    the whole join, and both legs leave turning the same way to reach it.
+
+    Being *between* the feeders is the property enforced, not being exactly on
+    their midpoint: a port already straddled sits on a flat inter-section run
+    worth more than the last few pixels of leg symmetry.
+    """
+    graph = _layout_diamond(fixture, "symmetric")
+    checked = 0
+    for port, lo, hi in _exit_port_joins(graph):
+        assert lo.y - 1.0 <= port.y <= hi.y + 1.0, (
+            f"{fixture}: exit port {port.id!r} sits at y={port.y:.1f}, outside the "
+            f"span of the feeders that reunite there ({lo.id!r} y={lo.y:.1f}, "
+            f"{hi.id!r} y={hi.y:.1f}) -- both legs turn the same way to reach it"
+        )
+        checked += 1
+    assert checked, f"{fixture}: no two-way exit-port join found to check"
 
 
 def _interior_fan_branches(graph: MetroGraph) -> list[tuple[str, str, str]]:

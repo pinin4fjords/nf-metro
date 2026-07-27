@@ -390,6 +390,15 @@ gallery:
       "The same symmetric 2-way fan-out where one branch leaves the section via an exit
       port instead of dead-ending.  The dead-end coverage branch stays fanned to the end,
       while the exiting branch falls back to the trunk to meet its exit port (#1299)."
+  - id: symmetric_join_exit_port_centre
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      "A symmetric 2-way diamond that reunites at the section's exit port rather than
+      at an in-section join.  The port rides the branches' centreline, so the diamond
+      closes symmetrically and the run into the next section leaves straight; the
+      section's entry and exit ports share one centreline (#1573).  The riboWaltz
+      report icon sitting a row above its producer is #1572."
   - id: side_branch_ascent_label_strike
     source_dir: examples/topologies
     category: Fan-out and Fan-in
