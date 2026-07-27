@@ -587,22 +587,44 @@ _TRAILING_SIDE = {
     "TB": PortSide.BOTTOM,
     "BT": PortSide.TOP,
 }
-_FLIP_HORIZONTAL = {"LR": "RL", "RL": "LR"}
+# Horizontal flows only: a vertical reversal re-seats the trailing exit on the
+# far edge, and the route out of it wraps around the section and back through
+# its target's interior, which the re-anchor remedy avoids.
+_HORIZONTAL_FLOW_REVERSAL = {"LR": "RL", "RL": "LR"}
 
 
-def _connecting_flow_side(near: Section, far: Section) -> PortSide | None:
-    """The flow-axis side ``far`` sits on relative to ``near``.
+def _flow_axis_is_x(direction: str) -> bool:
+    """Whether *direction* runs its flow along X (LR/RL) rather than Y (TB/BT)."""
+    from nf_metro.layout.geometry import AxisFrame
 
-    ``LEFT``/``RIGHT`` for a horizontal ``near`` (by grid column), ``TOP``/
+    return AxisFrame.axes_for_direction(direction)[0] == "x"
+
+
+def _connecting_flow_side(
+    graph: MetroGraph, near_id: str, far_id: str
+) -> PortSide | None:
+    """The flow-axis side ``far_id`` sits on relative to ``near_id``.
+
+    ``LEFT``/``RIGHT`` for a horizontal ``near_id`` (by grid column), ``TOP``/
     ``BOTTOM`` for a vertical one (by grid row); ``None`` when the two share the
     axis coordinate, so neither side is implied.
+
+    Reads positions through :func:`_effective_grid_pos`: an explicit
+    ``%%metro grid:`` directive lands in ``graph.grid_overrides`` at parse
+    time, and only reaches ``Section.grid_col``/``grid_row`` later, in
+    section placement, so this stage must not read those fields directly.
     """
-    if near.direction in _FLIP_HORIZONTAL:
+    from nf_metro.layout.auto_layout import _effective_grid_pos
+
+    near = graph.sections[near_id]
+    near_col, near_row, *_ = _effective_grid_pos(graph, near_id)
+    far_col, far_row, *_ = _effective_grid_pos(graph, far_id)
+    if _flow_axis_is_x(near.direction):
         low, high = PortSide.LEFT, PortSide.RIGHT
-        near_pos, far_pos = near.grid_col, far.grid_col
+        near_pos, far_pos = near_col, far_col
     else:
         low, high = PortSide.TOP, PortSide.BOTTOM
-        near_pos, far_pos = near.grid_row, far.grid_row
+        near_pos, far_pos = near_row, far_row
     if far_pos < near_pos:
         return low
     if far_pos > near_pos:
@@ -710,7 +732,7 @@ def _reside_folded_flow_ports_to_grid(
 
     for sec_id in relocated:
         section = graph.sections[sec_id]
-        if section.direction not in _FLIP_HORIZONTAL:  # LR/RL carry flow on x
+        if not _flow_axis_is_x(section.direction):
             continue
         col = section.grid_col
         for hints, cols_by_line, is_entry in (
@@ -767,16 +789,12 @@ def _reanchor_flow_axis_ports(
         if tgt_sec:
             consumers[tgt_sec][e.line_id].add(e.target)
             if src_sec:
-                side = _connecting_flow_side(
-                    graph.sections[tgt_sec], graph.sections[src_sec]
-                )
+                side = _connecting_flow_side(graph, tgt_sec, src_sec)
                 consumer_sides[tgt_sec][e.line_id][e.target].add(side)
         if src_sec:
             producers[src_sec][e.line_id].add(e.source)
             if tgt_sec:
-                side = _connecting_flow_side(
-                    graph.sections[src_sec], graph.sections[tgt_sec]
-                )
+                side = _connecting_flow_side(graph, src_sec, tgt_sec)
                 producer_sides[src_sec][e.line_id][e.source].add(side)
 
     for sec_id, section in graph.sections.items():
@@ -839,11 +857,11 @@ def _reanchor_flow_axis_ports(
         # double back) becomes a with-flow port once flipped, so it does not
         # block re-orientation.
         if (
-            section.direction in _FLIP_HORIZONTAL
+            section.direction in _HORIZONTAL_FLOW_REVERSAL
             and sec_id not in graph._explicit_directions
             and not with_flow
         ):
-            new_dir = _FLIP_HORIZONTAL[section.direction]
+            new_dir = _HORIZONTAL_FLOW_REVERSAL[section.direction]
             warnings.warn(
                 f"Section '{sec_id}': flow re-oriented {section.direction}->"
                 f"{new_dir} so its declared port faces its connecting section "
