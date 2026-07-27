@@ -76,9 +76,10 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
 )
 from nf_metro.layout.routing.context import (
+    HopEnd,
     _get_offset,
     _has_intervening_sections,
-    _intervening_section_obstructs,
+    _hop_needs_bypass,
     _resolve_section_col,
     _resolve_section_colrow,
     _resolve_section_row,
@@ -95,7 +96,6 @@ from nf_metro.layout.routing.normalize import (
     _clear_channel_x_in_band,
     _gap_channel_base,
     _h_segment_crosses_other_section,
-    _h_segment_penetrates_section,
     _v_segment_crosses_other_section,
 )
 from nf_metro.layout.routing.perp import (
@@ -334,16 +334,18 @@ class _InterFacts:
 
     @property
     def is_merge_branch(self) -> bool:
-        """Source is a non-trunk feeder of a merge junction that has a trunk.
+        """Source is a feeder classified onto its merge trunk's bypass channel.
 
-        Every feeder of a merge with a trunk joins the trunk's bypass channel
-        as a branch so the converging line stays a single stroke; only the
-        trunk carries the full route to the entry port.  A feeder that does not
-        individually need a bypass would otherwise route straight into the entry
-        on its own lateral slot and draw as a second parallel stroke.
+        Only the trunk carries the full route to the entry port; a branch stops
+        on the trunk's channel so the converging line stays a single stroke.
+        ``_classify_merge_edges`` owns the choice, since the merge -> entry hop
+        it keeps or drops has to agree with which feeders end short.
         """
-        trunk = self.ctx.merge.trunk_source.get(self.edge.target)
-        return trunk is not None and trunk != self.edge.source
+        return (
+            self.edge.source,
+            self.edge.target,
+            self.edge.line_id,
+        ) in self.ctx.merge.branch_edges
 
     @property
     def is_near_vertical_same_col_junction(self) -> bool:
@@ -414,76 +416,14 @@ class _InterFacts:
         )
 
 
-def _packed_cell_mate_obstructs(
-    graph: MetroGraph,
-    src: Station,
-    tgt: Station,
-    src_row: int | None,
-    tgt_row: int | None,
-) -> bool:
-    """Whether a genuine packed cell-mate of *src*'s or *tgt*'s own section
-    sits on the source row's straight path between them.
-
-    ``_has_intervening_sections`` only sees columns strictly between the
-    endpoints' grid columns. A packed cell (``%%metro grid: a, b | col,row``)
-    can place more than one section in a boundary column itself, so a
-    cell-mate of the route's own endpoint can sit geometrically between the
-    two ports without ever showing up as an "intervening" column - including
-    when the target sits in a row below, since the default L-shape's first
-    leg runs the source row's full width before it turns.
-
-    Scoped to actual ``graph.cell_packs`` membership (not "any section the
-    segment happens to cross"): a same-row section that isn't declared
-    alongside *src*'s or *tgt*'s section is someone else's problem (the
-    intervening-column or entry-side handlers already cover that ground) and
-    forcing it through the bypass family here would just as easily plow it
-    into a *different* box on the source-row leg.
-    """
-    if src_row is None or tgt_row is None or not graph.cell_packs:
-        return False
-    src_sec = resolve_section(graph, src, prefer_upstream=False)
-    tgt_sec = resolve_section(graph, tgt, prefer_upstream=False)
-    exclude = {sec.id for sec in (src_sec, tgt_sec) if sec is not None}
-    cellmates: set[str] = set()
-    for sec in (src_sec, tgt_sec):
-        if sec is None:
-            continue
-        for member_id in graph.cell_packs.get((sec.grid_col, sec.grid_row), ()):
-            if member_id not in exclude:
-                cellmates.add(member_id)
-    lo_x, hi_x = (src.x, tgt.x) if src.x <= tgt.x else (tgt.x, src.x)
-    return any(
-        (mate := graph.sections.get(mate_id)) is not None
-        and _h_segment_penetrates_section(lo_x, hi_x, src.y, mate)
-        for mate_id in cellmates
-    )
-
-
 def _build_inter_facts(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> _InterFacts:
     graph = ctx.graph
     src_col, src_row = _resolve_section_colrow(graph, src)
     tgt_col, tgt_row = _resolve_section_colrow(graph, tgt)
-    # Two independent triggers force a bypass: a multi-column hop blocked by an
-    # intervening section, or a packed cell-mate of either endpoint sitting on
-    # the source row's straight path. The latter is independent of the column
-    # gap - a cell-mate can obstruct even an adjacent-column hop where it never
-    # registers as an intervening column, and whether the target is same-row or
-    # a row below, since the L-shape's first leg spans the full source row
-    # before turning (see _packed_cell_mate_obstructs).
-    cellmate_blocks_source_row = (
-        src_col is not None
-        and tgt_col is not None
-        and _packed_cell_mate_obstructs(graph, src, tgt, src_row, tgt_row)
-    )
-    needs_bypass = (
-        src_col is not None
-        and tgt_col is not None
-        and (
-            _intervening_section_obstructs(graph, src_col, src_row, tgt_col, tgt_row)
-            or cellmate_blocks_source_row
-        )
+    bypass = _hop_needs_bypass(
+        graph, HopEnd(src, src_col, src_row), HopEnd(tgt, tgt_col, tgt_row)
     )
     ep_id = ctx.merge.entry_port_for.get(edge.target)
     i, n = ctx.bundle_info.get((edge.source, edge.target, edge.line_id), (0, 1))
@@ -504,8 +444,8 @@ def _build_inter_facts(
         src_row=src_row,
         tgt_col=tgt_col,
         tgt_row=tgt_row,
-        needs_bypass=needs_bypass,
-        cellmate_blocks_source_row=cellmate_blocks_source_row,
+        needs_bypass=bypass.needed,
+        cellmate_blocks_source_row=bypass.cellmate_blocks_source_row,
         merge_ep=graph.stations.get(ep_id) if ep_id else None,
     )
 
