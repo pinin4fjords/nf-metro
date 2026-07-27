@@ -1139,24 +1139,56 @@ def _align_symfan_section_to_row_feeder(graph: MetroGraph) -> None:
         shift_section(graph, section, dy=delta)
 
 
+def _entry_fork_join(
+    graph: MetroGraph, section: Section, branches: list[str]
+) -> Station | None:
+    """The station a port-fed two-way fork cleanly reconverges at, or None.
+
+    The port-fork counterpart of :func:`_iter_fork_join_diamonds`, which admits
+    only station forks.  Requiring the two branches to be the join's *only*
+    feeders keeps it the point where the whole bundle reunites, so no third
+    feeder has a competing claim on its Y.
+    """
+    if len(branches) != 2:
+        return None
+    succs = [_in_section_ontrack_successors(graph, section, b) for b in branches]
+    if succs[0] != succs[1] or len(succs[0]) != 1:
+        return None
+    join_id = succs[0][0]
+    feeders = {
+        e.source
+        for e in graph.edges_to(join_id)
+        if _is_in_section_on_track(graph.station_for_edge_source(e), section.id)
+    }
+    if feeders != set(branches):
+        return None
+    return graph.stations[join_id]
+
+
 def _center_lr_entry_ports_on_fork(graph: MetroGraph, y_spacing: float) -> None:
-    """Centre an LR entry port on the two-way fork it fans into.
+    """Centre an LR entry port, and the join it reconverges at, on its two-way fork.
 
     Under ``diamond_style: symmetric`` a section's LR entry port that fans into
     branches at exactly two distinct Ys should sit at their midpoint, so the
     fork reads symmetric about the incoming bundle and the run from the feeding
     section arrives straight.  Otherwise the port stays pinned to whichever
     branch the section layout seated it on (e.g. the top branch of a
-    reconverging diamond), leaving the inter-section run kinked.  Only the port
-    moves; the branch stations keep their places.
+    reconverging diamond), leaving the inter-section run kinked.
+
+    When the fork reconverges at a clean in-section join, that join and its
+    linear trunk continuation ride the same midpoint centreline, so the diamond
+    closes symmetrically and the trunk leaves it straight.  A station fork gets
+    this for free -- the join inherits the fork's own trunk track -- but a port
+    fork has no station on the centreline to inherit from, so the join would
+    otherwise stay on the track of whichever branch fed it first, turning the
+    diamond into a lopsided fan.  The branch stations themselves keep their
+    places either way.
 
     An off-grid midpoint (branches an odd number of slots apart) is only a
-    valid seat when the fork reconverges at an in-section join: that join
-    already sits at the midpoint, so the port matches it and the exit fork it
-    mirrors.  A non-reconverging dead-end fan instead keeps its port on the
-    feeder trunk with the branches straddling half a slot either side, so
-    seating the port on the off-grid midpoint there would drag the row's trunk
-    off the inter-section run.
+    valid seat when the fork reconverges: a non-reconverging dead-end fan
+    instead keeps its port on the feeder trunk with the branches straddling
+    half a slot either side, so seating the port on the off-grid midpoint there
+    would drag the row's trunk off the inter-section run.
     """
     if graph.diamond_style != "symmetric":
         return
@@ -1181,10 +1213,17 @@ def _center_lr_entry_ports_on_fork(graph: MetroGraph, y_spacing: float) -> None:
             midpoint = (branch_ys[0] + branch_ys[1]) / 2.0
             if abs(graph.stations[pid].y - midpoint) >= 1.0:
                 _set_port_y(graph, pid, midpoint)
+            join = _entry_fork_join(graph, section, branches)
+            if join is not None and abs(join.y - midpoint) >= 1.0:
+                join.y = midpoint
+                _pull_continuation_onto(graph, section, join)
             if off_grid:
-                # The port (and the diamond spine it feeds) rides the off-grid
-                # midpoint centreline, like the join it reconverges at, so the
-                # grid snap must treat it as half-grid, not re-seat it on a row.
+                # The port rides the off-grid midpoint centreline, so the grid
+                # snap must treat it as half-grid, not re-seat it on a row.  The
+                # spine it feeds is deliberately left out: the snap runs earlier
+                # in the pipeline, so entries here would reach it only on a
+                # subsequent layout pass, where a whole spine of them would
+                # outvote the branch rows for the group's grid origin.
                 graph.half_grid_station_ids.add(pid)
 
 
