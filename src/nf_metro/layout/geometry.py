@@ -278,6 +278,28 @@ def lanes_run_along_x(direction: str) -> bool:
     return AxisFrame.axes_for_direction(direction)[1] == "x"
 
 
+def box_growth_sign(direction: str, axis: str) -> float:
+    """Which way a section's box extent grows along *axis* from its anchored edge.
+
+    ``+1`` when the extent grows toward larger coordinates, so the box is
+    anchored on the axis minimum (its left or top edge); ``-1`` when it grows the
+    other way, anchoring the box on the axis maximum.  A section's content
+    marches along its flow axis and fans across its lane axis, so the answer is
+    whichever of the two signs *axis* carries for *direction*:
+    :meth:`AxisFrame.flow_sign` along the flow axis,
+    :meth:`AxisFrame.secondary_sign_for` across it.
+
+    On X this distinguishes the four flows by the two independent reasons a box
+    can grow leftward: RL because its flow runs that way, TB because its lanes
+    fan that way.  BT shares neither, so it is anchored left by the same rule
+    rather than by falling through to a default.
+    """
+    primary, _secondary = AxisFrame.axes_for_direction(direction)
+    if axis == primary:
+        return AxisFrame.flow_sign(direction)
+    return AxisFrame.secondary_sign_for(direction)
+
+
 def perpendicular_port_sides(direction: str) -> tuple[PortSide, PortSide]:
     """The two port sides that run perpendicular to *direction*'s flow.
 
