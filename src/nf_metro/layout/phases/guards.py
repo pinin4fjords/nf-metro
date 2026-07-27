@@ -48,6 +48,7 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
+    _column_contiguous_row_groups,
     _restoring_layout_geometry,
     _route_crosses_section_boundary,
     _section_bundle_lines,
@@ -68,14 +69,18 @@ from nf_metro.layout.phases._common import (
     port_bundle_edge_reach,
     routes_through_own_section_interior,
     routes_through_unrelated_sections,
+    section_anchor_edge,
     section_axes,
     section_cross_axis,
     wrap_exit_carrier_anchor,
 )
 from nf_metro.layout.phases.bbox import (
+    COLUMN_ANCHOR_SIGNS,
+    _column_neighbour_anchor_limit,
     _min_drawn_section_bbox_top,
     _predict_section_content_bottom,
     _section_fit_top,
+    _shared_anchor_runway_runs,
 )
 from nf_metro.layout.phases.off_track import (
     _is_single_trunk_section,
@@ -726,6 +731,62 @@ def _guard_side_entered_vertical_top_not_below_feeder(
                 f"{section.bbox_y - neighbour.bbox_y:.1f}px below its feeder "
                 f"row-mate {neighbour.id!r} (top y={neighbour.bbox_y:.1f})"
             )
+
+
+class _ShortAnchorEdge(NamedTuple):
+    """A column-run member whose anchored edge falls short of the run's."""
+
+    section: Section
+    sign: float
+    here: float
+    target: float
+    shortfall: float
+    run: tuple[Section, ...]
+
+
+def _column_run_anchor_shortfalls(graph: MetroGraph) -> Iterator[_ShortAnchorEdge]:
+    """Yield column-run members short of the anchored edge their run shares.
+
+    Within a contiguous run of rows in one grid column whose members' content
+    nearest an X edge stands at one X (:func:`...bbox._shared_anchor_runway_runs`)
+    that edge is common, so a box short of it is a member the seating or the
+    Stage 3.6 levelling left behind.  A neighbour whose own row band the reach
+    would eat into is the one legitimate shortfall
+    (:func:`...bbox._column_neighbour_anchor_limit`) and is not yielded.
+    """
+    tol = SAME_COORD_TOLERANCE
+    for group in _column_contiguous_row_groups(graph):
+        for sign in COLUMN_ANCHOR_SIGNS:
+            for run in _shared_anchor_runway_runs(graph, group, sign):
+                edges = [section_anchor_edge(s, "x", sign) for s in run]
+                target = min(edges) if sign > 0 else max(edges)
+                for section in run:
+                    here = section_anchor_edge(section, "x", sign)
+                    shortfall = (target - here) * -sign
+                    if shortfall <= tol:
+                        continue
+                    limit = _column_neighbour_anchor_limit(graph, section, sign)
+                    if (here - limit) * sign <= tol:
+                        continue
+                    yield _ShortAnchorEdge(
+                        section, sign, here, target, shortfall, tuple(run)
+                    )
+
+
+def _guard_column_run_shares_its_anchored_edge(graph: MetroGraph, phase: str) -> None:
+    """Final: column mates sharing a runway meet on the edge nearest that runway.
+
+    Raises on the first shortfall :func:`_column_run_anchor_shortfalls` reports.
+    """
+    for short in _column_run_anchor_shortfalls(graph):
+        side = "left" if short.sign > 0 else "right"
+        raise PhaseInvariantError(
+            f"{phase}: section {short.section.id!r} {side} edge x={short.here:.1f} "
+            f"sits {short.shortfall:.1f}px short of the x={short.target:.1f} its "
+            f"grid column {short.section.grid_col} shares with "
+            f"{sorted(s.id for s in short.run if s is not short.section)}, with no "
+            f"neighbour corridor to explain it"
+        )
 
 
 def _guard_symmetric_diamond_branches_straddle_trunk(
@@ -5073,6 +5134,18 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     # check for validate runs rather than a render-output guard.
     GuardSpec(_guard_port_station_coords_synced, "B"),
     GuardSpec(_guard_no_section_overlap, "B"),
+    GuardSpec(
+        _guard_column_run_shares_its_anchored_edge,
+        "B",
+        issue_pin=("#1545",),
+        narrow_reason=(
+            "Scoped to contiguous column runs whose content nearest the edge "
+            "under test stands at one X, because that is the only case where the "
+            "column's boxes have a common edge to reach: a mate whose content "
+            "starts further in would trade the shared edge for an empty band, so "
+            "its own edge is correct and levelling it would be the defect."
+        ),
+    ),
     # The row trunk Y is only finalised once Stage 6.7 has re-centred
     # ``center_ports`` graphs, so this cannot bisect.
     GuardSpec(_guard_row_trunk_cy_consistent, "B", needs=frozenset({"offsets"})),
