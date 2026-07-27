@@ -6,6 +6,7 @@ import pytest
 
 from nf_metro.layout.geometry import (
     AxisFrame,
+    box_growth_sign,
     lane_delta,
     lane_delta_to_normal_offset,
     lanes_run_along_y,
@@ -151,3 +152,27 @@ def test_accessors_read_and_write_named_coordinate(direction: str) -> None:
     assert {frame.primary.name, frame.secondary.name} == {"x", "y"}
     assert getattr(station, frame.primary.name) == 5.0
     assert getattr(station, frame.secondary.name) == 7.0
+
+
+@pytest.mark.parametrize(
+    ("direction", "axis", "expected"),
+    [
+        # Along the flow axis the box grows the way the flow runs.
+        ("LR", "x", 1.0),
+        ("RL", "x", -1.0),
+        ("TB", "y", 1.0),
+        ("BT", "y", -1.0),
+        # Across it, the box grows the way the lanes fan. On X that is the two
+        # independent reasons a box can grow leftward: RL because its flow does,
+        # TB because its lanes do. BT shares neither and grows right.
+        ("LR", "y", 1.0),
+        ("RL", "y", 1.0),
+        ("TB", "x", -1.0),
+        ("BT", "x", 1.0),
+    ],
+)
+def test_box_growth_sign_covers_every_direction_and_axis(
+    direction: str, axis: str, expected: float
+) -> None:
+    """The anchor side is settled for all four flows on both axes."""
+    assert box_growth_sign(direction, axis) == expected

@@ -47,24 +47,62 @@ from nf_metro.parser.model import MetroGraph
 # A residual is excepted by the *kind* of defect behind it, so one entry covers
 # every orbit member the same defect breaks.
 KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
-    # Grid rows are aligned to a common bbox top (_top_align_row_bboxes_only,
-    # _align_row_trunk_ys, _fit_bboxes_to_content_top) with no counterpart for
-    # grid columns, so a quarter turn carries an aligned row onto an unaligned
-    # column.
+    # Whether a grid group shares a box edge is decided by a content-hug policy
+    # on both axes: a row's bbox top hugs its content (_fit_bboxes_to_content_top)
+    # and a column's box edges are levelled only across mates whose content
+    # nearest that edge stands at one X (Stage 3.6).  Hugged edges coincide only
+    # when the members' content extents happen to match, and a rotation does not
+    # carry text extents with it, so the boolean is not rotation-invariant where
+    # the hug wins over the flush.
     **{
-        (stem, "group_alignment"): "no column counterpart to row top-alignment (#1545)"
+        (stem, "group_alignment"): (
+            "hugged row tops coincide only when the row-mates' content-top "
+            "padding matches, which a quarter turn does not preserve (#1545)"
+        )
+        for stem in (
+            "bt_perp_left_entry_right_exit",
+            "lr_to_tb_top_drop_two_lines",
+            "tb_two_line_vert_seam",
+        )
+    },
+    # A column mate whose content starts at a different X is held out of the
+    # Stage 3.6 levelling, because levelling it would trade the shared edge for a
+    # widened runway spread.  The Stage 3.3 perpendicular-entry runway is what
+    # puts the content at a different X here: it re-wraps the box around the
+    # shifted run, moving the box's own edge with it.
+    **{
+        (stem, "group_alignment"): (
+            "column mate held out of the levelling because the perpendicular-entry "
+            "runway moved its content off the column's content X (#1545)"
+        )
         for stem in (
             "bt_exit_top_above",
             "bt_exit_top_above_2line",
-            "bt_perp_left_entry_right_exit",
             "bt_to_tb",
-            "lr_to_tb_top_cross_col",
-            "lr_to_tb_top_drop_two_lines",
             "lr_top_entry_cross_column",
             "lr_top_entry_cross_column_two_line",
-            "orbit_perp_exit_back_row_entry",
-            "tb_two_line_vert_seam",
         )
+    },
+    # Both levelling passes act on maximal runs of *adjacent* rows / columns, so
+    # a group with a hole in it is levelled as separate runs and any shared edge
+    # across the hole is incidental.
+    **{
+        (stem, "group_alignment"): (
+            "grid group's members sit in non-adjacent cells, so no single run "
+            "levels them (#1545)"
+        )
+        for stem in ("lr_to_tb_top_cross_col",)
+    },
+    # A column of same-flow sections lands on one edge only when their leftward
+    # box overhangs match: Stage 1.5 absorbs the largest overhang globally, so a
+    # member with a smaller one is seated further in, and its content moves with
+    # it out of the levelling's reach.
+    **{
+        (stem, "group_alignment"): (
+            "column mates seated apart by their differing box overhangs, which "
+            "the global Stage 1.5 absorption does not equalise (#1545)"
+        )
+        for stem in ("orbit_perp_exit_back_row_entry",)
     },
     # _infer_flow_exit_hints_with_drops's perpendicular-drop exception checks
     # only whether the TARGET section is TB/BT; it has no counterpart for a
