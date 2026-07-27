@@ -108,6 +108,7 @@ from nf_metro.layout.phases.fan_bundles import (  # noqa: F401
     _apply_half_grid_symmetric_diamonds,
     _carry_symmetric_branch_continuations,
     _center_lr_entry_ports_on_fork,
+    _center_lr_exit_ports_on_join,
     _convergence_source_ys,
     _divergence_target_ys,
     _expand_orphaned_half_grid_stations,
@@ -1809,6 +1810,7 @@ def _place_pass_c_content(
         _carry_symmetric_branch_continuations(graph, section_y_padding)
         _align_symfan_section_to_row_feeder(graph)
         _center_lr_entry_ports_on_fork(graph, y_spacing)
+        _center_lr_exit_ports_on_join(graph)
         _snap(graph, "6.7")
 
         # Stage 6.8: Re-anchor off-track inputs after the recenter.
