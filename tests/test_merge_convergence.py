@@ -49,6 +49,11 @@ _FIXTURES = {
     )
 }
 
+# Fixtures whose merge has at least one feeder classified onto the trunk
+# channel.  ``merge_adjacent_feeder`` is deliberately absent: its one non-trunk
+# feeder reaches the merge directly, which is what that fixture pins.
+_BRANCH_FIXTURES = ("merge_bottom_row_bypass", "merge_pullaway", "merge_right_entry")
+
 
 def _layout_and_route(mmd: str):
     graph = parse_metro_mermaid(mmd)
@@ -67,7 +72,7 @@ def test_no_same_line_parallel_merge_descents(name: str) -> None:
     assert not violations, "\n".join(v.message() for v in violations)
 
 
-@pytest.mark.parametrize("name", sorted(_FIXTURES))
+@pytest.mark.parametrize("name", sorted(_BRANCH_FIXTURES))
 def test_merge_branches_join_trunk_channel(name: str) -> None:
     """Each feeder classified a branch terminates on the trunk's bypass channel.
 
@@ -77,6 +82,7 @@ def test_merge_branches_join_trunk_channel(name: str) -> None:
     """
     graph, routes, _offsets, ctx = _layout_and_route(_FIXTURES[name])
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
+    checked = 0
     for mjid in ctx.merge.trunk_source:
         trunk_by = ctx.merge.trunk_by[mjid]
         for e in graph.edges_to(mjid):
@@ -86,12 +92,14 @@ def test_merge_branches_join_trunk_channel(name: str) -> None:
             rp = by_key.get(key)
             if rp is None:
                 continue
+            checked += 1
             end_y = rp.points[-1][1]
             assert abs(end_y - trunk_by) <= COORD_TOLERANCE, (
                 f"{name}: branch feeder {e.source}->{mjid} ends at "
                 f"y={end_y:.1f}, not on the trunk channel y={trunk_by:.1f} -- "
                 "routed as a separate stroke rather than joining the trunk"
             )
+    assert checked, f"{name}: expected at least one branch feeder"
 
 
 def test_clear_adjacent_feeder_does_not_detour_to_the_trunk_channel() -> None:

@@ -863,31 +863,32 @@ def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -
     of the hop that is not already drawn.
 
     Runs after the coincidence passes, since only the settled channels say where
-    the feeders converge.
+    the feeders converge.  Every arrival counts, whatever its scope: a route
+    ending short of the port is the evidence that keeps the hop, so narrowing
+    what counts risks dropping a hop that is load-bearing.
     """
+    if not ctx.merge.junctions:
+        return
     feeders_by_merge: dict[str, list[RoutedPath]] = defaultdict(list)
+    hop_by_merge: dict[str, RoutedPath] = {}
     for rp in routes:
         if rp.edge.target in ctx.merge.junctions:
             feeders_by_merge[rp.edge.target].append(rp)
+        elif ctx.merge.entry_port_for.get(rp.edge.source) == rp.edge.target:
+            hop_by_merge[rp.edge.source] = rp
 
-    for mjid in ctx.merge.junctions:
-        ep_id = ctx.merge.entry_port_for.get(mjid)
-        feeders = feeders_by_merge.get(mjid)
-        if ep_id is None or not feeders:
-            continue
-        hop = next(
-            (r for r in routes if (r.edge.source, r.edge.target) == (mjid, ep_id)),
-            None,
-        )
-        if hop is None:
-            continue
-        port_end = hop.points[-1]
-        if all(
-            abs(r.points[-1][0] - port_end[0]) <= COORD_TOLERANCE
-            and abs(r.points[-1][1] - port_end[1]) <= COORD_TOLERANCE
+    covered = {
+        id(hop)
+        for mjid, hop in hop_by_merge.items()
+        if (feeders := feeders_by_merge.get(mjid))
+        and all(
+            abs(r.points[-1][0] - hop.points[-1][0]) <= COORD_TOLERANCE
+            and abs(r.points[-1][1] - hop.points[-1][1]) <= COORD_TOLERANCE
             for r in feeders
-        ):
-            routes.remove(hop)
+        )
+    }
+    if covered:
+        routes[:] = [r for r in routes if id(r) not in covered]
 
 
 def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
