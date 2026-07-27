@@ -10,7 +10,12 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
 )
-from nf_metro.layout.geometry import lanes_run_along_x, shift_section
+from nf_metro.layout.geometry import (
+    lanes_run_along_x,
+    lanes_run_along_y,
+    perpendicular_port_sides,
+    shift_section,
+)
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.layout.phases._common import (
     _fan_offsets,
@@ -1092,6 +1097,24 @@ def _in_section_ontrack_successors(
     )
 
 
+def _in_section_ontrack_predecessors(
+    graph: MetroGraph, section: Section, sid: str
+) -> list[str]:
+    """Deduped ids of *sid*'s on-track predecessors within *section*.
+
+    The reverse-direction counterpart of
+    :func:`_in_section_ontrack_successors`, deduping multi-line edges the same
+    way.
+    """
+    return sorted(
+        {
+            e.source
+            for e in graph.edges_to(sid)
+            if _is_in_section_on_track(graph.station_for_edge_source(e), section.id)
+        }
+    )
+
+
 def _fork_offtrack_side(
     graph: MetroGraph, section: Section, branch_id: str, anchor_y: float
 ) -> int:
@@ -1150,12 +1173,8 @@ def _entry_fork_join(
     if succs[0] != succs[1] or len(succs[0]) != 1:
         return None
     join_id = succs[0][0]
-    feeders = {
-        e.source
-        for e in graph.edges_to(join_id)
-        if _is_in_section_on_track(graph.station_for_edge_source(e), section.id)
-    }
-    if feeders != set(branches):
+    feeders = _in_section_ontrack_predecessors(graph, section, join_id)
+    if set(feeders) != set(branches):
         return None
     return graph.stations[join_id]
 
@@ -1220,6 +1239,64 @@ def _center_lr_entry_ports_on_fork(graph: MetroGraph, y_spacing: float) -> None:
                 # subsequent layout pass, where a whole spine of them would
                 # outvote the branch rows for the group's grid origin.
                 graph.half_grid_station_ids.add(pid)
+
+
+def _center_lr_exit_ports_on_join(graph: MetroGraph) -> None:
+    """Centre an LR exit port on the two-way join that feeds it.
+
+    The exit-side counterpart of :func:`_center_lr_entry_ports_on_fork`.  Two
+    branches whose only successor is the section's flow-aligned exit port
+    reunite *at* that port, so it carries the same centreline role the join
+    station carries for an in-section reconvergence: seated at their midpoint,
+    the diamond closes symmetrically and the run into the next section leaves
+    straight.  Left unseated the port keeps whichever branch's track the
+    section layout gave it -- or, when the branches hold half-pitch offsets,
+    a track belonging to neither -- and both legs kink to reach it.
+
+    A port already level with one of its feeders is left alone: that is the
+    dead-end fan's legitimate seat, where the feeder's track *is* the trunk the
+    inter-section run continues along, and centring it would drag that run off
+    the row for no gain.
+    """
+    if graph.diamond_style != "symmetric":
+        return
+    for section in graph.sections.values():
+        direction = section.direction or "LR"
+        if not lanes_run_along_y(direction):
+            continue
+        perpendicular = perpendicular_port_sides(direction)
+        for pid in section.exit_ports:
+            port = graph.ports.get(pid)
+            if port is None or port.side in perpendicular:
+                continue
+            feeders = _exit_join_feeders(graph, section, pid)
+            if feeders is None:
+                continue
+            feeder_ys = sorted(graph.stations[f].y for f in feeders)
+            port_y = graph.stations[pid].y
+            if any(abs(port_y - fy) < 1.0 for fy in feeder_ys):
+                continue
+            midpoint = (feeder_ys[0] + feeder_ys[1]) / 2.0
+            if abs(port_y - midpoint) >= 1.0:
+                _set_port_y(graph, pid, midpoint)
+
+
+def _exit_join_feeders(
+    graph: MetroGraph, section: Section, pid: str
+) -> list[str] | None:
+    """The two in-section stations that reunite at exit port *pid*, or None.
+
+    Requiring the port to be each feeder's *only* successor keeps this the
+    point where the whole bundle reunites, mirroring
+    :func:`_entry_fork_join`'s claim on a join station.
+    """
+    feeders = _in_section_ontrack_predecessors(graph, section, pid)
+    if len(feeders) != 2:
+        return None
+    for fid in feeders:
+        if {e.target for e in graph.edges_from(fid)} != {pid}:
+            return None
+    return feeders
 
 
 def _pull_continuation_onto(
