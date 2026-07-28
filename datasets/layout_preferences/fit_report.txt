@@ -1,0 +1,120 @@
+=== inputs ===
+directional pairs usable pairwise: 192
+distinct fixtures:                 92
+weak pr_signoff rows available:    960
+  skipped after_better/no_geometry/abort_transition: 2
+  skipped after_not_worse/pr_rejected: 431
+  zero-delta (incl. sentinel-masked) counts:
+    marker_crowding: 189/192
+    min_marker_gap: 164/192
+    min_station_distance: 186/192
+
+=== fixture-grouped 5-fold agreement ===
+pooled counts an abstention as half a hit; decided excludes abstentions
+arm                 pooled  decided  coverage  per fold (pooled)
+authored           54.7%    63.2%     35.4%   50.0%  53.8%  59.2%  52.6%  57.9%
+authored_no_gap    55.5%    66.2%     33.9%   51.3%  55.1%  59.2%  52.6%  59.2%
+refit              54.7%    63.2%     35.4%   55.1%  48.7%  59.2%  55.3%  55.3%
+iter1              50.0%    50.0%     62.5%   64.1%  33.3%  57.9%  43.4%  51.3%
+iter2              68.5%    69.6%     94.3%   82.1%  67.9%  68.4%  56.6%  67.1%
+only_bend_family   54.9%    82.8%     15.1%   53.8%  51.3%  59.2%  55.3%  55.3%  [control]
+only_path_len      53.9%    55.3%     73.4%   71.8%  28.2%  57.9%  53.9%  57.9%  [control]
+only_bbox_h        53.1%    57.5%     41.7%   65.4%  30.8%  52.6%  61.8%  55.3%  [control]
+
+=== margin over the hand-binned authored objective ===
+refit              54.7%  vs  54.7%    +0.0 pp
+iter1              50.0%  vs  54.7%    -4.7 pp
+iter2              68.5%  vs  54.7%   +13.8 pp
+only_bend_family   54.9%  vs  54.7%    +0.3 pp  [control]
+only_path_len      53.9%  vs  54.7%    -0.8 pp  [control]
+only_bbox_h        53.1%  vs  54.7%    -1.6 pp  [control]
+
+=== head-to-head where the authored objective has an opinion ===
+restricted to pairs `authored` does not abstain on, so coverage cannot
+flatter either side
+authored           63.2%  (n=68)
+authored_no_gap    65.4%  (n=68)
+refit              63.2%  (n=68)
+iter1              54.4%  (n=68)
+iter2              70.6%  (n=68)
+only_bend_family   64.0%  (n=68)  [control]
+only_path_len      46.3%  (n=68)  [control]
+only_bbox_h        48.5%  (n=68)  [control]
+
+=== paired sign test against `authored`, over all held-out pairs ===
+counts only the pairs the two arms disagree on, so the shared
+abstentions and shared hits cannot manufacture a margin
+refit             wins  22  losses  22  n= 44  p=1.0000
+iter1             wins  56  losses  63  n=119  p=0.5825
+iter2             wins  98  losses  50  n=148  p=0.0001
+only_bend_family  wins  23  losses  22  n= 45  p=1.0000  [control]
+only_path_len     wins  74  losses  63  n=137  p=0.3930  [control]
+only_bbox_h       wins  62  losses  61  n=123  p=1.0000  [control]
+
+=== how many features move within a single pair ===
+a sparse objective abstains; when it does speak, usually one term moves,
+so the weight on that term cannot change the predicted direction
+  authored (7 features)   0:124  1:40  2:18  3:8  4:2
+  iter2 (8 features)      0:11  1:72  2:67  3:22  4:10  5:8  6:1  7:1
+
+=== fitted weights (rescaled so bends_per_route = 3.0) ===
+positive = more of this is worse, matching the authored convention
+-- refit
+   turn_angle_per_route        +5.73   (authored 2.00)
+   bends_per_route             +3.00   (authored 3.00)
+   marker_crowding             +1.87   (authored 3.00)
+   lone_diagonals              +0.49   (authored 3.00)
+   near_horizontal             +0.27   (authored 0.50) SIGN FLIPS ACROSS FOLDS
+   crossings                   -0.02   (authored 0.50)
+   lane_gap_excess             -0.02   (authored 0.25)
+-- iter1
+   turn_angle_per_route        +5.40   (authored 2.00)
+   bends_per_route             +3.00   (authored 3.00)
+   lone_diagonals              +0.40   (authored 3.00)
+   non_45_segments             +0.15   (not authored)
+   aspect_log                  -0.14   (not authored) SIGN FLIPS ACROSS FOLDS
+   min_marker_gap              -0.01   (not authored)
+-- iter2
+   lone_diagonals_per_route   +12.30   (not authored)
+   bends_per_route             +3.00   (authored 3.00)
+   turn_angle_per_route        +2.96   (authored 2.00)
+   non_45_frac                 +2.16   (not authored) SIGN FLIPS ACROSS FOLDS
+   path_len_per_route          -0.01   (not authored)
+   crossings                   -0.01   (authored 0.50)
+   min_marker_gap              -0.00   (not authored) SIGN FLIPS ACROSS FOLDS
+   bbox_h                      -0.00   (not authored) SIGN FLIPS ACROSS FOLDS
+-- only_bend_family
+   turn_angle_per_route        +4.17   (authored 2.00)
+   bends_per_route             +3.00   (authored 3.00)
+   lone_diagonals              +0.40   (authored 3.00)
+-- only_path_len
+   path_len_per_route          -0.03   (not authored) SIGN FLIPS ACROSS FOLDS
+-- only_bbox_h
+   bbox_h                      -0.01   (not authored) SIGN FLIPS ACROSS FOLDS
+
+=== per-family agreement (families overlap; n = held-out pairs) ===
+arm                            fan            fold              tb           merge            port    unclassified
+authored              50.0% (n=16)    55.8% (n=26)    53.1% (n=16)    56.2% (n=40)    56.2% (n=40)    54.8% (n=93)
+refit                 43.8% (n=16)    51.9% (n=26)    59.4% (n=16)    58.8% (n=40)    58.8% (n=40)    55.9% (n=93)
+iter1                 56.2% (n=16)    23.1% (n=26)    71.9% (n=16)    51.2% (n=40)    63.7% (n=40)    47.3% (n=93)
+iter2                 65.6% (n=16)    76.9% (n=26)    75.0% (n=16)    85.0% (n=40)    80.0% (n=40)    61.3% (n=93)
+only_bend_family      53.1% (n=16)    53.8% (n=26)    56.2% (n=16)    58.8% (n=40)    57.5% (n=40)    54.3% (n=93)
+only_path_len         37.5% (n=16)    51.9% (n=26)    78.1% (n=16)    58.8% (n=40)    70.0% (n=40)    49.5% (n=93)
+only_bbox_h           53.1% (n=16)    55.8% (n=26)    59.4% (n=16)    63.7% (n=40)    60.0% (n=40)    47.3% (n=93)
+
+=== synthetic topology fixtures vs real pipeline maps ===
+arm                        synthetic              real
+authored               55.0% (n=129)      54.0% (n=63)
+refit                  54.3% (n=129)      55.6% (n=63)
+iter1                  52.7% (n=129)      44.4% (n=63)
+iter2                  71.7% (n=129)      61.9% (n=63)
+only_bend_family       55.4% (n=129)      54.0% (n=63)
+only_path_len          57.8% (n=129)      46.0% (n=63)
+only_bbox_h            56.2% (n=129)      46.8% (n=63)
+
+=== ablation: weak pr_signoff rows added to training ===
+set-level ratifications, weighted 0.1 against a directional row's 1.0
+arm                  without      with    delta
+refit              54.7% 56.2%    +1.6 pp
+iter1              50.0% 48.4%    -1.6 pp
+iter2              68.5% 63.3%    -5.2 pp

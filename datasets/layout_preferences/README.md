@@ -18,7 +18,8 @@ to be recoverable from artifacts that were never written as a dataset.
 | `xfail_events_engine.json`  | 319     | raw registry churn: entry, check, commit, direction                |
 | `verdict_ledger_by_pr.json` | 108     | per-PR sign-off counts recovered from session transcripts          |
 | `dataset_report.txt`        | -       | emitted/dropped counts and the per-feature directional check       |
-| `scripts/`                  | 7       | the generating pipeline                                            |
+| `fit_report.txt`            | -       | the fitted model, its cross-validated gate result and its controls |
+| `scripts/`                  | 8       | the generating pipeline, plus `fit_objective.py`                   |
 
 ## Pair schema
 
@@ -160,3 +161,81 @@ layouts worse" result in the auto-layout investigation.
 
 These are univariate counts over correlated pairs, not a fit. Fixture-grouped
 cross-validation in #1586 is what decides viability.
+
+## Fitted model and gate result
+
+`scripts/fit_objective.py` fits a Bradley-Terry model over feature deltas and
+runs the #1586 gate. `fit_report.txt` is its committed output; regenerate with:
+
+```bash
+python scripts/fit_objective.py --out fit_report.txt
+```
+
+Agreement is measured over held-out pairs under 5-fold cross-validation grouped
+by whole fixture. An arm whose features all have zero delta across a pair has no
+opinion about it; those abstentions are counted as half a hit in `pooled` and
+excluded from `decided`, because an objective reading sparse features scores near
+50% by saying nothing rather than by disagreeing.
+
+| arm                | features                    | weights     | pooled | decided | coverage |
+| ------------------ | --------------------------- | ----------- | ------ | ------- | -------- |
+| `authored`         | the authored objective's    | hand-binned | 54.7%  | 63.2%   | 35.4%    |
+| `refit`            | the authored objective's    | fitted      | 54.7%  | 63.2%   | 35.4%    |
+| `iter1`            | discriminative, raw counts  | fitted      | 50.0%  | 50.0%   | 62.5%    |
+| `iter2`            | discriminative, normalised  | fitted      | 68.5%  | 69.6%   | 94.3%    |
+| `only_bend_family` | 3 bend/turn terms (control) | fitted      | 54.9%  | 82.8%   | 15.1%    |
+| `only_path_len`    | `path_len_per_route` alone  | fitted      | 53.9%  | 55.3%   | 73.4%    |
+
+**Fitting the weights is worth nothing on its own.** `refit` sees exactly the
+information the authored objective sees and reproduces its accuracy to the
+decimal: 22 wins, 22 losses, paired sign test p=1.0. The mechanism is in the
+report's feature-movement histogram - 124 of 192 pairs move none of the authored
+features, and 40 of the 68 that do move exactly one. When a single term moves,
+its weight cannot change the predicted direction, so there is nothing for a fit
+to improve.
+
+**Choosing the features is worth 13.8 points.** `iter2` reaches 68.5% pooled
+against `authored`'s 54.7% (98 wins, 50 losses, p=0.0001), and still wins
+70.6% vs 63.2% when restricted to the 68 pairs `authored` does have an opinion
+on, so the margin is not merely coverage. What separates it from the failed
+`iter1` is normalisation: `lone_diagonals_per_route` and `non_45_frac` move on
+nearly every pair where the same defects counted raw sit at zero.
+
+This is the result #881 predicted and #1602 half-measured: the value is in the
+features, not the weights.
+
+### Verdict
+
+- **Primary gate (promote to a measurement, #1587): pass.** The fitted objective
+  beats the hand-binned weights by 13.8 points pooled, 7.4 on coverage-matched
+  pairs, p=0.0001.
+- **Secondary gate (promote to an optimisation target, #1588 / #1589): fail.**
+  The absolute bar is 85% held-out agreement; `iter2` reaches 68.5% pooled and
+  69.6% decided.
+
+Two findings say the secondary bar should stay shut even if agreement later
+climbs. `iter2` carries **negative** fitted weights on `bbox_h` and
+`path_len_per_route`, so an optimiser minimising it would inflate the drawing
+without bound - the PR #353 failure mode exactly. And four of its eight weights
+flip sign between folds, so their magnitudes are artefacts of which fixtures were
+held out rather than statements about layout.
+
+### Findings that outlast the gate
+
+- **`marker_crowding` is inert on this corpus.** It holds one of the three
+  heaviest authored weights (3.0) and has zero delta on 189 of 192 directional
+  pairs, because `min_marker_gap` is undefined on 164 of them and beyond one lane
+  pitch on most of the rest.
+- **The univariate percentages above are inflated by fixture repetition.**
+  `path_len_per_route` reads 67% directional univariately, but 55.3% under
+  fixture-grouped cross-validation, and the `only_path_len` control _loses_ to
+  the authored objective head-to-head (46.3%). Triage features fixture-grouped,
+  not univariately.
+- **The bend family is precise but narrow.** `only_bend_family` is right on 82.8%
+  of pairs, but only speaks to 15.1% of them. It corroborates the bend/corner
+  headline while showing why those three terms cannot carry an objective alone.
+- **`crossings` earns a fitted weight of ~0** in every arm that includes it,
+  against the 0.5 it is authored with, matching its 54.8% univariate coin-flip.
+- **The weak-label warning is confirmed empirically.** Adding `pr_signoff` rows
+  to training at a tenth of a directional row's weight costs `iter2` 5.2 points.
+  Set-level ratifications are not per-render positives.
