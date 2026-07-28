@@ -7,12 +7,14 @@ Public API:
 - OffsetRegime: Which line-separation regime a route is in
 - apply_route_offsets: A route's final render geometry, separation applied
 - GapSlot: Symbolic gap-relative slot for a vertical channel run
+- RenderedGeometry: The offsets + routes a render drew, for readers of the picture
 - compute_station_offsets: Per-station Y offset computation
 """
 
 from nf_metro.layout.routing.common import (
     GapSlot,
     OffsetRegime,
+    RenderedGeometry,
     RoutedPath,
     apply_route_offsets,
 )
@@ -22,6 +24,7 @@ from nf_metro.layout.routing.offsets import compute_station_offsets
 __all__ = [
     "GapSlot",
     "OffsetRegime",
+    "RenderedGeometry",
     "RoutedPath",
     "apply_route_offsets",
     "compute_station_offsets",

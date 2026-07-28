@@ -22,8 +22,9 @@ validate a produced file standalone without re-running layout.  The
 same-slot bundle (distinct lines the regime put on one offset, drawn flush by
 design) from a real collapse (lines the regime spread apart, drawn flush)
 needs the assigned offsets, which the bare artifact cannot supply.  It
-therefore runs only when the laid-out ``graph`` is passed alongside the SVG;
-the standalone path runs the two artifact-only checks.
+therefore runs only when the ``graph`` that produced the SVG is passed
+alongside it, carrying the geometry the render published; the standalone path
+runs the two artifact-only checks.
 
 All three see the render-only geometry (the offset regime, label Y-shifts, the
 wrapped-label lift) that the pre-render layout guards never observe.
@@ -374,9 +375,9 @@ def check_offset_collapse(
     distinguish that from a real collapse.  This compares the *drawn* gap on a
     shared run against the gap the offset regime *assigned* the pair there: a
     pair drawn flush whose assigned gap is at least one offset step has
-    collapsed into a single stroke.  The assigned geometry comes from the
-    engine, the drawn geometry from the artifact, so a finding is a real
-    render-time merge, not a re-derivation mismatch.
+    collapsed into a single stroke.  The assigned geometry is the geometry the
+    renderer published, the drawn geometry comes from the artifact, so a finding
+    is a real render-time merge, not a re-derivation mismatch.
     """
     expected = _expected_line_segments(graph)
     if not expected:
@@ -417,21 +418,21 @@ def check_offset_collapse(
 
 
 def _expected_line_segments(graph: MetroGraph) -> dict[str, list[_Segment]]:
-    """The post-offset routed segments the engine assigns, grouped by line."""
-    from nf_metro.layout.routing import compute_station_offsets, route_edges
-    from nf_metro.layout.routing.common import apply_route_offsets
+    """The post-offset routed segments the render drew, grouped by line.
 
-    offsets = compute_station_offsets(graph)
-    try:
-        routes = route_edges(graph, station_offsets=offsets)
-    except Exception:  # noqa: BLE001 - routing failure surfaces on the render path
+    Read from the geometry the renderer published rather than re-routed: label
+    placement grows the section bboxes routing consults, so a re-route of a
+    rendered graph produces paths that were never drawn, and comparing the drawn
+    ink against those would both invent collapses and clear real ones.  Empty for
+    a graph that was never rendered, which leaves the offset-collapse check to
+    skip rather than judge the ink against a geometry it cannot know.
+    """
+    drawn = graph.rendered_geometry
+    if drawn is None:
         return {}
     segments: dict[str, list[_Segment]] = {}
-    for routed in routes:
-        pts = apply_route_offsets(routed, offsets)
-        line = segments.setdefault(routed.line_id, [])
-        for i in range(len(pts) - 1):
-            line.append((pts[i], pts[i + 1]))
+    for line_id, pts in drawn.offset_polylines():
+        segments.setdefault(line_id, []).extend(zip(pts, pts[1:]))
     return segments
 
 
@@ -505,11 +506,12 @@ def validate_render(
     Reads the embedded manifest for node identities and parses the drawn route
     and label ink, then checks the geometry as drawn for label strikes and
     non-consumer marker crossings (both pure artifact oracles).  When the
-    laid-out *graph* is supplied it additionally checks for offset-pitch
-    collapse, which needs the engine's assigned offsets to tell an intended
-    same-slot bundle from a real merge.  Returns an empty list for a clean
-    render, or when the SVG carries no manifest (nothing addressable to
-    validate).
+    *graph* that produced this SVG is supplied it additionally checks for
+    offset-pitch collapse, which needs the assigned offsets to tell an intended
+    same-slot bundle from a real merge, and so reads the geometry that graph
+    published when it rendered.  Returns an empty list for a clean render, when
+    the SVG carries no manifest (nothing addressable to validate), or when the
+    supplied graph has not been rendered.
     """
     manifest = read_manifest(svg)
     if manifest is None:
