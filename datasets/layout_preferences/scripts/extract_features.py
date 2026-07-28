@@ -34,6 +34,17 @@ warnings.filterwarnings("ignore")
 
 EPS = 1e-6
 
+# Smallest height or width a rendered map can occupy: one station marker plus
+# its stroke, from STATION_RADIUS_APPROX (5.0) and STATION_STROKE_APPROX (1.5).
+# Held as a literal rather than imported: feature definitions must be identical
+# at every replayed revision, so this floor cannot track a constant that the
+# engine may retune.
+MARKER_EXTENT = 11.5
+
+# Threshold the validator uses to call a same-lane run wasted space:
+# 1.5 * Y_SPACING. A literal for the same reason as MARKER_EXTENT.
+LANE_GAP_LIMIT = 60.0
+
 
 def seg_len(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
@@ -107,6 +118,126 @@ def station_lines(graph: object) -> dict[str, set]:
         for end in (e.source, e.target):
             out.setdefault(end, set()).add(e.line_id)
     return out
+
+
+def port_free_axis(port: object, box: tuple) -> str:
+    """The axis a port can slide along, from the section edge it sits on.
+
+    A LEFT/RIGHT port has its x pinned by that edge and moves only on y; a
+    TOP/BOTTOM port is the reverse. The side alone decides this, not the
+    section's flow direction, which only decides which sides are perpendicular.
+
+    Read from ``Port.side`` where present. The geometric fallback compares
+    distance to each edge, which is unreliable on a zero-height or zero-width
+    section box where both distances collapse, so it is used only when the field
+    is missing at an older revision.
+    """
+    side = str(getattr(port, "side", "") or "").upper()
+    if "LEFT" in side or "RIGHT" in side:
+        return "y"
+    if "TOP" in side or "BOTTOM" in side:
+        return "x"
+    x, y = float(port.x), float(port.y)
+    return (
+        "y"
+        if min(abs(x - box[0]), abs(x - box[2]))
+        <= min(abs(y - box[1]), abs(y - box[3]))
+        else "x"
+    )
+
+
+def section_boxes(graph: object) -> dict[str, tuple[float, float, float, float]]:
+    """Section id -> (x1, y1, x2, y2), skipping sections with no laid-out box."""
+    out = {}
+    for sid, sec in (getattr(graph, "sections", {}) or {}).items():
+        x, y = getattr(sec, "bbox_x", None), getattr(sec, "bbox_y", None)
+        w, h = getattr(sec, "bbox_w", None), getattr(sec, "bbox_h", None)
+        if None in (x, y, w, h) or (w <= 0 and h <= 0):
+            continue
+        out[sid] = (float(x), float(y), float(x) + float(w), float(y) + float(h))
+    return out
+
+
+def exit_port_misalignment(graph: object) -> float:
+    """Worst gap between an exit port and its closest internal feeder.
+
+    Measured on the axis the port can slide along. A port whose nearest feeder
+    is off that axis leaves a kink in the run out of the section. Fan-ins
+    inherently misalign all but one feeder, so only the closest one counts.
+
+    Only flow-aligned exits qualify. A port on an edge perpendicular to the
+    section's flow is reached by a turn, so alignment with its feeder is neither
+    expected nor desirable, which is why flow direction is needed to classify
+    the port even though the axis comes from the side alone.
+    """
+    boxes = section_boxes(graph)
+    junctions = set(getattr(graph, "junctions", {}) or {})
+    feeders: dict[str, list] = {}
+    ports = getattr(graph, "ports", {}) or {}
+    for e in graph.edges:
+        port = ports.get(e.target)
+        if port is None or getattr(port, "is_entry", False):
+            continue
+        src = graph.stations.get(e.source)
+        if src is None or getattr(src, "is_port", False) or e.source in junctions:
+            continue
+        if getattr(src, "section_id", None) != getattr(port, "section_id", None):
+            continue
+        feeders.setdefault(e.target, []).append(src)
+
+    worst = 0.0
+    for pid, srcs in feeders.items():
+        pst = graph.stations.get(pid)
+        box = boxes.get(getattr(ports[pid], "section_id", None))
+        if pst is None or box is None or pst.x is None or pst.y is None:
+            continue
+        sec = (getattr(graph, "sections", {}) or {}).get(
+            getattr(ports[pid], "section_id", None)
+        )
+        direction = getattr(sec, "direction", None)
+        if direction not in ("LR", "RL", "TB", "BT"):
+            continue
+        axis = port_free_axis(ports[pid], box)
+        if (axis == "y") == (direction in ("TB", "BT")):
+            continue
+        pc = float(pst.y) if axis == "y" else float(pst.x)
+        gaps = [
+            abs(pc - (float(s.y) if axis == "y" else float(s.x)))
+            for s in srcs
+            if s.x is not None and s.y is not None
+        ]
+        if gaps:
+            worst = max(worst, min(gaps))
+    return worst
+
+
+def lane_gap_excess(real: list) -> float:
+    """Worst run of empty space between two stations sharing a lane.
+
+    Both groupings are measured, same-x and same-y, so a stranded column and a
+    stranded row score alike whichever way the section flows.
+    """
+    by_section: dict[object, list[tuple[float, float]]] = {}
+    for s in real:
+        if s.x is None or s.y is None:
+            continue
+        by_section.setdefault(getattr(s, "section_id", None), []).append(
+            (float(s.x), float(s.y))
+        )
+    worst = 0.0
+    for pts in by_section.values():
+        for keep, measure in ((0, 1), (1, 0)):
+            lanes: dict[float, list[float]] = {}
+            for p in pts:
+                lanes.setdefault(round(p[keep]), []).append(p[measure])
+            occupied = sorted({round(p[measure]) for p in pts})
+            for vals in lanes.values():
+                vals.sort()
+                for a, b in zip(vals, vals[1:]):
+                    if any(a + EPS < o < b - EPS for o in occupied):
+                        continue
+                    worst = max(worst, (b - a) - LANE_GAP_LIMIT)
+    return max(worst, 0.0)
 
 
 def features(graph: object, routes: list) -> dict[str, float]:
@@ -188,21 +319,36 @@ def features(graph: object, routes: list) -> dict[str, float]:
             if d < 4.0:
                 strikes += 1
 
-    xs = [c[0] for c in coords] or [0.0]
-    ys = [c[1] for c in coords] or [0.0]
-    w, h = max(xs) - min(xs), max(ys) - min(ys)
-    area = max(w * h, 1.0)
+    min_station_dist = float("inf")
+    for i in range(len(coords)):
+        for j in range(i + 1, len(coords)):
+            min_station_dist = min(min_station_dist, seg_len(coords[i], coords[j]))
+
+    worst_gap_excess = lane_gap_excess(real)
+
+    # Extent spans drawn ink: route waypoints as well as station centres, since
+    # offset lines on a single grid row occupy height that the station
+    # coordinates alone do not express. Floored at the marker's drawn size,
+    # because no rendered map is thinner than one station.
+    ink = coords + [p for seg, _ in all_segs for p in seg]
+    xs = [c[0] for c in ink] or [0.0]
+    ys = [c[1] for c in ink] or [0.0]
+    w = max(max(xs) - min(xs), MARKER_EXTENT)
+    h = max(max(ys) - min(ys), MARKER_EXTENT)
     n_st = max(len(real), 1)
     n_rt = max(len(routes), 1)
+    n_seg = max(len(all_segs), 1)
+    n_sec_raw = len(getattr(graph, "sections", {}) or {})
+    n_sec = max(n_sec_raw, 1)
 
     return {
         "n_stations": float(len(real)),
         "n_routes": float(len(routes)),
-        "n_sections": float(len(getattr(graph, "sections", {}) or {})),
+        "n_sections": float(n_sec_raw),
         "bbox_w": w,
         "bbox_h": h,
-        "aspect": w / max(h, 1.0),
-        "ink_density": total_len / area,
+        "aspect_log": math.log10(w / h),
+        "path_len_per_station": total_len / n_st,
         "path_len_per_route": total_len / n_rt,
         "crossings": float(crossings),
         "crossings_per_route": crossings / n_rt,
@@ -210,16 +356,25 @@ def features(graph: object, routes: list) -> dict[str, float]:
         "turn_angle_per_route": sum(per_path_turn) / n_rt,
         "max_bends_one_route": max(per_path_bends or [0.0]),
         "non_45_segments": float(non45),
+        "non_45_frac": non45 / n_seg,
         "near_horizontal": float(near_horiz),
+        "near_horizontal_frac": near_horiz / n_seg,
         "lone_diagonals": float(lone_diag),
+        "lone_diagonals_per_route": lone_diag / n_rt,
         "detour_mean": sum(detours) / len(detours) if detours else 1.0,
         "detour_max": max(detours or [1.0]),
         "marker_strikes": float(strikes),
         "marker_strikes_per_station": strikes / n_st,
         "min_marker_gap": -1.0 if min_marker_gap == float("inf") else min_marker_gap,
-        "station_density": n_st / area * 1e4,
         "corners_total": float(corners_total),
+        "stations_per_route": n_st / n_rt,
+        "min_station_distance": (
+            -1.0 if min_station_dist == float("inf") else min_station_dist
+        ),
+        "lane_gap_excess": worst_gap_excess,
+        "exit_port_misalignment": exit_port_misalignment(graph),
         "n_ports": float(len(ports)),
+        "ports_per_section": len(ports) / n_sec,
     }
 
 
