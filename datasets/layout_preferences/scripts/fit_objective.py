@@ -34,7 +34,7 @@ import argparse
 import json
 import math
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -191,7 +191,7 @@ def derive(vec: dict[str, float]) -> dict[str, float | None]:
 class Pair:
     """One directional preference: the "after" side was judged better."""
 
-    __slots__ = ("fixture", "source", "delta", "weight")
+    __slots__ = ("fixture", "source", "delta")
 
     def __init__(
         self,
@@ -199,11 +199,9 @@ class Pair:
         source: str,
         before: dict[str, float],
         after: dict[str, float],
-        weight: float = 1.0,
     ) -> None:
         self.fixture = fixture
         self.source = source
-        self.weight = weight
         b, a = derive(before), derive(after)
         self.delta: dict[str, float] = {}
         for key in b:
@@ -275,31 +273,33 @@ def fold_of(pairs: list[Pair], n_folds: int) -> dict[str, int]:
 # --------------------------------------------------------------------------- #
 
 
+TIE = 1e-12
+"""Below this, an arm's score is unmoved across a pair and it has no opinion."""
+
+
 def score_delta(weights: dict[str, float], pair: Pair) -> float:
     """Change in objective across a pair. Negative means "after is better"."""
     return sum(w * pair.delta.get(k, 0.0) for k, w in weights.items())
 
 
-def agreement(weights: dict[str, float], pairs: list[Pair]) -> tuple[float, int]:
-    """Fraction of pairs whose objective falls, counting a tie as half.
+def hit(delta: float) -> float:
+    """Credit for one prediction: 1 correct, 0 wrong, and half for an abstention.
 
-    A tie means every feature the model reads has the same value on both sides,
-    so the model has no opinion.  Scoring it 0.5 keeps a model that abstains from
-    being rewarded or punished for doing so, and the tie count is reported
-    alongside because an arm can only look good by abstaining a lot.
+    Scoring an abstention at half keeps an arm from being either rewarded or
+    punished for staying silent, which matters because the arms under test differ
+    enormously in how often they speak at all.
     """
-    if not pairs:
+    if abs(delta) < TIE:
+        return 0.5
+    return 1.0 if delta < 0 else 0.0
+
+
+def tally(deltas: Sequence[float]) -> tuple[float, int]:
+    """Mean credit over predictions, and how many of them were abstentions."""
+    if not deltas:
         return float("nan"), 0
-    hits = 0.0
-    ties = 0
-    for pair in pairs:
-        delta = score_delta(weights, pair)
-        if abs(delta) < 1e-12:
-            ties += 1
-            hits += 0.5
-        elif delta < 0:
-            hits += 1.0
-    return hits / len(pairs), ties
+    ties = sum(1 for d in deltas if abs(d) < TIE)
+    return sum(hit(d) for d in deltas) / len(deltas), ties
 
 
 def _solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
@@ -324,7 +324,7 @@ def _solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
 
 
 def fit(
-    pairs: list[Pair],
+    rows_in: list[tuple[Pair, float]],
     keys: list[str],
     *,
     l2: float = 1.0,
@@ -343,13 +343,13 @@ def fit(
     """
     scales = []
     for key in keys:
-        values = [p.delta.get(key, 0.0) for p in pairs]
+        values = [p.delta.get(key, 0.0) for p, _ in rows_in]
         rms = math.sqrt(sum(v * v for v in values) / len(values)) if values else 0.0
-        scales.append(rms if rms > 1e-12 else 1.0)
+        scales.append(rms if rms > TIE else 1.0)
 
     rows = [
-        ([p.delta.get(k, 0.0) / s for k, s in zip(keys, scales)], p.weight)
-        for p in pairs
+        ([p.delta.get(k, 0.0) / s for k, s in zip(keys, scales)], weight)
+        for p, weight in rows_in
     ]
     total = sum(w for _, w in rows) or 1.0
     n = len(keys)
@@ -404,33 +404,20 @@ def rescale_to(weights: dict[str, float], anchor: str) -> dict[str, float]:
 class Arm:
     """One objective under test, with its cross-validated predictions."""
 
-    def __init__(self, name: str, note: str = "") -> None:
-        self.name = name
-        self.note = note
+    def __init__(self) -> None:
         self.predictions: list[tuple[Pair, float]] = []
         self.fold_scores: list[float] = []
         self.weights: dict[str, float] = {}
         self.fold_weights: list[dict[str, float]] = []
 
     def record(self, pairs: list[Pair], weights: dict[str, float]) -> None:
-        for pair in pairs:
-            self.predictions.append((pair, score_delta(weights, pair)))
-        score, _ = agreement(weights, pairs)
-        self.fold_scores.append(score)
+        deltas = [score_delta(weights, pair) for pair in pairs]
+        self.predictions.extend(zip(pairs, deltas))
+        self.fold_scores.append(tally(deltas)[0])
         self.fold_weights.append(weights)
 
     def pooled(self) -> tuple[float, int]:
-        if not self.predictions:
-            return float("nan"), 0
-        hits = 0.0
-        ties = 0
-        for _, delta in self.predictions:
-            if abs(delta) < 1e-12:
-                ties += 1
-                hits += 0.5
-            elif delta < 0:
-                hits += 1.0
-        return hits / len(self.predictions), ties
+        return tally([d for _, d in self.predictions])
 
     def decided(self) -> tuple[float, float]:
         """Agreement over pairs this arm has an opinion on, and its coverage.
@@ -440,23 +427,18 @@ class Arm:
         features scores near 50% because it abstains, not because it disagrees,
         so the two have to be separated before any margin can be interpreted.
         """
-        decided = [d for _, d in self.predictions if abs(d) >= 1e-12]
         if not self.predictions:
             return float("nan"), float("nan")
+        decided = [d for _, d in self.predictions if abs(d) >= TIE]
         coverage = len(decided) / len(self.predictions)
-        if not decided:
-            return float("nan"), coverage
-        return sum(1 for d in decided if d < 0) / len(decided), coverage
+        return tally(decided)[0], coverage
 
     def by_pair(self) -> dict[int, float]:
         return {id(p): d for p, d in self.predictions}
 
     def subset(self, predicate: Callable[[Pair], bool]) -> tuple[float, int]:
         rows = [d for p, d in self.predictions if predicate(p)]
-        if not rows:
-            return float("nan"), 0
-        hits = sum(1.0 if d < -1e-12 else 0.5 if abs(d) < 1e-12 else 0.0 for d in rows)
-        return hits / len(rows), len(rows)
+        return tally(rows)[0], len(rows)
 
     def weight_spread(self) -> dict[str, tuple[float, float]]:
         """Per-feature min/max of the fitted weight across folds.
@@ -485,15 +467,7 @@ def cross_validate(
 
     fitted_sets = {**FEATURE_SETS, **CONTROL_SETS}
     arms = {
-        "authored": Arm("authored", "hand-binned weights, authored features"),
-        "authored_no_gap": Arm(
-            "authored_no_gap", f"authored, minus scale-mismatched {SCALE_MISMATCHED}"
-        ),
-        "refit": Arm("refit", "fitted weights, authored features"),
-        **{
-            name: Arm(name, f"fitted weights, {len(keys)} features")
-            for name, keys in fitted_sets.items()
-        },
+        name: Arm() for name in ("authored", "authored_no_gap", "refit", *fitted_sets)
     }
 
     for fold in range(N_FOLDS):
@@ -501,22 +475,24 @@ def cross_validate(
         test = [p for p in directional if folds[p.fixture] == fold]
         if not test:
             continue
-        # Weak rows are grouped by the same fixture assignment, so a held-out
-        # fixture stays held out in every arm that consumes them.
-        weak_train = [p for p in weak if folds.get(p.fixture, -1) != fold]
-        for p in weak_train:
-            p.weight = weak_weight
-
         arms["authored"].record(test, AUTHORED_WEIGHTS)
         arms["authored_no_gap"].record(test, no_gap)
-        train_set = train + (weak_train if weak_weight > 0 else [])
-        arms["refit"].record(test, fit(train_set, authored_keys))
+        train_rows = [(p, 1.0) for p in train]
+        if weak_weight > 0:
+            # Weak rows are grouped by the same fixture assignment, so a held-out
+            # fixture stays held out in every arm that consumes them.
+            train_rows += [
+                (p, weak_weight) for p in weak if folds.get(p.fixture, -1) != fold
+            ]
+        arms["refit"].record(test, fit(train_rows, authored_keys))
         for name, keys in fitted_sets.items():
-            arms[name].record(test, fit(train_set, keys))
+            arms[name].record(test, fit(train_rows, keys))
 
     # Weights for inspection come from a fit on everything; the fold weights
     # kept on each arm are what the spread check reads.
-    full = directional + (weak if weak_weight > 0 else [])
+    full = [(p, 1.0) for p in directional]
+    if weak_weight > 0:
+        full += [(p, weak_weight) for p in weak]
     arms["authored"].weights = dict(AUTHORED_WEIGHTS)
     arms["authored_no_gap"].weights = dict(no_gap)
     arms["refit"].weights = fit(full, authored_keys)
@@ -539,7 +515,7 @@ def binomial_two_sided(successes: int, trials: int) -> float:
     if trials == 0:
         return float("nan")
     tail = sum(math.comb(trials, k) for k in range(successes + 1))
-    return min(1.0, 2.0 * tail / (2.0**trials))
+    return min(1.0, 2 * tail / 2**trials)
 
 
 def report(
@@ -597,25 +573,22 @@ def report(
     add("=== head-to-head where the authored objective has an opinion ===")
     add("restricted to pairs `authored` does not abstain on, so coverage cannot")
     add("flatter either side")
-    decided_ids = {i for i, d in arms["authored"].by_pair().items() if abs(d) >= 1e-12}
+    ref = arms["authored"].by_pair()
+    decided_ids = {i for i, d in ref.items() if abs(d) >= TIE}
     for name in (*candidates, *CONTROL_SETS):
         arm = arms[name]
         rows = [d for i, d in arm.by_pair().items() if i in decided_ids]
-        hits = sum(1.0 if d < -1e-12 else 0.5 if abs(d) < 1e-12 else 0.0 for d in rows)
         marker = "  [control]" if name in CONTROL_SETS else ""
-        add(f"{name:<18}{pct(hits / len(rows))}  (n={len(rows)}){marker}")
+        add(f"{name:<18}{pct(tally(rows)[0])}  (n={len(rows)}){marker}")
 
     add("")
     add("=== paired sign test against `authored`, over all held-out pairs ===")
     add("counts only the pairs the two arms disagree on, so the shared")
     add("abstentions and shared hits cannot manufacture a margin")
-    ref = arms["authored"].by_pair()
     for name in ("refit", *FEATURE_SETS, *CONTROL_SETS):
         wins = losses = 0
         for i, delta in arms[name].by_pair().items():
-            mine = 1.0 if delta < -1e-12 else 0.5 if abs(delta) < 1e-12 else 0.0
-            base = ref[i]
-            theirs = 1.0 if base < -1e-12 else 0.5 if abs(base) < 1e-12 else 0.0
+            mine, theirs = hit(delta), hit(ref[i])
             if mine > theirs:
                 wins += 1
             elif mine < theirs:
@@ -636,8 +609,7 @@ def report(
         ("iter2 (8 features)", FEATURE_SETS["iter2"]),
     ):
         hist = Counter(
-            sum(1 for k in keys if abs(p.delta.get(k, 0.0)) > 1e-12)
-            for p in directional
+            sum(1 for k in keys if abs(p.delta.get(k, 0.0)) > TIE) for p in directional
         )
         spread = "  ".join(f"{n}:{hist[n]}" for n in sorted(hist))
         add(f"  {label:<24}{spread}")
