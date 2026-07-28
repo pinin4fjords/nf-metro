@@ -39,6 +39,7 @@ from nf_metro.layout.phases.guards import (
 )
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.routing import (
+    RenderedGeometry,
     RoutedPath,
     apply_route_offsets,
     compute_station_offsets,
@@ -589,9 +590,13 @@ def _settle_render_geometry(
     lower section's header badge up into the box above.  Only that genuine
     collision is reconciled -- push the lower rows down to restore
     ``section_y_gap``, then re-settle so routes and labels track the shifted
-    sections (routing is idempotent on the settled ``Station.x``, so the second
-    pass grows the same bboxes).  A smaller sub-``section_y_gap`` shortfall
-    draws no overlap and is left as laid out.
+    sections.  A smaller sub-``section_y_gap`` shortfall draws no overlap and is
+    left as laid out.
+
+    The settled geometry is published on ``graph.rendered_geometry``: label
+    placement grows section bboxes that routing consults, so a graph re-routed
+    after this returns yields paths that were never drawn.  Publishing is the
+    only way a later reader of the picture can see it.
 
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
@@ -636,6 +641,9 @@ def _settle_render_geometry(
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
     assert_render_header_clearance(graph, strict=effective_strict)
+    graph.rendered_geometry = RenderedGeometry(
+        station_offsets=dict(station_offsets), routes=tuple(routes)
+    )
     return station_offsets, routes, labels
 
 

@@ -11,6 +11,10 @@ excessive column gaps) and the label-strike count reuses the engine's own
 strike definition (``iter_line_label_strikes``), so a score only moves when a
 real geometric property of the render moves.
 
+Scoring the render means scoring the geometry the renderer drew, which a
+rendered graph carries and which cannot be re-derived from it -- see
+``measured_geometry``.
+
 Module-level imports are kept stdlib-only so the spec and formatting helpers
 can be imported by ``build_render_diff.py`` without pulling in the layout
 engine; the heavy ``nf_metro`` imports live inside ``compute_metrics``.
@@ -50,6 +54,34 @@ METRICS: list[MetricSpec] = [
 METRIC_KEYS: list[str] = [m.key for m in METRICS]
 
 
+def measured_geometry(
+    graph: MetroGraph,
+) -> tuple[dict[tuple[str, str], float], list[RoutedPath]]:
+    """The ``(station_offsets, routes)`` the scorecard scores.
+
+    A rendered graph carries the geometry the renderer drew, which is the only
+    faithful answer: label placement grows the section bboxes routing consults,
+    so re-routing a rendered graph yields paths that were never drawn.  A graph
+    that was laid out but never rendered has no published geometry, so it is
+    routed here -- pre-label-growth, which is what such a graph would draw.
+    ``route_edges`` rather than ``route_edges_centred`` keeps the read free of
+    side effects: the centred variant settles markers onto ``graph.stations``.
+
+    The single seam between the scorecard and the geometry it reads, so a test
+    can assert that geometry is the ink the renderer drew.
+    """
+    from nf_metro.layout.routing import compute_station_offsets, route_edges
+
+    drawn = graph.rendered_geometry
+    if drawn is not None:
+        return drawn.station_offsets, list(drawn.routes)
+    try:
+        offsets = compute_station_offsets(graph)
+        return offsets, route_edges(graph, station_offsets=offsets)
+    except Exception:  # noqa: BLE001 - routing failure surfaces in the validator
+        return {}, []
+
+
 def compute_metrics(
     graph: MetroGraph, *, canvas: tuple[float, float] | None = None
 ) -> dict[str, float]:
@@ -64,15 +96,10 @@ def compute_metrics(
     from layout_validator import validate_layout
 
     from nf_metro.layout.phases.guards import iter_line_label_strikes
-    from nf_metro.layout.routing import compute_station_offsets, route_edges
 
     counts = Counter(v.check for v in validate_layout(graph))
 
-    try:
-        offsets = compute_station_offsets(graph)
-        routes = route_edges(graph, station_offsets=offsets)
-    except Exception:  # noqa: BLE001 - routing failure surfaces in the validator
-        offsets, routes = {}, []
+    offsets, routes = measured_geometry(graph)
 
     # Distinct (line, station) strikes: one visual mark per line crossing a
     # label, not one per route segment that happens to clip it.
