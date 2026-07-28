@@ -41,6 +41,10 @@ EPS = 1e-6
 # engine may retune.
 MARKER_EXTENT = 11.5
 
+# Threshold the validator uses to call a same-lane run wasted space:
+# 1.5 * Y_SPACING. A literal for the same reason as MARKER_EXTENT.
+LANE_GAP_LIMIT = 60.0
+
 
 def seg_len(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
@@ -114,6 +118,35 @@ def station_lines(graph: object) -> dict[str, set]:
         for end in (e.source, e.target):
             out.setdefault(end, set()).add(e.line_id)
     return out
+
+
+def lane_gap_excess(real: list) -> float:
+    """Worst run of empty space between two stations sharing a lane.
+
+    Both groupings are measured, same-x and same-y, so a stranded column and a
+    stranded row score alike whichever way the section flows.
+    """
+    by_section: dict[object, list[tuple[float, float]]] = {}
+    for s in real:
+        if s.x is None or s.y is None:
+            continue
+        by_section.setdefault(getattr(s, "section_id", None), []).append(
+            (float(s.x), float(s.y))
+        )
+    worst = 0.0
+    for pts in by_section.values():
+        for keep, measure in ((0, 1), (1, 0)):
+            lanes: dict[float, list[float]] = {}
+            for p in pts:
+                lanes.setdefault(round(p[keep]), []).append(p[measure])
+            occupied = sorted({round(p[measure]) for p in pts})
+            for vals in lanes.values():
+                vals.sort()
+                for a, b in zip(vals, vals[1:]):
+                    if any(a + EPS < o < b - EPS for o in occupied):
+                        continue
+                    worst = max(worst, (b - a) - LANE_GAP_LIMIT)
+    return max(worst, 0.0)
 
 
 def features(graph: object, routes: list) -> dict[str, float]:
@@ -195,6 +228,13 @@ def features(graph: object, routes: list) -> dict[str, float]:
             if d < 4.0:
                 strikes += 1
 
+    min_station_dist = float("inf")
+    for i in range(len(coords)):
+        for j in range(i + 1, len(coords)):
+            min_station_dist = min(min_station_dist, seg_len(coords[i], coords[j]))
+
+    worst_gap_excess = lane_gap_excess(real)
+
     # Extent spans drawn ink: route waypoints as well as station centres, since
     # offset lines on a single grid row occupy height that the station
     # coordinates alone do not express. Floored at the marker's drawn size,
@@ -237,6 +277,10 @@ def features(graph: object, routes: list) -> dict[str, float]:
         "min_marker_gap": -1.0 if min_marker_gap == float("inf") else min_marker_gap,
         "corners_total": float(corners_total),
         "stations_per_route": n_st / n_rt,
+        "min_station_distance": (
+            -1.0 if min_station_dist == float("inf") else min_station_dist
+        ),
+        "lane_gap_excess": worst_gap_excess,
         "n_ports": float(len(ports)),
         "ports_per_section": len(ports) / n_sec,
     }
