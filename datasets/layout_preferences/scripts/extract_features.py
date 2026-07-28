@@ -120,6 +120,97 @@ def station_lines(graph: object) -> dict[str, set]:
     return out
 
 
+def port_free_axis(port: object, box: tuple) -> str:
+    """The axis a port can slide along, from the section edge it sits on.
+
+    A LEFT/RIGHT port has its x pinned by that edge and moves only on y; a
+    TOP/BOTTOM port is the reverse. The side alone decides this, not the
+    section's flow direction, which only decides which sides are perpendicular.
+
+    Read from ``Port.side`` where present. The geometric fallback compares
+    distance to each edge, which is unreliable on a zero-height or zero-width
+    section box where both distances collapse, so it is used only when the field
+    is missing at an older revision.
+    """
+    side = str(getattr(port, "side", "") or "").upper()
+    if "LEFT" in side or "RIGHT" in side:
+        return "y"
+    if "TOP" in side or "BOTTOM" in side:
+        return "x"
+    x, y = float(port.x), float(port.y)
+    return (
+        "y"
+        if min(abs(x - box[0]), abs(x - box[2]))
+        <= min(abs(y - box[1]), abs(y - box[3]))
+        else "x"
+    )
+
+
+def section_boxes(graph: object) -> dict[str, tuple[float, float, float, float]]:
+    """Section id -> (x1, y1, x2, y2), skipping sections with no laid-out box."""
+    out = {}
+    for sid, sec in (getattr(graph, "sections", {}) or {}).items():
+        x, y = getattr(sec, "bbox_x", None), getattr(sec, "bbox_y", None)
+        w, h = getattr(sec, "bbox_w", None), getattr(sec, "bbox_h", None)
+        if None in (x, y, w, h) or (w <= 0 and h <= 0):
+            continue
+        out[sid] = (float(x), float(y), float(x) + float(w), float(y) + float(h))
+    return out
+
+
+def exit_port_misalignment(graph: object) -> float:
+    """Worst gap between an exit port and its closest internal feeder.
+
+    Measured on the axis the port can slide along. A port whose nearest feeder
+    is off that axis leaves a kink in the run out of the section. Fan-ins
+    inherently misalign all but one feeder, so only the closest one counts.
+
+    Only flow-aligned exits qualify. A port on an edge perpendicular to the
+    section's flow is reached by a turn, so alignment with its feeder is neither
+    expected nor desirable, which is why flow direction is needed to classify
+    the port even though the axis comes from the side alone.
+    """
+    boxes = section_boxes(graph)
+    junctions = set(getattr(graph, "junctions", {}) or {})
+    feeders: dict[str, list] = {}
+    ports = getattr(graph, "ports", {}) or {}
+    for e in graph.edges:
+        port = ports.get(e.target)
+        if port is None or getattr(port, "is_entry", False):
+            continue
+        src = graph.stations.get(e.source)
+        if src is None or getattr(src, "is_port", False) or e.source in junctions:
+            continue
+        if getattr(src, "section_id", None) != getattr(port, "section_id", None):
+            continue
+        feeders.setdefault(e.target, []).append(src)
+
+    worst = 0.0
+    for pid, srcs in feeders.items():
+        pst = graph.stations.get(pid)
+        box = boxes.get(getattr(ports[pid], "section_id", None))
+        if pst is None or box is None or pst.x is None or pst.y is None:
+            continue
+        sec = (getattr(graph, "sections", {}) or {}).get(
+            getattr(ports[pid], "section_id", None)
+        )
+        direction = getattr(sec, "direction", None)
+        if direction not in ("LR", "RL", "TB", "BT"):
+            continue
+        axis = port_free_axis(ports[pid], box)
+        if (axis == "y") == (direction in ("TB", "BT")):
+            continue
+        pc = float(pst.y) if axis == "y" else float(pst.x)
+        gaps = [
+            abs(pc - (float(s.y) if axis == "y" else float(s.x)))
+            for s in srcs
+            if s.x is not None and s.y is not None
+        ]
+        if gaps:
+            worst = max(worst, min(gaps))
+    return worst
+
+
 def lane_gap_excess(real: list) -> float:
     """Worst run of empty space between two stations sharing a lane.
 
@@ -281,6 +372,7 @@ def features(graph: object, routes: list) -> dict[str, float]:
             -1.0 if min_station_dist == float("inf") else min_station_dist
         ),
         "lane_gap_excess": worst_gap_excess,
+        "exit_port_misalignment": exit_port_misalignment(graph),
         "n_ports": float(len(ports)),
         "ports_per_section": len(ports) / n_sec,
     }
