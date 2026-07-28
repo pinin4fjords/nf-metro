@@ -642,7 +642,7 @@ def _settle_render_geometry(
         assert_render_curve_invariants(graph, routes, station_offsets)
     assert_render_header_clearance(graph, strict=effective_strict)
     graph.rendered_geometry = RenderedGeometry(
-        station_offsets=dict(station_offsets), routes=tuple(routes)
+        station_offsets=station_offsets, routes=tuple(routes)
     )
     return station_offsets, routes, labels
 
