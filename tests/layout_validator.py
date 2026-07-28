@@ -1354,8 +1354,8 @@ def check_intra_section_chain_alignment(
     Two non-port stations connected by an edge on the same metro line should
     share the line's track, so the intra-section edge runs along the flow
     rather than cutting across it. The track coordinate is the section's lane
-    axis, read from :func:`lanes_run_along_x` so all four flow directions are
-    covered: Y for a horizontal flow (LR/RL), X for a vertical one (TB/BT).
+    axis; :func:`lanes_run_along_x` says which screen axis that is for the
+    section's flow direction.
 
     Diagonal intra-section edges typically arise when one endpoint is a
     multi-line hub centred across many tracks while the other sits on a
@@ -1457,7 +1457,7 @@ def check_intra_section_chain_alignment(
                 continue
 
         axis = "x" if lanes_run_along_x(section.direction) else "y"
-        src_coord, tgt_coord = (src.x, tgt.x) if axis == "x" else (src.y, tgt.y)
+        src_coord, tgt_coord = getattr(src, axis), getattr(tgt, axis)
         delta = abs(src_coord - tgt_coord)
 
         if delta > tolerance:
@@ -1550,23 +1550,22 @@ def check_exit_port_feeder_alignment(
             continue
 
         axis = port_free_axis(port.side)
-        port_coord = port_station.y if axis == "y" else port_station.x
+        port_coord = getattr(port_station, axis)
 
         # Compute deltas; only emit if no feeder aligns within tolerance.
-        deltas: list[tuple[str, object, float]] = []
+        deltas: list[tuple[str, float, float]] = []
         any_aligned = False
         for st_id, st in feeder_list:
-            st_coord = st.y if axis == "y" else st.x
+            st_coord = getattr(st, axis)
             delta = abs(port_coord - st_coord)
-            deltas.append((st_id, st, delta))
+            deltas.append((st_id, st_coord, delta))
             if delta <= tolerance:
                 any_aligned = True
 
         if any_aligned:
             continue
 
-        for st_id, st, delta in deltas:
-            st_coord = st.y if axis == "y" else st.x
+        for st_id, st_coord, delta in deltas:
             violations.append(
                 Violation(
                     check="exit_port_feeder_alignment",

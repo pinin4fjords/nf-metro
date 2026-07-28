@@ -372,27 +372,28 @@ def test_no_intra_section_chain_misalignment_across_gallery(mmd_path):
 
 # A port is pinned to the section edge it sits on and can only slide along
 # that edge, so the alignable axis follows the side: a LEFT/RIGHT port has a
-# fixed x and a free y, a TOP/BOTTOM port the reverse. Comparing the pinned
-# coordinate against an interior station's yields a complaint no layout
-# change could satisfy.
+# fixed x and a free y, a TOP/BOTTOM port the reverse. Spelled out here rather
+# than imported from the validator's own helper so the two are independent.
 _FREE_AXIS_FOR_PORT_SIDE = {"left": "y", "right": "y", "top": "x", "bottom": "x"}
 
-_PORT_AXIS_FILES = [
-    VARIANT_CALLING_FILE,
-    RNASEQ_FILE,
-    EPITOPEPREDICTION_FILE,
-    HLATYPING_FILE,
-    TB_FILE_TERMINI_FILE,
-    *TOPOLOGY_FILES,
-]
+_PORT_AXIS_FILES = [*_CHAIN_ALIGNMENT_FILES, TB_FILE_TERMINI_FILE]
 
 
 @pytest.mark.parametrize("mmd_path", _PORT_AXIS_FILES, ids=lambda p: p.stem)
-def test_exit_port_feeder_alignment_compares_the_ports_free_axis(mmd_path):
-    """Every reported exit-port misalignment is on an axis the port can move."""
+def test_exit_port_feeder_alignment_reports_only_satisfiable_offsets(mmd_path):
+    """Every reported exit-port misalignment is one the layout could resolve.
+
+    Two ways a complaint can be unsatisfiable. It can name the axis the port is
+    pinned to, where no layout change moves the port at all. Or it can name a
+    perpendicular port, which must stay offset from every internal station on
+    its free axis or the line's 90-degree turn into it passes through a station
+    marker - demanding alignment there asks for exactly the geometry
+    ``check_station_as_elbow`` rejects, so the two checks would contradict.
+    """
     graph = _load_and_layout(mmd_path)
     for violation in check_exit_port_feeder_alignment(graph):
-        side = graph.ports[violation.context["port"]].side.value
+        port = graph.ports[violation.context["port"]]
+        side = port.side.value
         expected = _FREE_AXIS_FOR_PORT_SIDE[side]
         assert violation.context["axis"] == expected, (
             f"{violation.context['port']} sits on the {side} edge, so only "
@@ -400,23 +401,10 @@ def test_exit_port_feeder_alignment_compares_the_ports_free_axis(mmd_path):
             f"{violation.context['axis']}: {violation.message}"
         )
 
-
-@pytest.mark.parametrize("mmd_path", _PORT_AXIS_FILES, ids=lambda p: p.stem)
-def test_exit_port_feeder_alignment_exempts_perpendicular_ports(mmd_path):
-    """Feeder alignment is never demanded where station-as-elbow forbids it.
-
-    A perpendicular exit port must stay offset from every internal station on
-    its free axis, or the line's 90-degree turn into it passes through a
-    station marker. Demanding feeder alignment there asks for exactly the
-    geometry ``check_station_as_elbow`` rejects, so the two would contradict.
-    """
-    graph = _load_and_layout(mmd_path)
-    for violation in check_exit_port_feeder_alignment(graph):
-        port = graph.ports[violation.context["port"]]
         direction = graph.sections[violation.context["section"]].direction
         assert port.side not in perpendicular_port_sides(direction), (
-            f"{violation.context['port']} is a perpendicular ({port.side.value}) "
-            f"port on a {direction} section, where the "
+            f"{violation.context['port']} is a perpendicular ({side}) port on "
+            f"a {direction} section, where the "
             f"{violation.context['delta']:.1f}px offset is required clearance: "
             f"{violation.message}"
         )
