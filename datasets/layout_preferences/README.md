@@ -159,7 +159,7 @@ that appears in many pairs cannot state a corpus-wide trend on its own.
 
 `crossings` shows **no directional signal** (44.9% agreement over 42 pairs and 25
 fixtures, the largest sample in the corpus), which is why it sits in the lowest
-weight bin of `scripts/optimize_layout.py`'s objective rather than near the top.
+weight bin of `scripts/optimize_layout.py`'s objective.
 `detour_mean` (53.4%, n=148) and `detour_max` (54.1%) are flat too. What carries
 signal is bend and corner quality: `bends_per_route` and `corners_total` 94.8%,
 `lone_diagonals` 93.8%, `non_45_segments` 83.3%, `turn_angle_per_route` 75.4%.
@@ -238,9 +238,9 @@ held out rather than statements about layout.
 - **`marker_crowding` is inert on this corpus.** It has zero delta on 189 of 192
   directional pairs: `min_marker_gap` is undefined on 25 of them, and unchanged
   or beyond one lane pitch on the rest. Three moved pairs cannot measure a term,
-  so it is weighted as unmeasured rather than as measured-and-agreeing, and
-  re-binning it moved the `authored` arm by 0.00 pp on every arm above, which is
-  what "inert" means quantitatively.
+  so it is weighted as unmeasured rather than as measured-and-agreeing. Re-binning
+  it left every score in the table above unchanged to the decimal, which is what
+  "inert" means quantitatively.
 - **Raw per-pair percentages are inflated by fixture repetition.**
   `path_len_per_route` reads 67% directional per pair but 59% grouped by fixture,
   and the `only_path_len` control _loses_ to the authored objective head-to-head
