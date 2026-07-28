@@ -19,7 +19,9 @@ to be recoverable from artifacts that were never written as a dataset.
 | `verdict_ledger_by_pr.json` | 108     | per-PR sign-off counts recovered from session transcripts          |
 | `dataset_report.txt`        | -       | emitted/dropped counts and the per-feature directional check       |
 | `fit_report.txt`            | -       | the fitted model, its cross-validated gate result and its controls |
-| `scripts/`                  | 11      | the generating pipeline, plus `fit_objective.py`                   |
+| `iter2_weights.json`        | -       | the fitted weights the render-diff reads (see below)               |
+| `feature_parity_report.txt` | -       | render-diff vs `extract_features.py` feature-source parity check   |
+| `scripts/`                  | 14      | the generating pipeline, plus `fit_objective.py`                   |
 
 The tables above are the historical backfill, which is a one-off.
 [Forward capture](#forward-capture) is how the same signal keeps arriving, into
@@ -352,3 +354,72 @@ held out rather than statements about layout.
 - **The weak-label warning is confirmed empirically.** Adding `pr_signoff` rows
   to training at a tenth of a directional row's weight costs `iter2` 5.2 points.
   Set-level ratifications are not per-render positives.
+
+## Reporting the learned score in the render-diff
+
+`iter2_weights.json` is the single owned statement of the fitted weights,
+written by:
+
+```bash
+python scripts/fit_objective.py --dump-weights iter2 --weights-out ../iter2_weights.json
+```
+
+`scripts/scored_objective.py` is the only reader: it loads that artifact and
+turns a base/PR feature-vector pair into the weighted delta the render-diff
+prints in its "Learned score (shadow)" column. Nothing else holds a copy of
+the weights, so a re-fit (as the forward capture ledger grows) never leaves a
+second copy to drift out of sync.
+
+**Shadow mode, not a gate.** The render-diff reports the delta and orders
+changed renders by it (worst first), but nothing is filtered or hidden: every
+changed render still needs a human look regardless of what the score says.
+That is what makes ordering by it safe at 68.5%/69.6% agreement rather than
+needing the 85% bar #1587 and #1588/#1589 reserve for an actual optimisation
+target -- a wrong order costs a render being read third instead of first, in a
+set that averages a handful of renders per PR; nothing is ever skipped.
+
+### Feature-source parity
+
+The render-diff scores a render's actual _drawn_ geometry (`drawn_polylines`,
+offsets applied); `extract_features.py` -- what produced the fitted weights'
+training data -- resolves its own routing pass (`route_edges_centred`) instead.
+The two are meant to measure the same thing by a different decomposition, so
+`scripts/check_feature_parity.py` measures the gap between them across the
+whole fixture corpus rather than assuming it:
+
+```bash
+python scripts/check_feature_parity.py --out ../feature_parity_report.txt
+```
+
+The check found one real bug rather than only decomposition noise:
+`extract_features.py`'s bend/turn-angle scan read a route's raw waypoints
+without dropping consecutive duplicates, so a route with an incidental
+zero-length step (invisible in the render) counted as a corner. Fixed via
+`dedupe_consecutive`; afterwards the two heaviest-weighted features
+(`lone_diagonals_per_route` at 12.3, `bends_per_route` at 3.0 -- together most
+of the objective's weight mass) match exactly across all 319 valid corpus
+fixtures, and the worst-case weighted-score divergence dropped from 3.06 to
+1.42 (mean 0.10). `tests/test_learned_score_parity.py` locks that bound so a
+future engine change that reopens the gap fails loudly instead of quietly
+decalibrating the reported score.
+
+### Shadow-mode disagreement log
+
+```bash
+python scripts/shadow_log.py --pairs ../forward_pairs.jsonl --out ../shadow_disagreements.jsonl
+```
+
+Replays iter2 over `forward_pairs.jsonl` -- PRs merged and verdicted through
+[forward capture](#forward-capture), which post-date the fit -- and writes
+every directional pair where the learned score's predicted direction
+contradicts the recorded human verdict. `dataset_pairs.jsonl` is deliberately
+**not** the input here: it is the fit's own training data, and cross-validation
+over it already reports iter2's residuals, so replaying it again would add no
+independent evidence.
+
+`forward_pairs.jsonl` starts empty: forward capture only landed in #1584/PR
+#1607, and a directional pair needs a human `--fixture-verdict` recorded after
+capture, which nothing has received yet as of this writing. The log has
+nothing to show until real PRs accumulate one; that reflects how new the
+capture pipeline is, not a claim the score has been validated against fresh
+data. Its output feeds the next feature iteration for #1585.

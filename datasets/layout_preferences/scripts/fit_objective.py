@@ -665,10 +665,56 @@ def report(
     return "\n".join(out) + "\n"
 
 
+ANCHOR_FEATURE = "bends_per_route"
+"""Feature the committed weights are rescaled against; see ``rescale_to``."""
+
+
+def weights_artifact(arm: Arm, name: str) -> dict:
+    """The single owned statement of one arm's fitted weights, for consumers.
+
+    Rescaled to ``ANCHOR_FEATURE`` = 3.0, matching the units every number in
+    this module's ``report()`` is already printed in. Only ratios between a
+    Bradley-Terry model's weights are identified, so this rescaling changes no
+    prediction; it exists purely so a consumer reads the same numbers a human
+    reviewing ``fit_report.txt`` does.
+
+    Carries the gate result and the sign-flip warning as data, not just prose,
+    so a consumer (the render-diff scorecard) cannot quote the weights without
+    also seeing why per-feature contributions are not meant to be surfaced.
+    """
+    pooled, _ = arm.pooled()
+    decided, coverage = arm.decided()
+    scaled = rescale_to(arm.weights, ANCHOR_FEATURE)
+    spread = arm.weight_spread()
+    flips = sorted(k for k, (lo, hi) in spread.items() if lo * hi < 0)
+    return {
+        "arm": name,
+        "anchor_feature": ANCHOR_FEATURE,
+        "anchor_value": 3.0,
+        "weights": scaled,
+        "gate": {"pooled": pooled, "decided": decided, "coverage": coverage},
+        "sign_flips_across_folds": flips,
+        "note": (
+            "Fitted to predict a pairwise preference direction, not to be "
+            "minimised -- see #1587/#1588/#1589. Report the aggregate "
+            "weighted delta only; per-feature contributions are not "
+            "meaningful when sign_flips_across_folds is non-empty."
+        ),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pairs", type=Path, default=DATASET)
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--dump-weights",
+        metavar="ARM",
+        default=None,
+        help="Write ARM's fitted weights as JSON to --weights-out instead of "
+        "(or alongside) the text report, e.g. --dump-weights iter2.",
+    )
+    parser.add_argument("--weights-out", type=Path, default=None)
     args = parser.parse_args()
 
     directional, weak, skipped = load(args.pairs)
@@ -678,6 +724,16 @@ def main() -> None:
     print(text, end="")
     if args.out:
         args.out.write_text(text)
+
+    if args.dump_weights:
+        if args.dump_weights not in arms:
+            raise SystemExit(f"unknown arm: {args.dump_weights!r}")
+        artifact = weights_artifact(arms[args.dump_weights], args.dump_weights)
+        payload = json.dumps(artifact, indent=2, sort_keys=True) + "\n"
+        if args.weights_out:
+            args.weights_out.write_text(payload)
+        else:
+            print(payload, end="")
 
 
 if __name__ == "__main__":

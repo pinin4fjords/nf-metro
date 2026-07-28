@@ -27,7 +27,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 sys.path.insert(0, str(project_root / "tests"))
 
-from layout_metrics import compute_metrics  # noqa: E402
+from layout_metrics import compute_learned_features, compute_metrics  # noqa: E402
 
 from nf_metro.api import (  # noqa: E402
     RenderConfig,
@@ -135,9 +135,16 @@ def _record_metrics(graph, svg_name: str, svg_str: str) -> None:
     match = _SVG_DIMS_RE.search(svg_str)
     canvas = (float(match.group(1)), float(match.group(2))) if match else None
     try:
-        _metrics[svg_name] = compute_metrics(graph, canvas=canvas)
+        entry = compute_metrics(graph, canvas=canvas)
     except Exception as e:  # noqa: BLE001 - metrics are advisory, never fatal
         print(f"    metrics FAIL for {svg_name}: {e}")
+        return
+    try:
+        entry["_learned"] = compute_learned_features(graph)
+    except Exception as e:  # noqa: BLE001 - shadow-mode score, never fatal
+        print(f"    learned-score FAIL for {svg_name}: {e}")
+        entry["_learned"] = None
+    _metrics[svg_name] = entry
 
 
 def render_mmd(

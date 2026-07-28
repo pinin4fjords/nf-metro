@@ -69,6 +69,24 @@ def segments(points: list[tuple[float, float]]) -> list[tuple]:
     ]
 
 
+def dedupe_consecutive(
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Drop consecutive repeated waypoints from a route's raw point list.
+
+    A route can carry a zero-length step (two waypoints at the same
+    coordinate) as a byproduct of how it was assembled. Left in, it has no
+    direction, so the turn-angle scan below reads it as a corner at a point
+    that never actually bends -- a phantom the visible render carries no
+    trace of.
+    """
+    out: list[tuple[float, float]] = []
+    for p in points:
+        if not out or seg_len(out[-1], p) > EPS:
+            out.append(p)
+    return out
+
+
 def seg_intersect(s1: tuple, s2: tuple) -> bool:
     """Proper crossing only: shared endpoints and collinear overlap excluded."""
     (x1, y1), (x2, y2) = s1
@@ -256,7 +274,7 @@ def features(graph: object, routes: list) -> dict[str, float]:
     corners_total = 0
 
     for r in routes:
-        pts = path_points(r)
+        pts = dedupe_consecutive(path_points(r))
         segs = segments(pts)
         if not segs:
             continue
