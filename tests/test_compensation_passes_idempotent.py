@@ -94,18 +94,6 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # the X positions of two off-track sibling stations instead of reproducing
 # them, an order-sensitivity bug that has not been investigated further.
 #
-# ``topologies/paired_input_fan_branch_tree``'s "6.6"/"6.8" entries record a
-# real divergence that call order alone keeps benign.  Stage 6.18 seats the
-# branch-tree spur on the row an off-track output icon already occupies two
-# columns to its left.  ``_bump_off_track_clear_of_trunks`` then admits any
-# non-terminus trunk station merely downstream of the icon in flow and bumps
-# when that station's line band overlaps the icon's cross extent -- but the
-# seated branch is fed from a column downstream of the icon, so its inbound run
-# never reaches the icon's column.
-# The gate needs the feeding run's actual flow span, not just "downstream of the
-# icon" (#1566).  Stage 6.18 runs after the last reanchor, so the shipped
-# geometry keeps the tighter placement.
-#
 # Entries are removed only when the underlying stage genuinely becomes an
 # end-of-layout no-op; the assertions below fail loudly both on any new,
 # unregistered gap and on any registered gap that stops reproducing, so this
@@ -123,7 +111,6 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/off_track_input_above_consumer": frozenset({"4.7"}),
     "topologies/out_of_section_retag_fan": frozenset({"4.7"}),
     "topologies/packed_multiline_serpentine_grid": frozenset({"4.7"}),
-    "topologies/paired_input_fan_branch_tree": frozenset({"6.6", "6.8"}),
     "topologies/rl_entry_right_exit_left": frozenset({"4.7"}),
     "topologies/rowmate_tb_side_entry_top_align_grow": frozenset({"4.7"}),
     "topologies/side_branch_ascent_label_strike": frozenset({"4.7"}),
