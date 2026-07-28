@@ -29,6 +29,7 @@ from layout_validator import (
 )
 
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.geometry import perpendicular_port_sides
 from nf_metro.layout.routing.common import row_bottom_edge
 from nf_metro.layout.routing.context import _resolve_section_row
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -365,6 +366,93 @@ def test_no_intra_section_chain_misalignment_across_gallery(mmd_path):
     graph = _load_and_layout(mmd_path)
     violations = check_intra_section_chain_alignment(graph)
     assert not violations, "\n".join(v.message for v in violations)
+
+
+# --- #1599: alignment checks read the axis from the port side, not the flow ---
+
+# A port is pinned to the section edge it sits on and can only slide along
+# that edge, so the alignable axis follows the side: a LEFT/RIGHT port has a
+# fixed x and a free y, a TOP/BOTTOM port the reverse. Spelled out here rather
+# than imported from the validator's own helper so the two are independent.
+_FREE_AXIS_FOR_PORT_SIDE = {"left": "y", "right": "y", "top": "x", "bottom": "x"}
+
+_PORT_AXIS_FILES = [*_CHAIN_ALIGNMENT_FILES, TB_FILE_TERMINI_FILE]
+
+
+@pytest.mark.parametrize("mmd_path", _PORT_AXIS_FILES, ids=lambda p: p.stem)
+def test_exit_port_feeder_alignment_reports_only_satisfiable_offsets(mmd_path):
+    """Every reported exit-port misalignment is one the layout could resolve.
+
+    Two ways a complaint can be unsatisfiable. It can name the axis the port is
+    pinned to, where no layout change moves the port at all. Or it can name a
+    perpendicular port, which must stay offset from every internal station on
+    its free axis or the line's 90-degree turn into it passes through a station
+    marker - demanding alignment there asks for exactly the geometry
+    ``check_station_as_elbow`` rejects, so the two checks would contradict.
+    """
+    graph = _load_and_layout(mmd_path)
+    for violation in check_exit_port_feeder_alignment(graph):
+        port = graph.ports[violation.context["port"]]
+        side = port.side.value
+        expected = _FREE_AXIS_FOR_PORT_SIDE[side]
+        assert violation.context["axis"] == expected, (
+            f"{violation.context['port']} sits on the {side} edge, so only "
+            f"{expected} is alignable, but the violation compares "
+            f"{violation.context['axis']}: {violation.message}"
+        )
+
+        direction = graph.sections[violation.context["section"]].direction
+        assert port.side not in perpendicular_port_sides(direction), (
+            f"{violation.context['port']} is a perpendicular ({side}) port on "
+            f"a {direction} section, where the "
+            f"{violation.context['delta']:.1f}px offset is required clearance: "
+            f"{violation.message}"
+        )
+
+
+# Both alignment checks branch on the section's flow direction, so a missing
+# direction arm silences them entirely rather than degrading them. These tests
+# displace geometry the checks are meant to catch and assert the complaint
+# surfaces, which fails outright when BT falls through unhandled.
+
+_BT_CHAIN_FILE = TOPOLOGIES_DIR / "bt_chain.mmd"
+_BT_FLOW_EXIT_FILE = TOPOLOGIES_DIR / "bt_exit_top_above.mmd"
+
+
+def _displace_bt_stations(graph, attr: str, amount: float = 60.0) -> None:
+    """Push every interior station of a BT section off its section trunk."""
+    bt_sections = {
+        sid for sid, section in graph.sections.items() if section.direction == "BT"
+    }
+    moved = 0
+    for index, (station_id, station) in enumerate(sorted(graph.stations.items())):
+        if station.is_port or station_id in graph.junctions:
+            continue
+        if station.section_id not in bt_sections:
+            continue
+        offset = amount if index % 2 else -amount
+        setattr(station, attr, getattr(station, attr) + offset)
+        moved += 1
+    assert moved, "fixture has no interior BT stations to displace"
+
+
+def test_intra_section_chain_alignment_covers_bt_sections():
+    graph = _load_and_layout(_BT_CHAIN_FILE)
+    assert not check_intra_section_chain_alignment(graph)
+    _displace_bt_stations(graph, "x")
+    assert check_intra_section_chain_alignment(graph), (
+        "BT chains zig-zagging by 120px went unreported"
+    )
+
+
+def test_exit_port_feeder_alignment_covers_bt_sections():
+    """A BT section's flow-aligned (top) exit port is checked like any other."""
+    graph = _load_and_layout(_BT_FLOW_EXIT_FILE)
+    assert not check_exit_port_feeder_alignment(graph)
+    _displace_bt_stations(graph, "x")
+    assert check_exit_port_feeder_alignment(graph), (
+        "a BT feeder dragged 120px off its top exit port went unreported"
+    )
 
 
 # --- Regression guard: rnaseq example ---
