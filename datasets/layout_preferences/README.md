@@ -11,7 +11,7 @@ to be recoverable from artifacts that were never written as a dataset.
 
 | file                        | records | what it is                                                         |
 | --------------------------- | ------- | ------------------------------------------------------------------ |
-| `dataset_pairs.jsonl`       | 1598    | the dataset. One preference claim per line, feature vectors inline |
+| `dataset_pairs.jsonl`       | 1585    | the dataset. One preference claim per line, feature vectors inline |
 | `dataset_anchors.jsonl`     | 305     | one-sided negatives: fixture F was defective at revision X         |
 | `labels.json`               | 778     | assembled labels before geometry was joined on                     |
 | `labels_xfail.json`         | 319     | labels derived from `_XFAIL_*` registry churn                      |
@@ -37,7 +37,7 @@ to be recoverable from artifacts that were never written as a dataset.
 one revision, raised at the other) involves no human judgement and has an
 unambiguous direction, making it the most reliable row type in the corpus.
 
-`label` is `after_better` (187 rows) or `after_not_worse` (1411).
+`label` is `after_better` (192 rows) or `after_not_worse` (1393).
 
 ## Label hierarchy
 
@@ -73,14 +73,19 @@ cannot drift underneath the dataset.
 
 Because both sides of a pair are the same map, size cannot act as a confound.
 `n_stations`, `n_routes`, `n_sections` and `n_ports` have exactly zero delta in
-all 185 directional pairs, so no fitted weight can be learning "large maps get
+all 192 directional pairs, so no fitted weight can be learning "large maps get
 fixed" in place of a quality signal.
 
-The same fact makes those four features useless in a **pairwise** design matrix:
-a feature with zero delta carries no information about the preference. Together
-with `marker_strikes` and `marker_strikes_per_station`, which are too sparse to
-move within these pairs, six of the columns should be dropped when fitting on
-pairs. All six remain meaningful for the one-sided anchors, which are
+The same fact makes them useless in a **pairwise** design matrix: a feature with
+zero delta carries no information about the preference. Eight of the 31 columns
+are inert on pairs and should be dropped when fitting on them:
+
+- `n_stations`, `n_routes`, `n_sections`, `n_ports` — zero delta by construction
+- `stations_per_route`, `ports_per_section` — ratios of the above, so also fixed
+- `marker_strikes`, `marker_strikes_per_station` — too sparse to move in a pair
+
+That leaves 23 usable columns against 192 pairs, about 8 observations per
+parameter. All eight stay meaningful for the one-sided anchors, which are
 cross-fixture and where size genuinely varies.
 
 ## Two constraints that were established by measurement

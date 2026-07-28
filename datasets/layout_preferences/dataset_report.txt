@@ -1,42 +1,44 @@
-geometry revisions available: 971
+geometry revisions available: 899
 
 === emitted ===
   abort_transition                   2
   anchor_open_bug                    28
   anchor_xfail_known_bad             277
   pair_issue_fix_named               20
-  pair_issue_fix_set                 154
-  pair_pr_rejected_set               400
-  pair_pr_signoff_set                1011
+  pair_issue_fix_set                 161
+  pair_pr_rejected_set               431
+  pair_pr_signoff_set                960
   pair_xfail_cleared_named           11
 
 === dropped ===
-  geometry_identical                 104937
-  both_abort                         4387
+  geometry_identical                 104324
+  both_abort                         4371
   input_changed                      32
+  pr_signoff_missing_geometry        2
   entrypoint_straddle                1
 
-total pairs: 1598   directional (after_better): 185
+total pairs: 1585   directional (after_better): 192
 abort transitions: 2
 anchors: 305
 distinct fixtures in pairs: 186
-features per vector: 24
+features per vector: 31
 
 === directional signal check (issue-fix pairs) ===
 fraction of pairs where the feature DECREASED after the fix:
-  aspect                        68.9%  (n= 61)  <-- discriminative
-  bbox_h                        28.6%  (n= 56)  <-- discriminative
-  bbox_w                        37.5%  (n=  8)
+  aspect_log                    71.7%  (n= 92)  <-- discriminative
+  bbox_h                        23.8%  (n= 80)  <-- discriminative
+  bbox_w                        31.2%  (n= 16)  <-- discriminative
   bends_per_route               89.5%  (n= 19)  <-- discriminative
   corners_total                 89.5%  (n= 19)  <-- discriminative
   crossings                     54.8%  (n= 42)
   crossings_per_route           54.8%  (n= 42)
   detour_max                    53.9%  (n= 76)
   detour_mean                   58.1%  (n=148)
-  ink_density                   51.8%  (n=141)
   lone_diagonals                90.0%  (n= 10)  <-- discriminative
+  lone_diagonals_per_route      90.0%  (n= 10)  <-- discriminative
   min_marker_gap                14.8%  (n= 27)  <-- discriminative
+  non_45_frac                   52.9%  (n= 17)
   non_45_segments               81.8%  (n= 11)  <-- discriminative
   path_len_per_route            32.6%  (n=141)
-  station_density               70.5%  (n= 61)  <-- discriminative
+  path_len_per_station          32.6%  (n=141)
   turn_angle_per_route          69.0%  (n= 29)  <-- discriminative
