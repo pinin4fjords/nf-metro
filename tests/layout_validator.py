@@ -20,6 +20,7 @@ from nf_metro.layout.geometry import (
     iter_stations_outside_bbox,
     lanes_run_along_x,
     perpendicular_port_sides,
+    port_free_axis,
 )
 from nf_metro.layout.phases._common import (
     routes_through_unrelated_sections,
@@ -1350,10 +1351,11 @@ def check_intra_section_chain_alignment(
 ) -> list[Violation]:
     """Check that consecutive same-line stations within a section share a track.
 
-    Within an LR section, two non-port stations connected by an edge on the
-    same metro line should sit at the same Y (the line's track), so the
-    intra-section edge runs horizontally. Within a TB section the same
-    invariant applies on the X axis.
+    Two non-port stations connected by an edge on the same metro line should
+    share the line's track, so the intra-section edge runs along the flow
+    rather than cutting across it. The track coordinate is the section's lane
+    axis, read from :func:`lanes_run_along_x` so all four flow directions are
+    covered: Y for a horizontal flow (LR/RL), X for a vertical one (TB/BT).
 
     Diagonal intra-section edges typically arise when one endpoint is a
     multi-line hub centred across many tracks while the other sits on a
@@ -1454,16 +1456,9 @@ def check_intra_section_chain_alignment(
             if next_st is not None and next_st.is_terminus:
                 continue
 
-        if section.direction in ("LR", "RL"):
-            delta = abs(src.y - tgt.y)
-            axis = "y"
-            src_coord, tgt_coord = src.y, tgt.y
-        elif section.direction == "TB":
-            delta = abs(src.x - tgt.x)
-            axis = "x"
-            src_coord, tgt_coord = src.x, tgt.x
-        else:
-            continue
+        axis = "x" if lanes_run_along_x(section.direction) else "y"
+        src_coord, tgt_coord = (src.x, tgt.x) if axis == "x" else (src.y, tgt.y)
+        delta = abs(src_coord - tgt_coord)
 
         if delta > tolerance:
             violations.append(
@@ -1499,11 +1494,21 @@ def check_exit_port_feeder_alignment(
 ) -> list[Violation]:
     """Check that section exit ports align with their internal feeder station.
 
-    For each exit port P, every internal (non-port, non-junction) station
-    inside the same section that has an edge directly into P should share
-    P's perpendicular coordinate (Y for LR/RL sections, X for TB). This
-    keeps the connecting segment axis-aligned and avoids kinks in the
-    horizontal exit run.
+    For each flow-aligned exit port P, every internal (non-port, non-junction)
+    station inside the same section that has an edge directly into P should
+    share the coordinate P is free to slide along, so the line leaves the
+    section straight instead of kinking into the port.
+
+    The comparison axis is read from :func:`port_free_axis` - i.e. from the
+    side P sits on, not from the section's flow direction. P is pinned to its
+    edge on the other axis, so comparing that one against an interior station
+    reports a misalignment no layout could resolve.
+
+    Perpendicular ports are exempt entirely rather than checked on their free
+    axis. Such a port sits on a lane-axis edge, so the line must turn 90 degrees
+    to reach it, and the station-as-elbow rule *requires* the port to be offset
+    from every internal station along that free axis - aligning it would put
+    the marker in the elbow. :func:`check_station_as_elbow` owns that geometry.
 
     Multi-feeder fan-ins inherently misalign all but one feeder, so this
     check fires only when the port matches *none* of its feeders - i.e.
@@ -1541,15 +1546,11 @@ def check_exit_port_feeder_alignment(
         section = graph.sections.get(port.section_id)
         if section is None:
             continue
-
-        if section.direction in ("LR", "RL"):
-            axis = "y"
-            port_coord = port_station.y
-        elif section.direction == "TB":
-            axis = "x"
-            port_coord = port_station.x
-        else:
+        if port.side in perpendicular_port_sides(section.direction):
             continue
+
+        axis = port_free_axis(port.side)
+        port_coord = port_station.y if axis == "y" else port_station.x
 
         # Compute deltas; only emit if no feeder aligns within tolerance.
         deltas: list[tuple[str, object, float]] = []
