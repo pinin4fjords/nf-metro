@@ -120,7 +120,7 @@ preference claim a human already made by approving it. `capture_pr.py`
 records that signal into `datasets/layout_preferences/forward_pairs.jsonl`:
 
 ```bash frame="terminal"
-python capture_pr.py 1608 --pr-verdict neutral
+python capture_pr.py <PR_NUMBER> --pr-verdict neutral
 python capture_pr.py --sweep   # catch up every merged PR not yet examined
 ```
 
@@ -132,13 +132,7 @@ backlog of merged PRs with no verdict required; a verdict can be attached
 later, separately, via `--verdict-only`.
 
 This is currently a manual, session-driven step — nothing in CI runs it
-automatically. Two shapes were discussed for automating the mechanical
-sweep-and-default-verdict step (treating a plain merge as a weak
-`pr_signoff`, matching the existing corpus convention, with a stronger
-per-fixture verdict staying an optional manual add-on): a GitHub Actions
-workflow on `pull_request: closed` (merged) that opens a small bot PR with
-the ledger update, or a periodically scheduled agent session doing the
-same. Deferred for now — whichever gets built still has to land through a
+automatically. Any automation of it still has to land its result through a
 normal PR, since the ledger files sit under the repo's usual branch
 protection like everything else.
 
