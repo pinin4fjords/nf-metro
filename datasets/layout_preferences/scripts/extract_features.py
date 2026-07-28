@@ -34,6 +34,13 @@ warnings.filterwarnings("ignore")
 
 EPS = 1e-6
 
+# Smallest height or width a rendered map can occupy: one station marker plus
+# its stroke, from STATION_RADIUS_APPROX (5.0) and STATION_STROKE_APPROX (1.5).
+# Held as a literal rather than imported: feature definitions must be identical
+# at every replayed revision, so this floor cannot track a constant that the
+# engine may retune.
+MARKER_EXTENT = 11.5
+
 
 def seg_len(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
@@ -188,21 +195,29 @@ def features(graph: object, routes: list) -> dict[str, float]:
             if d < 4.0:
                 strikes += 1
 
-    xs = [c[0] for c in coords] or [0.0]
-    ys = [c[1] for c in coords] or [0.0]
-    w, h = max(xs) - min(xs), max(ys) - min(ys)
-    area = max(w * h, 1.0)
+    # Extent spans drawn ink: route waypoints as well as station centres, since
+    # offset lines on a single grid row occupy height that the station
+    # coordinates alone do not express. Floored at the marker's drawn size,
+    # because no rendered map is thinner than one station.
+    ink = coords + [p for seg, _ in all_segs for p in seg]
+    xs = [c[0] for c in ink] or [0.0]
+    ys = [c[1] for c in ink] or [0.0]
+    w = max(max(xs) - min(xs), MARKER_EXTENT)
+    h = max(max(ys) - min(ys), MARKER_EXTENT)
     n_st = max(len(real), 1)
     n_rt = max(len(routes), 1)
+    n_seg = max(len(all_segs), 1)
+    n_sec_raw = len(getattr(graph, "sections", {}) or {})
+    n_sec = max(n_sec_raw, 1)
 
     return {
         "n_stations": float(len(real)),
         "n_routes": float(len(routes)),
-        "n_sections": float(len(getattr(graph, "sections", {}) or {})),
+        "n_sections": float(n_sec_raw),
         "bbox_w": w,
         "bbox_h": h,
-        "aspect": w / max(h, 1.0),
-        "ink_density": total_len / area,
+        "aspect_log": math.log10(w / h),
+        "path_len_per_station": total_len / n_st,
         "path_len_per_route": total_len / n_rt,
         "crossings": float(crossings),
         "crossings_per_route": crossings / n_rt,
@@ -210,16 +225,20 @@ def features(graph: object, routes: list) -> dict[str, float]:
         "turn_angle_per_route": sum(per_path_turn) / n_rt,
         "max_bends_one_route": max(per_path_bends or [0.0]),
         "non_45_segments": float(non45),
+        "non_45_frac": non45 / n_seg,
         "near_horizontal": float(near_horiz),
+        "near_horizontal_frac": near_horiz / n_seg,
         "lone_diagonals": float(lone_diag),
+        "lone_diagonals_per_route": lone_diag / n_rt,
         "detour_mean": sum(detours) / len(detours) if detours else 1.0,
         "detour_max": max(detours or [1.0]),
         "marker_strikes": float(strikes),
         "marker_strikes_per_station": strikes / n_st,
         "min_marker_gap": -1.0 if min_marker_gap == float("inf") else min_marker_gap,
-        "station_density": n_st / area * 1e4,
         "corners_total": float(corners_total),
+        "stations_per_route": n_st / n_rt,
         "n_ports": float(len(ports)),
+        "ports_per_section": len(ports) / n_sec,
     }
 
 
