@@ -833,8 +833,10 @@ class RenderedGeometry:
     what the viewer sees -- the render-diff quality scorecard, the
     offset-collapse oracle -- therefore consume this instead of re-deriving.
 
-    Holds the routes by reference: they are the drawn objects, not copies, so a
-    reader sees exactly the geometry the renderer emitted.
+    Holds the offsets and routes by reference rather than copying them: they are
+    the objects the renderer goes on to draw, so a reader sees exactly the
+    geometry that was emitted.  ``compute_layout`` clears the published record,
+    since a fresh layout moves the coordinates it was routed against.
     """
 
     station_offsets: dict[tuple[str, str], float]

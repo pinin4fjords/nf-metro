@@ -18,12 +18,14 @@ not an approximation.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 from conftest import parse_and_layout
 from layout_metrics import measured_geometry
 
+from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing.common import RoutedPath, apply_route_offsets
 from nf_metro.render import render_svg
 from nf_metro.render.validate import _expected_line_segments, parse_route_polylines
@@ -54,41 +56,43 @@ def _render(path: Path):
     return graph, render_svg(graph, THEMES[theme])
 
 
+def _vertices_by_line(
+    runs: Iterable[tuple[str, Iterable[tuple[float, float]]]],
+) -> dict[str, set[tuple[float, float]]]:
+    """Pool each ``(line_id, points)`` run into one rounded vertex set per line."""
+    out: dict[str, set[tuple[float, float]]] = defaultdict(set)
+    for line_id, points in runs:
+        out[line_id].update(
+            (round(x, _PRECISION), round(y, _PRECISION)) for x, y in points
+        )
+    return out
+
+
 def _ink_vertices(svg: str) -> dict[str, set[tuple[float, float]]]:
     """Every drawn route vertex in the SVG, grouped by line id."""
-    ink: dict[str, set[tuple[float, float]]] = defaultdict(set)
-    for line_id, subpaths in parse_route_polylines(svg):
-        for subpath in subpaths:
-            ink[line_id].update(
-                (round(x, _PRECISION), round(y, _PRECISION)) for x, y in subpath
-            )
-    return ink
+    return _vertices_by_line(
+        (line_id, subpath)
+        for line_id, subpaths in parse_route_polylines(svg)
+        for subpath in subpaths
+    )
 
 
 def _route_vertices(
     offsets: dict[tuple[str, str], float], routes: list[RoutedPath]
 ) -> dict[str, set[tuple[float, float]]]:
     """Every post-offset route vertex, grouped by line id."""
-    out: dict[str, set[tuple[float, float]]] = defaultdict(set)
-    for route in routes:
-        out[route.line_id].update(
-            (round(x, _PRECISION), round(y, _PRECISION))
-            for x, y in apply_route_offsets(route, offsets)
-        )
-    return out
+    return _vertices_by_line(
+        (route.line_id, apply_route_offsets(route, offsets)) for route in routes
+    )
 
 
 def _segment_vertices(
     segments: dict[str, list[tuple[tuple[float, float], tuple[float, float]]]],
 ) -> dict[str, set[tuple[float, float]]]:
     """Every endpoint of the offset-collapse oracle's segments, by line id."""
-    out: dict[str, set[tuple[float, float]]] = defaultdict(set)
-    for line_id, segs in segments.items():
-        for a, b in segs:
-            out[line_id].update(
-                (round(p[0], _PRECISION), round(p[1], _PRECISION)) for p in (a, b)
-            )
-    return out
+    return _vertices_by_line(
+        (line_id, segment) for line_id, segs in segments.items() for segment in segs
+    )
 
 
 def _assert_contained_in_ink(
@@ -145,6 +149,21 @@ def test_offset_collapse_needs_a_rendered_graph() -> None:
     render_svg(graph, THEMES["nfcore"])
     assert graph.rendered_geometry is not None
     assert _expected_line_segments(graph)
+
+
+def test_laying_out_again_discards_the_published_geometry() -> None:
+    """A fresh layout drops the record rather than leaving a stale one readable.
+
+    The published routes are only meaningful against the coordinates they were
+    routed from, which a re-layout is free to move.
+    """
+    text = (EXAMPLES / "sarek_metro.mmd").read_text()
+    graph = parse_and_layout(text)
+    render_svg(graph, THEMES["nfcore"])
+    assert graph.rendered_geometry is not None
+
+    compute_layout(graph)
+    assert graph.rendered_geometry is None
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)

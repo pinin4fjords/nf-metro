@@ -489,6 +489,10 @@ def compute_layout(
     require_resolved_edge_endpoints(graph)
     require_resolved_port_sections(graph)
 
+    # Laying out invalidates any geometry a previous render published: the
+    # coordinates it was routed against are about to be recomputed.
+    graph.rendered_geometry = None
+
     if x_spacing is None:
         x_spacing = graph.x_spacing
     if y_spacing is None:
