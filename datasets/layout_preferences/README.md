@@ -69,6 +69,20 @@ Each revision is replayed with **its own** engine and **its own** fixture
 files, but a single fixed set of feature definitions, so a feature's meaning
 cannot drift underneath the dataset.
 
+### What the identical-hash rule buys beyond isolation
+
+Because both sides of a pair are the same map, size cannot act as a confound.
+`n_stations`, `n_routes`, `n_sections` and `n_ports` have exactly zero delta in
+all 185 directional pairs, so no fitted weight can be learning "large maps get
+fixed" in place of a quality signal.
+
+The same fact makes those four features useless in a **pairwise** design matrix:
+a feature with zero delta carries no information about the preference. Together
+with `marker_strikes` and `marker_strikes_per_station`, which are too sparse to
+move within these pairs, six of the columns should be dropped when fitting on
+pairs. All six remain meaningful for the one-sided anchors, which are
+cross-fixture and where size genuinely varies.
+
 ## Two constraints that were established by measurement
 
 **The "before" side is `mergeCommit^1`, not `baseRefOid`.** This project stacks
