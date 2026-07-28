@@ -112,7 +112,7 @@ _manifest: dict[str, str] = {}
 
 # Layout-quality scorecard per SVG filename, written to RENDERS_DIR/metrics.json
 # and reported as per-render deltas in the render-diff page. Advisory only.
-_metrics: dict[str, dict[str, float]] = {}
+_metrics: dict[str, dict[str, float | None]] = {}
 
 _SVG_DIMS_RE = re.compile(r'<svg[^>]*\bwidth="([\d.]+)"[^>]*\bheight="([\d.]+)"')
 
