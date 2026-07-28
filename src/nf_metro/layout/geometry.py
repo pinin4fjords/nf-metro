@@ -315,6 +315,20 @@ def perpendicular_port_sides(direction: str) -> tuple[PortSide, PortSide]:
     return (PortSide.TOP, PortSide.BOTTOM)
 
 
+def port_free_axis(side: PortSide) -> str:
+    """The axis a port on *side* can slide along.
+
+    A port is pinned to the section edge it sits on, so a LEFT/RIGHT port has a
+    fixed x and moves only on y, and a TOP/BOTTOM port the reverse.  The answer
+    depends on the side alone: the section's flow direction decides which sides
+    are perpendicular (:func:`perpendicular_port_sides`), not which coordinate a
+    given side leaves free.
+    """
+    from nf_metro.parser.model import PortSide
+
+    return "y" if side in (PortSide.LEFT, PortSide.RIGHT) else "x"
+
+
 Point = tuple[float, float]
 
 

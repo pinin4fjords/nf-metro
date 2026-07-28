@@ -146,8 +146,8 @@ Lines support an optional style (4th field): `solid` (default), `dashed`, or `do
 
 **NEVER position a perpendicular port at the same coordinate as an internal station.** This is validated by `check_station_as_elbow` in `tests/layout_validator.py` (10px tolerance).
 
-- TOP/BOTTOM ports on LR/RL sections must NOT share X with any internal station.
-- LEFT/RIGHT ports on TB sections must NOT share Y with any internal station.
+- TOP/BOTTOM ports on horizontal-flow (LR/RL) sections must NOT share X with any internal station.
+- LEFT/RIGHT ports on vertical-flow (TB/BT) sections must NOT share Y with any internal station.
 
 When fixing routing or alignment issues, do NOT "solve" a kink by moving a port to match a station's coordinate. That creates a station-as-elbow violation where the line visually passes through the station marker. Instead, accept small offsets between ports and stations and handle them via routing (near-vertical drops, gentle curves, etc.).
 
