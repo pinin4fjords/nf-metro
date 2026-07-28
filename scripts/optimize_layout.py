@@ -45,26 +45,42 @@ from nf_metro.layout import compute_layout  # noqa: E402
 from nf_metro.layout.constants import Y_SPACING  # noqa: E402
 from nf_metro.parser import parse_metro_mermaid  # noqa: E402
 
-# Each weight is a coarse bin of how often that metric moves the same way as
-# human layout judgement, measured over the preference pairs in
-# `datasets/layout_preferences`. Plausibility is not evidence here: crossings
-# and wasted canvas both agree with the judgement about as often as a coin, so
-# however obviously they ought to matter they can only be weak hints, and a
-# heavy weight on either buys suggestions nobody would accept.
+# The bins encode three distinct states of knowledge, and conflating them is
+# what made an earlier version of this objective wrong: measured-with-signal
+# outranks not-measured, which outranks measured-without-signal. Plausibility on
+# its own buys nothing. Agreement is the share of the fixtures a metric moves on
+# where it moves the same way as human layout judgement, over the preference
+# pairs in `datasets/layout_preferences` (fixture-grouped, since a raw count
+# lets one repetitive map speak for the corpus).
 WEIGHTS = {
-    # Agree with the judgement on ~90% of pairs.
+    # Measured, and agree with the judgement on ~95% of the fixtures they move.
     "single_diagonals": 3.0,
     "bends_per_route": 3.0,
-    "marker_crowding": 3.0,
-    # ~70%.
+    # Measured at ~75%.
     "turn_angle_per_route": 2.0,
-    # Unmeasured -- a strike needs render-time label boxes the pairs lack -- but
-    # a line through a label is a defect nobody argues about.
+    # Invisible to the instrument, not absent from renders: a strike needs
+    # render-time label boxes the replayed pairs never captured. Frequent and
+    # complained about, and a line through a label is a defect nobody argues
+    # about, so it is weighted on that rather than on a measurement.
     "label_strikes": 2.0,
-    # No resolvable signal: no better than a coin, or too rare to measure.
-    "crossings": 0.5,
+    # Visible to the instrument and almost never happens, because ERROR-level
+    # guards reject it upstream: it has a non-zero delta on 3 of 192 pairs, too
+    # few to measure. Weighted below the measured terms and kept non-zero as
+    # cover for a future change that starts producing it.
+    "marker_crowding": 2.0,
+    # Too rare in the corpus to measure at all (`near_horizontal` moves on two
+    # pairs; `wasted_canvas` needs a canvas size the pairs lack).
     "near_horizontal": 0.5,
     "wasted_canvas": 0.5,
+    # Measured, with the largest sample of any term here (`crossings` moves on
+    # 42 pairs across 25 fixtures) and no signal to show for it: 44.9%
+    # agreement. Read that as a coin flip with a wobble, NOT as evidence that
+    # crossings are desirable: a negative weight would instruct the search to
+    # add them, which is the failure mode that keeps this objective out of the
+    # optimiser.
+    "crossings": 0.25,
+    # Measured, and points the wrong way for a knowable reason: it fires on the
+    # healthy vertical gap between two parallel processing tracks.
     "excessive_gaps": 0.25,
 }
 # `corners_total` is deliberately absent: it is `bends_per_route` times the

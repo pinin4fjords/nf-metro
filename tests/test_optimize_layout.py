@@ -37,14 +37,32 @@ def test_objective_prefers_parallel_tracks_over_a_collapsed_column() -> None:
     assert parallel_tracks < collapsed_column
 
 
-def test_metrics_that_predict_the_judgement_outweigh_the_ones_that_do_not() -> None:
-    """The measured ranking, pinned: route shape agrees with human judgement on
-    ~90% of the preference pairs while crossings and wasted canvas are near
-    chance, so no weighting may let the near-chance pair outvote route shape.
+def test_the_weight_bins_keep_the_three_states_of_knowledge_apart() -> None:
+    """The bins rank evidence, not plausibility.
+
+    A metric measured to track human judgement outranks one the corpus could not
+    measure, which in turn outranks one measured and found to carry no signal: a
+    measured null is stronger grounds for ignoring a metric than never having
+    measured it. Collapsing the last two bins together is what let route shape
+    and marker crowding be weighted as if they had the same standing.
     """
-    for measured in ("single_diagonals", "bends_per_route", "marker_crowding"):
-        for near_chance in ("crossings", "wasted_canvas", "excessive_gaps"):
-            assert WEIGHTS[measured] > WEIGHTS[near_chance]
+    tracks_judgement = ("single_diagonals", "bends_per_route", "turn_angle_per_route")
+    unmeasurable = (
+        "label_strikes",
+        "marker_crowding",
+        "near_horizontal",
+        "wasted_canvas",
+    )
+    measured_null = ("crossings", "excessive_gaps")
+    assert set(WEIGHTS) == {*tracks_judgement, *unmeasurable, *measured_null}
+
+    heaviest_null = max(WEIGHTS[m] for m in measured_null)
+    assert min(WEIGHTS[m] for m in tracks_judgement) > heaviest_null
+    assert min(WEIGHTS[m] for m in unmeasurable) > heaviest_null
+    assert max(WEIGHTS[m] for m in unmeasurable) < max(
+        WEIGHTS[m] for m in tracks_judgement
+    ), "an unmeasured metric may not be weighted level with the best-measured one"
+
     assert WEIGHTS["bends_per_route"] > WEIGHTS["turn_angle_per_route"]
     assert "corners_total" not in WEIGHTS
 

@@ -130,7 +130,13 @@ python scripts/assemble_labels.py      # GitHub history -> labels.json
 python scripts/relabel.py              # mergeCommit^1 pairing + attribution
 python scripts/replay.py --shard N --shards 6 --shas shas_needed.txt
 python scripts/build_dataset.py        # join geometry onto labels
+python scripts/build_dataset.py --from-pairs   # signal check alone, no geometry needed
 ```
+
+`--from-pairs` re-prints the directional signal check from the committed
+`dataset_pairs.jsonl`, which is what the bottom section of `dataset_report.txt`
+is. It exists so the report's percentages can be recomputed without the 30-minute
+replay, since the vectors they are derived from are committed inline.
 
 `replay.py` shards across throwaway worktrees; 971 revisions take roughly 30
 minutes on 6 shards. The per-revision geometry vectors it produces (~15MB
@@ -148,19 +154,26 @@ are unaffected.
 
 ## Headline finding
 
-`crossings` shows **no directional signal** (54.8% of directional pairs, n=42),
-yet it carries the second-heaviest weight in `scripts/optimize_layout.py`'s
-authored objective. `ink_density` (51.8%) and `detour_mean` (58.1%) are flat
-too. What does carry signal is bend and corner quality: `lone_diagonals` 90%,
-`bends_per_route` and `corners_total` 89.5%, `non_45_segments` 82%,
-`min_marker_gap` increasing in 85% of pairs.
+Every percentage here is fixture-grouped: each fixture gets one vote, so a map
+that appears in many pairs cannot state a corpus-wide trend on its own.
+
+`crossings` shows **no directional signal** (44.9% agreement over 42 pairs and 25
+fixtures, the largest sample in the corpus), which is why it sits in the lowest
+weight bin of `scripts/optimize_layout.py`'s objective rather than near the top.
+`detour_mean` (53.4%, n=148) and `detour_max` (54.1%) are flat too. What carries
+signal is bend and corner quality: `bends_per_route` and `corners_total` 94.8%,
+`lone_diagonals` 93.8%, `non_45_segments` 83.3%, `turn_angle_per_route` 75.4%.
 
 The authored weights load onto features that do not discriminate and omit those
 that do, which is a measured explanation for the "naive minimisation makes
 layouts worse" result in the auto-layout investigation.
 
-These are univariate counts over correlated pairs, not a fit. Fixture-grouped
-cross-validation in #1586 is what decides viability.
+Grouping is not a uniform haircut on the raw per-pair numbers, which
+`dataset_report.txt` prints alongside: it sharpens the bend family (89.5% ->
+94.8%), pushes `crossings` from just above chance to just below, and drops
+`bbox_w` out of discriminative range altogether. These are still univariate
+counts over correlated pairs, not a fit. Fixture-grouped cross-validation in
+#1586 is what decides viability.
 
 ## Fitted model and gate result
 
@@ -222,20 +235,24 @@ held out rather than statements about layout.
 
 ### Findings that outlast the gate
 
-- **`marker_crowding` is inert on this corpus.** It holds one of the three
-  heaviest authored weights (3.0) and has zero delta on 189 of 192 directional
-  pairs, because `min_marker_gap` is undefined on 164 of them and beyond one lane
-  pitch on most of the rest.
-- **The univariate percentages above are inflated by fixture repetition.**
-  `path_len_per_route` reads 67% directional univariately, but 55.3% under
-  fixture-grouped cross-validation, and the `only_path_len` control _loses_ to
-  the authored objective head-to-head (46.3%). Triage features fixture-grouped,
-  not univariately.
+- **`marker_crowding` is inert on this corpus.** It has zero delta on 189 of 192
+  directional pairs: `min_marker_gap` is undefined on 25 of them, and unchanged
+  or beyond one lane pitch on the rest. Three moved pairs cannot measure a term,
+  so it is weighted as unmeasured rather than as measured-and-agreeing, and
+  re-binning it moved the `authored` arm by 0.00 pp on every arm above, which is
+  what "inert" means quantitatively.
+- **Raw per-pair percentages are inflated by fixture repetition.**
+  `path_len_per_route` reads 67% directional per pair but 59% grouped by fixture,
+  and the `only_path_len` control _loses_ to the authored objective head-to-head
+  (46.3%) at 55.3% under cross-validation. Triage features fixture-grouped;
+  `dataset_report.txt` prints both.
 - **The bend family is precise but narrow.** `only_bend_family` is right on 82.8%
   of pairs, but only speaks to 15.1% of them. It corroborates the bend/corner
   headline while showing why those three terms cannot carry an objective alone.
 - **`crossings` earns a fitted weight of ~0** in every arm that includes it,
-  against the 0.5 it is authored with, matching its 54.8% univariate coin-flip.
+  matching its 44.9% grouped agreement, so it is authored at the floor. The
+  fitted sign is slightly negative and must not be read as a reward: minimising a
+  negative weight would instruct a search to _add_ crossings.
 - **The weak-label warning is confirmed empirically.** Adding `pr_signoff` rows
   to training at a tenth of a directional row's weight costs `iter2` 5.2 points.
   Set-level ratifications are not per-render positives.

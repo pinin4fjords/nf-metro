@@ -24,21 +24,24 @@ distinct fixtures in pairs: 186
 features per vector: 31
 
 === directional signal check (issue-fix pairs) ===
-fraction of pairs where the feature DECREASED after the fix:
-  aspect_log                    71.7%  (n= 92)  <-- discriminative
-  bbox_h                        23.8%  (n= 80)  <-- discriminative
-  bbox_w                        31.2%  (n= 16)  <-- discriminative
-  bends_per_route               89.5%  (n= 19)  <-- discriminative
-  corners_total                 89.5%  (n= 19)  <-- discriminative
-  crossings                     54.8%  (n= 42)
-  crossings_per_route           54.8%  (n= 42)
-  detour_max                    53.9%  (n= 76)
-  detour_mean                   58.1%  (n=148)
-  lone_diagonals                90.0%  (n= 10)  <-- discriminative
-  lone_diagonals_per_route      90.0%  (n= 10)  <-- discriminative
-  min_marker_gap                14.8%  (n= 27)  <-- discriminative
-  non_45_frac                   52.9%  (n= 17)
-  non_45_segments               81.8%  (n= 11)  <-- discriminative
-  path_len_per_route            32.6%  (n=141)
-  path_len_per_station          32.6%  (n=141)
-  turn_angle_per_route          69.0%  (n= 29)  <-- discriminative
+share of the moves that DECREASED the feature.
+`raw` counts every pair, so a fixture in many pairs speaks many times;
+`grouped` gives each fixture one vote. Triage on grouped.
+  feature                          raw  grouped  pairs  fixtures
+  aspect_log                     71.7%    69.1%     92        55  <-- discriminative
+  bbox_h                         23.8%    28.0%     80        50  <-- discriminative
+  bbox_w                         31.2%    37.5%     16        12
+  bends_per_route                89.5%    94.8%     19        16  <-- discriminative
+  corners_total                  89.5%    94.8%     19        16  <-- discriminative
+  crossings                      54.8%    44.9%     42        25
+  crossings_per_route            54.8%    44.9%     42        25
+  detour_max                     53.9%    54.1%     76        43
+  detour_mean                    58.1%    53.4%    148        69
+  lone_diagonals                 90.0%    93.8%     10         8  <-- discriminative
+  lone_diagonals_per_route       90.0%    93.8%     10         8  <-- discriminative
+  min_marker_gap                 14.8%    13.6%     27        22  <-- discriminative
+  non_45_frac                    52.9%    55.6%     17        12
+  non_45_segments                81.8%    83.3%     11         9  <-- discriminative
+  path_len_per_route             32.6%    40.6%    141        68
+  path_len_per_station           32.6%    40.6%    141        68
+  turn_angle_per_route           69.0%    75.4%     29        23  <-- discriminative

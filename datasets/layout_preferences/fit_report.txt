@@ -62,10 +62,10 @@ positive = more of this is worse, matching the authored convention
 -- refit
    turn_angle_per_route        +5.73   (authored 2.00)
    bends_per_route             +3.00   (authored 3.00)
-   marker_crowding             +1.87   (authored 3.00)
+   marker_crowding             +1.87   (authored 2.00)
    lone_diagonals              +0.49   (authored 3.00)
    near_horizontal             +0.27   (authored 0.50) SIGN FLIPS ACROSS FOLDS
-   crossings                   -0.02   (authored 0.50)
+   crossings                   -0.02   (authored 0.25)
    lane_gap_excess             -0.02   (authored 0.25)
 -- iter1
    turn_angle_per_route        +5.40   (authored 2.00)
@@ -80,7 +80,7 @@ positive = more of this is worse, matching the authored convention
    turn_angle_per_route        +2.96   (authored 2.00)
    non_45_frac                 +2.16   (not authored) SIGN FLIPS ACROSS FOLDS
    path_len_per_route          -0.01   (not authored)
-   crossings                   -0.01   (authored 0.50)
+   crossings                   -0.01   (authored 0.25)
    min_marker_gap              -0.00   (not authored) SIGN FLIPS ACROSS FOLDS
    bbox_h                      -0.00   (not authored) SIGN FLIPS ACROSS FOLDS
 -- only_bend_family
