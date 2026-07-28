@@ -27,3 +27,7 @@ package-lock.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .coverage
+
+# Intermediate per-revision geometry vectors (regenerate with datasets/layout_preferences/scripts/replay.py)
+datasets/layout_preferences/geometry/
+datasets/layout_preferences/geometry_vectors.tar.gz

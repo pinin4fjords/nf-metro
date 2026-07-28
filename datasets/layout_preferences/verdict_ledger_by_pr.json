@@ -1,0 +1,841 @@
+[
+  {
+    "pr": 1133,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1135,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1136,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1139,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1140,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1146,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1154,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1156,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1158,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1160,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1169,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1170,
+    "signoffs": 1,
+    "fixture_verdicts": [
+      {
+        "verdict": "improvement",
+        "fixtures": [
+          "rail_offtrack_fan",
+          "rail_offtrack_io",
+          "tb_fork_lane_transpose"
+        ],
+        "attribution": "context",
+        "quote": "looks great- you ran simplify?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1175,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1181,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1183,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1185,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1188,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1195,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "detrimental",
+        "fixtures": ["shared_sink_parallel"],
+        "attribution": "context",
+        "quote": "I think gap 2 is causing overlap, which we shouldn't allow. You need to account for line width. I think maybe lines are 3px and tthe gap is only a pixel or two?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1196,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1197,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1201,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1202,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1214,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1216,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1217,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1222,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1224,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1230,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1232,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1237,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1238,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1246,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1254,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "detrimental",
+        "fixtures": ["epitopeprediction"],
+        "attribution": "explicit",
+        "quote": "OK, it works. ONe problem: the card uses a lot of space for the heading on the left hand side, squishing the pipline to the right. Pipelines will often be landscape, could we have heading and descript"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1261,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1262,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1264,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1265,
+    "signoffs": 1,
+    "fixture_verdicts": [
+      {
+        "verdict": "mixed",
+        "fixtures": [
+          "fork_join_interior_label",
+          "rnaseq_branch_fold_wrap",
+          "seqinspector",
+          "variantbenchmarking"
+        ],
+        "attribution": "context",
+        "quote": "horizontal spacing looks great, but for some reason vertical space is now cramped. \n\nCan you render the example from https://github.com/nf-core/rnaseq/pull/1876 with these changes?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1268,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1271,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1275,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1279,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1280,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1291,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1303,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1305,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1316,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1330,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1338,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1340,
+    "signoffs": 1,
+    "fixture_verdicts": [
+      {
+        "verdict": "mixed",
+        "fixtures": ["rl_entry_right_exit_left"],
+        "attribution": "context",
+        "quote": "I'm not sure I understand what you think is fixed in 1300, rather than going throug a clean downward turn after 'Quantify orf psites' th eline now does a weird left-riht-down path. But it may be becau"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1346,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "improvement",
+        "fixtures": ["riboseq_fold_two_dir_entry"],
+        "attribution": "context",
+        "quote": "working on that. Why do I only see one fixture at https://seqeralabs.github.io/nf-metro/_pr/1346/ now? The other one was the one that had problems I wanted to see resolved, can you put it back?"
+      },
+      {
+        "verdict": "improvement",
+        "fixtures": [
+          "fold_bypass_creep",
+          "inter_row_drop_section_clearance",
+          "merge_offrow_continuation",
+          "riboseq_fold_two_dir_entry",
+          "tb_left_exit_step"
+        ],
+        "attribution": "context",
+        "quote": "Renders all look good. Should we /simplify on the complete stack?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1348,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "neutral",
+        "fixtures": ["riboseq_fold_two_dir_entry"],
+        "attribution": "context",
+        "quote": "I see no difference in the render-diff preview at https://seqeralabs.github.io/nf-metro/_pr/1346/. Wht should our work in this session have achieved?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1359,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1362,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1375,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1377,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1378,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1382,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1385,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1386,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1389,
+    "signoffs": 1,
+    "fixture_verdicts": [
+      {
+        "verdict": "detrimental",
+        "fixtures": ["tb_offtrack_fork_baseline"],
+        "attribution": "context",
+        "quote": "'Tb Offtrack Fork Baseline' looks very strange.\n\n- Too much line south of 'bamconvert' and 'markduplicates'. They only need as much space below as they have above.\n- The loop markduplicates is on is a"
+      },
+      {
+        "verdict": "improvement",
+        "fixtures": ["tb_offtrack_fork_baseline"],
+        "attribution": "context",
+        "quote": "markduplicates is still not sitting on a straight line segment (though everythign else is resolved)."
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1392,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1393,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1395,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1399,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1400,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1401,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1405,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1406,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1408,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1414,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1415,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1419,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1427,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1429,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "improvement",
+        "fixtures": [
+          "cross_column_perp_entry_overflow",
+          "genomic_pipeline",
+          "junction_entry_align",
+          "same_line_fan_distinct_descent",
+          "stacked_collector_fanin",
+          "top_entry_bundle_offset_seam",
+          "variant_calling"
+        ],
+        "attribution": "context",
+        "quote": "OK, this looks good, should we merge this now, or do the other C parts in the same PR?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1431,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "improvement",
+        "fixtures": [
+          "convergent_offrow_exit_climb",
+          "genomeassembly",
+          "longread_variant_calling"
+        ],
+        "attribution": "context",
+        "quote": "render-diff looks good, you want to mergwe and new pr, or continue here?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1451,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1452,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1466,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1467,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1469,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1474,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1475,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "neutral",
+        "fixtures": [
+          "exit_fan_label_strike",
+          "packed_multiline_serpentine_grid",
+          "riboseq_packed_lr"
+        ],
+        "attribution": "context",
+        "quote": "looks fine, merge when ci clears"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1479,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1483,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "improvement",
+        "fixtures": [
+          "compact_gap_peer_conflict",
+          "funcprofiler_upstream",
+          "genomeassembly",
+          "rowmate_tb_side_entry_top_align_grow"
+        ],
+        "attribution": "context",
+        "quote": "nice! what would it take to put 'input databases' as the highest line in section 1 so taht didn't diagonal upwards at the exit?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1484,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "detrimental",
+        "fixtures": ["genomeassembly"],
+        "attribution": "explicit",
+        "quote": "Big mess has been made. e.g. Genomeassembly Organellar has orange bypass pushed down and its entry to section 5 made from underneath, away from the entry port. The green path down from section 2 doesn"
+      },
+      {
+        "verdict": "improvement",
+        "fixtures": ["genomeassembly", "packed_multiline_serpentine_grid"],
+        "attribution": "context",
+        "quote": "show be the 'bad' original render in mac preview. I'll tell you how it should be resolved, and you can update the issue to be tackled clean in a new session"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1490,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1491,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1493,
+    "signoffs": 3,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1496,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1507,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1512,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1519,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1524,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1527,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1528,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1531,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1532,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1533,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1534,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1536,
+    "signoffs": 1,
+    "fixture_verdicts": [
+      {
+        "verdict": "improvement",
+        "fixtures": ["off_track_outputs_along_trunk"],
+        "attribution": "context",
+        "quote": "Looks good! Need to re-simplify?"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1537,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1538,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "neutral",
+        "fixtures": ["tb_right_exit_feeder_slots"],
+        "attribution": "context",
+        "quote": "https://github.com/seqeralabs/nf-metro/pull/1538 still shows asymmetry between sections 1 and 2 in 'BT Into TB'. That's not acceptable, they're mirror images from a user's point of view, widening sect"
+      },
+      {
+        "verdict": "improvement",
+        "fixtures": [
+          "genomeassembly_staggered",
+          "longread_variant_calling",
+          "merge_trunk_over_low_section",
+          "rail_offtrack_fan"
+        ],
+        "attribution": "context",
+        "quote": "The deltas all currently look good. Make sure 1538 is secure, consolidated, simplified, well integrated with exising machinery, fixed for all axes etc.\n\nWe don't have to chase 2 right now.\n\n3 should b"
+      }
+    ],
+    "branches": ["fix/perp-port-inset-bundle-extent", "main"]
+  },
+  {
+    "pr": 1541,
+    "signoffs": 0,
+    "fixture_verdicts": [
+      {
+        "verdict": "mixed",
+        "fixtures": [
+          "bt_perp_left_entry_right_exit",
+          "bt_to_tb",
+          "convergence_fold_diamond",
+          "convergence_sink_fold",
+          "fold_split_targets",
+          "junction_entry_reversed_fold",
+          "longread_variant_calling",
+          "tb_exit_terminal_on_carrier",
+          "tb_fork_lane_transpose",
+          "tb_lr_exit_right",
+          "tb_right_exit_feeder_slots",
+          "tb_two_line_vert_seam",
+          "variantbenchmarking"
+        ],
+        "attribution": "context",
+        "quote": "Notes:\n\n- 'Bt To Tb' - there's no good reason to give section 2 more space than section 1 at its top\n- salmon quant label overlaps its station pill in Bt Perp Left Entry Right Exit\n\notherwise deltas l"
+      }
+    ],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1561,
+    "signoffs": 2,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1565,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["main"]
+  },
+  {
+    "pr": 1578,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["HEAD"]
+  },
+  {
+    "pr": 1579,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["HEAD"]
+  },
+  {
+    "pr": 1581,
+    "signoffs": 1,
+    "fixture_verdicts": [],
+    "branches": ["HEAD"]
+  }
+]
