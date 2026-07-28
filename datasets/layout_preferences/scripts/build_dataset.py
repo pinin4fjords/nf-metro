@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pair_rules import emit_anchors, emit_pairs
+from terms import SENTINEL, UNDEFINED
 
 S = Path(__file__).parent
 PAIRS = S.parent / "dataset_pairs.jsonl"
@@ -28,15 +29,6 @@ MIN_MOVED = 8
 
 FLAG_MARGIN = 0.18
 """Distance from chance at which the grouped reading is called discriminative."""
-
-SENTINEL = frozenset({"min_marker_gap", "min_station_distance"})
-"""Features whose extractor emits ``-1.0`` for "no such measurement exists".
-
-A map with no foreign line near any marker has no minimum gap. Read as the
-number -1 the sentinel would be the tightest clearance in the corpus, inverting
-the feature, so a pair undefined at either revision contributes no movement.
-Mirrors ``fit_objective.SENTINEL``.
-"""
 
 
 def load_geometry() -> dict[str, dict]:
@@ -80,7 +72,7 @@ def moves_by_fixture(pairs: list[dict], key: str) -> dict[str, list[float]]:
         before, after = p.get("features_before"), p.get("features_after")
         if not before or not after or key not in before or key not in after:
             continue
-        if key in SENTINEL and -1.0 in (before[key], after[key]):
+        if key in SENTINEL and UNDEFINED in (before[key], after[key]):
             continue
         delta = after[key] - before[key]
         if abs(delta) > 1e-6:

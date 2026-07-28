@@ -35,12 +35,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "tests"))
+sys.path.insert(0, str(REPO / "datasets" / "layout_preferences" / "scripts"))
 warnings.filterwarnings("ignore")
 
 from layout_metrics import compute_metrics  # noqa: E402
+from terms import marker_crowding  # noqa: E402
 
 from nf_metro.layout import compute_layout  # noqa: E402
-from nf_metro.layout.constants import Y_SPACING  # noqa: E402
 from nf_metro.parser import parse_metro_mermaid  # noqa: E402
 
 # The bins encode three distinct states of knowledge, and conflating any two of
@@ -101,18 +102,6 @@ GRID_RE = re.compile(
 SUBGRAPH_RE = re.compile(r"^(\s*)subgraph\s+([A-Za-z0-9_]+)")
 GRAPH_RE = re.compile(r"^\s*graph\s+(LR|RL|TB|BT|TD)", re.IGNORECASE)
 END_RE = re.compile(r"^\s*end\s*$")
-
-
-def marker_crowding(clearance: float | None) -> float:
-    """How far the nearest line intrudes on a foreign marker, as a 0..1 fraction.
-
-    A penalty for tight clearance, never a reward for loose clearance: a term
-    that kept paying for more room would be minimised by spreading the map out.
-    One lane pitch is room enough, so clearance beyond it scores nothing.
-    """
-    if clearance is None:
-        return 0.0
-    return max(0.0, Y_SPACING - clearance) / Y_SPACING
 
 
 def objective(m: dict[str, float | None]) -> float:
