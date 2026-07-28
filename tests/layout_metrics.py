@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -202,6 +201,50 @@ def _min_non_consumer_clearance(
     return closest
 
 
+# ``min_marker_gap``'s "no foreign line exists at all" value, which is the
+# cleanest state rather than the worst. Masked to zero crowding.
+MARKER_GAP_UNDEFINED = -1.0
+
+CROWDING_PITCH = 40.0
+"""One lane pitch, mirroring ``nf_metro.layout.constants.Y_SPACING``.
+
+Clearance beyond one pitch is room enough, so this is where
+:func:`marker_crowding` saturates. Hardcoded to match the literal in
+``extract_features``: a feature's meaning must not track a constant the engine
+may retune, or a vector measured today would not be comparable with one
+measured at an older revision.
+"""
+
+
+def marker_crowding(gap: float | None) -> float:
+    """How far the nearest foreign line intrudes on a marker, as a 0..1 fraction.
+
+    One-sided and saturating, so the term penalises tight clearance without ever
+    paying for loose clearance: a term that kept paying would be minimised by
+    spreading the map out, which is the failure mode
+    :data:`ADMISSIBILITY` exists to exclude.
+
+    An absent measurement scores **zero** crowding. No foreign line coming near
+    any marker is the cleanest state a map can be in, not the worst: 104 of the
+    278 fixtures carrying a vector in the committed corpus are in it, and
+    reading their ``-1.0`` as a gap would score every one of them as maximally
+    crowded and drive a non-negative weight to penalise the fixtures with the
+    best clearance in the corpus.
+    """
+    if gap is None or gap == MARKER_GAP_UNDEFINED:
+        return 0.0
+    return min(1.0, max(0.0, (CROWDING_PITCH - gap) / CROWDING_PITCH))
+
+
+DERIVED = {"marker_crowding": ("min_marker_gap", marker_crowding)}
+"""Admissible terms computed from an inadmissible feature.
+
+Keyed by the derived name, valued by the source feature and the transform. A
+consumer that wants the source's signal in a minimisable score reaches for the
+derived term instead of repairing the raw feature locally.
+"""
+
+
 def compute_metrics(
     graph: MetroGraph, *, canvas: tuple[float, float] | None = None
 ) -> dict[str, float | None]:
@@ -244,43 +287,6 @@ def compute_metrics(
         "excessive_gaps": float(counts["excessive_column_gap"]),
         "wasted_canvas": _wasted_canvas_ratio(graph, routes, canvas),
     }
-
-
-_LEARNED_SCRIPTS_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "datasets"
-    / "layout_preferences"
-    / "scripts"
-)
-
-
-def compute_learned_features(graph: MetroGraph) -> dict[str, float] | None:
-    """Raw feature values the fitted layout objective reads, for shadow-mode
-    reporting in the render-diff.
-
-    Namespaced separately from :func:`compute_metrics`'s return value (under
-    the caller's ``"_learned"`` key) because several feature names collide
-    with this module's own metrics (``crossings``, ``bends_per_route``,
-    ``turn_angle_per_route``) under different definitions -- this module's
-    versions read the validator's named checks, while the learned objective's
-    were fitted against ``extract_features.py``'s geometric ones. Merging
-    them into one flat dict would silently overwrite one definition with the
-    other.
-
-    Delegates to ``datasets/layout_preferences/scripts/scored_objective.py``,
-    which owns the feature list and the fitted weights; this function only
-    supplies the drawn geometry to score. ``None`` on any failure -- advisory
-    only, never fatal to a render.
-    """
-    import sys
-
-    if str(_LEARNED_SCRIPTS_DIR) not in sys.path:
-        sys.path.insert(0, str(_LEARNED_SCRIPTS_DIR))
-    from scored_objective import learned_features
-
-    offsets, routes = measured_geometry(graph)
-    polylines = drawn_polylines(routes, offsets)
-    return learned_features(graph, polylines)
 
 
 def _wasted_canvas_ratio(

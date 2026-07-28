@@ -329,22 +329,6 @@ were affected and how. Then stop - human review is the gate.
 Order matters here. GitHub will auto-close child PRs if the parent branch
 is deleted before their bases are re-targeted.
 
-0. **Record Step 8's classification** for the merged PR, using one
-   `--fixture-verdict` per classified example (a bare set-level sign-off is
-   `--pr-verdict` instead, and never becomes a per-render positive):
-
-   ```bash
-   python datasets/layout_preferences/scripts/capture_pr.py <N> \
-       --fixture-verdict <example>=improvement \
-       --fixture-verdict <example>=neutral
-   ```
-
-   Then commit the appended ledger rows. Naming an example the merge did not
-   move is a hard error; see
-   [`datasets/layout_preferences/README.md`](../../../datasets/layout_preferences/README.md#forward-capture).
-   Missing a capture is recoverable later via `capture_pr.py --sweep`, so it
-   never blocks the ordering below.
-
 1. **Re-target every child PR** whose base is the just-merged branch:
 
    ```bash

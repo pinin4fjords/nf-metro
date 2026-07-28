@@ -30,11 +30,7 @@ def _title(mmd: Path) -> str:
 def main() -> None:
     fixtures = sorted(TOPOLOGIES_DIR.glob("*.mmd"))
     readme_text = README_PATH.read_text()
-    documented = {
-        name
-        for name in (f.stem for f in fixtures)
-        if name in readme_text
-    }
+    documented = {name for name in (f.stem for f in fixtures) if name in readme_text}
     undocumented = [f for f in fixtures if f.stem not in documented]
 
     print(f"Total fixtures : {len(fixtures)}")

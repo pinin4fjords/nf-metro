@@ -24,9 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "tests"))
-sys.path.insert(0, str(_REPO_ROOT / "datasets" / "layout_preferences" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
 
 from layout_metrics import (  # noqa: E402
     METRICS,
@@ -34,7 +32,6 @@ from layout_metrics import (  # noqa: E402
     format_delta,
     format_value,
 )
-from scored_objective import score_delta as learned_score_delta  # noqa: E402
 
 HTML_TEMPLATE = """\
 <!DOCTYPE html>
@@ -461,39 +458,6 @@ def _load_json(render_dir: Path, filename: str) -> dict:
     return {}
 
 
-def _learned_score(base: dict | None, pr: dict | None) -> float | None:
-    """The fitted objective's weighted delta for one fixture, or ``None``.
-
-    Shared by the pre-sort (worst predicted delta first) and the metrics
-    table's display column, so the order a reader sees the entries in and the
-    number printed next to them can never disagree.
-    """
-    b = base.get("_learned") if base else None
-    p = pr.get("_learned") if pr else None
-    try:
-        return learned_score_delta(b, p)
-    except OSError:
-        return None
-
-
-def _learned_score_cell(base: dict | None, pr: dict | None) -> str:
-    """One ``<td>`` for the fitted-objective shadow-mode column.
-
-    Positive is worse, negative is better, matching the sign convention
-    ``fit_objective.py``'s report already prints. ``n/a`` when either side
-    lacks a ``_learned`` vector (a render that predates this column, or a
-    fixture whose learned-feature computation failed) or the weights
-    artifact itself is missing.
-    """
-    delta = _learned_score(base, pr)
-    if delta is None:
-        return '<td class="m-flat">n/a</td>'
-    if abs(delta) < 1e-9:
-        return '<td class="m-flat">0.00</td>'
-    cls = "m-better" if delta < 0 else "m-worse"
-    return f'<td class="{cls}">{delta:+.2f}</td>'
-
-
 def _build_metrics_html(
     changed: list[tuple[str, str]],
     base_metrics: dict[str, dict[str, float | None]],
@@ -508,7 +472,6 @@ def _build_metrics_html(
         return ""
 
     header_cells = "".join(f"<th>{spec.label}</th>" for spec in METRICS)
-    header_cells += "<th>Learned score (shadow)</th>"
     rows: list[str] = []
     for name, _kind in changed:
         stem = name.removesuffix(".svg")
@@ -535,7 +498,6 @@ def _build_metrics_html(
             else:
                 text = f"{format_value(spec, bv)}&rarr;&ndash;"
             cells.append(f'<td class="{cls}">{text}</td>')
-        cells.append(_learned_score_cell(base, pr))
         rows.append(f"<tr>{''.join(cells)}</tr>")
 
     if not rows:
@@ -546,11 +508,7 @@ def _build_metrics_html(
         '<p class="caption">Advisory only &mdash; nothing gates on these. '
         '<span class="m-better">green</span> improved, '
         '<span class="m-worse">red</span> regressed. '
-        "Lower is better except in the &uarr; column. "
-        "<strong>Learned score</strong> is the fitted pairwise objective "
-        "from #1586, reported in shadow mode only: it beat the hand-binned "
-        "weights 68.5% to 54.7% held-out, but is not validated enough to "
-        "rank or gate on (see #1587).</p>\n"
+        "Lower is better except in the &uarr; column.</p>\n"
         f"<table>\n<tr><th>Render</th>{header_cells}</tr>\n"
         + "\n".join(rows)
         + "\n</table>\n</div>"
@@ -594,20 +552,6 @@ def build_diff(
     base_metrics = _load_json(base_dir, "metrics.json")
     pr_metrics = _load_json(pr_dir, "metrics.json")
 
-    # Order by predicted severity (worst learned-score delta first) before
-    # grouping by section, so the section order and each section's entry
-    # order both fall out of it: nothing is filtered or hidden by this, only
-    # reordered, so it costs nothing even where the score is wrong -- see
-    # the caption text below for the same point made to a human reader.
-    def _severity_key(item: tuple[str, str]) -> tuple[int, float, str]:
-        name, kind = item
-        if kind != "changed":
-            return (2 if kind == "added" else 3, 0.0, name)
-        delta = _learned_score(base_metrics.get(name), pr_metrics.get(name))
-        return (0, -delta, name) if delta is not None else (1, 0.0, name)
-
-    changed.sort(key=_severity_key)
-
     # Group changed files by section
     section_order: list[str] = []
     by_section: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -634,13 +578,10 @@ def build_diff(
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     summary = (
         f"{', '.join(parts)} out of {len(all_names)} total renders."
-        f" Generated {timestamp}. Ordered by predicted severity (shadow-mode "
-        "learned score, worst first) where available -- every render below "
-        "still needs a look regardless of what it says."
+        f" Generated {timestamp}."
     )
 
-    # Table of contents (grouped by section, itself ordered by predicted
-    # severity above -- see build_diff's _severity_key)
+    # Table of contents (grouped by section)
     toc_parts = ['<div class="toc">\n<h2>Changed renders</h2>']
     for section in section_order:
         items = by_section[section]
@@ -649,14 +590,9 @@ def build_diff(
         for name, kind in items:
             stem = name.removesuffix(".svg")
             badge_class = f"badge-{kind}"
-            score_note = ""
-            if kind == "changed":
-                delta = _learned_score(base_metrics.get(name), pr_metrics.get(name))
-                if delta is not None and abs(delta) >= 1e-9:
-                    score_note = f' <span class="badge">&Delta; {delta:+.2f}</span>'
             toc_parts.append(
                 f'<li><a href="#{stem}">{stem}</a>'
-                f'<span class="badge {badge_class}">{kind}</span>{score_note}</li>'
+                f'<span class="badge {badge_class}">{kind}</span></li>'
             )
         toc_parts.append("</ul>")
     toc_parts.append("</div>")
@@ -673,24 +609,7 @@ def build_diff(
             stem = name.removesuffix(".svg")
             heading = stem.replace("_", " ").title()
             badge = f"badge-{kind}"
-            score_badge = ""
-            if kind == "changed":
-                delta = _learned_score(base_metrics.get(name), pr_metrics.get(name))
-                if delta is not None:
-                    cls = (
-                        "m-flat"
-                        if abs(delta) < 1e-9
-                        else ("m-better" if delta < 0 else "m-worse")
-                    )
-                    score_badge = (
-                        f' <span class="badge {cls}" title="Fitted-objective '
-                        f'delta, shadow mode -- not a verdict">'
-                        f"&Delta; score {delta:+.2f}</span>"
-                    )
-            h3 = (
-                f'<h3>{heading} <span class="badge {badge}">{kind}</span>'
-                f"{score_badge}</h3>"
-            )
+            h3 = f'<h3>{heading} <span class="badge {badge}">{kind}</span></h3>'
             div_open = f'<div class="diff-entry" id="{stem}">'
 
             if kind == "changed":
