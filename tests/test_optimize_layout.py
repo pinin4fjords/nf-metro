@@ -43,8 +43,8 @@ def test_the_weight_bins_keep_the_three_states_of_knowledge_apart() -> None:
     A metric measured to track human judgement outranks one the corpus could not
     measure, which in turn outranks one measured and found to carry no signal: a
     measured null is stronger grounds for ignoring a metric than never having
-    measured it. Collapsing the last two bins together is what let route shape
-    and marker crowding be weighted as if they had the same standing.
+    measured it. Every term must be classified into one of the three, so a new
+    one cannot be added without deciding which kind of evidence backs it.
     """
     tracks_judgement = ("single_diagonals", "bends_per_route", "turn_angle_per_route")
     unmeasurable = (

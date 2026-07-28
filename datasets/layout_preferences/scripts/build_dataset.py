@@ -102,9 +102,9 @@ def directional_signal(pairs: list[dict]) -> list[Signal]:
     """Share of moves that DECREASED each feature, counted two ways.
 
     ``raw`` weights a fixture by how many pairs it contributes, so one map
-    appearing in fifty pairs states a corpus-wide trend by itself; that is how
-    `path_len_per_route` came to read as a quality signal. ``grouped`` gives
-    every fixture one vote, and is the figure to triage features on.
+    appearing in fifty pairs can state a corpus-wide trend by itself, and the
+    extent features are the ones most exposed to it. ``grouped`` gives every
+    fixture one vote, and is the figure to triage features on.
     """
     signals = []
     for key in feature_keys(pairs):

@@ -16,9 +16,7 @@ the pure-auto-layout baseline and the directives that reproduce it.
 IMPORTANT: the metrics are a proxy, not ground truth, and the weights over them
 are binned measurements rather than a fitted model. A lower weighted score is
 evidence for an arrangement, not proof of one -- always eyeball a suggestion
-before adopting it. ``excessive_gaps`` in particular fires on the healthy
-vertical gap between two parallel processing tracks, which is why it carries
-almost no weight.
+before adopting it.
 
 Usage:
     python scripts/optimize_layout.py examples/genomic_pipeline.mmd [more.mmd ...]
@@ -45,13 +43,15 @@ from nf_metro.layout import compute_layout  # noqa: E402
 from nf_metro.layout.constants import Y_SPACING  # noqa: E402
 from nf_metro.parser import parse_metro_mermaid  # noqa: E402
 
-# The bins encode three distinct states of knowledge, and conflating them is
-# what made an earlier version of this objective wrong: measured-with-signal
-# outranks not-measured, which outranks measured-without-signal. Plausibility on
-# its own buys nothing. Agreement is the share of the fixtures a metric moves on
-# where it moves the same way as human layout judgement, over the preference
-# pairs in `datasets/layout_preferences` (fixture-grouped, since a raw count
-# lets one repetitive map speak for the corpus).
+# The bins encode three distinct states of knowledge, and conflating any two of
+# them is how a metric ends up weighted on plausibility instead of evidence:
+# measured-with-signal outranks not-measured, which outranks
+# measured-without-signal, because a measured null is stronger grounds for
+# discounting a metric than never having measured it. Agreement below is the
+# share of the fixtures a metric moves on where it moves the same way as human
+# layout judgement, over the preference pairs in `datasets/layout_preferences`.
+# It is fixture-grouped, since a raw per-pair count lets one repetitive map
+# speak for the corpus.
 WEIGHTS = {
     # Measured, and agree with the judgement on ~95% of the fixtures they move.
     "single_diagonals": 3.0,

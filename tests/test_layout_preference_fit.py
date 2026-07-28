@@ -2,9 +2,9 @@
 
 The verdict written up under "Fitted model and gate result" in
 `datasets/layout_preferences/README.md` rests on numbers, and the dataset it
-rests on is regenerable. These assertions fail if a
-regeneration moves any of the four claims the verdict is built from, so the
-write-up cannot quietly drift out of agreement with the data.
+rests on is regenerable. These assertions fail if a regeneration moves any of the
+claims the verdict is built from, so the write-up cannot quietly drift out of
+agreement with the data.
 
 The same dataset also decides which weight bin each term of the advisory
 objective belongs in, and how `dataset_report.txt` reports a feature's
@@ -19,8 +19,11 @@ from pathlib import Path
 
 import pytest
 
-DATASET_DIR = Path(__file__).resolve().parent.parent / "datasets" / "layout_preferences"
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+REPO = Path(__file__).resolve().parent.parent
+DATASET_DIR = REPO / "datasets" / "layout_preferences"
+
+sys.path.insert(0, str(REPO / "scripts"))
+from optimize_layout import WEIGHTS as ADVISORY_WEIGHTS  # noqa: E402
 
 # `optimize_layout` reads four terms off validator verdict counts that the
 # dataset measures geometrically instead, so a name-for-name comparison of the
@@ -54,27 +57,22 @@ def _load_fitter():
     return _load_dataset_script("fit_objective")
 
 
-def _load_advisory_weights() -> dict[str, float]:
-    sys.path.insert(0, str(SCRIPTS))
-    from optimize_layout import WEIGHTS
-
-    return WEIGHTS
-
-
 @pytest.fixture(scope="module")
-def directional():
-    fitter = _load_fitter()
-    pairs, _, _ = fitter.load(DATASET_DIR / "dataset_pairs.jsonl")
-    assert len(pairs) == 192, "dataset changed shape; re-read the verdict"
-    return pairs
-
-
-@pytest.fixture(scope="module")
-def arms():
+def dataset():
     fitter = _load_fitter()
     directional, weak, _ = fitter.load(DATASET_DIR / "dataset_pairs.jsonl")
     assert len(directional) == 192, "dataset changed shape; re-read the verdict"
-    return fitter.cross_validate(directional, weak, weak_weight=0.0)
+    return directional, weak
+
+
+@pytest.fixture(scope="module")
+def directional(dataset):
+    return dataset[0]
+
+
+@pytest.fixture(scope="module")
+def arms(dataset):
+    return _load_fitter().cross_validate(*dataset, weak_weight=0.0)
 
 
 def pooled(arms: dict, name: str) -> float:
@@ -123,12 +121,11 @@ def test_the_top_weight_bin_holds_only_terms_the_corpus_measured(directional):
     """The heaviest weight is reserved for terms the corpus can actually measure.
 
     A term that barely moves across the pairs has no measured agreement to
-    justify a weight with, however plausible it looks. `marker_crowding` is the
-    case in point: binned heaviest on a univariate reading of `min_marker_gap`,
-    then found to move on three pairs. The bar is the minimum sample the report
-    itself will print a percentage for.
+    justify a weight with, however plausible it looks, so promoting one into the
+    top bin has to fail here. The bar is the minimum sample the report itself
+    will print a percentage for.
     """
-    weights = _load_advisory_weights()
+    weights = ADVISORY_WEIGHTS
     floor = _load_dataset_script("build_dataset").MIN_MOVED
     heaviest = max(weights.values())
 
@@ -187,13 +184,19 @@ def test_an_undefined_measurement_is_not_read_as_the_tightest_one():
     assert signal.raw == 0.0
 
 
+def test_both_dataset_scripts_mask_the_same_sentinel_features():
+    """The two scripts are standalone by design, so the sentinel list is stated
+    twice. A feature masked in one and read as the number -1 in the other would
+    give the report and the fit opposite readings of the same pair."""
+    assert _load_dataset_script("build_dataset").SENTINEL == _load_fitter().SENTINEL
+
+
 def test_the_fit_scores_the_weights_the_advisory_objective_actually_uses():
     """`AUTHORED_WEIGHTS` is the advisory table restated over dataset feature
     names, so the arm the gate compares against has to be the live one. Left to
     drift, the fit would report a margin over weights nobody uses."""
-    advisory = _load_advisory_weights()
     assert _load_fitter().AUTHORED_WEIGHTS == {
         _dataset_key(term): weight
-        for term, weight in advisory.items()
+        for term, weight in ADVISORY_WEIGHTS.items()
         if term not in NOT_IN_DATASET
     }
