@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -484,6 +484,30 @@ def segment_intersects_quad(
         ) != _ccw(x1, y1, x2, y2, dx, dy):
             return True
     return False
+
+
+def point_to_polyline_distance(
+    p: tuple[float, float], pts: Sequence[tuple[float, float]]
+) -> float:
+    """Shortest distance from point *p* to a polyline through *pts*.
+
+    The projection onto each segment is clamped to that segment's span, so a
+    point beyond an end measures to the end rather than to the infinite line.
+    """
+    px, py = p
+    best = float("inf")
+    for k in range(len(pts) - 1):
+        ax, ay = pts[k]
+        bx, by = pts[k + 1]
+        dx, dy = bx - ax, by - ay
+        seg_sq = dx * dx + dy * dy
+        if seg_sq == 0.0:
+            t = 0.0
+        else:
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg_sq))
+        cx, cy = ax + t * dx, ay + t * dy
+        best = min(best, math.hypot(px - cx, py - cy))
+    return best
 
 
 def segment_intersects_bbox(

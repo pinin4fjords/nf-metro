@@ -30,11 +30,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import MetroGraph
+
+MetricKind = Literal["count", "decimal", "ratio"]
 
 
 @dataclass(frozen=True)
@@ -43,7 +45,7 @@ class MetricSpec:
 
     key: str
     label: str
-    kind: str  # "count", "decimal", or "ratio"
+    kind: MetricKind
     higher_is_better: bool = False
 
 
@@ -156,20 +158,6 @@ def _bend_scores(
     return float(corners), corners / routed, turned / routed
 
 
-def _point_segment_distance(
-    point: tuple[float, float],
-    start: tuple[float, float],
-    end: tuple[float, float],
-) -> float:
-    dx, dy = end[0] - start[0], end[1] - start[1]
-    span = dx * dx + dy * dy
-    if span <= 0.0:
-        return math.dist(point, start)
-    t = ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / span
-    t = max(0.0, min(1.0, t))
-    return math.dist(point, (start[0] + t * dx, start[1] + t * dy))
-
-
 def _min_non_consumer_clearance(
     graph: MetroGraph,
     polylines: list[tuple[RoutedPath, list[tuple[float, float]]]],
@@ -185,7 +173,12 @@ def _min_non_consumer_clearance(
 
     ``None`` when every line serves every station it passes, which leaves the
     clearance undefined rather than arbitrarily large.
+
+    Measured to the marker centre, so a station carrying a wide bundle -- whose
+    drawn pill extends well past its centre -- reports more room than the
+    picture shows.
     """
+    from nf_metro.layout.geometry import point_to_polyline_distance
     from nf_metro.layout.phases._common import marker_cross_exempt
 
     markers = [
@@ -202,10 +195,9 @@ def _min_non_consumer_clearance(
         for centre, own_lines in markers:
             if route.line_id in own_lines:
                 continue
-            for start, end in zip(pts, pts[1:]):
-                gap = _point_segment_distance(centre, start, end)
-                if closest is None or gap < closest:
-                    closest = gap
+            gap = point_to_polyline_distance(centre, pts)
+            if closest is None or gap < closest:
+                closest = gap
     return closest
 
 
@@ -299,7 +291,7 @@ def _wasted_canvas_ratio(
     return round(max(0.0, min(1.0, 1.0 - used)), 3)
 
 
-def _format_magnitude(kind: str, value: float) -> str:
+def _format_magnitude(kind: MetricKind, value: float) -> str:
     """Format a non-negative magnitude for display, by value kind."""
     if kind == "ratio":
         return f"{value:.0%}"

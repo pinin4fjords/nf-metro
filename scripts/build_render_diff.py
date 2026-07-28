@@ -460,8 +460,8 @@ def _load_json(render_dir: Path, filename: str) -> dict:
 
 def _build_metrics_html(
     changed: list[tuple[str, str]],
-    base_metrics: dict[str, dict[str, float]],
-    pr_metrics: dict[str, dict[str, float]],
+    base_metrics: dict[str, dict[str, float | None]],
+    pr_metrics: dict[str, dict[str, float | None]],
 ) -> str:
     """Build the advisory layout-quality delta table for the changed renders.
 

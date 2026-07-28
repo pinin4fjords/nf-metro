@@ -71,6 +71,14 @@ WEIGHTS = {
 # route count, so weighting both would re-count one signal in proportion to map
 # size, penalising big maps for being big.
 
+PERM_CAP = 24
+"""Row-order permutations kept per stacked grid column.
+
+Permuting several stacked columns together multiplies out, and every candidate
+costs a full parse plus layout, so the search is bounded per column and reports
+what it left unexplored.
+"""
+
 GRID_RE = re.compile(
     r"^\s*%%metro\s+(grid|direction|fold_threshold)\s*:", re.IGNORECASE
 )
@@ -175,14 +183,6 @@ def score(text: str, fold: int | None = None) -> dict[str, float | None] | None:
         return None
 
 
-def topo_columns(text: str) -> dict[int, list[str]]:
-    g = parse_metro_mermaid(strip_layout_directives(text))
-    cols: dict[int, list[str]] = {}
-    for sid, sec in g.sections.items():
-        cols.setdefault(sec.grid_col, []).append(sid)
-    return cols
-
-
 def _fmt(label: str, o: float, m: dict[str, float | None]) -> str:
     gap = m["marker_clearance"]
     return (
@@ -213,14 +213,21 @@ def optimize(
     head, blocks, loose = split_subgraphs(auto_text)
     block_by_id = {bid: blk for bid, blk in blocks}
     order = [bid for bid, _ in blocks]
-    sids = list(parse_metro_mermaid(auto_text).sections.keys())
 
-    cols = topo_columns(text)
+    # Auto-layout runs at parse time, so one parse yields both the section list
+    # and the grid columns it inferred.
+    auto_graph = parse_metro_mermaid(auto_text)
+    sids = list(auto_graph.sections.keys())
+    cols: dict[int, list[str]] = {}
+    for sid, sec in auto_graph.sections.items():
+        cols.setdefault(sec.grid_col, []).append(sid)
+
     stacked = {c: ids for c, ids in cols.items() if 2 <= len(ids) <= max_perm_col}
     stacked_ids = {x for ids in stacked.values() for x in ids}
 
     # Within-column row-order permutations (the crossing-relevant lever).
     candidate_orders = [order]
+    dropped = 0
     for ids in stacked.values():
         present = [s for s in order if s in ids]
         if len(present) < 2:
@@ -235,10 +242,12 @@ def optimize(
                 for slot, sid in zip(pos, perm):
                     no[slot] = sid
                 more.append(no)
-        candidate_orders.extend(more[:24])
+        candidate_orders.extend(more[:PERM_CAP])
+        dropped += max(0, len(more) - PERM_CAP)
 
     best = (base_obj, "baseline (pure auto-layout, default order)", base)
-    seen: set[tuple] = set()
+    # The baseline is the default order at the parser's own fold, already scored.
+    seen: set[tuple] = {("fold", None, tuple(order))}
 
     # Axis 1: fold x row-order.
     for fold in fold_values:
@@ -275,6 +284,10 @@ def optimize(
     tag = "  ** lower score found **" if improved else "  (default auto-layout is best)"
     print(f"\n=== {path.stem} ==={tag}")
     print(_fmt("baseline", base_obj, base))
+    if dropped:
+        print(
+            f"  searched {len(candidate_orders)} row orders, {dropped} left unexplored"
+        )
     if improved:
         print(_fmt("best", b_obj, b_m))
         print(f"  via: {b_desc}")
