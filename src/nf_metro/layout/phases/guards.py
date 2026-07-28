@@ -83,6 +83,7 @@ from nf_metro.layout.phases.bbox import (
     _shared_anchor_runway_runs,
 )
 from nf_metro.layout.phases.off_track import (
+    _dead_end_producer_anchor,
     _is_single_trunk_section,
     _off_track_anchor_of,
     _off_track_lift_sign,
@@ -4720,6 +4721,11 @@ def _guard_off_track_clear_of_anchor(graph: MetroGraph, phase: str) -> None:
     -- above an LR trunk, beside a TB one); an output whose producer sits on a
     branch column (:func:`_off_track_output_below`) is offset the other way so
     it does not cross back over the trunk.
+
+    A producer-fed output with no other in-section successor
+    (:func:`_dead_end_producer_anchor`) has nothing on the producer's row to
+    protect, so it may seat level with it (``signed == 0``) instead of clear
+    of it.
     """
     below = _off_track_output_below(graph)
     for off_id, anchor_id in _off_track_anchor_of(graph).items():
@@ -4735,7 +4741,11 @@ def _guard_off_track_clear_of_anchor(graph: MetroGraph, phase: str) -> None:
         if off_id in below:
             want_sign = -want_sign
         signed = want_sign * (getattr(off_st, cross) - getattr(anchor_st, cross))
-        if not (signed > GUARD_TOLERANCE):
+        dead_end = section is not None and _dead_end_producer_anchor(
+            graph, section, anchor_id
+        )
+        min_signed = -GUARD_TOLERANCE if dead_end else GUARD_TOLERANCE
+        if not (signed > min_signed):
             side = "beside" if cross == "x" else ("below" if want_sign > 0 else "above")
             raise PhaseInvariantError(
                 f"{phase}: off-track {off_id!r} {cross}={getattr(off_st, cross):.1f} "
