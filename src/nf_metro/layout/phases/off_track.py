@@ -1175,6 +1175,12 @@ def _iter_trunk_stations(
             yield st
 
 
+def _is_producer_fed_sink(graph: MetroGraph, off_id: str, anchor_id: str) -> bool:
+    """Whether *off_id* is fed by *anchor_id* (a producer-fed output) rather
+    than feeding into it (a consumer-fed input)."""
+    return not any(e.target == anchor_id for e in graph.edges_from(off_id))
+
+
 def _off_track_output_below(graph: MetroGraph) -> set[str]:
     """Off-track outputs whose producer sits on a branch off the trunk.
 
@@ -1234,7 +1240,7 @@ def _off_track_output_below(graph: MetroGraph) -> set[str]:
         if off_st is None or anchor_st is None or not off_st.section_id:
             continue
         # Inputs feed their anchor; only producer-fed sinks may drop down.
-        if any(e.target == anchor_id for e in graph.edges_from(off_id)):
+        if not _is_producer_fed_sink(graph, off_id, anchor_id):
             continue
         baseline = section_baseline.get(off_st.section_id)
         if baseline is None:
@@ -1392,6 +1398,35 @@ def _per_column_stack_steps(
     return steps
 
 
+def _dead_end_producer_anchor(
+    graph: MetroGraph, section: Section, anchor_id: str
+) -> bool:
+    """Whether *anchor_id* is a producer with nothing on its own row to protect.
+
+    An off-track output is normally offset a step off its producer's row so
+    the icon doesn't sit on a line-track slot the producer's other in-section
+    successor needs.  When *anchor_id* feeds one or more off-track sinks in
+    *section* and has no other in-section successor, there is nothing on its
+    row to protect and the whole stack can seat one step closer, directly on
+    the producer's own cross coordinate.
+    """
+    if not anchor_id:
+        return False
+    sink_ids = {
+        sid
+        for sid in section.station_ids
+        if graph.stations[sid].off_track
+        and any(e.source == anchor_id for e in graph.edges_to(sid))
+    }
+    if not sink_ids:
+        return False
+    in_section = set(section.station_ids)
+    return not any(
+        e.target in in_section and e.target not in sink_ids
+        for e in graph.edges_from(anchor_id)
+    )
+
+
 def _place_off_track_relative_to_anchors(
     graph: MetroGraph,
     y_spacing: float,
@@ -1452,7 +1487,9 @@ def _place_off_track_relative_to_anchors(
     lift_extreme: float | None = None
     opp_extreme: float | None = None
 
-    def _place(st: Station, candidate: float, bump_dir: float) -> None:
+    def _place(
+        st: Station, candidate: float, bump_dir: float, consider_ports: bool
+    ) -> None:
         nonlocal lift_extreme, opp_extreme
         if section is not None:
             candidate = _bump_off_track_clear_of_trunks(
@@ -1466,6 +1503,7 @@ def _place_off_track_relative_to_anchors(
                     quantize_coord(getattr(st, flow_axis), COORD_GROUP_DIGITS_COARSE)
                 ],
                 direction=bump_dir,
+                consider_ports=consider_ports,
             )
         setattr(st, cross_axis, candidate)
         used_cross_per_col[
@@ -1492,12 +1530,18 @@ def _place_off_track_relative_to_anchors(
 
         up_steps = _per_column_stack_steps(list(reversed(up_stations)), flow_axis)
         down_steps = _per_column_stack_steps(down_stations, flow_axis)
+        dead_end = section is not None and _dead_end_producer_anchor(
+            graph, section, anchor_id
+        )
+        rank_shift = 1 if dead_end else 0
         for st in up_stations:
-            candidate = anchor_cross + lift_sign * up_steps[st.id] * step
-            _place(st, candidate, lift_sign)
+            candidate = anchor_cross + lift_sign * (up_steps[st.id] - rank_shift) * step
+            _place(st, candidate, lift_sign, dead_end)
         for st in down_stations:
-            candidate = anchor_cross - lift_sign * down_steps[st.id] * step
-            _place(st, candidate, -lift_sign)
+            candidate = (
+                anchor_cross - lift_sign * (down_steps[st.id] - rank_shift) * step
+            )
+            _place(st, candidate, -lift_sign, dead_end)
     return lift_extreme, opp_extreme
 
 
@@ -1542,6 +1586,7 @@ def _bump_off_track_clear_of_trunks(
     junction_ids: set[str],
     sibling_cross: list[float] | None = None,
     direction: float = -1.0,
+    consider_ports: bool = False,
 ) -> float:
     """Return *candidate* shifted so the off-track icon clears any trunk line
     track passing through the icon's column.
@@ -1553,6 +1598,14 @@ def _bump_off_track_clear_of_trunks(
     icon.  Bump away from the anchor (``direction`` = the signed cross-step
     that offsets the icon toward *candidate*) by ``step`` increments until it
     clears.
+
+    ``consider_ports`` also treats the section's own entry/exit ports as
+    contesting bands: a sibling branch's run into a shared port can cross an
+    icon seated on its producer's row with no other in-section successor to
+    protect it, so a dead-end-producer output needs the port considered too.
+    Ordinary off-track placement leaves this off, since a port's band never
+    needed to matter while every off-track station started pre-offset a step
+    clear of it.
 
     ``sibling_cross`` lists cross coords already taken by other off-track icons
     in the same column - the bump must also clear those (within one ``step``
@@ -1576,14 +1629,19 @@ def _bump_off_track_clear_of_trunks(
     offset_step = resolve_offset_step(graph.track_gap)
     in_section = set(section.station_ids) | section.port_ids
 
-    # Find trunk stations in the same section whose line bundle crosses the
+    # Find trunk stations -- and, when consider_ports asks for it, the
+    # section's own entry/exit ports, whose converging line band can cross
+    # the icon just as a station's can -- whose line bundle crosses the
     # icon's column: downstream of the icon in flow is necessary but not
     # sufficient, since the run feeding a downstream station may itself start
     # further downstream than the icon and so never reach the icon's column.
+    port_ids = section.port_ids
     trunk_bands: list[float] = []
     for sid in section.station_ids:
         st2 = graph.stations.get(sid)
-        if st2 is None or st2.is_port or st2.is_hidden:
+        if st2 is None or st2.is_hidden:
+            continue
+        if st2.is_port and not (consider_ports and sid in port_ids):
             continue
         if st2.id == off_st.id or sid in junction_ids:
             continue
