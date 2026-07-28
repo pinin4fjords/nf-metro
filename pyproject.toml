@@ -75,6 +75,10 @@ font = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
 
+[tool.hatch.build.targets.sdist]
+# Research data, not part of the distribution.
+exclude = ["datasets"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "tests"]
