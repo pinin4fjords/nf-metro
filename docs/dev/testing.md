@@ -98,6 +98,50 @@ The gallery itself is defined by `GALLERY_ENTRIES` in
 `scripts/build_gallery.py`. A new example only appears in the rendered
 gallery (and the render diff) once it is added to that list.
 
+## The learned-score column (shadow mode)
+
+Alongside the byte-identical diff, the render diff prints an advisory
+metrics table (`tests/layout_metrics.py`) and a "Learned score" column: a
+pairwise layout-quality objective (`iter2`) fit from mined render-preference
+history (`datasets/layout_preferences/`). Neither table gates CI — the
+byte-identical gallery above is the only thing a build fails on. Changed
+renders are ordered worst-predicted-first in the diff, but nothing is
+filtered; every changed render still needs a human look regardless of what
+the score says.
+
+`datasets/layout_preferences/scripts/fit_objective.py` owns the fitted
+weights (`iter2_weights.json`, regenerated with `--dump-weights iter2`);
+`scored_objective.py` is the only reader.
+
+### Forward capture
+
+Every merged PR that touches the layout/render/parser engine is a
+preference claim a human already made by approving it. `capture_pr.py`
+records that signal into `datasets/layout_preferences/forward_pairs.jsonl`:
+
+```bash frame="terminal"
+python capture_pr.py 1608 --pr-verdict neutral
+python capture_pr.py --sweep   # catch up every merged PR not yet examined
+```
+
+Capture pairs `mergeCommit^1` → `mergeCommit`, not the PR's base SHA — this
+repo stacks PRs on chained base branches, so a PR's base often already
+contains its parent's work — so it can only run **after** a PR merges, not
+at review-approval time. `--sweep` does the mechanical replay for any
+backlog of merged PRs with no verdict required; a verdict can be attached
+later, separately, via `--verdict-only`.
+
+This is currently a manual, session-driven step — nothing in CI runs it
+automatically. Two shapes were discussed for automating the mechanical
+sweep-and-default-verdict step (treating a plain merge as a weak
+`pr_signoff`, matching the existing corpus convention, with a stronger
+per-fixture verdict staying an optional manual add-on): a GitHub Actions
+workflow on `pull_request: closed` (merged) that opens a small bot PR with
+the ledger update, or a periodically scheduled agent session doing the
+same. Deferred for now — whichever gets built still has to land through a
+normal PR, since the ledger files sit under the repo's usual branch
+protection like everything else.
+
 ## The four validation layers
 
 The pipeline has four validation layers, each checking a different artifact
