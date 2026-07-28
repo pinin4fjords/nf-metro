@@ -92,6 +92,7 @@ from nf_metro.layout.phases.guards import (
 from nf_metro.layout.phases.off_track import (
     _bump_off_track_clear_of_trunks,
     _cross_bbox_edges,
+    _dead_end_producer_anchor,
     _is_single_trunk_section,
     _off_track_anchor_of,
     _off_track_fit_edge,
@@ -3018,6 +3019,10 @@ def test_off_track_outputs_on_lift_side_and_adjacent_to_producer(fixture):
     trunk band), so an offset past two pitches means it was misanchored to the
     section's baseline on-track station and stranded far from the step that
     writes it (issue #573).  Mirror of ``test_off_track_inputs_above_consumer``.
+
+    A producer with no other in-section successor has nothing on its own row
+    to protect, so its sink seats directly on the producer's row instead
+    (gap of zero rather than one pitch; :func:`_dead_end_producer_anchor`).
     """
     graph = _layout(fixture)
     y_spacing = compute_min_y_spacing(graph)
@@ -3043,7 +3048,9 @@ def test_off_track_outputs_on_lift_side_and_adjacent_to_producer(fixture):
         off_c = getattr(off_st, cross)
         prod_c = getattr(prod_st, cross)
         gap = lift_sign * (off_c - prod_c)
-        assert gap > _Y_TOL, (
+        dead_end = _dead_end_producer_anchor(graph, section, prod_id)
+        min_gap = -_Y_TOL if dead_end else _Y_TOL
+        assert gap > min_gap, (
             f"{fixture}: off-track output {off_id} {cross}={off_c:.1f} not on the "
             f"lift side of producer {prod_id} {cross}={prod_c:.1f}"
         )
@@ -3052,6 +3059,48 @@ def test_off_track_outputs_on_lift_side_and_adjacent_to_producer(fixture):
             f"producer {prod_id} on the {cross} axis (more than 2 slots) - "
             f"likely misanchored to the section's baseline station instead of "
             f"its producer"
+        )
+
+
+_FIXTURES_WITH_DEAD_END_PRODUCER_OUTPUT = [
+    "topologies/symmetric_join_exit_port_centre.mmd",
+    "topologies/symmetric_deadend_fanout_exit.mmd",
+    "off_track_output_branched.mmd",
+]
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_DEAD_END_PRODUCER_OUTPUT)
+def test_off_track_output_seats_on_dead_end_producer_row(fixture):
+    """An off-track output whose producer has no other in-section successor
+    seats directly on the producer's row rather than a step off it (#1572).
+
+    The step exists to keep the icon off a line-track slot the producer's
+    other in-section successor needs.  With no such successor, there is
+    nothing on the producer's row to protect, so the icon can sit level with
+    it and connect with a straight stub instead of a needless diagonal.
+    """
+    graph = _layout(fixture)
+    producer_of = _off_track_output_sinks(graph)
+    assert producer_of, f"{fixture}: no off-track output sinks found"
+
+    dead_end_pairs = []
+    for off_id, prod_id in producer_of.items():
+        off_st = graph.stations[off_id]
+        section = graph.sections[off_st.section_id]
+        if _dead_end_producer_anchor(graph, section, prod_id):
+            dead_end_pairs.append((off_id, prod_id, section))
+
+    assert dead_end_pairs, f"{fixture}: expected a dead-end-producer output sink"
+
+    for off_id, prod_id, section in dead_end_pairs:
+        off_st = graph.stations[off_id]
+        prod_st = graph.stations[prod_id]
+        cross = section_cross_axis(section)
+        off_c = getattr(off_st, cross)
+        prod_c = getattr(prod_st, cross)
+        assert off_c == pytest.approx(prod_c, abs=_Y_TOL), (
+            f"{fixture}: off-track output {off_id} {cross}={off_c:.1f} not "
+            f"seated on dead-end producer {prod_id} {cross}={prod_c:.1f}"
         )
 
 
