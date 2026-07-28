@@ -77,9 +77,9 @@ undefined on either side means the feature says nothing about this preference.
 AUTHORED_WEIGHTS = {
     "lone_diagonals": 3.0,
     "bends_per_route": 3.0,
-    "marker_crowding": 3.0,
+    "marker_crowding": 2.0,
     "turn_angle_per_route": 2.0,
-    "crossings": 0.5,
+    "crossings": 0.25,
     "near_horizontal": 0.5,
     "lane_gap_excess": 0.25,
 }

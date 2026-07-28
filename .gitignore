@@ -29,5 +29,5 @@ package-lock.json
 .coverage
 
 # Intermediate per-revision geometry vectors (regenerate with datasets/layout_preferences/scripts/replay.py)
-datasets/layout_preferences/geometry/
+datasets/layout_preferences/scripts/geometry/
 datasets/layout_preferences/geometry_vectors.tar.gz
