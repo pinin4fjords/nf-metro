@@ -25,8 +25,10 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 
+from revisions import REPO_ROOT
+
 S = Path(__file__).parent
-REPO = Path("/Users/jonathan.manning/projects/nf-metro")
+REPO = REPO_ROOT
 
 
 def rev(spec: str) -> str | None:

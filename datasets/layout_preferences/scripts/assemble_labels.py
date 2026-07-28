@@ -29,8 +29,10 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from revisions import REPO_ROOT
+
 S = Path(__file__).parent
-REPO = Path("/Users/jonathan.manning/projects/nf-metro")
+REPO = REPO_ROOT
 ENGINE_PATHS = ("src/nf_metro/layout", "src/nf_metro/render", "src/nf_metro/parser")
 LAYOUT_LABELS = {"layout", "routing", "render", "bug"}
 
