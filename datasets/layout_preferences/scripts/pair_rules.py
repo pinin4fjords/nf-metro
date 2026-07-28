@@ -25,6 +25,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
+LAYOUT_LABELS = frozenset({"layout", "routing", "render", "bug"})
+"""Issue labels that make a closed issue a claim about render quality."""
+
 DIRECTIONAL_SOURCES = ("issue_fix", "xfail_cleared")
 """Label sources that assert a direction rather than mere non-blockingness.
 

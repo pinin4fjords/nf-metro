@@ -29,12 +29,11 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from revisions import REPO_ROOT
+from pair_rules import LAYOUT_LABELS
+from revisions import ENGINE_PATHS, REPO_ROOT
 
 S = Path(__file__).parent
 REPO = REPO_ROOT
-ENGINE_PATHS = ("src/nf_metro/layout", "src/nf_metro/render", "src/nf_metro/parser")
-LAYOUT_LABELS = {"layout", "routing", "render", "bug"}
 
 
 def stem_regex() -> re.Pattern[str]:

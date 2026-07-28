@@ -24,6 +24,9 @@ REPO_ROOT = S.parents[2]
 EXTRACTOR = S / "extract_features.py"
 CACHE = S / "geometry"
 
+ENGINE_PATHS = ("src/nf_metro/layout", "src/nf_metro/render", "src/nf_metro/parser")
+"""Paths whose change can move geometry."""
+
 
 class GeometryError(RuntimeError):
     """A revision's geometry could not be produced (bad checkout or extractor)."""
@@ -52,6 +55,12 @@ def git(
 
 def rev_parse(spec: str) -> str | None:
     return git("rev-parse", spec).stdout.strip() or None
+
+
+def touches_engine(before: str, after: str) -> bool:
+    """Whether a revision range's own diff reaches code that can move geometry."""
+    files = git("diff", "--name-only", f"{before}..{after}").stdout
+    return any(p in files for p in ENGINE_PATHS)
 
 
 def ensure_local(sha: str) -> None:

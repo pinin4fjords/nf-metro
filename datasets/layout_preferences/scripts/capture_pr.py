@@ -50,9 +50,10 @@ import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path
+from functools import lru_cache
+from pathlib import Path, PurePosixPath
 
-from pair_rules import Emission, emit_anchors, emit_pairs
+from pair_rules import LAYOUT_LABELS, Emission, emit_anchors, emit_pairs
 from revisions import (
     REPO_ROOT,
     GeometryError,
@@ -63,6 +64,7 @@ from revisions import (
     git,
     remove_worktree,
     rev_parse,
+    touches_engine,
 )
 
 S = Path(__file__).resolve().parent
@@ -70,12 +72,6 @@ DATASET = S.parent
 PAIRS = DATASET / "forward_pairs.jsonl"
 ANCHORS = DATASET / "forward_anchors.jsonl"
 LOG = DATASET / "forward_log.jsonl"
-
-ENGINE_PATHS = ("src/nf_metro/layout", "src/nf_metro/render", "src/nf_metro/parser")
-"""Paths whose change can move geometry. Mirrors ``assemble_labels.ENGINE_PATHS``."""
-
-LAYOUT_LABELS = frozenset({"layout", "routing", "render", "bug"})
-"""Issue labels that make a closed issue a statement about render quality."""
 
 VERDICT_LABEL = {
     "improvement": "after_better",
@@ -86,7 +82,7 @@ VERDICT_LABEL = {
 CONFIDENCE_RANK = {"weak": 0, "triage": 0, "medium": 1, "high": 2, "certain": 3}
 
 GENERIC_STEMS = frozenset({"pipeline"})
-"""Fixture stems too generic to recognise in prose. Mirrors ``assemble_labels``."""
+"""Fixture stems too generic to recognise in prose."""
 
 
 class CaptureError(RuntimeError):
@@ -188,17 +184,17 @@ def fetch_pr(number: int) -> MergedPR:
     )
 
 
-def touches_engine(before: str, after: str) -> bool:
-    files = git("diff", "--name-only", f"{before}..{after}").stdout
-    return any(p in files for p in ENGINE_PATHS)
-
-
 def registry_entries(source: str) -> set[tuple[str, str]]:
     """``(check, fixture)`` for the ``_XFAIL_*`` registries in one test module.
 
-    The registries are module-level dict literals keyed by fixture stem, so they
-    are read with the AST: importing a historical test module would need that
-    revision's whole test environment.
+    The registries are module-level dicts keyed by fixture path, read with the
+    AST because importing a historical test module would need that revision's
+    whole test environment. Only the keys are read: a registry whose reasons are
+    shared module constants or implicitly concatenated strings is not a literal,
+    and evaluating the whole dict would discard it entirely.
+
+    Keys are normalised to the stem the geometry records are keyed by, since a
+    registry may key by bare stem, by file name, or by repo-relative path.
     """
     entries: set[tuple[str, str]] = set()
     try:
@@ -216,24 +212,29 @@ def registry_entries(source: str) -> set[tuple[str, str]]:
         check = next((n for n in names if n.startswith("_XFAIL_")), None)
         if check is None or not isinstance(value, ast.Dict):
             continue
-        try:
-            registry = ast.literal_eval(value)
-        except ValueError:
-            continue
-        entries.update((check, fixture) for fixture in registry)
+        entries.update(
+            (check, PurePosixPath(key.value).stem)
+            for key in value.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        )
     return entries
 
 
-def xfail_entries(sha: str) -> set[tuple[str, str]]:
-    """Every ``_XFAIL_*`` registry entry in the test suite at ``sha``."""
+@lru_cache(maxsize=None)
+def xfail_entries(sha: str) -> frozenset[tuple[str, str]]:
+    """Every ``_XFAIL_*`` registry entry in the test suite at ``sha``.
+
+    ``git grep`` narrows the read to the few modules that carry a registry;
+    reading the whole of ``tests/`` out of the tree instead costs about as long
+    as measuring the entire fixture corpus.
+    """
+    listed = git("grep", "-l", "_XFAIL_", sha, "--", "tests").stdout.splitlines()
     entries: set[tuple[str, str]] = set()
-    for path in git("ls-tree", "-r", "--name-only", sha, "tests").stdout.split():
-        if not path.endswith(".py"):
-            continue
-        text = git("show", f"{sha}:{path}").stdout
-        if "_XFAIL_" in text:
-            entries |= registry_entries(text)
-    return entries
+    for line in listed:
+        _, _, path = line.partition(":")
+        if path.endswith(".py"):
+            entries |= registry_entries(git("show", f"{sha}:{path}").stdout)
+    return frozenset(entries)
 
 
 def xfail_events(before: str, after: str) -> list[XfailEvent]:
@@ -311,37 +312,31 @@ def label_rows(pr: MergedPR, events: list[XfailEvent], stems: set[str]) -> list[
         ]
 
     for ev in events:
+        churn = {
+            **common,
+            "fixtures": [ev.fixture],
+            "check": ev.check,
+            "scope": "fixture",
+            "confidence": "high",
+        }
         if ev.added:
-            # An entry added names a defect the merge acknowledged rather than
-            # fixed, so it anchors the revision that carries the entry. Anchor
-            # rows measure `sha_before`, which for an addition is the merge.
-            rows.append(
-                {
-                    **common,
-                    "source": "xfail_known_bad",
-                    "fixtures": [ev.fixture],
-                    "sha_before": pr.sha_after,
-                    "sha_after": None,
-                    "check": ev.check,
-                    "claim": "before_is_defective",
-                    "scope": "fixture",
-                    "confidence": "high",
-                    "title": f"xfail added: {ev.check} :: {pr.title}"[:140],
-                }
-            )
+            # An added entry names a defect the merge acknowledged rather than
+            # fixed, so it is a one-sided anchor on the revision that carries
+            # the entry, and an anchor is measured at its `sha_before`.
+            churn |= {
+                "source": "xfail_known_bad",
+                "sha_before": pr.sha_after,
+                "sha_after": None,
+                "claim": "before_is_defective",
+                "title": f"xfail added: {ev.check} :: {pr.title}"[:140],
+            }
         else:
-            rows.append(
-                {
-                    **common,
-                    "source": "xfail_cleared",
-                    "fixtures": [ev.fixture],
-                    "check": ev.check,
-                    "claim": "after_better_than_before",
-                    "scope": "fixture",
-                    "confidence": "high",
-                    "title": f"xfail cleared: {ev.check} :: {pr.title}"[:140],
-                }
-            )
+            churn |= {
+                "source": "xfail_cleared",
+                "claim": "after_better_than_before",
+                "title": f"xfail cleared: {ev.check} :: {pr.title}"[:140],
+            }
+        rows.append(churn)
     return rows
 
 
@@ -398,9 +393,7 @@ def capture_rows(
     for row in label_rows(pr, events, stems):
         emission: Emission
         if row["source"] == "xfail_known_bad":
-            emission = emit_anchors(
-                row, after if row["sha_before"] == pr.sha_after else before
-            )
+            emission = emit_anchors(row, after)
             out.anchors += emission.rows
         else:
             emission = emit_pairs(row, before, after)
@@ -468,6 +461,22 @@ def append_jsonl(path: Path, rows: list[dict]) -> None:
             fh.write(json.dumps(row) + "\n")
 
 
+def no_capture_row(number: int, reason: str, pr: MergedPR | None = None) -> dict:
+    """A PR that was examined and yielded nothing, with why.
+
+    The commit fields stay present-but-null when the PR never resolved to a
+    commit pair, so every ``no_capture`` row in the log has one shape.
+    """
+    return {
+        "kind": "no_capture",
+        "pr": number,
+        "merged_at": pr.merged_at if pr else None,
+        "sha_before": pr.sha_before if pr else None,
+        "sha_after": pr.sha_after if pr else None,
+        "reason": reason,
+    }
+
+
 def examined_prs() -> dict[int, str]:
     """PR number -> log row kind, for every PR capture has already looked at."""
     return {
@@ -524,19 +533,8 @@ def capture_one(
     if not touches_engine(pr.sha_before, pr.sha_after):
         print(f"#{number}: no engine change, nothing to measure")
         if not dry_run:
-            append_jsonl(
-                LOG,
-                [
-                    {
-                        "kind": "no_capture",
-                        "pr": number,
-                        "merged_at": pr.merged_at,
-                        "sha_before": pr.sha_before,
-                        "sha_after": pr.sha_after,
-                        "reason": "diff does not reach the layout/render/parser engine",
-                    }
-                ],
-            )
+            reason = "diff does not reach the layout/render/parser engine"
+            append_jsonl(LOG, [no_capture_row(number, reason, pr)])
         return
 
     before = geometry_at(pr.sha_before, worktree=worktree)
@@ -741,10 +739,7 @@ def main(argv: list[str] | None = None) -> None:
                 # settles it; anything else may just have failed this once and
                 # is left for the next sweep to retry.
                 if isinstance(exc, MissingRevision) and not args.dry_run:
-                    append_jsonl(
-                        LOG,
-                        [{"kind": "no_capture", "pr": number, "reason": str(exc)}],
-                    )
+                    append_jsonl(LOG, [no_capture_row(number, str(exc))])
     finally:
         if not args.keep_worktree:
             remove_worktree(worktree)

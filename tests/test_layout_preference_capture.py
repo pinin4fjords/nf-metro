@@ -235,6 +235,43 @@ def test_registry_entries_reads_both_assignment_forms():
     }
 
 
+def test_capture_joins_a_prs_claims_onto_the_geometry_it_moved():
+    """The whole join: claims from the PR, subjects and strengths from geometry."""
+    before = revision("before0", {"fan": fixture_rec(), "fold": fixture_rec()})
+    after = revision("after0", {"fan": fixture_rec(MOVED), "fold": fixture_rec(MOVED)})
+    events = [
+        cap.XfailEvent("fan", "_XFAIL_BBOX_TOP_PAD", added=False),
+        cap.XfailEvent("fold", "_XFAIL_LABEL_AT_STATION_X", added=True),
+    ]
+    out = cap.capture_rows(merged_pr([issue()]), before, after, events)
+
+    assert out.moved == {"fan", "fold"}
+    by_fixture = {row["fixture"]: row for row in out.pairs}
+    assert by_fixture["fan"]["check"] == "_XFAIL_BBOX_TOP_PAD", (
+        "the cleared xfail supersedes the weaker geometry-derived row"
+    )
+    assert by_fixture["fold"]["source"] == "issue_fix"
+    assert {row["label"] for row in out.pairs} == {"after_better"}
+    (anchor,) = out.anchors
+    assert (anchor["fixture"], anchor["sha"]) == ("fold", "after0")
+    assert anchor["features"] == MOVED, "an added xfail anchors the merged revision"
+
+
+def test_registry_entries_key_by_the_stem_geometry_uses():
+    """Registries key by path or file name; a non-literal reason must not hide one."""
+    source = (
+        '_REASON = "shared across entries"\n'
+        "_XFAIL_ONE: dict[str, str] = {\n"
+        '    "variantbenchmarking.mmd": _REASON,\n'
+        '    "topologies/foldback_exit_peeloff.mmd": ("wrapped " "reason"),\n'
+        "}\n"
+    )
+    assert cap.registry_entries(source) == {
+        ("_XFAIL_ONE", "variantbenchmarking"),
+        ("_XFAIL_ONE", "foldback_exit_peeloff"),
+    }
+
+
 def test_the_named_check_supersedes_the_geometry_derived_row():
     weak = {
         "kind": "preference",
@@ -395,6 +432,17 @@ def test_a_set_level_ratification_is_never_stored_as_a_per_render_positive():
         if row["verdict_scope"] == "pr":
             assert row["scope"] != "fixture"
             assert row["label"] != "after_better" or row["source"] != "pr_signoff"
+
+
+def test_no_capture_rows_all_carry_the_same_fields():
+    """One `kind` in an append-only ledger must mean one shape to a consumer."""
+    shapes = {
+        frozenset(row)
+        for row in committed("forward_log.jsonl")
+        if row["kind"] == "no_capture"
+    }
+    assert len(shapes) <= 1, f"no_capture rows have {len(shapes)} different shapes"
+    assert shapes == {frozenset(cap.no_capture_row(1, "reason"))} or not shapes
 
 
 def test_every_captured_pr_has_a_log_entry():
