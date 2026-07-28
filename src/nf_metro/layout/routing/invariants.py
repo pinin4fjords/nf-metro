@@ -43,7 +43,12 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
     resolve_offset_step,
 )
-from nf_metro.layout.geometry import AxisFrame, axis_split, lanes_run_along_y
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    axis_split,
+    lanes_run_along_y,
+    point_to_polyline_distance,
+)
 from nf_metro.layout.phases.guards import GuardSpec
 from nf_metro.layout.routing.common import (
     Direction,
@@ -3548,26 +3553,6 @@ class MergeBranchHang:
         )
 
 
-def _point_to_polyline_distance(
-    p: tuple[float, float], pts: Sequence[tuple[float, float]]
-) -> float:
-    """Shortest distance from point *p* to a polyline through *pts*."""
-    px, py = p
-    best = float("inf")
-    for k in range(len(pts) - 1):
-        ax, ay = pts[k]
-        bx, by = pts[k + 1]
-        dx, dy = bx - ax, by - ay
-        seg_sq = dx * dx + dy * dy
-        if seg_sq == 0.0:
-            t = 0.0
-        else:
-            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg_sq))
-        cx, cy = ax + t * dx, ay + t * dy
-        best = min(best, ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5)
-    return best
-
-
 def _merge_entry_port(graph: MetroGraph, merge_id: str) -> Station | None:
     """The entry-port successor of a merge junction, if any."""
     for e in graph.edges_from(merge_id):
@@ -3617,7 +3602,7 @@ def check_merge_branches_meet_trunk(
             ) ** 0.5
             d_sibling = min(
                 (
-                    _point_to_polyline_distance(end, other)
+                    point_to_polyline_distance(end, other)
                     for other_edge, other in polylines
                     if other_edge is not edge
                 ),
@@ -3719,7 +3704,7 @@ def check_no_hanging_routes(
                 continue
             d_join = min(
                 (
-                    _point_to_polyline_distance(end, other_pts)
+                    point_to_polyline_distance(end, other_pts)
                     for other, other_pts in polylines
                     if other is not r
                 ),

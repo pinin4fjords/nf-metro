@@ -460,8 +460,8 @@ def _load_json(render_dir: Path, filename: str) -> dict:
 
 def _build_metrics_html(
     changed: list[tuple[str, str]],
-    base_metrics: dict[str, dict[str, float]],
-    pr_metrics: dict[str, dict[str, float]],
+    base_metrics: dict[str, dict[str, float | None]],
+    pr_metrics: dict[str, dict[str, float | None]],
 ) -> str:
     """Build the advisory layout-quality delta table for the changed renders.
 
@@ -483,7 +483,7 @@ def _build_metrics_html(
         for spec in METRICS:
             bv = base.get(spec.key) if base else None
             pv = pr.get(spec.key) if pr else None
-            direction = delta_direction(bv, pv)
+            direction = delta_direction(spec, bv, pv)
             cls = {-1: "m-better", 1: "m-worse", 0: "m-flat"}[direction]
             both_present = bv is not None and pv is not None
             if both_present and direction != 0:
@@ -506,9 +506,9 @@ def _build_metrics_html(
     return (
         '<div class="metrics">\n<h2>Layout-quality metrics</h2>\n'
         '<p class="caption">Advisory only &mdash; nothing gates on these. '
-        "Lower is better; "
         '<span class="m-better">green</span> improved, '
-        '<span class="m-worse">red</span> regressed.</p>\n'
+        '<span class="m-worse">red</span> regressed. '
+        "Lower is better except in the &uarr; column.</p>\n"
         f"<table>\n<tr><th>Render</th>{header_cells}</tr>\n"
         + "\n".join(rows)
         + "\n</table>\n</div>"
