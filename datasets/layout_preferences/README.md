@@ -19,7 +19,11 @@ to be recoverable from artifacts that were never written as a dataset.
 | `verdict_ledger_by_pr.json` | 108     | per-PR sign-off counts recovered from session transcripts          |
 | `dataset_report.txt`        | -       | emitted/dropped counts and the per-feature directional check       |
 | `fit_report.txt`            | -       | the fitted model, its cross-validated gate result and its controls |
-| `scripts/`                  | 8       | the generating pipeline, plus `fit_objective.py`                   |
+| `scripts/`                  | 11      | the generating pipeline, plus `fit_objective.py`                   |
+
+The tables above are the historical backfill, which is a one-off.
+[Forward capture](#forward-capture) is how the same signal keeps arriving, into
+`forward_pairs.jsonl`, `forward_anchors.jsonl` and `forward_log.jsonl`.
 
 ## Pair schema
 
@@ -143,6 +147,98 @@ minutes on 6 shards. The per-revision geometry vectors it produces (~15MB
 compressed, ~104MB raw) are deliberately **not** committed: they are
 intermediate, they would add a fresh binary blob on every feature iteration, and
 `dataset_pairs.jsonl` already carries the vectors a model needs inline.
+
+`scripts/pair_rules.py` holds the emission rules the join applies and
+`scripts/revisions.py` the per-revision measurement. Forward capture goes
+through both, so the two corpora cannot drift apart.
+
+## Forward capture
+
+Everything above reconstructs the past. `scripts/capture_pr.py` records the same
+signal as it is produced, so no future phase has to reconstruct anything.
+
+| file                    | what it is                                                     |
+| ----------------------- | -------------------------------------------------------------- |
+| `forward_pairs.jsonl`   | pairs, in `dataset_pairs.jsonl`'s schema                       |
+| `forward_anchors.jsonl` | one-sided negatives, in `dataset_anchors.jsonl`'s schema       |
+| `forward_log.jsonl`     | one row per PR examined, plus verdicts recorded after the fact |
+
+Phase 2 reads `dataset_pairs.jsonl` and `forward_pairs.jsonl` together. Both are
+emitted by `pair_rules.py` over the same 31 features, so concatenating them needs
+no join, no key mapping and no reconstruction step.
+
+### Why this is not captured in CI
+
+The render-diff already computes a per-fixture before/after vector, so persisting
+_that_ looks like the cheaper answer. Three properties rule it out:
+
+- `.github/workflows/pr-cleanup.yml` deletes `_pr/<N>/` when the PR closes, which
+  is the moment the verdict becomes final. That is why only a handful of preview
+  directories survive on `gh-pages` at any time.
+- Its "before" is the PR's base SHA, which is the pairing measured as wrong for
+  this repo (see [Two constraints](#two-constraints-that-were-established-by-measurement)).
+- It reports the ten display metrics of `tests/layout_metrics.py`, not the 31
+  features the fit consumes, so a consumer would still have to reconstruct.
+
+### Back-fillability is what makes a local script sound
+
+Capture replays commits, and commits persist. A PR missed today can be captured
+next month with a byte-identical result, so nothing depends on remembering at the
+right moment. CI capture has the opposite property: miss the window and pruning
+destroys the data permanently.
+
+`--sweep` turns that into a self-healing chore. It finds every merged PR the log
+has not examined yet and captures them in one pass:
+
+```bash
+python scripts/capture_pr.py --sweep
+```
+
+Consecutive merges to `main` share a commit -- one merge's `mergeCommit` is the
+next one's `mergeCommit^1` -- so a sweep of _k_ PRs costs about _k + 1_
+extractions rather than _2k_. One extraction is ~11s for the whole 327-fixture
+corpus.
+
+A PR that yields nothing (its diff never reaches the engine, or its commits were
+made unreachable by the 2026-07-27 history rewrite) still gets a `no_capture` row
+naming the reason, so the log records what was considered rather than only what
+succeeded, and a sweep never re-examines it.
+
+### What needs a human, and what does not
+
+| recorded                                      | how             |
+| --------------------------------------------- | --------------- |
+| `mergeCommit^1` / `mergeCommit` pairing       | mechanical      |
+| which fixtures actually moved geometry        | mechanical      |
+| `.mmd` content hash on both sides per fixture | mechanical      |
+| `_XFAIL_*` entries added or removed, by check | mechanical      |
+| abort transitions                             | mechanical      |
+| the verdict, and its **scope**                | one human field |
+
+### Scope is carried by the flag, not by a convention
+
+```bash
+python scripts/capture_pr.py 1606 --pr-verdict neutral
+python scripts/capture_pr.py 1606 --fixture-verdict fan_out_wrap=improvement
+```
+
+`--pr-verdict` records a set-level ratification and **never** sets a per-render
+label. `--fixture-verdict` asserts something about one named render, and naming a
+render the merge did not move is a hard error: a per-render verdict on an
+unchanged render is a set-level ratification in disguise, and mixing the two cost
+the #1586 fit 5.2 points. A merged PR cannot carry a set-level `detrimental`
+verdict either -- name the render, or the negative has nothing to attach to.
+
+A verdict formed after capture is appended to `forward_log.jsonl` as a `verdict`
+row with `--verdict-only`, which Phase 2 applies over the pair rows it names.
+
+### Append-only
+
+Pair rows carry their feature vectors inline at roughly 2.2KB each, so the
+ledgers are only ever appended to: a rewrite would churn the whole file for every
+capture, while appending keeps each diff proportional to the new work. Nothing in
+the pipeline edits a row that has been written, which is also why a late verdict
+is a new row rather than an edit.
 
 ## Known gap
 

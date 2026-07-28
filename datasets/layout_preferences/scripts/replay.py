@@ -1,14 +1,13 @@
-"""Replay the geometry corpus across historical revisions.
+"""Replay the geometry corpus across historical revisions, in shards.
 
-Each shard owns a private worktree, checks out one SHA at a time, and runs the
-version-independent extractor against that revision's engine AND that
-revision's own fixture files. Feature definitions therefore come from today
-while both engine and input come from the past, which is what makes a
-within-pair comparison meaningful.
+Each shard owns a private worktree and walks its slice of the SHA list, one
+checkout and one extraction at a time (``revisions.geometry_at``). History is
+walked newest-first so that if the engine API drifts out from under the
+extractor, the failures land on the oldest and least relevant revisions rather
+than silently thinning the recent ones.
 
-History is walked newest-first so that if the engine API drifts out from under
-the extractor, the failures land on the oldest and least relevant revisions
-rather than silently thinning the recent ones.
+A failing revision is recorded as a failure marker in the geometry cache, so a
+re-run resumes rather than retrying revisions that cannot be measured.
 
 Usage:
     python replay.py --shard 0 --shards 6 --shas shas_needed.txt
@@ -18,28 +17,28 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
-import sys
 from pathlib import Path
 
-S = Path(__file__).parent
-OUT = S / "geometry"
-MAIN = Path("/Users/jonathan.manning/projects/nf-metro")
+from revisions import (
+    CACHE,
+    REPO_ROOT,
+    GeometryError,
+    ensure_worktree,
+    geometry_at,
+    git,
+)
 
-
-def run(
-    cmd: list[str], cwd: Path | None = None, timeout: int = 300
-) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+OUT = CACHE
 
 
 def order_newest_first(shas: list[str]) -> list[str]:
     """Sort by commit time descending; unknown SHAs sink to the end."""
     dated = []
     for sha in shas:
-        r = run(["git", "-C", str(MAIN), "show", "-s", "--format=%ct", sha])
         try:
-            dated.append((int(r.stdout.strip()), sha))
+            dated.append(
+                (int(git("show", "-s", "--format=%ct", sha).stdout.strip()), sha)
+            )
         except ValueError:
             dated.append((0, sha))
     return [s for _, s in sorted(dated, reverse=True)]
@@ -52,18 +51,8 @@ def main() -> None:
     ap.add_argument("--shas", type=Path, required=True)
     args = ap.parse_args()
 
-    OUT.mkdir(exist_ok=True)
-    wt = Path(f"/Users/jonathan.manning/projects/nf-metro-geom{args.shard}")
-    if not wt.exists():
-        r = run(
-            ["git", "-C", str(MAIN), "worktree", "add", str(wt), "--detach", "HEAD"]
-        )
-        if r.returncode:
-            print(
-                f"shard {args.shard}: worktree failed: {r.stderr[:300]}",
-                file=sys.stderr,
-            )
-            return
+    OUT.mkdir(parents=True, exist_ok=True)
+    wt = ensure_worktree(REPO_ROOT.parent / f"{REPO_ROOT.name}-geom{args.shard}")
 
     all_shas = order_newest_first(
         [s.strip() for s in args.shas.read_text().splitlines() if s.strip()]
@@ -77,32 +66,10 @@ def main() -> None:
         if dest.exists():
             skipped += 1
             continue
-        co = run(
-            ["git", "-C", str(wt), "checkout", "--force", "--detach", sha], timeout=180
-        )
-        if co.returncode:
-            dest.write_text(json.dumps({"sha": sha, "error": "checkout_failed"}))
-            failed += 1
-            continue
-        ex = run(
-            [
-                sys.executable,
-                str(S / "extract_features.py"),
-                "--worktree",
-                str(wt),
-                "--sha",
-                sha,
-                "--out",
-                str(dest),
-            ],
-            timeout=900,
-        )
-        if ex.returncode or not dest.exists():
-            dest.write_text(
-                json.dumps(
-                    {"sha": sha, "error": "extract_failed", "stderr": ex.stderr[-600:]}
-                )
-            )
+        try:
+            geometry_at(sha, worktree=wt)
+        except GeometryError as exc:
+            dest.write_text(json.dumps({"sha": sha, "error": str(exc)[:600]}))
             failed += 1
         else:
             done += 1
