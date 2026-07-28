@@ -1,0 +1,33 @@
+{
+  "anchor_feature": "bends_per_route",
+  "anchor_value": 3.0,
+  "arm": "safe",
+  "gate": {
+    "coverage": 0.15104166666666666,
+    "decided": 0.7931034482758621,
+    "pooled": 0.5442708333333334
+  },
+  "note": "Fitted to predict a pairwise preference direction -- see #1587/#1588/#1589. Report the aggregate weighted delta only; per-feature contributions are not meaningful when sign_flips_across_folds is non-empty. With safe_to_minimise false, a search descending this score can improve it without bound by inflating the drawing; check_objective_safety.py says through which term.",
+  "pinned_non_negative": [
+    "bbox_h",
+    "bends_per_route",
+    "crossings",
+    "lone_diagonals_per_route",
+    "marker_crowding",
+    "non_45_frac",
+    "path_len_per_route",
+    "turn_angle_per_route"
+  ],
+  "safe_to_minimise": true,
+  "sign_flips_across_folds": [],
+  "weights": {
+    "bbox_h": 0.0,
+    "bends_per_route": 3.0,
+    "crossings": 0.0,
+    "lone_diagonals_per_route": 16.384160278883886,
+    "marker_crowding": 1.5576456332981168,
+    "non_45_frac": 1.8747540359245198,
+    "path_len_per_route": 0.0,
+    "turn_angle_per_route": 3.626282034682665
+  }
+}

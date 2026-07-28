@@ -106,6 +106,57 @@ def test_fitted_objective_still_misses_the_optimisation_bar(arms):
     assert pooled(arms, "iter2") < 0.85, "iter2 now clears 85%; re-gate the target"
 
 
+def test_constraining_the_growth_weights_costs_the_fitted_arm_its_coverage(arms):
+    """The #1588 finding: `iter2`'s reach came from the terms that made it unsafe.
+
+    `safe` reads the same features, differing only in that no weight may reward a
+    feature the drawing can grow without bound. Its coverage has to collapse to
+    roughly the bend family's reach, because the extent and length terms are
+    where the corpus's movement lives and the constraint zeroes them.
+    """
+    _, safe_coverage = arms["safe"].decided()
+    _, iter2_coverage = arms["iter2"].decided()
+    _, bend_coverage = arms["only_bend_family"].decided()
+
+    assert iter2_coverage > 0.85
+    assert safe_coverage < 0.30
+    assert safe_coverage == pytest.approx(bend_coverage, abs=0.05)
+
+
+def test_the_weakest_safety_constraint_collapses_the_arm_too(arms):
+    """`safe_min` pins only the weights that are unbounded above, which is the
+    least a bounded-below score can be built from. A gap between it and `safe`
+    would mean the collapse is an artefact of over-constraining rather than of
+    where the corpus's signal lies.
+    """
+    assert pooled(arms, "safe_min") == pytest.approx(pooled(arms, "safe"), abs=0.01)
+
+
+def test_no_safe_arm_beats_the_hand_binned_weights(arms):
+    """The #1588 stop condition. The authored objective is the incumbent: it
+    ships in `optimize_layout.py`, so a constrained fit that does not beat it
+    adds nothing, whatever its safety property.
+
+    A failure here is a reason to revisit the verdict, not to relax the
+    assertion: it would mean a safe objective has become worth driving layout
+    with, and #1589 comes back into play.
+    """
+    for arm in ("safe", "safe_min"):
+        margin = pooled(arms, arm) - pooled(arms, "authored")
+        assert margin < 0.0, f"{arm} now beats authored by {margin:+.3f}; re-gate"
+
+
+def test_the_bend_control_reproduces_the_safe_arms_precision(arms):
+    """Three hand-picked bend terms, unfitted, are at least as precise as the
+    constrained fit over the pairs either will speak to. That is what makes the
+    #1588 verdict "adds nothing" rather than "missed a threshold".
+    """
+    safe_decided, _ = arms["safe"].decided()
+    control_decided, _ = arms["only_bend_family"].decided()
+
+    assert control_decided >= safe_decided
+
+
 @pytest.mark.parametrize("control", ["only_path_len", "only_bbox_h"])
 def test_degenerate_controls_do_not_explain_the_margin(arms, control):
     """A single extent-like feature must not reproduce the fitted arm's margin.
@@ -185,10 +236,12 @@ def test_an_undefined_measurement_is_not_read_as_the_tightest_one():
 
 
 def test_both_dataset_scripts_mask_the_same_sentinel_features():
-    """The two scripts are standalone by design, so the sentinel list is stated
-    twice. A feature masked in one and read as the number -1 in the other would
-    give the report and the fit opposite readings of the same pair."""
-    assert _load_dataset_script("build_dataset").SENTINEL == _load_fitter().SENTINEL
+    """A feature masked in one script and read as the number -1 in the other
+    would give the report and the fit opposite readings of the same pair, so both
+    read one definition."""
+    shared = _load_dataset_script("terms").SENTINEL
+    assert _load_dataset_script("build_dataset").SENTINEL is shared
+    assert _load_fitter().SENTINEL is shared
 
 
 def test_the_fit_scores_the_weights_the_advisory_objective_actually_uses():

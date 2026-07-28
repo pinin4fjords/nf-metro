@@ -7,7 +7,9 @@
     "decided": 0.6961325966850829,
     "pooled": 0.6848958333333334
   },
-  "note": "Fitted to predict a pairwise preference direction, not to be minimised -- see #1587/#1588/#1589. Report the aggregate weighted delta only; per-feature contributions are not meaningful when sign_flips_across_folds is non-empty.",
+  "note": "Fitted to predict a pairwise preference direction -- see #1587/#1588/#1589. Report the aggregate weighted delta only; per-feature contributions are not meaningful when sign_flips_across_folds is non-empty. With safe_to_minimise false, a search descending this score can improve it without bound by inflating the drawing; check_objective_safety.py says through which term.",
+  "pinned_non_negative": [],
+  "safe_to_minimise": false,
   "sign_flips_across_folds": ["bbox_h", "min_marker_gap", "non_45_frac"],
   "weights": {
     "bbox_h": -0.0003657885907026656,

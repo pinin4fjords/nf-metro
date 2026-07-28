@@ -20,8 +20,10 @@ to be recoverable from artifacts that were never written as a dataset.
 | `dataset_report.txt`        | -       | emitted/dropped counts and the per-feature directional check       |
 | `fit_report.txt`            | -       | the fitted model, its cross-validated gate result and its controls |
 | `iter2_weights.json`        | -       | the fitted weights the render-diff reads (see below)               |
+| `safe_weights.json`         | -       | the constrained fit, the only weights safe to minimise             |
+| `safety_report.txt`         | -       | the structural check and the growth probe behind that claim        |
 | `feature_parity_report.txt` | -       | render-diff vs `extract_features.py` feature-source parity check   |
-| `scripts/`                  | 14      | the generating pipeline, plus `fit_objective.py`                   |
+| `scripts/`                  | 16      | the generating pipeline, plus `fit_objective.py`                   |
 
 The tables above are the historical backfill, which is a one-off.
 [Forward capture](#forward-capture) is how the same signal keeps arriving, into
@@ -282,6 +284,13 @@ runs the #1586 gate. `fit_report.txt` is its committed output; regenerate with:
 python scripts/fit_objective.py --out fit_report.txt
 ```
 
+The constrained arms and the safety report regenerate with:
+
+```bash
+python scripts/fit_objective.py --dump-weights safe --weights-out ../safe_weights.json
+python scripts/check_objective_safety.py --out ../safety_report.txt
+```
+
 Agreement is measured over held-out pairs under 5-fold cross-validation grouped
 by whole fixture. An arm whose features all have zero delta across a pair has no
 opinion about it; those abstentions are counted as half a hit in `pooled` and
@@ -320,16 +329,162 @@ features, not the weights.
 - **Primary gate (promote to a measurement, #1587): pass.** The fitted objective
   beats the hand-binned weights by 13.8 points pooled, 7.4 on coverage-matched
   pairs, p=0.0001.
-- **Secondary gate (promote to an optimisation target, #1588 / #1589): fail.**
-  The absolute bar is 85% held-out agreement; `iter2` reaches 68.5% pooled and
-  69.6% decided.
+- **Secondary gate (promote to an optimisation target, #1588 / #1589): fail**, on
+  the grounds below rather than on the 85% bar. A safe objective does exist and
+  is committed; it adds nothing over what already ships.
 
-Two findings say the secondary bar should stay shut even if agreement later
-climbs. `iter2` carries **negative** fitted weights on `bbox_h` and
-`path_len_per_route`, so an optimiser minimising it would inflate the drawing
-without bound - the PR #353 failure mode exactly. And four of its eight weights
-flip sign between folds, so their magnitudes are artefacts of which fixtures were
-held out rather than statements about layout.
+## Is any of it safe to minimise?
+
+A score is safe to descend when no input can improve it without bound. `iter2`
+is not: minimising it inflates the drawing forever, which is the PR #353 failure
+mode. That is the one property a human reviewing every candidate cannot
+compensate for, because it degenerates _every_ candidate rather than
+occasionally offering a bad one, so it is the question #1588 exists to settle.
+
+### The safety property, and why it is structural
+
+If every feature is non-negative and every weight is non-negative, the score is
+a non-negative combination of non-negative terms: bounded below by zero, and
+monotone non-decreasing in every feature. No input can drive it arbitrarily low.
+That is a one-line proof, and it needs the _features_ to cooperate, which two of
+them do not:
+
+| feature          | verdict          | why no weight on it is safe                                                                       |
+| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `min_marker_gap` | `terms.ANTITONE` | more clearance is better and clearance is always wideable, so its useful weight is negative       |
+| `aspect_log`     | `terms.SIGNED`   | `log10(w/h)`, so a negative weight buys an arbitrarily tall drawing and a positive one a wide one |
+
+`scripts/terms.py` holds `ADMISSIBILITY`, a verdict for every feature the
+extractor emits, so a feature added without being classified cannot slip into a
+minimisable objective unexamined. `min_marker_gap` has a repair -
+`marker_crowding`, a one-sided penalty saturating at one lane pitch - and
+`aspect_log` does not, so it stays out.
+
+Only features that are **unbounded above** actually need their weight pinned: a
+negative weight on a term confined to `[0, 1]` costs a finite amount. Both arms
+are fitted, so a collapse cannot be blamed on constraining more than safety
+requires:
+
+| arm        | pinned                        | pooled | decided | coverage |
+| ---------- | ----------------------------- | ------ | ------- | -------- |
+| `iter2`    | nothing                       | 68.5%  | 69.6%   | 94.3%    |
+| `safe`     | all 8 weights                 | 54.4%  | 79.3%   | 15.1%    |
+| `safe_min` | the 6 unbounded-above weights | 54.4%  | 79.3%   | 15.1%    |
+
+`safe` and `safe_min` are identical to the decimal, so the constraint is not the
+variable. Excluding the growth features outright, #1588's third option, is the
+same model again: the constraint lands on the boundary at **exactly zero** for
+`bbox_h`, `path_len_per_route` and `crossings`, and a weight pinned at zero
+predicts identically to an absent feature.
+
+### 1. Is it safe? Demonstrated, not asserted
+
+`x_spacing` and `y_spacing` are ordinary knobs - a CLI flag and a `%%metro`
+directive - so a uniformly inflated drawing is a _reachable_ input.
+`scripts/check_objective_safety.py` lays five fixtures out at 1x, 2x, 4x and 8x
+the default spacing through the real engine and rescores them:
+
+```bash
+python scripts/check_objective_safety.py --out ../safety_report.txt
+```
+
+| arm     | score fell under growth | `genomic_pipeline.mmd` 1x -> 8x |
+| ------- | ----------------------- | ------------------------------- |
+| `iter2` | 5 of 5 fixtures         | 8.53 -> **-13.90**              |
+| `safe`  | 0 of 5 fixtures         | 18.54 -> 19.43                  |
+
+The growth terms are linear in the multiple, so nothing about 8x ends `iter2`'s
+fall. `safety_report.txt` is the committed output and
+`tests/test_objective_safety.py` locks both directions - the unconstrained arm is
+kept as a live counter-example, so the probe is known to be capable of catching
+an unsafe objective rather than merely passing a safe one.
+
+The constraint fixed the fold instability too, as a side effect rather than by
+design: `safe` has an empty `sign_flips_across_folds`, against three for `iter2`.
+A weight that cannot cross zero cannot change sign between folds.
+
+### 2. What constraining cost: all of the reach
+
+`iter2` loses 14.1 points pooled and 79.2 points of coverage. The mechanism is
+that **reach and correct direction sit on disjoint sets of features**. Over the
+192 directional pairs, for every admissible feature:
+
+| feature                    | moves on | agrees ("more is worse") |
+| -------------------------- | -------- | ------------------------ |
+| `detour_mean`              | 77.6%    | 50.7%                    |
+| `path_len_per_route`       | 73.4%    | **33.8%**                |
+| `bbox_h`                   | 41.7%    | **26.0%**                |
+| `crossings`                | 21.9%    | 48.0%                    |
+| `turn_angle_per_route`     | 15.1%    | 69.6%                    |
+| `bends_per_route`          | 9.9%     | 93.8%                    |
+| `lone_diagonals_per_route` | 5.2%     | 87.5%                    |
+| `marker_crowding`          | 1.6%     | 100.0%                   |
+
+Every feature with reach above 20% either points the wrong way or is a coin
+flip; every feature that points the right way moves on under 16% of pairs.
+`iter2`'s 94.3% coverage was **entirely** the growth terms: the four bend-family
+terms it shares with `safe` move on 29 of 192 pairs between them, and 15.1% is
+exactly the reach of `only_bend_family`. Pinning the growth weights therefore
+does not degrade the model so much as delete most of it.
+
+**Why the reachy terms point the wrong way.** All 192 directional rows are defect
+repairs - 181 issue fixes and 11 xfail-registry clearings - so the `after` side
+is always a map whose defect the engine had just learned to avoid. Repairs cost
+space: a curve gets its full radius of runway, a port gets its own lane, two
+sections are pushed apart. So on this corpus the preferred layout is usually the
+longer and taller one. That is a true statement about repairs, not a statement
+that space is good, and a pairwise fit cannot tell the two apart. It is also why
+this is **not** a proof that no safe objective exists: it is a measurement that
+_this corpus, in this regime,_ cannot fit one.
+
+### 3. Does it beat the incumbent? No
+
+The incumbent is the hand-binned `optimize_layout.WEIGHTS`, since that is what
+ships. Simulating what a search driven by each arm would offer over the 192 pairs
+
+- `surfaced` = it ranks the human-preferred arrangement first, `wasted` = it
+  ranks the rejected one first and costs a review, `silent` = it abstains and the
+  engine's own output stands:
+
+| arm                 | surfaced | wasted | silent | useful:wasted |
+| ------------------- | -------- | ------ | ------ | ------------- |
+| greedy (status quo) | 0        | 0      | 192    | -             |
+| `authored`          | 43       | 25     | 124    | 1.72:1        |
+| `iter2`             | 126      | 55     | 11     | 2.29:1        |
+| `safe`              | 23       | 6      | 163    | 3.83:1        |
+| `only_bend_family`  | 24       | 5      | 163    | **4.80:1**    |
+
+`safe` is the most _precise_ candidate arm, and it is beaten on its own terms by
+a three-feature control with no fit at all - which is what `CONTROL_SETS` exists
+to detect. Its 54.4% pooled is also 0.3 points _below_ `authored` (22 wins, 22
+losses, sign test p=1.0), so on the gating comparison it is indistinguishable
+from the weights already in the tree while surfacing half as many improvements
+(23 against 43).
+
+`wasted` is the only column that costs anything, and the 960 ratified-neutral
+`pr_signoff` rows deliberately have no equivalent. Those rows mean "no changed
+render in this PR was blocking", so an arm preferring the `before` side there
+would have declined a change that turned out fine - a non-improvement, not a
+harm. `fit_report.txt` reports them separately for that reason: missing a real
+improvement and declining an acceptable one are not the same cost, and adding
+the second into a waste column would overstate the price of a cautious arm.
+
+So: **#1588's second stop condition.** A safe objective exists, is committed, and
+adds nothing over the top weight bin of the objective `optimize_layout.py`
+already has. Closed on those grounds rather than for missing a threshold - and
+#1589 stays shut, because there is nothing here for a search to descend that the
+authored weights do not already express.
+
+### What none of this measures
+
+The corpus has **no candidate sets**. Every row is two arrangements of one map
+produced by two engine revisions, and every number above is about ordering that
+pair the way a human did. A search would instead rank many arrangements
+generated at one revision, most of them unlike anything in this corpus, and
+would be free to seek out whichever region of the score it likes best. A good
+useful:wasted ratio is therefore evidence about ordering two known layouts and
+**not** evidence that ranking generated alternatives will work. Whatever a future
+phase concludes, it needs candidate-set data to conclude it from.
 
 ### Findings that outlast the gate
 
@@ -351,6 +506,13 @@ held out rather than statements about layout.
   matching its 44.9% grouped agreement, so it is authored at the floor. The
   fitted sign is slightly negative and must not be read as a reward: minimising a
   negative weight would instruct a search to _add_ crossings.
+- **An absent measurement is the cleanest state, not the worst.**
+  `min_marker_gap` emits `-1.0` for "no line comes near a marker it does not
+  serve", which 104 of the 278 fixtures carrying a vector are in. Fed to the
+  crowding formula as a gap it reads 1.025 - past the term's ceiling and above
+  every real value - so a non-negative weight would penalise precisely the
+  fixtures with the most room. `terms.marker_crowding` masks the sentinel to zero
+  and clamps to `[0, 1]`; every consumer reads that one definition.
 - **The weak-label warning is confirmed empirically.** Adding `pr_signoff` rows
   to training at a tenth of a directional row's weight costs `iter2` 5.2 points.
   Set-level ratifications are not per-render positives.
