@@ -1,0 +1,55 @@
+fixtures: 327  ok: 319  errored: 8
+  ERROR backward_feed_rl: BackwardFlowError: section 'rl_a' (grid column 1) feeds 'rl_b' (column 2) backward against its RL flow in the same row: a routed line cannot show this reversal and would cross 'rl_a's own box.  Place 'rl_a' ahead of 'rl_b' in the row's flow direction, move it to a separate row, or add '%%metro exit: right' so the exit faces the target.
+  ERROR merge_trunk_rightward_source: BackwardFlowError: section 'sec_b' (grid column 3) feeds 'sec_c' (column 2) backward against its LR flow in the same row: a routed line cannot show this reversal and would cross 'sec_b's own box.  Place 'sec_b' ahead of 'sec_c' in the row's flow direction, move it to a separate row, or add '%%metro exit: left' so the exit faces the target.
+  ERROR mixed_entry_opposing: MixedEntryDirectionError: section 'dest' receives lines from more than one approach direction: left (a), right (b).  Routed lines have no arrowheads, so entries from different sides leave the flow direction ambiguous.  Feed 'dest' from a single side (align the producers' grid columns so every line enters the same edge), or split it into separate sections.
+  ERROR mixed_entry_perpendicular: MixedEntryDirectionError: section 'dest' receives lines from more than one approach direction: left (a), top (b).  Routed lines have no arrowheads, so entries from different sides leave the flow direction ambiguous.  Feed 'dest' from a single side (align the producers' grid columns so every line enters the same edge), or split it into separate sections.
+  ERROR duplicate_processes: ValueError: This looks like raw Nextflow DAG output (flowchart syntax without %%metro directives). Use 'nf-metro convert' to convert it to nf-metro format first, or pass '--from-nextflow' to 'nf-metro render'.
+
+See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/
+  ERROR flat_pipeline: ValueError: This looks like raw Nextflow DAG output (flowchart syntax without %%metro directives). Use 'nf-metro convert' to convert it to nf-metro format first, or pass '--from-nextflow' to 'nf-metro render'.
+
+See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/
+  ERROR unquoted_labels: ValueError: This looks like raw Nextflow DAG output (flowchart syntax without %%metro directives). Use 'nf-metro convert' to convert it to nf-metro format first, or pass '--from-nextflow' to 'nf-metro render'.
+
+See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/
+  ERROR with_subworkflows: ValueError: This looks like raw Nextflow DAG output (flowchart syntax without %%metro directives). Use 'nf-metro convert' to convert it to nf-metro format first, or pass '--from-nextflow' to 'nf-metro render'.
+
+See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/
+
+per-feature absolute divergence (legacy vs live), over fixtures where both computed
+feature                       max |diff| mean |diff|   n moved
+bbox_h                            20.000       1.498        68
+bends_per_route                    0.000       0.000         0
+crossings                        120.000       4.473        60
+lone_diagonals_per_route           0.000       0.000         0
+min_marker_gap                    25.993       0.967        61
+non_45_frac                        0.082       0.000         6
+path_len_per_route                 3.073       0.043        35
+turn_angle_per_route               0.059       0.001        35
+
+worst 10 fixtures by total absolute divergence across the 8 features
+  symmetric_diamond_beside_wide_fan          132.000
+  rowmate_tb_side_entry_top_align            124.026
+  rnaseq_branch_fold_wrap                    115.033
+  da_pipeline                                110.059
+  symmetric_diamond_bundle_padding           110.000
+  fork_join_interior_label                   110.000
+  differentialabundance_default              107.060
+  differentialabundance                      105.060
+  rnaseq_sections_manual                     105.019
+  rnaseq_sections                            105.019
+
+weighted score divergence per fixture: |sum(weight * (legacy - live))|, i.e. how much the reported delta would be thrown off by using one geometry source over the other on a self-pair
+max: 1.421 (rowmate_tb_side_entry_top_align)
+mean: 0.054
+worst 10:
+  rowmate_tb_side_entry_top_align              1.421
+  symmetric_diamond_beside_wide_fan            1.332
+  rnaseq_branch_fold_wrap                      1.224
+  da_pipeline                                  1.150
+  rnaseq_sections_manual                       1.150
+  rnaseq_sections                              1.150
+  differentialabundance_default                1.115
+  differentialabundance                        1.091
+  symmetric_diamond_bundle_padding             1.072
+  fork_join_interior_label                     1.072

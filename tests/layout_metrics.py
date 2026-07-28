@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -243,6 +244,43 @@ def compute_metrics(
         "excessive_gaps": float(counts["excessive_column_gap"]),
         "wasted_canvas": _wasted_canvas_ratio(graph, routes, canvas),
     }
+
+
+_LEARNED_SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "datasets"
+    / "layout_preferences"
+    / "scripts"
+)
+
+
+def compute_learned_features(graph: MetroGraph) -> dict[str, float] | None:
+    """Raw feature values the fitted layout objective reads, for shadow-mode
+    reporting in the render-diff.
+
+    Namespaced separately from :func:`compute_metrics`'s return value (under
+    the caller's ``"_learned"`` key) because several feature names collide
+    with this module's own metrics (``crossings``, ``bends_per_route``,
+    ``turn_angle_per_route``) under different definitions -- this module's
+    versions read the validator's named checks, while the learned objective's
+    were fitted against ``extract_features.py``'s geometric ones. Merging
+    them into one flat dict would silently overwrite one definition with the
+    other.
+
+    Delegates to ``datasets/layout_preferences/scripts/scored_objective.py``,
+    which owns the feature list and the fitted weights; this function only
+    supplies the drawn geometry to score. ``None`` on any failure -- advisory
+    only, never fatal to a render.
+    """
+    import sys
+
+    if str(_LEARNED_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(_LEARNED_SCRIPTS_DIR))
+    from scored_objective import learned_features
+
+    offsets, routes = measured_geometry(graph)
+    polylines = drawn_polylines(routes, offsets)
+    return learned_features(graph, polylines)
 
 
 def _wasted_canvas_ratio(
