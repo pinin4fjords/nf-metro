@@ -76,8 +76,25 @@ font = [
 packages = ["src/nf_metro"]
 
 [tool.hatch.build.targets.sdist]
-# Research data, not part of the distribution.
-exclude = ["datasets"]
+# Ship what is needed to build and audit the package: src, packaging metadata,
+# README/LICENSE/CHANGELOG. Everything below is development or CI material that
+# no installing user needs. `tests` and `examples` are excluded together because
+# 31 test modules read fixtures out of `examples/`.
+exclude = [
+  "datasets",
+  "tests",
+  "examples",
+  "docs",
+  "website",
+  "scripts",
+  ".claude",
+  ".github",
+  ".test_durations",
+  "CLAUDE.md",
+  "DESIGN.md",
+  "prek.toml",
+  ".pre-commit-config.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
