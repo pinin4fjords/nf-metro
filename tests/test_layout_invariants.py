@@ -90,6 +90,7 @@ from nf_metro.layout.phases.guards import (
     _tb_top_entry_drop_overshoot,
 )
 from nf_metro.layout.phases.off_track import (
+    _bump_off_track_clear_of_trunks,
     _cross_bbox_edges,
     _is_single_trunk_section,
     _off_track_anchor_of,
@@ -117,6 +118,7 @@ from nf_metro.layout.routing.invariants import (
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import (
     BYPASS_V_PREFIX,
+    Edge,
     MetroGraph,
     PortSide,
     Section,
@@ -1268,6 +1270,52 @@ def test_single_line_dual_source_exit_shares_feeder_row():
         f"exit port {exit_pid} y={port_y:.1f} is off the feeder row {feeder_ys}; "
         f"the single-line chain exit dove to a downstream row"
     )
+
+
+def _off_track_bump_fixture(pred_x: float) -> tuple[MetroGraph, Station, Section]:
+    """A minimal section: an off-track icon, a trunk station downstream of
+    it in flow, and that trunk station's own in-section predecessor at
+    ``pred_x``.  The predecessor sits far off the icon's row so it never
+    contests on its own; only its flow coordinate matters here."""
+    section = Section(id="sec", name="Sec", station_ids=["icon", "pred", "trunk"])
+    graph = MetroGraph()
+    graph.sections["sec"] = section
+    icon = Station(
+        id="icon", label="", x=100.0, y=100.0, section_id="sec", off_track=True
+    )
+    pred = Station(id="pred", label="P", x=pred_x, y=500.0, section_id="sec")
+    trunk = Station(id="trunk", label="T", x=250.0, y=100.0, section_id="sec")
+    graph.stations["icon"] = icon
+    graph.stations["pred"] = pred
+    graph.stations["trunk"] = trunk
+    graph.edges = [Edge(source="pred", target="trunk", line_id="L1")]
+    return graph, icon, section
+
+
+def test_off_track_bump_gate_ignores_run_that_never_reaches_icon_column():
+    """A trunk station downstream of an off-track icon in flow only
+    contests the icon's row if its own feeding run's predecessor sits on
+    the near side of the icon.  A predecessor already downstream of the
+    icon means that run never reaches back across its column, so it must
+    not bump the icon out to a further row.
+    """
+    graph, icon, section = _off_track_bump_fixture(pred_x=150.0)  # downstream of icon
+    result = _bump_off_track_clear_of_trunks(
+        graph, icon, candidate=100.0, step=20.0, section=section, junction_ids=set()
+    )
+    assert result == pytest.approx(100.0)
+
+
+def test_off_track_bump_gate_bumps_when_feeding_run_spans_icon_column():
+    """A trunk station fed from a predecessor on the near side of the icon
+    genuinely has its run crossing the icon's column, so the icon must be
+    bumped clear of it.
+    """
+    graph, icon, section = _off_track_bump_fixture(pred_x=50.0)  # upstream of icon
+    result = _bump_off_track_clear_of_trunks(
+        graph, icon, candidate=100.0, step=20.0, section=section, junction_ids=set()
+    )
+    assert result != pytest.approx(100.0)
 
 
 @pytest.mark.parametrize("fixture", ALL_FIXTURES)

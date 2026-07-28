@@ -1501,6 +1501,38 @@ def _place_off_track_relative_to_anchors(
     return lift_extreme, opp_extreme
 
 
+def _feeding_run_spans_flow_coord(
+    graph: MetroGraph,
+    trunk_st: Station,
+    off_flow: float,
+    flow_axis: str,
+    in_section: set[str],
+) -> bool:
+    """Whether some run feeding *trunk_st* actually spans ``off_flow``.
+
+    The run drawn into ``trunk_st`` starts at its own in-section
+    predecessor(s) (``in_section`` -- station and port ids of the section
+    *trunk_st* belongs to), not at the icon.  A predecessor whose flow
+    coordinate also lies downstream of ``off_flow`` means that run never
+    reaches back far enough to cross the icon's column, even though
+    ``trunk_st`` itself is downstream.  With no in-section predecessor, be
+    conservative and treat the trunk station as contesting.
+    """
+    preds = [e.source for e in graph.edges_to(trunk_st.id) if e.source in in_section]
+    if not preds:
+        return True
+    trunk_flow = getattr(trunk_st, flow_axis)
+    for pid in preds:
+        pred_st = graph.stations.get(pid)
+        if pred_st is None:
+            continue
+        pred_flow = getattr(pred_st, flow_axis)
+        lo, hi = min(pred_flow, trunk_flow), max(pred_flow, trunk_flow)
+        if lo - SAME_COORD_TOLERANCE <= off_flow <= hi + SAME_COORD_TOLERANCE:
+            return True
+    return False
+
+
 def _bump_off_track_clear_of_trunks(
     graph: MetroGraph,
     off_st: Station,
@@ -1542,10 +1574,12 @@ def _bump_off_track_clear_of_trunks(
     MAX_STEPS = 6
 
     offset_step = resolve_offset_step(graph.track_gap)
+    in_section = set(section.station_ids) | section.port_ids
 
     # Find trunk stations in the same section whose line bundle crosses the
-    # icon's column (they lie downstream of the icon in flow, so the run
-    # feeding them passes the icon's flow coordinate).
+    # icon's column: downstream of the icon in flow is necessary but not
+    # sufficient, since the run feeding a downstream station may itself start
+    # further downstream than the icon and so never reach the icon's column.
     trunk_bands: list[float] = []
     for sid in section.station_ids:
         st2 = graph.stations.get(sid)
@@ -1556,6 +1590,10 @@ def _bump_off_track_clear_of_trunks(
         if st2.off_track or st2.is_terminus:
             continue
         if flow_sign * (getattr(st2, flow_axis) - off_flow) <= SAME_COORD_TOLERANCE:
+            continue
+        if not _feeding_run_spans_flow_coord(
+            graph, st2, off_flow, flow_axis, in_section
+        ):
             continue
         # The line-track band spread across the cross axis at this trunk
         # station: each line sits at ``st2_cross + offset(line)``, bounded by
