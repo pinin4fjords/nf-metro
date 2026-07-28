@@ -17,6 +17,8 @@ authored_no_gap    55.5%    66.2%     33.9%   51.3%  55.1%  59.2%  52.6%  59.2%
 refit              54.7%    63.2%     35.4%   55.1%  48.7%  59.2%  55.3%  55.3%
 iter1              50.0%    50.0%     62.5%   64.1%  33.3%  57.9%  43.4%  51.3%
 iter2              68.5%    69.6%     94.3%   82.1%  67.9%  68.4%  56.6%  67.1%
+safe               54.4%    79.3%     15.1%   53.8%  51.3%  59.2%  52.6%  55.3%
+safe_min           54.4%    79.3%     15.1%   53.8%  51.3%  59.2%  52.6%  55.3%
 only_bend_family   54.9%    82.8%     15.1%   53.8%  51.3%  59.2%  55.3%  55.3%  [control]
 only_path_len      53.9%    55.3%     73.4%   71.8%  28.2%  57.9%  53.9%  57.9%  [control]
 only_bbox_h        53.1%    57.5%     41.7%   65.4%  30.8%  52.6%  61.8%  55.3%  [control]
@@ -25,6 +27,8 @@ only_bbox_h        53.1%    57.5%     41.7%   65.4%  30.8%  52.6%  61.8%  55.3% 
 refit              54.7%  vs  54.7%    +0.0 pp
 iter1              50.0%  vs  54.7%    -4.7 pp
 iter2              68.5%  vs  54.7%   +13.8 pp
+safe               54.4%  vs  54.7%    -0.3 pp
+safe_min           54.4%  vs  54.7%    -0.3 pp
 only_bend_family   54.9%  vs  54.7%    +0.3 pp  [control]
 only_path_len      53.9%  vs  54.7%    -0.8 pp  [control]
 only_bbox_h        53.1%  vs  54.7%    -1.6 pp  [control]
@@ -37,6 +41,8 @@ authored_no_gap    65.4%  (n=68)
 refit              63.2%  (n=68)
 iter1              54.4%  (n=68)
 iter2              70.6%  (n=68)
+safe               62.5%  (n=68)
+safe_min           62.5%  (n=68)
 only_bend_family   64.0%  (n=68)  [control]
 only_path_len      46.3%  (n=68)  [control]
 only_bbox_h        48.5%  (n=68)  [control]
@@ -47,15 +53,125 @@ abstentions and shared hits cannot manufacture a margin
 refit             wins  22  losses  22  n= 44  p=1.0000
 iter1             wins  56  losses  63  n=119  p=0.5825
 iter2             wins  98  losses  50  n=148  p=0.0001
+safe              wins  22  losses  22  n= 44  p=1.0000
+safe_min          wins  22  losses  22  n= 44  p=1.0000
 only_bend_family  wins  23  losses  22  n= 45  p=1.0000  [control]
 only_path_len     wins  74  losses  63  n=137  p=0.3930  [control]
 only_bbox_h       wins  62  losses  61  n=123  p=1.0000  [control]
+
+=== safety: where the box constraint lands ===
+a weight resting at exactly 0 means the constraint is ACTIVE: the
+unconstrained fit wanted the opposite sign, so pinning the term and
+dropping it from the feature set give identical predictions
+-- safe
+   pinned >= 0        8/8
+   left free          (none)
+   constraint ACTIVE  bbox_h, crossings, path_len_per_route
+   score bound        score >= 0.00
+-- safe_min
+   pinned >= 0        6/8
+   left free          non_45_frac, marker_crowding
+   constraint ACTIVE  bbox_h, crossings, path_len_per_route
+   score bound        score >= 0.00
+
+=== reach and direction, per admissible feature ===
+moves = directional pairs whose delta is non-zero; agrees = share of the
+fixtures it moves on where it DECREASED, i.e. where 'more is worse' is
+the right reading. Fixture-grouped, so one repetitive map cannot speak
+for the corpus. This is the whole mechanism behind the constrained
+arms: reach and correct direction sit on disjoint sets of features.
+feature                       moves   reach   agrees  verdict
+detour_mean                     149   77.6%    50.7%
+path_len_per_station            141   73.4%    33.8%  reach, wrong direction
+path_len_per_route              141   73.4%    33.8%  reach, wrong direction
+bbox_h                           80   41.7%    26.0%  reach, wrong direction
+detour_max                       76   39.6%    53.5%
+crossings_per_route              42   21.9%    48.0%  reach, wrong direction
+crossings                        42   21.9%    48.0%  reach, wrong direction
+turn_angle_per_route             29   15.1%    69.6%  direction, no reach
+corners_total                    19    9.9%    93.8%  direction, no reach
+bends_per_route                  19    9.9%    93.8%  direction, no reach
+non_45_frac                      17    8.9%    50.0%
+bbox_w                           16    8.3%    33.3%
+non_45_segments                  11    5.7%    77.8%  direction, no reach
+lone_diagonals_per_route         10    5.2%    87.5%  direction, no reach
+lone_diagonals                   10    5.2%    87.5%  direction, no reach
+max_bends_one_route               4    2.1%   100.0%  direction, no reach
+marker_crowding                   3    1.6%   100.0%  direction, no reach
+lane_gap_excess                   3    1.6%     0.0%
+exit_port_misalignment            3    1.6%   100.0%  direction, no reach
+near_horizontal_frac              2    1.0%    50.0%
+near_horizontal                   2    1.0%    50.0%
+
+=== why the reachy terms point the wrong way ===
+Every directional row is a DEFECT REPAIR -- an issue fix, or an xfail
+registry entry clearing -- so the `after` side is always a map whose
+defect the engine had just learned to avoid. Repairs cost space: a curve
+gets its full radius of runway, a port gets its own lane, two sections
+are pushed apart. So on this corpus the preferred layout is usually the
+LONGER and TALLER one. That is a true statement about repairs and not a
+statement that space is good, but a pairwise fit cannot tell the two
+apart, and it is the entire reason the extent and length weights come
+out negative.
+Label source of the directional rows:
+  issue_fix                 181
+  xfail_cleared              11
+
+=== decision simulation: what a search driven by each arm would offer ===
+over the 192 directional pairs, where a human preferred the `after`
+arrangement. `surfaced` is the arm ranking that arrangement first, so a
+search would offer it; `wasted` is it ranking the rejected arrangement
+first, costing one human review; `silent` is an abstention, where the
+search has nothing to say and the engine's own output stands.
+greedy is the status quo: no ranking at all, so it is silent throughout.
+arm                 surfaced  wasted  silent  useful:wasted
+greedy                     0       0     192            n/a
+authored                  43      25     124         1.72:1
+authored_no_gap           43      22     127         1.95:1
+refit                     43      25     124         1.72:1
+iter1                     60      60      72         1.00:1
+iter2                    126      55      11         2.29:1
+safe                      23       6     163         3.83:1
+safe_min                  23       6     163         3.83:1
+only_bend_family          24       5     163         4.80:1  [control]
+only_path_len             78      63      51         1.24:1  [control]
+only_bbox_h               46      34     112         1.35:1  [control]
+
+=== the same arms over the ratified-neutral rows ===
+`pr_signoff` rows mean 'no changed render in this PR was blocking', so
+neither ranking is harmful here and this is not a second waste column.
+An arm preferring `before` would have declined a change that turned out
+fine, which costs a candidate and nothing else; preferring `after`
+agrees with a change that was ratified. Scored with each arm's
+full-data weights, which never saw these rows in training.
+arm                   agreed  declined  silent
+authored                 184       172     604
+authored_no_gap          159       142     659
+refit                    205       151     604
+iter1                    372       412     176
+iter2                    514       417      29
+safe                     140       109     711
+safe_min                 140       109     711
+only_bend_family         130       107     723  [control]
+only_path_len            448       398     114  [control]
+only_bbox_h              201        87     672  [control]
+
+=== what none of the above measures ===
+The corpus has no candidate SETS. Every row is two arrangements of one
+map, produced by two engine revisions, and the measurement is whether
+an arm orders that pair the way a human did. A search (#1589) would
+instead rank many arrangements generated at one revision, most of them
+unlike anything in this corpus, and would be free to seek out whichever
+region of the score it likes best. A good useful:wasted number above is
+therefore evidence about ordering two known layouts, and NOT evidence
+that ranking generated alternatives will work.
 
 === how many features move within a single pair ===
 a sparse objective abstains; when it does speak, usually one term moves,
 so the weight on that term cannot change the predicted direction
   authored (7 features)   0:124  1:40  2:18  3:8  4:2
   iter2 (8 features)      0:11  1:72  2:67  3:22  4:10  5:8  6:1  7:1
+  safe (8 features)       0:15  1:79  2:62  3:19  4:7  5:8  6:1  7:1
 
 === fitted weights (rescaled so bends_per_route = 3.0) ===
 positive = more of this is worse, matching the authored convention
@@ -83,6 +199,24 @@ positive = more of this is worse, matching the authored convention
    crossings                   -0.01   (authored 0.25)
    min_marker_gap              -0.00   (not authored) SIGN FLIPS ACROSS FOLDS
    bbox_h                      -0.00   (not authored) SIGN FLIPS ACROSS FOLDS
+-- safe
+   lone_diagonals_per_route   +16.38   (not authored)
+   turn_angle_per_route        +3.63   (authored 2.00)
+   bends_per_route             +3.00   (authored 3.00)
+   non_45_frac                 +1.87   (not authored)
+   marker_crowding             +1.56   (authored 2.00)
+   bbox_h                      +0.00   (not authored)
+   path_len_per_route          +0.00   (not authored)
+   crossings                   +0.00   (authored 0.25)
+-- safe_min
+   lone_diagonals_per_route   +16.38   (not authored)
+   turn_angle_per_route        +3.63   (authored 2.00)
+   bends_per_route             +3.00   (authored 3.00)
+   non_45_frac                 +1.87   (not authored) SIGN FLIPS ACROSS FOLDS
+   marker_crowding             +1.56   (authored 2.00)
+   bbox_h                      +0.00   (not authored)
+   path_len_per_route          +0.00   (not authored)
+   crossings                   +0.00   (authored 0.25)
 -- only_bend_family
    turn_angle_per_route        +4.17   (authored 2.00)
    bends_per_route             +3.00   (authored 3.00)
@@ -98,6 +232,8 @@ authored              50.0% (n=16)    55.8% (n=26)    53.1% (n=16)    56.2% (n=4
 refit                 43.8% (n=16)    51.9% (n=26)    59.4% (n=16)    58.8% (n=40)    58.8% (n=40)    55.9% (n=93)
 iter1                 56.2% (n=16)    23.1% (n=26)    71.9% (n=16)    51.2% (n=40)    63.7% (n=40)    47.3% (n=93)
 iter2                 65.6% (n=16)    76.9% (n=26)    75.0% (n=16)    85.0% (n=40)    80.0% (n=40)    61.3% (n=93)
+safe                  46.9% (n=16)    53.8% (n=26)    56.2% (n=16)    58.8% (n=40)    57.5% (n=40)    54.3% (n=93)
+safe_min              46.9% (n=16)    53.8% (n=26)    56.2% (n=16)    58.8% (n=40)    57.5% (n=40)    54.3% (n=93)
 only_bend_family      53.1% (n=16)    53.8% (n=26)    56.2% (n=16)    58.8% (n=40)    57.5% (n=40)    54.3% (n=93)
 only_path_len         37.5% (n=16)    51.9% (n=26)    78.1% (n=16)    58.8% (n=40)    70.0% (n=40)    49.5% (n=93)
 only_bbox_h           53.1% (n=16)    55.8% (n=26)    59.4% (n=16)    63.7% (n=40)    60.0% (n=40)    47.3% (n=93)
@@ -108,6 +244,8 @@ authored               55.0% (n=129)      54.0% (n=63)
 refit                  54.3% (n=129)      55.6% (n=63)
 iter1                  52.7% (n=129)      44.4% (n=63)
 iter2                  71.7% (n=129)      61.9% (n=63)
+safe                   54.7% (n=129)      54.0% (n=63)
+safe_min               54.7% (n=129)      54.0% (n=63)
 only_bend_family       55.4% (n=129)      54.0% (n=63)
 only_path_len          57.8% (n=129)      46.0% (n=63)
 only_bbox_h            56.2% (n=129)      46.8% (n=63)
@@ -118,3 +256,5 @@ arm                  without      with    delta
 refit              54.7% 56.2%    +1.6 pp
 iter1              50.0% 48.4%    -1.6 pp
 iter2              68.5% 63.3%    -5.2 pp
+safe               54.4% 53.6%    -0.8 pp
+safe_min           54.4% 53.6%    -0.8 pp

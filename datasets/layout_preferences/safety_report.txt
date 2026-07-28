@@ -1,0 +1,57 @@
+=== structural check ===
+a score whose features are all non-negative and whose weights are all
+non-negative is bounded below by zero, so no input improves it without
+bound. Anything listed under an arm is a way to break that.
+-- iter2: UNSAFE
+     bbox_h: weight -0.000366 rewards a feature that is unbounded above, so the score has no floor
+     crossings: weight -0.011830 rewards a feature that is unbounded above, so the score has no floor
+     min_marker_gap: larger is better and always reachable, so its useful weight is negative and the score has no floor
+     path_len_per_route: weight -0.011891 rewards a feature that is unbounded above, so the score has no floor
+-- safe: SAFE
+
+=== growth probe: the same map at rising spacing ===
+x_spacing and y_spacing are a CLI flag and a %%metro directive, so this
+is a reachable input. Every row below is the SAME map with the grid
+multiplied: bends per route hold while extent and path length rise in
+proportion. A score that falls down a column is one a search could
+minimise by inflating the drawing, and nothing about 8x ends the fall --
+the growth terms are linear in the multiple.
+-- examples/rnaseq_sections.mmd
+      x    bbox_h  path/route   bends  cross       score:iter2        score:safe
+     1x       502         103    0.59     30              5.44              8.90
+     2x       642         174    0.59     30              4.76              9.19
+     4x      1122         332    0.59     28              2.96              9.48
+     8x      2082         659    0.59     28             -1.16              9.63
+     1x -> 8x change: iter2 -6.61 safe +0.73
+-- examples/rnaseq_auto.mmd
+      x    bbox_h  path/route   bends  cross       score:iter2        score:safe
+     1x       399          89    0.35      0              2.73              4.93
+     2x       558         142    0.35      0              2.16              5.11
+     4x       958         255    0.35      0              0.80              5.28
+     8x      1758         507    0.35      0             -2.42              5.37
+     1x -> 8x change: iter2 -5.15 safe +0.44
+-- examples/genomic_pipeline.mmd
+      x    bbox_h  path/route   bends  cross       score:iter2        score:safe
+     1x      1120         319    1.27    212              8.53             18.54
+     2x      1954         532    1.27    200              6.02             19.01
+     4x      3714        1047    1.27    182             -0.44             19.28
+     8x      7234        2083    1.27    180            -13.90             19.43
+     1x -> 8x change: iter2 -22.43 safe +0.88
+-- examples/topologies/fan_in_merge.mmd
+      x    bbox_h  path/route   bends  cross       score:iter2        score:safe
+     1x        79         106    0.56      0              2.61              4.87
+     2x        79         132    0.56      0              2.30              4.87
+     4x        79         185    0.56      0              1.67              4.87
+     8x        79         291    0.56      0              0.41              4.87
+     1x -> 8x change: iter2 -2.20 safe +0.00
+-- examples/topologies/convergence_fold_diamond.mmd
+      x    bbox_h  path/route   bends  cross       score:iter2        score:safe
+     1x       506          99    0.48      1              1.94              4.14
+     2x       666         146    0.48      1              1.32              4.14
+     4x       986         239    0.48      1              0.10              4.14
+     8x      1626         426    0.48      1             -2.36              4.14
+     1x -> 8x change: iter2 -4.29 safe +0.00
+
+=== verdict ===
+iter2     UNSAFE  score fell under growth on 5/5 fixtures
+safe      SAFE    score fell under growth on 0/5 fixtures

@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """Fit a pairwise layout objective and gate it against the hand-binned weights.
 
-The question this answers is narrow: does *fitting* weights add anything beyond
-reading the univariate directional measurements and binning the weights by hand,
-as `scripts/optimize_layout.py` currently does?
+Two questions, both narrow, answered on identical fixture-grouped splits.
 
-Four candidate arms are compared on identical fixture-grouped splits:
+**Does fitting weights add anything** beyond reading the univariate directional
+measurements and binning the weights by hand, as `scripts/optimize_layout.py`
+does? (#1586)
 
-| arm        | features                 | weights     |
-| ---------- | ------------------------ | ----------- |
-| `authored` | the authored objective's | hand-binned |
-| `refit`    | the authored objective's | fitted      |
-| `iter1`    | discriminative subset    | fitted      |
-| `iter2`    | second subset            | fitted      |
+**Is any of it safe to minimise** -- can a search descending the score improve it
+without bound? (#1588)
 
-`refit` is the arm that isolates the question. It sees exactly the information
-the authored objective sees, so any gap between it and `authored` is
-attributable to the weights alone, and any gap between it and `iter1`/`iter2`
-is attributable to the feature choice.
+| arm        | features                 | weights                    |
+| ---------- | ------------------------ | -------------------------- |
+| `authored` | the authored objective's | hand-binned                |
+| `refit`    | the authored objective's | fitted                     |
+| `iter1`    | discriminative subset    | fitted                     |
+| `iter2`    | second subset            | fitted                     |
+| `safe`     | `iter2`, terms repaired  | fitted, every weight >= 0  |
+| `safe_min` | `iter2`, terms repaired  | fitted, unbounded terms >=0 |
+
+`refit` isolates the first question. It sees exactly the information the
+authored objective sees, so any gap between it and `authored` is attributable to
+the weights alone, and any gap between it and `iter1`/`iter2` is attributable to
+the feature choice.
+
+`safe` and `safe_min` isolate the second. Both read `SAFE_FEATURES`, so any gap
+between them and `iter2` is the cost of the constraint and nothing else; the pair
+differ only in how much of the box safety actually requires.
 
 `CONTROL_SETS` adds deliberately impoverished arms alongside these. They exist
 to be beaten: a candidate whose margin a one-feature control reproduces has not
@@ -26,6 +35,8 @@ measured layout quality.
 Usage:
 
     python scripts/fit_objective.py --out ../fit_report.txt
+    python scripts/fit_objective.py --dump-weights safe \
+        --weights-out ../safe_weights.json
 """
 
 from __future__ import annotations
@@ -33,20 +44,18 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+import terms  # noqa: E402
+
 DATASET = HERE.parent / "dataset_pairs.jsonl"
-
-Y_SPACING = 40.0
-"""One lane pitch, mirroring ``nf_metro.layout.constants.Y_SPACING``.
-
-Hardcoded so this script stays importable without the package, matching the
-rest of the generating pipeline.  ``marker_crowding`` is the only feature that
-needs it.
-"""
 
 INERT = frozenset(
     {
@@ -64,14 +73,8 @@ INERT = frozenset(
     }
 )
 
-SENTINEL = frozenset({"min_marker_gap", "min_station_distance"})
-"""Features whose extractor emits ``-1.0`` for "no such measurement exists".
-
-A map with no foreign line near any marker has no minimum gap.  Treating the
-sentinel as the number -1 would read as the tightest possible clearance, which
-inverts the feature, so a pair is given a zero delta on that feature instead:
-undefined on either side means the feature says nothing about this preference.
-"""
+SENTINEL = terms.SENTINEL
+"""Re-exported so a reader of this module sees which features carry one."""
 
 
 AUTHORED_WEIGHTS = {
@@ -131,6 +134,44 @@ FEATURE_SETS = {
     ],
 }
 
+SAFE_FEATURES = [
+    "lone_diagonals_per_route",
+    "bends_per_route",
+    "turn_angle_per_route",
+    "non_45_frac",
+    "marker_crowding",
+    "bbox_h",
+    "path_len_per_route",
+    "crossings",
+]
+"""`iter2`'s features, with the one inadmissible term replaced by its repair.
+
+`iter2` reads `min_marker_gap` raw, which is `terms.ANTITONE`: more clearance is
+better and clearance is always wideable, so the negative weight the fit gives it
+is a reward for spreading the drawing out. `terms.DERIVED` turns it into
+`marker_crowding`, which saturates at one lane pitch. Every other term is
+`terms.ADMISSIBLE`, so a non-negative weight on it can only penalise.
+"""
+
+SAFE_ARMS = {
+    # Every weight pinned. The score is then a non-negative combination of
+    # non-negative terms, so it is bounded below by zero.
+    "safe": frozenset(SAFE_FEATURES),
+    # The *weakest* constraint that still bounds the score below: only the terms
+    # that are unbounded above are pinned, leaving the two confined to [0, 1]
+    # free to take whatever sign the data wants. Included so a collapse in
+    # `safe` cannot be attributed to constraining more than safety requires --
+    # if `safe_min` collapses too, the constraint is not the thing to relax.
+    "safe_min": frozenset(terms.must_be_non_negative(SAFE_FEATURES)),
+}
+"""The constrained arms, keyed by name and valued by which weights are pinned.
+
+Excluding the growth features outright, the third option #1588 lists, is not a
+separate arm: a feature pinned at exactly zero and a feature absent from the set
+produce identical predictions, and the report states whether the constraint
+lands on the boundary.
+"""
+
 CONTROL_SETS = {
     # Controls, not candidates. Each is too impoverished to be a real objective,
     # so if one matches a candidate arm's agreement then that arm's margin is not
@@ -167,6 +208,14 @@ REAL_PIPELINES = (
 
 N_FOLDS = 5
 
+FITTED_ARMS = ("refit", *FEATURE_SETS, *SAFE_ARMS)
+CANDIDATE_ARMS = ("authored", "authored_no_gap", *FITTED_ARMS)
+
+ADMISSIBLE_COLUMNS = frozenset(
+    k for k, v in terms.ADMISSIBILITY.items() if v == terms.ADMISSIBLE
+)
+"""Columns a minimisable score may read; see ``terms.ADMISSIBILITY``."""
+
 
 # --------------------------------------------------------------------------- #
 # Data
@@ -175,17 +224,7 @@ N_FOLDS = 5
 
 def derive(vec: dict[str, float]) -> dict[str, float | None]:
     """Copy a feature vector, masking sentinels and adding derived columns."""
-    out: dict[str, float | None] = {
-        k: (None if k in SENTINEL and v == -1.0 else v) for k, v in vec.items()
-    }
-    gap = out.get("min_marker_gap")
-    # A penalty for tight clearance that never pays for loose clearance, so the
-    # term cannot be minimised by spreading the map out.  Mirrors
-    # `optimize_layout.marker_crowding`.
-    out["marker_crowding"] = (
-        None if gap is None else max(0.0, Y_SPACING - gap) / Y_SPACING
-    )
-    return out
+    return terms.readable(vec)
 
 
 class Pair:
@@ -330,6 +369,7 @@ def fit(
     l2: float = 1.0,
     iters: int = 50,
     tol: float = 1e-9,
+    nonneg: frozenset[str] = frozenset(),
 ) -> dict[str, float]:
     """Fit a Bradley-Terry / logistic model over feature deltas.
 
@@ -340,6 +380,18 @@ def fit(
 
     Ridge-penalised Newton steps, since a handful of features over a couple of
     hundred rows makes the exact Hessian cheaper than tuning a step size.
+
+    ``nonneg`` names the features whose weight is confined to ``>= 0``, by
+    projected Newton: the step is solved over the free coordinates only, then
+    the named coordinates are clamped, and one resting at zero is released again
+    only when the loss gradient there is negative (so moving it positive would
+    help).  The per-feature RMS rescaling below is by a positive constant, so a
+    weight non-negative in scaled space is non-negative in raw space too.
+
+    A box constraint is the point of this arm rather than a detail of it: the
+    unconstrained fit is free to put a *negative* weight on a term that grows
+    without bound, and that is what makes a score unsafe to minimise. See
+    :data:`SAFE_FEATURES`.
     """
     scales = []
     for key in keys:
@@ -353,6 +405,8 @@ def fit(
     ]
     total = sum(w for _, w in rows) or 1.0
     n = len(keys)
+
+    pinned = frozenset(i for i, k in enumerate(keys) if k in nonneg)
 
     w = [0.0] * n
     for _ in range(iters):
@@ -373,9 +427,24 @@ def fit(
         for i in range(n):
             for j in range(i):
                 hess[i][j] = hess[j][i]
-        step = _solve(hess, grad)
-        w = [wj - sj for wj, sj in zip(w, step)]
-        if max(abs(s) for s in step) < tol:
+
+        # A pinned coordinate resting on the boundary with a non-negative
+        # gradient is at its optimum and drops out of the step; every other
+        # coordinate is free.
+        free = [i for i in range(n) if i not in pinned or w[i] > 0.0 or grad[i] < 0.0]
+        if not free:
+            break
+        reduced = _solve(
+            [[hess[i][j] for j in free] for i in free], [grad[i] for i in free]
+        )
+        step = [0.0] * n
+        for i, s in zip(free, reduced):
+            step[i] = s
+        w = [
+            max(0.0, wj - sj) if i in pinned else wj - sj
+            for i, (wj, sj) in enumerate(zip(w, step))
+        ]
+        if max(abs(step[i]) for i in free) < tol:
             break
 
     return {k: wj / s for k, wj, s in zip(keys, w, scales)}
@@ -465,7 +534,11 @@ def cross_validate(
     authored_keys = list(AUTHORED_WEIGHTS)
     no_gap = {k: v for k, v in AUTHORED_WEIGHTS.items() if k != SCALE_MISMATCHED}
 
-    fitted_sets = {**FEATURE_SETS, **CONTROL_SETS}
+    fitted_sets = {
+        **FEATURE_SETS,
+        **{name: SAFE_FEATURES for name in SAFE_ARMS},
+        **CONTROL_SETS,
+    }
     arms = {
         name: Arm() for name in ("authored", "authored_no_gap", "refit", *fitted_sets)
     }
@@ -486,7 +559,8 @@ def cross_validate(
             ]
         arms["refit"].record(test, fit(train_rows, authored_keys))
         for name, keys in fitted_sets.items():
-            arms[name].record(test, fit(train_rows, keys))
+            pins = SAFE_ARMS.get(name, frozenset())
+            arms[name].record(test, fit(train_rows, keys, nonneg=pins))
 
     # Weights for inspection come from a fit on everything; the fold weights
     # kept on each arm are what the spread check reads.
@@ -497,7 +571,7 @@ def cross_validate(
     arms["authored_no_gap"].weights = dict(no_gap)
     arms["refit"].weights = fit(full, authored_keys)
     for name, keys in fitted_sets.items():
-        arms[name].weights = fit(full, keys)
+        arms[name].weights = fit(full, keys, nonneg=SAFE_ARMS.get(name, frozenset()))
     return arms
 
 
@@ -516,6 +590,16 @@ def binomial_two_sided(successes: int, trials: int) -> float:
         return float("nan")
     tail = sum(math.comb(trials, k) for k in range(successes + 1))
     return min(1.0, 2 * tail / 2**trials)
+
+
+def _score_bound(weights: dict[str, float]) -> str:
+    """``terms.lower_bound`` as a line of the report."""
+    bound = terms.lower_bound(weights)
+    if bound is None:
+        return "UNBOUNDED BELOW via " + ", ".join(
+            sorted(terms.unbounded_below(weights))
+        )
+    return f"score >= {bound:.2f}"
 
 
 def report(
@@ -543,14 +627,12 @@ def report(
     for key, count in sorted(zeroed.items()):
         add(f"    {key}: {count}/{len(directional)}")
 
-    candidates = ("authored", "authored_no_gap", "refit", *FEATURE_SETS)
-
     add("")
     add(f"=== fixture-grouped {N_FOLDS}-fold agreement ===")
     add("pooled counts an abstention as half a hit; decided excludes abstentions")
     add(f"{'arm':<18}{'pooled':>8}{'decided':>9}{'coverage':>10}  per fold (pooled)")
     baseline_pooled, _ = arms["authored"].pooled()
-    for name in (*candidates, *CONTROL_SETS):
+    for name in (*CANDIDATE_ARMS, *CONTROL_SETS):
         arm = arms[name]
         pooled, _ = arm.pooled()
         acc, coverage = arm.decided()
@@ -560,7 +642,7 @@ def report(
 
     add("")
     add("=== margin over the hand-binned authored objective ===")
-    for name in ("refit", *FEATURE_SETS, *CONTROL_SETS):
+    for name in (*FITTED_ARMS, *CONTROL_SETS):
         pooled, _ = arms[name].pooled()
         delta = (pooled - baseline_pooled) * 100
         marker = "  [control]" if name in CONTROL_SETS else ""
@@ -575,7 +657,7 @@ def report(
     add("flatter either side")
     ref = arms["authored"].by_pair()
     decided_ids = {i for i, d in ref.items() if abs(d) >= TIE}
-    for name in (*candidates, *CONTROL_SETS):
+    for name in (*CANDIDATE_ARMS, *CONTROL_SETS):
         arm = arms[name]
         rows = [d for i, d in arm.by_pair().items() if i in decided_ids]
         marker = "  [control]" if name in CONTROL_SETS else ""
@@ -585,7 +667,7 @@ def report(
     add("=== paired sign test against `authored`, over all held-out pairs ===")
     add("counts only the pairs the two arms disagree on, so the shared")
     add("abstentions and shared hits cannot manufacture a margin")
-    for name in ("refit", *FEATURE_SETS, *CONTROL_SETS):
+    for name in (*FITTED_ARMS, *CONTROL_SETS):
         wins = losses = 0
         for i, delta in arms[name].by_pair().items():
             mine, theirs = hit(delta), hit(ref[i])
@@ -601,12 +683,126 @@ def report(
         )
 
     add("")
+    add("=== safety: where the box constraint lands ===")
+    add("a weight resting at exactly 0 means the constraint is ACTIVE: the")
+    add("unconstrained fit wanted the opposite sign, so pinning the term and")
+    add("dropping it from the feature set give identical predictions")
+    for name, pins in SAFE_ARMS.items():
+        arm = arms[name]
+        free = [k for k in SAFE_FEATURES if k not in pins]
+        active = sorted(k for k in pins if abs(arm.weights.get(k, 0.0)) < TIE)
+        add(f"-- {name}")
+        add(f"   pinned >= 0        {len(pins)}/{len(SAFE_FEATURES)}")
+        add(f"   left free          {', '.join(free) or '(none)'}")
+        add(f"   constraint ACTIVE  {', '.join(active) or '(none)'}")
+        add(f"   score bound        {_score_bound(arm.weights)}")
+
+    add("")
+    add("=== reach and direction, per admissible feature ===")
+    add("moves = directional pairs whose delta is non-zero; agrees = share of the")
+    add("fixtures it moves on where it DECREASED, i.e. where 'more is worse' is")
+    add("the right reading. Fixture-grouped, so one repetitive map cannot speak")
+    add("for the corpus. This is the whole mechanism behind the constrained")
+    add("arms: reach and correct direction sit on disjoint sets of features.")
+    add(f"{'feature':<28}{'moves':>7}{'reach':>8}{'agrees':>9}  verdict")
+    rows_by_reach = []
+    for key in sorted(k for k in ADMISSIBLE_COLUMNS if k not in INERT):
+        moved = [p for p in directional if abs(p.delta.get(key, 0.0)) > TIE]
+        if not moved:
+            continue
+        by_fixture: dict[str, list[float]] = {}
+        for pair in moved:
+            by_fixture.setdefault(pair.fixture, []).append(pair.delta[key])
+        down = sum(
+            1
+            for deltas in by_fixture.values()
+            if sum(1 for d in deltas if d < 0) * 2 > len(deltas)
+        )
+        rows_by_reach.append(
+            (len(moved), key, len(moved) / len(directional), down / len(by_fixture))
+        )
+    for moves, key, reach, agrees in sorted(rows_by_reach, reverse=True):
+        verdict = (
+            "reach, wrong direction"
+            if reach >= 0.20 and agrees < 0.50
+            else "direction, no reach"
+            if reach < 0.20 and agrees >= 0.65
+            else ""
+        )
+        add(f"{key:<28}{moves:>7}{pct(reach):>8}{pct(agrees):>9}  {verdict}")
+
+    add("")
+    add("=== why the reachy terms point the wrong way ===")
+    add("Every directional row is a DEFECT REPAIR -- an issue fix, or an xfail")
+    add("registry entry clearing -- so the `after` side is always a map whose")
+    add("defect the engine had just learned to avoid. Repairs cost space: a curve")
+    add("gets its full radius of runway, a port gets its own lane, two sections")
+    add("are pushed apart. So on this corpus the preferred layout is usually the")
+    add("LONGER and TALLER one. That is a true statement about repairs and not a")
+    add("statement that space is good, but a pairwise fit cannot tell the two")
+    add("apart, and it is the entire reason the extent and length weights come")
+    add("out negative.")
+    add("Label source of the directional rows:")
+    for source, count in sorted(Counter(p.source for p in directional).items()):
+        add(f"  {source:<24}{count:>5}")
+
+    add("")
+    add("=== decision simulation: what a search driven by each arm would offer ===")
+    add("over the 192 directional pairs, where a human preferred the `after`")
+    add("arrangement. `surfaced` is the arm ranking that arrangement first, so a")
+    add("search would offer it; `wasted` is it ranking the rejected arrangement")
+    add("first, costing one human review; `silent` is an abstention, where the")
+    add("search has nothing to say and the engine's own output stands.")
+    add("greedy is the status quo: no ranking at all, so it is silent throughout.")
+    add(f"{'arm':<18}{'surfaced':>10}{'wasted':>8}{'silent':>8}{'useful:wasted':>15}")
+    add(f"{'greedy':<18}{0:>10}{0:>8}{len(directional):>8}{'n/a':>15}")
+    for name in (*CANDIDATE_ARMS, *CONTROL_SETS):
+        deltas = [d for _, d in arms[name].predictions]
+        surfaced = sum(1 for d in deltas if d < -TIE)
+        wasted = sum(1 for d in deltas if d > TIE)
+        silent = len(deltas) - surfaced - wasted
+        ratio = f"{surfaced / wasted:.2f}:1" if wasted else "inf"
+        marker = "  [control]" if name in CONTROL_SETS else ""
+        add(f"{name:<18}{surfaced:>10}{wasted:>8}{silent:>8}{ratio:>15}{marker}")
+
+    add("")
+    add("=== the same arms over the ratified-neutral rows ===")
+    add("`pr_signoff` rows mean 'no changed render in this PR was blocking', so")
+    add("neither ranking is harmful here and this is not a second waste column.")
+    add("An arm preferring `before` would have declined a change that turned out")
+    add("fine, which costs a candidate and nothing else; preferring `after`")
+    add("agrees with a change that was ratified. Scored with each arm's")
+    add("full-data weights, which never saw these rows in training.")
+    add(f"{'arm':<18}{'agreed':>10}{'declined':>10}{'silent':>8}")
+    for name in (*CANDIDATE_ARMS, *CONTROL_SETS):
+        deltas = [score_delta(arms[name].weights, p) for p in weak]
+        agreed = sum(1 for d in deltas if d < -TIE)
+        declined = sum(1 for d in deltas if d > TIE)
+        marker = "  [control]" if name in CONTROL_SETS else ""
+        add(
+            f"{name:<18}{agreed:>10}{declined:>10}"
+            f"{len(deltas) - agreed - declined:>8}{marker}"
+        )
+
+    add("")
+    add("=== what none of the above measures ===")
+    add("The corpus has no candidate SETS. Every row is two arrangements of one")
+    add("map, produced by two engine revisions, and the measurement is whether")
+    add("an arm orders that pair the way a human did. A search (#1589) would")
+    add("instead rank many arrangements generated at one revision, most of them")
+    add("unlike anything in this corpus, and would be free to seek out whichever")
+    add("region of the score it likes best. A good useful:wasted number above is")
+    add("therefore evidence about ordering two known layouts, and NOT evidence")
+    add("that ranking generated alternatives will work.")
+
+    add("")
     add("=== how many features move within a single pair ===")
     add("a sparse objective abstains; when it does speak, usually one term moves,")
     add("so the weight on that term cannot change the predicted direction")
     for label, keys in (
         ("authored (7 features)", list(AUTHORED_WEIGHTS)),
         ("iter2 (8 features)", FEATURE_SETS["iter2"]),
+        ("safe (8 features)", SAFE_FEATURES),
     ):
         hist = Counter(
             sum(1 for k in keys if abs(p.delta.get(k, 0.0)) > TIE) for p in directional
@@ -617,7 +813,7 @@ def report(
     add("")
     add("=== fitted weights (rescaled so bends_per_route = 3.0) ===")
     add("positive = more of this is worse, matching the authored convention")
-    for name in ("refit", *FEATURE_SETS, *CONTROL_SETS):
+    for name in (*FITTED_ARMS, *CONTROL_SETS):
         arm = arms[name]
         add(f"-- {name}")
         scaled = rescale_to(arm.weights, "bends_per_route")
@@ -634,7 +830,7 @@ def report(
     families = [fam for fam, _ in FAMILY_RULES] + ["unclassified"]
     header = f"{'arm':<18}" + "".join(f"{f:>16}" for f in families)
     add(header)
-    for name in ("authored", "refit", *FEATURE_SETS, *CONTROL_SETS):
+    for name in ("authored", *FITTED_ARMS, *CONTROL_SETS):
         arm = arms[name]
         cells = []
         for fam in families:
@@ -645,7 +841,7 @@ def report(
     add("")
     add("=== synthetic topology fixtures vs real pipeline maps ===")
     add(f"{'arm':<18}{'synthetic':>18}{'real':>18}")
-    for name in ("authored", "refit", *FEATURE_SETS, *CONTROL_SETS):
+    for name in ("authored", *FITTED_ARMS, *CONTROL_SETS):
         arm = arms[name]
         syn, n_syn = arm.subset(lambda p: not p.is_real_pipeline())
         real, n_real = arm.subset(lambda p: p.is_real_pipeline())
@@ -657,7 +853,7 @@ def report(
     add("=== ablation: weak pr_signoff rows added to training ===")
     add("set-level ratifications, weighted 0.1 against a directional row's 1.0")
     add(f"{'arm':<18}{'without':>10}{'with':>10}{'delta':>9}")
-    for name in ("refit", *FEATURE_SETS):
+    for name in FITTED_ARMS:
         base, _ = arms[name].pooled()
         aug, _ = weak_arms[name].pooled()
         add(f"{name:<18}{pct(base)}{pct(aug)}{(aug - base) * 100:+8.1f} pp")
@@ -678,15 +874,20 @@ def weights_artifact(arm: Arm, name: str) -> dict:
     prediction; it exists purely so a consumer reads the same numbers a human
     reviewing ``fit_report.txt`` does.
 
-    Carries the gate result and the sign-flip warning as data, not just prose,
-    so a consumer (the render-diff scorecard) cannot quote the weights without
-    also seeing why per-feature contributions are not meant to be surfaced.
+    Carries the gate result, the sign-flip warning and whether the weights are
+    safe to minimise as data, not just prose, so a consumer (the render-diff
+    scorecard) cannot quote the weights without also seeing what they may be
+    used for.
     """
     pooled, _ = arm.pooled()
     decided, coverage = arm.decided()
     scaled = rescale_to(arm.weights, ANCHOR_FEATURE)
     spread = arm.weight_spread()
     flips = sorted(k for k, (lo, hi) in spread.items() if lo * hi < 0)
+    pins = SAFE_ARMS.get(name, frozenset())
+    minimisable = not terms.inadmissible(scaled) and not terms.must_be_non_negative(
+        [k for k, v in scaled.items() if v < 0.0]
+    )
     return {
         "arm": name,
         "anchor_feature": ANCHOR_FEATURE,
@@ -694,11 +895,16 @@ def weights_artifact(arm: Arm, name: str) -> dict:
         "weights": scaled,
         "gate": {"pooled": pooled, "decided": decided, "coverage": coverage},
         "sign_flips_across_folds": flips,
+        "pinned_non_negative": sorted(pins),
+        "safe_to_minimise": minimisable,
         "note": (
-            "Fitted to predict a pairwise preference direction, not to be "
-            "minimised -- see #1587/#1588/#1589. Report the aggregate "
-            "weighted delta only; per-feature contributions are not "
-            "meaningful when sign_flips_across_folds is non-empty."
+            "Fitted to predict a pairwise preference direction -- see "
+            "#1587/#1588/#1589. Report the aggregate weighted delta only; "
+            "per-feature contributions are not meaningful when "
+            "sign_flips_across_folds is non-empty. With safe_to_minimise "
+            "false, a search descending this score can improve it without "
+            "bound by inflating the drawing; check_objective_safety.py says "
+            "through which term."
         ),
     }
 
