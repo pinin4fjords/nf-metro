@@ -3594,6 +3594,37 @@ class MergeFeederOffTrunk:
         )
 
 
+_FeederPolylines = list[tuple[Edge, list[tuple[float, float]]]]
+
+
+def _iter_merge_convergences(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> Iterator[tuple[str, Station, Station, _FeederPolylines]]:
+    """Yield ``(merge_id, merge_station, entry_port, feeder_polylines)`` per merge.
+
+    The shared reading for both merge-endpoint checks: a reconvergence merge has
+    at least two feeders and one entry-port successor, and each feeder is read as
+    the offset-applied geometry actually drawn for it.  Merges that are not a
+    reconvergence, or whose markers are missing, are skipped.
+    """
+    by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
+    for merge_id in graph.junctions:
+        feeders = list(graph.edges_to(merge_id))
+        entry_port = _merge_entry_port(graph, merge_id)
+        merge_st = graph.stations.get(merge_id)
+        if len(feeders) < 2 or entry_port is None or merge_st is None:
+            continue
+        polylines = [
+            (e, apply_route_offsets(r, offsets))
+            for e in feeders
+            if (r := by_key.get((e.source, e.target, e.line_id))) is not None
+            and len(r.points) >= 2
+        ]
+        yield merge_id, merge_st, entry_port, polylines
+
+
 def check_merge_feeders_land_on_trunk(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -3623,22 +3654,12 @@ def check_merge_feeders_land_on_trunk(
     scale (a stub stranded in open space); this one is the precision oracle over
     the same endpoints.
     """
-    by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
     junction_ids = graph.junction_ids
     violations: list[MergeFeederOffTrunk] = []
-    for merge_id in graph.junctions:
-        feeders = list(graph.edges_to(merge_id))
-        entry_port = _merge_entry_port(graph, merge_id)
-        merge_st = graph.stations.get(merge_id)
-        if len(feeders) < 2 or entry_port is None or merge_st is None:
-            continue
+    for merge_id, merge_st, entry_port, polylines in _iter_merge_convergences(
+        graph, routes, offsets
+    ):
         markers = [(merge_st.x, merge_st.y), (entry_port.x, entry_port.y)]
-        polylines = [
-            (e, apply_route_offsets(r, offsets))
-            for e in feeders
-            if (r := by_key.get((e.source, e.target, e.line_id))) is not None
-            and len(r.points) >= 2
-        ]
         for edge, pts in polylines:
             if edge.source not in junction_ids:
                 continue
@@ -3681,29 +3702,14 @@ def check_merge_branches_meet_trunk(
     junction, and the entry port is a stub hanging in open space -- the
     symptom of the branch drop level disagreeing with the trunk's real channel.
     """
-    by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
     violations: list[MergeBranchHang] = []
-    for merge_id in graph.junctions:
-        feeders = list(graph.edges_to(merge_id))
-        if len(feeders) < 2:
-            continue
-        entry_port = _merge_entry_port(graph, merge_id)
-        if entry_port is None:
-            continue
-        merge_st = graph.stations.get(merge_id)
-        if merge_st is None:
-            continue
-        polylines: list[tuple[Edge, list[tuple[float, float]]]] = []
-        for e in feeders:
-            r = by_key.get((e.source, e.target, e.line_id))
-            if r is not None and len(r.points) >= 2:
-                polylines.append((e, apply_route_offsets(r, offsets)))
+    for merge_id, merge_st, entry_port, polylines in _iter_merge_convergences(
+        graph, routes, offsets
+    ):
         for edge, pts in polylines:
             end = pts[-1]
-            d_merge = ((end[0] - merge_st.x) ** 2 + (end[1] - merge_st.y) ** 2) ** 0.5
-            d_entry = (
-                (end[0] - entry_port.x) ** 2 + (end[1] - entry_port.y) ** 2
-            ) ** 0.5
+            d_merge = math.dist(end, (merge_st.x, merge_st.y))
+            d_entry = math.dist(end, (entry_port.x, entry_port.y))
             d_sibling = min(
                 (
                     point_to_polyline_distance(end, other)
