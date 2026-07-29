@@ -121,6 +121,14 @@ terminates at a real anchor rather than hanging in open space:
   rail). This generalises the merge-only check to any route family; the
   family-specific checks remain as sharper diagnostics.
 
+Both allow `2 * CURVE_RADIUS` of slack, since they report a path stranded in
+open space. A terminus only a few pixels off still draws a stub, so the
+precision property -- a merge feeder ends **on** the trunk's centreline, at or
+before the trunk's own corner -- is asserted separately by the Tier-C oracle
+`check_merge_feeders_land_on_trunk` at `COORD_TOLERANCE`. It is
+`_land_merge_feeders_on_trunk` that establishes it, reading the trunk's settled
+channel after every pass that could move either leg.
+
 <Aside type="danger" title="Station-as-elbow constraint">
 Never position a port at the same coordinate as an internal station (within the 10 px tolerance checked by `check_station_as_elbow` in `tests/layout_validator.py`):
 
