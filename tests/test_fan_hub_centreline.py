@@ -12,6 +12,10 @@ join hub.
 A port-fed variant of this fan surfaces an overlapping but distinct defect
 (#1272: ``diamond_style: symmetric`` never applies to a fork that begins at
 a section's entry port) and is out of scope here.
+
+Rail-laid sections are the one place where the two hubs legitimately differ,
+because a rail station's Y is the centre of the rail span it carries rather
+than a marker centreline.
 """
 
 from __future__ import annotations
@@ -51,3 +55,59 @@ def test_fork_and_join_hub_share_centreline(n: int) -> None:
     assert join.y == pytest.approx(mean, abs=1.0), "join hub off the branch mean"
     assert hub.y == pytest.approx(mean, abs=1.0), "fork hub off the branch mean"
     assert hub.y == pytest.approx(join.y, abs=1.0), "fork/join hubs disagree"
+
+
+_RAIL_FAN = """%%metro title: rail fan
+%%metro line_spread: rails | calling
+%%metro diamond_style: symmetric
+%%metro line: core | Core | #2db572
+%%metro line: germline | Germline | #0570b0
+%%metro line: tumor | Tumour | #f4a300
+%%metro line: pair | Pair | #d62728
+graph LR
+    subgraph prep [Preprocessing]
+        input[Input]
+        recal[Recalibrate]
+
+        input -->|core,germline,tumor,pair| recal
+    end
+    subgraph calling [Variant calling]
+        bqsr[BQSR]
+        haplo[HaplotypeCaller]
+        mutect[Mutect2]
+        strelka[Strelka]
+        merge[Merge]
+
+        bqsr -->|germline| haplo
+        bqsr -->|tumor| mutect
+        bqsr -->|pair| strelka
+        haplo -->|germline| merge
+        mutect -->|tumor| merge
+        strelka -->|pair| merge
+    end
+    recal -->|core,germline,tumor,pair| bqsr
+"""
+
+
+def test_rail_fork_and_join_centre_on_their_own_rail_spans() -> None:
+    """A rail-laid station's Y is the centre of the rail span it carries, so a
+    fork and join carrying different line sets have different centres.
+
+    ``bqsr`` also carries ``core`` (the line arriving from the upstream
+    section), spanning four rails; ``merge`` carries only the three caller
+    lines. Both are drawn as pills capping their own span, and forcing them
+    onto one shared Y would leave one pill off the rails it caps.
+    """
+    graph = parse_metro_mermaid(_RAIL_FAN)
+    compute_layout(graph, validate=True)
+
+    bqsr = graph.stations["bqsr"]
+    merge = graph.stations["merge"]
+    for station in (bqsr, merge):
+        span = station.rail_used_ys
+        assert len(span) > 1
+        assert station.y == pytest.approx((min(span) + max(span)) / 2.0, abs=0.01)
+
+    assert len(bqsr.rail_used_ys) == 4
+    assert len(merge.rail_used_ys) == 3
+    assert bqsr.y != pytest.approx(merge.y, abs=1.0)
