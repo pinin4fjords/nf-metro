@@ -11,6 +11,7 @@ from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.layout.phases.canvas import _canvas_top_preserved, _translate_graph_y
 from nf_metro.layout.phases.fan_bundles import (
+    _centreline_trunk_followers,
     _convergence_source_ys,
     _divergence_midpoint_targets,
     _evenly_spaced_ys,
@@ -79,6 +80,12 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # ``_divergence_midpoint_targets``) so a fan-out deliberately biased
     # toward one branch is left on its snapped grid slot.
     divergence_targets = _divergence_midpoint_targets(graph, convergence_sources)
+    # The trunk running into the fork hub and out of the join shares their
+    # centreline pre-snap, and must be recorded before the snap rounds each
+    # member to its own row and that co-linearity stops being readable.
+    trunk_followers = _centreline_trunk_followers(
+        graph, divergence_targets, convergence_sources
+    )
     groups: dict[object, tuple[float, list[str]]] = {}
     grouped_ids: set[str] = set()
     require_phase_field(graph, "_row_y_grid_info")
@@ -95,7 +102,7 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
         _snap_group_to_grid(graph, pitch, sec_ids, convergence_sources)
 
     _restore_convergence_midpoints(graph, convergence_sources)
-    _restore_divergence_midpoints(graph, divergence_targets)
+    _restore_divergence_midpoints(graph, divergence_targets, trunk_followers)
 
 
 def _slot_snap(y: float, origin: float, pitch: float, half: float) -> float:
@@ -215,7 +222,9 @@ def _restore_convergence_midpoints(
 
 
 def _restore_divergence_midpoints(
-    graph: MetroGraph, divergence_targets: dict[str, list[str]]
+    graph: MetroGraph,
+    divergence_targets: dict[str, list[str]],
+    trunk_followers: dict[str, list[str]],
 ) -> None:
     """Re-centre each fan-out hub on its post-snap successor midpoint.
 
@@ -227,10 +236,18 @@ def _restore_divergence_midpoints(
     on-grid (it coincides with the middle successor), so no registration
     is needed there.
 
+    ``trunk_followers`` names the pass-through run that shared the hub's Y
+    before the snap (see :func:`_centreline_trunk_followers`): the section's own
+    LR/RL ports and the single-line trunk stations beyond them.  They move onto
+    the restored centreline with the hub, so the boundary run leaves the section
+    as a straight riser and the neighbouring trunk stays flat through it; when
+    the centreline is half-pitch they are registered alongside the hub, since
+    they ride the same off-grid track.
+
     Skipped when the successors' grid-snapped Ys are not distinct and evenly
     spaced - two lines sharing one row while a third sits alone on the next
     has no single well-defined half-pitch centreline, so the hub is left on
-    its own grid-snapped slot.
+    its own grid-snapped slot, and its trunk with it.
     """
     for hub_id, tgt_ids in divergence_targets.items():
         st = graph.stations.get(hub_id)
@@ -243,10 +260,12 @@ def _restore_divergence_midpoints(
             continue
         local_pitch = new_tgt_ys[1] - new_tgt_ys[0]
         midpoint = (new_tgt_ys[0] + new_tgt_ys[-1]) / 2.0
-        _set_port_y(graph, hub_id, midpoint)
         residue = (midpoint - new_tgt_ys[0]) % local_pitch
-        if min(residue, local_pitch - residue) > 1.0:
-            graph.half_grid_station_ids.add(hub_id)
+        half_pitch = min(residue, local_pitch - residue) > 1.0
+        for sid in (hub_id, *trunk_followers.get(hub_id, ())):
+            _set_port_y(graph, sid, midpoint)
+            if half_pitch:
+                graph.half_grid_station_ids.add(sid)
 
 
 def _snap_canvas_y_to_grid(
