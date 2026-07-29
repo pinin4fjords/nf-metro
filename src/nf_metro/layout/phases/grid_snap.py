@@ -81,8 +81,8 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # toward one branch is left on its snapped grid slot.
     divergence_targets = _divergence_midpoint_targets(graph, convergence_sources)
     # The trunk running into the fork hub and out of the join shares their
-    # centreline pre-snap; recorded here so the restore can carry it along
-    # instead of leaving it on the row the snap rounded it to.
+    # centreline pre-snap, and must be recorded before the snap rounds each
+    # member to its own row and that co-linearity stops being readable.
     trunk_followers = _centreline_trunk_followers(
         graph, divergence_targets, convergence_sources
     )

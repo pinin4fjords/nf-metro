@@ -220,11 +220,14 @@ def _divergence_midpoint_targets(
 
 
 def _trunk_neighbours(graph: MetroGraph, node_id: str, forward: bool) -> set[str]:
-    """Real-station neighbours of *node_id* one step ``forward`` (or back).
+    """Neighbours of *node_id* one step ``forward`` (or back), ports included.
 
-    Junctions are transparent, matching :func:`_divergence_target_successors`
-    and :func:`_convergence_source_ys`, so a connection routed through a bundle
-    junction resolves to the station on its far side.
+    Junctions are transparent, so a connection routed through a bundle junction
+    resolves to the station on its far side.  Ports stay in the result, unlike
+    :func:`_divergence_target_successors` and :func:`_convergence_source_ys`
+    which want only the fan's real branch stations: a section's own LR/RL port
+    is a station on the trunk like any other, and a caller tracing a run along
+    that trunk has to see it.
     """
     junction_ids = graph.junction_ids
     edges = graph.edges_from(node_id) if forward else graph.edges_to(node_id)
@@ -239,7 +242,7 @@ def _trunk_neighbours(graph: MetroGraph, node_id: str, forward: bool) -> set[str
     return neighbours
 
 
-def _colinear_trunk_run(graph: MetroGraph, anchor_id: str, forward: bool) -> list[str]:
+def _collinear_trunk_run(graph: MetroGraph, anchor_id: str, forward: bool) -> list[str]:
     """Stations and ports on an unbranched run out of *anchor_id*, at its Y.
 
     Walks away from the anchor while each successive node is a pass-through -
@@ -258,21 +261,18 @@ def _colinear_trunk_run(graph: MetroGraph, anchor_id: str, forward: bool) -> lis
     run: list[str] = []
     seen = {anchor_id}
     current = anchor_id
-    while True:
-        onward = _trunk_neighbours(graph, current, forward)
-        if len(onward) != 1:
-            break
+    onward = _trunk_neighbours(graph, current, forward)
+    while len(onward) == 1:
         nxt = next(iter(onward))
-        if nxt in seen:
-            break
         st = graph.stations.get(nxt)
-        if st is None or st.off_track or st.is_hidden:
+        if nxt in seen or st is None or st.off_track or st.is_hidden:
             break
         if abs(st.y - anchor.y) > SAME_COORD_TOLERANCE:
             break
         if _trunk_neighbours(graph, nxt, not forward) != {current}:
             break
-        if len(_trunk_neighbours(graph, nxt, forward)) > 1:
+        onward = _trunk_neighbours(graph, nxt, forward)
+        if len(onward) > 1:
             break
         run.append(nxt)
         seen.add(nxt)
@@ -298,10 +298,10 @@ def _centreline_trunk_followers(
     join_by_branch_set = _join_ids_by_branch_set(convergence_sources)
     followers: dict[str, list[str]] = {}
     for hub_id, tgt_ids in divergence_targets.items():
-        chain = _colinear_trunk_run(graph, hub_id, forward=False)
+        chain = _collinear_trunk_run(graph, hub_id, forward=False)
         join_id = join_by_branch_set.get(frozenset(tgt_ids))
         if join_id is not None:
-            chain += _colinear_trunk_run(graph, join_id, forward=True)
+            chain += _collinear_trunk_run(graph, join_id, forward=True)
         if chain:
             followers[hub_id] = chain
     return followers
@@ -314,16 +314,9 @@ def _real_predecessors(graph: MetroGraph, target_ids: set[str]) -> set[str]:
     one step further back is returned in its place, so a fan fed through a single
     bundle junction resolves to its source station.
     """
-    junction_ids = graph.junction_ids
     preds: set[str] = set()
     for tid in target_ids:
-        for edge in graph.edges_to(tid):
-            src_id = edge.source
-            if src_id in junction_ids:
-                for e2 in graph.edges_to(src_id):
-                    preds.add(e2.source)
-            else:
-                preds.add(src_id)
+        preds |= _trunk_neighbours(graph, tid, forward=False)
     return preds
 
 
