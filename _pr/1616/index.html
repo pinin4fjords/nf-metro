@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="nf-metro-render-run" content="30483778712">
+<meta name="nf-metro-render-run" content="30490304143">
 <title>Render diff - PR #1616</title>
 <style>
   :root {
@@ -257,7 +257,7 @@
   <h1>Render diff - PR #1616</h1>
   <button id="scheme-toggle" class="scheme-btn">System</button>
 </div>
-<p class="summary">1 changed out of 286 total renders. Generated 2026-07-29 19:19 UTC.</p>
+<p class="summary">1 changed, 1 added out of 287 total renders. Generated 2026-07-29 20:55 UTC.</p>
 <details class="intro">
 <summary>What is this page?</summary>
 <p>
@@ -288,6 +288,7 @@ switch between side-by-side, base-only, and PR-only views.
 <p class="caption">Advisory only &mdash; nothing gates on these. <span class="m-better">green</span> improved, <span class="m-worse">red</span> regressed. Lower is better except in the &uarr; column.</p>
 <table>
 <tr><th>Render</th><th>Crossings</th><th>Near-horiz.</th><th>Lone diag.</th><th>Bends/route</th><th>Corners</th><th>Turn/route (rad)</th><th>Label strikes</th><th>Marker gap ↑</th><th>Excess gaps</th><th>Wasted canvas</th></tr>
+<tr><td><a href="#even_symmetric_fan_hub_join_centreline">even_symmetric_fan_hub_join_centreline</a></td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;2.0</td><td class="m-flat">&ndash;&rarr;24</td><td class="m-flat">&ndash;&rarr;2.0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;n/a</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;51%</td></tr>
 <tr><td><a href="#symmetric_diamond_beside_wide_fan">symmetric_diamond_beside_wide_fan</a></td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">1.6</td><td class="m-flat">96</td><td class="m-flat">1.6</td><td class="m-flat">0</td><td class="m-flat">&ndash;&rarr;n/a</td><td class="m-flat">3</td><td class="m-flat">62%</td></tr>
 </table>
 </div>
@@ -295,10 +296,110 @@ switch between side-by-side, base-only, and PR-only views.
 <h2>Changed renders</h2>
 <h3><a href="#section-fan-out-and-fan-in">Fan-out and Fan-in</a></h3>
 <ul>
+<li><a href="#even_symmetric_fan_hub_join_centreline">even_symmetric_fan_hub_join_centreline</a><span class="badge badge-added">added</span></li>
 <li><a href="#symmetric_diamond_beside_wide_fan">symmetric_diamond_beside_wide_fan</a><span class="badge badge-changed">changed</span></li>
 </ul>
 </div>
 <h2 class="section-header" id="section-fan-out-and-fan-in">Fan-out and Fan-in</h2>
+
+<div class="diff-entry" id="even_symmetric_fan_hub_join_centreline">
+<h3>Even Symmetric Fan Hub Join Centreline <span class="badge badge-added">added</span></h3>
+<div class="side-only"><h4>New in PR</h4><div class="svg-wrapper"><?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="382" height="472" viewBox="0 0 382 472">
+<defs>
+</defs>
+<style>.nf-metro-bg { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }
+.nf-metro-title { fill: var(--nfm-map-title-color, light-dark(#111111, #ffffff)); }
+.nf-metro-station-label { fill: var(--nfm-map-label-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-section-box { fill: var(--nfm-map-section-fill, light-dark(#ededed, #373737)); stroke: var(--nfm-map-section-stroke, light-dark(#e6e6e6, #595959)); }
+.nf-metro-section-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-underline { stroke: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-legend-bg { fill: var(--nfm-map-legend-bg, light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.3))); }
+.nf-metro-legend-text { fill: var(--nfm-map-legend-text-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-marker-stroke { stroke: var(--nfm-map-marker-stroke, light-dark(#333333, #f0f0f0)); }
+.nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }</style>
+<rect x="0" y="0" width="382" height="472" fill="#2b2b2b" class="nf-metro-bg" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Even Symmetric Fan Hub/Join Centreline</text>
+<rect x="30.0" y="70.0" width="292.0" height="300.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="fan" data-section-lines="main" />
+<circle cx="41.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="fan" />
+<text x="41.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="fan">1</text>
+<text x="57.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="fan">Fan-out</text>
+<path d="M80.0,220.0 L92.5,220.0 Q102.5,220.0,105.37347885566345,210.4217371477885 L129.62652114433655,129.5782628522115 Q132.5,120.0,142.5,120.0 L176.0,120.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M80.0,220.0 L92.5,220.0 Q102.5,220.0,106.97213595499957,211.05572809000085 L128.02786404500043,168.94427190999915 Q132.5,160.0,142.5,160.0 L176.0,160.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M80.0,220.0 L92.5,220.0 Q102.5,220.0,110.82050294337844,214.4529980377477 L124.17949705662156,205.5470019622523 Q132.5,200.0,142.5,200.0 L176.0,200.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M80.0,220.0 L92.5,220.0 Q102.5,220.0,110.82050294337844,225.5470019622523 L124.17949705662156,234.4529980377477 Q132.5,240.0,142.5,240.0 L176.0,240.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M80.0,220.0 L92.5,220.0 Q102.5,220.0,106.97213595499957,228.94427190999915 L128.02786404500043,271.05572809000085 Q132.5,280.0,142.5,280.0 L176.0,280.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M80.0,220.0 L92.5,220.0 Q102.5,220.0,105.37347885566345,229.5782628522115 L129.62652114433655,310.42173714778846 Q132.5,320.0,142.5,320.0 L176.0,320.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,120.0 L209.5,120.0 Q219.5,120.0,222.37347885566345,129.5782628522115 L246.62652114433655,210.4217371477885 Q249.5,220.0,259.5,220.0 L272.0,220.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,160.0 L209.5,160.0 Q219.5,160.0,223.97213595499957,168.94427190999915 L245.02786404500043,211.05572809000085 Q249.5,220.0,259.5,220.0 L272.0,220.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,200.0 L209.5,200.0 Q219.5,200.0,227.82050294337844,205.5470019622523 L241.17949705662156,214.4529980377477 Q249.5,220.0,259.5,220.0 L272.0,220.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,240.0 L209.5,240.0 Q219.5,240.0,227.82050294337844,234.4529980377477 L241.17949705662156,225.5470019622523 Q249.5,220.0,259.5,220.0 L272.0,220.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,280.0 L209.5,280.0 Q219.5,280.0,223.97213595499957,271.05572809000085 L245.02786404500043,228.94427190999915 Q249.5,220.0,259.5,220.0 L272.0,220.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<path d="M176.0,320.0 L209.5,320.0 Q219.5,320.0,222.37347885566345,310.42173714778846 L246.62652114433655,229.5782628522115 Q249.5,220.0,259.5,220.0 L272.0,220.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-main" data-line-id="main" />
+<rect x="75.0" y="215.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="hub" data-station-lines="main" data-station-label="Fetch" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="171.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="src_a" data-station-lines="main" data-station-label="Source A" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="171.0" y="155.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="src_b" data-station-lines="main" data-station-label="Source B" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="171.0" y="195.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="src_c" data-station-lines="main" data-station-label="Source C" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="171.0" y="235.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="src_d" data-station-lines="main" data-station-label="Source D" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="171.0" y="275.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="src_e" data-station-lines="main" data-station-label="Source E" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="171.0" y="315.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="src_f" data-station-lines="main" data-station-label="Source F" data-section-id="fan" data-section-name="Fan-out" />
+<rect x="267.0" y="215.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="join" data-station-lines="main" data-station-label="Merge" data-section-id="fan" data-section-name="Fan-out" />
+<text x="80.0" y="231.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Fetch</text>
+<text x="80.0" y="231.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="hub" class="nf-metro-station-label">Fetch</text>
+<text x="176.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Source A</text>
+<text x="176.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="src_a" class="nf-metro-station-label">Source A</text>
+<text x="176.0" y="146.6" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Source B</text>
+<text x="176.0" y="146.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="src_b" class="nf-metro-station-label">Source B</text>
+<text x="176.0" y="186.6" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Source C</text>
+<text x="176.0" y="186.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="src_c" class="nf-metro-station-label">Source C</text>
+<text x="176.0" y="226.6" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Source D</text>
+<text x="176.0" y="226.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="src_d" class="nf-metro-station-label">Source D</text>
+<text x="176.0" y="266.6" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Source E</text>
+<text x="176.0" y="266.6" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="src_e" class="nf-metro-station-label">Source E</text>
+<text x="176.0" y="331.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Source F</text>
+<text x="176.0" y="331.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="src_f" class="nf-metro-station-label">Source F</text>
+<text x="272.0" y="231.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Merge</text>
+<text x="272.0" y="231.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="join" class="nf-metro-station-label">Merge</text>
+<circle cx="102.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="132.5" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="102.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="132.5" cy="160.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="102.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="132.5" cy="200.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="102.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="132.5" cy="240.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="102.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="132.5" cy="280.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="102.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="132.5" cy="320.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="219.5" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="249.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="219.5" cy="160.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="249.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="219.5" cy="200.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="249.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="219.5" cy="240.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="249.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="219.5" cy="280.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="249.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="219.5" cy="320.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="249.5" cy="220.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<path d="M20.0,120.0 L332.0,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M20.0,160.0 L332.0,160.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M20.0,200.0 L332.0,200.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M20.0,220.0 L332.0,220.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M20.0,240.0 L332.0,240.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M20.0,280.0 L332.0,280.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M20.0,320.0 L332.0,320.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<rect x="30.0" y="400.0" width="90.80000000000001" height="48.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" class="nf-metro-legend-bg" />
+<path d="M42.0,424.0 L66.0,424.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="424.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Main</text>
+<text x="352.0" y="464.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v1.1.0+dev</text>
+</svg></div></div>
+</div>
 
 <div class="diff-entry" id="symmetric_diamond_beside_wide_fan">
 <h3>Symmetric Diamond Beside Wide Fan <span class="badge badge-changed">changed</span></h3>
