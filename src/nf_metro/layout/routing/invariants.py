@@ -3553,6 +3553,149 @@ class MergeBranchHang:
         )
 
 
+_FAN_IN_DIVERGENCE_SPREAD_TOL = 16.0
+"""Slack allowed between sibling branches' fan-in divergence positions.
+
+Each leg's divergence carries that leg's own bundle offset and the nesting
+stagger that keeps a bundle's diagonals parallel through the turn, so the seats
+scatter by one offset step even when a single hub sets all of them: the widest a
+shipped fixture draws is 12.8px, on a two-branch diamond.  A seat measured from
+the branch instead scatters by the spread of the branch labels' half-widths,
+which starts around 20px for labels of ordinary length and grows with them.
+"""
+
+
+@dataclass(frozen=True)
+class RaggedFanInDivergence:
+    """A join hub whose branches peel off for it at scattered positions."""
+
+    join_id: str
+    line_id: str
+    divergences: tuple[tuple[str, float], ...]
+
+    @property
+    def spread(self) -> float:
+        """Distance between the earliest and latest branch divergence."""
+        xs = [x for _, x in self.divergences]
+        return max(xs) - min(xs)
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        seats = ", ".join(f"{sid}@{x:.1f}" for sid, x in self.divergences)
+        return (
+            f"join {self.join_id!r} on line {self.line_id!r}: its branches peel "
+            f"off across {self.spread:.1f}px ({seats}) -- every branch of one "
+            f"diamond must diverge off the join hub, at one shared position"
+        )
+
+
+def _peels_between_hubs(
+    graph: MetroGraph, branch: Station, in_edge: Edge, out_edge: Edge
+) -> bool:
+    """Whether one line carries *branch* from a fork hub to a join hub, peeled.
+
+    Peeled means the branch sits off both hubs' rows, so its run is bounded by a
+    convergence diagonal on one side and a divergence diagonal on the other; a
+    branch sharing a hub's row draws one straight run with no transition to seat.
+    A port is a section boundary rather than a hub -- its lateral spread sets the
+    transition, not a fork/join reservation -- so a port-bounded pass-through does
+    not qualify.
+    """
+    fork = graph.stations.get(in_edge.source)
+    join = graph.stations.get(out_edge.target)
+    if fork is None or join is None or fork.is_port or join.is_port:
+        return False
+    return (
+        out_edge.line_id == in_edge.line_id
+        and fork.section_id == branch.section_id == join.section_id
+        and abs(branch.y - fork.y) > COORD_TOLERANCE
+        and abs(branch.y - join.y) > COORD_TOLERANCE
+        and len(graph.edges_from(fork.id)) >= 2
+        and len(graph.edges_to(join.id)) >= 2
+    )
+
+
+def _diamond_branch_legs(graph: MetroGraph) -> Iterator[tuple[Station, Edge]]:
+    """Yield ``(branch, out_edge)`` per peeled branch of a symmetric diamond."""
+    if graph.diamond_style != "symmetric":
+        return
+    for branch in graph.stations.values():
+        section = graph.sections.get(branch.section_id or "")
+        if section is None or not lanes_run_along_y(section.direction):
+            continue
+        if branch.is_port or branch.is_hidden or branch.off_track:
+            continue
+        for in_edge in graph.edges_to(branch.id):
+            for out_edge in graph.edges_from(branch.id):
+                if _peels_between_hubs(graph, branch, in_edge, out_edge):
+                    yield branch, out_edge
+
+
+def _flat_run_end(pts: list[tuple[float, float]], *, from_start: bool) -> float | None:
+    """The x where the flat run at one end of *pts* leaves that end's level.
+
+    Reads the drawn polyline rather than the station, so the level compared is
+    the bundle lane the stroke actually rides.  ``None`` when the whole polyline
+    is flat, which leaves no diagonal to have been seated.
+    """
+    if len(pts) < 2:
+        return None
+    walk = pts if from_start else pts[::-1]
+    level = walk[0][1]
+    last = walk[0][0]
+    for x, y in walk[1:]:
+        if abs(y - level) > COORD_TOLERANCE:
+            return last
+        last = x
+    return None
+
+
+def check_diamond_fan_in_diverges_together(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[RaggedFanInDivergence]:
+    """Return join hubs whose diamond branches peel off at scattered positions.
+
+    Every branch of one diamond crosses the same column gap to reach the join
+    hub, so the hub's reservation is what sets where each peels off and they leave
+    together: one fan, arriving at one point.  A divergence measured from the
+    branch instead -- past its own name label, so the diagonal clears the text --
+    puts each row at a different place, scattered by that row's label width, and
+    the convergence stops reading as a fan.  Such a seat also lies inside the
+    label's x-extent, leaving the strike-clearance loop a strike to grow runway
+    columns against.
+
+    Scoped to the peeled branches of one diamond (see
+    :func:`_diamond_branch_legs`), the only set sharing both hubs and therefore
+    the gap their seats are reserved in.  A leg drawing no diagonal seated no
+    transition, so it is left out rather than reported.
+    """
+    by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
+    seats: dict[tuple[str, str], list[tuple[str, float]]] = defaultdict(list)
+    for branch, out_edge in _diamond_branch_legs(graph):
+        leg = by_key.get((out_edge.source, out_edge.target, out_edge.line_id))
+        if leg is None:
+            continue
+        divergence = _flat_run_end(apply_route_offsets(leg, offsets), from_start=True)
+        if divergence is None:
+            continue
+        seats[out_edge.target, out_edge.line_id].append((branch.id, divergence))
+
+    violations: list[RaggedFanInDivergence] = []
+    for (join_id, line_id), found in sorted(seats.items()):
+        if len(found) < 2:
+            continue
+        ragged = RaggedFanInDivergence(
+            join_id=join_id,
+            line_id=line_id,
+            divergences=tuple(sorted(found)),
+        )
+        if ragged.spread > _FAN_IN_DIVERGENCE_SPREAD_TOL:
+            violations.append(ragged)
+    return violations
+
+
 def _merge_entry_port(graph: MetroGraph, merge_id: str) -> Station | None:
     """The entry-port successor of a merge junction, if any."""
     for e in graph.edges_from(merge_id):
@@ -4950,6 +5093,20 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_seam_approach_equals_departure, "C"),
     _check_spec(check_seam_segments_meet_at_port, "C"),
     _check_spec(
+        check_diamond_fan_in_diverges_together,
+        "C",
+        issue_pin=("#1596", "#1413"),
+        narrow_reason=(
+            "A corpus oracle over the seating rather than a render guard: it "
+            "measures how *well* a fan is proportioned, not whether the geometry "
+            "is drawable, so a novel map whose branches seat unevenly for a "
+            "reason nothing here models would abort rather than render "
+            "imperfectly. Restricted to `diamond_style: symmetric` peeled "
+            "branches sharing two non-port hubs, the only set whose divergence "
+            "seats are reserved in one column gap and so are comparable."
+        ),
+    ),
+    _check_spec(
         check_merge_feeders_land_on_trunk,
         "C",
         issue_pin=("#1597",),
@@ -4972,6 +5129,7 @@ __all__ = [
     "BottomRowClimbDive",
     "BottomRowClimbOffTrack",
     "ExitRowEarlyUpStep",
+    "RaggedFanInDivergence",
     "BundleOrderViolation",
     "CoincidentCornerRadiusViolation",
     "CollinearOverlapViolation",
@@ -5006,6 +5164,7 @@ __all__ = [
     "check_concentric_bundle_corners",
     "check_coincident_corner_radii",
     "check_deferred_offsets_apply_laterally",
+    "check_diamond_fan_in_diverges_together",
     "check_fanout_tail_join",
     "check_no_distinct_line_fanout_crossing",
     "check_merge_branches_meet_trunk",

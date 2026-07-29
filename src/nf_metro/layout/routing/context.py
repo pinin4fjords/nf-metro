@@ -122,6 +122,8 @@ class _RoutingCtx:
     offset_step: float
     fork_stations: set[str]
     join_stations: set[str]
+    fork_targets: dict[str, set[str]]
+    join_sources: dict[str, set[str]]
     tb_sections: set[str]
     reversed_sections: set[str]
     positive_fan: set[str]
@@ -357,6 +359,8 @@ def _build_routing_context(
         offset_step=graph_offset_step(graph),
         fork_stations=fork_stations,
         join_stations=join_stations,
+        fork_targets=dict(fork_targets),
+        join_sources=dict(join_sources),
         tb_sections=tb_sections,
         reversed_sections=reversed_sections,
         positive_fan=positive_fan,

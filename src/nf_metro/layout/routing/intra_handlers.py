@@ -583,6 +583,28 @@ def _has_in_section_predecessor(
     return False
 
 
+def prefers_join_bias(ctx: _RoutingCtx, edge: Edge) -> bool:
+    """Whether an edge that both forks and joins should seat at its join end.
+
+    Each bias exists to make a fan read as a fan at the end it belongs to, so
+    when both apply the wider fan wins: a six-way convergence dominates the
+    two-way split its source happens to also make, and biasing to that split
+    instead seats the convergence off the source's own label rather than off the
+    hub the branches meet at.  An equal-degree pair keeps the fork bias, which
+    puts a plain diamond's transitions at its narrow ends.
+
+    A port target is excluded whatever its in-degree: it collects everything
+    leaving the section rather than gathering a fan, and a line changing row
+    before the boundary needs its transition early, taken while the row it
+    departs is clear of the stations further along it.
+    """
+    if ctx.graph.stations[edge.target].is_port:
+        return False
+    fork_degree = len(ctx.fork_targets.get(edge.source, ()))
+    join_degree = len(ctx.join_sources.get(edge.target, ()))
+    return join_degree > fork_degree
+
+
 def _route_diagonal(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath:
@@ -647,6 +669,8 @@ def _route_diagonal(
     is_side_branch = _is_side_branch_ascent(edge, src, tgt, ctx)
     is_fork_flag = edge.source in ctx.fork_stations and not is_side_branch
     is_join_flag = edge.target in ctx.join_stations or is_side_branch
+    if is_fork_flag and is_join_flag and prefers_join_bias(ctx, edge):
+        is_fork_flag = False
 
     # Bypass-V edges: bias the diagonal toward V on both halves with
     # equal V-side flat reservations so V sits at the centre of the
