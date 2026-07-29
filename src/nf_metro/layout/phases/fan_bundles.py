@@ -78,8 +78,8 @@ def _convergence_source_ys(graph: MetroGraph) -> dict[str, list[str]]:
     return convergence
 
 
-def _divergence_target_ys(graph: MetroGraph) -> set[str]:
-    """Return station/port ids that are fan-out divergence anchors.
+def _divergence_target_successors(graph: MetroGraph) -> dict[str, list[str]]:
+    """Return {hub_id: [target_station_ids]} for fan-out divergence anchors.
 
     A station/port qualifies as a divergence anchor when it has two or
     more outbound real-station successors at distinct Ys and the
@@ -109,7 +109,7 @@ def _divergence_target_ys(graph: MetroGraph) -> set[str]:
                 continue
             outbound[edge.source].add(tgt_id)
 
-    anchors: set[str] = set()
+    anchors: dict[str, list[str]] = {}
     for src_id, tgt_ids in outbound.items():
         if len(tgt_ids) < 2:
             continue
@@ -127,8 +127,96 @@ def _divergence_target_ys(graph: MetroGraph) -> set[str]:
         has_below = any(ty < sy - SAME_COORD_TOLERANCE for ty in tgt_ys)
         has_above = any(ty > sy + SAME_COORD_TOLERANCE for ty in tgt_ys)
         if has_below and has_above:
-            anchors.add(src_id)
+            anchors[src_id] = sorted(tgt_ids)
     return anchors
+
+
+def _divergence_target_ys(graph: MetroGraph) -> set[str]:
+    """Return station/port ids that are fan-out divergence anchors.
+
+    See :func:`_divergence_target_successors` for the qualifying criteria.
+    """
+    return set(_divergence_target_successors(graph))
+
+
+def _join_ids_by_branch_set(
+    convergence_sources: dict[str, list[str]],
+) -> dict[frozenset[str], str]:
+    """Invert ``convergence_sources`` to ``{frozenset(source_ids): join_id}``.
+
+    Shared by the fork side (:func:`_divergence_midpoint_targets`) and the
+    ``#1595`` runtime guard: both ask "does this fork's target set exactly
+    match some join's source set", i.e. do these branches diverge from one
+    hub and reconverge on one join.
+    """
+    return {frozenset(srcs): join_id for join_id, srcs in convergence_sources.items()}
+
+
+def _evenly_spaced_ys(ys: list[float]) -> list[float] | None:
+    """Sorted distinct Ys from *ys* if every value is distinct and they are
+    evenly spaced by one constant step; ``None`` otherwise.
+
+    ``None`` covers two disqualifying shapes: two branches stacked on the
+    same row (not distinct), and branches spread across rows at irregular
+    gaps (distinct but not one constant step) - neither has a single
+    well-defined pitch to centre a hub against.
+    """
+    rounded = [round(y, 3) for y in ys]
+    distinct = sorted(set(rounded))
+    if len(distinct) != len(rounded) or len(distinct) < 2:
+        return None
+    steps = {round(b - a, 3) for a, b in zip(distinct, distinct[1:])}
+    return distinct if len(steps) == 1 else None
+
+
+def _divergence_midpoint_targets(
+    graph: MetroGraph, convergence_sources: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Divergence anchors from :func:`_divergence_target_successors` narrowed
+    to the fork side of a genuine fork/join diamond, already sitting at its
+    targets' midpoint.
+
+    Scoped to ``graph.diamond_style == "symmetric"``, matching every other
+    half-grid compaction mechanism in this module - a map that never opted
+    into symmetric styling keeps its fork hub wherever grid-snap put it.
+
+    Within a symmetric-styled graph, two further conditions must both hold,
+    so a fan-out that merely happens to sit between its targets numerically
+    is not mistaken for a symmetric diamond:
+
+    * The target set must exactly match a join's source set (see
+      :func:`_join_ids_by_branch_set`) - i.e. every target reconverges on one
+      shared downstream join, the way a diamond's branches do.  This excludes
+      a fan-out where one target continues the trunk onward and another is an
+      unrelated terminus: they never share a join, so they never match here.
+    * The hub's own Y must already sit at the midpoint of its (pre-snap)
+      target Ys, mirroring the symmetric guard :func:`_convergence_source_ys`
+      applies on the converging side - a fan-out deliberately biased toward
+      one branch is excluded even when it does feed a shared join.
+
+    Target Ys read here are pre-snap and may carry sub-pixel jitter, so
+    distinctness is checked directly rather than via :func:`_evenly_spaced_ys`
+    (whose stricter constant-step requirement wants clean, grid-snapped
+    input); that stricter check runs post-snap, in
+    :func:`_restore_divergence_midpoints`.
+    """
+    if graph.diamond_style != "symmetric":
+        return {}
+    join_by_branch_set = _join_ids_by_branch_set(convergence_sources)
+    centred: dict[str, list[str]] = {}
+    for src_id, tgt_ids in _divergence_target_successors(graph).items():
+        if frozenset(tgt_ids) not in join_by_branch_set:
+            continue
+        st = graph.stations.get(src_id)
+        if st is None:
+            continue
+        tgt_ys = [graph.stations[tid].y for tid in tgt_ids if tid in graph.stations]
+        if len({round(y, 3) for y in tgt_ys}) != len(tgt_ys):
+            continue
+        midpoint = (max(tgt_ys) + min(tgt_ys)) / 2.0
+        if abs(st.y - midpoint) < 1.0:
+            centred[src_id] = tgt_ids
+    return centred
 
 
 def _real_predecessors(graph: MetroGraph, target_ids: set[str]) -> set[str]:
@@ -1395,13 +1483,25 @@ def _expand_orphaned_half_grid_stations(
     An off-track icon counts as a straddle partner while never being seated
     itself: the off-track lift owns its Y, so it can hold a slot it must not be
     moved out of.
+
+    A fork hub :func:`_restore_divergence_midpoints` centred on its targets'
+    midpoint is a solo centreline anchor, not one side of a two-way pair - it
+    has no mirror station to go looking for, so it is exempt here regardless
+    of what ``_half_grid_frame`` reports for its section.
     """
     require_phase_field(graph, "half_grid_station_ids")
     half_grid = graph.half_grid_station_ids
     if not half_grid:
         return
+    fork_hub_ids = set(
+        _divergence_midpoint_targets(graph, _convergence_source_ys(graph))
+    )
     for section in graph.sections.values():
-        marked = [sid for sid in section.station_ids if sid in half_grid]
+        marked = [
+            sid
+            for sid in section.station_ids
+            if sid in half_grid and sid not in fork_hub_ids
+        ]
         if not marked:
             continue
         frame = _half_grid_frame(graph, section, y_spacing)

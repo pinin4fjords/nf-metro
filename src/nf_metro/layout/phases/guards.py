@@ -5039,6 +5039,58 @@ def _guard_file_icon_no_name_label(graph: MetroGraph, phase: str) -> None:
         )
 
 
+def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None:
+    """Raise if a symmetric diamond's fork hub and join hub disagree on Y.
+
+    Scoped to ``diamond_style: symmetric`` diamonds whose fork target set
+    (:func:`_divergence_target_successors`) exactly matches a join's source
+    set (:func:`_convergence_source_ys`): every branch diverges from one hub
+    and reconverges on one join, so both hubs must land on the same
+    centreline (issue #1595).  A diamond whose branches share a row (no
+    single well-defined pitch) or are unevenly spaced is out of scope.
+
+    Eligibility here is deliberately independent of the hub's own current Y -
+    unlike :func:`_divergence_midpoint_targets`, which additionally requires
+    the hub to already sit at the midpoint before deciding whether to
+    recentre it. A guard that reused that same "already centred" gate would
+    stop reporting a diamond the moment a regression moved its hub off
+    centre, exempting it from the very check meant to catch that regression.
+    """
+    if graph.diamond_style != "symmetric":
+        return
+    from nf_metro.layout.phases.fan_bundles import (
+        _convergence_source_ys,
+        _divergence_target_successors,
+        _evenly_spaced_ys,
+        _join_ids_by_branch_set,
+    )
+
+    convergence_sources = _convergence_source_ys(graph)
+    join_by_branch_set = _join_ids_by_branch_set(convergence_sources)
+    offenders: list[tuple[str, float, str, float]] = []
+    for hub_id, tgt_ids in _divergence_target_successors(graph).items():
+        join_id = join_by_branch_set.get(frozenset(tgt_ids))
+        if join_id is None:
+            continue
+        tgt_ys = [graph.stations[t].y for t in tgt_ids if t in graph.stations]
+        if _evenly_spaced_ys(tgt_ys) is None:
+            continue
+        hub_st = graph.stations.get(hub_id)
+        join_st = graph.stations.get(join_id)
+        if hub_st is None or join_st is None:
+            continue
+        if abs(hub_st.y - join_st.y) > 1.0:
+            offenders.append((hub_id, hub_st.y, join_id, join_st.y))
+    if offenders:
+        hub_id, hub_y, join_id, join_y = offenders[0]
+        raise PhaseInvariantError(
+            f"{phase}: fork hub {hub_id!r} (y={hub_y:.1f}) and join hub "
+            f"{join_id!r} (y={join_y:.1f}) of one symmetric diamond disagree "
+            f"on centreline by {abs(hub_y - join_y):.1f}px; "
+            f"{len(offenders)} such pair(s) total"
+        )
+
+
 @dataclass(frozen=True)
 class GuardSpec:
     """One ``validate=True`` guard, with the dispatch + classification data
@@ -5111,6 +5163,21 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "A",
         bisection_safe=True,
         first_valid_stage="after Stage 6.4",
+    ),
+    GuardSpec(
+        _guard_fork_join_hub_centreline_agree,
+        "A",
+        bisection_safe=True,
+        first_valid_stage="after Stage 6.4",
+        issue_pin=("#1595",),
+        narrow_reason=(
+            "Scoped to diamond_style: symmetric diamonds whose fork target set "
+            "exactly matches a join's source set (_divergence_target_successors "
+            "vs _convergence_source_ys); an asymmetric fan, a port-fed fork "
+            "without diamond_style: symmetric, or branches on stacked/unevenly "
+            "spaced rows are out of scope: none of those has a single shared "
+            "centreline for the fork and join hub to agree on."
+        ),
     ),
     # A sparse loop-side station (single line in/out, full-bundle row-mates)
     # sits on the trunk Y until Stage 6.14 shifts it to a half-grid offset;

@@ -10,7 +10,11 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.layout.phases.canvas import _canvas_top_preserved, _translate_graph_y
-from nf_metro.layout.phases.fan_bundles import _convergence_source_ys
+from nf_metro.layout.phases.fan_bundles import (
+    _convergence_source_ys,
+    _divergence_midpoint_targets,
+    _evenly_spaced_ys,
+)
 from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.parser.model import MetroGraph, PortSide
@@ -48,11 +52,18 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
       that snapping destroys.
 
     Fan-out divergence hubs (stations whose Y sits strictly between
-    targets above and below) are snapped to grid like other stations.
-    The downstream column-centring pass identifies the snap-induced
-    flat connection from such a fork hub to one of its targets and
-    declines to treat it as a chain predecessor, so the target column
-    still centres.
+    targets above and below) are snapped to grid, then - for the narrower
+    case of a ``diamond_style: symmetric`` diamond whose targets exactly
+    match a join's source set - recentred on the post-snap midpoint of
+    those targets by :func:`_restore_divergence_midpoints`, so the fork hub
+    agrees with its join hub on one centreline. Unlike the convergence
+    restore above, this recentring only fires when the targets are distinct
+    and evenly spaced; a diamond that doesn't qualify keeps its hub on the
+    grid-snapped slot. Between the snap and any recentring the hub briefly
+    sits flat with whichever target it snapped nearest; the downstream
+    column-centring pass recognises that flat connection as an artefact of
+    the snap rather than a topological chain, and lets the target's column
+    centre on its own merits.
 
     Groups with no on-grid majority are left untouched.
     """
@@ -62,10 +73,12 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # converges (recorded pre-snap so the midpoint can be restored
     # after sources move).
     convergence_sources = _convergence_source_ys(graph)
-    # Divergence anchors (fan-out hubs sitting between target Ys) are
-    # snapped to grid like everyone else: the routing column-centring
-    # pass treats their incidental flat connection (induced by snap)
-    # as non-chain so the target column still centres correctly.
+    # Same idea for the diverging side: record each fork hub's target set
+    # pre-snap so its midpoint can be restored once the targets have moved.
+    # Narrowed to hubs already centred pre-snap (see
+    # ``_divergence_midpoint_targets``) so a fan-out deliberately biased
+    # toward one branch is left on its snapped grid slot.
+    divergence_targets = _divergence_midpoint_targets(graph, convergence_sources)
     groups: dict[object, tuple[float, list[str]]] = {}
     grouped_ids: set[str] = set()
     require_phase_field(graph, "_row_y_grid_info")
@@ -82,6 +95,7 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
         _snap_group_to_grid(graph, pitch, sec_ids, convergence_sources)
 
     _restore_convergence_midpoints(graph, convergence_sources)
+    _restore_divergence_midpoints(graph, divergence_targets)
 
 
 def _slot_snap(y: float, origin: float, pitch: float, half: float) -> float:
@@ -198,6 +212,41 @@ def _restore_convergence_midpoints(
             continue
         midpoint = (max(new_src_ys) + min(new_src_ys)) / 2.0
         _set_port_y(graph, target_id, midpoint)
+
+
+def _restore_divergence_midpoints(
+    graph: MetroGraph, divergence_targets: dict[str, list[str]]
+) -> None:
+    """Re-centre each fan-out hub on its post-snap successor midpoint.
+
+    An even successor count leaves the midpoint at a genuine half-pitch
+    offset from the successors' own grid; when that happens the hub is
+    registered in ``graph.half_grid_station_ids`` so the grid-alignment
+    invariants recognise it as intentional, the same way the 2-branch
+    symmetric fan's hub already is.  An odd count lands the midpoint back
+    on-grid (it coincides with the middle successor), so no registration
+    is needed there.
+
+    Skipped when the successors' grid-snapped Ys are not distinct and evenly
+    spaced - two lines sharing one row while a third sits alone on the next
+    has no single well-defined half-pitch centreline, so the hub is left on
+    its own grid-snapped slot.
+    """
+    for hub_id, tgt_ids in divergence_targets.items():
+        st = graph.stations.get(hub_id)
+        if st is None or st.off_track:
+            continue
+        new_tgt_ys = _evenly_spaced_ys(
+            [graph.stations[sid].y for sid in tgt_ids if sid in graph.stations]
+        )
+        if new_tgt_ys is None:
+            continue
+        local_pitch = new_tgt_ys[1] - new_tgt_ys[0]
+        midpoint = (new_tgt_ys[0] + new_tgt_ys[-1]) / 2.0
+        _set_port_y(graph, hub_id, midpoint)
+        residue = (midpoint - new_tgt_ys[0]) % local_pitch
+        if min(residue, local_pitch - residue) > 1.0:
+            graph.half_grid_station_ids.add(hub_id)
 
 
 def _snap_canvas_y_to_grid(
