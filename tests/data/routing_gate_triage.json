@@ -535,10 +535,6 @@
     "note": "Bounds guard in _restack_channel: the skip arm fires only for k==0 (channel at the route start), which the restacked gap channels (interior verticals after a horizontal lead-in) never are.",
     "status": "defensive"
   },
-  "normalize.py::if 0 <= radius_idx < len(rp.curve_radii):::#1": {
-    "note": "Bounds guard in _reseat_concentric_flanking: radius_idx in (k-1, k) for a real moved segment stays in range; the out-of-range skip arm is defensive.",
-    "status": "defensive"
-  },
   "normalize.py::if abs(ch.x - descent.x) <= COORD_TOLERANCE:::#1": {
     "note": "_clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns.",
     "status": "defensive"
@@ -599,6 +595,10 @@
     "note": "Unused default-arg branch: all three callers of _band_order_crossings pass feats explicitly, so the feats-is-None compute-it arm is never taken.",
     "status": "defensive"
   },
+  "normalize.py::if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:::#1": {
+    "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, but _round_junction_perp_peeloff prepends one for any route whose source doubles as a fan-out junction, which a merge feeder's junction source can be; and the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
+    "status": "defensive"
+  },
   "normalize.py::if k < len(rp.curve_radii) and k + 2 < len(pts):::#1": {
     "note": "Bounds guard in _restack_htrunk: for a real interior trunk k and k+2 are in range; the skip arm is defensive.",
     "status": "defensive"
@@ -631,16 +631,20 @@
     "note": "_suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path.",
     "status": "defensive"
   },
+  "normalize.py::if not trunks:::#1": {
+    "note": "Shape guard in _merge_convergence_run: a trunk routed as a U-shaped bypass always has an interior horizontal leg for iter_horizontal_trunks to find, so the corpus never takes the None arm. Not provably unreachable across every branch of _route_bypass, so it stays a guard rather than an assert (#1597).",
+    "status": "defensive"
+  },
+  "normalize.py::if not verticals:::#1": {
+    "note": "Shape guard in _land_feeder_on_run: a merge branch feeder is built as a descent into a tail, so it always has a vertical leg. Reachable in principle only if a feeder's source Y coincides with the trunk channel level, collapsing the descent below COORD_TOLERANCE (#1597).",
+    "status": "defensive"
+  },
   "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
     "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
     "status": "defensive"
   },
   "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
     "note": "The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-    "status": "defensive"
-  },
-  "normalize.py::if rp is None:::#1": {
-    "note": "Defensive guard: every merge feeder edge is routed, so the by-key lookup in _merge_feeder_groups always resolves; the skip arm is never taken.",
     "status": "defensive"
   },
   "normalize.py::if rp.curve_radii is None:::#1": {
@@ -653,6 +657,14 @@
   },
   "normalize.py::if rp.curve_radii is None:::#3": {
     "note": "curve_radii is always set for inter-section routes; the None arm in _restack_channel is a defensive guard.",
+    "status": "defensive"
+  },
+  "normalize.py::if rp.curve_radii is not None:::#1": {
+    "note": "Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates curve_radii, but _round_junction_perp_peeloff clears it to None for the fan-out-junction routes described above, so the field cannot be treated as always present (#1597).",
+    "status": "defensive"
+  },
+  "normalize.py::if run is None:::#1": {
+    "note": "Consumer of the _merge_convergence_run None arm above; unreachable for exactly the same reason and kept for the same reason (#1597).",
     "status": "defensive"
   },
   "normalize.py::if s.bbox_w <= 0:::#1": {
@@ -671,8 +683,8 @@
     "note": "Defensive guard: the merge trunk route opens horizontal-then-vertical (lead into the gap, then descend), so its initial fan-out descent is always found; the skip arm is never taken.",
     "status": "defensive"
   },
-  "normalize.py::if trunk_rp is None or trunk_src_st is None:::#1": {
-    "note": "Defensive guard in _merge_feeder_groups: a merge with a trunk_source always has a routed trunk edge and a resolvable trunk station, so the skip arm is never taken.",
+  "normalize.py::if trunk_rp is not None:::#1": {
+    "note": "Yield guard in _merge_trunks_and_feeders: every merge in trunk_source has its trunk edge routed by _route_merge_trunk, so the skip arm is never taken. Kept because the whole convergence reconciliation reads the trunk's settled channel, and there is nothing to read without it (#1597).",
     "status": "defensive"
   },
   "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {

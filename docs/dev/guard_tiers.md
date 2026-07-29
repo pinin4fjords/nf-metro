@@ -50,12 +50,18 @@ mid-pipeline reroute; its most expensive members
 (`routing/invariants.py`) run through a separate chokepoint and include
 members up to `check_no_hanging_routes` at ~470 us; cost alone does not gate
 Tier-A membership in either family, visibility of the defect does. **Tier C**
-holds the two seam oracle checks - `check_seam_approach_equals_departure` and
-`check_seam_segments_meet_at_port` - which verify the rotation-unification
-property: at every inter-section seam the approach must place each line on the
-lane coordinate that `lane_x` assigns it. Both are correctness oracles for the
-rotation series rather than runtime guards, so they live in the test suite
-(`tests/test_seam_lane_x.py`). Every other guard and check is reachable from
+holds the corpus oracles. Two are seam checks -
+`check_seam_approach_equals_departure` and `check_seam_segments_meet_at_port` -
+which verify the rotation-unification property: at every inter-section seam the
+approach must place each line on the lane coordinate that `lane_x` assigns it.
+Both are correctness oracles for the rotation series rather than runtime guards,
+so they live in the test suite (`tests/test_seam_lane_x.py`). The third,
+`check_merge_feeders_land_on_trunk` (`tests/test_merge_branch_trunk_invariant.py`),
+asserts exact coincidence where its always-on Tier-A sibling
+`check_merge_branches_meet_trunk` allows two corner radii of slack: a property a
+routing pass establishes by construction, so on the render path it could only
+fire for a feeder shaped by some other handler, aborting a map that is imperfect
+rather than broken. Every other guard and check is reachable from
 `compute_layout` or the render chokepoint.
 
 ## Registries
@@ -169,33 +175,34 @@ python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 
 ### Routing checks (`CHECK_REGISTRY`)
 
-| check                                                      | tier | mean us | runs                                          |
-| ---------------------------------------------------------- | ---- | ------: | --------------------------------------------- |
-| `check_bundle_order_preserved`                             | A    |    34.9 | render chokepoint (always-on)                 |
-| `check_concentric_bundle_corners`                          | A    |    41.1 | render chokepoint (always-on)                 |
-| `check_collinear_distinct_lines`                           | A    |   200.0 | render chokepoint (always-on)                 |
-| `check_no_same_line_parallel_descents`                     | A    |     5.6 | render chokepoint (always-on)                 |
-| `check_merge_branches_meet_trunk`                          | A    |     6.9 | render chokepoint (always-on)                 |
-| `check_no_hanging_routes`                                  | A    |   430.0 | render chokepoint (always-on)                 |
-| `check_bottom_row_climb_stays_at_row_level`                | A    |     2.9 | render chokepoint (always-on)                 |
-| `check_gap_channels_materialized`                          | A    |    22.5 | render chokepoint (always-on)                 |
-| `check_trunks_declared`                                    | A    |     1.8 | render chokepoint (always-on)                 |
-| `check_peeloff_concentric`                                 | A    |     4.2 | render chokepoint (always-on)                 |
-| `check_tb_exit_corner_preserves_column_order`              | B    |     1.5 | via `_guard_*` wrapper                        |
-| `check_fanout_tail_join`                                   | B    |     2.3 | via `_guard_*` wrapper                        |
-| `check_merge_port_approach_side`                           | B    |     4.6 | via `_guard_*` wrapper                        |
-| `check_merge_port_outgoing_side_preserved`                 | B    |     4.6 | via `_guard_*` wrapper                        |
-| `check_exit_inherits_entry_bundle_order`                   | B    |     1.6 | via `_guard_*` wrapper                        |
-| `check_partial_branch_offset_gaps`                         | B    |     1.8 | via `_guard_*` wrapper                        |
-| `check_no_split_same_line_fanout_descents`                 | B    |     2.0 | via `_guard_*` wrapper                        |
-| `check_no_distinct_line_fanout_crossing`                   | B    |     2.9 | via `_guard_*` wrapper                        |
-| `check_no_dogleg_crosses_exempt_trunk`                     | B    |     1.5 | via `_guard_*` wrapper                        |
-| `check_stacked_elbow_clearance`                            | B    |     7.1 | via `_guard_*` wrapper                        |
-| `check_perp_entry_boundary_consistent`                     | B    |     6.9 | via `_guard_*` wrapper                        |
-| `check_perp_exit_over_leadin_clears_only_spanned_sections` | B    |     2.5 | via `_guard_*` wrapper                        |
-| `check_right_entry_drop_in_when_clear`                     | B    |     2.1 | via `_guard_*` wrapper                        |
-| `check_seam_approach_equals_departure`                     | C    |       - | test suite only (`tests/test_seam_lane_x.py`) |
-| `check_seam_segments_meet_at_port`                         | C    |       - | test suite only (`tests/test_seam_lane_x.py`) |
+| check                                                      | tier | mean us | runs                                                           |
+| ---------------------------------------------------------- | ---- | ------: | -------------------------------------------------------------- |
+| `check_bundle_order_preserved`                             | A    |    34.9 | render chokepoint (always-on)                                  |
+| `check_concentric_bundle_corners`                          | A    |    41.1 | render chokepoint (always-on)                                  |
+| `check_collinear_distinct_lines`                           | A    |   200.0 | render chokepoint (always-on)                                  |
+| `check_no_same_line_parallel_descents`                     | A    |     5.6 | render chokepoint (always-on)                                  |
+| `check_merge_branches_meet_trunk`                          | A    |     6.9 | render chokepoint (always-on)                                  |
+| `check_no_hanging_routes`                                  | A    |   430.0 | render chokepoint (always-on)                                  |
+| `check_bottom_row_climb_stays_at_row_level`                | A    |     2.9 | render chokepoint (always-on)                                  |
+| `check_gap_channels_materialized`                          | A    |    22.5 | render chokepoint (always-on)                                  |
+| `check_trunks_declared`                                    | A    |     1.8 | render chokepoint (always-on)                                  |
+| `check_peeloff_concentric`                                 | A    |     4.2 | render chokepoint (always-on)                                  |
+| `check_tb_exit_corner_preserves_column_order`              | B    |     1.5 | via `_guard_*` wrapper                                         |
+| `check_fanout_tail_join`                                   | B    |     2.3 | via `_guard_*` wrapper                                         |
+| `check_merge_port_approach_side`                           | B    |     4.6 | via `_guard_*` wrapper                                         |
+| `check_merge_port_outgoing_side_preserved`                 | B    |     4.6 | via `_guard_*` wrapper                                         |
+| `check_exit_inherits_entry_bundle_order`                   | B    |     1.6 | via `_guard_*` wrapper                                         |
+| `check_partial_branch_offset_gaps`                         | B    |     1.8 | via `_guard_*` wrapper                                         |
+| `check_no_split_same_line_fanout_descents`                 | B    |     2.0 | via `_guard_*` wrapper                                         |
+| `check_no_distinct_line_fanout_crossing`                   | B    |     2.9 | via `_guard_*` wrapper                                         |
+| `check_no_dogleg_crosses_exempt_trunk`                     | B    |     1.5 | via `_guard_*` wrapper                                         |
+| `check_stacked_elbow_clearance`                            | B    |     7.1 | via `_guard_*` wrapper                                         |
+| `check_perp_entry_boundary_consistent`                     | B    |     6.9 | via `_guard_*` wrapper                                         |
+| `check_perp_exit_over_leadin_clears_only_spanned_sections` | B    |     2.5 | via `_guard_*` wrapper                                         |
+| `check_right_entry_drop_in_when_clear`                     | B    |     2.1 | via `_guard_*` wrapper                                         |
+| `check_seam_approach_equals_departure`                     | C    |       - | test suite only (`tests/test_seam_lane_x.py`)                  |
+| `check_seam_segments_meet_at_port`                         | C    |       - | test suite only (`tests/test_seam_lane_x.py`)                  |
+| `check_merge_feeders_land_on_trunk`                        | C    |       - | test suite only (`tests/test_merge_branch_trunk_invariant.py`) |
 
 ### Inline guards (`INLINE_GUARD_REGISTRY`)
 
