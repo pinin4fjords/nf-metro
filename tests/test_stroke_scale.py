@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from nf_metro.api import RenderConfig, prepare_graph, render_graph, resolve_theme
@@ -14,6 +16,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.pass_metrics import station_radius_approx, stroke_scale_context
 from nf_metro.parser import parse_metro_mermaid
+from nf_metro.render.constants import RAIL_KNOB_RADIUS_RATIO
 from nf_metro.render.svg import _scale_theme_strokes
 
 _SRC = """%%metro title: Bundle
@@ -107,6 +110,29 @@ def test_layout_reserves_against_the_drawn_pill(scale: float) -> None:
 
     with stroke_scale_context(scale):
         assert station_radius_approx() == pytest.approx(drawn.station_radius)
+
+
+def test_interchange_glyph_keeps_its_proportions() -> None:
+    """A coarsened spanning interchange enlarges rather than squashes.
+
+    Its length comes from the rail pitch and its width from the stroke scale, so
+    a pitch left fixed while the marker widens turns the glyph into a stub.  The
+    ratio of the two is what has to hold, whatever the scale.
+    """
+    src = Path("examples/sarek_metro.mmd").read_text()
+
+    def aspect(scale: float) -> float:
+        graph = prepare_graph(
+            src, source_dir="examples", layout_options={"stroke_scale": scale}
+        )
+        rail_ys = sorted(graph._rail_y["calling"].values())
+        span = rail_ys[-1] - rail_ys[0]
+        knob_width = 2.0 * STATION_RADIUS_APPROX * scale * RAIL_KNOB_RADIUS_RATIO
+        return (span + knob_width) / knob_width
+
+    unscaled = aspect(1.0)
+    for scale in (1.3, 1.6, 2.0):
+        assert aspect(scale) == pytest.approx(unscaled)
 
 
 def test_pass_scales_do_not_leak() -> None:

@@ -698,11 +698,17 @@ def _rail_slot_offsets(
     for lid in lines:
         members_in_slot.setdefault(slot_index[lid], []).append(lid)
 
+    # A spanning interchange reaches from its top rail to its bottom one, so the
+    # rail pitch sets the glyph's length while the stroke scale sets its width.
+    # Leaving the pitch fixed as the marker widens squashes the interchange into a
+    # stub instead of enlarging it, so the pitch tracks the same scale.
+    rail_pitch = y_spacing * graph.stroke_scale
+
     per_line_offset: dict[str, float] = {}
     for lid in lines:
         slot = slot_index[lid]
         members = members_in_slot[slot]
-        base = slot * y_spacing
+        base = slot * rail_pitch
         if len(members) == 1:
             per_line_offset[lid] = base
         else:
