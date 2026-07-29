@@ -1,4 +1,4 @@
-"""Tests for fork-hub / join-hub centreline agreement (#1595).
+"""Tests for fork-hub / join-hub centreline agreement (#1595, #1617).
 
 Under ``diamond_style: symmetric`` the join hub of a fan is explicitly
 recentred on its (post-grid-snap) branch midpoint, but the fork hub is not -
@@ -7,11 +7,17 @@ midpoint lands on a grid line anyway, so the two agree by coincidence. For
 an even branch count the midpoint sits at a half-pitch offset, and only the
 join hub gets pulled back onto it: the fork hub is left wherever the grid
 snap nearest it happened to land, which can be a full pitch away from the
-join hub.
+join hub (#1595).
 
-A port-fed variant of this fan surfaces an overlapping but distinct defect
-(#1272: ``diamond_style: symmetric`` never applies to a fork that begins at
-a section's entry port) and is out of scope here.
+The centreline the two hubs settle on must also reach the section's own
+LR/RL ports and the single-line trunk stations feeding them, otherwise the
+boundary run leaves the section as a diagonal and the upstream trunk sits a
+row off the fan it feeds (#1617).
+
+A fork that begins *at* a section's entry port - rather than at an in-section
+hub the port feeds - surfaces an overlapping but distinct defect (#1272:
+``diamond_style: symmetric`` never applies to that fork's branch placement)
+and is out of scope here.
 """
 
 from __future__ import annotations
@@ -40,6 +46,32 @@ graph LR
 """
 
 
+def _ported_fan(n: int) -> str:
+    stations = "\n".join(f"        b{i}[B{i}]" for i in range(n))
+    forks = "\n".join(f"        hub -->|a| b{i}" for i in range(n))
+    joins = "\n".join(f"        b{i} -->|a| j" for i in range(n))
+    return f"""%%metro title: ported fan
+%%metro diamond_style: symmetric
+%%metro line: a | A | #24b064
+graph LR
+    subgraph up [Up]
+        feed[Feed]
+    end
+    subgraph s [S]
+        hub[ ]
+{stations}
+        j[ ]
+{forks}
+{joins}
+    end
+    subgraph down [Down]
+        sink[Sink]
+    end
+    feed -->|a| hub
+    j -->|a| sink
+"""
+
+
 @pytest.mark.parametrize("n", [2, 3, 4, 5, 6, 7, 8])
 def test_fork_and_join_hub_share_centreline(n: int) -> None:
     graph = parse_metro_mermaid(_bare_fan(n))
@@ -51,3 +83,32 @@ def test_fork_and_join_hub_share_centreline(n: int) -> None:
     assert join.y == pytest.approx(mean, abs=1.0), "join hub off the branch mean"
     assert hub.y == pytest.approx(mean, abs=1.0), "fork hub off the branch mean"
     assert hub.y == pytest.approx(join.y, abs=1.0), "fork/join hubs disagree"
+
+
+@pytest.mark.parametrize("n", [3, 4, 5, 6, 7, 8])
+def test_ported_fan_centreline_reaches_ports_and_trunk(n: int) -> None:
+    """The fan section's LR ports, and the trunk stations either side of it,
+    sit on the same centreline the fork and join hubs settle on.
+
+    ``feed -> up exit -> s entry -> hub`` and ``j -> s exit -> down entry ->
+    sink`` are single-line pass-through chains carrying nothing but the trunk,
+    so every member has to share the hubs' Y.
+
+    Two branches take the older 2-branch half-grid compaction path instead,
+    whose port-fed placement is the separate gap #1272 tracks, so they are out
+    of scope here.
+    """
+    graph = parse_metro_mermaid(_ported_fan(n))
+    compute_layout(graph, validate=True)
+    centre = graph.stations["hub"].y
+    followers = ["feed", "sink"] + [
+        pid
+        for sec in graph.sections.values()
+        for pid in (*sec.entry_ports, *sec.exit_ports)
+    ]
+    off = {
+        sid: graph.stations[sid].y
+        for sid in followers
+        if abs(graph.stations[sid].y - centre) > 1.0
+    }
+    assert not off, f"off the hub centreline y={centre}: {off}"
