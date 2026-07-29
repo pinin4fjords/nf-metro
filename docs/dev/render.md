@@ -18,10 +18,12 @@ the SVG for downstream tooling.
 `render_svg(graph, theme, ...)` is the top-level call. It:
 
 1. Scales theme fonts by `graph.font_scale` (set by the `%%metro font_scale:`
-   directive or the `--font-scale` CLI flag), then theme stroke weights by
-   `graph.stroke_scale` (`%%metro stroke_scale:` / `--stroke-scale`). The bundle
-   offset step both sides use comes from `graph_offset_step`, so the pitch the
-   renderer draws at cannot drift from the one layout reserved.
+   directive or the `--font-scale` CLI flag), then theme stroke weights and the
+   station pill radius by `graph.stroke_scale` (`%%metro stroke_scale:` /
+   `--stroke-scale`). Layout reserves against the same scales via
+   `layout/pass_metrics.py`, and both sides resolve bundle pitch through
+   `graph_offset_step`, so what the renderer draws cannot outgrow what layout
+   reserved.
 2. Calls `_render_svg_scaled`, which does the actual drawing via the
    `drawsvg` library.
 3. If `graph.animate` is set (or `--animate` was passed), calls

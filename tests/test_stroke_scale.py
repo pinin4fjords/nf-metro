@@ -8,9 +8,11 @@ from nf_metro.api import RenderConfig, prepare_graph, render_graph, resolve_them
 from nf_metro.layout.constants import (
     DEFAULT_LINE_WIDTH,
     OFFSET_STEP,
+    STATION_RADIUS_APPROX,
     graph_offset_step,
     resolve_offset_step,
 )
+from nf_metro.layout.pass_metrics import station_radius_approx, stroke_scale_context
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.render.svg import _scale_theme_strokes
 
@@ -80,8 +82,7 @@ def test_pitch_clears_the_drawn_stroke() -> None:
                 assert graph_offset_step(graph, drawn) >= drawn
 
 
-def test_scaled_theme_coarsens_strokes_but_not_marker_radius() -> None:
-    """Marker radius is excluded: layout reserves clearance against a fixed one."""
+def test_scaled_theme_coarsens_every_ink_dimension() -> None:
     graph = _graph()
     theme = resolve_theme(None, graph)
     scaled = _scale_theme_strokes(theme, 2.0)
@@ -91,7 +92,28 @@ def test_scaled_theme_coarsens_strokes_but_not_marker_radius() -> None:
         theme.station_stroke_width * 2.0
     )
     assert scaled.label_halo_width == pytest.approx(theme.label_halo_width * 2.0)
-    assert scaled.station_radius == theme.station_radius
+    assert scaled.station_radius == pytest.approx(theme.station_radius * 2.0)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.6, 2.0])
+def test_layout_reserves_against_the_drawn_pill(scale: float) -> None:
+    """The radius layout reserves against must match the one the render draws.
+
+    A pill grown only at render time would eat the label clearance and marker
+    footprints that layout sized for an unscaled marker.
+    """
+    graph = _graph(stroke_scale=scale)
+    drawn = _scale_theme_strokes(resolve_theme(None, graph), scale)
+
+    with stroke_scale_context(scale):
+        assert station_radius_approx() == pytest.approx(drawn.station_radius)
+
+
+def test_pass_scales_do_not_leak() -> None:
+    """Each scale is scoped to its pass, so an unscaled graph is unaffected."""
+    with stroke_scale_context(2.0):
+        assert station_radius_approx() == pytest.approx(STATION_RADIUS_APPROX * 2.0)
+    assert station_radius_approx() == pytest.approx(STATION_RADIUS_APPROX)
 
 
 def test_unit_scale_returns_the_same_theme() -> None:

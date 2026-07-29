@@ -23,7 +23,6 @@ from nf_metro.layout.constants import (
     LINE_GAP,
     MIN_STATION_FLAT_LENGTH,
     SAME_COORD_TOLERANCE,
-    STATION_RADIUS_APPROX,
     TB_LINE_Y_OFFSET,
     TERMINUS_ICON_CLEARANCE,
     TERMINUS_ICON_CLEARANCE_V,
@@ -43,6 +42,7 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
+from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phases._common import (
     _build_section_subgraph,
     _exit_reaching_nodes,
@@ -980,7 +980,7 @@ def _terminus_icon_flow_overhang(
         if captioned
         else 0.0
     )
-    body = STATION_RADIUS_APPROX + TERMINUS_ICON_GAP + 2 * ICON_HALF_HEIGHT
+    body = station_radius_approx() + TERMINUS_ICON_GAP + 2 * ICON_HALF_HEIGHT
     step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
     return body + caption_room + (n_icons - 1) * step
 

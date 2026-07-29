@@ -17,7 +17,6 @@ from nf_metro.layout.constants import (
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
-    STATION_RADIUS_APPROX,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -25,6 +24,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_y,
     quantize_coord,
 )
+from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
@@ -572,7 +572,7 @@ def _station_marker_bbox(
     graph: MetroGraph,
     sid: str,
     offsets: dict[tuple[str, str], float] | None = None,
-    radius: float = STATION_RADIUS_APPROX,
+    radius: float | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Rendered marker / icon bbox for ``sid``, or ``None`` for ports,
     hidden stations, and junctions.
@@ -582,6 +582,9 @@ def _station_marker_bbox(
     at ``(station.x, station.y + (min_off + max_off) / 2)``.
     """
     from nf_metro.layout.routing import compute_station_offsets
+
+    if radius is None:
+        radius = station_radius_approx()
 
     st = graph.stations.get(sid)
     if st is None or st.is_port or st.is_hidden or sid in graph.junctions:

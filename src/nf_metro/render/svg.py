@@ -26,9 +26,9 @@ from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
     _label_bbox,
-    font_scale_context,
     place_labels,
 )
+from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
@@ -479,7 +479,11 @@ def render_svg(
     scaled_theme = _scale_theme_strokes(
         _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
     )
-    with class_prefix_context(svg_class_prefix), font_scale_context(graph.font_scale):
+    with (
+        class_prefix_context(svg_class_prefix),
+        font_scale_context(graph.font_scale),
+        stroke_scale_context(graph.stroke_scale),
+    ):
         try:
             svg = _render_svg_scaled(
                 graph,
@@ -584,15 +588,17 @@ def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
 def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
     """Return a theme with every stroke weight multiplied by ``scale``.
 
-    Station marker radius is deliberately excluded: the layout engine reserves
-    label clearance against a fixed ``STATION_RADIUS_APPROX``, so growing the
-    drawn radius here would eat that clearance rather than being reserved for.
+    The station pill radius scales with the strokes so a coarsened map keeps its
+    marker proportions.  Layout reserves label clearance and marker footprints
+    through ``station_radius_approx()``, which tracks the same scale, so the
+    grown pill is reserved for rather than eating that clearance.
     """
     if scale == 1.0:
         return theme
     return replace(
         theme,
         line_width=theme.line_width * scale,
+        station_radius=theme.station_radius * scale,
         station_stroke_width=theme.station_stroke_width * scale,
         label_halo_width=theme.label_halo_width * scale,
     )

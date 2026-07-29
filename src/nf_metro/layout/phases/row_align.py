@@ -10,7 +10,6 @@ from nf_metro.layout.constants import (
     LABEL_OFFSET,
     PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
-    STATION_RADIUS_APPROX,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import (
@@ -20,6 +19,7 @@ from nf_metro.layout.geometry import (
     shift_section,
 )
 from nf_metro.layout.labels import active_font_scale
+from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phases._common import (
     _classify_multi_station_ys,
     _classify_section_station_ys,
@@ -112,7 +112,7 @@ def _row_group_grid_spacing(
     offset_step = graph_offset_step(graph)
     min_track_gap = (
         (max_lines - 1) * offset_step
-        + 2 * STATION_RADIUS_APPROX
+        + 2 * station_radius_approx()
         + LABEL_OFFSET
         + FONT_HEIGHT * active_font_scale()
     )

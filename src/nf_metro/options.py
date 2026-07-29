@@ -183,9 +183,9 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         name="stroke_scale",
         kind="float",
         sign="positive",
-        help="Scale track stroke weight, station marker strokes, and label "
-        "halos, widening bundle spacing to match (1.0 = default). Keeps lines "
-        "legible on a large map that gets downscaled to fit a screen.",
+        help="Scale track stroke weight, station pill size, and label halos, "
+        "widening bundle spacing and marker clearance to match (1.0 = default). "
+        "Keeps a large map legible when it is downscaled to fit a screen.",
     ),
     LayoutOption(
         name="logo_scale",
