@@ -88,6 +88,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _h_segment_crosses_other_section,
     _HTrunk,
     _inter_row_gap_band,
+    _land_merge_feeders_on_trunk,
     _materialize_gap_slots,
     _materialize_trunk_slots,
     _nest_bypass_above_over_top_wrap,
@@ -253,6 +254,11 @@ def _route_edges(
     # up-arm through the concentric channel machinery so the two clear.  Reads
     # the settled columns, so it runs after the channel-settling passes.
     _clear_merge_trunk_opposite_arm(routes, ctx)
+    # Settle where each merge feeder meets its trunk -- on the trunk's own
+    # centreline, at or before the corner it turns away on. Runs downstream of
+    # every pass that moves a trunk channel or a feeder's descent column, since
+    # it reads both from the settled geometry.
+    _land_merge_feeders_on_trunk(routes, ctx)
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.

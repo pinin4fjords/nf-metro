@@ -1297,6 +1297,14 @@ gallery:
       Two fan sources each feed one merge junction and one side section; a packed
       cell-mate pushes their shared merge descent into an inter-column gap, so both
       feeders fuse onto a single descent channel that splits to the side and target.
+  - id: merge_feeders_three_columns
+    source_dir: examples/topologies
+    category: Merge & Convergence
+    description:
+      Three sections each send the same line on to a shared sink, so one feeder
+      carries the trunk the whole way and the other two converge onto it from their own
+      columns; each lands on the trunk's centreline, at or before the corner it turns
+      down on, rather than a lane beside it (issue #1597).
   - id: merge_trunk_out_of_range_section
     source_dir: examples/topologies
     category: Merge & Convergence

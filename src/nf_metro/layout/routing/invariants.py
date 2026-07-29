@@ -3562,6 +3562,131 @@ def _merge_entry_port(graph: MetroGraph, merge_id: str) -> Station | None:
     return None
 
 
+@dataclass(frozen=True)
+class MergeFeederOffTrunk:
+    """A merge feeder that stops beside the trunk instead of on it.
+
+    The precision counterpart of :class:`MergeBranchHang`, which reports a
+    feeder stranded in open space.  A terminus only a few pixels off the trunk
+    clears that report and draws a stub with a visible stroke cap.  Two shapes
+    do: a landing on a parallel lane an offset step off the trunk's centreline,
+    where the two strokes read as a smear rather than a junction; and a tail
+    carried past the trunk's own corner, where the run it was meant to overlap
+    has turned away and the overshoot lies over nothing.  ``gap`` is the
+    distance from the feeder's terminus to the nearest point of the structure
+    it converges on.
+    """
+
+    merge_id: str
+    line_id: str
+    source: str
+    endpoint: tuple[float, float]
+    gap: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"merge {self.merge_id!r}: feeder {self.line_id!r} from "
+            f"{self.source!r} terminates at "
+            f"({self.endpoint[0]:.1f},{self.endpoint[1]:.1f}), {self.gap:.1f}px "
+            f"off the trunk it converges on -- a feeder must end ON the trunk's "
+            f"centreline, at or before the trunk's own corner"
+        )
+
+
+_FeederPolylines = list[tuple[Edge, list[tuple[float, float]]]]
+
+
+def _iter_merge_convergences(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> Iterator[tuple[str, Station, Station, _FeederPolylines]]:
+    """Yield ``(merge_id, merge_station, entry_port, feeder_polylines)`` per merge.
+
+    The shared reading for both merge-endpoint checks: a reconvergence merge has
+    at least two feeders and one entry-port successor, and each feeder is read as
+    the offset-applied geometry actually drawn for it.  Merges that are not a
+    reconvergence, or whose markers are missing, are skipped.
+    """
+    by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
+    for merge_id in graph.junctions:
+        feeders = list(graph.edges_to(merge_id))
+        entry_port = _merge_entry_port(graph, merge_id)
+        merge_st = graph.stations.get(merge_id)
+        if len(feeders) < 2 or entry_port is None or merge_st is None:
+            continue
+        polylines = [
+            (e, apply_route_offsets(r, offsets))
+            for e in feeders
+            if (r := by_key.get((e.source, e.target, e.line_id))) is not None
+            and len(r.points) >= 2
+        ]
+        yield merge_id, merge_st, entry_port, polylines
+
+
+def check_merge_feeders_land_on_trunk(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[MergeFeederOffTrunk]:
+    """Return merge feeders whose terminus lies beside the trunk, not on it.
+
+    Scoped to the feeders whose source is itself a junction, the same set
+    ``_classify_merge_edges`` draws its trunk and branches from.  A feeder
+    arriving straight off an exit port carries the whole bundle's lateral spread
+    into the junction marker, which can exceed any fixed endpoint tolerance
+    without anything being wrong.
+
+    Such a feeder ends one of two ways, and each has its own tolerance:
+
+    * **At a marker** -- the merge junction or the entry port.  A marker is
+      line-agnostic while the arriving stroke rides its own bundle lane, so a
+      terminus within :data:`_MERGE_BRANCH_HANG_TOL` of one counts as arrived.
+    * **On a sibling's path** -- the trunk it converges onto.  Here the slack is
+      :data:`COORD_TOLERANCE`, because the point of converging is that the two
+      lines become one stroke; a terminus a bundle offset off the trunk's
+      centreline, or past the corner where that centreline turns away, draws a
+      stub with a visible cap.
+
+    A feeder that reaches neither is the defect.
+    :func:`check_merge_branches_meet_trunk` reports the same structure at hang
+    scale (a stub stranded in open space); this one is the precision oracle over
+    the same endpoints.
+    """
+    junction_ids = graph.junction_ids
+    violations: list[MergeFeederOffTrunk] = []
+    for merge_id, merge_st, entry_port, polylines in _iter_merge_convergences(
+        graph, routes, offsets
+    ):
+        markers = [(merge_st.x, merge_st.y), (entry_port.x, entry_port.y)]
+        for edge, pts in polylines:
+            if edge.source not in junction_ids:
+                continue
+            end = pts[-1]
+            if min(math.dist(end, m) for m in markers) <= _MERGE_BRANCH_HANG_TOL:
+                continue
+            gap = min(
+                (
+                    point_to_polyline_distance(end, other)
+                    for other_edge, other in polylines
+                    if other_edge is not edge
+                ),
+                default=float("inf"),
+            )
+            if gap > COORD_TOLERANCE:
+                violations.append(
+                    MergeFeederOffTrunk(
+                        merge_id=merge_id,
+                        line_id=edge.line_id,
+                        source=edge.source,
+                        endpoint=end,
+                        gap=gap,
+                    )
+                )
+    return violations
+
+
 def check_merge_branches_meet_trunk(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -3577,29 +3702,14 @@ def check_merge_branches_meet_trunk(
     junction, and the entry port is a stub hanging in open space -- the
     symptom of the branch drop level disagreeing with the trunk's real channel.
     """
-    by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
     violations: list[MergeBranchHang] = []
-    for merge_id in graph.junctions:
-        feeders = list(graph.edges_to(merge_id))
-        if len(feeders) < 2:
-            continue
-        entry_port = _merge_entry_port(graph, merge_id)
-        if entry_port is None:
-            continue
-        merge_st = graph.stations.get(merge_id)
-        if merge_st is None:
-            continue
-        polylines: list[tuple[Edge, list[tuple[float, float]]]] = []
-        for e in feeders:
-            r = by_key.get((e.source, e.target, e.line_id))
-            if r is not None and len(r.points) >= 2:
-                polylines.append((e, apply_route_offsets(r, offsets)))
+    for merge_id, merge_st, entry_port, polylines in _iter_merge_convergences(
+        graph, routes, offsets
+    ):
         for edge, pts in polylines:
             end = pts[-1]
-            d_merge = ((end[0] - merge_st.x) ** 2 + (end[1] - merge_st.y) ** 2) ** 0.5
-            d_entry = (
-                (end[0] - entry_port.x) ** 2 + (end[1] - entry_port.y) ** 2
-            ) ** 0.5
+            d_merge = math.dist(end, (merge_st.x, merge_st.y))
+            d_entry = math.dist(end, (entry_port.x, entry_port.y))
             d_sibling = min(
                 (
                     point_to_polyline_distance(end, other)
@@ -4839,6 +4949,20 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     # --- Tier C: test-only oracles, run from the test suite, not the runtime ---
     _check_spec(check_seam_approach_equals_departure, "C"),
     _check_spec(check_seam_segments_meet_at_port, "C"),
+    _check_spec(
+        check_merge_feeders_land_on_trunk,
+        "C",
+        issue_pin=("#1597",),
+        narrow_reason=(
+            "An exact-coincidence oracle over the corpus rather than a render "
+            "guard: `_land_merge_feeders_on_trunk` establishes the property by "
+            "construction for the branch-feeder family, so on the render path "
+            "the check could only fire for a feeder some other handler shaped, "
+            "aborting a map that is imperfect rather than broken. "
+            "`check_merge_branches_meet_trunk` is the always-on Tier-A member "
+            "that covers the same structure at hang scale."
+        ),
+    ),
 )
 
 
@@ -4857,6 +4981,7 @@ __all__ = [
     "HangingRoute",
     "JunctionPeeloffCorner",
     "MergeBranchHang",
+    "MergeFeederOffTrunk",
     "MergePortApproachViolation",
     "NonConcentricCornerViolation",
     "PartialBranchGapViolation",
@@ -4884,6 +5009,7 @@ __all__ = [
     "check_fanout_tail_join",
     "check_no_distinct_line_fanout_crossing",
     "check_merge_branches_meet_trunk",
+    "check_merge_feeders_land_on_trunk",
     "check_merge_port_approach_side",
     "check_no_hanging_routes",
     "check_collinear_distinct_lines",

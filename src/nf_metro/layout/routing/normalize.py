@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import itertools
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import NamedTuple, TypeVar
 
@@ -47,6 +47,7 @@ from nf_metro.layout.routing.common import (
     trunk_segments_cross,
 )
 from nf_metro.layout.routing.context import (
+    _MergeRouting,
     _resolve_section_col,
     _RoutingCtx,
 )
@@ -862,10 +863,15 @@ def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -
     on to the port; once they all reach the port, the overhang is the only part
     of the hop that is not already drawn.
 
+    A feeder that stops at the merge station is the evidence that keeps the hop,
+    and the hop's own two ends are where to look for it: it runs from the merge
+    station to the port on the converging line's own track, so a feeder arriving
+    at either lands on one of them without any offset arithmetic.  Dropping it
+    needs both -- no feeder waiting at the merge station, and one already at the
+    port to carry the line in.
+
     Runs after the coincidence passes, since only the settled channels say where
-    the feeders converge.  Every arrival counts, whatever its scope: a route
-    ending short of the port is the evidence that keeps the hop, so narrowing
-    what counts risks dropping a hop that is load-bearing.
+    the feeders converge.
     """
     if not ctx.merge.junctions:
         return
@@ -877,15 +883,18 @@ def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -
         elif ctx.merge.entry_port_for.get(rp.edge.source) == rp.edge.target:
             hop_by_merge[rp.edge.source] = rp
 
+    def ends_at(rp: RoutedPath, point: tuple[float, float]) -> bool:
+        return (
+            abs(rp.points[-1][0] - point[0]) <= COORD_TOLERANCE
+            and abs(rp.points[-1][1] - point[1]) <= COORD_TOLERANCE
+        )
+
     covered = {
         id(hop)
         for mjid, hop in hop_by_merge.items()
         if (feeders := feeders_by_merge.get(mjid))
-        and all(
-            abs(r.points[-1][0] - hop.points[-1][0]) <= COORD_TOLERANCE
-            and abs(r.points[-1][1] - hop.points[-1][1]) <= COORD_TOLERANCE
-            for r in feeders
-        )
+        and not any(ends_at(r, hop.points[0]) for r in feeders)
+        and any(ends_at(r, hop.points[-1]) for r in feeders)
     }
     if covered:
         routes[:] = [r for r in routes if id(r) not in covered]
@@ -1489,6 +1498,37 @@ def _descent_crosses_section(graph: MetroGraph, ch: _VChannel, x: float) -> bool
     return _section_intrudes(graph, x, ch.y_lo, ch.y_hi, exclude=own)
 
 
+def _merge_trunks_and_feeders(
+    routes: list[RoutedPath], merge: _MergeRouting
+) -> Iterator[tuple[str, RoutedPath, list[RoutedPath]]]:
+    """Yield ``(merge_id, trunk_route, other_feeder_routes)`` per trunked merge.
+
+    Grouping the routes by target rather than looking each merge edge up by key
+    drops the feeders that were never routed as paths of their own: a port
+    predecessor is redirected into the merge instead (see
+    ``_classify_merge_edges``), so its edge has no route to find.  A merge whose
+    trunk carrier itself did not route is skipped: it has no channel for the
+    others to converge onto.  An empty feeder list yields normally, leaving
+    callers to iterate nothing rather than guard a case.
+    """
+    if not merge.trunk_source:
+        return
+    by_target: dict[str, list[RoutedPath]] = defaultdict(list)
+    for rp in routes:
+        if rp.is_inter_section and rp.edge.target in merge.trunk_source:
+            by_target[rp.edge.target].append(rp)
+    for mjid, trunk_src in merge.trunk_source.items():
+        trunk_rp: RoutedPath | None = None
+        others: list[RoutedPath] = []
+        for rp in by_target[mjid]:
+            if rp.edge.source == trunk_src:
+                trunk_rp = rp
+            else:
+                others.append(rp)
+        if trunk_rp is not None:
+            yield mjid, trunk_rp, others
+
+
 def _merge_feeder_groups(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> list[_Coincidence]:
@@ -1505,30 +1545,10 @@ def _merge_feeder_groups(
     in their own gap and converge along the shared horizontal channel, so they
     are left alone.
     """
-    merge = ctx.merge
-    if not merge.trunk_source:
-        return []
     graph = ctx.graph
-    by_key = {
-        (r.edge.source, r.edge.target, r.line_id): r
-        for r in routes
-        if r.is_inter_section
-    }
     groups: list[_Coincidence] = []
-    for mjid, trunk_src in merge.trunk_source.items():
-        trunk_rp: RoutedPath | None = None
-        branch_rps: list[RoutedPath] = []
-        for e in graph.edges_to(mjid):
-            rp = by_key.get((e.source, e.target, e.line_id))
-            if rp is None:
-                continue
-            if e.source == trunk_src:
-                trunk_rp = rp
-            else:
-                branch_rps.append(rp)
-        trunk_src_st = graph.stations.get(trunk_src)
-        if trunk_rp is None or trunk_src_st is None:
-            continue
+    for mjid, trunk_rp, branch_rps in _merge_trunks_and_feeders(routes, ctx.merge):
+        trunk_src_st = graph.stations[ctx.merge.trunk_source[mjid]]
         trunk_ch = _initial_fanout_descent(trunk_rp)
         if trunk_ch is None:
             continue
@@ -1545,6 +1565,92 @@ def _merge_feeder_groups(
         if members:
             groups.append(_Coincidence(members, trunk_ch.x))
     return groups
+
+
+def _merge_convergence_run(trunk_rp: RoutedPath, level: float) -> HTrunkSeg | None:
+    """The trunk leg a merge's feeders converge onto, or ``None``.
+
+    The feeders were routed toward the channel level the context published
+    (``trunk_by``); the leg the trunk finally runs it on is whichever of its
+    horizontal trunks sits nearest that level, since the slot materialisation
+    that re-stacks the channel reassigns the Y but not which leg it is.
+    """
+    trunks = [seg for _k, seg in iter_horizontal_trunks(trunk_rp)]
+    if not trunks:
+        return None
+    return min(trunks, key=lambda seg: abs(seg.y - level))
+
+
+def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> None:
+    """Terminate one merge feeder on *run*, the trunk leg it converges onto.
+
+    The feeder arrives as a descent into a short tail (:func:`_route_merge_branch`)
+    whose level and length were fixed before the channel passes settled where the
+    trunk actually runs, so both need re-deriving from the settled leg:
+
+    * The tail moves onto the run's own Y, so the two lines meet on one
+      centreline instead of running an offset step apart.
+    * The tail is cut to the run it has left before the trunk turns away, so it
+      overlaps the trunk rather than reaching past its corner into open space.
+
+    A feeder with less than a radius of run left to travel cannot form that turn
+    at all.  It converges on the corner itself: its descent moves onto the
+    trunk's own turn column and runs a radius past the run, onto the leg the
+    trunk continues into, so the two read as one unbroken column.  When the
+    trunk continues back the way the feeder came, the descent already covers
+    that leg and stops on the run.
+    """
+    radius = ctx.curve_radius
+    pts = rp.points
+    verticals = list(iter_vertical_segments(rp))
+    if not verticals:
+        return
+    k, lead_x, y_lo, y_hi, down = verticals[-1]
+    # A merge feeder's source is a junction, which may also be a fan-out junction
+    # -- and _round_junction_perp_peeloff prepends a waypoint to those routes, so
+    # the handler's four-point shape does not survive routing as a given.
+    if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:
+        return
+    travel = 1.0 if run.xb >= run.xa else -1.0
+    along = (run.xb - lead_x) * travel
+    if along >= radius:
+        pts[k + 2] = (lead_x + travel * min(2 * radius, along), run.y)
+        _set_htrunk_y(rp, k + 1, run.y)
+        return
+    ch = _VChannel(route=rp, idx=k, x=lead_x, y_lo=y_lo, y_hi=y_hi, down=down)
+    overlap = radius if (run.after_y > run.y) == down else 0.0
+    del pts[k + 2]
+    # The same peel-off rounding pass clears curve_radii outright.
+    if rp.curve_radii is not None:
+        del rp.curve_radii[k:]
+    pts[k + 1] = (lead_x, run.y + overlap * (1.0 if down else -1.0))
+    _reconcile_moved_gap_slot(ch, run.xb, ctx.graph)
+    _set_vchannel_x(ch, run.xb)
+
+
+def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Land every merge branch feeder on the trunk leg it converges onto.
+
+    A merge with a trunk routes its other feeders as branches dropping toward the
+    trunk's bypass channel (:func:`_route_merge_branch`), aimed at the level the
+    context published rather than the one the trunk ends up on: the slot
+    materialisation and coincidence passes re-stack the channel and slide the
+    descent columns afterwards, each moving one leg of the feeder without the
+    other.  A feeder therefore lands an offset step off the trunk's centreline,
+    or carries its tail past the corner where the trunk has already turned away,
+    and either way ends in a stroke cap over nothing.
+
+    This is the single pass that settles where a feeder meets its trunk, so it
+    runs after every pass that moves either of them.
+    """
+    merge = ctx.merge
+    for mjid, trunk_rp, others in _merge_trunks_and_feeders(routes, merge):
+        run = _merge_convergence_run(trunk_rp, merge.trunk_by[mjid])
+        if run is None:
+            continue
+        for rp in others:
+            if (rp.edge.source, rp.edge.target, rp.line_id) in merge.branch_edges:
+                _land_feeder_on_run(rp, run, ctx)
 
 
 def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
