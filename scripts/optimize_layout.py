@@ -38,8 +38,7 @@ sys.path.insert(0, str(REPO / "tests"))
 sys.path.insert(0, str(REPO / "datasets" / "layout_preferences" / "scripts"))
 warnings.filterwarnings("ignore")
 
-from layout_metrics import compute_metrics  # noqa: E402
-from terms import marker_crowding  # noqa: E402
+from layout_metrics import compute_metrics, marker_crowding  # noqa: E402
 
 from nf_metro.layout import compute_layout  # noqa: E402
 from nf_metro.parser import parse_metro_mermaid  # noqa: E402

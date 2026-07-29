@@ -127,7 +127,7 @@ returns here, and only here - narrowed to genuinely large programs, never to
 - Never merge without explicit per-PR authorisation from the user. Autonomy is
   about resolving and pushing *complete* work, not self-authorising merges.
   "Drive to conclusion" means "get every PR green and reviewable"; merge only
-  what the user okays, per-PR (Step 8 / Step 13). Pre-authorisation to *work*
+  what the user okays, per-PR (Step 8 / Step 12). Pre-authorisation to *work*
   overnight is not pre-authorisation to *merge*.
 - Every step's rigour below still applies to every PR, including the fallout
   ones: diagnostic-first, invariant-test-first, `/simplify`, evidence-cited
@@ -614,7 +614,7 @@ doing *too much*:
   only the review gate, not CI - it's fine once CI is green or the unverified
   delta is CI-irrelevant.) Omit `--delete-branch` if a child PR is based on
   this branch - deleting it auto-closes the child; retarget children first
-  per Step 13.
+  per Step 12.
 - **Don't update the branch first.** If GitHub says "head branch is not up
   to date", do not `git merge origin/main` into it, do not push a commit, do
   not "refresh" it - all of these fire a full CI re-run the user is
@@ -781,34 +781,7 @@ Do not hand back to the user partway through this list saying "the
 simplify pass is done" or "tests pass locally". Carry the work all the
 way to a reviewable PR.
 
-## Step 12: Capture the Review Signal
-
-A merged engine PR is a preference claim about every render it changed, and
-the render-diff page that carried it is deleted when the PR closes. Record it
-as data, from the worktree, once the merge lands:
-
-```bash
-python datasets/layout_preferences/scripts/capture_pr.py <PR> \
-    --pr-verdict <improvement|neutral>
-# or, when the review reached a per-render judgement (Step 9's I/N/D):
-python datasets/layout_preferences/scripts/capture_pr.py <PR> \
-    --fixture-verdict <fixture>=<improvement|neutral|detrimental>
-```
-
-This replays `mergeCommit^1` and `mergeCommit` (~25s) and appends to the
-ledgers described in
-[`datasets/layout_preferences/README.md`](../../../datasets/layout_preferences/README.md#forward-capture),
-then commit the appended rows. Notes:
-
-- `--pr-verdict` is a set-level sign-off and never becomes a per-render
-  positive; `--fixture-verdict` names one render, and naming a render the
-  merge did not move is a hard error rather than a demoted row.
-- A non-engine PR needs nothing: capture records why and moves on.
-- Missing a capture is recoverable - `capture_pr.py --sweep` picks up every
-  merged PR the log has not examined yet - so this is never a reason to hold
-  up cleanup.
-
-## Step 13: Post-Merge Cleanup
+## Step 12: Post-Merge Cleanup
 
 Once the PR merges, do cleanup operations **in this order** to avoid
 GitHub auto-closing dependent PRs:
