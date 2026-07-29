@@ -180,6 +180,14 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         "layout spacing (1.0 = default).",
     ),
     LayoutOption(
+        name="stroke_scale",
+        kind="float",
+        sign="positive",
+        help="Scale track stroke weight, station marker strokes, and label "
+        "halos, widening bundle spacing to match (1.0 = default). Keeps lines "
+        "legible on a large map that gets downscaled to fit a screen.",
+    ),
+    LayoutOption(
         name="logo_scale",
         kind="float",
         sign="positive",

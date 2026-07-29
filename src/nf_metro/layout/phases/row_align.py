@@ -11,7 +11,7 @@ from nf_metro.layout.constants import (
     PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
     STATION_RADIUS_APPROX,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     lanes_run_along_x,
@@ -109,7 +109,7 @@ def _row_group_grid_spacing(
         for st in sub.stations.values():
             if not st.is_port and st.y in multi_ys:
                 max_lines = max(max_lines, len(graph.station_lines(st.id)))
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     min_track_gap = (
         (max_lines - 1) * offset_step
         + 2 * STATION_RADIUS_APPROX

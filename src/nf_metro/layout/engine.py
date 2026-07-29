@@ -40,7 +40,7 @@ from nf_metro.layout.constants import (
     X_SPACING,
     Y_OFFSET,
     Y_SPACING,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import perpendicular_port_sides
 from nf_metro.layout.layers import assign_layers
@@ -434,7 +434,7 @@ def _far_side_wrap_left_clearances(graph: MetroGraph) -> dict[str, float]:
         if not is_far_side_around_below_left_entry(graph, port):
             continue
         n = len({edge.line_id for edge in graph.edges_to(port.id)})
-        offset_step = resolve_offset_step(graph.track_gap)
+        offset_step = graph_offset_step(graph)
         clearance = (
             (n - 1) * offset_step + CURVE_RADIUS + offset_step + SECTION_ROUTE_CLEARANCE
         )

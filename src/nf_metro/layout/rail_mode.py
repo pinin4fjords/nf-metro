@@ -40,7 +40,7 @@ from nf_metro.layout.constants import (
     X_OFFSET,
     X_SPACING,
     Y_OFFSET,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Section
 
@@ -449,7 +449,7 @@ def _layout_section_rails(
                 rank = {
                     i: r for r, i in enumerate(sorted(range(n), key=lambda i: ys[i]))
                 }
-                offset_step = resolve_offset_step(graph.track_gap)
+                offset_step = graph_offset_step(graph)
                 slots = [
                     st.y + (rank[i] - (n - 1) / 2.0) * offset_step for i in range(n)
                 ]
@@ -693,7 +693,7 @@ def _rail_slot_offsets(
             slot_index[lid] = n_slots
             n_slots += 1
 
-    bundle_gap = resolve_offset_step(graph.track_gap)
+    bundle_gap = graph_offset_step(graph)
     members_in_slot: dict[int, list[str]] = {}
     for lid in lines:
         members_in_slot.setdefault(slot_index[lid], []).append(lid)

@@ -13,7 +13,7 @@ from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     JUNCTION_MARGIN,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import AxisFrame, lane_delta, station_lane_coord
 from nf_metro.layout.routing.common import (
@@ -345,7 +345,7 @@ def _build_routing_context(
         graph, junction_ids, line_priority, skip_edges=all_exclude
     )
     fan_corridors = _compute_fan_corridors(
-        graph, junction_fan_info, resolve_offset_step(graph.track_gap), merge.junctions
+        graph, junction_fan_info, graph_offset_step(graph), merge.junctions
     )
 
     return _RoutingCtx(
@@ -354,7 +354,7 @@ def _build_routing_context(
         junction_ids=junction_ids,
         bottom_exit_junctions=bottom_exit_junctions,
         bottom_exit_junction_ports=bottom_exit_junction_ports,
-        offset_step=resolve_offset_step(graph.track_gap),
+        offset_step=graph_offset_step(graph),
         fork_stations=fork_stations,
         join_stations=join_stations,
         tb_sections=tb_sections,

@@ -227,7 +227,8 @@ gallery:
       "Integration showcase: a sarek-style variant-calling pipeline drawn with diagonal
       (45-degree) labels for tight column packing, an off-track FASTQ input, file termini, marker
       styles, and a `%%metro line_spread: rails` panel where each caller keeps its own rail
-      and shared stations render as interchanges."
+      and shared stations render as interchanges. `%%metro stroke_scale: 1.6` coarsens the
+      track weight so the lines survive the downscale this map needs to fit a screen."
   - id: differentialabundance
     source_dir: examples
     category: Realistic Pipelines

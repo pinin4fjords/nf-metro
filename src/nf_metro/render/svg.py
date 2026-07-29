@@ -20,7 +20,7 @@ from nf_metro.layout.constants import (
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
     SECTION_Y_GAP,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
@@ -476,7 +476,9 @@ def render_svg(
     if animate is None:
         animate = graph.animate
 
-    scaled_theme = _scale_theme_fonts(theme, graph.font_scale)
+    scaled_theme = _scale_theme_strokes(
+        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+    )
     with class_prefix_context(svg_class_prefix), font_scale_context(graph.font_scale):
         try:
             svg = _render_svg_scaled(
@@ -579,6 +581,23 @@ def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
     )
 
 
+def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
+    """Return a theme with every stroke weight multiplied by ``scale``.
+
+    Station marker radius is deliberately excluded: the layout engine reserves
+    label clearance against a fixed ``STATION_RADIUS_APPROX``, so growing the
+    drawn radius here would eat that clearance rather than being reserved for.
+    """
+    if scale == 1.0:
+        return theme
+    return replace(
+        theme,
+        line_width=theme.line_width * scale,
+        station_stroke_width=theme.station_stroke_width * scale,
+        label_halo_width=theme.label_halo_width * scale,
+    )
+
+
 def _settle_render_geometry(
     graph: MetroGraph, theme: Theme, offset_step: float, section_y_gap: float
 ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], list[LabelPlacement]]:
@@ -669,7 +688,7 @@ def _render_svg_scaled(
         legend_position if legend_position is not None else graph.legend_position
     )
 
-    offset_step = resolve_offset_step(graph.track_gap, theme.line_width)
+    offset_step = graph_offset_step(graph, theme.line_width)
     section_y_gap = (
         graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
     )
