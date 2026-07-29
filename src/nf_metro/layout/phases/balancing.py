@@ -1194,10 +1194,9 @@ def _shift_sparse_loop_stations_to_clear_bundle(
             shift = y_spacing if dy > 0 else -y_spacing
             new_y = st.y + shift
             # Grow the section bbox so the standard ``section_y_padding``
-            # sits between the shifted station's marker edge and the
-            # bbox edge.  The earlier ``+ STATION_RADIUS_APPROX`` -only
-            # buffer kept the validator happy but left the bbox flush
-            # against the station marker, breaking the visual padding
+            # sits between the shifted station's marker edge and the bbox
+            # edge.  Budgeting only the marker radius here leaves the bbox
+            # flush against the marker, breaking the visual padding
             # invariant other sections satisfy after
             # ``_shrink_bboxes_to_content_bottom``.
             edge_pad = station_radius_approx() + section_y_padding
