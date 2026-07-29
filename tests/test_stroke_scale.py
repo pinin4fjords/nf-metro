@@ -14,7 +14,11 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.pass_metrics import station_radius_approx, stroke_scale_context
 from nf_metro.parser import parse_metro_mermaid
-from nf_metro.render.svg import _scale_theme_strokes
+from nf_metro.render.constants import (
+    RAIL_KNOB_RADIUS_RATIO,
+    RAIL_LINK_HALF_WIDTH_RATIO,
+)
+from nf_metro.render.svg import _scale_theme_strokes, interchange_bar_half_width
 
 _SRC = """%%metro title: Bundle
 %%metro line: a | A | #e41a1c
@@ -107,6 +111,35 @@ def test_layout_reserves_against_the_drawn_pill(scale: float) -> None:
 
     with stroke_scale_context(scale):
         assert station_radius_approx() == pytest.approx(drawn.station_radius)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.3, 1.6, 2.0, 3.0])
+def test_interchange_bulge_is_scale_invariant(scale: float) -> None:
+    """A coarsened interchange keeps its bulge depth, not its bulge ratio.
+
+    Scaling the bulge with the glyph deepens the neck in absolute terms and the
+    marker reads as a pinched dumbbell rather than a bar with a swelling at each
+    rail it serves.
+    """
+    unscaled_bulge = STATION_RADIUS_APPROX * (
+        RAIL_KNOB_RADIUS_RATIO - RAIL_LINK_HALF_WIDTH_RATIO
+    )
+    r = STATION_RADIUS_APPROX * scale
+
+    with stroke_scale_context(scale):
+        bar_half = interchange_bar_half_width(r)
+
+    assert r * RAIL_KNOB_RADIUS_RATIO - bar_half == pytest.approx(unscaled_bulge)
+    # The bar stays inside its knob, so the glyph never inverts into a waist-out
+    # shape at a large scale.
+    assert bar_half < r * RAIL_KNOB_RADIUS_RATIO
+
+
+def test_unit_scale_bar_width_is_exactly_the_ratio() -> None:
+    """Byte-identity at unit scale needs the ratio expression back, not a rounding."""
+    for r in (5.0, 6.0, 7.5):
+        with stroke_scale_context(1.0):
+            assert interchange_bar_half_width(r) == r * RAIL_LINK_HALF_WIDTH_RATIO
 
 
 def test_pass_scales_do_not_leak() -> None:

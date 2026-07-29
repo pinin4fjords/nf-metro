@@ -28,7 +28,11 @@ from nf_metro.layout.labels import (
     _label_bbox,
     place_labels,
 )
-from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
+from nf_metro.layout.pass_metrics import (
+    active_stroke_scale,
+    font_scale_context,
+    stroke_scale_context,
+)
 from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
@@ -583,6 +587,24 @@ def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
         legend_font_size=theme.legend_font_size * scale,
         terminus_font_size=theme.terminus_font_size * scale,
     )
+
+
+def interchange_bar_half_width(radius: float) -> float:
+    """Half-width of the bar linking a spanning interchange's end knobs.
+
+    How far a knob bulges past that bar is an absolute quantity, set by the
+    unscaled radius the two ratios were tuned against.  Scaling the bulge along
+    with the glyph deepens the neck in absolute terms and the marker reads as a
+    pinched dumbbell rather than a bar swelling at each rail it serves, so a
+    coarsened interchange widens its bar to hold the bulge steady.
+
+    Expressed as a widening of the ratio-derived bar rather than as the knob
+    minus the bulge: at unit scale the widening term is exactly zero, so the
+    result is bit-identical to the plain ratio instead of a rounding of it.
+    """
+    return radius * RAIL_LINK_HALF_WIDTH_RATIO + (
+        radius - radius / active_stroke_scale()
+    ) * (RAIL_KNOB_RADIUS_RATIO - RAIL_LINK_HALF_WIDTH_RATIO)
 
 
 def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
@@ -1958,7 +1980,7 @@ def _draw_interchange_glyph(
     # to bulge from, so it uses the standard marker radius.
     is_spanning = (bot_y - top_y) > SAME_COORD_TOLERANCE
     knob_r = r * RAIL_KNOB_RADIUS_RATIO if is_spanning else r
-    bar_half = r * RAIL_LINK_HALF_WIDTH_RATIO
+    bar_half = interchange_bar_half_width(r)
 
     def _link_bar(width: float, stroke: str, **extra: object) -> None:
         # A round-capped line of the given width is a capsule; used here only

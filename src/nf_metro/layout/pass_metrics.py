@@ -21,6 +21,7 @@ __all__ = [
     "active_font_scale",
     "active_stroke_scale",
     "font_scale_context",
+    "interchange_knob_outer",
     "station_radius_approx",
     "station_stroke_approx",
     "stroke_scale_context",
@@ -29,7 +30,11 @@ __all__ = [
 from contextlib import contextmanager
 from typing import Iterator
 
-from nf_metro.layout.constants import STATION_RADIUS_APPROX, STATION_STROKE_APPROX
+from nf_metro.layout.constants import (
+    RAIL_KNOB_RADIUS_RATIO,
+    STATION_RADIUS_APPROX,
+    STATION_STROKE_APPROX,
+)
 
 _ACTIVE_FONT_SCALE: float = 1.0
 _ACTIVE_STROKE_SCALE: float = 1.0
@@ -77,3 +82,15 @@ def station_radius_approx() -> float:
 def station_stroke_approx() -> float:
     """Station marker stroke width to reserve against, under the active scale."""
     return STATION_STROKE_APPROX * _ACTIVE_STROKE_SCALE
+
+
+def interchange_knob_outer() -> float:
+    """Outer reach of a spanning interchange's end knob from its rail centre.
+
+    A knob is drawn larger than a bare marker and its outline sits *outside* the
+    circle, so its reach is ``radius * RAIL_KNOB_RADIUS_RATIO + stroke`` rather
+    than the ``radius + stroke / 2`` of a plain marker.  Both the rail pitch that
+    keeps adjacent knobs apart and the label placement that clears a spanning
+    label off the end knob measure against this.
+    """
+    return station_radius_approx() * RAIL_KNOB_RADIUS_RATIO + station_stroke_approx()
