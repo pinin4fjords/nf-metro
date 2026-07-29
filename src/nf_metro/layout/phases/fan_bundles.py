@@ -1483,13 +1483,25 @@ def _expand_orphaned_half_grid_stations(
     An off-track icon counts as a straddle partner while never being seated
     itself: the off-track lift owns its Y, so it can hold a slot it must not be
     moved out of.
+
+    A fork hub :func:`_restore_divergence_midpoints` centred on its targets'
+    midpoint is a solo centreline anchor, not one side of a two-way pair - it
+    has no mirror station to go looking for, so it is exempt here regardless
+    of what ``_half_grid_frame`` reports for its section.
     """
     require_phase_field(graph, "half_grid_station_ids")
     half_grid = graph.half_grid_station_ids
     if not half_grid:
         return
+    fork_hub_ids = set(
+        _divergence_midpoint_targets(graph, _convergence_source_ys(graph))
+    )
     for section in graph.sections.values():
-        marked = [sid for sid in section.station_ids if sid in half_grid]
+        marked = [
+            sid
+            for sid in section.station_ids
+            if sid in half_grid and sid not in fork_hub_ids
+        ]
         if not marked:
             continue
         frame = _half_grid_frame(graph, section, y_spacing)
