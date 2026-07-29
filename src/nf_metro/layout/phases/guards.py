@@ -5055,6 +5055,10 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     recentre it. A guard that reused that same "already centred" gate would
     stop reporting a diamond the moment a regression moved its hub off
     centre, exempting it from the very check meant to catch that regression.
+
+    A rail-laid station's Y is the centre of the rail span it carries, not a
+    marker centreline, so a fork and join carrying different line sets have
+    different centres by construction; such a pair is out of scope.
     """
     if graph.diamond_style != "symmetric":
         return
@@ -5071,6 +5075,8 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     for hub_id, tgt_ids in _divergence_target_successors(graph).items():
         join_id = join_by_branch_set.get(frozenset(tgt_ids))
         if join_id is None:
+            continue
+        if graph.station_is_rail(hub_id) or graph.station_is_rail(join_id):
             continue
         tgt_ys = [graph.stations[t].y for t in tgt_ids if t in graph.stations]
         if _evenly_spaced_ys(tgt_ys) is None:
@@ -5169,13 +5175,14 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "A",
         bisection_safe=True,
         first_valid_stage="after Stage 6.4",
-        issue_pin=("#1595",),
+        issue_pin=("#1595", "#1615"),
         narrow_reason=(
             "Scoped to diamond_style: symmetric diamonds whose fork target set "
             "exactly matches a join's source set (_divergence_target_successors "
             "vs _convergence_source_ys); an asymmetric fan, a port-fed fork "
-            "without diamond_style: symmetric, or branches on stacked/unevenly "
-            "spaced rows are out of scope: none of those has a single shared "
+            "without diamond_style: symmetric, branches on stacked/unevenly "
+            "spaced rows, or a rail-laid pair whose Y is the centre of the rail "
+            "span it carries are out of scope: none of those has a single shared "
             "centreline for the fork and join hub to agree on."
         ),
     ),

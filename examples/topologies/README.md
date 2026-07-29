@@ -428,6 +428,7 @@ python scripts/list_topology_fixtures.py
 | `rail_offtrack_fan.mmd`               | Rail-mode off-track fan-out - tests fan-out geometry under the `line_spread: rails` directive                                                      |
 | `rail_offtrack_io.mmd`                | Rail-mode off-track file input and output nodes - tests that rail-mode does not disturb off-track I/O node placement                               |
 | `rail_offtrack_plain_io.mmd`          | Rail-mode with plain (non-file) off-track I/O - tests the same path without the `%%metro file:` directive                                          |
+| `rail_symmetric_fork_join_spans.mmd`  | Rail-mode plus `diamond_style: symmetric` - tests that a fork and join spanning different rail counts keep their own span centres                  |
 
 ### TB section routing variants
 
