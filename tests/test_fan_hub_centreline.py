@@ -20,6 +20,8 @@ than a marker centreline.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from nf_metro.layout.engine import compute_layout
@@ -57,36 +59,12 @@ def test_fork_and_join_hub_share_centreline(n: int) -> None:
     assert hub.y == pytest.approx(join.y, abs=1.0), "fork/join hubs disagree"
 
 
-_RAIL_FAN = """%%metro title: rail fan
-%%metro line_spread: rails | calling
-%%metro diamond_style: symmetric
-%%metro line: core | Core | #2db572
-%%metro line: germline | Germline | #0570b0
-%%metro line: tumor | Tumour | #f4a300
-%%metro line: pair | Pair | #d62728
-graph LR
-    subgraph prep [Preprocessing]
-        input[Input]
-        recal[Recalibrate]
-
-        input -->|core,germline,tumor,pair| recal
-    end
-    subgraph calling [Variant calling]
-        bqsr[BQSR]
-        haplo[HaplotypeCaller]
-        mutect[Mutect2]
-        strelka[Strelka]
-        merge[Merge]
-
-        bqsr -->|germline| haplo
-        bqsr -->|tumor| mutect
-        bqsr -->|pair| strelka
-        haplo -->|germline| merge
-        mutect -->|tumor| merge
-        strelka -->|pair| merge
-    end
-    recal -->|core,germline,tumor,pair| bqsr
-"""
+_RAIL_FAN = (
+    Path(__file__).parent.parent
+    / "examples"
+    / "topologies"
+    / "rail_symmetric_fork_join_spans.mmd"
+)
 
 
 def test_rail_fork_and_join_centre_on_their_own_rail_spans() -> None:
@@ -98,7 +76,7 @@ def test_rail_fork_and_join_centre_on_their_own_rail_spans() -> None:
     lines. Both are drawn as pills capping their own span, and forcing them
     onto one shared Y would leave one pill off the rails it caps.
     """
-    graph = parse_metro_mermaid(_RAIL_FAN)
+    graph = parse_metro_mermaid(_RAIL_FAN.read_text())
     compute_layout(graph, validate=True)
 
     bqsr = graph.stations["bqsr"]
