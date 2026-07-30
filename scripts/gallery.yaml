@@ -1794,6 +1794,15 @@ gallery:
       The connector wraps cleanly from the upstream right exit port, down the right margin,
       across the inter-section gap, and down the left margin into the downstream left entry
       port - no dangling port stubs and no avoidable crossings between co-travelling lines."
+  - id: rail_symmetric_fork_join_spans
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A `%%metro line_spread: rails` section carrying `%%metro diamond_style: symmetric`,
+      where the fork (BQSR) spans four rails because it also carries the `core` line arriving
+      from upstream while the join (Merge) spans only the three caller rails. Each pill stays
+      centred on the rails it caps, so the two sit 20px apart rather than being forced onto one
+      shared centreline."
   - id: rail_offtrack_io
     source_dir: examples/topologies
     category: Off-track & Rails
