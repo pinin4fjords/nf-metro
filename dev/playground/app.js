@@ -388,6 +388,7 @@ const DIRECTIVE_CONTROLS = [
   ["opt-compact-offsets", "compact_offsets", "bool"],
   ["opt-track-gap", "track_gap", "number"],
   ["opt-font-scale", "font_scale", "number"],
+  ["opt-stroke-scale", "stroke_scale", "number"],
   ["opt-fold-threshold", "fold_threshold", "number"],
   ["opt-x-spacing", "x_spacing", "number"],
   ["opt-y-spacing", "y_spacing", "number"],
