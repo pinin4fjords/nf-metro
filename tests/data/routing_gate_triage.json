@@ -331,10 +331,6 @@
     "note": "entry_port.section_id is always set and the section has bbox_w>0 after layout; the else arm never fires.",
     "status": "defensive"
   },
-  "inter_section_handlers.py::if f.horizontal is Direction.L:::#1": {
-    "note": "Near-vertical same-column junction channel push: the junction always sits right of its same-column LEFT entry, so horizontal is always Direction.L; the Direction.R arm never fires (#762). Defensive.",
-    "status": "defensive"
-  },
   "inter_section_handlers.py::if fan is None and gap_bottom > gap_top:::#1": {
     "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
     "status": "needs-review"

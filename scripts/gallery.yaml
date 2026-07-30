@@ -1007,6 +1007,36 @@ gallery:
       cutting straight through the source's own cell-mate. When the gap
       between the source and cell-mate is clear the route drops through it in
       one straight channel and turns along the target row (PR #1405)."
+  - id: packed_cell_right_exit_left_entry_wrap
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A RIGHT exit on the far member of a packed cell feeds a LEFT entry in
+      the row below. The route leads outward from the source, crosses through
+      the inter-row gap, descends outside the target's left edge, and enters
+      from the port's outward side without crossing either box (issue #1631)."
+  - id: packed_cell_left_entry_blocked_top_corridor
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A same-row packed-cell route approaches a LEFT entry while a spanning
+      section blocks the row-top corridor. The fallback travels beneath the
+      row and reaches the entry from its outward side without crossing a
+      section."
+  - id: bypass_left_entry_from_right
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A source junction sits beyond an intervening section and feeds a LEFT
+      entry behind it. The generic bypass loops below the row and approaches
+      the entry from its outward side without crossing a section."
+  - id: fan_bypass_shared_band
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A junction fans into a local branch and a distant lower-row LEFT entry.
+      The distant branch bypasses both intervening rows through its fan corridor
+      while remaining clear of every unrelated section."
   - id: packed_cell_consumer_drop_in
     source_dir: examples/topologies
     category: Serpentine Layout

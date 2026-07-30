@@ -510,7 +510,7 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
         and f.tgt_row == f.src_row + 1
     ):
         exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
-        if f.cellmate_blocks_source_row:
+        if f.cellmate_blocks_source_row and not f.left_entry_from_right:
             # The gap-centred L-shape channel lands past the blocking cell-mate,
             # so test the plain L-shape against its actual vertical channel (both
             # legs) rather than the raw endpoint-to-endpoint span -- a same-column
@@ -526,7 +526,9 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
             clean = _route_cellmate_gap_drop(f, exclude)
             if clean is not None:
                 return clean
-        elif not _h_segment_crosses_other_section(graph, f.sx, f.tx, f.ty, exclude):
+        elif not f.left_entry_from_right and not _h_segment_crosses_other_section(
+            graph, f.sx, f.tx, f.ty, exclude
+        ):
             return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
         if f.left_entry_from_right:
             # Entry-Y blocked: return through the clear inter-row gap as a
@@ -538,6 +540,18 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
         return _route_right_entry_cross_row(f)
     if f.left_entry_from_right and f.is_left_exit:
         return _route_left_exit_around_below_left_entry(edge, src, tgt, ctx)
+    if (
+        f.entry_side is PortSide.LEFT
+        and f.cellmate_blocks_source_row
+        and f.src_row == f.tgt_row
+        and not _source_is_boxed_fanout_junction(f)
+    ):
+        geometry = _left_entry_over_top_geometry(f)
+        if geometry is not None:
+            return _route_left_entry_over_top(f, geometry)
+        return _route_left_entry_family(f)
+    if f.left_entry_from_right:
+        return _route_left_entry_family(f)
     return _route_bypass(edge, src, tgt, f.i, f.src_col, f.tgt_col, ctx, f.src_row)
 
 
@@ -1016,6 +1030,93 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
                 return _route_left_entry_via_band_hop(f)
         return _route_around_section_below(edge, src, tgt, tgt, f.i, f.n, ctx)
     return _route_left_entry_wrap(edge, src, tgt, f.i, f.n, ctx)
+
+
+@dataclass(frozen=True)
+class _LeftEntryOverTopGeometry:
+    channel_y: float
+    pos_n: int
+    delta: float
+    corner_x: float
+    descent_x: float
+
+
+def _left_entry_over_top_geometry(
+    f: _InterFacts,
+) -> _LeftEntryOverTopGeometry | None:
+    """Resolve a clear row-top corridor for a same-row packed-cell bypass."""
+    assert f.tgt_row is not None
+    graph, src, tgt, ctx = f.graph, f.src, f.tgt, f.ctx
+    _fan, pos_n, delta, corner_x = _wrap_fan_geometry(
+        ctx, f.edge, src, f.i, f.n, Direction.U
+    )
+    descent_x = _left_entry_descent_x(ctx, tgt.x, pos_n)
+    channel_y = header_corridor_y(
+        graph,
+        f.tgt_row,
+        below=False,
+        base_radius=ctx.curve_radius,
+        default=tgt.y,
+    )
+    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
+    if (
+        _v_segment_crosses_other_section(graph, corner_x, src.y, channel_y, exclude)
+        or _h_segment_crosses_other_section(
+            graph, corner_x, descent_x, channel_y, exclude
+        )
+        or _v_segment_crosses_other_section(graph, descent_x, channel_y, tgt.y, exclude)
+    ):
+        return None
+    span_lo, span_hi = sorted((corner_x, descent_x))
+    crossed_header_caps = [
+        section_header_top(section) - NEXT_ROW_HEADER_BADGE_CLEARANCE
+        for section in graph.sections.values()
+        if section.bbox_w > 0
+        and section.bbox_h > 0
+        and section.bbox_x < span_hi
+        and section.bbox_x + section.bbox_w > span_lo
+    ]
+    channel_y = min([channel_y, *crossed_header_caps])
+    return _LeftEntryOverTopGeometry(
+        channel_y=channel_y,
+        pos_n=pos_n,
+        delta=delta,
+        corner_x=corner_x,
+        descent_x=descent_x,
+    )
+
+
+def _route_left_entry_over_top(
+    f: _InterFacts, geometry: _LeftEntryOverTopGeometry
+) -> RoutedPath:
+    """Route a same-row packed-cell bypass through the row-top corridor."""
+    src, tgt, ctx = f.src, f.tgt, f.ctx
+    route = _route_entry_wrap(
+        f.edge,
+        src,
+        tgt,
+        ctx,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
+        entry_side=PortSide.LEFT,
+        normalize_exempt=False,
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.corner_x,
+        vertical_direction(geometry.channel_y - src.y),
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.descent_x,
+        vertical_direction(tgt.y - geometry.channel_y),
+    )
+    return route
 
 
 class _MergeEntryRoute(Enum):
