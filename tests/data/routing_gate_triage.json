@@ -631,6 +631,10 @@
     "note": "_suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path.",
     "status": "defensive"
   },
+  "normalize.py::if not (riser_spans_lane and riser_ahead):::#1": {
+    "note": "Reachability guard in _land_lane_changing_feeder_on_trunk_riser: the trunk's riser has to cross the feeder's lane and stand in the feeder's direction of travel before the feeder can terminate on it. Only one corpus fixture reaches the guard at all (exit_run_three_drop_columns, the sole adjacent merge feeder whose direct run changes lane), and there the riser both spans the lane and stands ahead, so the reject arm needs a trunk that turns before the feeder junction or lands short of its lane.",
+    "status": "defensive"
+  },
   "normalize.py::if not trunks:::#1": {
     "note": "Shape guard in _merge_convergence_run: a trunk routed as a U-shaped bypass always has an interior horizontal leg for iter_horizontal_trunks to find, so the corpus never takes the None arm. Not provably unreachable across every branch of _route_bypass, so it stays a guard rather than an assert (#1597).",
     "status": "defensive"

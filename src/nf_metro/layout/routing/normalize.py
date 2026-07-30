@@ -28,6 +28,7 @@ from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     HTrunkSeg,
+    OffsetRegime,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -50,6 +51,7 @@ from nf_metro.layout.routing.common import (
     trunk_segments_cross,
 )
 from nf_metro.layout.routing.context import (
+    _get_offset,
     _MergeRouting,
     _resolve_section_col,
     _RoutingCtx,
@@ -1685,6 +1687,43 @@ def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> Non
     _set_vchannel_x(ch, run.xb)
 
 
+def _land_lane_changing_feeder_on_trunk_riser(
+    rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx
+) -> None:
+    """Terminate a lane-changing straight feeder on the trunk's riser.
+
+    An adjacent feeder that would only detour to reach the trunk's channel runs
+    into the merge station instead (:func:`_adjacent_feeder_reaches_merge_directly`),
+    as a straight two-vertex run.  The merge station sits one margin past the
+    feeder junction, so when the converging line rides a different lane at the
+    junction than at the merge, that run has to change lane within the margin --
+    far less than the two corners of a lane change need -- and degenerates into a
+    bare sloped segment.
+
+    The trunk's riser out of *run* crosses the feeder's lane on its way to the
+    entry level, so the feeder keeps its lane and terminates on the riser: the
+    converging line reads as one stroke from the join onward, and no direction
+    change is asked of a run that has no room to turn.  The merge -> entry hop is
+    then redundant -- the trunk covers the entry approach from the riser on -- and
+    :func:`_drop_covered_merge_entry_hops` retires it, since no feeder waits at
+    the merge station.
+    """
+    if len(rp.points) != 2:
+        return
+    lane = _get_offset(ctx, rp.edge.source, rp.line_id)
+    if abs(lane - _get_offset(ctx, rp.edge.target, rp.line_id)) <= COORD_TOLERANCE:
+        return
+    (sx, sy), (tx, _ty) = rp.points
+    lane_y = sy + lane
+    lo, hi = sorted((run.y, run.after_y))
+    riser_spans_lane = lo + COORD_TOLERANCE < lane_y < hi - COORD_TOLERANCE
+    riser_ahead = (run.xb - sx) * (tx - sx) > 0
+    if not (riser_spans_lane and riser_ahead):
+        return
+    rp.points = [(sx, lane_y), (run.xb, lane_y)]
+    rp.offset_regime = OffsetRegime.BAKED
+
+
 def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Land every merge branch feeder on the trunk leg it converges onto.
 
@@ -1708,6 +1747,8 @@ def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> 
         for rp in others:
             if (rp.edge.source, rp.edge.target, rp.line_id) in merge.branch_edges:
                 _land_feeder_on_run(rp, run, ctx)
+            else:
+                _land_lane_changing_feeder_on_trunk_riser(rp, run, ctx)
 
 
 def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
