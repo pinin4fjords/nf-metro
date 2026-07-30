@@ -775,6 +775,10 @@
         "mmd": "%%metro title: Around Section Below\n%%metro style: dark\n%%metro line: a | A | #e63946\n%%metro line: b | B | #0570b0\n\n%%metro grid: source | 2,0\n%%metro grid: middle | 1,1\n%%metro grid: target | 0,2\n\ngraph LR\n    subgraph source [Source]\n        s1[Input]\n        s2[Output]\n        s1 -->|a,b| s2\n    end\n\n    subgraph middle [Middle Row]\n        m1[Process]\n        m2[Output]\n        m1 -->|a| m2\n    end\n\n    subgraph target [Target]\n        %%metro entry: left | a, b\n        t1[Process]\n        t2[Output]\n        t1 -->|a,b| t2\n    end\n\n    s2 -->|a,b| t1\n    s2 -->|a| m1\n"
       },
       {
+        "name": "entry_hint_shared_edge",
+        "mmd": "%%metro title: Example Pipeline\n%%metro line: qc | QC | #2dd4bf\n%%metro line: main | Main | #c792ea\n\ngraph LR\n    subgraph input [Input]\n        reads[Reads]\n    end\n    subgraph proc [Processing]\n    %%metro entry: bottom | qc\n        fastqc[FastQC]\n        trim[Trim]\n        align[Align]\n        fastqc -->|qc,main| trim\n        trim -->|main| align\n    end\n    subgraph results [Results]\n        bam[BAM]\n    end\n    reads -->|qc,main| fastqc\n    align -->|main| bam\n"
+      },
+      {
         "name": "inter_row_wrap_clearance",
         "mmd": "%%metro title: Inter-row wrap clearance\n%%metro style: dark\n%%metro center_ports: true\n%%metro line: l1 | Line 1 | #0570b0\n%%metro line: l2 | Line 2 | #d62728\n%%metro line: l3 | Line 3 | #756bb1\n%%metro grid: top | 0,0\n%%metro grid: bottom | 0,1\n\ngraph LR\n    subgraph top [Top section]\n        %%metro exit: right | l1, l2, l3\n        a_in[ ]\n        a1[Step A1]\n        a2[Step A2]\n        a3[Step A3]\n        a_in -->|l1,l2,l3| a1\n        a1 -->|l1,l2,l3| a2\n        a2 -->|l1,l2,l3| a3\n    end\n\n    subgraph bottom [Bottom section]\n        %%metro entry: left | l1, l2, l3\n        b_in[ ]\n        b1[Step B1]\n        b2[Step B2]\n        b_in -->|l1,l2,l3| b1\n        b1 -->|l1,l2,l3| b2\n    end\n\n    a3 -->|l1,l2,l3| b_in\n"
       },
