@@ -1660,6 +1660,13 @@ gallery:
       "The BOTTOM-exit mirror of lr_perp_top_exit_perp_entry: the bundle drops under
       the row, runs across, and rises into the consumer's BOTTOM entry, staying parallel through
       the corridor."
+  - id: bottom_entry_same_row_boundary
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A same-row, row-natural exit feeding a same-row target whose entry is forced to
+      BOTTOM: the route dips into a clear channel below the target's box before rising into the
+      port, rather than approaching along the box's own bottom edge."
   - id: lr_perp_top_exit_perp_entry_diverging
     source_dir: examples/topologies
     category: Inter-section Routing
