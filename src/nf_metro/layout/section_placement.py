@@ -31,7 +31,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
     SECTION_X_PADDING,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -778,7 +778,7 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
         key = edge.source if graph.is_fanout_junction(edge.source) else edge.target
         per_gap[gap][key].add(edge.line_id)
 
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     return {
         gap: inter_row_wrap_band(widest, offset_step)
         for gap, widest in _widest_lines_per_gap(per_gap).items()
@@ -863,7 +863,7 @@ def _merge_trunk_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
 
     if widest == 0:
         return {}
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     return {(max_row - 1, max_row): inter_row_wrap_band(widest, offset_step)}
 
 
@@ -883,7 +883,7 @@ def _inter_row_routing_minimums(graph: MetroGraph) -> dict[tuple[int, int], floa
     # above its row with any longer-haul through bundle already reserved there.
     # The two must stack -- the wrap pinned near the row by its header clearance,
     # the through bundle lifted above it -- so reserve their summed band.
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     for gap, over_top_lines in _over_top_wrap_row_minimums(graph).items():
         through_band = wrap.get(gap)
         if through_band is None:
@@ -1103,7 +1103,7 @@ def _column_pair_min_gap(
     horizontal space their visual width actually occupies.
     """
     bundles = _bundles_in_gap(graph, col_assign, col, col + 1)
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     bundle_min = _min_gap_for_bundles(bundles, offset_step=offset_step)
     effective_min = max(min_gap, bundle_min)
     if _has_merge_routing_in_gap(graph, col_assign, col, col + 1):

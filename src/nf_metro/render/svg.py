@@ -20,15 +20,15 @@ from nf_metro.layout.constants import (
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
     SECTION_Y_GAP,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
     _label_bbox,
-    font_scale_context,
     place_labels,
 )
+from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
@@ -476,8 +476,14 @@ def render_svg(
     if animate is None:
         animate = graph.animate
 
-    scaled_theme = _scale_theme_fonts(theme, graph.font_scale)
-    with class_prefix_context(svg_class_prefix), font_scale_context(graph.font_scale):
+    scaled_theme = _scale_theme_strokes(
+        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+    )
+    with (
+        class_prefix_context(svg_class_prefix),
+        font_scale_context(graph.font_scale),
+        stroke_scale_context(graph.stroke_scale),
+    ):
         try:
             svg = _render_svg_scaled(
                 graph,
@@ -579,6 +585,24 @@ def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
     )
 
 
+def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
+    """Return a theme with every stroke weight multiplied by ``scale``.
+
+    The station pill radius scales with the strokes so a coarsened map keeps its
+    marker proportions.  Layout reserves label clearance and marker footprints
+    through ``station_radius_approx()``, which tracks the same scale, so the
+    grown pill is reserved for rather than eating that clearance.
+    """
+    if scale == 1.0:
+        return theme
+    return replace(
+        theme,
+        line_width=theme.line_width * scale,
+        station_radius=theme.station_radius * scale,
+        station_stroke_width=theme.station_stroke_width * scale,
+    )
+
+
 def _settle_render_geometry(
     graph: MetroGraph, theme: Theme, offset_step: float, section_y_gap: float
 ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], list[LabelPlacement]]:
@@ -669,7 +693,7 @@ def _render_svg_scaled(
         legend_position if legend_position is not None else graph.legend_position
     )
 
-    offset_step = resolve_offset_step(graph.track_gap, theme.line_width)
+    offset_step = graph_offset_step(graph, theme.line_width)
     section_y_gap = (
         graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
     )

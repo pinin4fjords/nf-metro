@@ -10,7 +10,7 @@ from nf_metro.layout.constants import (
     COORD_TOLERANCE_FINE,
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -3219,9 +3219,7 @@ def compute_station_offsets(
     if graph.line_spread is LineSpread.RAILS:
         return {}
 
-    resolved = (
-        offset_step if offset_step is not None else resolve_offset_step(graph.track_gap)
-    )
+    resolved = offset_step if offset_step is not None else graph_offset_step(graph)
     ctx = _build_offset_ctx(graph, resolved)
     # Section/layer indexes over graph structure, not per-line offsets, so
     # they stay valid across every phase below and are built once here for

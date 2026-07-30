@@ -41,7 +41,7 @@ from nf_metro.layout.constants import (
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
     SAME_Y_TOLERANCE,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -1178,7 +1178,7 @@ def check_station_bundle_contiguous_at_fan_port(
     resolved into the station via a routing riser, so it must not leak into the
     station's own marker bundle.
     """
-    step = resolve_offset_step(graph.track_gap)
+    step = graph_offset_step(graph)
     pairs = {
         pair
         for edge in graph.edges
@@ -1907,7 +1907,7 @@ def _diagonal_collinear(
         for seg in _diagonal_segments(rp, offsets):
             diags.append((rp.line_id, (rp.edge.source, rp.edge.target), seg))
 
-    min_sep = resolve_offset_step(getattr(graph, "track_gap", None)) * 0.5
+    min_sep = graph_offset_step(graph) * 0.5
     violations: list[DiagonalOverlapViolation] = []
     for i in range(len(diags)):
         la, ea, sa = diags[i]

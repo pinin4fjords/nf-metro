@@ -20,9 +20,8 @@ __all__ = [
 ]
 
 import math
-from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterator, Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from nf_metro.layout.constants import (
     CHAR_WIDTH,
@@ -45,8 +44,6 @@ from nf_metro.layout.constants import (
     PORT_LABEL_MAX_DX,
     RAIL_KNOB_RADIUS_RATIO,
     SAME_COORD_TOLERANCE,
-    STATION_RADIUS_APPROX,
-    STATION_STROKE_APPROX,
     TB_LABEL_H_SPACING,
     TB_LINE_Y_OFFSET,
     TB_PILL_EDGE_OFFSET,
@@ -58,36 +55,17 @@ from nf_metro.layout.geometry import (
     segment_intersects_bbox,
     segment_intersects_quad,
 )
+from nf_metro.layout.pass_metrics import (
+    active_font_scale,
+    font_scale_context,
+    station_radius_approx,
+    station_stroke_approx,
+)
 from nf_metro.parser.model import MetroGraph
 
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import Section, Station
-
-
-_ACTIVE_FONT_SCALE: float = 1.0
-
-
-def active_font_scale() -> float:
-    """Font-size multiplier in effect for the current layout/render pass.
-
-    Set via ``font_scale_context`` around ``compute_layout`` and
-    ``render_svg`` so the label-width metrics below reserve room that
-    matches the scaled rendered text.  Defaults to 1.0 (a no-op).
-    """
-    return _ACTIVE_FONT_SCALE
-
-
-@contextmanager
-def font_scale_context(scale: float) -> Iterator[None]:
-    """Apply ``scale`` to the label metrics for the duration of the block."""
-    global _ACTIVE_FONT_SCALE
-    previous = _ACTIVE_FONT_SCALE
-    _ACTIVE_FONT_SCALE = scale
-    try:
-        yield
-    finally:
-        _ACTIVE_FONT_SCALE = previous
 
 
 def label_text_width(label: str) -> float:
@@ -96,7 +74,7 @@ def label_text_width(label: str) -> float:
     A generous fixed-per-character budget for collision spacing; for the width
     the text actually draws at, use :func:`label_glyph_advance_width`.
     """
-    char_width = CHAR_WIDTH * _ACTIVE_FONT_SCALE
+    char_width = CHAR_WIDTH * active_font_scale()
     if "\n" not in label:
         return len(label) * char_width
     return max(len(line) for line in label.split("\n")) * char_width
@@ -110,7 +88,7 @@ def label_glyph_advance_width(label: str) -> float:
     all-caps name measures as wide as it draws and a narrow one is not
     over-claimed -- unlike the fixed-width :func:`label_text_width`.
     """
-    size = LABEL_FONT_SIZE * _ACTIVE_FONT_SCALE
+    size = LABEL_FONT_SIZE * active_font_scale()
     lines = label.split("\n") if "\n" in label else [label]
     return size * max(
         sum(GLYPH_ADVANCE_EM.get(c, GLYPH_ADVANCE_DEFAULT_EM) for c in line)
@@ -120,7 +98,7 @@ def label_glyph_advance_width(label: str) -> float:
 
 def _label_text_height(label: str) -> float:
     """Pixel height of a (possibly multi-line) label."""
-    font_height = FONT_HEIGHT * _ACTIVE_FONT_SCALE
+    font_height = FONT_HEIGHT * active_font_scale()
     n = label.count("\n") + 1
     if n == 1:
         return font_height
@@ -167,7 +145,7 @@ def diagonal_label_pitch(
         tallest = max(tallest, _label_text_height(st.label))
     if tallest <= 0.0:
         return fallback
-    marker_floor = STATION_RADIUS_APPROX * 3.0
+    marker_floor = station_radius_approx() * 3.0
     return max(marker_floor, (tallest * 2.0) / sin_a)
 
 
@@ -351,8 +329,10 @@ def _interchange_span_label_offsets(
     # Reach past the enlarged knob's outer edge, not the member centre, by the
     # amount the knob outline extends beyond a plain marker's -- so the label
     # sits the same gap past the knob as a normal label sits past its marker.
-    knob_outer = STATION_RADIUS_APPROX * RAIL_KNOB_RADIUS_RATIO + STATION_STROKE_APPROX
-    marker_outer = STATION_RADIUS_APPROX + STATION_STROKE_APPROX / 2.0
+    knob_outer = (
+        station_radius_approx() * RAIL_KNOB_RADIUS_RATIO + station_stroke_approx()
+    )
+    marker_outer = station_radius_approx() + station_stroke_approx() / 2.0
     knob_clearance = knob_outer - marker_outer
     return (top_y - knob_clearance - station.y, bot_y + knob_clearance - station.y)
 
@@ -409,7 +389,7 @@ def _label_ink_y_band(placement: LabelPlacement) -> tuple[float, float]:
     above block as ``[y - text_h, y]`` (the full height above the anchor) and
     so reads ~one line-height too high for a wrapped label.
     """
-    font_height = FONT_HEIGHT * _ACTIVE_FONT_SCALE
+    font_height = FONT_HEIGHT * active_font_scale()
     n = placement.text.count("\n") + 1
     line_spacing = font_height * LABEL_LINE_HEIGHT
     ascent = font_height * _GLYPH_ASCENT_RATIO

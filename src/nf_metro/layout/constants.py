@@ -4,6 +4,13 @@ Centralizes magic numbers from engine.py, routing.py, labels.py,
 section_placement.py, and ordering.py.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nf_metro.parser.model import MetroGraph
+
 FLOW_ALIGNED_PORT_ADVICE: str = (
     "Give the section a flow-aligned entry/exit port "
     "(left/right for LR/RL, top/bottom for TB/BT) or change "
@@ -388,6 +395,29 @@ def resolve_offset_step(
     if track_gap is None:
         return OFFSET_STEP
     return track_gap + line_width
+
+
+def graph_offset_step(
+    graph: "MetroGraph", drawn_line_width: float | None = None
+) -> float:
+    """Return *graph*'s bundle offset step under its ``stroke_scale``.
+
+    Layout and render both resolve the step here so the pitch they assume can
+    never diverge.  *drawn_line_width* is the width strokes are actually painted
+    at, ``stroke_scale`` already applied -- the render side passes its scaled
+    theme's value; the layout side omits it and gets the theme-agnostic
+    :data:`DEFAULT_LINE_WIDTH` proxy, scaled to match.
+
+    ``stroke_scale`` widens the gap as well as the stroke.  Thickening tracks
+    while holding the inter-track gap at its absolute default would close that
+    gap up as the map is downscaled, merging a bundle into one fat stroke and
+    costing exactly the line-counting legibility the scaling is meant to buy.
+    """
+    scale = graph.stroke_scale
+    if graph.track_gap is None:
+        return OFFSET_STEP * scale
+    width = DEFAULT_LINE_WIDTH * scale if drawn_line_width is None else drawn_line_width
+    return graph.track_gap * scale + width
 
 
 COORD_TOLERANCE: float = 1.0

@@ -41,6 +41,7 @@ from nf_metro.layout.constants import (
     TITLE_BAND_BOTTOM,
     TITLE_BAND_OVERLAP_FLOOR,
     X_SPACING,
+    graph_offset_step,
     resolve_offset_step,
 )
 from nf_metro.layout.engine import (
@@ -61,10 +62,10 @@ from nf_metro.layout.labels import (
     _choose_wrap_offender,
     _label_bbox,
     find_wrapped_label_trunk_strikes,
-    font_scale_context,
     place_labels,
     segment_strikes_label,
 )
+from nf_metro.layout.pass_metrics import font_scale_context
 from nf_metro.layout.phases._common import (
     _is_side_entered_vertical_section,
     _row_contiguous_column_groups,
@@ -823,9 +824,8 @@ def test_subset_section_bundle_anchored_on_trunk(fixture, section_id):
     6,9) centres the marker pill below the trunk, so the section sits lower
     than a same-row sibling carrying a different subset.
     """
-    from nf_metro.layout.constants import OFFSET_STEP
-
     graph = _layout(fixture)
+    step = graph_offset_step(graph)
     offsets = compute_station_offsets(graph)
     levels = sorted(
         {
@@ -835,7 +835,7 @@ def test_subset_section_bundle_anchored_on_trunk(fixture, section_id):
             for lid in graph.station_lines(sid)
         }
     )
-    expected = [round(i * OFFSET_STEP, 1) for i in range(len(levels))]
+    expected = [round(i * step, 1) for i in range(len(levels))]
     assert levels == expected, (
         f"{fixture}: section {section_id} offset levels {levels} are not "
         f"top-anchored {expected}; markers pushed off the trunk"
@@ -880,7 +880,7 @@ def test_station_bundle_lanes_contiguous(fixture, station_id):
     one ``OFFSET_STEP`` with no gap.
     """
     graph = _layout(fixture)
-    step = resolve_offset_step(graph.track_gap)
+    step = graph_offset_step(graph)
     offsets = compute_station_offsets(graph)
     levels = sorted(
         {
@@ -1834,7 +1834,9 @@ def test_intra_section_collinear_check_detects_overlay():
             offset_regime=OffsetRegime.BAKED,
         )
 
-    graph = SimpleNamespace(stations={})  # no endpoints => no convergence excuse
+    graph = SimpleNamespace(
+        stations={}, track_gap=None, stroke_scale=1.0
+    )  # no endpoints => no convergence excuse
     routes = [_run("a", "b", "red"), _run("c", "d", "blue")]
     violations = check_collinear_distinct_lines(graph, routes, {}, scopes=("intra",))
     assert violations, "expected a collinear overlay to be detected"
@@ -1886,7 +1888,7 @@ def test_diagonal_overlay_check_detects_collapse():
             offset_regime=OffsetRegime.BAKED,
         )
 
-    graph = SimpleNamespace(stations={})
+    graph = SimpleNamespace(stations={}, track_gap=None, stroke_scale=1.0)
     # Two near-vertical diagonals 0.5px apart over a long span: collapsed.
     collapsed = [
         _diag("a", "b", "red", [(0.0, 0.0), (30.0, 300.0)]),
@@ -2086,7 +2088,7 @@ def test_stacked_elbow_check_detects_graze():
 
     # A deep descent landing at y=100 and a shallow descent leaving it, 6px
     # apart in X (< BUNDLE_TO_BUNDLE_CLEARANCE), overlapping only 3px in Y.
-    graph = SimpleNamespace(stations={})
+    graph = SimpleNamespace(stations={}, track_gap=None, stroke_scale=1.0)
     routes = [
         _riser("up_src", "port", "red", 0.0, 0.0, 100.0),
         _riser("hub", "down_dst", "blue", 6.0, 97.0, 200.0),
