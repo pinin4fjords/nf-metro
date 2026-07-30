@@ -24,9 +24,7 @@ from nf_metro.layout import MixedEntryDirectionError, compute_layout
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
 
-FIXTURES = Path(__file__).parent / "fixtures"
-INVALID = FIXTURES / "invalid"
-REGRESSIONS = FIXTURES / "regressions"
+INVALID = Path(__file__).parent / "fixtures" / "invalid"
 EXAMPLES = Path(__file__).parent.parent / "examples"
 TOPOLOGIES = EXAMPLES / "topologies"
 
@@ -54,7 +52,7 @@ _ALLOWED = [
     pytest.param(EXAMPLES / "rnaseq_sections.mmd", id="rnaseq"),
     pytest.param(TOPOLOGIES / "around_section_below.mmd", id="around-below"),
     pytest.param(
-        REGRESSIONS / "entry_hint_shared_edge.mmd", id="entry-hint-shared-edge"
+        TOPOLOGIES / "entry_hint_shared_edge.mmd", id="entry-hint-shared-edge"
     ),
 ]
 
@@ -111,7 +109,7 @@ def test_entry_hint_on_one_line_carries_its_shared_edge_sibling():
     they cannot physically arrive on different sides, so both must resolve
     to the hinted side and share one entry port.
     """
-    path = REGRESSIONS / "entry_hint_shared_edge.mmd"
+    path = TOPOLOGIES / "entry_hint_shared_edge.mmd"
     graph = parse_metro_mermaid(path.read_text())
 
     compute_layout(graph)  # must not raise
