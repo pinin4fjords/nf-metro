@@ -375,15 +375,6 @@ gallery:
       An even branch count puts the fan's true centreline half a grid pitch off the row
       grid, and the fork hub agrees with the join hub on that centreline rather than
       landing on the nearest full grid row a full pitch away (#1595)."
-  - id: ported_symmetric_fan_centreline_trunk
-    source_dir: examples/topologies
-    category: Fan-out and Fan-in
-    description:
-      "The same six-branch `diamond_style: symmetric` fan, reached through entry and exit
-      ports from neighbouring sections. The half-pitch centreline the fork and join hubs
-      settle on carries out through the section's own ports and along the single-line trunk
-      either side, so both boundary runs leave as straight risers instead of the upstream
-      trunk sitting a row below the fan it feeds (#1617)."
   - id: symmetric_multiline_merge_median
     source_dir: examples/topologies
     category: Fan-out and Fan-in

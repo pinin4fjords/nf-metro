@@ -219,94 +219,6 @@ def _divergence_midpoint_targets(
     return centred
 
 
-def _trunk_neighbours(graph: MetroGraph, node_id: str, forward: bool) -> set[str]:
-    """Neighbours of *node_id* one step ``forward`` (or back), ports included.
-
-    Junctions are transparent, so a connection routed through a bundle junction
-    resolves to the station on its far side.  Ports stay in the result, unlike
-    :func:`_divergence_target_successors` and :func:`_convergence_source_ys`
-    which want only the fan's real branch stations: a section's own LR/RL port
-    is a station on the trunk like any other, and a caller tracing a run along
-    that trunk has to see it.
-    """
-    junction_ids = graph.junction_ids
-    edges = graph.edges_from(node_id) if forward else graph.edges_to(node_id)
-    neighbours: set[str] = set()
-    for edge in edges:
-        other = edge.target if forward else edge.source
-        if other in junction_ids:
-            hops = graph.edges_from(other) if forward else graph.edges_to(other)
-            neighbours.update(e.target if forward else e.source for e in hops)
-        else:
-            neighbours.add(other)
-    return neighbours
-
-
-def _collinear_trunk_run(graph: MetroGraph, anchor_id: str, forward: bool) -> list[str]:
-    """Stations and ports on an unbranched run out of *anchor_id*, at its Y.
-
-    Walks away from the anchor while each successive node is a pass-through -
-    exactly one connection back toward the anchor and at most one onward - and
-    sits on the anchor's own Y.  Such a node carries the anchor's track and
-    nothing else, so moving the anchor's centreline has to move it too or the
-    run kinks.
-
-    The walk stops at the first node that branches, that is fed from elsewhere,
-    or that sits on a different Y: each of those has geometry of its own that a
-    centreline shift would break rather than preserve.
-    """
-    anchor = graph.stations.get(anchor_id)
-    if anchor is None:
-        return []
-    run: list[str] = []
-    seen = {anchor_id}
-    current = anchor_id
-    onward = _trunk_neighbours(graph, current, forward)
-    while len(onward) == 1:
-        nxt = next(iter(onward))
-        st = graph.stations.get(nxt)
-        if nxt in seen or st is None or st.off_track or st.is_hidden:
-            break
-        if abs(st.y - anchor.y) > SAME_COORD_TOLERANCE:
-            break
-        if _trunk_neighbours(graph, nxt, not forward) != {current}:
-            break
-        onward = _trunk_neighbours(graph, nxt, forward)
-        if len(onward) > 1:
-            break
-        run.append(nxt)
-        seen.add(nxt)
-        current = nxt
-    return run
-
-
-def _centreline_trunk_followers(
-    graph: MetroGraph,
-    divergence_targets: dict[str, list[str]],
-    convergence_sources: dict[str, list[str]],
-) -> dict[str, list[str]]:
-    """Return ``{fork_hub_id: [ids that must ride its centreline]}``.
-
-    A fork hub :func:`_divergence_midpoint_targets` keeps centred, and the join
-    closing the same diamond, both sit on one centreline.  The trunk reaching
-    the hub from upstream and leaving the join downstream is on that centreline
-    too - including the section's own LR/RL ports, which are just pass-throughs
-    on it - so it belongs to the same rigid group (issue #1617).  Keyed by the
-    fork hub because that is the station whose recentring decides where the
-    centreline lands.
-    """
-    join_by_branch_set = _join_ids_by_branch_set(convergence_sources)
-    followers: dict[str, list[str]] = {}
-    for hub_id, tgt_ids in divergence_targets.items():
-        chain = _collinear_trunk_run(graph, hub_id, forward=False)
-        join_id = join_by_branch_set.get(frozenset(tgt_ids))
-        if join_id is not None:
-            chain += _collinear_trunk_run(graph, join_id, forward=True)
-        if chain:
-            followers[hub_id] = chain
-    return followers
-
-
 def _real_predecessors(graph: MetroGraph, target_ids: set[str]) -> set[str]:
     """Real-station predecessors of ``target_ids``, seen through junctions.
 
@@ -314,9 +226,16 @@ def _real_predecessors(graph: MetroGraph, target_ids: set[str]) -> set[str]:
     one step further back is returned in its place, so a fan fed through a single
     bundle junction resolves to its source station.
     """
+    junction_ids = graph.junction_ids
     preds: set[str] = set()
     for tid in target_ids:
-        preds |= _trunk_neighbours(graph, tid, forward=False)
+        for edge in graph.edges_to(tid):
+            src_id = edge.source
+            if src_id in junction_ids:
+                for e2 in graph.edges_to(src_id):
+                    preds.add(e2.source)
+            else:
+                preds.add(src_id)
     return preds
 
 
@@ -1568,27 +1487,20 @@ def _expand_orphaned_half_grid_stations(
     A fork hub :func:`_restore_divergence_midpoints` centred on its targets'
     midpoint is a solo centreline anchor, not one side of a two-way pair - it
     has no mirror station to go looking for, so it is exempt here regardless
-    of what ``_half_grid_frame`` reports for its section.  The trunk run that
-    rides the same centreline (:func:`_centreline_trunk_followers`) is exempt
-    for the same reason, and seating one of its members on a row would reopen
-    the seam the centreline closed.
+    of what ``_half_grid_frame`` reports for its section.
     """
     require_phase_field(graph, "half_grid_station_ids")
     half_grid = graph.half_grid_station_ids
     if not half_grid:
         return
-    convergence_sources = _convergence_source_ys(graph)
-    divergence_targets = _divergence_midpoint_targets(graph, convergence_sources)
-    centreline_ids = set(divergence_targets)
-    for follower_ids in _centreline_trunk_followers(
-        graph, divergence_targets, convergence_sources
-    ).values():
-        centreline_ids.update(follower_ids)
+    fork_hub_ids = set(
+        _divergence_midpoint_targets(graph, _convergence_source_ys(graph))
+    )
     for section in graph.sections.values():
         marked = [
             sid
             for sid in section.station_ids
-            if sid in half_grid and sid not in centreline_ids
+            if sid in half_grid and sid not in fork_hub_ids
         ]
         if not marked:
             continue

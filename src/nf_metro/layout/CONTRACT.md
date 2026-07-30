@@ -245,13 +245,12 @@ pass:
 - `graph._row_y_grid_info` - written by Stage 1.2 (`_align_row_y_grids`); read
   by the grid-group port snap (Stage 4.2-4.4), fan re-centre (6.3/6.7), and
   grid snap (6.4).
-- `graph.half_grid_station_ids` - written by Stage 6.3 (`center_ports` only),
-  Stage 6.4's own midpoint restore and Stage 6.17
-  (`diamond_style='symmetric'`); read by the Stage 6.4 grid snap, which must
-  skip these half-pitch stations. Stage 6.18 both reads the set and clears the
-  marking off any station it seats back on a full row, so the post-layout
-  readers (the straddle guard, the co-fanned drop-clearance rule in
-  `routing/intra_handlers.py`) see only stations still at half pitch.
+- `graph.half_grid_station_ids` - written by Stage 6.3 (`center_ports` only)
+  and Stage 6.17 (`diamond_style='symmetric'`); read by the Stage 6.4 grid
+  snap, which must skip these half-pitch stations. Stage 6.18 both reads the
+  set and clears the marking off any station it seats back on a full row, so
+  the post-layout readers (the straddle guard, the co-fanned drop-clearance
+  rule in `routing/intra_handlers.py`) see only stations still at half pitch.
 - `graph.symfan_trunk_station_ids` - written by Stage 6.3 (`center_ports` only);
   read by the Stage 6.4 grid snap, which must skip these source/trunk stations
   so they stay on the symfan's local frame instead of snapping to a rowspan
@@ -888,29 +887,16 @@ in pipeline order.
   nearest row-wide grid slot, removing fractional Ys left by earlier
   shifts. Stations listed in `graph.half_grid_station_ids` (populated
   by Stage 6.3) are skipped so they keep their intentional half-pitch
-  Y. Fan-in targets are then put back on their sources' midpoint, and
-  under `diamond_style='symmetric'` a fork hub already centred on its
-  targets is put back on theirs, together with the unbranched trunk run
-  that shared its Y before the snap (the section's own LR/RL ports and
-  the single-line stations beyond them) so the whole centreline stays
-  one straight track. Those ids join
-  `graph.half_grid_station_ids` when the restored midpoint is genuinely
-  half a pitch off the branch grid.
-- **Helper**: `_snap_all_y_to_grid`, with
-  `_restore_convergence_midpoints` / `_restore_divergence_midpoints`
-  and `_centreline_trunk_followers` (`phases/fan_bundles.py`) for the
-  restores.
+  Y.
+- **Helper**: `_snap_all_y_to_grid`.
 - **Precondition**: All semantic Y shifts done. If Stage 6.3 ran,
   `graph.half_grid_station_ids` is populated.
 - **Postcondition**: Every station and port Y is a grid slot of the
-  per-section / per-row pitch (except marked half-grid stations). A
-  symmetric diamond's fork hub, join and trunk run share one Y.
+  per-section / per-row pitch (except marked half-grid stations).
 - **Invariants preserved**: X coordinates (tested by
   `test_grid_snap_does_not_mutate_x`). Half-grid station Ys.
 - **Related tests**: `test_all_stations_snap_to_grid`,
-  `test_grid_snap_does_not_mutate_x`,
-  `test_fork_and_join_hub_share_centreline`,
-  `test_ported_fan_centreline_reaches_ports_and_trunk`.
+  `test_grid_snap_does_not_mutate_x`.
 - **Lifecycle:** invariant - every (non-half-grid) station/port Y is a
   grid slot at the final boundary (re-asserted canvas-wide by Stage
   6.15).
@@ -1278,9 +1264,7 @@ in pipeline order.
   on the side it already sits, its half-grid marking cleared, and the
   section bbox grown over the moved branch alone. Stations marked
   half-grid whose settled Y is already a whole number of rows from the
-  anchor are left alone. A Stage 6.4 centreline - the fork hub and the
-  trunk run riding its midpoint - has no mirror member to look for, so it
-  is exempt.
+  anchor are left alone.
 - **Helper**: `_expand_orphaned_half_grid_stations`
   (`phases/fan_bundles.py`), sharing `_half_grid_frame` /
   `_straddles_nothing` with the invariant test.

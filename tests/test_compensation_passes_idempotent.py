@@ -111,7 +111,6 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/off_track_input_above_consumer": frozenset({"4.7"}),
     "topologies/out_of_section_retag_fan": frozenset({"4.7"}),
     "topologies/packed_multiline_serpentine_grid": frozenset({"4.7"}),
-    "topologies/ported_symmetric_fan_centreline_trunk": frozenset({"4.7"}),
     "topologies/rl_entry_right_exit_left": frozenset({"4.7"}),
     "topologies/rowmate_tb_side_entry_top_align_grow": frozenset({"4.7"}),
     "topologies/side_branch_ascent_label_strike": frozenset({"4.7"}),
