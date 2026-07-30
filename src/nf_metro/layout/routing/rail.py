@@ -33,10 +33,22 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     _center_inter_row_channel,
 )
-from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Station
+from nf_metro.parser.model import (
+    Edge,
+    LineSpread,
+    MetroGraph,
+    Port,
+    PortSide,
+    Station,
+)
 
 
-def _line_rail_y(graph: MetroGraph, station_id: str, line_id: str) -> float:
+def _line_rail_y(
+    graph: MetroGraph,
+    station_id: str,
+    line_id: str,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> float:
     """Return the Y at which *line_id* meets *station_id* in rail mode.
 
     A single-rail station sits at its ``y``.  A multi-rail (spanning) station
@@ -44,15 +56,26 @@ def _line_rail_y(graph: MetroGraph, station_id: str, line_id: str) -> float:
     the pill at the rail Y for that line, which is recoverable from the
     station's served lines and the even rail spacing.  When the rail span is
     unknown the station's own ``y`` is used (single-rail fallback).
+
+    A port resolves differently in the two rail modes.  Under whole-graph rails
+    every section is on rails, so a port is a rail-to-rail waypoint and resolves
+    to the line's own rail in its section, keeping an inter-section corridor on
+    the correct rail per line.  A rail section embedded in an otherwise bundled
+    graph is instead reached by a normal bundled connector, which arrives at the
+    port as a lane stack; the port is that bundle's convergence point, so it
+    resolves to the line's own lane there (``offsets``, from
+    :func:`nf_metro.layout.routing.compute_station_offsets`) and the leg inward
+    carries the fan out to the rails.  Meeting the connector on its lane rather
+    than on the port centre is what keeps the seam at the section edge unkinked.
     """
     st = graph.stations.get(station_id)
     if st is None:
         return 0.0
 
-    # Ports carry an averaged Y; resolve to the line's own rail in the port's
-    # section so inter-section legs stay on the correct rail per line.
     port = graph.ports.get(station_id)
     if port is not None:
+        if graph.line_spread is not LineSpread.RAILS:
+            return st.y + (offsets or {}).get((station_id, line_id), 0.0)
         section_rails = graph._rail_y.get(port.section_id, {})
         if line_id in section_rails:
             return section_rails[line_id]
@@ -290,6 +313,7 @@ def _route_inter_section_connector(
 def route_rail_edges(
     graph: MetroGraph,
     edges: list[Edge] | None = None,
+    station_offsets: dict[tuple[str, str], float] | None = None,
 ) -> list[RoutedPath]:
     """Route edges as straight horizontal runs along their line's rail.
 
@@ -300,8 +324,10 @@ def route_rail_edges(
     stays axis-aligned rather than diagonal.
 
     When *edges* is None every edge in the graph is routed (whole-graph rail
-    mode).  In per-section rail mode the caller passes just that section's
-    internal edges so the normal router handles the rest.
+    mode).  In per-section rail mode the caller passes just that section's own
+    edges so the normal router handles the rest, and *station_offsets* so the
+    leg in from that section's entry port starts on the lane the bundled
+    connector delivered the line to before fanning out to its rail.
     """
     edge_list = list(edges) if edges is not None else list(graph.edges)
     routes: list[RoutedPath] = []
@@ -340,8 +366,8 @@ def route_rail_edges(
             routes.append(_route_off_track_elbow(graph, edge, feeder, on_rail, off_src))
             continue
 
-        y_src = _line_rail_y(graph, edge.source, edge.line_id)
-        y_tgt = _line_rail_y(graph, edge.target, edge.line_id)
+        y_src = _line_rail_y(graph, edge.source, edge.line_id, station_offsets)
+        y_tgt = _line_rail_y(graph, edge.target, edge.line_id, station_offsets)
 
         # Endpoints within a line-stroke of each other are the same rail for
         # drawing purposes: route straight rather than easing a sub-stroke

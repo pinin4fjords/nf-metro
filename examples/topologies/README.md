@@ -425,6 +425,7 @@ python scripts/list_topology_fixtures.py
 | `peeloff_extra_line_consumer.mmd`     | Peel-off where an extra line has its own consumer in the target section - tests that the extra-consumer line peels correctly from the bundle       |
 | `peeloff_riser_respace.mmd`           | Peel-off riser respacing - tests that risers are re-spaced after a peel-off to maintain visual separation                                          |
 | `terminus_join.mmd`                   | Terminus join - two lines converging at a file terminus node; tests that the join routes cleanly when the terminus has a `%%metro file:` directive |
+| `rail_boundary_bundle_fan.mmd`        | Bundled section feeding a per-section rail section - each incoming line fans from the entry-port lane stack onto its own rail (issue #1624)        |
 | `rail_offtrack_fan.mmd`               | Rail-mode off-track fan-out - tests fan-out geometry under the `line_spread: rails` directive                                                      |
 | `rail_offtrack_io.mmd`                | Rail-mode off-track file input and output nodes - tests that rail-mode does not disturb off-track I/O node placement                               |
 | `rail_offtrack_plain_io.mmd`          | Rail-mode with plain (non-file) off-track I/O - tests the same path without the `%%metro file:` directive                                          |
