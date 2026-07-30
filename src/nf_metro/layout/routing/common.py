@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import NamedTuple
@@ -850,24 +850,39 @@ class RenderedGeometry:
         ]
 
 
+def opening_horizontal_vertical(
+    pts: Sequence[tuple[float, float]],
+) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]] | None:
+    """The first three points when a polyline opens horizontal-then-vertical.
+
+    The shape ``(sx, sy) -> (vx, sy) -> (vx, dy)``: a horizontal lead off the
+    source, then a vertical leg in its own channel.  ``None`` when the polyline
+    is shorter than three points or either leg is off-axis, which covers a route
+    that leaves on a diagonal, as a bare drop, or straight through.
+    """
+    if len(pts) < 3:
+        return None
+    p0, p1, p2 = pts[0], pts[1], pts[2]
+    if abs(p1[1] - p0[1]) > COORD_TOLERANCE or abs(p1[0] - p0[0]) <= COORD_TOLERANCE:
+        return None
+    if abs(p2[0] - p1[0]) > COORD_TOLERANCE or abs(p2[1] - p1[1]) <= COORD_TOLERANCE:
+        return None
+    return p0, p1, p2
+
+
 def initial_fanout_descent_span(
     rp: RoutedPath,
 ) -> tuple[float, float, float, bool] | None:
     """``(x, y_lo, y_hi, down)`` of the descent leaving a route's source.
 
-    A fan-out branch opens ``(sx, sy) -> (vx, sy) -> (vx, dy) -> ...``: a
-    short horizontal lead off the shared source, then a vertical descent in
-    its own channel.  Returns ``None`` when the route does not open
-    horizontal-then-vertical.
+    A fan-out branch opens with a short horizontal lead off the shared source,
+    then a vertical descent in its own channel.  Returns ``None`` when the route
+    does not open horizontal-then-vertical.
     """
-    pts = rp.points
-    if len(pts) < 3:
+    opening = opening_horizontal_vertical(rp.points)
+    if opening is None:
         return None
-    (x0, y0), (x1, y1), (x2, y2) = pts[0], pts[1], pts[2]
-    if abs(y1 - y0) > COORD_TOLERANCE or abs(x1 - x0) <= COORD_TOLERANCE:
-        return None
-    if abs(x2 - x1) > COORD_TOLERANCE or abs(y2 - y1) <= COORD_TOLERANCE:
-        return None
+    _p0, (x1, y1), (_x2, y2) = opening
     return x1, min(y1, y2), max(y1, y2), y2 > y1
 
 

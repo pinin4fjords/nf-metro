@@ -21,6 +21,9 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
+from nf_metro.layout.routing.centrelines import (
+    fan_offsets,
+)
 from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
@@ -165,7 +168,8 @@ def _section_intrudes(
 
 def _anchored_bundle_midpoint(
     order: list[str],
-    pins: dict[str, float],
+    pins: dict[tuple[bool, str], float],
+    down: bool,
     step: float,
     gap_left: float,
     gap_right: float,
@@ -181,12 +185,17 @@ def _anchored_bundle_midpoint(
     ``None`` when there is no single pin to honour, or when honouring it would
     push a slot outside the gap -- the caller then centres as usual.
     """
-    pinned = [lid for lid in order if lid in pins]
-    if len(pinned) != 1:
+    slots = fan_offsets(len(order), step)
+    anchored = [
+        (slots[i], pins[(down, lid)])
+        for i, lid in enumerate(order)
+        if (down, lid) in pins
+    ]
+    if len(anchored) != 1:
         return None
-    index = order.index(pinned[0])
-    mid = pins[pinned[0]] - (index - (len(order) - 1) / 2) * step
-    half = (len(order) - 1) / 2 * step
+    offset, column = anchored[0]
+    mid = column - offset
+    half = slots[-1]
     if mid - half < gap_left - COORD_TOLERANCE:
         return None
     if mid + half > gap_right + COORD_TOLERANCE:
@@ -231,11 +240,7 @@ def _layout_gap_bundle(
         # direction from geometry; fall back to the bundle's vertical sense.
         lead_right = _corridor_leadout_right(chans, _down)
         anchored = _anchored_bundle_midpoint(
-            order,
-            {lid: x for (d, lid), x in (pins or {}).items() if d is _down},
-            step,
-            gap_left,
-            gap_right,
+            order, pins or {}, _down, step, gap_left, gap_right
         )
         if anchored is not None:
             mid = anchored
@@ -246,9 +251,8 @@ def _layout_gap_bundle(
         n = len(order)
         # line_id -> (slot index, x); every segment of that line overlays
         # at its single slot rather than claiming an OFFSET_STEP each.
-        line_slot = {
-            lid: (i, mid + (i - (n - 1) / 2) * step) for i, lid in enumerate(order)
-        }
+        slots = fan_offsets(n, step)
+        line_slot = {lid: (i, mid + slots[i]) for i, lid in enumerate(order)}
         targets = [(ch, line_slot[ch.route.line_id]) for ch in chans]
         # Intrusion guard: if any target x would land inside a section bbox
         # (e.g. the gap bounds came from another row), leave this bundle
@@ -325,6 +329,10 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
       ``BUNDLE_TO_BUNDLE_CLEARANCE`` (B) apart, centred as a group.
     * A lone bundle centres in its gap with at least
       ``EDGE_TO_BUNDLE_CLEARANCE`` (A) from each bounding section edge.
+    * A bundle carrying a line whose column here is owned by an exempt handler
+      seats on that column instead of centring
+      (:func:`_anchored_bundle_midpoint`), so the coincidence fusion that later
+      pulls this bundle's leg onto it does not drag it across a sibling.
 
     The grouping is read from the declared slots rather than rediscovered from
     raw geometry; the concentric layout and flanking-radius recompute are the
