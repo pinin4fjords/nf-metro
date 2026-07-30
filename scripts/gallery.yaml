@@ -1466,6 +1466,14 @@ gallery:
       runs its horizontal in the clear band abutting the target row and drops into the
       LEFT port, rather than diving below the whole stack. Exercises
       `_route_left_entry_via_gap_above` (collector-fan-in geometry)."
+  - id: entry_hint_shared_edge
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "An `entry:` hint pins one line of a two-line inter-section edge to a
+      non-natural side; the other line, riding the identical connector, is forced onto that
+      same side instead of independently computing its own natural side and conflicting with
+      the hint (issue #1629)."
   - id: inter_row_wrap_clearance
     source_dir: examples/topologies
     category: Inter-section Routing

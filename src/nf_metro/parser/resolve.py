@@ -564,7 +564,7 @@ def _resolve_sections(graph: MetroGraph) -> None:
     internal_edges, inter_section_edges = _classify_edges(graph)
     _reside_folded_flow_ports_to_grid(graph, inter_section_edges)
     _reanchor_flow_axis_ports(graph, inter_section_edges)
-    entry_side_for_line = _build_entry_side_mapping(graph)
+    entry_side_for_line = _build_entry_side_mapping(graph, inter_section_edges)
 
     if inter_section_edges:
         _create_ports_and_junctions(
@@ -978,7 +978,7 @@ def _dominant_entry_side(graph: MetroGraph, sec_id: str) -> PortSide | None:
 
 
 def _build_entry_side_mapping(
-    graph: MetroGraph,
+    graph: MetroGraph, inter_section_edges: list[Edge]
 ) -> dict[tuple[str, str], PortSide]:
     """Build a per-line entry side lookup from hints and feed geometry.
 
@@ -988,16 +988,25 @@ def _build_entry_side_mapping(
       A section has one entry side, so hints naming several sides are
       contradictory: they collapse to one side (:func:`_collapse_hint_sides`),
       the rest dropped with a warning;
-    - a line with no hint takes its side from where its feeds arrive
+    - an unhinted line riding the same (source station, target station)
+      connector as a hinted line takes that hinted side too -- they cross the
+      section boundary on the same edge and cannot arrive on different sides;
+    - any other unhinted line takes its side from where its feeds arrive
       (``_dominant_entry_side``), falling back to the LEFT default at lookup
       (left unmapped here) when no predecessor geometry is available.
 
-    Different lines may resolve to different sides; a section fed from more than
-    one approach direction is caught downstream by
-    ``_guard_no_mixed_entry_directions``.  Returns dict mapping
+    Lines arriving via genuinely distinct connectors may resolve to different
+    sides; a section fed from more than one approach direction is caught
+    downstream by ``_guard_no_mixed_entry_directions``.  Returns dict mapping
     (section_id, line_id) -> PortSide.
     """
     dag = graph.section_dag
+    connectors_by_line: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
+    for edge in inter_section_edges:
+        tgt_sec = graph.section_for_station(edge.target)
+        if tgt_sec is not None:
+            connectors_by_line[(tgt_sec, edge.line_id)].add((edge.source, edge.target))
+
     entry_side_for_line: dict[tuple[str, str], PortSide] = {}
     for sec_id, section in graph.sections.items():
         incoming: set[str] = set()
@@ -1014,8 +1023,19 @@ def _build_entry_side_mapping(
         dominant = _dominant_entry_side(graph, sec_id)
         hinted_side = _collapse_hint_sides(section, dominant)
 
+        hinted_connectors: set[tuple[str, str]] = set()
+        for lid in hinted_lines:
+            hinted_connectors.update(connectors_by_line.get((sec_id, lid), set()))
+
         for lid in incoming:
-            side = hinted_side if lid in hinted_lines else dominant
+            shares_hinted_connector = hinted_side is not None and (
+                connectors_by_line.get((sec_id, lid), set()) & hinted_connectors
+            )
+            side = (
+                hinted_side
+                if lid in hinted_lines or shares_hinted_connector
+                else dominant
+            )
             if side is not None:
                 entry_side_for_line[(sec_id, lid)] = side
     return entry_side_for_line

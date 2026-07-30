@@ -22,6 +22,7 @@ from click.testing import CliRunner
 from nf_metro.cli import cli
 from nf_metro.layout import MixedEntryDirectionError, compute_layout
 from nf_metro.parser import parse_metro_mermaid
+from nf_metro.parser.model import PortSide
 
 INVALID = Path(__file__).parent / "fixtures" / "invalid"
 EXAMPLES = Path(__file__).parent.parent / "examples"
@@ -50,6 +51,9 @@ _ALLOWED = [
     ),
     pytest.param(EXAMPLES / "rnaseq_sections.mmd", id="rnaseq"),
     pytest.param(TOPOLOGIES / "around_section_below.mmd", id="around-below"),
+    pytest.param(
+        TOPOLOGIES / "entry_hint_shared_edge.mmd", id="entry-hint-shared-edge"
+    ),
 ]
 
 
@@ -94,6 +98,27 @@ def test_single_direction_entries_not_rejected(path: Path):
             f"section '{section.id}' has entry ports on multiple sides "
             f"{sorted(s.value for s in sides)} yet was not rejected"
         )
+
+
+def test_entry_hint_on_one_line_carries_its_shared_edge_sibling():
+    """A hint naming one line of a multi-line inter-section edge carries the
+    other lines riding that same edge onto its side too.
+
+    ``entry_hint_shared_edge.mmd`` hints ``bottom`` for ``qc`` only, but
+    ``qc`` and ``main`` both ride the single ``reads -> fastqc`` connector --
+    they cannot physically arrive on different sides, so both must resolve
+    to the hinted side and share one entry port.
+    """
+    path = TOPOLOGIES / "entry_hint_shared_edge.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+
+    compute_layout(graph)  # must not raise
+
+    proc = graph.sections["proc"]
+    assert len(proc.entry_ports) == 1
+    (port_id,) = proc.entry_ports
+    assert graph.ports[port_id].side is PortSide.BOTTOM
+    assert set(graph.station_lines(port_id)) == {"qc", "main"}
 
 
 @pytest.mark.parametrize("path,section,sides", _MIXED)
