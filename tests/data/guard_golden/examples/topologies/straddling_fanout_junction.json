@@ -369,6 +369,7 @@
     "_guard_inter_section_route_no_backtrack|after final",
     "_guard_inter_section_route_no_full_width_backtrack|after final",
     "_guard_routes_enter_sections_at_ports|after final",
+    "_guard_port_legs_meet_rail_pill_on_own_rail|after final",
     "_guard_rail_connector_ports_no_stub|after final",
     "_guard_no_route_through_section|after final",
     "_guard_inter_section_route_clears_own_section_interior|after final",

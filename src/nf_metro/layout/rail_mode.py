@@ -609,6 +609,40 @@ def rail_above_label_ids(graph: MetroGraph, section: Section) -> set[str]:
     return _rail_above_label_stations(graph, real_ids, per_line_y)
 
 
+def rail_above_label_top_pad(
+    graph: MetroGraph, section: Section, section_y_padding: float
+) -> dict[str, float]:
+    """Padding reserved above *section*'s above-labelled top-rail stations.
+
+    Mirrors the reservation :func:`_layout_section_rails` makes above a
+    top-rail station whose label hangs above the bundle: ``RAIL_ABOVE_LABEL_TOP_PAD``
+    plus the label band, in place of the full ``section_y_padding`` a
+    non-rail section reserves -- the angled band already reaches the box top
+    with a thin corner, so the full padding would over-reserve.  An
+    off-track feed anchors its own band to the full padding
+    (:func:`_layout_section_rails`), so the reduction does not apply then.
+
+    Returns a ``{station_id: pad}`` map covering only the affected stations,
+    empty for a non-rail section or one with no above-labelled top-rail
+    station.  Lets a content-hug calculation elsewhere
+    (:func:`nf_metro.layout.phases.bbox._section_content_hug_top`) agree with
+    the geometry this module actually draws, rather than re-deriving the
+    same formula by hand.
+    """
+    above_ids = rail_above_label_ids(graph, section)
+    if not above_ids:
+        return {}
+    has_off_track = any(
+        graph.stations[sid].off_track
+        for sid in section.station_ids
+        if sid in graph.stations
+    )
+    if has_off_track:
+        return {}
+    pad = RAIL_ABOVE_LABEL_TOP_PAD + _rail_label_band(graph, above_ids)
+    return dict.fromkeys(above_ids, pad)
+
+
 def _label_aware_x_spacing(
     graph: MetroGraph,
     real_ids: list[str],

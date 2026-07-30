@@ -1786,6 +1786,14 @@ gallery:
       to the through-trunk column rather than the lift-most station, so main-trunk producers
       downstream of the fork keep their off-track outputs on the lift side instead of flipping them
       onto the beside-trunk label side (issue #1388)."
+  - id: rail_boundary_bundle_fan
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A bundled section feeding a per-section `%%metro line_spread: rails` section
+      across the boundary. The three lines arrive at the rail section's entry port as one lane
+      stack and fan out to their own rails on the leg inward, so each meets its own dot on the
+      interchange pill instead of the whole bundle diving into the pill's centre (issue #1624)."
   - id: rail_inter_section
     source_dir: examples/topologies
     category: Off-track & Rails
@@ -1819,6 +1827,15 @@ gallery:
       and output. Each plain off-track node renders a station marker at its line end rather
       than a bare stub, and the input's label sits above the node clear of its drop and the
       adjacent station's label."
+  - id: rail_horizontal_labels
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A `%%metro line_spread: rails` section whose top-rail stations keep the default
+      horizontal label angle instead of an angled one. Regression fixture: rail mode's
+      deliberate top-rail label-band hug must be reflected in the section's content-hug
+      target, not just its own layout, or the top-padding guard misreads the intended
+      geometry as crowding (issue #1625)."
   - id: render_labelwrap_row_gap
     source_dir: examples/topologies
     category: Inter-section Routing

@@ -3486,6 +3486,66 @@ def _guard_inter_section_route_no_full_width_backtrack(
             )
 
 
+def _guard_port_legs_meet_rail_pill_on_own_rail(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """After routing: a leg from a section port to a rail-laid interchange pill
+    meets that pill on the crossing line's own rail.
+
+    A ``line_spread: rails`` section carries each line on its own rail, and a
+    station several of them pass through renders as a pill spanning those rails
+    with one marker per rail used.  A line arriving from the section's boundary
+    port must therefore land on its own rail's marker.  Landing the whole
+    arriving bundle near the pill's centre Y instead draws the incoming lines
+    diving into the middle of the pill body with no marker to meet (#1624).
+
+    The expected rail Y is the rail router's own resolution, so the guard cannot
+    drift from the geometry it checks; the applicability filters below keep it
+    off the cases that resolution answers with the station's plain ``y``.
+    """
+    if not graph.has_rail_sections:
+        return
+    from nf_metro.layout.routing.rail import _line_rail_y
+
+    routes = _ensure_routes(graph, routes)
+
+    for rp in routes:
+        if len(rp.points) < 2:
+            continue
+        src, tgt = graph.edge_endpoints(rp.edge)
+        for port_end, pill_end, point in (
+            (src, tgt, rp.points[-1]),
+            (tgt, src, rp.points[0]),
+        ):
+            if (
+                not port_end.is_port
+                or pill_end.is_port
+                or pill_end.off_track
+                or pill_end.is_blank_terminus
+                or not graph.station_is_rail(pill_end.id)
+            ):
+                continue
+            served = graph.station_lines_ordered(pill_end.id)
+            if (
+                len(served) < 2
+                or len(pill_end.rail_used_ys) != len(served)
+                or rp.line_id not in served
+            ):
+                continue
+            rail_y = _line_rail_y(graph, pill_end.id, rp.line_id)
+            if abs(point[1] - rail_y) > GUARD_TOLERANCE:
+                raise PhaseInvariantError(
+                    f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} "
+                    f"line {rp.line_id!r} meets rail station {pill_end.id!r} at "
+                    f"y={point[1]:.1f}, off its own rail y={rail_y:.1f} "
+                    f"(pill spans {min(pill_end.rail_used_ys):.1f}.."
+                    f"{max(pill_end.rail_used_ys):.1f})"
+                )
+
+
 def _guard_rail_connector_ports_no_stub(
     graph: MetroGraph,
     phase: str,
@@ -5507,6 +5567,19 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         _guard_routes_enter_sections_at_ports,
         "B",
         needs=frozenset({"routes"}),
+    ),
+    GuardSpec(
+        _guard_port_legs_meet_rail_pill_on_own_rail,
+        "B",
+        needs=frozenset({"routes"}),
+        issue_pin=("#1624",),
+        narrow_reason=(
+            "Only a port-to-station leg into a multi-rail interchange pill is "
+            "checked. A pill's own single-rail neighbours are already the rail "
+            "router's straight runs, and an off-track feeder or a blank terminus "
+            "converges its lines to a point rather than to one rail each, so "
+            "neither has a per-line rail marker to land on."
+        ),
     ),
     GuardSpec(
         _guard_rail_connector_ports_no_stub,
