@@ -879,6 +879,10 @@
         "mmd": "%%metro title: Cross-Column Perp Bottom Entry\n%%metro style: dark\n%%metro line: main | Main | #e63946\n%%metro line: branch | Branch | #2db572\n\ngraph LR\n    subgraph src [Source]\n        %%metro exit: right | main,branch\n        s1[Start]\n    end\n    subgraph sec1 [Section One]\n        %%metro entry: left | main,branch\n        %%metro exit: bottom | main,branch\n        a[Input]\n        b[Output]\n        a -->|main,branch| b\n    end\n    subgraph sec2 [Section Two]\n        %%metro entry: bottom | main,branch\n        d[Step D]\n        e[Step E]\n        d -->|main,branch| e\n    end\n    s1 -->|main,branch| a\n    b -->|main,branch| d\n"
       },
       {
+        "name": "bottom_entry_same_row_boundary",
+        "mmd": "%%metro title: Example Pipeline\n%%metro line: qc | QC | #2dd4bf\n%%metro line: main | Main | #c792ea\n\ngraph LR\n    subgraph input [Input]\n        reads[Reads]\n    end\n    subgraph proc [Processing]\n    %%metro entry: bottom | qc, main\n        fastqc[FastQC]\n        trim[Trim]\n        align[Align]\n        fastqc -->|qc,main| trim\n        trim -->|main| align\n    end\n    subgraph results [Results]\n        bam[BAM]\n    end\n    reads -->|qc,main| fastqc\n    align -->|main| bam\n"
+      },
+      {
         "name": "lr_perp_top_exit_perp_entry_diverging",
         "mmd": "%%metro title: Cross-Column Perp Entry Diverging\n%%metro style: dark\n%%metro line: main | Main | #e63946\n%%metro line: branch | Branch | #2db572\n\ngraph LR\n    subgraph src [Source]\n        %%metro exit: right | main,branch\n        s1[Start]\n    end\n    subgraph sec1 [Section One]\n        %%metro entry: left | main,branch\n        %%metro exit: top | main,branch\n        a[Input]\n        b[Output]\n        a -->|main,branch| b\n    end\n    subgraph sec2 [Section Two]\n        %%metro entry: top | main,branch\n        d[Step D]\n        e[Step E]\n        d -->|main| e\n    end\n    s1 -->|main,branch| a\n    b -->|main| d\n    b -->|branch| e\n"
       },
