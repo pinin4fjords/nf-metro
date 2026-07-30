@@ -1447,21 +1447,14 @@ graph LR
     end
 """
 
-RAIL_HORIZONTAL_LABELS_MMD = (
-    Path(__file__).resolve().parent.parent
-    / "examples"
-    / "topologies"
-    / "rail_horizontal_labels.mmd"
-)
+RAIL_HORIZONTAL_LABELS_MMD = EXAMPLES / "topologies" / "rail_horizontal_labels.mmd"
 
 
 @pytest.mark.parametrize(
     "source",
     [
         pytest.param(RAIL_HORIZONTAL_LABELS_MINIMAL_MMD, id="minimal_reproducer"),
-        pytest.param(
-            RAIL_HORIZONTAL_LABELS_MMD.read_text(), id="rail_horizontal_labels_fixture"
-        ),
+        pytest.param(RAIL_HORIZONTAL_LABELS_MMD, id="rail_horizontal_labels_fixture"),
     ],
 )
 def test_rail_section_default_labels_does_not_crowd_top_padding(source):
@@ -1476,7 +1469,8 @@ def test_rail_section_default_labels_does_not_crowd_top_padding(source):
     computed the same way rail mode reserved it; otherwise the top-padding
     guard misreads the intended geometry as crowding (issue #1625).
     """
-    graph = parse_metro_mermaid(source)
+    text = source.read_text() if isinstance(source, Path) else source
+    graph = parse_metro_mermaid(text)
     compute_layout(graph, validate=True)
 
 

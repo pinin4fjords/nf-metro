@@ -699,53 +699,33 @@ def _section_content_hug_top(
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
-    # A rail panel's single-rail top-rail stations label *above* the bundle
-    # (labels._rail_label_side), so rail_mode reserves only
-    # RAIL_ABOVE_LABEL_TOP_PAD plus that label band above them -- not the full
-    # section_y_padding -- because the angled band already reaches the box top
-    # with a thin corner (rail_mode._layout_section_rails).  With a horizontal
-    # label the band is narrower than section_y_padding, so hugging content
-    # with the full padding here would demand more clearance than rail_mode
-    # ever reserved.  Mirror its exact reservation for those stations so the
-    # two agree; a section with an off-track feed keeps the full padding
-    # (rail_mode does not shrink it there either).
-    rail_above_pad: dict[str, float] = {}
-    if graph.is_rail_section(section.id):
-        from nf_metro.layout.constants import RAIL_ABOVE_LABEL_TOP_PAD
-        from nf_metro.layout.rail_mode import _rail_label_band, rail_above_label_ids
+    # A rail section's above-labelled top-rail stations get less clearance
+    # than a generic station: see rail_above_label_top_pad's docstring for
+    # why, and why this must match rail_mode's own reservation exactly.
+    from nf_metro.layout.rail_mode import rail_above_label_top_pad
 
-        above_ids = rail_above_label_ids(graph, section)
-        has_off_track = any(
-            graph.stations[sid].off_track
-            for sid in section.station_ids
-            if sid in graph.stations
-        )
-        if above_ids and not has_off_track:
-            pad = RAIL_ABOVE_LABEL_TOP_PAD + _rail_label_band(graph, above_ids)
-            rail_above_pad = dict.fromkeys(above_ids, pad)
-    content_min_ys = [
-        graph.stations[sid].y
-        - (
-            rail_above_pad[sid]
-            if sid in rail_above_pad
-            else max(
-                _bundle_edge_padding(
-                    section_y_padding,
-                    (
-                        max(0.0, -_station_bundle_offset_span(graph, sid, offsets)[0])
-                        if is_horizontal and offsets is not None
-                        else 0.0
-                    ),
-                    sid in fan_ids,
+    rail_pad = rail_above_label_top_pad(graph, section, section_y_padding)
+
+    def _content_min_y(sid: str) -> float:
+        if sid in rail_pad:
+            return graph.stations[sid].y - rail_pad[sid]
+        return graph.stations[sid].y - max(
+            _bundle_edge_padding(
+                section_y_padding,
+                (
+                    max(0.0, -_station_bundle_offset_span(graph, sid, offsets)[0])
+                    if is_horizontal and offsets is not None
+                    else 0.0
                 ),
-                # A vertical-flow terminus's file icon reaches above its marker
-                # (a top-entering source), so the box must clear the icon, not
-                # just a padding band above the marker.
-                _terminus_y_overhang(graph.stations[sid], section_dir, graph)[0],
-            )
+                sid in fan_ids,
+            ),
+            # A vertical-flow terminus's file icon reaches above its marker
+            # (a top-entering source), so the box must clear the icon, not
+            # just a padding band above the marker.
+            _terminus_y_overhang(graph.stations[sid], section_dir, graph)[0],
         )
-        for sid in content_ids
-    ]
+
+    content_min_ys = [_content_min_y(sid) for sid in content_ids]
     bypass_min_ys = [
         graph.stations[sid].y
         for sid in section.station_ids
