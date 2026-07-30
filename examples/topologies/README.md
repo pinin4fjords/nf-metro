@@ -417,17 +417,18 @@ python scripts/list_topology_fixtures.py
 
 ### Off-track / rail-mode / misc routing
 
-| Fixture                               | What it tests                                                                                                                                      |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `clear_channel_target_aware_push.mmd` | Fan-descent target-aware channel push - the pushed descent lands on the target's side of the grazed section (#736)                                 |
-| `disjoint_sameline_trunks.mmd`        | Two separate trunks for the same line in disjoint sections - tests that same-line bypass trunks do not falsely merge                               |
-| `off_track_input_above_consumer.mmd`  | Off-track file input positioned above its consumer - tests the above-consumer routing arm for off-track inputs                                     |
-| `peeloff_extra_line_consumer.mmd`     | Peel-off where an extra line has its own consumer in the target section - tests that the extra-consumer line peels correctly from the bundle       |
-| `peeloff_riser_respace.mmd`           | Peel-off riser respacing - tests that risers are re-spaced after a peel-off to maintain visual separation                                          |
-| `terminus_join.mmd`                   | Terminus join - two lines converging at a file terminus node; tests that the join routes cleanly when the terminus has a `%%metro file:` directive |
-| `rail_offtrack_fan.mmd`               | Rail-mode off-track fan-out - tests fan-out geometry under the `line_spread: rails` directive                                                      |
-| `rail_offtrack_io.mmd`                | Rail-mode off-track file input and output nodes - tests that rail-mode does not disturb off-track I/O node placement                               |
-| `rail_offtrack_plain_io.mmd`          | Rail-mode with plain (non-file) off-track I/O - tests the same path without the `%%metro file:` directive                                          |
+| Fixture                               | What it tests                                                                                                                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clear_channel_target_aware_push.mmd` | Fan-descent target-aware channel push - the pushed descent lands on the target's side of the grazed section (#736)                                                               |
+| `disjoint_sameline_trunks.mmd`        | Two separate trunks for the same line in disjoint sections - tests that same-line bypass trunks do not falsely merge                                                             |
+| `off_track_input_above_consumer.mmd`  | Off-track file input positioned above its consumer - tests the above-consumer routing arm for off-track inputs                                                                   |
+| `peeloff_extra_line_consumer.mmd`     | Peel-off where an extra line has its own consumer in the target section - tests that the extra-consumer line peels correctly from the bundle                                     |
+| `peeloff_riser_respace.mmd`           | Peel-off riser respacing - tests that risers are re-spaced after a peel-off to maintain visual separation                                                                        |
+| `terminus_join.mmd`                   | Terminus join - two lines converging at a file terminus node; tests that the join routes cleanly when the terminus has a `%%metro file:` directive                               |
+| `rail_offtrack_fan.mmd`               | Rail-mode off-track fan-out - tests fan-out geometry under the `line_spread: rails` directive                                                                                    |
+| `rail_offtrack_io.mmd`                | Rail-mode off-track file input and output nodes - tests that rail-mode does not disturb off-track I/O node placement                                                             |
+| `rail_offtrack_plain_io.mmd`          | Rail-mode with plain (non-file) off-track I/O - tests the same path without the `%%metro file:` directive                                                                        |
+| `rail_horizontal_labels.mmd`          | Rail-mode section whose top-rail stations keep the default horizontal label angle - tests that the content-hug top target reflects rail mode's deliberate label-band hug (#1625) |
 
 ### TB section routing variants
 
