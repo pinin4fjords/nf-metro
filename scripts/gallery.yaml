@@ -1818,6 +1818,15 @@ gallery:
       and output. Each plain off-track node renders a station marker at its line end rather
       than a bare stub, and the input's label sits above the node clear of its drop and the
       adjacent station's label."
+  - id: rail_horizontal_labels
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A `%%metro line_spread: rails` section whose top-rail stations keep the default
+      horizontal label angle instead of an angled one. Regression fixture: rail mode's
+      deliberate top-rail label-band hug must be reflected in the section's content-hug
+      target, not just its own layout, or the top-padding guard misreads the intended
+      geometry as crowding (issue #1625)."
   - id: render_labelwrap_row_gap
     source_dir: examples/topologies
     category: Inter-section Routing
