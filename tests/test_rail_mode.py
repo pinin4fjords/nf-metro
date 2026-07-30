@@ -1428,6 +1428,52 @@ def test_above_rail_label_bottom_right_corner_seats_at_station():
     assert checked == 3
 
 
+# ---------------------------------------------------------------------------
+# Content-hug top must reflect rail mode's label-band hug (#1625)
+# ---------------------------------------------------------------------------
+
+RAIL_HORIZONTAL_LABELS_MINIMAL_MMD = """\
+%%metro line_spread: rails | calling
+%%metro line: a | A | #2db572
+%%metro line: b | B | #0570b0
+
+graph LR
+    subgraph calling [Calling]
+        hub[Recalibrate]
+        x[Caller A]
+        y[Caller B]
+        hub -->|a| x
+        hub -->|b| y
+    end
+"""
+
+RAIL_HORIZONTAL_LABELS_MMD = EXAMPLES / "topologies" / "rail_horizontal_labels.mmd"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(RAIL_HORIZONTAL_LABELS_MINIMAL_MMD, id="minimal_reproducer"),
+        pytest.param(RAIL_HORIZONTAL_LABELS_MMD, id="rail_horizontal_labels_fixture"),
+    ],
+)
+def test_rail_section_default_labels_does_not_crowd_top_padding(source):
+    """A per-section rail map whose top-rail stations keep the default
+    (horizontal) label angle must not abort layout validation.
+
+    ``rail_mode._layout_section_rails`` deliberately reserves only
+    ``RAIL_ABOVE_LABEL_TOP_PAD`` plus the label band above a top-rail station
+    -- not the full ``section_y_padding`` -- because the label only needs a
+    thin corner of clearance.  With a horizontal label that band is narrower
+    than ``section_y_padding``, so the content-hug top target must be
+    computed the same way rail mode reserved it; otherwise the top-padding
+    guard misreads the intended geometry as crowding (issue #1625).
+    """
+    text = source.read_text() if isinstance(source, Path) else source
+    graph = parse_metro_mermaid(text)
+    compute_layout(graph, validate=True)
+
+
 def test_rail_station_markers_seat_on_their_rails():
     """Every rail-station marker knob sits on one of the rails the station
     carries: the rendered knob centre matches a line's fixed rail Y.  This
