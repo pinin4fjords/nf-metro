@@ -1997,7 +1997,7 @@ def _order_perp_entry_by_landing_column(ctx: _OffsetCtx) -> None:
         ):
             continue
         section = graph.section_for_port(port_obj)
-        if section.direction not in ("TB", "BT"):
+        if not lanes_run_along_x(section.direction):
             continue
         lines = graph.station_lines(port_id)
         if len(lines) < 2:
@@ -2030,12 +2030,11 @@ def _order_perp_entry_by_landing_column(ctx: _OffsetCtx) -> None:
 
         frame = _section_lane_frame(graph, section)
         # Concentric turns put the widest radius furthest along the run AND
-        # furthest against the turn's vertical sense, so the lane that reaches
-        # deepest into the section rides the near lane for a downward-flowing
-        # section and the far lane for an upward-flowing one.
-        sign = 1.0 if port_obj.side is PortSide.LEFT else -1.0
-        if section.direction == "BT":
-            sign = -sign
+        # furthest against the turn's vertical sense, so the lane reaching
+        # deepest into the section rides the near lane where the flow runs down
+        # the column and the far lane where it runs back up it.
+        side_sign = 1.0 if port_obj.side is PortSide.LEFT else -1.0
+        sign = side_sign * AxisFrame.flow_sign(section.direction)
         turn_reach = {
             lid: sign
             * station_lane_coord(
