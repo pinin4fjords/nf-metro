@@ -823,33 +823,6 @@ def apply_route_offsets(
     return pts
 
 
-@dataclass(frozen=True)
-class RenderedGeometry:
-    """The routed geometry a render drew, published for readers of the picture.
-
-    Routing consults section bounding boxes, and label placement grows those
-    boxes after the routes are settled, so re-routing a rendered graph routes
-    against different boxes and yields paths that were never drawn.  Readers of
-    what the viewer sees -- the render-diff quality scorecard, the
-    offset-collapse oracle -- therefore consume this instead of re-deriving.
-
-    Holds the offsets and routes by reference rather than copying them: they are
-    the objects the renderer goes on to draw, so a reader sees exactly the
-    geometry that was emitted.  ``compute_layout`` clears the published record,
-    since a fresh layout moves the coordinates it was routed against.
-    """
-
-    station_offsets: dict[tuple[str, str], float]
-    routes: tuple[RoutedPath, ...]
-
-    def offset_polylines(self) -> list[tuple[str, list[tuple[float, float]]]]:
-        """Each drawn route as ``(line_id, points)`` with its separation applied."""
-        return [
-            (route.line_id, apply_route_offsets(route, self.station_offsets))
-            for route in self.routes
-        ]
-
-
 def opening_horizontal_vertical(
     pts: Sequence[tuple[float, float]],
 ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]] | None:

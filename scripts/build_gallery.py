@@ -29,12 +29,8 @@ sys.path.insert(0, str(project_root / "tests"))
 
 from layout_metrics import compute_metrics  # noqa: E402
 
-from nf_metro.api import (  # noqa: E402
-    RenderConfig,
-    prepare_graph,
-    render_graph,
-    resolve_theme,
-)
+from nf_metro.api import prepare_graph, resolve_theme  # noqa: E402
+from nf_metro.render.svg import build_render_plan, emit_render_plan  # noqa: E402
 
 DEBUG_RENDERS = "--debug" in sys.argv
 
@@ -126,7 +122,7 @@ def _seed_from_base() -> None:
             target.update(json.loads(path.read_text()))
 
 
-def _record_metrics(graph, svg_name: str, svg_str: str) -> None:
+def _record_metrics(graph, plan, svg_name: str, svg_str: str) -> None:
     """Compute the layout-quality scorecard for a freshly rendered graph.
 
     Computed alongside the render so the scores reflect the same engine version
@@ -135,7 +131,7 @@ def _record_metrics(graph, svg_name: str, svg_str: str) -> None:
     match = _SVG_DIMS_RE.search(svg_str)
     canvas = (float(match.group(1)), float(match.group(2))) if match else None
     try:
-        _metrics[svg_name] = compute_metrics(graph, canvas=canvas)
+        _metrics[svg_name] = compute_metrics(graph, plan=plan, canvas=canvas)
     except Exception as e:  # noqa: BLE001 - metrics are advisory, never fatal
         print(f"    metrics FAIL for {svg_name}: {e}")
 
@@ -164,11 +160,15 @@ def render_mmd(
     graph = prepare_graph(text, from_nextflow=from_nextflow)
     graph.embed_manifest = False
     theme = resolve_theme(None, graph)
-    svg_str = render_graph(
-        graph, theme, RenderConfig(debug=debug, self_color_scheme=self_color_scheme)
+    plan = build_render_plan(graph, theme, debug=debug)
+    svg_str = emit_render_plan(
+        plan,
+        theme,
+        debug=debug,
+        self_color_scheme=self_color_scheme,
     )
     svg_path.write_text(svg_str)
-    _record_metrics(graph, svg_path.name, svg_str)
+    _record_metrics(graph, plan, svg_path.name, svg_str)
     return svg_str
 
 

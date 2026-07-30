@@ -6,8 +6,8 @@ notebooks, other tools) both turn ``.mmd`` text into a settled
 cascade that drives that path - explicit option > ``%%metro`` directive >
 default - lives here so both surfaces resolve it identically.
 
-:func:`prepare_graph` returns a laid-out graph (so a caller that also needs the
-graph, e.g. for post-render geometry validation, keeps it in hand);
+:func:`prepare_graph` returns a laid-out graph for callers that need to inspect
+layout state or build a :class:`~nf_metro.render.plan.RenderPlan`;
 :func:`render_string` is the one-call convenience that returns the rendered
 string.
 """

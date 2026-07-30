@@ -46,6 +46,7 @@ from nf_metro.manifest import read_manifest
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
+    from nf_metro.render.plan import RenderPlan
 
 # The defect family of a finding; one per render-geometry check.
 LABEL_STRIKE = "label-strike"
@@ -365,7 +366,7 @@ def _first_crossing_segment(
 
 
 def check_offset_collapse(
-    graph: MetroGraph,
+    plan: RenderPlan,
     routes: list[tuple[str, _Subpaths]],
 ) -> list[RenderFinding]:
     """Distinct lines drawn flush where the offset regime spread them apart.
@@ -379,7 +380,7 @@ def check_offset_collapse(
     renderer published, the drawn geometry comes from the artifact, so a finding
     is a real render-time merge, not a re-derivation mismatch.
     """
-    expected = _expected_line_segments(graph)
+    expected = _expected_line_segments(plan)
     if not expected:
         return []
     drawn = drawn_segments(routes)
@@ -417,21 +418,13 @@ def check_offset_collapse(
     return findings
 
 
-def _expected_line_segments(graph: MetroGraph) -> dict[str, list[_Segment]]:
+def _expected_line_segments(plan: RenderPlan) -> dict[str, list[_Segment]]:
     """The post-offset routed segments the render drew, grouped by line.
 
-    Read from the geometry the renderer published rather than re-routed: label
-    placement grows the section bboxes routing consults, so a re-route of a
-    rendered graph produces paths that were never drawn, and comparing the drawn
-    ink against those would both invent collapses and clear real ones.  Empty for
-    a graph that was never rendered, which leaves the offset-collapse check to
-    skip rather than judge the ink against a geometry it cannot know.
+    Read from the immutable geometry the emitter consumed rather than re-routed.
     """
-    drawn = graph.rendered_geometry
-    if drawn is None:
-        return {}
     segments: dict[str, list[_Segment]] = {}
-    for line_id, pts in drawn.offset_polylines():
+    for line_id, pts in plan.offset_polylines():
         segments.setdefault(line_id, []).extend(zip(pts, pts[1:]))
     return segments
 
@@ -499,19 +492,20 @@ def _perp_gap(
 
 
 def validate_render(
-    svg: str, *, graph: MetroGraph | None = None
+    svg: str,
+    *,
+    plan: RenderPlan | None = None,
+    graph: MetroGraph | None = None,
 ) -> list[RenderFinding]:
     """Run the render-geometry guards on a rendered SVG and return findings.
 
     Reads the embedded manifest for node identities and parses the drawn route
     and label ink, then checks the geometry as drawn for label strikes and
     non-consumer marker crossings (both pure artifact oracles).  When the
-    *graph* that produced this SVG is supplied it additionally checks for
+    *plan* that produced this SVG is supplied it additionally checks for
     offset-pitch collapse, which needs the assigned offsets to tell an intended
-    same-slot bundle from a real merge, and so reads the geometry that graph
-    published when it rendered.  Returns an empty list for a clean render, when
-    the SVG carries no manifest (nothing addressable to validate), or when the
-    supplied graph has not been rendered.
+    same-slot bundle from a real merge. ``graph`` remains accepted for source
+    compatibility but is not inspected.
     """
     manifest = read_manifest(svg)
     if manifest is None:
@@ -519,6 +513,6 @@ def validate_render(
     routes = parse_route_polylines(svg)
     findings = check_label_strikes(svg, manifest, routes)
     findings += check_marker_crossings(svg, manifest, routes)
-    if graph is not None:
-        findings += check_offset_collapse(graph, routes)
+    if plan is not None:
+        findings += check_offset_collapse(plan, routes)
     return findings

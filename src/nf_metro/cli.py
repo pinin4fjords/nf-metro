@@ -37,7 +37,7 @@ from nf_metro.parser.model import (
     PermissiveGuardWarning,
     split_guard_warnings,
 )
-from nf_metro.render import validate_render
+from nf_metro.render import build_render_plan, validate_render
 from nf_metro.themes import THEMES
 
 
@@ -537,7 +537,14 @@ def _render_one_unsafe(
         if validate_geometry:
             if format_ == "html":
                 raise click.ClickException("--validate applies to --format svg only.")
-            findings = validate_render(content, graph=graph)
+            plan = build_render_plan(
+                graph,
+                theme_obj,
+                debug=debug,
+                chrome_css=not no_chrome_css,
+                bare=bare,
+            )
+            findings = validate_render(content, plan=plan)
             if findings:
                 detail = "\n".join(f"  - {f.message}" for f in findings)
                 raise click.ClickException(

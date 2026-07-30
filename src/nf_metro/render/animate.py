@@ -10,7 +10,7 @@ import re
 import drawsvg as draw
 
 from nf_metro.layout.routing import RoutedPath
-from nf_metro.layout.routing.common import point_on_polyline
+from nf_metro.layout.routing.common import apply_route_offsets, point_on_polyline
 from nf_metro.layout.routing.corners import curve_tangents, resolve_curve_radii
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.render.constants import (
@@ -21,7 +21,6 @@ from nf_metro.render.constants import (
 )
 from nf_metro.render.ns import ns
 from nf_metro.render.style import Theme
-from nf_metro.render.svg import apply_route_offsets
 
 # A line whose travel fraction is within this of a full cycle gets a plain
 # two-stop keyframe (no terminus hold), avoiding a degenerate hold of ~0s.

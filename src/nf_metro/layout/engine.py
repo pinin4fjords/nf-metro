@@ -491,7 +491,6 @@ def compute_layout(
 
     # Laying out invalidates any geometry a previous render published: the
     # coordinates it was routed against are about to be recomputed.
-    graph.rendered_geometry = None
 
     if x_spacing is None:
         x_spacing = graph.x_spacing

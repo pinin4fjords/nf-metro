@@ -5,12 +5,9 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import Literal, TypedDict
 
 from nf_metro.errors import NfMetroError
-
-if TYPE_CHECKING:
-    from nf_metro.layout.routing.common import RenderedGeometry
 
 
 class RowGridInfo(TypedDict):
@@ -533,11 +530,6 @@ class MetroGraph:
     bypass_label_obstacles: dict[str, tuple[float, float, float, float]] = field(
         default_factory=dict
     )
-    # The offsets and routes the renderer drew, published once the render
-    # settles. Routing consults section bboxes and label placement grows them
-    # afterwards, so a re-route cannot reproduce the drawn paths; readers of the
-    # picture consume this. None until this graph has been rendered.
-    rendered_geometry: "RenderedGeometry | None" = field(default=None, repr=False)
     # %%metro legend_combo entries: (line_ids, label) pairs.
     legend_combos: list[tuple[tuple[str, ...], str]] = field(default_factory=list)
     # Placement modifiers for the bundled legend+logo block. The corner/edge

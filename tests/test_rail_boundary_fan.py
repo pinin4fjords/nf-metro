@@ -9,9 +9,9 @@ along their own rail to their downstream station.  Landing the whole bundle at
 the pill's centre Y instead draws the incoming lines diving into the middle of
 the pill body.
 
-The oracle is the geometry the renderer published (``graph.rendered_geometry``
-via :func:`layout_metrics.measured_geometry`): section bboxes grow during label
-placement, so re-routing a laid-out graph yields paths the viewer never saw.
+The oracle reconstructs the routed geometry through
+:func:`layout_metrics.measured_geometry` and checks it independently of the
+rail-boundary handler.
 """
 
 from __future__ import annotations
