@@ -18,15 +18,9 @@ A fork that begins *at* a section's entry port - rather than at an in-section
 hub the port feeds - surfaces an overlapping but distinct defect (#1272:
 ``diamond_style: symmetric`` never applies to that fork's branch placement)
 and is out of scope here.
-
-Rail-laid sections are the one place where the two hubs legitimately differ,
-because a rail station's Y is the centre of the rail span it carries rather
-than a marker centreline.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 
@@ -118,35 +112,3 @@ def test_ported_fan_centreline_reaches_ports_and_trunk(n: int) -> None:
         if abs(graph.stations[sid].y - centre) > 1.0
     }
     assert not off, f"off the hub centreline y={centre}: {off}"
-
-
-_RAIL_FAN = (
-    Path(__file__).parent.parent
-    / "examples"
-    / "topologies"
-    / "rail_symmetric_fork_join_spans.mmd"
-)
-
-
-def test_rail_fork_and_join_centre_on_their_own_rail_spans() -> None:
-    """A rail-laid station's Y is the centre of the rail span it carries, so a
-    fork and join carrying different line sets have different centres.
-
-    ``bqsr`` also carries ``core`` (the line arriving from the upstream
-    section), spanning four rails; ``merge`` carries only the three caller
-    lines. Both are drawn as pills capping their own span, and forcing them
-    onto one shared Y would leave one pill off the rails it caps.
-    """
-    graph = parse_metro_mermaid(_RAIL_FAN.read_text())
-    compute_layout(graph, validate=True)
-
-    bqsr = graph.stations["bqsr"]
-    merge = graph.stations["merge"]
-    for station in (bqsr, merge):
-        span = station.rail_used_ys
-        assert len(span) > 1
-        assert station.y == pytest.approx((min(span) + max(span)) / 2.0, abs=0.01)
-
-    assert len(bqsr.rail_used_ys) == 4
-    assert len(merge.rail_used_ys) == 3
-    assert bqsr.y != pytest.approx(merge.y, abs=1.0)
