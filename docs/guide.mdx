@@ -348,7 +348,7 @@ These go inside `subgraph` blocks.
 
 Entry/exit hints tell the layout engine which side of the section box lines should enter or leave from. Most of the time you can **omit these entirely** and let the auto-layout engine figure it out.
 
-Exit hints support per-line divergence: they're useful when you want lines to exit from different sides of the same section (e.g., right for some lines, bottom for others). Entry hints don't, since a section has a single approach direction; every line entering it must arrive from the same side, because routed lines carry no arrowheads and mixed entry sides would leave the flow direction ambiguous. `entry: <side> | <lines>` sets that one shared side for the whole section, it doesn't carve out an independent side for just the listed lines. If a line's natural predecessor placement would approach from a different side, reposition the predecessor's grid column so every line enters from the same edge, or split the section into two.
+Exit hints support per-line divergence: they're useful when you want lines to exit from different sides of the same section (e.g., right for some lines, bottom for others). Entry hints don't - a section has a single entry side shared by every line entering it. `entry: <side> | <lines>` sets that one shared side; it doesn't give the listed lines an independent side from the rest.
 
 ## CLI flags and directive precedence
 
