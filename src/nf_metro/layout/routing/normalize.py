@@ -163,11 +163,43 @@ def _section_intrudes(
     return False
 
 
+def _anchored_bundle_midpoint(
+    order: list[str],
+    pins: dict[str, float],
+    step: float,
+    gap_left: float,
+    gap_right: float,
+) -> float | None:
+    """Midpoint seating *order* so its pinned line lands on its owned column.
+
+    A line whose column in this gap is already owned by a handler that keeps its
+    own geometry cannot be moved by the concentric layout, yet a later
+    coincidence fusion pulls this bundle's leg of that same line onto it.
+    Centring the bundle on the gap instead leaves the fused leg crossing the
+    siblings it was nested against, so seat the bundle on the pin.
+
+    ``None`` when there is no single pin to honour, or when honouring it would
+    push a slot outside the gap -- the caller then centres as usual.
+    """
+    pinned = [lid for lid in order if lid in pins]
+    if len(pinned) != 1:
+        return None
+    index = order.index(pinned[0])
+    mid = pins[pinned[0]] - (index - (len(order) - 1) / 2) * step
+    half = (len(order) - 1) / 2 * step
+    if mid - half < gap_left - COORD_TOLERANCE:
+        return None
+    if mid + half > gap_right + COORD_TOLERANCE:
+        return None
+    return mid
+
+
 def _layout_gap_bundle(
     bundles: list[tuple[bool, list[_VChannel]]],
     gap_left: float,
     gap_right: float,
     ctx: _RoutingCtx,
+    pins: dict[tuple[bool, str], float] | None = None,
 ) -> None:
     """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap."""
     step = ctx.offset_step
@@ -198,7 +230,16 @@ def _layout_gap_bundle(
         # rightward one, so its largest radius sits on the LEFT.  Read the leg
         # direction from geometry; fall back to the bundle's vertical sense.
         lead_right = _corridor_leadout_right(chans, _down)
-        if lone:
+        anchored = _anchored_bundle_midpoint(
+            order,
+            {lid: x for (d, lid), x in (pins or {}).items() if d is _down},
+            step,
+            gap_left,
+            gap_right,
+        )
+        if anchored is not None:
+            mid = anchored
+        elif lone:
             mid = (gap_left + gap_right) / 2
         else:
             mid = symmetric_bundle_midpoint(gap_left, gap_right, widths, bi)
@@ -292,12 +333,20 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """
     graph = ctx.graph
     by_gap: dict[tuple[int, int | None], list[_VChannel]] = defaultdict(list)
+    # Columns this pass cannot move: an exempt handler owns its own channel, but
+    # it declared the gap it sits in, so a bundle carrying the same line here can
+    # be seated on it instead of discovering the clash after the fusion.
+    owned: dict[tuple[int, int | None], dict[tuple[bool, str], float]] = defaultdict(
+        dict
+    )
     for rp in routes:
-        if rp.normalize_exempt:
-            continue
         for slot in rp.gap_slots:
             ch = _locate_slot_channel(rp, slot, graph)
-            if ch is not None:
+            if ch is None:
+                continue
+            if rp.normalize_exempt:
+                owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
+            else:
                 by_gap[(slot.gap_lo_col, slot.row)].append(ch)
 
     bands = _grid_row_bands(graph)
@@ -328,7 +377,7 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
             same = [c for c in chans if c.down is down]
             for corridor in _split_corridors(same):
                 bundles.append((down, corridor))
-        _layout_gap_bundle(bundles, gap_left, gap_right, ctx)
+        _layout_gap_bundle(bundles, gap_left, gap_right, ctx, owned.get((lo, row)))
 
 
 @dataclass

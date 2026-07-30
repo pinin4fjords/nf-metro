@@ -14,24 +14,31 @@ from pathlib import Path
 
 import pytest
 
+from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import (
     OffsetRegime,
     compute_station_offsets,
     route_edges,
 )
-from nf_metro.layout.routing.common import Direction, RoutedPath
+from nf_metro.layout.routing.common import (
+    Direction,
+    RoutedPath,
+    apply_route_offsets,
+)
 from nf_metro.layout.routing.invariants import (
     BundleOrderViolation,
     Side,
     check_bundle_order_preserved,
+    check_shared_run_turn_preserves_bundle_order,
     check_tb_exit_corner_preserves_column_order,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
+FIXTURES = REPO_ROOT / "tests" / "fixtures"
+TOPOLOGIES = FIXTURES / "topologies"
 EXAMPLES = REPO_ROOT / "examples"
 
 # Fixtures with KNOWN bundle-order violations that the criterion
@@ -47,6 +54,7 @@ _KNOWN_VIOLATION_FIXTURES: frozenset[str] = frozenset()
 
 def _gather_fixtures() -> list[Path]:
     paths: list[Path] = []
+    paths.extend(sorted(FIXTURES.glob("*.mmd")))
     paths.extend(sorted(TOPOLOGIES.glob("*.mmd")))
     paths.extend(sorted(EXAMPLES.glob("*.mmd")))
     paths.extend(sorted((EXAMPLES / "topologies").glob("*.mmd")))
@@ -231,6 +239,139 @@ def test_tb_exit_corner_continues_column_and_keeps_bundle_order(path: Path) -> N
     assert bundle == [], (
         f"{path.name}: {len(bundle)} bundle-order violation(s); "
         f"first: {bundle[0].message() if bundle else ''}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared-run turn order preservation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_no_shared_run_turn_flips_in_gallery(path: Path) -> None:
+    """No shipped fixture turns lines off one shared run onto crossing columns.
+
+    Lines leaving a source bundled on one horizontal run are one bundle while
+    they share it, so the column each turns down at must keep that bundle's
+    order even where the routes head for different targets.  A regression to the
+    gap-bundle seating, to a coincidence fusion's reference column, or to a
+    port's lane order would surface as exactly one fixture failing here.
+    """
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    violations = check_shared_run_turn_preserves_bundle_order(routes, offsets)
+    assert violations == [], (
+        f"{path.name}: {len(violations)} shared-run turn flip(s); "
+        f"first: {violations[0].message() if violations else ''}"
+    )
+
+
+_EXIT_RUN_THREE_DROP_COLUMNS = """\
+%%metro title: Exit run, three drop columns
+%%metro style: dark
+%%metro line: main | Main | #24b064
+%%metro line: report | Report | #0dcaf0
+%%metro line: sheets | Sheets | #f59e0b
+%%metro grid: a | 0,0
+%%metro grid: b | 1,0
+%%metro grid: c | 2,0
+%%metro grid: d | 3,0
+%%metro grid: e | 3,1
+
+graph LR
+    subgraph a [A]
+        a1[Step A1]
+        a2[Step A2]
+        a1 -->|main,report,sheets| a2
+    end
+    subgraph b [B]
+        b1[Step B1]
+        b2[Step B2]
+        b3[Step B3]
+        b4[Step B4]
+        b1 -->|main| b2
+        b2 -->|main| b3
+        b3 -->|main| b4
+    end
+    subgraph c [C]
+        c1[Step C1]
+        c2[Step C2]
+        c3[Step C3]
+        c1 -->|main| c2
+        c2 -->|main| c3
+        c1 -->|sheets| c2
+        c1 -->|report| c2
+    end
+    subgraph d [D]
+        d1[Step D1]
+        d2[Step D2]
+        d1 -->|sheets| d2
+    end
+    subgraph e [E]
+        e1[Step E1]
+        e2[Step E2]
+        e1 -->|main| e2
+        e1 -->|report| e2
+    end
+    a2 -->|main| b1
+    b4 -->|main| c1
+    c3 -->|main| e1
+    a2 -->|sheets| d1
+    c3 -->|sheets| d1
+    a2 -->|report| e1
+    b4 -->|report| e1
+    c3 -->|report| e1
+"""
+
+
+def test_exit_run_drop_columns_nest_across_three_handlers() -> None:
+    """Three lines leaving one exit port turn onto correctly nested columns.
+
+    The bundle out of section C's right exit carries ``main`` on top, then
+    ``report``, then ``sheets``, and the three are routed onward by three
+    different inter-section handlers -- a direct inter-row L-shape and two
+    bypass-trunk feeders.  A rightward run turning down is concentric, so the
+    line highest on the run turns at the largest x; nothing reconciling the
+    three handlers' column choices lets ``main`` and ``report`` transpose and
+    cross twice, once inside the exit arc and again entering the target.
+
+    ``report`` reaches this gap twice -- once on a long bypass whose handler owns
+    its own channel, once as a feeder off the exit junction -- and a coincidence
+    fusion later pulls the feeder onto the bypass's column.  Seating the bundle
+    on that owned column is what keeps ``main`` clear of it.
+    """
+    graph = parse_metro_mermaid(_EXIT_RUN_THREE_DROP_COLUMNS)
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    turns = {
+        rp.line_id: (pts[0][1], pts[1][0])
+        for rp in routes
+        if rp.edge.source == "__junction_9"
+        and len(pts := apply_route_offsets(rp, offsets)) >= 3
+        and abs(pts[1][1] - pts[0][1]) <= COORD_TOLERANCE
+        and abs(pts[2][0] - pts[1][0]) <= COORD_TOLERANCE
+        and pts[2][1] > pts[1][1]
+    }
+    assert {"main", "report"} <= set(turns), turns
+    run_y_main, turn_x_main = turns["main"]
+    run_y_report, turn_x_report = turns["report"]
+    assert run_y_main < run_y_report, turns
+    assert turn_x_main > turn_x_report, (
+        f"main runs above report (y={run_y_main} vs {run_y_report}) so it must "
+        f"turn down at the larger x, but turned at {turn_x_main} vs {turn_x_report}"
+    )
+
+    flips = check_shared_run_turn_preserves_bundle_order(routes, offsets)
+    at_exit = [v for v in flips if v.source_id == "__junction_9"]
+    assert at_exit == [], (
+        f"{len(at_exit)} shared-run turn flip(s) at the exit junction; first: "
+        f"{at_exit[0].message() if at_exit else ''}"
     )
 
 
