@@ -21,10 +21,14 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
+from nf_metro.layout.routing.centrelines import (
+    fan_offsets,
+)
 from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     HTrunkSeg,
+    OffsetRegime,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -47,6 +51,7 @@ from nf_metro.layout.routing.common import (
     trunk_segments_cross,
 )
 from nf_metro.layout.routing.context import (
+    _get_offset,
     _MergeRouting,
     _resolve_section_col,
     _RoutingCtx,
@@ -163,11 +168,49 @@ def _section_intrudes(
     return False
 
 
+def _anchored_bundle_midpoint(
+    order: list[str],
+    pins: dict[tuple[bool, str], float],
+    down: bool,
+    step: float,
+    gap_left: float,
+    gap_right: float,
+) -> float | None:
+    """Midpoint seating *order* so its pinned line lands on its owned column.
+
+    A line whose column in this gap is already owned by a handler that keeps its
+    own geometry cannot be moved by the concentric layout, yet a later
+    coincidence fusion pulls this bundle's leg of that same line onto it.
+    Centring the bundle on the gap instead leaves the fused leg crossing the
+    siblings it was nested against, so seat the bundle on the pin.
+
+    ``None`` when there is no single pin to honour, or when honouring it would
+    push a slot outside the gap -- the caller then centres as usual.
+    """
+    slots = fan_offsets(len(order), step)
+    anchored = [
+        (slots[i], pins[(down, lid)])
+        for i, lid in enumerate(order)
+        if (down, lid) in pins
+    ]
+    if len(anchored) != 1:
+        return None
+    offset, column = anchored[0]
+    mid = column - offset
+    half = slots[-1]
+    if mid - half < gap_left - COORD_TOLERANCE:
+        return None
+    if mid + half > gap_right + COORD_TOLERANCE:
+        return None
+    return mid
+
+
 def _layout_gap_bundle(
     bundles: list[tuple[bool, list[_VChannel]]],
     gap_left: float,
     gap_right: float,
     ctx: _RoutingCtx,
+    pins: dict[tuple[bool, str], float] | None = None,
 ) -> None:
     """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap."""
     step = ctx.offset_step
@@ -198,16 +241,20 @@ def _layout_gap_bundle(
         # rightward one, so its largest radius sits on the LEFT.  Read the leg
         # direction from geometry; fall back to the bundle's vertical sense.
         lead_right = _corridor_leadout_right(chans, _down)
-        if lone:
+        anchored = _anchored_bundle_midpoint(
+            order, pins or {}, _down, step, gap_left, gap_right
+        )
+        if anchored is not None:
+            mid = anchored
+        elif lone:
             mid = (gap_left + gap_right) / 2
         else:
             mid = symmetric_bundle_midpoint(gap_left, gap_right, widths, bi)
         n = len(order)
         # line_id -> (slot index, x); every segment of that line overlays
         # at its single slot rather than claiming an OFFSET_STEP each.
-        line_slot = {
-            lid: (i, mid + (i - (n - 1) / 2) * step) for i, lid in enumerate(order)
-        }
+        slots = fan_offsets(n, step)
+        line_slot = {lid: (i, mid + slots[i]) for i, lid in enumerate(order)}
         targets = [(ch, line_slot[ch.route.line_id]) for ch in chans]
         # Intrusion guard: if any target x would land inside a section bbox
         # (e.g. the gap bounds came from another row), leave this bundle
@@ -284,6 +331,10 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
       ``BUNDLE_TO_BUNDLE_CLEARANCE`` (B) apart, centred as a group.
     * A lone bundle centres in its gap with at least
       ``EDGE_TO_BUNDLE_CLEARANCE`` (A) from each bounding section edge.
+    * A bundle carrying a line whose column here is owned by an exempt handler
+      seats on that column instead of centring
+      (:func:`_anchored_bundle_midpoint`), so the coincidence fusion that later
+      pulls this bundle's leg onto it does not drag it across a sibling.
 
     The grouping is read from the declared slots rather than rediscovered from
     raw geometry; the concentric layout and flanking-radius recompute are the
@@ -292,12 +343,20 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """
     graph = ctx.graph
     by_gap: dict[tuple[int, int | None], list[_VChannel]] = defaultdict(list)
+    # Columns this pass cannot move: an exempt handler owns its own channel, but
+    # it declared the gap it sits in, so a bundle carrying the same line here can
+    # be seated on it instead of discovering the clash after the fusion.
+    owned: dict[tuple[int, int | None], dict[tuple[bool, str], float]] = defaultdict(
+        dict
+    )
     for rp in routes:
-        if rp.normalize_exempt:
-            continue
         for slot in rp.gap_slots:
             ch = _locate_slot_channel(rp, slot, graph)
-            if ch is not None:
+            if ch is None:
+                continue
+            if rp.normalize_exempt:
+                owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
+            else:
                 by_gap[(slot.gap_lo_col, slot.row)].append(ch)
 
     bands = _grid_row_bands(graph)
@@ -328,7 +387,7 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
             same = [c for c in chans if c.down is down]
             for corridor in _split_corridors(same):
                 bundles.append((down, corridor))
-        _layout_gap_bundle(bundles, gap_left, gap_right, ctx)
+        _layout_gap_bundle(bundles, gap_left, gap_right, ctx, owned.get((lo, row)))
 
 
 @dataclass
@@ -1628,6 +1687,43 @@ def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> Non
     _set_vchannel_x(ch, run.xb)
 
 
+def _land_lane_changing_feeder_on_trunk_riser(
+    rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx
+) -> None:
+    """Terminate a lane-changing straight feeder on the trunk's riser.
+
+    An adjacent feeder that would only detour to reach the trunk's channel runs
+    into the merge station instead (:func:`_adjacent_feeder_reaches_merge_directly`),
+    as a straight two-vertex run.  The merge station sits one margin past the
+    feeder junction, so when the converging line rides a different lane at the
+    junction than at the merge, that run has to change lane within the margin --
+    far less than the two corners of a lane change need -- and degenerates into a
+    bare sloped segment.
+
+    The trunk's riser out of *run* crosses the feeder's lane on its way to the
+    entry level, so the feeder keeps its lane and terminates on the riser: the
+    converging line reads as one stroke from the join onward, and no direction
+    change is asked of a run that has no room to turn.  The merge -> entry hop is
+    then redundant -- the trunk covers the entry approach from the riser on -- and
+    :func:`_drop_covered_merge_entry_hops` retires it, since no feeder waits at
+    the merge station.
+    """
+    if len(rp.points) != 2:
+        return
+    lane = _get_offset(ctx, rp.edge.source, rp.line_id)
+    if abs(lane - _get_offset(ctx, rp.edge.target, rp.line_id)) <= COORD_TOLERANCE:
+        return
+    (sx, sy), (tx, _ty) = rp.points
+    lane_y = sy + lane
+    lo, hi = sorted((run.y, run.after_y))
+    riser_spans_lane = lo + COORD_TOLERANCE < lane_y < hi - COORD_TOLERANCE
+    riser_ahead = (run.xb - sx) * (tx - sx) > 0
+    if not (riser_spans_lane and riser_ahead):
+        return
+    rp.points = [(sx, lane_y), (run.xb, lane_y)]
+    rp.offset_regime = OffsetRegime.BAKED
+
+
 def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Land every merge branch feeder on the trunk leg it converges onto.
 
@@ -1651,6 +1747,8 @@ def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> 
         for rp in others:
             if (rp.edge.source, rp.edge.target, rp.line_id) in merge.branch_edges:
                 _land_feeder_on_run(rp, run, ctx)
+            else:
+                _land_lane_changing_feeder_on_trunk_riser(rp, run, ctx)
 
 
 def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:

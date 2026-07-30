@@ -28,7 +28,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NamedTuple, Protocol
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -66,6 +66,7 @@ from nf_metro.layout.routing.common import (
     merge_fanout_junctions,
     merge_fanout_pivot_reference,
     merge_junction_ids,
+    opening_horizontal_vertical,
     peeloff_target_slots,
     perp_entry_consumer,
     perp_peeloff_off_horizontal_junction,
@@ -261,6 +262,147 @@ def _check_pair(
         last_dir = cur_dir
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Shared-run turn order preservation
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SharedRunTurnFlip:
+    """Two lines sharing one run out of a source turn onto crossing columns.
+
+    Several lines leave ``source_id`` bundled on one horizontal run and each
+    turns onto a vertical.  Concentric turns share a centre ``(xc, yc)``, so the
+    line at radius ``r`` runs at ``y = yc - sy*r`` and turns at
+    ``x = xc + sx*r``: a larger radius is simultaneously further against the
+    turn's vertical sense and further along its horizontal one.  The line on the
+    outside of the bend must therefore turn last.  When two lines' run order and
+    turn-column order disagree they swap sides inside the arc and cross.
+
+    ``run_dir`` / ``turn_dir`` are the shared run's and the turn's travel
+    directions; the per-line run Y and turn X are the coordinates that disagree.
+    """
+
+    source_id: str
+    line_a: str
+    line_b: str
+    run_y_a: float
+    run_y_b: float
+    turn_x_a: float
+    turn_x_b: float
+    run_dir: Direction
+    turn_dir: Direction
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"shared run out of {self.source_id!r} turns {self.run_dir.value}->"
+            f"{self.turn_dir.value} with crossing columns: line {self.line_a!r} "
+            f"runs at y={self.run_y_a:.1f} and turns at x={self.turn_x_a:.1f}, "
+            f"line {self.line_b!r} runs at y={self.run_y_b:.1f} and turns at "
+            f"x={self.turn_x_b:.1f}; the outer line of the bend must turn last, "
+            f"so these two swap sides inside the arc"
+        )
+
+
+class _OpeningTurn(NamedTuple):
+    """A route's opening horizontal run and the vertical it turns onto."""
+
+    run_y: float
+    turn_x: float
+    run_dir: Direction
+    turn_dir: Direction
+
+
+def _opening_turn(pts: Sequence[tuple[float, float]]) -> _OpeningTurn | None:
+    """The horizontal-run-then-vertical opening of a route, else ``None``."""
+    opening = opening_horizontal_vertical(pts)
+    if opening is None:
+        return None
+    (x0, y0), (x1, y1), (_x2, y2) = opening
+    return _OpeningTurn(
+        run_y=y0,
+        turn_x=x1,
+        run_dir=horizontal_direction(x1 - x0),
+        turn_dir=vertical_direction(y2 - y1),
+    )
+
+
+def _shared_run_turn_flip(
+    source_id: str, line_a: str, line_b: str, a: _OpeningTurn, b: _OpeningTurn
+) -> SharedRunTurnFlip | None:
+    """The violation for one pair, or ``None`` when their turns nest correctly.
+
+    ``None`` also when either coordinate pair is within tolerance: two lines on
+    one lane, or turning at one column, are a single track rather than a nesting
+    to compare.
+    """
+    run_cmp = a.turn_dir.sign * (a.run_y - b.run_y)
+    turn_cmp = a.run_dir.sign * (a.turn_x - b.turn_x)
+    if abs(run_cmp) <= COORD_TOLERANCE or abs(turn_cmp) <= COORD_TOLERANCE:
+        return None
+    if (run_cmp > 0) != (turn_cmp > 0):
+        return None
+    return SharedRunTurnFlip(
+        source_id=source_id,
+        line_a=line_a,
+        line_b=line_b,
+        run_y_a=a.run_y,
+        run_y_b=b.run_y,
+        turn_x_a=a.turn_x,
+        turn_x_b=b.turn_x,
+        run_dir=a.run_dir,
+        turn_dir=a.turn_dir,
+    )
+
+
+def check_shared_run_turn_preserves_bundle_order(
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[SharedRunTurnFlip]:
+    """Return pairs whose shared-run order contradicts their turn-column order.
+
+    :func:`check_bundle_order_preserved` compares routes sharing one
+    ``(source, target)`` edge by walking them in parallel.  Lines that leave one
+    source bundled on a single run but head for *different* targets are never
+    compared that way -- their point counts and shapes diverge past the turn --
+    yet while they share the run they are one bundle, and the turn each takes off
+    it must keep that bundle's order (see :class:`SharedRunTurnFlip`).
+
+    Grouped by source and by the turn's direction pair, so only lines whose
+    turns belong to one concentric family are compared: a line turning up off the
+    run shares no centre with one turning down.  A line resolving to more than
+    one turn column in a group is a fan rather than a single bundle member and is
+    skipped.
+    """
+    groups: dict[tuple[str, Direction, Direction], dict[str, list[_OpeningTurn]]] = (
+        defaultdict(lambda: defaultdict(list))
+    )
+    for rp in routes:
+        turn = _opening_turn(apply_route_offsets(rp, offsets))
+        if turn is None:
+            continue
+        key = (rp.edge.source, turn.run_dir, turn.turn_dir)
+        groups[key][rp.line_id].append(turn)
+
+    violations: list[SharedRunTurnFlip] = []
+    for (source_id, _run_dir, _turn_dir), by_line in groups.items():
+        single = {
+            lid: turns[0]
+            for lid, turns in by_line.items()
+            if max(t.turn_x for t in turns) - min(t.turn_x for t in turns)
+            <= COORD_TOLERANCE
+        }
+        lines = sorted(single)
+        for ia in range(len(lines)):
+            for ib in range(ia + 1, len(lines)):
+                la, lb = lines[ia], lines[ib]
+                flip = _shared_run_turn_flip(source_id, la, lb, single[la], single[lb])
+                if flip is not None:
+                    violations.append(flip)
+    return violations
 
 
 # ---------------------------------------------------------------------------
@@ -5107,6 +5249,22 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
         ),
     ),
     _check_spec(
+        check_shared_run_turn_preserves_bundle_order,
+        "C",
+        issue_pin=("#1594", "#1443"),
+        narrow_reason=(
+            "A corpus oracle over the turn nesting rather than a render guard: a "
+            "flipped pair renders without aborting, so a novel map would fail for "
+            "a crossing that is imperfect rather than undrawable -- and the seating "
+            "comparator in `_distinct_line_order` deliberately accepts a "
+            "divergence crossover when it reads as one clean fork, so the "
+            "concentric order is not unconditional. Restricted to lines sharing "
+            "one source and one turn-direction pair, the set whose turns belong "
+            "to a single concentric family; promoting crossings inside a formed "
+            "curve to a hard error is #1443's call to make."
+        ),
+    ),
+    _check_spec(
         check_merge_feeders_land_on_trunk,
         "C",
         issue_pin=("#1597",),
@@ -5151,6 +5309,7 @@ __all__ = [
     "RightEntryNeedlessDive",
     "SameLineParallelRun",
     "SeamApproachDepartureMismatch",
+    "SharedRunTurnFlip",
     "Side",
     "StackedElbowGraze",
     "UndeclaredGapChannel",
@@ -5184,6 +5343,7 @@ __all__ = [
     "check_right_entry_drop_in_when_clear",
     "check_seam_approach_equals_departure",
     "check_seam_segments_meet_at_port",
+    "check_shared_run_turn_preserves_bundle_order",
     "PortLaneDiscontinuity",
     "bypass_horizontal_targets",
     "check_stacked_elbow_clearance",

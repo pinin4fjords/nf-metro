@@ -16,6 +16,7 @@ from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_x,
     perpendicular_port_sides,
+    station_lane_coord,
 )
 from nf_metro.layout.phases._common import (
     iter_corridor_fed_solo_entries,
@@ -33,6 +34,7 @@ from nf_metro.layout.routing.context import (
     _has_intervening_sections,
     _resolve_section_col,
     _resolve_section_colrow,
+    _section_lane_frame,
     fanout_divergence_peel_order,
     is_near_vertical_junction_right_entry,
 )
@@ -1943,10 +1945,117 @@ def _recenter_single_line_corridor_entry(ctx: _OffsetCtx) -> None:
             _anchor(sec_id, port_id, line_id)
 
 
+def _single_feeding_exit_port(
+    graph: MetroGraph, port_id: str, lines: Iterable[str]
+) -> Port | None:
+    """The single exit port supplying every one of *lines* into *port_id*, if any.
+
+    ``None`` when the lines arrive from more than one upstream port (a genuine
+    convergence, with no single feeder order to stay consistent with) or from
+    no port at all.
+    """
+    feeders: set[str] = set()
+    for edge in graph.edges_to(port_id):
+        if edge.line_id not in lines:
+            continue
+        src_port = graph.ports.get(edge.source)
+        if src_port is None or src_port.is_entry:
+            return None
+        feeders.add(edge.source)
+    if len(feeders) != 1:
+        return None
+    return graph.ports[next(iter(feeders))]
+
+
+def _order_perp_entry_by_landing_column(ctx: _OffsetCtx) -> None:
+    """Order a TB/BT section's LEFT/RIGHT entry bundle by each line's landing column.
+
+    Such a port carries its lines in on a single run that then turns onto each
+    line's in-section column. When every line lands on the same column (the
+    common case: one continuing trunk), the existing arrival order already
+    nests. But when two or more lines turn onto *different* columns straight
+    from the port -- one chain feeding one station, another chain feeding a
+    different station -- concentric turns require the port's arrival order to
+    match the columns' order along the run, not the lines' declaration
+    priority: the line landing furthest into the section must ride the
+    outermost (port-nearest) lane, else its run cuts across a nearer column's
+    turn. Scoped to direct port-to-station edges only; a line whose next hop
+    is itself a port (an interchange, a further fan-out) is left to whatever
+    downstream phase owns that idiom.
+
+    Skipped when a single exit port feeds every line here from a different
+    trunk level: the exit-to-entry hop is then a genuine cornered turn whose
+    concentricity depends on keeping the feeder's delivered order, not this
+    port's landing columns (a level feeder has no such corner -- the hop is a
+    flat run, so a swapped arrival order costs nothing there).
+    """
+    graph = ctx.graph
+    for port_id, port_obj in graph.ports.items():
+        if not port_obj.is_entry or port_obj.side not in (
+            PortSide.LEFT,
+            PortSide.RIGHT,
+        ):
+            continue
+        section = graph.section_for_port(port_obj)
+        if not lanes_run_along_x(section.direction):
+            continue
+        lines = graph.station_lines(port_id)
+        if len(lines) < 2:
+            continue
+
+        feeder = _single_feeding_exit_port(graph, port_id, lines)
+        if feeder is not None:
+            port_station = graph.stations[port_id]
+            feeder_station = graph.stations[feeder.id]
+            if abs(feeder_station.y - port_station.y) > _SAME_Y_TOLERANCE:
+                continue
+
+        landing: dict[str, str] = {}
+        for lid in lines:
+            target_id: str | None = None
+            for edge in graph.edges_from(port_id):
+                if edge.line_id != lid:
+                    continue
+                tgt = graph.station_for_edge_target(edge)
+                if tgt.is_port:
+                    target_id = None
+                else:
+                    target_id = edge.target
+                break
+            if target_id is None:
+                break
+            landing[lid] = target_id
+        if len(landing) != len(lines) or len(set(landing.values())) < 2:
+            continue
+
+        frame = _section_lane_frame(graph, section)
+        # Concentric turns put the widest radius furthest along the run AND
+        # furthest against the turn's vertical sense, so the lane reaching
+        # deepest into the section rides the near lane where the flow runs down
+        # the column and the far lane where it runs back up it.
+        side_sign = 1.0 if port_obj.side is PortSide.LEFT else -1.0
+        sign = side_sign * AxisFrame.flow_sign(section.direction)
+        turn_reach = {
+            lid: sign
+            * station_lane_coord(
+                frame, graph.stations[tid], ctx.offsets.get((tid, lid), 0.0)
+            )
+            for lid, tid in landing.items()
+        }
+        current_order = sorted(
+            lines, key=lambda lid: ctx.offsets.get((port_id, lid), 0.0)
+        )
+        new_order = sorted(lines, key=lambda lid: turn_reach[lid], reverse=True)
+        if new_order == current_order:
+            continue
+        for rank, lid in enumerate(new_order):
+            ctx.offsets[(port_id, lid)] = rank * ctx.offset_step
+
+
 def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
     """Compute entry port offsets and propagate to downstream stations.
 
-    Handles four cases:
+    Handles five cases:
     1. TOP entry ports fed by TB BOTTOM exits: match the reversed offset
        scheme used by inter-section routing.
     2. TOP entry ports fed by the BOTTOM exit straight above: nest the drop
@@ -1955,12 +2064,15 @@ def _compute_entry_port_offsets(ctx: _OffsetCtx) -> None:
        spatial ordering to prevent bundle crossings.
     4. Corridor-fed single-line sections: re-anchor the entry port on the
        trunk so the lone consumer is not dragged into a phantom bundle lane.
+    5. LEFT/RIGHT entry ports of a TB/BT section whose lines land on two or
+       more distinct columns: reorder the bundle so the turns nest.
     """
     _entry_top_from_tb_bottom_exits(ctx)
     _order_perp_entry_seam_lanes(ctx)
     _propagate_lr_rl_exit_to_entry(ctx)
     _inherit_level_convergence_entry_offsets(ctx)
     _recenter_single_line_corridor_entry(ctx)
+    _order_perp_entry_by_landing_column(ctx)
 
 
 def _compact_station_gaps(

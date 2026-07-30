@@ -282,6 +282,34 @@ class TestFuncprofilerUpstreamReportingLine:
         )
 
 
+# --- Regression guard: exit_run_three_drop_columns merge feeder ---
+
+EXIT_RUN_THREE_DROP_FIXTURE = TOPOLOGIES_DIR / "exit_run_three_drop_columns.mmd"
+
+
+@pytest.mark.skipif(
+    not EXIT_RUN_THREE_DROP_FIXTURE.exists(),
+    reason="exit_run_three_drop_columns fixture absent",
+)
+class TestExitRunThreeDropColumnsMergeFeeder:
+    """The adjacent merge feeder keeps its lane instead of sloping onto the trunk."""
+
+    @pytest.fixture
+    def graph(self):
+        return _load_and_layout(EXIT_RUN_THREE_DROP_FIXTURE)
+
+    def test_merge_feeder_is_not_a_bare_diagonal(self, graph):
+        """No route in this fixture renders as a single sloped segment.
+
+        The sheets feeder leaves section C's exit run one lane below the merge
+        trunk and its merge station stands a margin away, so a lane change on the
+        run itself has no room to round.  It terminates on the trunk's riser
+        instead, which crosses its lane.
+        """
+        violations = check_single_segment_diagonals(graph)
+        assert not violations, "\n".join(v.message for v in violations)
+
+
 # --- Failing regression: variant_calling ---
 #
 # variant_calling.mmd had three confirmed visible defects (verified
