@@ -21,7 +21,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_PADDING,
     TERMINUS_WIDTH,
     X_SPACING,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, quantize_coord
 from nf_metro.layout.labels import _label_text_height, label_text_width
@@ -1626,7 +1626,7 @@ def _bump_off_track_clear_of_trunks(
     # Limit attempts so a pathological column doesn't pull the icon off-canvas.
     MAX_STEPS = 6
 
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     in_section = set(section.station_ids) | section.port_ids
 
     # Find trunk stations -- and, when consider_ports asks for it, the

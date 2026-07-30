@@ -572,7 +572,7 @@ def _station_marker_bbox(
     graph: MetroGraph,
     sid: str,
     offsets: dict[tuple[str, str], float] | None = None,
-    radius: float = STATION_RADIUS_APPROX,
+    radius: float | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Rendered marker / icon bbox for ``sid``, or ``None`` for ports,
     hidden stations, and junctions.
@@ -582,6 +582,9 @@ def _station_marker_bbox(
     at ``(station.x, station.y + (min_off + max_off) / 2)``.
     """
     from nf_metro.layout.routing import compute_station_offsets
+
+    if radius is None:
+        radius = STATION_RADIUS_APPROX * graph.stroke_scale
 
     st = graph.stations.get(sid)
     if st is None or st.is_port or st.is_hidden or sid in graph.junctions:

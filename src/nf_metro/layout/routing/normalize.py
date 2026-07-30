@@ -19,7 +19,7 @@ from nf_metro.layout.constants import (
     MIN_CORRIDOR_Y_OVERLAP,
     NEXT_ROW_HEADER_BADGE_CLEARANCE,
     SECTION_HEADER_PROTRUSION,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.routing.common import (
     Direction,
@@ -2517,7 +2517,7 @@ def _convergence_line_order(
     # cross-row fan-in whose legs start rows apart is a divergence the standard
     # crossing-minimiser orders, not a single-trunk convergence.
     trunk_ys = [ch.y_hi for ch in chans]
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     if not trunk_depths_contiguous(trunk_ys, len(src_cols), offset_step):
         return None
     return sorted(_distinct_line_order(chans), key=lambda lid: trunk_depth[lid])

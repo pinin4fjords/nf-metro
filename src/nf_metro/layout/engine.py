@@ -40,7 +40,7 @@ from nf_metro.layout.constants import (
     X_SPACING,
     Y_OFFSET,
     Y_SPACING,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import perpendicular_port_sides
 from nf_metro.layout.layers import assign_layers
@@ -377,7 +377,7 @@ def compute_min_y_spacing(
     The result is applied uniformly to the whole render -- the grid
     stays global, no per-section overrides.
     """
-    from nf_metro.layout.labels import active_font_scale
+    from nf_metro.layout.pass_metrics import active_font_scale
 
     scale = active_font_scale()
     icon_below = ICON_HALF_HEIGHT + ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * scale
@@ -434,7 +434,7 @@ def _far_side_wrap_left_clearances(graph: MetroGraph) -> dict[str, float]:
         if not is_far_side_around_below_left_entry(graph, port):
             continue
         n = len({edge.line_id for edge in graph.edges_to(port.id)})
-        offset_step = resolve_offset_step(graph.track_gap)
+        offset_step = graph_offset_step(graph)
         clearance = (
             (n - 1) * offset_step + CURVE_RADIUS + offset_step + SECTION_ROUTE_CLEARANCE
         )
@@ -511,7 +511,7 @@ def compute_layout(
     # Off by default: when unset, each _snap call is a single attribute read.
     graph._phase_snapshots_enabled = phase_snapshots_enabled()
 
-    from nf_metro.layout.labels import font_scale_context
+    from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 
     def _layout_pass(validate_pass: bool) -> None:
         _compute_layout_scaled(
@@ -527,7 +527,10 @@ def compute_layout(
             validate=validate_pass,
         )
 
-    with font_scale_context(graph.font_scale):
+    with (
+        font_scale_context(graph.font_scale),
+        stroke_scale_context(graph.stroke_scale),
+    ):
         # Topology-blind bypass insertion (parse time) can miss a line drawn
         # through a marker it doesn't consume; the geometric pass re-lays out
         # with bypass helpers for any such crossing it can cleanly fix.  The

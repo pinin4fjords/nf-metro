@@ -1049,6 +1049,28 @@ def test_parse_font_scale_nonpositive_ignored():
     assert graph.font_scale == 1.0
 
 
+def test_parse_stroke_scale():
+    graph = parse_metro_mermaid("%%metro stroke_scale: 1.6\ngraph LR\n")
+    assert graph.stroke_scale == 1.6
+
+
+def test_parse_stroke_scale_default():
+    graph = parse_metro_mermaid("graph LR\n")
+    assert graph.stroke_scale == 1.0
+
+
+def test_parse_stroke_scale_invalid_ignored():
+    with pytest.warns(UserWarning):
+        graph = parse_metro_mermaid("%%metro stroke_scale: thick\ngraph LR\n")
+    assert graph.stroke_scale == 1.0
+
+
+def test_parse_stroke_scale_nonpositive_ignored():
+    with pytest.warns(UserWarning):
+        graph = parse_metro_mermaid("%%metro stroke_scale: 0\ngraph LR\n")
+    assert graph.stroke_scale == 1.0
+
+
 def test_parse_legend_logo_gap():
     graph = parse_metro_mermaid("%%metro legend_logo_gap: 40\ngraph LR\n")
     assert graph.legend_logo_gap == 40.0

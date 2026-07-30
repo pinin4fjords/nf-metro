@@ -22,7 +22,6 @@ from nf_metro.layout.constants import (
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
     OFF_TRACK_OUTPUT_TAIL,
-    STATION_RADIUS_APPROX,
 )
 from nf_metro.layout.geometry import (
     diagonal_centreline,
@@ -32,6 +31,7 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.labels import (
     label_text_width,
 )
+from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.routing.bundle import (
     build_tapered_bundle,
 )
@@ -171,7 +171,7 @@ def _route_entry_runway(
 
 def _marker_bbox(st: Station) -> tuple[float, float, float, float]:
     """Conservative axis-aligned marker footprint centred on the station."""
-    r = STATION_RADIUS_APPROX
+    r = station_radius_approx()
     return (st.x - r, st.y - r, st.x + r, st.y + r)
 
 
@@ -233,10 +233,10 @@ def _route_entry_bow(
     if not blockers:
         return None
 
-    clearance = STATION_RADIUS_APPROX + CURVE_RADIUS
+    clearance = station_radius_approx() + CURVE_RADIUS
     over_start = min(st.x for st in blockers) - clearance
     over_end = max(st.x for st in blockers) + clearance
-    height = STATION_RADIUS_APPROX + CURVE_RADIUS
+    height = station_radius_approx() + CURVE_RADIUS
     min_straight = ctx.curve_radius + MIN_STRAIGHT_PORT
 
     lead_end = over_start - height
@@ -280,7 +280,9 @@ def _bow_side_order(
         if st.id in blocker_ids:
             continue
         if not (
-            over_start - STATION_RADIUS_APPROX < st.x < over_end + STATION_RADIUS_APPROX
+            over_start - station_radius_approx()
+            < st.x
+            < over_end + station_radius_approx()
         ):
             continue
         dy = st.y - trunk_y

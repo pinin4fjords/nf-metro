@@ -11,9 +11,9 @@ from nf_metro.layout.constants import (
     ICON_HALF_HEIGHT,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
-    STATION_RADIUS_APPROX,
 )
 from nf_metro.layout.geometry import quantize_coord
+from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phases._common import (
     _ref_bbox_top,
     _ref_y,
@@ -1194,13 +1194,12 @@ def _shift_sparse_loop_stations_to_clear_bundle(
             shift = y_spacing if dy > 0 else -y_spacing
             new_y = st.y + shift
             # Grow the section bbox so the standard ``section_y_padding``
-            # sits between the shifted station's marker edge and the
-            # bbox edge.  The earlier ``+ STATION_RADIUS_APPROX`` -only
-            # buffer kept the validator happy but left the bbox flush
-            # against the station marker, breaking the visual padding
+            # sits between the shifted station's marker edge and the bbox
+            # edge.  Budgeting only the marker radius here leaves the bbox
+            # flush against the marker, breaking the visual padding
             # invariant other sections satisfy after
             # ``_shrink_bboxes_to_content_bottom``.
-            edge_pad = STATION_RADIUS_APPROX + section_y_padding
+            edge_pad = station_radius_approx() + section_y_padding
             sec_top = section.bbox_y
             sec_bottom = section.bbox_y + section.bbox_h
             if new_y < sec_top + edge_pad:

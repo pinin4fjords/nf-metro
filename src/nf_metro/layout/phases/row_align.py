@@ -10,8 +10,7 @@ from nf_metro.layout.constants import (
     LABEL_OFFSET,
     PERP_PORT_EDGE_INSET,
     SAME_COORD_TOLERANCE,
-    STATION_RADIUS_APPROX,
-    resolve_offset_step,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     lanes_run_along_x,
@@ -19,7 +18,7 @@ from nf_metro.layout.geometry import (
     perpendicular_port_sides,
     shift_section,
 )
-from nf_metro.layout.labels import active_font_scale
+from nf_metro.layout.pass_metrics import active_font_scale, station_radius_approx
 from nf_metro.layout.phases._common import (
     _classify_multi_station_ys,
     _classify_section_station_ys,
@@ -109,10 +108,10 @@ def _row_group_grid_spacing(
         for st in sub.stations.values():
             if not st.is_port and st.y in multi_ys:
                 max_lines = max(max_lines, len(graph.station_lines(st.id)))
-    offset_step = resolve_offset_step(graph.track_gap)
+    offset_step = graph_offset_step(graph)
     min_track_gap = (
         (max_lines - 1) * offset_step
-        + 2 * STATION_RADIUS_APPROX
+        + 2 * station_radius_approx()
         + LABEL_OFFSET
         + FONT_HEIGHT * active_font_scale()
     )

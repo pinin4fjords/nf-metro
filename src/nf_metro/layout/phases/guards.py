@@ -29,7 +29,6 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
-    STATION_RADIUS_APPROX,
     TITLE_BAND_OVERLAP_FLOOR,
     X_SPACING,
 )
@@ -45,6 +44,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_y,
     segment_intersects_bbox,
 )
+from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
@@ -243,7 +243,7 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
     be fully within their section bbox.
 
     Tightened from station-centre containment to marker-edge containment:
-    we expand the station's render-time footprint by ``STATION_RADIUS_APPROX``
+    we expand the station's render-time footprint by the station pill radius
     (regular markers) or ``ICON_HALF_HEIGHT`` (terminus / off-track icons)
     and require the expanded box to stay inside the section's bbox.  Centre
     containment alone hides regressions where off-track icons (~16 px half
@@ -258,7 +258,7 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
         half_h = (
             ICON_HALF_HEIGHT
             if (st.off_track or st.is_terminus)
-            else STATION_RADIUS_APPROX
+            else station_radius_approx()
         )
         top = st.y - half_h
         bottom = st.y + half_h
