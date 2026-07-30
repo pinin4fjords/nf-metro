@@ -548,6 +548,15 @@ gallery:
       HISAT2, which does exit, sits on a contiguous offset there rather than inheriting a gap
       reserved for the terminated line, so its connector into the next section runs level
       instead of kinking into a short diagonal (issue #1263)."
+  - id: exit_run_three_drop_columns
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Three lines leave one exit junction on a shared run and turn down through three
+      different inter-section handlers, one returning to its own row and two continuing to the
+      row below. The fan pivots through a single corner column and orders its lanes by each
+      branch's destination row, so the two that ride the inter-row band nest without crossing
+      on the way out (issue #1594).
 
   # ── TB / BT Sections ───────────────────────────────────────────────────────
   - id: bt_chain

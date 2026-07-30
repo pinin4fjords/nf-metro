@@ -270,64 +270,6 @@ def test_no_shared_run_turn_flips_in_gallery(path: Path) -> None:
     )
 
 
-_EXIT_RUN_THREE_DROP_COLUMNS = """\
-%%metro title: Exit run, three drop columns
-%%metro style: dark
-%%metro line: main | Main | #24b064
-%%metro line: report | Report | #0dcaf0
-%%metro line: sheets | Sheets | #f59e0b
-%%metro grid: a | 0,0
-%%metro grid: b | 1,0
-%%metro grid: c | 2,0
-%%metro grid: d | 3,0
-%%metro grid: e | 3,1
-
-graph LR
-    subgraph a [A]
-        a1[Step A1]
-        a2[Step A2]
-        a1 -->|main,report,sheets| a2
-    end
-    subgraph b [B]
-        b1[Step B1]
-        b2[Step B2]
-        b3[Step B3]
-        b4[Step B4]
-        b1 -->|main| b2
-        b2 -->|main| b3
-        b3 -->|main| b4
-    end
-    subgraph c [C]
-        c1[Step C1]
-        c2[Step C2]
-        c3[Step C3]
-        c1 -->|main| c2
-        c2 -->|main| c3
-        c1 -->|sheets| c2
-        c1 -->|report| c2
-    end
-    subgraph d [D]
-        d1[Step D1]
-        d2[Step D2]
-        d1 -->|sheets| d2
-    end
-    subgraph e [E]
-        e1[Step E1]
-        e2[Step E2]
-        e1 -->|main| e2
-        e1 -->|report| e2
-    end
-    a2 -->|main| b1
-    b4 -->|main| c1
-    c3 -->|main| e1
-    a2 -->|sheets| d1
-    c3 -->|sheets| d1
-    a2 -->|report| e1
-    b4 -->|report| e1
-    c3 -->|report| e1
-"""
-
-
 def test_exit_run_drop_columns_nest_across_three_handlers() -> None:
     """Three lines leaving one exit port turn onto correctly nested columns.
 
@@ -344,7 +286,8 @@ def test_exit_run_drop_columns_nest_across_three_handlers() -> None:
     fusion later pulls the feeder onto the bypass's column.  Seating the bundle
     on that owned column is what keeps ``main`` clear of it.
     """
-    graph = parse_metro_mermaid(_EXIT_RUN_THREE_DROP_COLUMNS)
+    path = EXAMPLES / "topologies" / "exit_run_three_drop_columns.mmd"
+    graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
