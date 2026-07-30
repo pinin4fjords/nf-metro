@@ -152,10 +152,13 @@ def _route_edges(
 
         return route_rail_edges(graph), {}
 
-    # Per-section rail mode: route each rail section's internal edges with the
+    # Per-section rail mode: route each rail section's own edges with the
     # dedicated rail router (straight rails, no bundling) and let the normal
-    # router handle every other edge.  An edge is "internal" to a rail section
-    # when both endpoints are non-port stations of that section.
+    # router handle every other edge.  An edge belongs to a rail section when
+    # both endpoints sit in it and at most one of them is a boundary port: a
+    # port-to-station leg carries the fan between the section's single gateway
+    # and the rails, so the rail router owns it too; a port-to-port leg crosses
+    # between sections and stays with the normal router.
     rail_routes: list[RoutedPath] = []
     rail_internal: set[tuple[str, str, str]] = set()
     if graph.has_rail_sections:
@@ -164,7 +167,7 @@ def _route_edges(
         rail_edges = []
         for edge in graph.edges:
             src, tgt = graph.edge_endpoints(edge)
-            if src.is_port or tgt.is_port:
+            if src.is_port and tgt.is_port:
                 continue
             if (
                 src.section_id == tgt.section_id
@@ -173,7 +176,7 @@ def _route_edges(
             ):
                 rail_edges.append(edge)
                 rail_internal.add((edge.source, edge.target, edge.line_id))
-        rail_routes = route_rail_edges(graph, rail_edges)
+        rail_routes = route_rail_edges(graph, rail_edges, station_offsets)
 
     ctx = _build_routing_context(graph, diagonal_run, curve_radius, station_offsets)
     # Route into the context's own list so handlers can read the routes settled

@@ -1,0 +1,27 @@
+%%metro title: Rail boundary bundle fan
+%%metro line_spread: rails | calling
+%%metro label_angle: 45
+%%metro grid: prep | 0,0
+%%metro grid: calling | 1,0
+%%metro line: wgs | WGS | #2db572
+%%metro line: wes | WES | #0570b0
+%%metro line: panel | Panel | #f4a300
+
+graph LR
+    subgraph prep [Preprocessing]
+        fastq[FASTQ]
+        align[Align]
+
+        fastq -->|wgs,wes,panel| align
+    end
+    subgraph calling [Variant calling]
+        hub[Recalibrate]
+        deep[DeepVariant]
+        haplo[HaplotypeCaller]
+        freebayes[FreeBayes]
+
+        hub -->|wgs| deep
+        hub -->|wes| haplo
+        hub -->|panel| freebayes
+    end
+    align -->|wgs,wes,panel| hub
