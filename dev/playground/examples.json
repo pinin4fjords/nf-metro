@@ -951,6 +951,10 @@
         "mmd": "%%metro title: Rail inter-section connector\n%%metro style: dark\n%%metro line_spread: rails\n%%metro line: a | A | #2db572\n%%metro line: b | B | #f4a300\n\ngraph LR\n    subgraph one [Section one]\n        s1[Start]\n        s2[Middle]\n        s1 -->|a,b| s2\n    end\n    subgraph two [Section two]\n        t1[Next]\n        t2[End]\n        t1 -->|a,b| t2\n    end\n    s2 -->|a,b| t1\n"
       },
       {
+        "name": "rail_symmetric_fork_join_spans",
+        "mmd": "%%metro title: Rail fork/join spans\n%%metro style: dark\n%%metro line_spread: rails | calling\n%%metro diamond_style: symmetric\n%%metro label_angle: 45\n%%metro line: core | Core | #2db572\n%%metro line: germline | Germline | #0570b0\n%%metro line: tumor | Tumour | #f4a300\n%%metro line: pair | Pair | #d62728\n\ngraph LR\n    subgraph prep [Preprocessing]\n        input[Input]\n        recal[Recalibrate]\n\n        input -->|core,germline,tumor,pair| recal\n    end\n    subgraph calling [Variant calling]\n        bqsr[BQSR]\n        haplo[HaplotypeCaller]\n        mutect[Mutect2]\n        strelka[Strelka]\n        merge[Merge]\n\n        bqsr -->|germline| haplo\n        bqsr -->|tumor| mutect\n        bqsr -->|pair| strelka\n        haplo -->|germline| merge\n        mutect -->|tumor| merge\n        strelka -->|pair| merge\n    end\n    recal -->|core,germline,tumor,pair| bqsr\n"
+      },
+      {
         "name": "rail_offtrack_io",
         "mmd": "%%metro title: Rail off-track file input and output\n%%metro style: dark\n%%metro line_spread: rails\n%%metro line: a | A | #2db572\n%%metro line: b | B | #f4a300\n%%metro file: cram_in | CRAM\n%%metro file: aux_in | BED | Targets\n%%metro file: side_out | QC\n%%metro off_track: aux_in\n%%metro off_track: side_out\n\ngraph LR\n    subgraph sec [Calling]\n        cram_in[ ]\n        align[Align]\n        call[Call]\n        report[Report]\n        aux_in[ ]\n        side_out[ ]\n\n        cram_in -->|a,b| align\n        align -->|a,b| call\n        call -->|a,b| report\n        aux_in -->|a| call\n        call -->|a| side_out\n    end\n"
       },
