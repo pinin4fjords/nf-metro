@@ -556,8 +556,9 @@ class MetroGraph:
     # metrics that drive layout spacing, so render and layout scale together.
     font_scale: float = 1.0
     # Multiplies the drawn ink for the render (track width, station pill radius
-    # and stroke, label halo) and the bundle spacing and marker footprints that
-    # reserve room for it, so render and layout scale together.
+    # and stroke) and the bundle spacing, marker footprints, and rail pitch that
+    # reserve room for it, so render and layout scale together.  Label text and
+    # its halo scale with font_scale instead.
     stroke_scale: float = 1.0
     # Marker-key captions from %%metro marker_legend:. When
     # non-empty, the legend renders a marker key below the line key.

@@ -37,12 +37,11 @@ from nf_metro.layout.geometry import (
 )
 from nf_metro.layout.labels import (
     _label_text_height,
-    active_font_scale,
     label_text_width,
 )
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
-from nf_metro.layout.pass_metrics import station_radius_approx
+from nf_metro.layout.pass_metrics import active_font_scale, station_radius_approx
 from nf_metro.layout.phases._common import (
     _build_section_subgraph,
     _exit_reaching_nodes,

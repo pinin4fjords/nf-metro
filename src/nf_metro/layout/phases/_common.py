@@ -17,6 +17,7 @@ from nf_metro.layout.constants import (
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
+    STATION_RADIUS_APPROX,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -24,7 +25,6 @@ from nf_metro.layout.geometry import (
     lanes_run_along_y,
     quantize_coord,
 )
-from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phase_state import require_phase_field
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
@@ -584,7 +584,7 @@ def _station_marker_bbox(
     from nf_metro.layout.routing import compute_station_offsets
 
     if radius is None:
-        radius = station_radius_approx()
+        radius = STATION_RADIUS_APPROX * graph.stroke_scale
 
     st = graph.stations.get(sid)
     if st is None or st.is_port or st.is_hidden or sid in graph.junctions:

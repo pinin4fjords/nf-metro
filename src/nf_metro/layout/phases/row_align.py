@@ -18,8 +18,7 @@ from nf_metro.layout.geometry import (
     perpendicular_port_sides,
     shift_section,
 )
-from nf_metro.layout.labels import active_font_scale
-from nf_metro.layout.pass_metrics import station_radius_approx
+from nf_metro.layout.pass_metrics import active_font_scale, station_radius_approx
 from nf_metro.layout.phases._common import (
     _classify_multi_station_ys,
     _classify_section_station_ys,

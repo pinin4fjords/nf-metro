@@ -39,9 +39,9 @@ from nf_metro.layout.constants import LABEL_FONT_SIZE, LABEL_LINE_HEIGHT, OFFSET
 from nf_metro.layout.geometry import segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
-    font_scale_context,
     segment_strikes_label,
 )
+from nf_metro.layout.pass_metrics import font_scale_context
 from nf_metro.manifest import read_manifest
 
 if TYPE_CHECKING:

@@ -377,7 +377,7 @@ def compute_min_y_spacing(
     The result is applied uniformly to the whole render -- the grid
     stays global, no per-section overrides.
     """
-    from nf_metro.layout.labels import active_font_scale
+    from nf_metro.layout.pass_metrics import active_font_scale
 
     scale = active_font_scale()
     icon_below = ICON_HALF_HEIGHT + ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * scale

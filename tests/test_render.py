@@ -332,7 +332,8 @@ def test_font_scale_widens_label_driven_layout():
     overflow its box: a scaled render's section is wider and each station
     reserves a wider label.
     """
-    from nf_metro.layout.labels import font_scale_context, label_text_width
+    from nf_metro.layout.labels import label_text_width
+    from nf_metro.layout.pass_metrics import font_scale_context
 
     scale = 2.0
     g1 = _load_font_scale_fixture()

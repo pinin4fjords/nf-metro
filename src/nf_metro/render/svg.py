@@ -600,7 +600,6 @@ def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
         line_width=theme.line_width * scale,
         station_radius=theme.station_radius * scale,
         station_stroke_width=theme.station_stroke_width * scale,
-        label_halo_width=theme.label_halo_width * scale,
     )
 
 

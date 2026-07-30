@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.pass_metrics import station_radius_approx, stroke_scale_context
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.render.constants import RAIL_KNOB_RADIUS_RATIO
-from nf_metro.render.svg import _scale_theme_strokes
+from nf_metro.render.svg import _scale_theme_fonts, _scale_theme_strokes
 
 _SRC = """%%metro title: Bundle
 %%metro line: a | A | #e41a1c
@@ -94,8 +95,33 @@ def test_scaled_theme_coarsens_every_ink_dimension() -> None:
     assert scaled.station_stroke_width == pytest.approx(
         theme.station_stroke_width * 2.0
     )
-    assert scaled.label_halo_width == pytest.approx(theme.label_halo_width * 2.0)
     assert scaled.station_radius == pytest.approx(theme.station_radius * 2.0)
+
+
+def test_the_two_scales_own_disjoint_theme_fields() -> None:
+    """No theme field may be scaled by both, or the two compound on one render.
+
+    ``render_svg`` applies them in sequence, so a field claimed by each ends up
+    multiplied by ``font_scale * stroke_scale`` -- the label halo, which belongs
+    to the text, read 2.08x on a map setting 1.3 font and 1.6 stroke.
+    """
+    theme = resolve_theme(None, _graph())
+    font_only = _scale_theme_fonts(theme, 2.0)
+    stroke_only = _scale_theme_strokes(theme, 2.0)
+
+    moved_by_font = {
+        f.name
+        for f in fields(theme)
+        if getattr(font_only, f.name) != getattr(theme, f.name)
+    }
+    moved_by_stroke = {
+        f.name
+        for f in fields(theme)
+        if getattr(stroke_only, f.name) != getattr(theme, f.name)
+    }
+
+    assert moved_by_font & moved_by_stroke == set()
+    assert "label_halo_width" in moved_by_font
 
 
 @pytest.mark.parametrize("scale", [1.0, 1.6, 2.0])

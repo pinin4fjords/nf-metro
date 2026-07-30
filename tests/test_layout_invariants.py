@@ -62,10 +62,10 @@ from nf_metro.layout.labels import (
     _choose_wrap_offender,
     _label_bbox,
     find_wrapped_label_trunk_strikes,
-    font_scale_context,
     place_labels,
     segment_strikes_label,
 )
+from nf_metro.layout.pass_metrics import font_scale_context
 from nf_metro.layout.phases._common import (
     _is_side_entered_vertical_section,
     _row_contiguous_column_groups,

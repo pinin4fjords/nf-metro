@@ -183,8 +183,8 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         name="stroke_scale",
         kind="float",
         sign="positive",
-        help="Scale track stroke weight, station pill size, and label halos, "
-        "widening bundle spacing and marker clearance to match (1.0 = default). "
+        help="Scale track stroke weight and station pill size, widening bundle "
+        "spacing, marker clearance, and rail pitch to match (1.0 = default). "
         "Keeps a large map legible when it is downscaled to fit a screen.",
     ),
     LayoutOption(
