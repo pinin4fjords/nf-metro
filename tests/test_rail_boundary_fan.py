@@ -16,6 +16,7 @@ placement, so re-routing a laid-out graph yields paths the viewer never saw.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,7 @@ BOUNDARY_FIXTURES = [
 ]
 
 
+@lru_cache(maxsize=None)
 def _rendered(path: Path) -> MetroGraph:
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
@@ -45,21 +47,42 @@ def _rendered(path: Path) -> MetroGraph:
     return graph
 
 
+def _is_multi_rail_pill(graph: MetroGraph, station_id: str, line_id: str) -> bool:
+    """Whether *station_id* draws a per-rail marker for *line_id*.
+
+    An off-track feeder and a blank terminus converge their lines to a point
+    rather than to one rail each, so neither offers a rail to land on.
+    """
+    station = graph.stations[station_id]
+    if station.off_track or station.is_blank_terminus:
+        return False
+    if not graph.station_is_rail(station_id):
+        return False
+    served = graph.station_lines_ordered(station_id)
+    return (
+        len(served) > 1
+        and line_id in served
+        and len(station.rail_used_ys) == len(served)
+    )
+
+
 def _rail_y(graph: MetroGraph, station_id: str, line_id: str) -> float:
-    """Y at which *line_id* meets the pill of rail station *station_id*."""
+    """Y at which *line_id* meets the pill of rail station *station_id*.
+
+    Reconstructed from the published span rather than by calling the router's
+    own resolver, so the expectation is independent of the code under test.
+    """
     station = graph.stations[station_id]
     served = graph.station_lines_ordered(station_id)
-    if station.rail_used_ys and len(station.rail_used_ys) == len(served):
-        return station.rail_used_ys[served.index(line_id)]
-    return station.y
+    return station.rail_used_ys[served.index(line_id)]
 
 
 def _boundary_approaches(graph: MetroGraph) -> list[tuple[str, str, float, float]]:
     """``(station_id, line_id, approach_y, rail_y)`` for each entering leg.
 
     An "entering leg" is a drawn edge between a section port and a rail-laid
-    station: the last leg a line travels before it meets the pill (or the first
-    leg after it leaves).
+    interchange pill: the last leg a line travels before it meets the pill (or
+    the first leg after it leaves).
     """
     offsets, routes = measured_geometry(graph)
     out = []
@@ -72,7 +95,7 @@ def _boundary_approaches(graph: MetroGraph) -> list[tuple[str, str, float, float
         ):
             if not port_end.is_port or station_end.is_port:
                 continue
-            if not graph.station_is_rail(station_end.id):
+            if not _is_multi_rail_pill(graph, station_end.id, route.line_id):
                 continue
             out.append(
                 (
@@ -118,11 +141,10 @@ def test_bundle_entering_rail_section_spans_its_rails(path: Path) -> None:
     by_station: dict[str, list[float]] = {}
     for sid, _lid, got, _want in _boundary_approaches(graph):
         by_station.setdefault(sid, []).append(got)
+    assert by_station, f"{path.name} has no port-to-rail-pill leg to check"
 
     for sid, ys in by_station.items():
         station = graph.stations[sid]
-        if len(graph.station_lines_ordered(sid)) < 2 or not station.rail_used_ys:
-            continue
         rail_span = max(station.rail_used_ys) - min(station.rail_used_ys)
         got_span = max(ys) - min(ys)
         assert got_span >= rail_span - 1.0, (

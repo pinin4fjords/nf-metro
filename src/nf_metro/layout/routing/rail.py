@@ -43,12 +43,7 @@ from nf_metro.parser.model import (
 )
 
 
-def _line_rail_y(
-    graph: MetroGraph,
-    station_id: str,
-    line_id: str,
-    offsets: dict[tuple[str, str], float] | None = None,
-) -> float:
+def _line_rail_y(graph: MetroGraph, station_id: str, line_id: str) -> float:
     """Return the Y at which *line_id* meets *station_id* in rail mode.
 
     A single-rail station sits at its ``y``.  A multi-rail (spanning) station
@@ -56,26 +51,15 @@ def _line_rail_y(
     the pill at the rail Y for that line, which is recoverable from the
     station's served lines and the even rail spacing.  When the rail span is
     unknown the station's own ``y`` is used (single-rail fallback).
-
-    A port resolves differently in the two rail modes.  Under whole-graph rails
-    every section is on rails, so a port is a rail-to-rail waypoint and resolves
-    to the line's own rail in its section, keeping an inter-section corridor on
-    the correct rail per line.  A rail section embedded in an otherwise bundled
-    graph is instead reached by a normal bundled connector, which arrives at the
-    port as a lane stack; the port is that bundle's convergence point, so it
-    resolves to the line's own lane there (``offsets``, from
-    :func:`nf_metro.layout.routing.compute_station_offsets`) and the leg inward
-    carries the fan out to the rails.  Meeting the connector on its lane rather
-    than on the port centre is what keeps the seam at the section edge unkinked.
     """
     st = graph.stations.get(station_id)
     if st is None:
         return 0.0
 
+    # Ports carry an averaged Y; resolve to the line's own rail in the port's
+    # section so inter-section legs stay on the correct rail per line.
     port = graph.ports.get(station_id)
     if port is not None:
-        if graph.line_spread is not LineSpread.RAILS:
-            return st.y + (offsets or {}).get((station_id, line_id), 0.0)
         section_rails = graph._rail_y.get(port.section_id, {})
         if line_id in section_rails:
             return section_rails[line_id]
@@ -91,6 +75,31 @@ def _line_rail_y(
     if line_id in served and len(st.rail_used_ys) == len(served):
         return st.rail_used_ys[served.index(line_id)]
     return st.y
+
+
+def _leg_endpoint_y(
+    graph: MetroGraph,
+    station_id: str,
+    line_id: str,
+    station_offsets: dict[tuple[str, str], float] | None,
+) -> float:
+    """Y at which *line_id*'s leg meets *station_id*.
+
+    Every endpoint is on its rail except a boundary port of a rail section
+    embedded in an otherwise bundled graph.  That port is where the normal
+    bundled connector delivers the line, as one lane of a stack, so the leg
+    starts on the line's own lane and fans out to the rail from there - starting
+    it on the port centre instead would kink the section seam.  Whole-graph rail
+    mode has no bundled connector to meet, so its ports are ordinary rail
+    waypoints.
+    """
+    if graph.line_spread is not LineSpread.RAILS and station_id in graph.ports:
+        station = graph.stations[station_id]
+        lane = (
+            station_offsets.get((station_id, line_id), 0.0) if station_offsets else 0.0
+        )
+        return station.y + lane
+    return _line_rail_y(graph, station_id, line_id)
 
 
 def _off_track_drop_order(
@@ -366,8 +375,8 @@ def route_rail_edges(
             routes.append(_route_off_track_elbow(graph, edge, feeder, on_rail, off_src))
             continue
 
-        y_src = _line_rail_y(graph, edge.source, edge.line_id, station_offsets)
-        y_tgt = _line_rail_y(graph, edge.target, edge.line_id, station_offsets)
+        y_src = _leg_endpoint_y(graph, edge.source, edge.line_id, station_offsets)
+        y_tgt = _leg_endpoint_y(graph, edge.target, edge.line_id, station_offsets)
 
         # Endpoints within a line-stroke of each other are the same rail for
         # drawing purposes: route straight rather than easing a sub-stroke

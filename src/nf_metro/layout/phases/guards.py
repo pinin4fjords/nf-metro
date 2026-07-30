@@ -3502,9 +3502,14 @@ def _guard_port_legs_meet_rail_pill_on_own_rail(
     arriving bundle near the pill's centre Y instead draws the incoming lines
     diving into the middle of the pill body with no marker to meet (#1624).
 
-    The rail Y comes from ``rail_used_ys``, which records each served line's
-    rail parallel to the station's served-line order.
+    The expected rail Y is the rail router's own resolution, so the guard cannot
+    drift from the geometry it checks; the applicability filters below keep it
+    off the cases that resolution answers with the station's plain ``y``.
     """
+    if not graph.has_rail_sections:
+        return
+    from nf_metro.layout.routing.rail import _line_rail_y
+
     routes = _ensure_routes(graph, routes)
 
     for rp in routes:
@@ -3515,19 +3520,22 @@ def _guard_port_legs_meet_rail_pill_on_own_rail(
             (src, tgt, rp.points[-1]),
             (tgt, src, rp.points[0]),
         ):
-            if not port_end.is_port or pill_end.is_port:
+            if (
+                not port_end.is_port
+                or pill_end.is_port
+                or pill_end.off_track
+                or pill_end.is_blank_terminus
+                or not graph.station_is_rail(pill_end.id)
+            ):
                 continue
             served = graph.station_lines_ordered(pill_end.id)
             if (
-                not graph.station_is_rail(pill_end.id)
-                or pill_end.off_track
-                or pill_end.is_blank_terminus
-                or len(served) < 2
+                len(served) < 2
                 or len(pill_end.rail_used_ys) != len(served)
                 or rp.line_id not in served
             ):
                 continue
-            rail_y = pill_end.rail_used_ys[served.index(rp.line_id)]
+            rail_y = _line_rail_y(graph, pill_end.id, rp.line_id)
             if abs(point[1] - rail_y) > GUARD_TOLERANCE:
                 raise PhaseInvariantError(
                     f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} "
