@@ -850,6 +850,27 @@ def is_near_vertical_junction_right_entry(graph: MetroGraph, port: Port) -> bool
     return False
 
 
+def _fan_branch_entry_port(graph: MetroGraph, target_id: str) -> str | None:
+    """The entry port a fan branch out of a junction ultimately delivers into.
+
+    A branch aimed at a merge junction peels toward that merge's section entry,
+    but the merge station is virtual and sits at an interior X of the section it
+    belongs to, so only the entry port carries the branch's real column, row and
+    X.  ``None`` for anything that is not a branch into exactly one entry port.
+    """
+    port = graph.ports.get(target_id)
+    if port is not None:
+        return target_id if port.is_entry else None
+    if target_id not in graph.junction_ids:
+        return None
+    onward = {
+        edge.target
+        for edge in graph.edges_from(target_id)
+        if (p := graph.ports.get(edge.target)) is not None and p.is_entry
+    }
+    return next(iter(onward)) if len(onward) == 1 else None
+
+
 def fanout_divergence_peel_order(
     graph: MetroGraph,
     jid: str,
@@ -872,11 +893,13 @@ def fanout_divergence_peel_order(
     The clean-divergence preconditions: one upstream source; at least two
     distinct lines; every line reaches its own target section (disjoint targets,
     so a co-travelling multi-target bundle is left alone); all descending lines
-    drop the same way.  Two fan shapes qualify: a horizontal fan spreading to at
-    least two distinct columns (farthest column outermost), and a vertical fan
-    whose lines share one column but peel to at least two distinct rows (the
-    lead-in Y order mirrors the target rows top to bottom, a same-row
-    continuation leading as the shallowest).
+    drop the same way.  Three fan shapes qualify: a horizontal fan spreading to
+    at least two distinct columns with every line off the source row (farthest
+    column outermost); a vertical fan whose lines share one column but peel to at
+    least two distinct rows; and a fan spreading to both distinct columns and
+    distinct rows while keeping a member on the source row.  The latter two order
+    by destination row, top to bottom, so a member staying on the source row
+    leads as the shallowest peel.
     """
     sources = {e.source for e in graph.edges_to(jid)}
     if len(sources) != 1:
@@ -892,32 +915,64 @@ def fanout_divergence_peel_order(
     drow: dict[str, int] = {}
     tx: dict[str, float] = {}
     claimed: dict[str, str] = {}
+    converging = False
     for edge in graph.edges_from(jid):
-        tgt = graph.station_for_edge_target(edge)
-        if not (tgt.is_port or edge.target in graph.junction_ids):
+        entry_id = _fan_branch_entry_port(graph, edge.target)
+        if entry_id is None:
             return None
-        tgt_port = graph.ports.get(edge.target)
-        if tgt_port is None or not tgt_port.is_entry:
-            return None
-        tcol, trow = _resolve_section_colrow(graph, tgt)
+        converging |= entry_id != edge.target
+        entry = graph.stations[entry_id]
+        tcol, trow = _resolve_section_colrow(graph, entry)
         if tcol is None or trow is None:
             return None
-        if edge.target in claimed and claimed[edge.target] != edge.line_id:
+        if entry_id in claimed and claimed[entry_id] != edge.line_id:
             return None  # two distinct lines share a target: co-travelling
         if edge.line_id in reach:
             return None  # a line splitting to several targets is not a per-line fan
-        claimed[edge.target] = edge.line_id
+        claimed[entry_id] = edge.line_id
         reach[edge.line_id] = tcol - src_col
         drow[edge.line_id] = trow - src_row
-        tx[edge.line_id] = tgt.x
+        tx[edge.line_id] = entry.x
 
     if len(reach) < 2:
         return None
 
+    if len(set(reach.values())) > 1 and 0 in drow.values():
+        # Column-spreading fan that keeps a member on the source row.  Its
+        # branches share the inter-row band they dip into, so the band's depth
+        # order governs, not reach: a branch whose destination sits further from
+        # the source row has to leave the band deeper, and a deeper channel is
+        # reached by turning off the exit run earlier, i.e. from a nearer lane.
+        # Within one destination row the tie-break sign flips with the exit
+        # direction -- a branch climbing back to the source row is boxed in by
+        # every shorter one, so reaching further means nesting deeper, while a
+        # branch leaving the band downward is crossed by every shorter one's
+        # descent, so reaching further means nesting shallower.
+        if len(set(drow.values())) < 2:
+            return None
+        if len({d > 0 for d in drow.values() if d != 0}) != 1:
+            return None
+        return sorted(
+            reach,
+            key=lambda lid: (
+                drow[lid],
+                abs(reach[lid]) if drow[lid] == 0 else -abs(reach[lid]),
+                line_priority.get(lid, 0),
+            ),
+        )
+
+    # The two reach-ordered shapes below assume each branch peels privately into
+    # its own target.  A branch aimed at a merge junction instead converges with
+    # the merge's other feeders onto one shared trunk before the entry, so its
+    # place in the fan is not its target's reach, and such a fan keeps
+    # declaration order.  The band-depth shape above reads only which row a
+    # branch leaves the band toward, which survives the convergence.
+    if converging:
+        return None
+
     if len(set(reach.values())) == 1:
         # Same-column vertical fan: a same-row continuation (drow 0) is a valid
-        # member that leads as the shallowest peel, unlike the column-spreading
-        # branch below, which rejects any zero descent.
+        # member that leads as the shallowest peel.
         descenders = [d for d in drow.values() if d != 0]
         if len({d > 0 for d in descenders}) != 1:
             return None
@@ -926,7 +981,7 @@ def fanout_divergence_peel_order(
             # one cell, so order by each entry port's actual X -- the descent
             # spreads to distinct columns even though the grid does not. The
             # farthest-reaching port rides the outer side of the shared drop, the
-            # same rule the distinct-column fan below applies to ``reach``.
+            # same rule the all-off-row fan applies to ``reach``.
             if len(set(tx.values())) < 2:
                 return None
             drop_down = descenders[0] > 0
@@ -939,8 +994,6 @@ def fanout_divergence_peel_order(
             )
         return sorted(reach, key=lambda lid: (drow[lid], line_priority.get(lid, 0)))
 
-    if 0 in drow.values():
-        return None
     if len({d > 0 for d in drow.values()}) != 1:
         return None
 

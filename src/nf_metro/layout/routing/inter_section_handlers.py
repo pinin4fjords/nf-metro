@@ -1998,22 +1998,9 @@ def _route_bypass(
 
     if horizontal is Direction.R:
         if fan is not None:
-            # The fan shares its first corner across siblings; centre the
-            # channel on the gap slot, but never left of the near-source
-            # position or the curve would start behind the junction (nubbin).
             ui, un = fan
             fan_delta = l_shape_stagger(ui, un, gap1_vertical, ctx.offset_step)
-            near = sx + ctx.curve_radius + (un - 1) * ctx.offset_step / 2
-            slot = _gap_channel_base(
-                graph,
-                src_col,
-                src_row,
-                un,
-                ctx.offset_step,
-                anchor_section_id=src_sec_id,
-                anchor_side=PortSide.RIGHT,
-            )
-            fan_mid_x = max(near, slot)
+            fan_mid_x = _fan_corner_x(ctx, src, un, horizontal)
             off1 = fan_delta
             gap1_x = fan_mid_x + fan_delta
         else:
@@ -2094,24 +2081,12 @@ def _route_bypass(
         gap2_x = gap2_mid + delta2
     else:
         if fan is not None:
-            # Mirror of the going-right fan: centre on the gap slot but never
-            # right of the near-source position (curve must not start behind
-            # the junction).  Wrap-style routes whose source-side curve is on
-            # the RIGHT regardless of dx (left-entry wrap, around-section-
-            # below) are dispatched through their own handlers, not here.
+            # Wrap-style routes whose source-side curve is on the RIGHT
+            # regardless of dx (left-entry wrap, around-section-below) are
+            # dispatched through their own handlers, not here.
             ui, un = fan
             fan_delta = l_shape_stagger(ui, un, gap1_vertical, ctx.offset_step)
-            near = sx - ctx.curve_radius - (un - 1) * ctx.offset_step / 2
-            slot = _gap_channel_base(
-                graph,
-                src_col - 1,
-                src_row,
-                un,
-                ctx.offset_step,
-                anchor_section_id=src_sec_id,
-                anchor_side=PortSide.LEFT,
-            )
-            fan_mid_x = min(near, slot)
+            fan_mid_x = _fan_corner_x(ctx, src, un, horizontal)
             off1 = fan_delta
             gap1_x = fan_mid_x + fan_delta
         else:
@@ -3279,6 +3254,60 @@ def _fan_corner_run(ctx: _RoutingCtx, pos_n: int) -> float:
     return ctx.curve_radius + bundle_width(pos_n, ctx.offset_step) / 2
 
 
+def _fan_stand_off_x(
+    ctx: _RoutingCtx, src: Station, pos_n: int, horizontal: Direction
+) -> float:
+    """Nearest column a bundle of *pos_n* lines may turn in leaving *src*.
+
+    The base radius plus half the bundle width puts the nearest lane's arc a
+    full radius clear of the source; a source sitting on its section's own edge
+    is stood off further so the channel does not read as flush against the box.
+    """
+    sign = 1.0 if horizontal is Direction.R else -1.0
+    section = ctx.graph.sections.get(src.section_id) if src.section_id else None
+    if section is not None and section.bbox_w > 0:
+        near_edge = section.bbox_x + section.bbox_w if sign > 0 else section.bbox_x
+    else:
+        near_edge = src.x
+    edge_gap = sign * (src.x + sign * ctx.curve_radius - near_edge)
+    return (
+        src.x
+        + sign * _fan_corner_run(ctx, pos_n)
+        + sign * max(0.0, SECTION_ROUTE_CLEARANCE - edge_gap)
+    )
+
+
+def _fan_corner_x(
+    ctx: _RoutingCtx, src: Station, pos_n: int, horizontal: Direction
+) -> float:
+    """The column every branch of one junction fan turns through.
+
+    Each branch's channel is a signed rank offset from this single column
+    (:func:`l_shape_stagger`), so the descent-X order across the fan is in phase
+    with the lead-in Y order only while every branch resolves the column
+    identically -- and one fan's branches are claimed by different handler
+    families (U-bypass, entry wrap), which is why the column is resolved here
+    rather than per family.  Centred on the inter-column gap the branches
+    descend in, but never nearer the source than its own stand-off.
+    """
+    stand_off = _fan_stand_off_x(ctx, src, pos_n, horizontal)
+    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
+    if src_col is None:
+        return stand_off
+    rightward = horizontal is Direction.R
+    src_sec = resolve_section(ctx.graph, src, prefer_upstream=False)
+    slot = _gap_channel_base(
+        ctx.graph,
+        src_col if rightward else src_col - 1,
+        src_row,
+        pos_n,
+        ctx.offset_step,
+        anchor_section_id=src_sec.id if src_sec is not None else None,
+        anchor_side=PortSide.RIGHT if rightward else PortSide.LEFT,
+    )
+    return max(stand_off, slot) if rightward else min(stand_off, slot)
+
+
 def _wrap_fan_geometry(
     ctx: _RoutingCtx, edge: Edge, src: Station, i: int, n: int, vertical: Direction
 ) -> tuple[tuple[int, int] | None, int, float, float]:
@@ -3295,8 +3324,8 @@ def _wrap_fan_geometry(
     fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
     pos_i, pos_n = fan if fan is not None else (i, n)
     delta = l_shape_stagger(pos_i, pos_n, vertical, ctx.offset_step)
-    mid_x = src.x + _fan_corner_run(ctx, pos_n)
-    corner_x = _v1_corner_x(ctx, src, src.x, mid_x)
+    resolve = _fan_corner_x if fan is not None else _fan_stand_off_x
+    corner_x = resolve(ctx, src, pos_n, Direction.R)
     return fan, pos_n, delta, corner_x
 
 
