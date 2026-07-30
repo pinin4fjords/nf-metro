@@ -1,0 +1,13 @@
+%%metro title: Rail section with horizontal labels
+%%metro line_spread: rails | calling
+%%metro line: a | Caller A | #2db572
+%%metro line: b | Caller B | #0570b0
+
+graph LR
+    subgraph calling [Calling]
+        hub[Recalibrate]
+        x[Caller A]
+        y[Caller B]
+        hub -->|a| x
+        hub -->|b| y
+    end

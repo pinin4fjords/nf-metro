@@ -3486,6 +3486,66 @@ def _guard_inter_section_route_no_full_width_backtrack(
             )
 
 
+def _guard_port_legs_meet_rail_pill_on_own_rail(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    routes: list[RoutedPath] | None = None,
+) -> None:
+    """After routing: a leg from a section port to a rail-laid interchange pill
+    meets that pill on the crossing line's own rail.
+
+    A ``line_spread: rails`` section carries each line on its own rail, and a
+    station several of them pass through renders as a pill spanning those rails
+    with one marker per rail used.  A line arriving from the section's boundary
+    port must therefore land on its own rail's marker.  Landing the whole
+    arriving bundle near the pill's centre Y instead draws the incoming lines
+    diving into the middle of the pill body with no marker to meet (#1624).
+
+    The expected rail Y is the rail router's own resolution, so the guard cannot
+    drift from the geometry it checks; the applicability filters below keep it
+    off the cases that resolution answers with the station's plain ``y``.
+    """
+    if not graph.has_rail_sections:
+        return
+    from nf_metro.layout.routing.rail import _line_rail_y
+
+    routes = _ensure_routes(graph, routes)
+
+    for rp in routes:
+        if len(rp.points) < 2:
+            continue
+        src, tgt = graph.edge_endpoints(rp.edge)
+        for port_end, pill_end, point in (
+            (src, tgt, rp.points[-1]),
+            (tgt, src, rp.points[0]),
+        ):
+            if (
+                not port_end.is_port
+                or pill_end.is_port
+                or pill_end.off_track
+                or pill_end.is_blank_terminus
+                or not graph.station_is_rail(pill_end.id)
+            ):
+                continue
+            served = graph.station_lines_ordered(pill_end.id)
+            if (
+                len(served) < 2
+                or len(pill_end.rail_used_ys) != len(served)
+                or rp.line_id not in served
+            ):
+                continue
+            rail_y = _line_rail_y(graph, pill_end.id, rp.line_id)
+            if abs(point[1] - rail_y) > GUARD_TOLERANCE:
+                raise PhaseInvariantError(
+                    f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} "
+                    f"line {rp.line_id!r} meets rail station {pill_end.id!r} at "
+                    f"y={point[1]:.1f}, off its own rail y={rail_y:.1f} "
+                    f"(pill spans {min(pill_end.rail_used_ys):.1f}.."
+                    f"{max(pill_end.rail_used_ys):.1f})"
+                )
+
+
 def _guard_rail_connector_ports_no_stub(
     graph: MetroGraph,
     phase: str,
@@ -5039,6 +5099,64 @@ def _guard_file_icon_no_name_label(graph: MetroGraph, phase: str) -> None:
         )
 
 
+def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None:
+    """Raise if a symmetric diamond's fork hub and join hub disagree on Y.
+
+    Scoped to ``diamond_style: symmetric`` diamonds whose fork target set
+    (:func:`_divergence_target_successors`) exactly matches a join's source
+    set (:func:`_convergence_source_ys`): every branch diverges from one hub
+    and reconverges on one join, so both hubs must land on the same
+    centreline (issue #1595).  A diamond whose branches share a row (no
+    single well-defined pitch) or are unevenly spaced is out of scope.
+
+    Eligibility here is deliberately independent of the hub's own current Y -
+    unlike :func:`_divergence_midpoint_targets`, which additionally requires
+    the hub to already sit at the midpoint before deciding whether to
+    recentre it. A guard that reused that same "already centred" gate would
+    stop reporting a diamond the moment a regression moved its hub off
+    centre, exempting it from the very check meant to catch that regression.
+
+    A rail-laid station's Y is the centre of the rail span it carries, not a
+    marker centreline, so a fork and join carrying different line sets have
+    different centres by construction; such a pair is out of scope.
+    """
+    if graph.diamond_style != "symmetric":
+        return
+    from nf_metro.layout.phases.fan_bundles import (
+        _convergence_source_ys,
+        _divergence_target_successors,
+        _evenly_spaced_ys,
+        _join_ids_by_branch_set,
+    )
+
+    convergence_sources = _convergence_source_ys(graph)
+    join_by_branch_set = _join_ids_by_branch_set(convergence_sources)
+    offenders: list[tuple[str, float, str, float]] = []
+    for hub_id, tgt_ids in _divergence_target_successors(graph).items():
+        join_id = join_by_branch_set.get(frozenset(tgt_ids))
+        if join_id is None:
+            continue
+        if graph.station_is_rail(hub_id) or graph.station_is_rail(join_id):
+            continue
+        tgt_ys = [graph.stations[t].y for t in tgt_ids if t in graph.stations]
+        if _evenly_spaced_ys(tgt_ys) is None:
+            continue
+        hub_st = graph.stations.get(hub_id)
+        join_st = graph.stations.get(join_id)
+        if hub_st is None or join_st is None:
+            continue
+        if abs(hub_st.y - join_st.y) > 1.0:
+            offenders.append((hub_id, hub_st.y, join_id, join_st.y))
+    if offenders:
+        hub_id, hub_y, join_id, join_y = offenders[0]
+        raise PhaseInvariantError(
+            f"{phase}: fork hub {hub_id!r} (y={hub_y:.1f}) and join hub "
+            f"{join_id!r} (y={join_y:.1f}) of one symmetric diamond disagree "
+            f"on centreline by {abs(hub_y - join_y):.1f}px; "
+            f"{len(offenders)} such pair(s) total"
+        )
+
+
 @dataclass(frozen=True)
 class GuardSpec:
     """One ``validate=True`` guard, with the dispatch + classification data
@@ -5111,6 +5229,22 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "A",
         bisection_safe=True,
         first_valid_stage="after Stage 6.4",
+    ),
+    GuardSpec(
+        _guard_fork_join_hub_centreline_agree,
+        "A",
+        bisection_safe=True,
+        first_valid_stage="after Stage 6.4",
+        issue_pin=("#1595", "#1615"),
+        narrow_reason=(
+            "Scoped to diamond_style: symmetric diamonds whose fork target set "
+            "exactly matches a join's source set (_divergence_target_successors "
+            "vs _convergence_source_ys); an asymmetric fan, a port-fed fork "
+            "without diamond_style: symmetric, branches on stacked/unevenly "
+            "spaced rows, or a rail-laid pair whose Y is the centre of the rail "
+            "span it carries are out of scope: none of those has a single shared "
+            "centreline for the fork and join hub to agree on."
+        ),
     ),
     # A sparse loop-side station (single line in/out, full-bundle row-mates)
     # sits on the trunk Y until Stage 6.14 shifts it to a half-grid offset;
@@ -5433,6 +5567,19 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         _guard_routes_enter_sections_at_ports,
         "B",
         needs=frozenset({"routes"}),
+    ),
+    GuardSpec(
+        _guard_port_legs_meet_rail_pill_on_own_rail,
+        "B",
+        needs=frozenset({"routes"}),
+        issue_pin=("#1624",),
+        narrow_reason=(
+            "Only a port-to-station leg into a multi-rail interchange pill is "
+            "checked. A pill's own single-rail neighbours are already the rail "
+            "router's straight runs, and an off-track feeder or a blank terminus "
+            "converges its lines to a point rather than to one rail each, so "
+            "neither has a per-line rail marker to land on."
+        ),
     ),
     GuardSpec(
         _guard_rail_connector_ports_no_stub,

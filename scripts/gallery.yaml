@@ -369,6 +369,23 @@ gallery:
       3-way fan. The 2-way diamond straddles its trunk evenly, but at full pitch -- as tall
       as the 3-way fan, with an empty trunk row between its branches -- because the half-pitch
       compaction is a per-section decision the mixed-fan section cannot qualify for (#1076)."
+  - id: even_symmetric_fan_hub_join_centreline
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      "A `diamond_style: symmetric` fan-out into six branches, reconverging on one join.
+      An even branch count puts the fan's true centreline half a grid pitch off the row
+      grid, and the fork hub agrees with the join hub on that centreline rather than
+      landing on the nearest full grid row a full pitch away (#1595)."
+  - id: ported_symmetric_fan_centreline_trunk
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      "The same six-branch `diamond_style: symmetric` fan, reached through entry and exit
+      ports from neighbouring sections. The half-pitch centreline the fork and join hubs
+      settle on carries out through the section's own ports and along the single-line trunk
+      either side, so both boundary runs leave as straight risers instead of the upstream
+      trunk sitting a row below the fan it feeds (#1617)."
   - id: symmetric_multiline_merge_median
     source_dir: examples/topologies
     category: Fan-out and Fan-in
@@ -1771,6 +1788,14 @@ gallery:
       to the through-trunk column rather than the lift-most station, so main-trunk producers
       downstream of the fork keep their off-track outputs on the lift side instead of flipping them
       onto the beside-trunk label side (issue #1388)."
+  - id: rail_boundary_bundle_fan
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A bundled section feeding a per-section `%%metro line_spread: rails` section
+      across the boundary. The three lines arrive at the rail section's entry port as one lane
+      stack and fan out to their own rails on the leg inward, so each meets its own dot on the
+      interchange pill instead of the whole bundle diving into the pill's centre (issue #1624)."
   - id: rail_inter_section
     source_dir: examples/topologies
     category: Off-track & Rails
@@ -1779,6 +1804,15 @@ gallery:
       The connector wraps cleanly from the upstream right exit port, down the right margin,
       across the inter-section gap, and down the left margin into the downstream left entry
       port - no dangling port stubs and no avoidable crossings between co-travelling lines."
+  - id: rail_symmetric_fork_join_spans
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A `%%metro line_spread: rails` section carrying `%%metro diamond_style: symmetric`,
+      where the fork (BQSR) spans four rails because it also carries the `core` line arriving
+      from upstream while the join (Merge) spans only the three caller rails. Each pill stays
+      centred on the rails it caps, so the two sit 20px apart rather than being forced onto one
+      shared centreline."
   - id: rail_offtrack_io
     source_dir: examples/topologies
     category: Off-track & Rails
@@ -1795,6 +1829,15 @@ gallery:
       and output. Each plain off-track node renders a station marker at its line end rather
       than a bare stub, and the input's label sits above the node clear of its drop and the
       adjacent station's label."
+  - id: rail_horizontal_labels
+    source_dir: examples/topologies
+    category: Off-track & Rails
+    description:
+      "A `%%metro line_spread: rails` section whose top-rail stations keep the default
+      horizontal label angle instead of an angled one. Regression fixture: rail mode's
+      deliberate top-rail label-band hug must be reflected in the section's content-hug
+      target, not just its own layout, or the top-padding guard misreads the intended
+      geometry as crowding (issue #1625)."
   - id: render_labelwrap_row_gap
     source_dir: examples/topologies
     category: Inter-section Routing

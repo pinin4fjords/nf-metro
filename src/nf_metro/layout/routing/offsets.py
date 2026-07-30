@@ -3095,6 +3095,39 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
             break
 
 
+def _center_rail_boundary_port_bundles(ctx: _OffsetCtx) -> None:
+    """Centre a rail-laid section's boundary-port bundle on the port itself.
+
+    A rail section carries each line on its own widely-spaced rail, and the port
+    is the middle of the fan between those rails and the tight lane stack the
+    bundle arrives in, so the lanes belong either side of it.  Slotted from the
+    top lane downwards instead, the fan opens lopsidedly and the lane nearest a
+    rail crosses only its leftover lane offset, drawing a stub transition too
+    short to carry the corner radii at each end of it.
+
+    The shift is rigid, so the bundle keeps its order and its pitch and the
+    connector feeding the port keeps its shape.  A line whose rail is the port's
+    own Y then needs no transition at all and runs straight through, the way an
+    interchange draws its through line.
+    """
+    graph = ctx.graph
+    if not graph.has_rail_sections:
+        return
+
+    for port_id, port in graph.ports.items():
+        if not graph.is_rail_section(port.section_id):
+            continue
+        lanes = {
+            lid: ctx.offsets.get((port_id, lid), 0.0)
+            for lid in graph.station_lines(port_id)
+        }
+        shift = (
+            min(lanes.values(), default=0.0) + max(lanes.values(), default=0.0)
+        ) / 2.0
+        for lid, lane in lanes.items():
+            ctx.offsets[(port_id, lid)] = lane - shift
+
+
 def compute_station_offsets(
     graph: MetroGraph,
     offset_step: float | None = None,
@@ -3173,6 +3206,11 @@ def compute_station_offsets(
        offset after phase 8 already snapped a same-section, same-Y real
        station to that port's old value; re-running phase 8 catches any such
        staleness (non-compact only).
+    14. **Rail-boundary port centring** - rigidly shifts the bundle at a
+       rail-laid section's boundary port so its lanes straddle the port, which
+       is the middle of the fan out to that section's rails.  Runs after phase
+       13, whose snapping would otherwise pull the port back onto the offsets
+       of the rail-laid neighbour it feeds.
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
@@ -3209,6 +3247,7 @@ def compute_station_offsets(
     _reverse_near_vertical_junction_right_entry_offsets(ctx)
     _recompact_fan_port_bordering_stations(ctx, same_y_adj, sec_layer_stations)
     _reconcile_horizontal_offsets(ctx)
+    _center_rail_boundary_port_bundles(ctx)
     return ctx.offsets
 
 

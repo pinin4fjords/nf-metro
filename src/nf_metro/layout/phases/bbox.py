@@ -703,9 +703,17 @@ def _section_content_hug_top(
         from nf_metro.layout.routing import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
-    content_min_ys = [
-        graph.stations[sid].y
-        - max(
+    # A rail section's above-labelled top-rail stations get less clearance
+    # than a generic station: see rail_above_label_top_pad's docstring for
+    # why, and why this must match rail_mode's own reservation exactly.
+    from nf_metro.layout.rail_mode import rail_above_label_top_pad
+
+    rail_pad = rail_above_label_top_pad(graph, section, section_y_padding)
+
+    def _content_min_y(sid: str) -> float:
+        if sid in rail_pad:
+            return graph.stations[sid].y - rail_pad[sid]
+        return graph.stations[sid].y - max(
             _bundle_edge_padding(
                 section_y_padding,
                 (
@@ -716,12 +724,12 @@ def _section_content_hug_top(
                 sid in fan_ids,
             ),
             # A vertical-flow terminus's file icon reaches above its marker
-            # (a top-entering source), so the box must clear the icon, not just
-            # a padding band above the marker.
+            # (a top-entering source), so the box must clear the icon, not
+            # just a padding band above the marker.
             _terminus_y_overhang(graph.stations[sid], section_dir, graph)[0],
         )
-        for sid in content_ids
-    ]
+
+    content_min_ys = [_content_min_y(sid) for sid in content_ids]
     bypass_min_ys = [
         graph.stations[sid].y
         for sid in section.station_ids
