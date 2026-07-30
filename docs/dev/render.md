@@ -5,13 +5,25 @@ sidebar:
   order: 9
 ---
 
-Rendering turns a laid-out `MetroGraph` (stations, ports, junctions, and
-sections with coordinates, plus routed `RoutedPath` polylines) into output
-files. The primary entry point is `render_svg` in
+Rendering settles a laid-out `MetroGraph` into an immutable `RenderPlan`, then
+emits output files from that plan. The plan contains frozen records, stable
+ids, scalar values, and tuples in SVG user-space pixels. It is the ownership
+boundary between mutable layout state and artifact emission.
+
+The compatibility entry point is `render_svg` in
 [`src/nf_metro/render/svg.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/render/svg.py),
-which returns an SVG string. From there, `render_html` wraps that SVG in
-an interactive HTML page, and `build_manifest` embeds a data manifest into
-the SVG for downstream tooling.
+which builds a plan and returns an SVG string. `build_render_plan` exposes the
+settled contract, `emit_render_plan` emits SVG without a `MetroGraph`, and
+`emit_render_plan_html` provides the equivalent HTML path.
+
+Plan construction deep-copies the laid-out graph once and uses that private
+copy as settlement workspace. This keeps legacy settlement phases isolated
+until they can be made value-returning without changing their algorithms.
+Measurements on `fold_double`, `sarek_metro`, and `rnaseq_sections` put the
+copy at 1.8 to 2.2 ms, or 1.6% to 2.8% of total plan-build plus SVG-emission
+time. A bespoke partial clone would duplicate the mutable model's ownership
+rules for less measured benefit, while snapshot-and-restore would expose the
+caller to partial mutation if settlement failed.
 
 ## SVG generation (`svg.py`)
 
@@ -25,15 +37,17 @@ the SVG for downstream tooling.
    `layout/pass_metrics.py`, and both sides resolve bundle pitch through
    `graph_offset_step`, so what the renderer draws cannot outgrow what layout
    reserved.
-2. Calls `_render_svg_scaled`, which does the actual drawing via the
-   `drawsvg` library.
-3. If `graph.animate` is set (or `--animate` was passed), calls
+2. Builds a `RenderPlan` on isolated settlement state, so label and group-band
+   accommodation cannot change the caller's graph.
+3. Calls `emit_render_plan`, which draws via `drawsvg` without parser or layout
+   model objects.
+4. If `graph.animate` is set (or `--animate` was passed), calls
    `render_animation` from `animate.py` to add travelling balls.
-4. If a manifest is requested, calls `build_manifest` from `manifest.py`
-   and injects it into the SVG element.
+5. If a manifest is requested, serialises the node, group, region, marker, and
+   canvas geometry frozen in the plan.
 
-`apply_route_offsets(routes, station_offsets)` is also exported from
-`svg.py`. It fans a bundle of co-travelling routes into parallel tracks
+`apply_route_offsets(routes, station_offsets)` lives in
+`layout/routing/common.py`. It fans a bundle of co-travelling routes into parallel tracks
 by applying the per-station Y offsets computed by `compute_station_offsets`
 in `routing/offsets.py`. This is a separate function (not called inside
 `render_svg`) so that `animate.py` can share the same offset-applied paths
@@ -109,7 +123,7 @@ page.
 
 ## Manifest (`manifest.py`)
 
-`build_manifest(graph)` maps the laid-out `MetroGraph` onto the
+Plan construction maps the frozen settled render view onto the
 [embedded-manifest standard](/nf-metro/manifest/): stations become nodes,
 sections become groups, and visual regions (section bboxes) become regions.
 The manifest is serialised to JSON and injected as a `<metadata>` element
@@ -156,7 +170,7 @@ label-strike and marker-cross are pure artifact oracles (the SVG string is
 enough), so they run on a produced file in CI, via `validate-svg --geometry`,
 and behind `render --validate`. offset-collapse needs the engine's assigned
 offsets to tell an intended same-slot bundle from a real merge, so
-`validate_render(svg, *, graph=...)` runs it only when the laid-out graph is
+`validate_render(svg, *, plan=...)` runs it only when the emitted plan is
 supplied - the `render --validate` path and the CI corpus test, not the
 standalone SVG path.
 
@@ -199,7 +213,8 @@ selectable via `%%metro style: <key>` or `--style`.
 
 | Module         | Responsibility                                                                                                                     |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `svg.py`       | `render_svg` entry point; `apply_route_offsets`; all drawing passes (sections, edges, stations, icons, labels, legend)             |
+| `plan.py`      | Frozen `RenderPlan`, render-view records, and model-reference guard                                                                |
+| `svg.py`       | `render_svg` compatibility entry point; plan construction; plan-only SVG emission; drawing passes                                  |
 | `bridges.py`   | `compute_bridges` - detects genuine non-merging crossings and returns `BridgeBreak` gap spans; drawing is in `svg.py`              |
 | `html.py`      | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                       |
 | `manifest.py`  | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                     |

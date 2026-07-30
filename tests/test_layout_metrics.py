@@ -22,8 +22,10 @@ from layout_metrics import (
     measured_geometry,
 )
 
+from nf_metro.api import resolve_theme
 from nf_metro.layout.constants import STATION_RADIUS_APPROX
 from nf_metro.layout.phases import guards
+from nf_metro.render.svg import build_render_plan
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from build_render_diff import _build_metrics_html  # noqa: E402
@@ -100,6 +102,14 @@ def test_busy_pipeline_reports_positive_counts() -> None:
     metrics = compute_metrics(_layout(EXAMPLES / "variantbenchmarking.mmd"))
     assert metrics["crossings"] > 0
     assert metrics["excessive_gaps"] > 0
+
+
+def test_plan_scoring_does_not_inherit_render_settlement_gap() -> None:
+    """Render-only accommodation must not become a layout gap violation."""
+    graph = _layout(EXAMPLES / "topologies" / "paired_input_fan_branch_tree.mmd")
+    plan = build_render_plan(graph, resolve_theme(None, graph))
+
+    assert compute_metrics(graph, plan=plan)["excessive_gaps"] == 0.0
 
 
 def test_label_strike_metric_matches_guard_enumerator() -> None:
