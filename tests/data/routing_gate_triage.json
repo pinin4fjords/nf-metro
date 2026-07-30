@@ -55,10 +55,6 @@
     "note": "Multi-row upward-crossing arm: grid rows are assigned topologically and upward inter-section routes take other handlers (a same-row/around-section path), never reaching inter_row_channel_y's multi-row branch with dy<=0; verified by an upward multi-row fixture that bypasses this code.",
     "status": "defensive"
   },
-  "common.py::if dy > 0:::#3": {
-    "note": "Near-target fallback block, gated behind the L801 resolve guard: since every call resolves to different-row sections (see that entry), the fallback is never reached, so neither dy arm fires.",
-    "status": "defensive"
-  },
   "common.py::if e.source == station.id:::#1": {
     "note": "Junction-as-source arm of the no-preference scan: fan-out junctions are emitted exit_port->junction before junction->entry_port, so graph.edges encounters the junction as a target (elif arm) first and returns; the source arm is a cheap structural guard whose deadness rests on emit order, not a hard type invariant.",
     "status": "defensive"
