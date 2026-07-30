@@ -74,7 +74,8 @@ def test_dominant_deviates_when_natural_side_is_unfed() -> None:
 def test_build_mapping_shares_one_side_across_a_sections_lines() -> None:
     """Every line entering a section resolves to the same single side."""
     graph = _parse("examples/topologies/riboseq_fold_two_dir_entry_hintless.mmd")
-    mapping = resolve._build_entry_side_mapping(graph)
+    _, inter_section_edges = resolve._classify_edges(graph)
+    mapping = resolve._build_entry_side_mapping(graph, inter_section_edges)
     by_section: dict[str, set[PortSide]] = {}
     for (sec_id, _line), side in mapping.items():
         by_section.setdefault(sec_id, set()).add(side)
@@ -97,7 +98,8 @@ def test_conflicting_side_hints_collapse_to_one_fed_hinted_side_and_warn() -> No
         graph = parse_metro_mermaid(
             open("examples/topologies/packed_multiline_serpentine_grid.mmd").read()
         )
-        mapping = resolve._build_entry_side_mapping(graph)
+        _, inter_section_edges = resolve._classify_edges(graph)
+        mapping = resolve._build_entry_side_mapping(graph, inter_section_edges)
     sec_g_sides = {side for (sec, _line), side in mapping.items() if sec == "sec_g"}
     assert sec_g_sides == {PortSide.LEFT}, f"sec_g resolved to {sec_g_sides}"
     assert any("sec_g" in str(w.message) and "TOP" in str(w.message) for w in caught), (
