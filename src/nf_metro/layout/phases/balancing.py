@@ -27,7 +27,13 @@ from nf_metro.layout.phases.bbox import (
     push_lower_rows_after_bbox_grow,
 )
 from nf_metro.layout.phases.ports import _set_port_y
-from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
+from nf_metro.parser.model import (
+    MetroGraph,
+    PortSide,
+    Section,
+    Station,
+    is_converge_junction,
+)
 
 
 def _snap_inter_section_port_pairs(graph: MetroGraph) -> None:
@@ -888,7 +894,7 @@ def _loop_column_key(
     succ_x: float | None = None
     for e in graph.edges_to(sid):
         p = graph.station_for_edge_source(e)
-        if p.is_hidden:
+        if p.is_hidden and not is_converge_junction(p.id):
             continue
         if abs(p.y - section_trunk_y) > SAME_COORD_TOLERANCE:
             return None
@@ -900,7 +906,7 @@ def _loop_column_key(
             pred_x = p.x
     for e in graph.edges_from(sid):
         t = graph.station_for_edge_target(e)
-        if t.is_hidden:
+        if t.is_hidden and not is_converge_junction(t.id):
             continue
         if abs(t.y - section_trunk_y) > SAME_COORD_TOLERANCE:
             return None
@@ -953,7 +959,7 @@ def _snap_column_to_anchors(
     """Snap a loop column's movers to the mean X of its clean anchors.
 
     Anchors are the off-trunk siblings pass 1 already placed at the loop
-    midpoint (restricted to the same single-in/single-out filter).  Movers are
+    midpoint (restricted to the same single-in/single-out filter). Movers are
     the trunk-row station plus any off-trunk column-mate whose extra edge (e.g.
     an exit-port feed alongside the trunk rejoin) disqualified it from pass 1
     yet which belongs to the column.
@@ -965,17 +971,19 @@ def _snap_column_to_anchors(
         if abs(st.y - section_trunk_y) <= SAME_COORD_TOLERANCE:
             movers.append(sid)
             continue
-        visible_ins = [
+        ins = [
             e
             for e in graph.edges_to(sid)
             if not graph.station_for_edge_source(e).is_hidden
+            or is_converge_junction(e.source)
         ]
-        visible_outs = [
+        outs = [
             e
             for e in graph.edges_from(sid)
             if not graph.station_for_edge_target(e).is_hidden
+            or is_converge_junction(e.target)
         ]
-        if len(visible_ins) == 1 and len(visible_outs) == 1:
+        if len(ins) == 1 and len(outs) == 1:
             anchor_xs.append(st.x)
         else:
             movers.append(sid)

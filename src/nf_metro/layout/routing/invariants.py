@@ -1591,7 +1591,7 @@ def check_exit_inherits_entry_bundle_order(
         levels = distinct_offset_levels(
             offsets.get((port_id, lid), 0.0) for lid in exit_lines
         )
-        gap = max_interior_offset_gap(levels)
+        gap = max_interior_offset_gap(levels, graph_offset_step(graph))
         if gap is not None:
             violations.append(
                 ExitBundleOrderViolation(
