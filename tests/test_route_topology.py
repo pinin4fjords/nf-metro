@@ -12,11 +12,18 @@ from pathlib import Path
 
 import pytest
 
+from nf_metro.layout.route_topology import (
+    convergence_junction_entry_ports,
+    divergence_junction_exit_ports,
+    divergence_junction_sources,
+    fanout_junction_ids,
+)
 from nf_metro.layout.routing.common import merge_junction_ids
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
+    Port,
     PortSide,
     Section,
     Station,
@@ -498,6 +505,58 @@ def test_route_topology_query_metadata_contract_is_explicit() -> None:
         RouteTopologyQueryError, match="both route_topology and route_resolution"
     ):
         build_route_topology_query(resolution_only)
+
+
+def test_metadata_free_topology_adapters_preserve_source_contracts() -> None:
+    graph = MetroGraph(
+        stations={
+            "exit": Station(id="exit", label="", section_id="source", is_port=True),
+            "station": Station(id="station", label="Station"),
+            "port_fan": Station(id="port_fan", label="", is_hidden=True),
+            "station_fan": Station(id="station_fan", label="", is_hidden=True),
+            "first": Station(id="first", label="First"),
+            "second": Station(id="second", label="Second"),
+            "third": Station(id="third", label="Third"),
+            "left": Station(id="left", label="Left"),
+            "right": Station(id="right", label="Right"),
+            "merge": Station(id="merge", label="", is_hidden=True),
+            "entry": Station(id="entry", label="", section_id="target", is_port=True),
+        },
+        edges=[
+            Edge(source="exit", target="port_fan", line_id="red"),
+            Edge(source="port_fan", target="first", line_id="red"),
+            Edge(source="port_fan", target="third", line_id="blue"),
+            Edge(source="station", target="station_fan", line_id="red"),
+            Edge(source="station_fan", target="second", line_id="red"),
+            Edge(source="left", target="merge", line_id="red"),
+            Edge(source="right", target="merge", line_id="red"),
+            Edge(source="merge", target="entry", line_id="red"),
+            Edge(source="merge", target="entry", line_id="blue"),
+        ],
+        ports={
+            "exit": Port(
+                id="exit",
+                section_id="source",
+                side=PortSide.RIGHT,
+                is_entry=False,
+            ),
+            "entry": Port(
+                id="entry",
+                section_id="target",
+                side=PortSide.LEFT,
+                is_entry=True,
+            ),
+        },
+        junctions=["port_fan", "station_fan", "merge"],
+    )
+
+    assert divergence_junction_sources(graph) == {
+        "port_fan": "exit",
+        "station_fan": "station",
+    }
+    assert divergence_junction_exit_ports(graph) == {"port_fan": "exit"}
+    assert fanout_junction_ids(graph) == {"port_fan"}
+    assert convergence_junction_entry_ports(graph) == {"merge": "entry"}
 
 
 def test_route_topology_query_rejects_unknown_topology_references() -> None:

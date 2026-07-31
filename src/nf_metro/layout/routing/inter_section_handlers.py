@@ -3748,11 +3748,6 @@ def _fan_shares_inter_row_channel(ctx: _RoutingCtx, edge: Edge) -> bool:
     so it keeps the plain band-centred run rather than a fan stagger.
     """
     graph = ctx.graph
-    if (
-        ctx.topology is not None
-        and ctx.topology.divergence_for_junction(edge.source) is None
-    ):
-        return False
     port = graph.ports.get(edge.target)
     tgt_sec = graph.sections.get(port.section_id) if port is not None else None
     if tgt_sec is None:
@@ -4964,11 +4959,7 @@ def _source_is_boxed_fanout_junction(f: _InterFacts) -> bool:
     gap-above path or the around-below dive.
     """
     graph = f.graph
-    is_divergence = (
-        f.ctx.topology.divergence_for_junction(f.edge.source) is not None
-        if f.ctx.topology is not None
-        else graph.is_fanout_junction(f.edge.source)
-    )
+    is_divergence = f.edge.source in f.ctx.fanout_junctions
     if not is_divergence:
         return False
     src_section = resolve_section(graph, f.src)

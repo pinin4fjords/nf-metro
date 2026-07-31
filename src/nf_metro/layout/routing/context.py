@@ -19,7 +19,10 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import AxisFrame, lane_delta, station_lane_coord
 from nf_metro.layout.route_topology import (
     convergence_entry_port_id,
-    convergence_junction_ids,
+    convergence_junction_entry_ports,
+    divergence_junction_exit_ports,
+    divergence_junction_sources,
+    fanout_junction_ids,
     merge_fanout_junction_ids,
 )
 from nf_metro.layout.routing.common import (
@@ -197,6 +200,7 @@ class _RoutingCtx:
     topology: RouteTopologyQuery | None
     fold_x: float
     junction_ids: set[str]
+    fanout_junctions: set[str]
     bottom_exit_junctions: set[str]
     bottom_exit_junction_ports: dict[str, str]
     offset_step: float
@@ -242,11 +246,11 @@ def _classify_merge_edges(
     The farthest bypass predecessor becomes the "trunk" (full U-shape).
     Closer bypass predecessors are "branches" (truncated descents).
     """
-    junctions = set(convergence_junction_ids(graph, topology))
+    entry_port_for = convergence_junction_entry_ports(graph, topology)
+    junctions = set(entry_port_for)
 
     trunk_source: dict[str, str] = {}
     trunk_by: dict[str, float] = {}
-    entry_port_for: dict[str, str] = {}
 
     for mjid in junctions:
         mst = graph.stations.get(mjid)
@@ -255,10 +259,6 @@ def _classify_merge_edges(
         tgt_col, tgt_row = _resolve_section_colrow(graph, mst)
         if tgt_col is None:
             continue
-
-        entry_port_id = convergence_entry_port_id(graph, mjid, topology)
-        if entry_port_id is not None:
-            entry_port_for[mjid] = entry_port_id
 
         # Find farthest bypass predecessor (trunk carrier).  Branches
         # must land on the trunk's own bypass_bottom_y -- the value the
@@ -365,31 +365,19 @@ def _build_routing_context(
     """Pre-compute all shared state for edge routing."""
     topology = build_route_topology_query(graph)
     junction_ids = graph.junction_ids
+    divergence_sources = divergence_junction_sources(graph, topology)
+    divergence_exit_ports = divergence_junction_exit_ports(graph, topology)
 
     # Fold edge: max X across all stations
     all_x = [s.x for s in graph.stations.values()]
     fold_x = max(all_x) if all_x else 0
 
     # Junctions fed by BOTTOM exit ports
-    bottom_exit_junctions: set[str] = set()
     bottom_exit_junction_ports: dict[str, str] = {}
-    if topology is not None:
-        for divergence in topology.divergences:
-            port = graph.ports[divergence.exit_port_id]
-            if port.side is PortSide.BOTTOM:
-                bottom_exit_junctions.add(divergence.junction_id)
-                bottom_exit_junction_ports[divergence.junction_id] = port.id
-    else:
-        for edge in graph.edges:
-            if edge.target in junction_ids:
-                source_port = graph.ports.get(edge.source)
-                if (
-                    source_port
-                    and not source_port.is_entry
-                    and source_port.side == PortSide.BOTTOM
-                ):
-                    bottom_exit_junctions.add(edge.target)
-                    bottom_exit_junction_ports[edge.target] = edge.source
+    for divergence_id, exit_port_id in divergence_exit_ports.items():
+        if graph.ports[exit_port_id].side is PortSide.BOTTOM:
+            bottom_exit_junction_ports[divergence_id] = exit_port_id
+    bottom_exit_junctions = set(bottom_exit_junction_ports)
 
     # Fork/join stations
     fork_targets: dict[str, set[str]] = defaultdict(set)
@@ -424,11 +412,7 @@ def _build_routing_context(
     )
     junction_fan_info = _compute_junction_fan_info(
         graph,
-        (
-            tuple(view.junction_id for view in topology.divergences)
-            if topology is not None
-            else junction_ids
-        ),
+        divergence_sources,
         line_priority,
         skip_edges=all_exclude,
         topology=topology,
@@ -443,6 +427,7 @@ def _build_routing_context(
         topology=topology,
         fold_x=fold_x,
         junction_ids=junction_ids,
+        fanout_junctions=fanout_junction_ids(graph, topology),
         bottom_exit_junctions=bottom_exit_junctions,
         bottom_exit_junction_ports=bottom_exit_junction_ports,
         offset_step=offset_step,
@@ -475,11 +460,7 @@ def compute_junction_fan_info(graph: MetroGraph) -> dict[_EdgeKey, tuple[int, in
     just to read ``junction_fan_info``.
     """
     topology = build_route_topology_query(graph)
-    junction_ids: Iterable[str] = (
-        tuple(view.junction_id for view in topology.divergences)
-        if topology is not None
-        else graph.junction_ids
-    )
+    junction_ids = divergence_junction_sources(graph, topology)
     merge = _classify_merge_edges(graph, graph.junction_ids, topology)
     line_priority = {lid: i for i, lid in enumerate(graph.lines.keys())}
     all_exclude = merge.skip_edges | merge.index_exclude
@@ -957,17 +938,7 @@ def _fan_branch_entry_port(
     port = graph.ports.get(target_id)
     if port is not None:
         return target_id if port.is_entry else None
-    entry_port_id = convergence_entry_port_id(graph, target_id, topology)
-    if topology is not None:
-        return entry_port_id
-    if target_id not in graph.junction_ids:
-        return None
-    onward = {
-        edge.target
-        for edge in graph.edges_from(target_id)
-        if (p := graph.ports.get(edge.target)) is not None and p.is_entry
-    }
-    return next(iter(onward)) if len(onward) == 1 else None
+    return convergence_entry_port_id(graph, target_id, topology)
 
 
 def fanout_divergence_peel_order(
@@ -990,24 +961,16 @@ def fanout_divergence_peel_order(
     bundle ordering read this single order so the descent X order and the
     lead-in Y order stay in phase.
 
-    The clean-divergence preconditions: one upstream source; at least two
-    distinct lines; every line reaches its own target section (disjoint targets,
-    so a co-travelling multi-target bundle is left alone); all descending lines
-    drop the same way.  Three fan shapes qualify: a horizontal fan spreading to
-    at least two distinct columns with every line off the source row (farthest
-    column outermost); a vertical fan whose lines share one column but peel to at
-    least two distinct rows; and a fan spreading to both distinct columns and
-    distinct rows while keeping a member on the source row.  The latter two order
-    by destination row, top to bottom, so a member staying on the source row
-    leads as the shallowest peel.
+    The caller supplies a divergence selected from semantic route topology. Its
+    geometric preconditions are at least two distinct lines, a separate target
+    section for each line, and a consistent drop direction. Three fan shapes
+    qualify: a horizontal fan spreading to at least two distinct columns with
+    every line off the source row (farthest column outermost); a vertical fan
+    whose lines share one column but peel to at least two distinct rows; and a
+    fan spreading to both distinct columns and distinct rows while keeping a
+    member on the source row. The latter two order by destination row, top to
+    bottom, so a member staying on the source row leads as the shallowest peel.
     """
-    if topology is not None:
-        if topology.divergence_for_junction(jid) is None:
-            return None
-    else:
-        sources = {edge.source for edge in graph.edges_to(jid)}
-        if len(sources) != 1:
-            return None
     jst = graph.stations.get(jid)
     if jst is None:
         return None

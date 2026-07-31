@@ -15,7 +15,7 @@ def divergence_junction_sources(
     graph: MetroGraph,
     topology: RouteTopologyQuery | None = None,
 ) -> dict[str, str]:
-    """Map resolved divergence junctions to their upstream exit ports."""
+    """Map resolved divergence junctions to their upstream sources."""
     query = topology if topology is not None else build_route_topology_query(graph)
     if query is not None:
         return {view.junction_id: view.exit_port_id for view in query.divergences}
@@ -26,6 +26,34 @@ def divergence_junction_sources(
         if len(sources) == 1 and graph.edges_from(junction_id):
             result[junction_id] = next(iter(sources))
     return result
+
+
+def divergence_junction_exit_ports(
+    graph: MetroGraph,
+    topology: RouteTopologyQuery | None = None,
+) -> dict[str, str]:
+    """Map divergence junctions fed by exit ports to those ports."""
+    sources = divergence_junction_sources(graph, topology)
+    return {
+        junction_id: source_id
+        for junction_id, source_id in sources.items()
+        if (port := graph.ports.get(source_id)) is not None and not port.is_entry
+    }
+
+
+def fanout_junction_ids(
+    graph: MetroGraph,
+    topology: RouteTopologyQuery | None = None,
+) -> set[str]:
+    """Return divergence junctions eligible for fan-out routing."""
+    query = topology if topology is not None else build_route_topology_query(graph)
+    if query is not None:
+        return {view.junction_id for view in query.divergences}
+    return {
+        junction_id
+        for junction_id in divergence_junction_sources(graph)
+        if graph.is_fanout_junction(junction_id)
+    }
 
 
 def convergence_junction_ids(
@@ -53,6 +81,27 @@ def convergence_junction_ids(
     return tuple(result)
 
 
+def convergence_junction_entry_ports(
+    graph: MetroGraph,
+    topology: RouteTopologyQuery | None = None,
+) -> dict[str, str]:
+    """Map resolved convergence junctions to their downstream entry ports."""
+    query = topology if topology is not None else build_route_topology_query(graph)
+    if query is not None:
+        return {view.junction_id: view.entry_port_id for view in query.convergences}
+
+    result: dict[str, str] = {}
+    for junction_id in convergence_junction_ids(graph):
+        entry_ports = {
+            edge.target
+            for edge in graph.edges_from(junction_id)
+            if (port := graph.ports.get(edge.target)) is not None and port.is_entry
+        }
+        if len(entry_ports) == 1:
+            result[junction_id] = next(iter(entry_ports))
+    return result
+
+
 def convergence_entry_port_id(
     graph: MetroGraph,
     junction_id: str,
@@ -64,12 +113,7 @@ def convergence_entry_port_id(
         convergence = query.convergence_for_junction(junction_id)
         return convergence.entry_port_id if convergence is not None else None
 
-    entry_ports = [
-        edge.target
-        for edge in graph.edges_from(junction_id)
-        if (port := graph.ports.get(edge.target)) is not None and port.is_entry
-    ]
-    return entry_ports[0] if len(entry_ports) == 1 else None
+    return convergence_junction_entry_ports(graph).get(junction_id)
 
 
 def merge_fanout_junction_ids(
