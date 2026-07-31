@@ -96,6 +96,25 @@ def test_repeated_html_emission_is_byte_identical() -> None:
     assert emit_render_plan_html(plan) == emit_render_plan_html(plan)
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "examples/guide/05c_files_icon.mmd",
+        "examples/cross_track_interchange.mmd",
+        "examples/guide/03b_fan_in_merge.mmd",
+    ],
+)
+def test_route_topology_is_excluded_from_render_artifacts(path: str) -> None:
+    graph, observed = _plan(path)
+    graph.route_topology = None
+    baseline = build_render_plan(graph, resolve_theme(None, graph))
+
+    assert observed == baseline
+    assert not hasattr(observed.graph, "route_topology")
+    assert emit_render_plan(observed) == emit_render_plan(baseline)
+    assert emit_render_plan_html(observed) == emit_render_plan_html(baseline)
+
+
 def test_rendering_does_not_mutate_prepared_graph() -> None:
     source = ROOT / "examples" / "sarek_metro.mmd"
     graph = prepare_graph(source.read_text(), source_dir=str(source.parent))

@@ -273,12 +273,19 @@ runs a post-parse sequence (only when the graph has sections):
 2. `_remove_empty_sections` and `_create_implicit_section` - drop empty
    subgraphs and wrap loose (section-less) stations in an implicit,
    invisible section.
-3. `infer_section_layout` (from `layout/auto_layout.py`) - infer missing
+3. Capture authored route facts and their parser-local edge lineage, then
+   expand interchanges.
+4. `infer_section_layout` (from `layout/auto_layout.py`) - infer missing
    grid positions, section directions, and port sides from the section
    DAG, preserving anything set explicitly by directives.
-4. `_insert_terminus_convergence_stations`.
-5. `_resolve_sections` - the core rewrite (below).
-6. `_insert_bypass_stations`.
+5. `_insert_terminus_convergence_stations`, propagating authored lineage
+   through each synthetic convergence edge.
+6. `resolve_section_endpoints` - classify connectors and settle their entry
+   and exit sides once, before ports exist.
+7. Build the immutable `RouteTopology` observation described below.
+8. `_resolve_sections` - consume the same endpoint resolution in the core
+   rewrite (below).
+9. `_insert_bypass_stations`.
 
 Finally the parser applies pending terminus icons, `off_track` marks,
 and per-station markers that were buffered during the statement scan.
@@ -307,6 +314,33 @@ junctions and `_assign_section_numbers` numbers any unnumbered sections.
 
 The result is a `MetroGraph` whose edges all live within a section or
 run port-to-port, ready for the layout stage.
+
+### Authored route topology
+
+`RouteTopology` captures route meaning before the resolver replaces authored
+cross-section connectors with port and junction chains. Authored facts are
+captured before interchange expansion. A parser-local sidecar follows each
+authored connector through interchange and terminus-convergence rewrites, but
+is never stored on `MetroGraph` or `Edge`.
+
+After terminus convergence, `resolve_section_endpoints` settles every boundary
+side on the production graph. The topology builder and `_resolve_sections`
+consume that one result, so observation and resolution cannot choose different
+sides. The result is transient and is not retained by the resolved graph.
+
+The topology contains one connected `LineNetwork` per line component, exact
+endpoint `BundleRun`s, cross-section connectors, resolved endpoint groups,
+divergences, and resolver-shaped convergences. Connector identities derive from
+source, target, line, and an occurrence number among exact duplicates. Network,
+bundle, divergence, and convergence identities derive from their defining
+content. An unrelated edge or component cannot renumber existing identities.
+
+All records are frozen and contain only scalar values, `PortSide` values, and
+tuples. They retain no `MetroGraph`, station, section, edge, mutable container,
+or NetworkX object. Top-level and nested collections have explicit canonical
+ordering, so the same input produces the same topology under every hash seed.
+`RouteTopology` is parser observation state and is excluded from `RenderPlan`;
+clearing it cannot change plan, SVG, HTML, manifest, or layout output.
 
 ## Adding things
 

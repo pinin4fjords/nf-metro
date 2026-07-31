@@ -206,6 +206,15 @@ class RenderPlan:
         )
 
 
+_RENDER_GRAPH_EXCLUDED_FIELDS = {
+    "route_topology",
+    "_station_lines_cache",
+    "_edges_from_cache",
+    "_edges_to_cache",
+    "_junction_ids_cache",
+}
+
+
 def freeze_render_value(value: Any) -> Any:
     """Copy a render value into immutable containers."""
     if isinstance(value, (str, bytes, int, float, bool, type(None), Enum)):
@@ -233,19 +242,16 @@ def freeze_render_value(value: Any) -> Any:
         return frozenset(freeze_render_value(item) for item in value)
     if is_dataclass(value):
         record_type = FrozenGraph if isinstance(value, MetroGraph) else FrozenRecord
+        excluded = (
+            _RENDER_GRAPH_EXCLUDED_FIELDS if isinstance(value, MetroGraph) else set()
+        )
         return record_type(
             type(value).__name__,
             FrozenMap(
                 tuple(
                     (field.name, freeze_render_value(getattr(value, field.name)))
                     for field in fields(value)
-                    if field.name
-                    not in {
-                        "_station_lines_cache",
-                        "_edges_from_cache",
-                        "_edges_to_cache",
-                        "_junction_ids_cache",
-                    }
+                    if field.name not in excluded
                 )
             ),
         )

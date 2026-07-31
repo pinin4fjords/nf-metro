@@ -42,6 +42,12 @@ from nf_metro.parser.resolve import (
     _insert_terminus_convergence_stations,
     _remove_empty_sections,
     _resolve_sections,
+    resolve_section_endpoints,
+)
+from nf_metro.parser.route_topology import (
+    AuthoredEdgeLineage,
+    build_route_topology,
+    capture_authored_routes,
 )
 from nf_metro.parser.validate import find_cycle, find_section_cycle
 
@@ -286,8 +292,11 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
     if not graph.sections and graph.interchanges:
         _create_implicit_section(graph)
 
+    authored_capture = capture_authored_routes(graph)
+    authored_lineage = AuthoredEdgeLineage.from_capture(graph.edges, authored_capture)
+
     if graph.sections:
-        _expand_interchanges(graph)
+        _expand_interchanges(graph, authored_lineage)
 
         # Row-wrap width precedence: an explicit caller value (the
         # --max-layers-per-row CLI flag) wins over a %%metro fold_threshold
@@ -318,9 +327,15 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
             if relocated:
                 graph._fold_threshold_effective = eff_cols
                 graph._fold_compressed_sections = relocated
-        _insert_terminus_convergence_stations(graph)
-        _resolve_sections(graph)
+        _insert_terminus_convergence_stations(graph, authored_lineage)
+        endpoint_resolution = resolve_section_endpoints(graph)
+        graph.route_topology = build_route_topology(
+            authored_capture, authored_lineage, endpoint_resolution
+        )
+        _resolve_sections(graph, endpoint_resolution)
         _insert_bypass_stations(graph)
+    else:
+        graph.route_topology = build_route_topology(authored_capture, authored_lineage)
 
 
 def _apply_pending_metadata(graph: MetroGraph) -> None:
@@ -429,7 +444,11 @@ def _ensure_station(graph: MetroGraph, node_id: str, section_id: str | None) -> 
         )
 
 
-def _apply_edge(edge: _Edge, graph: MetroGraph, section_id: str | None) -> None:
+def _apply_edge(
+    edge: _Edge,
+    graph: MetroGraph,
+    section_id: str | None,
+) -> None:
     """Register an edge and its endpoints (one ``Edge`` per line id).
 
     An endpoint written with an inline shape also declares that node with its
