@@ -187,38 +187,28 @@ def _lr_lshape_tapers(graph):
         yield s, t, src_spread, tgt_spread, src_ys, tgt_ys
 
 
-def _fixtures_with_taper() -> list[str]:
-    names = []
-    for p in sorted(TOPO.glob("*.mmd")):
-        graph = parse_metro_mermaid(p.read_text())
-        compute_layout(graph)
-        if any(True for _ in _lr_lshape_tapers(graph)):
-            names.append(p.stem)
-    return names
-
-
-def test_complex_multipath_taper_present() -> None:
-    """The named fixture really does carry a tapering L-shape (guards the test)."""
-    assert "complex_multipath" in _fixtures_with_taper()
-
-
-@pytest.mark.parametrize("fixture", _fixtures_with_taper())
-def test_tapering_lshape_preserves_both_spreads(fixture: str) -> None:
+def test_tapering_lshape_preserves_both_spreads() -> None:
     """Each tapering L-shape enters/leaves at its true per-line spread.
 
     A rigid bundle would bake the source spread onto the target endpoints,
     spanning the source width rather than the trunk's; a tapering bundle spans
     ``src_spread`` at the source endpoints and ``tgt_spread`` at the target.
     """
-    graph = parse_metro_mermaid((TOPO / f"{fixture}.mmd").read_text())
-    compute_layout(graph)
-
-    for s, t, src_spread, tgt_spread, src_ys, tgt_ys in _lr_lshape_tapers(graph):
-        got_src = max(src_ys) - min(src_ys)
-        got_tgt = max(tgt_ys) - min(tgt_ys)
-        assert got_src == pytest.approx(src_spread, abs=COORD_TOLERANCE), (
-            f"{fixture}: {s}->{t} source spread {got_src} != {src_spread}"
-        )
-        assert got_tgt == pytest.approx(tgt_spread, abs=COORD_TOLERANCE), (
-            f"{fixture}: {s}->{t} target spread {got_tgt} != {tgt_spread}"
-        )
+    tapered_fixtures: list[str] = []
+    for path in sorted(TOPO.glob("*.mmd")):
+        graph = parse_metro_mermaid(path.read_text())
+        compute_layout(graph)
+        tapers = list(_lr_lshape_tapers(graph))
+        if not tapers:
+            continue
+        tapered_fixtures.append(path.stem)
+        for s, t, src_spread, tgt_spread, src_ys, tgt_ys in tapers:
+            got_src = max(src_ys) - min(src_ys)
+            got_tgt = max(tgt_ys) - min(tgt_ys)
+            assert got_src == pytest.approx(src_spread, abs=COORD_TOLERANCE), (
+                f"{path.stem}: {s}->{t} source spread {got_src} != {src_spread}"
+            )
+            assert got_tgt == pytest.approx(tgt_spread, abs=COORD_TOLERANCE), (
+                f"{path.stem}: {s}->{t} target spread {got_tgt} != {tgt_spread}"
+            )
+    assert "complex_multipath" in tapered_fixtures
