@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from nf_metro.graph_views import directed_graph
 from nf_metro.layout.constants import (
     TITLE_BAND_CLEARANCE,
     TITLE_BAND_OVERLAP_FLOOR,
@@ -25,15 +26,20 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
     """
     from collections import deque
 
-    import networkx as nx
-
-    dag: nx.DiGraph[str] = nx.DiGraph()
-    for sid in graph.sections:
-        dag.add_node(sid)
-    if graph.section_dag:
-        for src, tgt in graph.section_dag.section_edges:
-            if src in graph.sections and tgt in graph.sections:
-                dag.add_edge(src, tgt)
+    section_rank = {sid: rank for rank, sid in enumerate(graph.sections)}
+    section_edges = (
+        sorted(
+            (
+                (src, tgt)
+                for src, tgt in graph.section_dag.section_edges
+                if src in graph.sections and tgt in graph.sections
+            ),
+            key=lambda edge: (section_rank[edge[0]], section_rank[edge[1]]),
+        )
+        if graph.section_dag
+        else []
+    )
+    dag = directed_graph(graph.sections, section_edges)
 
     secs = graph.sections
 
@@ -61,7 +67,7 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
 
     while q:
         node = q.popleft()
-        for succ in dag.successors(node):
+        for succ in sorted(dag.successors(node), key=section_rank.__getitem__):
             new_depth = sweep[node]
             if _is_direction_change(node, succ):
                 new_depth = sweep[node] + 1
@@ -77,12 +83,15 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
     # ordered by the topmost grid_row so top flows come first.
     from nf_metro.layout.section_placement import _weakly_connected_components
 
-    section_edges = graph.section_dag.section_edges if graph.section_dag else set()
+    component_edges = graph.section_dag.section_edges if graph.section_dag else set()
     comp_idx: dict[str, int] = {}
     for rank, comp in enumerate(
         sorted(
-            _weakly_connected_components(graph, section_edges),
-            key=lambda c: min(graph.sections[sid].grid_row for sid in c),
+            _weakly_connected_components(graph, component_edges),
+            key=lambda component: (
+                min(graph.sections[sid].grid_row for sid in component),
+                min(section_rank[sid] for sid in component),
+            ),
         )
     ):
         for sid in comp:
@@ -98,10 +107,10 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
         elif sw not in sweep_is_rl and s.direction == "LR":
             sweep_is_rl[sw] = False
 
-    def _sort_key(s: Section) -> tuple[int, int, int, int]:
+    def _sort_key(s: Section) -> tuple[int, int, int, int, int]:
         sw = sweep[s.id]
         col = -s.grid_col if sweep_is_rl.get(sw, False) else s.grid_col
-        return (comp_idx.get(s.id, 0), sw, col, s.grid_row)
+        return (comp_idx.get(s.id, 0), sw, col, s.grid_row, section_rank[s.id])
 
     sorted_sections = sorted(graph.sections.values(), key=_sort_key)
     for i, section in enumerate(sorted_sections, start=1):

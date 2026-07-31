@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from nf_metro.layout.auto_layout import (
+    _adjust_explicit_tb_sections,
     _assign_grid_positions,
     _build_section_dag,
+    _compute_fold_exit_side,
     _infer_directions,
     _infer_port_sides,
     infer_section_layout,
@@ -23,6 +25,58 @@ from nf_metro.parser.model import (
 )
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
+
+
+def test_fold_exit_tie_prefers_leftward_return() -> None:
+    graph = MetroGraph(
+        sections={
+            "fold": Section("fold", "Fold", grid_col=1, grid_row=0),
+            "left": Section("left", "Left", grid_col=0, grid_row=0),
+            "right": Section("right", "Right", grid_col=2, grid_row=0),
+        }
+    )
+    successors = {"fold": {"left", "right"}}
+    edge_lines = {
+        ("fold", "left"): {"left_line"},
+        ("fold", "right"): {"right_line"},
+    }
+
+    assert (
+        _compute_fold_exit_side(graph, "fold", successors, edge_lines) is PortSide.LEFT
+    )
+
+
+@pytest.mark.parametrize(
+    "section_order",
+    [
+        ("a", "b", "c"),
+        ("b", "a", "c"),
+    ],
+)
+def test_explicit_tb_shared_successor_uses_deepest_required_row(
+    section_order: tuple[str, ...],
+) -> None:
+    sections = {
+        "a": Section("a", "a", direction="TB", grid_col=0, grid_row=0, grid_row_span=2),
+        "b": Section("b", "b", direction="TB", grid_col=1, grid_row=0, grid_row_span=3),
+        "c": Section("c", "c", grid_col=2, grid_row=0),
+    }
+    graph = MetroGraph(
+        sections={sid: sections[sid] for sid in section_order},
+        grid_overrides={
+            "a": (0, 0, 2, 1),
+            "b": (1, 0, 3, 1),
+            "c": (2, 0, 1, 1),
+        },
+    )
+
+    _adjust_explicit_tb_sections(
+        graph,
+        successors={"a": {"c"}, "b": {"c"}},
+        fold_sections=set(),
+    )
+
+    assert graph.sections["c"].grid_row == 2
 
 
 def _make_graph_with_sections(

@@ -252,7 +252,7 @@ def _classify_merge_edges(
     trunk_source: dict[str, str] = {}
     trunk_by: dict[str, float] = {}
 
-    for mjid in junctions:
+    for mjid in entry_port_for:
         mst = graph.stations.get(mjid)
         if not mst:
             continue

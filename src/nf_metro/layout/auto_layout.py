@@ -15,6 +15,9 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from collections.abc import Set as AbstractSet
 
+import networkx as nx
+
+from nf_metro.graph_views import directed_graph, longest_path_layers
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.layers import assign_layers
 from nf_metro.parser.model import (
@@ -304,37 +307,37 @@ def _internal_station_depths(
     than falling back to a distorted station-count estimate.
     """
     section = graph.sections[section_id]
-    station_ids = set(section.station_ids)
-
-    adj: dict[str, set[str]] = defaultdict(set)
-    has_pred: set[str] = set()
-    for edge in graph.edges:
-        if edge.source in station_ids and edge.target in station_ids:
-            adj[edge.source].add(edge.target)
-            has_pred.add(edge.target)
-
-    if not adj:
+    station_ids = list(section.station_ids)
+    station_set = set(station_ids)
+    station_graph = directed_graph(
+        station_ids,
+        (
+            (edge.source, edge.target)
+            for edge in graph.edges
+            if edge.source in station_set and edge.target in station_set
+        ),
+    )
+    if station_graph.number_of_edges() == 0:
         return None
-    roots = station_ids - has_pred
-    if not roots:
+    try:
+        return longest_path_layers(station_graph, station_ids)
+    except nx.NetworkXUnfeasible as exc:
         raise CyclicGraphError(
             f"Section '{section_id}' has cyclic internal edges: "
-            f"{', '.join(sorted(station_ids))}"
-        )
+            f"{', '.join(station_ids)}"
+        ) from exc
 
-    depth: dict[str, int] = {sid: 0 for sid in station_ids}
-    queue: deque[str] = deque(roots)
-    visited: set[str] = set()
-    while queue:
-        node = queue.popleft()
-        if node in visited:
-            continue
-        visited.add(node)
-        for succ in adj.get(node, set()):
-            if depth[node] + 1 > depth[succ]:
-                depth[succ] = depth[node] + 1
-            queue.append(succ)
-    return depth
+
+def _estimate_section_shape(graph: MetroGraph, section_id: str) -> tuple[int, int]:
+    """Estimate a section's horizontal layers and widest vertical layer."""
+    depth = _internal_station_depths(graph, section_id)
+    if depth is None:
+        station_count = max(len(graph.sections[section_id].station_ids), 1)
+        return station_count, station_count
+    per_layer: dict[int, int] = defaultdict(int)
+    for station_depth in depth.values():
+        per_layer[station_depth] += 1
+    return max(depth.values()) + 1, max(per_layer.values())
 
 
 def _estimate_section_layers(graph: MetroGraph, section_id: str) -> int:
@@ -343,26 +346,8 @@ def _estimate_section_layers(graph: MetroGraph, section_id: str) -> int:
     Computes the longest path through internal edges via topological DP.
     Returns at least 1.
     """
-    depth = _internal_station_depths(graph, section_id)
-    if depth is None:
-        return max(len(graph.sections[section_id].station_ids), 1)
-    return max(depth.values()) + 1  # +1: convert 0-indexed depth to layer count
-
-
-def _estimate_section_height(graph: MetroGraph, section_id: str) -> int:
-    """Estimate a section's vertical extent as its widest internal layer.
-
-    Counts the stations sharing the busiest longest-path depth (the broadest
-    fan), the orthogonal counterpart to ``_estimate_section_layers``. Returns
-    at least 1.
-    """
-    depth = _internal_station_depths(graph, section_id)
-    if depth is None:
-        return max(len(graph.sections[section_id].station_ids), 1)
-    per_layer: dict[int, int] = defaultdict(int)
-    for d in depth.values():
-        per_layer[d] += 1
-    return max(per_layer.values())
+    layers, _height = _estimate_section_shape(graph, section_id)
+    return layers
 
 
 # A section qualifies as a tall anchor when its fan is at least this many
@@ -396,8 +381,9 @@ def _detect_tall_anchor_chain(graph: MetroGraph) -> str | None:
     if len(sources) != 1 or len(sinks) != 1:
         return None
 
-    heights = {s: _estimate_section_height(graph, s) for s in section_ids}
-    widths = {s: _estimate_section_layers(graph, s) for s in section_ids}
+    shapes = {sid: _estimate_section_shape(graph, sid) for sid in section_ids}
+    widths = {sid: shape[0] for sid, shape in shapes.items()}
+    heights = {sid: shape[1] for sid, shape in shapes.items()}
     anchor = max(section_ids, key=lambda s: heights[s])
 
     if heights[anchor] < TALL_ANCHOR_MIN_HEIGHT:
@@ -480,41 +466,22 @@ def _place_with_tall_anchor(
     return set(), set(), set()
 
 
-def _bfs_section_columns(
+def _topological_section_columns(
     section_ids: list[str], successors: dict[str, set[str]]
 ) -> dict[str, int]:
     """Longest-path topo column per section (disconnected sections get 0)."""
+    rank = {sid: index for index, sid in enumerate(section_ids)}
     all_sections = set(section_ids)
-    in_degree: dict[str, int] = {sid: 0 for sid in section_ids}
-    adj: dict[str, list[str]] = {sid: [] for sid in section_ids}
-
-    for src, targets in successors.items():
-        for tgt in targets:
-            if src in all_sections and tgt in all_sections:
-                adj[src].append(tgt)
-                in_degree[tgt] += 1
-
-    col_assign: dict[str, int] = {}
-    queue: deque[str] = deque()
-    for sid in section_ids:
-        if in_degree[sid] == 0:
-            queue.append(sid)
-            col_assign[sid] = 0
-
-    while queue:
-        sid = queue.popleft()
-        for tgt in adj[sid]:
-            new_col = col_assign[sid] + 1
-            if tgt not in col_assign or new_col > col_assign[tgt]:
-                col_assign[tgt] = new_col
-            in_degree[tgt] -= 1
-            if in_degree[tgt] == 0:
-                queue.append(tgt)
-
-    for sid in section_ids:
-        if sid not in col_assign:
-            col_assign[sid] = 0
-    return col_assign
+    edges = [
+        (source, target)
+        for source in section_ids
+        for target in sorted(
+            successors.get(source, ()), key=lambda sid: rank.get(sid, len(rank))
+        )
+        if target in all_sections
+    ]
+    section_graph = directed_graph(section_ids, edges)
+    return longest_path_layers(section_graph, section_ids)
 
 
 def _pack_topo_columns(
@@ -692,7 +659,7 @@ def _assign_grid_positions(
     """
     section_ids = list(graph.sections.keys())
 
-    col_assign = _bfs_section_columns(section_ids, successors)
+    col_assign = _topological_section_columns(section_ids, successors)
 
     # Skip sections already in grid_overrides
     auto_sections = {sid for sid in section_ids if sid not in graph.grid_overrides}
@@ -740,6 +707,7 @@ def _assign_grid_positions(
             col_groups,
             successors,
             predecessors,
+            section_rank={sid: index for index, sid in enumerate(section_ids)},
         )
         if convergence_result is not None:
             return _place_with_convergence(
@@ -791,6 +759,8 @@ def _detect_convergence_split(
     col_groups: dict[int, list[str]],
     successors: dict[str, set[str]],
     predecessors: dict[str, set[str]],
+    *,
+    section_rank: dict[str, int],
 ) -> set[str] | None:
     """Detect a convergence section and return the set of sections for a return row.
 
@@ -802,7 +772,7 @@ def _detect_convergence_split(
     # Skip terminal sections (no successors) - they are sinks that collect
     # from many upstream sections and don't benefit from a return row.
     convergence_sid = None
-    for sid in sorted(col_assign, key=lambda s: col_assign[s]):
+    for sid in sorted(col_assign, key=lambda sid: (col_assign[sid], section_rank[sid])):
         if not successors.get(sid):
             continue
         pred_cols = set()
@@ -817,9 +787,7 @@ def _detect_convergence_split(
         return None
 
     # Migration below tests membership against this frozen base, never the set
-    # it is growing: ``col_assign``'s key order derives from a BFS over
-    # set-valued successor maps and so varies with ``PYTHONHASHSEED``, so an
-    # order-dependent inclusion would make grid placement hash-seed dependent.
+    # it is growing, so candidate eligibility cannot depend on earlier additions.
     base_return_set = frozenset(
         {convergence_sid} | _transitive_successors(convergence_sid, successors)
     )
@@ -911,7 +879,10 @@ def _place_with_convergence(
     # whenever a row-0 column held 2+ sections (issue #484).
     return_row = row0_height
     # Sort by topo col ascending: lowest topo col = rightmost on return row
-    return_sids = sorted(return_set, key=lambda s: col_assign[s])
+    section_rank = {sid: index for index, sid in enumerate(graph.sections)}
+    return_sids = sorted(
+        return_set, key=lambda sid: (col_assign[sid], section_rank[sid])
+    )
     grid_col = max_row0_col
     for sid in return_sids:
         folded[sid] = (grid_col, return_row)
@@ -1034,11 +1005,11 @@ def _adjust_explicit_tb_sections(
     span so that lines exit downward naturally.
     """
     # Find explicit TB sections that aren't already handled as fold sections
-    explicit_tb = {
+    explicit_tb = [
         sid
         for sid, sec in graph.sections.items()
         if sec.direction == "TB" and sid not in fold_sections and sec.grid_col >= 0
-    }
+    ]
     if not explicit_tb:
         return
 
@@ -1083,7 +1054,11 @@ def _adjust_explicit_tb_sections(
                     tb_sec.grid_col_span,
                 )
 
-        # Move successors from the top of the span to the bottom
+    successor_rows: dict[str, int] = {}
+    for tb_sid in explicit_tb:
+        tb_sec = graph.sections[tb_sid]
+        tb_col = tb_sec.grid_col
+        tb_row = tb_sec.grid_row
         if tb_sec.grid_row_span > 1:
             bottom_row = tb_row + tb_sec.grid_row_span - 1
             for succ_id in successors.get(tb_sid, set()):
@@ -1093,13 +1068,19 @@ def _adjust_explicit_tb_sections(
                 # Only adjust auto-placed successors in columns to the right
                 if succ.grid_col <= tb_col:
                     continue
-                succ.grid_row = bottom_row
-                graph.grid_overrides[succ_id] = (
-                    succ.grid_col,
-                    bottom_row,
-                    succ.grid_row_span,
-                    succ.grid_col_span,
+                successor_rows[succ_id] = max(
+                    successor_rows.get(succ_id, bottom_row), bottom_row
                 )
+
+    for succ_id, target_row in successor_rows.items():
+        succ = graph.sections[succ_id]
+        succ.grid_row = target_row
+        graph.grid_overrides[succ_id] = (
+            succ.grid_col,
+            target_row,
+            succ.grid_row_span,
+            succ.grid_col_span,
+        )
 
 
 def _optimize_colspans(
@@ -1646,6 +1627,14 @@ def _neighbour_side_votes(
     return votes
 
 
+_FOLD_EXIT_TIE_PRIORITY = (
+    PortSide.LEFT,
+    PortSide.RIGHT,
+    PortSide.TOP,
+    PortSide.BOTTOM,
+)
+
+
 def _compute_fold_exit_side(
     graph: MetroGraph,
     sec_id: str,
@@ -1671,7 +1660,10 @@ def _compute_fold_exit_side(
     if not side_votes:
         return PortSide.BOTTOM
 
-    dominant = max(side_votes, key=lambda s: side_votes[s])
+    best_vote = max(side_votes.values())
+    dominant = next(
+        side for side in _FOLD_EXIT_TIE_PRIORITY if side_votes.get(side) == best_vote
+    )
 
     # Override for multi-row spans: if all successors are below the fold
     # span, use BOTTOM exit so lines continue their vertical flow.

@@ -1,0 +1,133 @@
+%%metro title: Candidate recovery fuzz
+%%metro line: l0 | Line 1 | #3779b1
+%%metro line: l1 | Line 2 | #6ef362
+%%metro line: l2 | Line 3 | #a66d13
+%%metro line: l3 | Line 4 | #dde6c4
+%%metro line: l4 | Line 5 | #156075
+graph LR
+    subgraph s0 [Section 0]
+        n0_0[N0.0]
+        n0_1[N0.1]
+        n0_0 -->|l0| n0_1
+    end
+    subgraph s1 [Section 1]
+        n1_0[N1.0]
+        n1_1[N1.1]
+        n1_0 -->|l0| n1_1
+    end
+    subgraph s2 [Section 2]
+        n2_0[N2.0]
+        n2_1[N2.1]
+        n2_0 -->|l4| n2_1
+        n2_2[N2.2]
+        n2_1 -->|l4| n2_2
+        n2_3[N2.3]
+        n2_2 -->|l2| n2_3
+    end
+    subgraph s3 [Section 3]
+        n3_0[N3.0]
+        n3_1[N3.1]
+        n3_0 -->|l1| n3_1
+        n3_2[N3.2]
+        n3_1 -->|l3| n3_2
+    end
+    subgraph s4 [Section 4]
+        n4_0[N4.0]
+        n4_1[N4.1]
+        n4_0 -->|l2| n4_1
+        n4_2[N4.2]
+        n4_1 -->|l2| n4_2
+    end
+    subgraph s5 [Section 5]
+        n5_0[N5.0]
+        n5_1[N5.1]
+        n5_0 -->|l1| n5_1
+        n5_2[N5.2]
+        n5_1 -->|l2| n5_2
+        n5_3[N5.3]
+        n5_2 -->|l3| n5_3
+    end
+    subgraph s6 [Section 6]
+        n6_0[N6.0]
+    end
+    subgraph s7 [Section 7]
+        n7_0[N7.0]
+        n7_1[N7.1]
+        n7_0 -->|l4| n7_1
+    end
+    subgraph s8 [Section 8]
+        n8_0[N8.0]
+    end
+    subgraph s9 [Section 9]
+        n9_0[N9.0]
+        n9_1[N9.1]
+        n9_0 -->|l1| n9_1
+        n9_2[N9.2]
+        n9_1 -->|l0| n9_2
+        n9_3[N9.3]
+        n9_2 -->|l2| n9_3
+    end
+    subgraph s10 [Section 10]
+        n10_0[N10.0]
+        n10_1[N10.1]
+        n10_0 -->|l4| n10_1
+    end
+    subgraph s11 [Section 11]
+        n11_0[N11.0]
+        n11_1[N11.1]
+        n11_0 -->|l4| n11_1
+    end
+    subgraph s12 [Section 12]
+        n12_0[N12.0]
+        n12_1[N12.1]
+        n12_0 -->|l3| n12_1
+        n12_2[N12.2]
+        n12_1 -->|l2| n12_2
+    end
+    subgraph s13 [Section 13]
+        n13_0[N13.0]
+        n13_1[N13.1]
+        n13_0 -->|l3| n13_1
+    end
+    n0_1 -->|l4| n1_0
+    n0_1 -->|l0| n2_0
+    n1_1 -->|l0| n5_0
+    n1_1 -->|l4| n5_0
+    n1_1 -->|l2| n12_0
+    n2_3 -->|l0| n3_0
+    n2_3 -->|l0| n4_0
+    n2_3 -->|l0| n9_0
+    n2_3 -->|l2| n10_0
+    n2_3 -->|l3| n10_0
+    n2_3 -->|l1| n13_0
+    n3_2 -->|l0| n4_0
+    n3_2 -->|l1| n4_0
+    n3_2 -->|l2| n4_0
+    n3_2 -->|l3| n4_0
+    n3_2 -->|l3| n6_0
+    n3_2 -->|l4| n7_0
+    n3_2 -->|l0| n8_0
+    n4_2 -->|l1| n9_0
+    n4_2 -->|l0| n12_0
+    n4_2 -->|l1| n12_0
+    n4_2 -->|l0| n13_0
+    n5_3 -->|l1| n6_0
+    n6_0 -->|l0| n10_0
+    n7_1 -->|l2| n11_0
+    n7_1 -->|l1| n12_0
+    n8_0 -->|l2| n11_0
+    n8_0 -->|l4| n12_0
+    n8_0 -->|l4| n13_0
+    n9_3 -->|l1| n10_0
+    n9_3 -->|l2| n10_0
+    n10_1 -->|l2| n11_0
+    n10_1 -->|l3| n11_0
+    n10_1 -->|l0| n12_0
+    n10_1 -->|l2| n12_0
+    n10_1 -->|l0| n13_0
+    n10_1 -->|l3| n13_0
+    n11_1 -->|l0| n12_0
+    n11_1 -->|l3| n12_0
+    n11_1 -->|l4| n12_0
+    n11_1 -->|l3| n13_0
+    n11_1 -->|l4| n13_0
