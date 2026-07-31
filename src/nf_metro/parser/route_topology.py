@@ -2,43 +2,176 @@
 
 from __future__ import annotations
 
-import copy
-import warnings
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, NewType
 
 import networkx as nx
 
 from nf_metro.graph_views import directed_graph
 from nf_metro.parser.model import Edge, MetroGraph, PortSide
-from nf_metro.parser.resolve import (
-    _build_entry_side_mapping,
-    _build_exit_side_mapping,
-    _classify_edges,
-    _exit_side_for_edge,
-    _reanchor_flow_axis_ports,
-    _reside_folded_flow_ports_to_grid,
-)
+
+if TYPE_CHECKING:
+    from nf_metro.parser.resolve import SectionEndpointResolution
+
+
+ConnectorId = NewType("ConnectorId", str)
+NetworkId = NewType("NetworkId", str)
+BundleId = NewType("BundleId", str)
+EndpointGroupId = NewType("EndpointGroupId", str)
+DivergenceId = NewType("DivergenceId", str)
+ConvergenceId = NewType("ConvergenceId", str)
+
+
+def _route_id(kind: str, *parts: object) -> str:
+    """Build an unambiguous content-derived identifier from typed parts."""
+    encoded = "|".join(f"{len(str(part))}:{part}" for part in parts)
+    return f"{kind}|{encoded}"
+
+
+@dataclass(frozen=True, slots=True)
+class AuthoredEdgeKey:
+    """Stable identity for one authored per-line edge."""
+
+    source: str
+    target: str
+    line_id: str
+    duplicate_ordinal: int
+
+    @property
+    def id(self) -> ConnectorId:
+        """Identity unaffected by authored edges with different content."""
+        return ConnectorId(
+            _route_id(
+                "connector",
+                self.source,
+                self.target,
+                self.line_id,
+                self.duplicate_ordinal,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AuthoredEdgeFact:
+    """Source facts and ordering for one authored per-line edge."""
+
+    key: AuthoredEdgeKey
+    rank: int
+    source_line: int | None
+    source_section: str | None
+    target_section: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AuthoredRouteCapture:
+    """Authored route facts and definition ranks before synthetic rewrites."""
+
+    edges: tuple[AuthoredEdgeFact, ...]
+    line_ids: tuple[str, ...]
+    station_ids: tuple[str, ...]
+    section_ids: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class AuthoredEdgeLineage:
+    """Parser-local mapping from current edges to their authored origins."""
+
+    _origins_by_edge_id: dict[int, tuple[AuthoredEdgeKey, ...]]
+    _rank_by_key: dict[AuthoredEdgeKey, int]
+
+    @classmethod
+    def from_capture(
+        cls,
+        edges: list[Edge],
+        capture: AuthoredRouteCapture,
+    ) -> AuthoredEdgeLineage:
+        """Associate each captured edge with its current graph edge object."""
+        if len(edges) != len(capture.edges):
+            raise RouteTopologyLineageError(
+                "authored capture and graph edge counts differ"
+            )
+        return cls(
+            {
+                id(edge): (fact.key,)
+                for edge, fact in zip(edges, capture.edges, strict=True)
+            },
+            {fact.key: fact.rank for fact in capture.edges},
+        )
+
+    def origins(self, edge: Edge) -> tuple[AuthoredEdgeKey, ...]:
+        """Return the authored origins carried by a current edge."""
+        return self._origins_by_edge_id.get(id(edge), ())
+
+    def replace(self, old_edge: Edge, new_edge: Edge) -> None:
+        """Transfer one edge's origins to its replacement."""
+        origins = self._origins_by_edge_id.pop(id(old_edge), ())
+        self._origins_by_edge_id[id(new_edge)] = origins
+
+    def discard(self, edge: Edge) -> None:
+        """Remove an edge that has been replaced or deleted."""
+        self._origins_by_edge_id.pop(id(edge), None)
+
+    def bind(
+        self, edge: Edge, origins: tuple[AuthoredEdgeKey, ...] | list[AuthoredEdgeKey]
+    ) -> None:
+        """Associate a synthetic edge with an authored-order origin union."""
+        self._origins_by_edge_id[id(edge)] = self.ordered_union(origins)
+
+    def ordered_union(
+        self, origins: tuple[AuthoredEdgeKey, ...] | list[AuthoredEdgeKey]
+    ) -> tuple[AuthoredEdgeKey, ...]:
+        """Deduplicate origins and order them by their authored rank."""
+        unique = set(origins)
+        return tuple(sorted(unique, key=self._rank_by_key.__getitem__))
+
+
+class RouteTopologyLineageError(RuntimeError):
+    """The synthetic edge lineage cannot map authored connectors exactly."""
+
+
+def capture_authored_routes(graph: MetroGraph) -> AuthoredRouteCapture:
+    """Capture authored per-line edges and definition order without mutation."""
+    occurrences: dict[tuple[str, str, str], int] = defaultdict(int)
+    facts: list[AuthoredEdgeFact] = []
+    for rank, edge in enumerate(graph.edges):
+        content = (edge.source, edge.target, edge.line_id)
+        duplicate_ordinal = occurrences[content]
+        occurrences[content] += 1
+        facts.append(
+            AuthoredEdgeFact(
+                key=AuthoredEdgeKey(*content, duplicate_ordinal),
+                rank=rank,
+                source_line=edge.source_line,
+                source_section=graph.section_for_station(edge.source),
+                target_section=graph.section_for_station(edge.target),
+            )
+        )
+    return AuthoredRouteCapture(
+        edges=tuple(facts),
+        line_ids=tuple(graph.lines),
+        station_ids=tuple(graph.stations),
+        section_ids=tuple(graph.sections),
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class LineNetwork:
     """One connected component of one authored metro line."""
 
-    id: str
+    id: NetworkId
     line_id: str
     station_ids: tuple[str, ...]
-    edge_ids: tuple[str, ...]
-    connector_ids: tuple[str, ...]
+    edge_ids: tuple[ConnectorId, ...]
+    connector_ids: tuple[ConnectorId, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class RouteConnector:
     """One authored per-line edge crossing a section boundary."""
 
-    id: str
-    authored_edge_ordinal: int
-    line_ordinal: int
+    id: ConnectorId
+    duplicate_ordinal: int
     source_line: int | None
     source: str
     target: str
@@ -47,20 +180,20 @@ class RouteConnector:
     target_section: str
     exit_side: PortSide
     entry_side: PortSide
-    network_id: str
-    bundle_id: str
-    exit_group_id: str
-    entry_group_id: str
+    network_id: NetworkId
+    bundle_id: BundleId
+    exit_group_id: EndpointGroupId
+    entry_group_id: EndpointGroupId
 
 
 @dataclass(frozen=True, slots=True)
 class BundleRun:
     """Authored lines sharing one exact source-target endpoint pair."""
 
-    id: str
+    id: BundleId
     source: str
     target: str
-    connector_ids: tuple[str, ...]
+    connector_ids: tuple[ConnectorId, ...]
     line_ids: tuple[str, ...]
 
 
@@ -68,31 +201,31 @@ class BundleRun:
 class EndpointGroup:
     """Connectors sharing one resolved section-boundary port requirement."""
 
-    id: str
+    id: EndpointGroupId
     section_id: str
     side: PortSide
-    connector_ids: tuple[str, ...]
+    connector_ids: tuple[ConnectorId, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class DivergenceGroup:
     """One exit group that feeds more than one entry group."""
 
-    id: str
-    exit_group_id: str
-    entry_group_ids: tuple[str, ...]
-    connector_ids: tuple[str, ...]
+    id: DivergenceId
+    exit_group_id: EndpointGroupId
+    entry_group_ids: tuple[EndpointGroupId, ...]
+    connector_ids: tuple[ConnectorId, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class ConvergenceGroup:
     """Divergences that feed one entry group on the same line."""
 
-    id: str
-    entry_group_id: str
+    id: ConvergenceId
+    entry_group_id: EndpointGroupId
     line_id: str
-    divergence_ids: tuple[str, ...]
-    connector_ids: tuple[str, ...]
+    divergence_ids: tuple[DivergenceId, ...]
+    connector_ids: tuple[ConnectorId, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,86 +242,71 @@ class RouteTopology:
 
 
 @dataclass(frozen=True, slots=True)
-class _EdgeIdentity:
-    edge_ordinal: int
-    line_ordinal: int
+class _ResolvedAuthoredConnector:
+    fact: AuthoredEdgeFact
+    source_section: str
+    target_section: str
+    exit_side: PortSide
+    entry_side: PortSide
 
-    @property
-    def id(self) -> str:
-        return f"edge:{self.edge_ordinal}:line:{self.line_ordinal}"
+
+def _definition_rank(values: tuple[str, ...]) -> dict[str, int]:
+    return {value: rank for rank, value in enumerate(values)}
 
 
-def _edge_identities(edges: list[Edge]) -> list[_EdgeIdentity]:
-    """Assign unique deterministic identities, including for programmatic edges."""
-    next_fallback = (
-        max(
-            (
-                edge.authored_edge_ordinal
-                for edge in edges
-                if edge.authored_edge_ordinal is not None
-            ),
-            default=-1,
-        )
-        + 1
-    )
-    identities: list[_EdgeIdentity] = []
-    used: set[tuple[int, int]] = set()
-    for edge in edges:
-        if edge.authored_edge_ordinal is None:
-            identity = _EdgeIdentity(next_fallback, 0)
-            next_fallback += 1
-        else:
-            identity = _EdgeIdentity(
-                edge.authored_edge_ordinal,
-                edge.authored_line_ordinal or 0,
-            )
-        if (identity.edge_ordinal, identity.line_ordinal) in used:
-            identity = _EdgeIdentity(next_fallback, 0)
-            next_fallback += 1
-        used.add((identity.edge_ordinal, identity.line_ordinal))
-        identities.append(identity)
-    return identities
+def _rank_key(rank: dict[str, int], value: str) -> tuple[int, str]:
+    return rank.get(value, len(rank)), value
 
 
 def _line_networks(
-    edges: list[Edge], identities: list[_EdgeIdentity], connector_ids: set[str]
-) -> tuple[tuple[LineNetwork, ...], dict[str, str]]:
-    edges_by_line: dict[str, list[tuple[Edge, _EdgeIdentity]]] = defaultdict(list)
-    for edge, identity in zip(edges, identities, strict=True):
-        edges_by_line[edge.line_id].append((edge, identity))
+    capture: AuthoredRouteCapture,
+    connector_ids: set[ConnectorId],
+) -> tuple[tuple[LineNetwork, ...], dict[ConnectorId, NetworkId]]:
+    edges_by_line: dict[str, list[AuthoredEdgeFact]] = defaultdict(list)
+    for fact in capture.edges:
+        edges_by_line[fact.key.line_id].append(fact)
 
+    line_rank = _definition_rank(capture.line_ids)
+    station_rank = _definition_rank(capture.station_ids)
     records: list[LineNetwork] = []
-    network_by_edge: dict[str, str] = {}
-    for line_id in sorted(edges_by_line):
+    network_by_edge: dict[ConnectorId, NetworkId] = {}
+
+    for line_id in sorted(edges_by_line, key=lambda item: _rank_key(line_rank, item)):
         line_edges = edges_by_line[line_id]
-        endpoint_edges = [
-            (
-                edge.authored_source or edge.source,
-                edge.authored_target or edge.target,
-            )
-            for edge, _identity in line_edges
-        ]
         graph = directed_graph(
-            sorted({endpoint for edge in endpoint_edges for endpoint in edge}),
-            endpoint_edges,
+            {
+                endpoint
+                for fact in line_edges
+                for endpoint in (fact.key.source, fact.key.target)
+            },
+            [(fact.key.source, fact.key.target) for fact in line_edges],
         )
-        components = sorted(
-            (
-                tuple(sorted(component))
-                for component in nx.weakly_connected_components(graph)
-            ),
-            key=lambda stations: stations,
-        )
-        for component_ordinal, station_ids in enumerate(components):
-            station_set = set(station_ids)
-            edge_ids = tuple(
-                identity.id
-                for (source, target), (_edge, identity) in zip(
-                    endpoint_edges, line_edges, strict=True
-                )
-                if source in station_set and target in station_set
+        components = [
+            tuple(sorted(component, key=lambda item: _rank_key(station_rank, item)))
+            for component in nx.weakly_connected_components(graph)
+        ]
+        components.sort(
+            key=lambda stations: min(
+                _rank_key(station_rank, station) for station in stations
             )
-            network_id = f"network:{line_id}:{component_ordinal}"
+        )
+        component_by_station = {
+            station: component_rank
+            for component_rank, stations in enumerate(components)
+            for station in stations
+        }
+        edges_by_component: list[list[AuthoredEdgeFact]] = [
+            [] for _component in components
+        ]
+        for fact in line_edges:
+            component_rank = component_by_station[fact.key.source]
+            edges_by_component[component_rank].append(fact)
+
+        for station_ids, component_edges in zip(
+            components, edges_by_component, strict=True
+        ):
+            edge_ids = tuple(fact.key.id for fact in component_edges)
+            network_id = NetworkId(_route_id("network", line_id, *edge_ids))
             records.append(
                 LineNetwork(
                     id=network_id,
@@ -202,87 +320,87 @@ def _line_networks(
             )
             for edge_id in edge_ids:
                 network_by_edge[edge_id] = network_id
+
     return tuple(records), network_by_edge
 
 
-def _endpoint_group_id(kind: str, section_id: str, side: PortSide) -> str:
-    return f"{kind}:{section_id}:{side.value}"
+def _endpoint_group_id(kind: str, section_id: str, side: PortSide) -> EndpointGroupId:
+    return EndpointGroupId(_route_id(kind, section_id, side.value))
 
 
-def build_route_topology(graph: MetroGraph) -> RouteTopology:
-    """Observe authored topology without mutating or retaining the input graph.
+def _resolved_connectors(
+    capture: AuthoredRouteCapture,
+    lineage: AuthoredEdgeLineage,
+    boundary_plan: SectionEndpointResolution | None,
+) -> tuple[_ResolvedAuthoredConnector, ...]:
+    if boundary_plan is None:
+        return ()
 
-    The caller invokes this after section layout inference and before any
-    terminus-convergence, port, junction, or bypass rewrite. Final port sides
-    are derived on a private copy because the authoritative resolver owns the
-    same normalisation on the production graph.
-    """
-    working = copy.deepcopy(graph)
-    working.route_topology = None
-    identities = _edge_identities(working.edges)
-    identity_by_edge = {
-        id(edge): identity
-        for edge, identity in zip(working.edges, identities, strict=True)
-    }
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        _internal_edges, inter_section_edges = _classify_edges(working)
-        _reside_folded_flow_ports_to_grid(working, inter_section_edges)
-        _reanchor_flow_axis_ports(working, inter_section_edges)
-        entry_sides = _build_entry_side_mapping(working, inter_section_edges)
-    exit_sides = _build_exit_side_mapping(working)
-
-    connector_facts: list[tuple[Edge, _EdgeIdentity, str, str, PortSide, PortSide]] = []
-    for edge in inter_section_edges:
-        source_section = working.section_for_station(edge.source)
-        target_section = working.section_for_station(edge.target)
-        assert source_section is not None and target_section is not None
-        entry_side = entry_sides.get((target_section, edge.line_id), PortSide.LEFT)
-        exit_side = _exit_side_for_edge(
-            working,
-            edge,
-            source_section,
-            target_section,
-            exit_sides,
-            entry_sides,
-        )
-        connector_facts.append(
-            (
-                edge,
-                identity_by_edge[id(edge)],
-                source_section,
-                target_section,
-                exit_side,
-                entry_side,
+    fact_by_key = {fact.key: fact for fact in capture.edges}
+    assignments: dict[AuthoredEdgeKey, _ResolvedAuthoredConnector] = {}
+    assignment_counts: dict[AuthoredEdgeKey, int] = defaultdict(int)
+    for endpoint in boundary_plan.connectors:
+        for key in lineage.origins(endpoint.edge):
+            fact = fact_by_key[key]
+            if fact.source_section == fact.target_section:
+                continue
+            assignment_counts[key] += 1
+            assignments[key] = _ResolvedAuthoredConnector(
+                fact=fact,
+                source_section=endpoint.source_section,
+                target_section=endpoint.target_section,
+                exit_side=endpoint.exit_side,
+                entry_side=endpoint.entry_side,
             )
+
+    expected = [
+        fact
+        for fact in capture.edges
+        if fact.source_section is not None
+        and fact.target_section is not None
+        and fact.source_section != fact.target_section
+    ]
+    invalid = [
+        (fact.key.id, assignment_counts[fact.key])
+        for fact in expected
+        if assignment_counts[fact.key] != 1
+    ]
+    if invalid:
+        detail = ", ".join(f"{connector_id}={count}" for connector_id, count in invalid)
+        raise RouteTopologyLineageError(
+            "authored cross-section connectors require one boundary assignment: "
+            f"{detail}"
         )
 
-    connector_ids = {identity.id for _, identity, *_ in connector_facts}
-    networks, network_by_edge = _line_networks(working.edges, identities, connector_ids)
+    return tuple(assignments[fact.key] for fact in expected)
 
-    bundles_by_endpoint: dict[tuple[str, str], list[str]] = defaultdict(list)
+
+def build_route_topology(
+    capture: AuthoredRouteCapture,
+    lineage: AuthoredEdgeLineage,
+    boundary_plan: SectionEndpointResolution | None = None,
+) -> RouteTopology:
+    """Project authored topology through the resolver's authoritative boundaries."""
+    resolved = _resolved_connectors(capture, lineage, boundary_plan)
+    connector_ids = {item.fact.key.id for item in resolved}
+    networks, network_by_edge = _line_networks(capture, connector_ids)
+
+    line_rank = _definition_rank(capture.line_ids)
+    bundles_by_endpoint: dict[tuple[str, str], list[ConnectorId]] = defaultdict(list)
     lines_by_bundle: dict[tuple[str, str], set[str]] = defaultdict(set)
-    exit_members: dict[tuple[str, PortSide], list[str]] = defaultdict(list)
-    entry_members: dict[tuple[str, PortSide], list[str]] = defaultdict(list)
-    for (
-        edge,
-        identity,
-        source_section,
-        target_section,
-        exit_side,
-        entry_side,
-    ) in connector_facts:
-        source = edge.authored_source or edge.source
-        target = edge.authored_target or edge.target
-        bundles_by_endpoint[(source, target)].append(identity.id)
-        lines_by_bundle[(source, target)].add(edge.line_id)
-        exit_members[(source_section, exit_side)].append(identity.id)
-        entry_members[(target_section, entry_side)].append(identity.id)
+    exit_members: dict[tuple[str, PortSide], list[ConnectorId]] = defaultdict(list)
+    entry_members: dict[tuple[str, PortSide], list[ConnectorId]] = defaultdict(list)
+    for item in resolved:
+        fact = item.fact
+        endpoint = (fact.key.source, fact.key.target)
+        bundles_by_endpoint[endpoint].append(fact.key.id)
+        lines_by_bundle[endpoint].add(fact.key.line_id)
+        exit_members[(item.source_section, item.exit_side)].append(fact.key.id)
+        entry_members[(item.target_section, item.entry_side)].append(fact.key.id)
 
-    bundle_keys = sorted(bundles_by_endpoint)
     bundle_id_by_endpoint = {
-        endpoint: f"bundle:{ordinal}" for ordinal, endpoint in enumerate(bundle_keys)
+        endpoint: BundleId(_route_id("bundle", *endpoint))
+        for endpoint in bundles_by_endpoint
     }
     bundles = tuple(
         BundleRun(
@@ -290,119 +408,115 @@ def build_route_topology(graph: MetroGraph) -> RouteTopology:
             source=source,
             target=target,
             connector_ids=tuple(bundles_by_endpoint[(source, target)]),
-            line_ids=tuple(sorted(lines_by_bundle[(source, target)])),
+            line_ids=tuple(
+                sorted(
+                    lines_by_bundle[(source, target)],
+                    key=lambda item: _rank_key(line_rank, item),
+                )
+            ),
         )
-        for source, target in bundle_keys
+        for source, target in bundles_by_endpoint
     )
 
-    exit_keys = sorted(exit_members, key=lambda item: (item[0], item[1].value))
-    entry_keys = sorted(entry_members, key=lambda item: (item[0], item[1].value))
     exit_groups = tuple(
         EndpointGroup(
             id=_endpoint_group_id("exit", section_id, side),
             section_id=section_id,
             side=side,
-            connector_ids=tuple(exit_members[(section_id, side)]),
+            connector_ids=tuple(members),
         )
-        for section_id, side in exit_keys
+        for (section_id, side), members in exit_members.items()
     )
     entry_groups = tuple(
         EndpointGroup(
             id=_endpoint_group_id("entry", section_id, side),
             section_id=section_id,
             side=side,
-            connector_ids=tuple(entry_members[(section_id, side)]),
+            connector_ids=tuple(members),
         )
-        for section_id, side in entry_keys
+        for (section_id, side), members in entry_members.items()
     )
 
     connectors = tuple(
         RouteConnector(
-            id=identity.id,
-            authored_edge_ordinal=identity.edge_ordinal,
-            line_ordinal=identity.line_ordinal,
-            source_line=edge.source_line,
-            source=edge.authored_source or edge.source,
-            target=edge.authored_target or edge.target,
-            line_id=edge.line_id,
-            source_section=source_section,
-            target_section=target_section,
-            exit_side=exit_side,
-            entry_side=entry_side,
-            network_id=network_by_edge[identity.id],
+            id=item.fact.key.id,
+            duplicate_ordinal=item.fact.key.duplicate_ordinal,
+            source_line=item.fact.source_line,
+            source=item.fact.key.source,
+            target=item.fact.key.target,
+            line_id=item.fact.key.line_id,
+            source_section=item.source_section,
+            target_section=item.target_section,
+            exit_side=item.exit_side,
+            entry_side=item.entry_side,
+            network_id=network_by_edge[item.fact.key.id],
             bundle_id=bundle_id_by_endpoint[
-                (
-                    edge.authored_source or edge.source,
-                    edge.authored_target or edge.target,
-                )
+                (item.fact.key.source, item.fact.key.target)
             ],
-            exit_group_id=_endpoint_group_id("exit", source_section, exit_side),
-            entry_group_id=_endpoint_group_id("entry", target_section, entry_side),
+            exit_group_id=_endpoint_group_id(
+                "exit", item.source_section, item.exit_side
+            ),
+            entry_group_id=_endpoint_group_id(
+                "entry", item.target_section, item.entry_side
+            ),
         )
-        for (
-            edge,
-            identity,
-            source_section,
-            target_section,
-            exit_side,
-            entry_side,
-        ) in connector_facts
+        for item in resolved
     )
 
-    entry_targets_by_exit: dict[str, set[str]] = defaultdict(set)
+    entry_targets_by_exit: dict[EndpointGroupId, list[EndpointGroupId]] = defaultdict(
+        list
+    )
+    connector_ids_by_exit: dict[EndpointGroupId, list[ConnectorId]] = defaultdict(list)
     for connector in connectors:
-        entry_targets_by_exit[connector.exit_group_id].add(connector.entry_group_id)
-    divergent_exit_ids = sorted(
-        exit_group_id
+        targets = entry_targets_by_exit[connector.exit_group_id]
+        if connector.entry_group_id not in targets:
+            targets.append(connector.entry_group_id)
+        connector_ids_by_exit[connector.exit_group_id].append(connector.id)
+
+    divergences = tuple(
+        DivergenceGroup(
+            id=DivergenceId(_route_id("divergence", exit_group_id, *entry_group_ids)),
+            exit_group_id=exit_group_id,
+            entry_group_ids=tuple(entry_group_ids),
+            connector_ids=tuple(connector_ids_by_exit[exit_group_id]),
+        )
         for exit_group_id, entry_group_ids in entry_targets_by_exit.items()
         if len(entry_group_ids) > 1
     )
-    divergences = tuple(
-        DivergenceGroup(
-            id=f"divergence:{ordinal}",
-            exit_group_id=exit_group_id,
-            entry_group_ids=tuple(sorted(entry_targets_by_exit[exit_group_id])),
-            connector_ids=tuple(
-                connector.id
-                for connector in connectors
-                if connector.exit_group_id == exit_group_id
-            ),
-        )
-        for ordinal, exit_group_id in enumerate(divergent_exit_ids)
-    )
 
-    convergence_sources: dict[tuple[str, str], set[str]] = defaultdict(set)
     divergence_by_exit = {
         divergence.exit_group_id: divergence for divergence in divergences
     }
+    divergence_ids_by_entry_line: dict[
+        tuple[EndpointGroupId, str], list[DivergenceId]
+    ] = defaultdict(list)
+    connector_ids_by_entry_line: dict[
+        tuple[EndpointGroupId, str], list[ConnectorId]
+    ] = defaultdict(list)
     for connector in connectors:
         divergence = divergence_by_exit.get(connector.exit_group_id)
-        if divergence is not None:
-            convergence_sources[(connector.entry_group_id, connector.line_id)].add(
-                divergence.id
-            )
-    convergence_keys = sorted(
-        key
-        for key, divergence_ids in convergence_sources.items()
-        if len(divergence_ids) > 1
-    )
+        if divergence is None:
+            continue
+        key = (connector.entry_group_id, connector.line_id)
+        if divergence.id not in divergence_ids_by_entry_line[key]:
+            divergence_ids_by_entry_line[key].append(divergence.id)
+        connector_ids_by_entry_line[key].append(connector.id)
+
     convergences = tuple(
         ConvergenceGroup(
-            id=f"convergence:{ordinal}",
+            id=ConvergenceId(
+                _route_id("convergence", entry_group_id, line_id, *divergence_ids)
+            ),
             entry_group_id=entry_group_id,
             line_id=line_id,
-            divergence_ids=tuple(
-                sorted(convergence_sources[(entry_group_id, line_id)])
-            ),
-            connector_ids=tuple(
-                connector.id
-                for connector in connectors
-                if connector.entry_group_id == entry_group_id
-                and connector.line_id == line_id
-                and connector.exit_group_id in divergence_by_exit
-            ),
+            divergence_ids=tuple(divergence_ids),
+            connector_ids=tuple(connector_ids_by_entry_line[(entry_group_id, line_id)]),
         )
-        for ordinal, (entry_group_id, line_id) in enumerate(convergence_keys)
+        for (
+            entry_group_id,
+            line_id,
+        ), divergence_ids in divergence_ids_by_entry_line.items()
+        if len(divergence_ids) > 1
     )
 
     return RouteTopology(

@@ -271,10 +271,6 @@ class Edge:
     target: str
     line_id: str
     source_line: int | None = None
-    authored_edge_ordinal: int | None = None
-    authored_line_ordinal: int | None = None
-    authored_source: str | None = None
-    authored_target: str | None = None
 
 
 @dataclass
@@ -456,7 +452,9 @@ class MetroGraph:
     sections: dict[str, Section] = field(default_factory=dict)
     ports: dict[str, Port] = field(default_factory=dict)
     junctions: list[str] = field(default_factory=list)
-    route_topology: RouteTopology | None = None
+    route_topology: RouteTopology | None = field(
+        default=None, compare=False, repr=False
+    )
     groups: list[StationGroup] = field(default_factory=list)
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
     # Section IDs that received an explicit %%metro grid: directive (i.e.

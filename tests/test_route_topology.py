@@ -1,4 +1,4 @@
-"""The pre-resolution route topology is immutable and matches resolver rewrites."""
+"""Authored route topology contracts across parser resolution rewrites."""
 
 from __future__ import annotations
 
@@ -11,13 +11,23 @@ from pathlib import Path
 
 import pytest
 
-import nf_metro.parser.mermaid as mermaid
+from nf_metro.layout.routing.common import merge_junction_ids
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import Edge, MetroGraph, Section, Station
+from nf_metro.parser.model import (
+    Edge,
+    MetroGraph,
+    PortSide,
+    Section,
+    Station,
+    is_bypass_v,
+    is_converge_junction,
+)
+from nf_metro.parser.resolve import resolve_section_endpoints
 from nf_metro.parser.route_topology import (
-    DivergenceGroup,
+    AuthoredEdgeLineage,
     RouteTopology,
     build_route_topology,
+    capture_authored_routes,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -50,37 +60,30 @@ def _two_section_text(edges: str, *, extra: str = "") -> str:
 """
 
 
-def test_connector_identity_preserves_authored_multiline_and_duplicate_edges() -> None:
-    graph = _parse(_two_section_text("    a -->|red,blue| b\n    a -->|red| b\n"))
-    topology = graph.route_topology
+def test_connector_identity_preserves_multiline_order_and_exact_duplicates() -> None:
+    topology = _parse(
+        _two_section_text("    a -->|red,blue| b\n    a -->|red| b\n")
+    ).route_topology
     assert topology is not None
 
-    assert [connector.id for connector in topology.connectors] == [
-        "edge:0:line:0",
-        "edge:0:line:1",
-        "edge:1:line:0",
-    ]
-    assert [connector.authored_edge_ordinal for connector in topology.connectors] == [
+    assert [
+        (connector.source, connector.target, connector.line_id)
+        for connector in topology.connectors
+    ] == [("a", "b", "red"), ("a", "b", "blue"), ("a", "b", "red")]
+    assert [connector.duplicate_ordinal for connector in topology.connectors] == [
         0,
         0,
         1,
     ]
-    assert [connector.line_ordinal for connector in topology.connectors] == [0, 1, 0]
-    assert {
-        (connector.source, connector.target) for connector in topology.connectors
-    } == {("a", "b")}
-    assert len(topology.bundles) == 1
-    assert topology.bundles[0].connector_ids == (
-        "edge:0:line:0",
-        "edge:0:line:1",
-        "edge:1:line:0",
+    assert len({connector.id for connector in topology.connectors}) == 3
+    assert topology.bundles[0].connector_ids == tuple(
+        connector.id for connector in topology.connectors
     )
-    assert topology.bundles[0].line_ids == ("blue", "red")
+    assert topology.bundles[0].line_ids == ("red", "blue")
 
 
-def test_line_networks_are_connected_components() -> None:
-    graph = _parse(
-        """\
+def test_line_networks_are_stable_connected_components() -> None:
+    base = """\
 %%metro line: red | Red | #f00
 graph LR
     subgraph one [One]
@@ -94,21 +97,39 @@ graph LR
         c -->|red| d
     end
 """
+    expanded = (
+        base.replace(
+            "graph LR",
+            "%%metro line: green | Green | #0f0\ngraph LR",
+        )
+        + """
+    subgraph unrelated [Unrelated]
+        u[U]
+        v[V]
+        u -->|green| v
+    end
+"""
     )
-    topology = graph.route_topology
-    assert topology is not None
 
-    networks = [
-        network for network in topology.line_networks if network.line_id == "red"
-    ]
-    assert [network.station_ids for network in networks] == [("a", "b"), ("c", "d")]
-    assert [network.edge_ids for network in networks] == [
-        ("edge:0:line:0",),
-        ("edge:1:line:0",),
-    ]
+    original = _parse(base).route_topology
+    observed = _parse(expanded).route_topology
+    assert original is not None and observed is not None
+
+    original_red = {
+        network.station_ids: network.id
+        for network in original.line_networks
+        if network.line_id == "red"
+    }
+    observed_red = {
+        network.station_ids: network.id
+        for network in observed.line_networks
+        if network.line_id == "red"
+    }
+    assert original_red == observed_red
+    assert tuple(original_red) == (("a", "b"), ("c", "d"))
 
 
-def test_programmatic_duplicate_edges_get_unique_fallback_identities() -> None:
+def test_programmatic_duplicate_edges_get_stable_unique_identities() -> None:
     graph = MetroGraph(
         stations={
             "a": Station(id="a", label="A", section_id="source"),
@@ -123,18 +144,56 @@ def test_programmatic_duplicate_edges_get_unique_fallback_identities() -> None:
             "target": Section(id="target", name="Target", station_ids=["b"]),
         },
     )
+    capture = capture_authored_routes(graph)
+    lineage = AuthoredEdgeLineage.from_capture(graph.edges, capture)
+    resolution = resolve_section_endpoints(graph)
 
-    topology = build_route_topology(graph)
+    topology = build_route_topology(capture, lineage, resolution)
 
-    assert [connector.id for connector in topology.connectors] == [
-        "edge:0:line:0",
-        "edge:1:line:0",
+    assert [connector.duplicate_ordinal for connector in topology.connectors] == [
+        0,
+        1,
     ]
+    assert len({connector.id for connector in topology.connectors}) == 2
     assert all(connector.source_line is None for connector in topology.connectors)
 
 
-def test_topology_keeps_authored_terminus_endpoint() -> None:
+def test_terminus_topology_uses_the_resolvers_reanchored_entry_side() -> None:
     graph = _parse(
+        """\
+%%metro line: red | Red | #f00
+%%metro file: output | Results
+graph LR
+    subgraph upstream [Upstream]
+        a[A]
+    end
+    subgraph output_section [Output]
+        %%metro direction: LR
+        %%metro entry: right | red
+        b[B]
+        output[Output]
+        b -->|red| output
+    end
+    a -->|red| output
+"""
+    )
+    topology = graph.route_topology
+    assert topology is not None
+
+    connector = next(
+        connector for connector in topology.connectors if connector.source == "a"
+    )
+    assert connector.target == "output"
+    assert connector.entry_side is PortSide.LEFT
+    assert {
+        port.side
+        for port in graph.ports.values()
+        if port.section_id == "output_section" and port.is_entry
+    } == {PortSide.LEFT}
+
+
+def test_duplicate_terminus_connectors_survive_many_to_one_lineage() -> None:
+    topology = _parse(
         """\
 %%metro line: red | Red | #f00
 %%metro file: output | Results
@@ -148,80 +207,31 @@ graph LR
         b -->|red| output
     end
     a -->|red| output
+    a -->|red| output
 """
-    )
-    topology = graph.route_topology
+    ).route_topology
     assert topology is not None
 
-    connector = next(c for c in topology.connectors if c.source == "a")
-    assert connector.target == "output"
-    assert not connector.target.startswith("__converge_")
-    assert any(station_id.startswith("__converge_") for station_id in graph.stations)
-
-
-def test_divergence_and_convergence_membership_matches_resolver_shape() -> None:
-    graph = _parse((ROOT / "examples" / "guide" / "03b_fan_in_merge.mmd").read_text())
-    topology = graph.route_topology
-    assert topology is not None
-
-    assert topology.divergences == (
-        DivergenceGroup(
-            id="divergence:0",
-            exit_group_id="exit:source:right",
-            entry_group_ids=(
-                "entry:sink:left",
-                "entry:step_a:left",
-                "entry:step_b:left",
-            ),
-            connector_ids=(
-                "edge:4:line:0",
-                "edge:5:line:0",
-                "edge:6:line:0",
-                "edge:7:line:0",
-            ),
-        ),
-        DivergenceGroup(
-            id="divergence:1",
-            exit_group_id="exit:step_a:right",
-            entry_group_ids=("entry:sink:left", "entry:step_b:left"),
-            connector_ids=("edge:8:line:0", "edge:9:line:0"),
-        ),
-    )
-    assert [
-        (
-            group.entry_group_id,
-            group.line_id,
-            group.divergence_ids,
-            group.connector_ids,
-        )
-        for group in topology.convergences
-    ] == [
-        (
-            "entry:sink:left",
-            "main",
-            ("divergence:0", "divergence:1"),
-            ("edge:6:line:0", "edge:9:line:0"),
-        ),
-        (
-            "entry:step_b:left",
-            "main",
-            ("divergence:0", "divergence:1"),
-            ("edge:5:line:0", "edge:8:line:0"),
-        ),
+    connectors = [
+        connector
+        for connector in topology.connectors
+        if (connector.source, connector.target, connector.line_id)
+        == ("a", "output", "red")
     ]
+    assert [connector.duplicate_ordinal for connector in connectors] == [0, 1]
+    assert len({connector.id for connector in connectors}) == 2
+    assert connectors[0].entry_group_id == connectors[1].entry_group_id
 
 
-def test_topology_records_are_deeply_immutable() -> None:
-    topology = _parse(_two_section_text("    a -->|red| b\n")).route_topology
+def test_topology_records_are_deeply_immutable_and_detached() -> None:
+    graph = _parse(_two_section_text("    a -->|red| b\n"))
+    topology = graph.route_topology
     assert topology is not None
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         topology.connectors = ()  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):
         topology.connectors[0].source = "other"  # type: ignore[misc]
-    assert isinstance(topology.connectors, tuple)
-    assert isinstance(topology.connectors[0].network_id, str)
-    assert isinstance(topology.bundles[0].connector_ids, tuple)
 
     mutable_models = (MetroGraph, Edge, Section, Station, list, dict, set)
 
@@ -235,9 +245,65 @@ def test_topology_records_are_deeply_immutable() -> None:
                 visit(item)
 
     visit(topology)
+    assert [field.name for field in dataclasses.fields(Edge)] == [
+        "source",
+        "target",
+        "line_id",
+        "source_line",
+    ]
 
 
-def _actual_groups(
+def _identity_maps(topology: RouteTopology) -> dict[str, dict[tuple, str]]:
+    return {
+        "connectors": {
+            (
+                item.source,
+                item.target,
+                item.line_id,
+                item.duplicate_ordinal,
+            ): item.id
+            for item in topology.connectors
+        },
+        "bundles": {(item.source, item.target): item.id for item in topology.bundles},
+        "networks": {
+            (item.line_id, item.edge_ids): item.id for item in topology.line_networks
+        },
+        "divergences": {
+            (item.exit_group_id, item.entry_group_ids): item.id
+            for item in topology.divergences
+        },
+        "convergences": {
+            (item.entry_group_id, item.line_id, item.divergence_ids): item.id
+            for item in topology.convergences
+        },
+    }
+
+
+def test_ids_do_not_shift_when_an_unrelated_component_is_added() -> None:
+    base = (ROOT / "examples" / "guide" / "03b_fan_in_merge.mmd").read_text()
+    expanded = (
+        base.replace(
+            "graph LR",
+            "%%metro line: unrelated | Unrelated | #0f0\ngraph LR",
+        )
+        + """
+    subgraph unrelated [Unrelated]
+        unrelated_a[A]
+        unrelated_b[B]
+        unrelated_a -->|unrelated| unrelated_b
+    end
+"""
+    )
+    original = _parse(base).route_topology
+    observed = _parse(expanded).route_topology
+    assert original is not None and observed is not None
+
+    for kind, original_ids in _identity_maps(original).items():
+        observed_ids = _identity_maps(observed)[kind]
+        assert observed_ids.items() >= original_ids.items()
+
+
+def _actual_shapes(
     graph: MetroGraph,
 ) -> tuple[set[tuple], set[tuple], set[tuple], set[tuple]]:
     port_key = {
@@ -250,7 +316,7 @@ def _actual_groups(
     junction_targets: dict[str, set[tuple[tuple[str, str], str]]] = defaultdict(set)
 
     def authored_source(station_id: str, line_id: str) -> str:
-        while station_id.startswith("__bypass_"):
+        while is_bypass_v(station_id):
             incoming = [
                 edge for edge in graph.edges_to(station_id) if edge.line_id == line_id
             ]
@@ -259,7 +325,7 @@ def _actual_groups(
         return station_id
 
     def authored_target(station_id: str, line_id: str) -> str:
-        while station_id.startswith("__converge_"):
+        while is_converge_junction(station_id):
             outgoing = [
                 edge for edge in graph.edges_from(station_id) if edge.line_id == line_id
             ]
@@ -278,22 +344,23 @@ def _actual_groups(
             entry_members[port_key[edge.source]].add(
                 (authored_target(edge.target, edge.line_id), edge.line_id)
             )
-
         if (
             source_port is not None
             and not source_port.is_entry
-            and edge.target in graph.junctions
+            and graph.is_fanout_junction(edge.target)
         ):
             junction_exit[edge.target] = port_key[edge.source]
         if (
-            edge.source in graph.junctions
+            graph.is_fanout_junction(edge.source)
             and target_port is not None
             and target_port.is_entry
         ):
             junction_targets[edge.source].add((port_key[edge.target], edge.line_id))
 
-    merge_ids = {jid for jid in graph.junctions if jid.startswith("__merge_")}
-    fan_ids = {jid for jid in graph.junctions if jid.startswith("__junction_")}
+    merge_ids = merge_junction_ids(graph)
+    fan_ids = {
+        junction for junction in graph.junctions if graph.is_fanout_junction(junction)
+    }
     for fan_id in fan_ids:
         for edge in graph.edges_from(fan_id):
             if edge.target not in merge_ids:
@@ -305,9 +372,9 @@ def _actual_groups(
                         (port_key[outgoing.target], outgoing.line_id)
                     )
     fan_groups = {
-        (junction_exit[jid], tuple(sorted(junction_targets[jid])))
-        for jid in fan_ids
-        if jid in junction_exit
+        (junction_exit[junction], tuple(sorted(junction_targets[junction])))
+        for junction in fan_ids
+        if junction in junction_exit
     }
 
     merge_groups: set[tuple] = set()
@@ -338,7 +405,7 @@ def _actual_groups(
     )
 
 
-def _predicted_groups(
+def _predicted_shapes(
     topology: RouteTopology,
 ) -> tuple[set[tuple], set[tuple], set[tuple], set[tuple]]:
     connectors = {connector.id: connector for connector in topology.connectors}
@@ -348,8 +415,11 @@ def _predicted_groups(
             tuple(
                 sorted(
                     {
-                        (connectors[cid].source, connectors[cid].line_id)
-                        for cid in group.connector_ids
+                        (
+                            connectors[connector_id].source,
+                            connectors[connector_id].line_id,
+                        )
+                        for connector_id in group.connector_ids
                     }
                 )
             ),
@@ -362,8 +432,11 @@ def _predicted_groups(
             tuple(
                 sorted(
                     {
-                        (connectors[cid].target, connectors[cid].line_id)
-                        for cid in group.connector_ids
+                        (
+                            connectors[connector_id].target,
+                            connectors[connector_id].line_id,
+                        )
+                        for connector_id in group.connector_ids
                     }
                 )
             ),
@@ -384,12 +457,16 @@ def _predicted_groups(
                     {
                         (
                             (
-                                entry_by_id[connectors[cid].entry_group_id].section_id,
-                                entry_by_id[connectors[cid].entry_group_id].side.value,
+                                entry_by_id[
+                                    connectors[connector_id].entry_group_id
+                                ].section_id,
+                                entry_by_id[
+                                    connectors[connector_id].entry_group_id
+                                ].side.value,
                             ),
-                            connectors[cid].line_id,
+                            connectors[connector_id].line_id,
                         )
-                        for cid in group.connector_ids
+                        for connector_id in group.connector_ids
                     }
                 )
             ),
@@ -406,10 +483,14 @@ def _predicted_groups(
             tuple(
                 sorted(
                     (
-                        exit_by_id[divergence_by_id[did].exit_group_id].section_id,
-                        exit_by_id[divergence_by_id[did].exit_group_id].side.value,
+                        exit_by_id[
+                            divergence_by_id[divergence_id].exit_group_id
+                        ].section_id,
+                        exit_by_id[
+                            divergence_by_id[divergence_id].exit_group_id
+                        ].side.value,
                     )
-                    for did in group.divergence_ids
+                    for divergence_id in group.divergence_ids
                 )
             ),
         )
@@ -421,11 +502,11 @@ def _predicted_groups(
 @pytest.mark.parametrize(
     "path", CORPUS, ids=lambda path: path.relative_to(ROOT).as_posix()
 )
-def test_corpus_topology_exactly_predicts_resolver_groups(path: Path) -> None:
+def test_corpus_topology_shapes_match_final_resolver(path: Path) -> None:
     graph = parse_metro_mermaid(path.read_text())
     topology = graph.route_topology
     assert topology is not None
-    assert _predicted_groups(topology) == _actual_groups(graph)
+    assert _predicted_shapes(topology) == _actual_shapes(graph)
 
 
 def test_route_topology_is_hash_seed_deterministic() -> None:
@@ -449,19 +530,3 @@ def test_route_topology_is_hash_seed_deterministic() -> None:
         )
         outputs.append(result.stdout)
     assert len(set(outputs)) == 1
-
-
-@pytest.mark.parametrize(
-    "path", CORPUS, ids=lambda path: path.relative_to(ROOT).as_posix()
-)
-def test_topology_construction_does_not_change_resolved_graph(
-    path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    text = path.read_text()
-    observed = parse_metro_mermaid(text)
-
-    monkeypatch.setattr(mermaid, "build_route_topology", lambda graph: None)
-    baseline = parse_metro_mermaid(text)
-
-    observed.route_topology = None
-    assert observed == baseline

@@ -24,6 +24,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.route_topology import AuthoredEdgeKey, AuthoredEdgeLineage
 
 
 def _remove_empty_sections(graph: MetroGraph) -> None:
@@ -63,7 +64,7 @@ def _create_implicit_section(graph: MetroGraph) -> None:
     graph.add_section(implicit)
 
 
-def _expand_interchanges(graph: MetroGraph) -> None:
+def _expand_interchanges(graph: MetroGraph, lineage: AuthoredEdgeLineage) -> None:
     """Expand each ``%%metro interchange:`` node into one sub-station per rail.
 
     The named node becomes a column of co-located ordinary stations (one per
@@ -129,21 +130,17 @@ def _expand_interchanges(graph: MetroGraph) -> None:
 
     if not moved:
         return
-    graph.replace_edges(
-        [
-            Edge(
-                source=moved.get((e.source, e.line_id), e.source),
-                target=moved.get((e.target, e.line_id), e.target),
-                line_id=e.line_id,
-                source_line=e.source_line,
-                authored_edge_ordinal=e.authored_edge_ordinal,
-                authored_line_ordinal=e.authored_line_ordinal,
-                authored_source=e.authored_source,
-                authored_target=e.authored_target,
-            )
-            for e in graph.edges
-        ]
-    )
+    replacement_edges: list[Edge] = []
+    for edge in graph.edges:
+        replacement = Edge(
+            source=moved.get((edge.source, edge.line_id), edge.source),
+            target=moved.get((edge.target, edge.line_id), edge.target),
+            line_id=edge.line_id,
+            source_line=edge.source_line,
+        )
+        lineage.replace(edge, replacement)
+        replacement_edges.append(replacement)
+    graph.replace_edges(replacement_edges)
 
 
 # Cascade a fan-in when the lone-junction merge would leave a sibling group
@@ -167,7 +164,9 @@ def _section_local_layers(graph: MetroGraph, section_id: str | None) -> dict[str
     return _section_topo_layers(graph, members)
 
 
-def _insert_terminus_convergence_stations(graph: MetroGraph) -> None:
+def _insert_terminus_convergence_stations(
+    graph: MetroGraph, lineage: AuthoredEdgeLineage
+) -> None:
     """Insert virtual convergence stations before multi-source termini.
 
     When a terminus station (a file/files/dir output) has 2+ direct
@@ -208,11 +207,17 @@ def _insert_terminus_convergence_stations(graph: MetroGraph) -> None:
         # Find direct inbound edges and the lines each source carries.
         inbound: list[int] = []
         source_lines: dict[str, set[str]] = {}
+        origins_by_source_line: dict[tuple[str, str], list[AuthoredEdgeKey]] = (
+            defaultdict(list)
+        )
         for i, edge in enumerate(graph.edges):
             if edge.target != terminus_id:
                 continue
             inbound.append(i)
             source_lines.setdefault(edge.source, set()).add(edge.line_id)
+            origins_by_source_line[(edge.source, edge.line_id)].extend(
+                lineage.origins(edge)
+            )
         if len(source_lines) < 2:
             continue
 
@@ -261,9 +266,23 @@ def _insert_terminus_convergence_stations(graph: MetroGraph) -> None:
             groups = [list(source_lines)]
 
         # ``carry`` is the node feeding onward with the lines gathered so far.
-        carry: tuple[str, set[str]] | None = None
+        carry: tuple[str, set[str], dict[str, tuple[AuthoredEdgeKey, ...]]] | None = (
+            None
+        )
         for group in groups:
-            members = [(src, source_lines[src]) for src in group]
+            members = [
+                (
+                    src,
+                    source_lines[src],
+                    {
+                        line_id: lineage.ordered_union(
+                            origins_by_source_line[(src, line_id)]
+                        )
+                        for line_id in source_lines[src]
+                    },
+                )
+                for src in group
+            ]
             if carry is not None:
                 members.append(carry)
             if len(members) == 1:
@@ -281,18 +300,38 @@ def _insert_terminus_convergence_stations(graph: MetroGraph) -> None:
                 )
             )
             merged_lines: set[str] = set()
-            for member_id, member_lines in members:
+            merged_origins: dict[str, list[AuthoredEdgeKey]] = defaultdict(list)
+            for member_id, member_lines, member_origins in members:
                 merged_lines |= member_lines
                 for line_id in sorted(member_lines):
-                    new_edges.append(
-                        Edge(source=member_id, target=converge_id, line_id=line_id)
+                    origins = member_origins.get(line_id, ())
+                    edge = Edge(
+                        source=member_id,
+                        target=converge_id,
+                        line_id=line_id,
                     )
-            carry = (converge_id, merged_lines)
+                    lineage.bind(edge, origins)
+                    new_edges.append(edge)
+                    merged_origins[line_id].extend(origins)
+            carry = (
+                converge_id,
+                merged_lines,
+                {
+                    line_id: lineage.ordered_union(origins)
+                    for line_id, origins in merged_origins.items()
+                },
+            )
 
         assert carry is not None
-        carry_id, carry_lines = carry
+        carry_id, carry_lines, carry_origins = carry
         for line_id in sorted(carry_lines):
-            new_edges.append(Edge(source=carry_id, target=terminus_id, line_id=line_id))
+            edge = Edge(
+                source=carry_id,
+                target=terminus_id,
+                line_id=line_id,
+            )
+            lineage.bind(edge, carry_origins.get(line_id, ()))
+            new_edges.append(edge)
 
     if not new_stations:
         return
@@ -301,6 +340,9 @@ def _insert_terminus_convergence_stations(graph: MetroGraph) -> None:
         graph.register_station(st)
 
     if edges_to_remove:
+        for i, edge in enumerate(graph.edges):
+            if i in edges_to_remove:
+                lineage.discard(edge)
         graph.replace_edges(
             [e for i, e in enumerate(graph.edges) if i not in edges_to_remove]
         )
@@ -558,7 +600,54 @@ def _station_bypass_groups(
     return bypass_by_pred
 
 
-def _resolve_sections(graph: MetroGraph) -> None:
+@dataclass(frozen=True, slots=True)
+class ResolvedConnectorEndpoint:
+    """Authoritative section and boundary sides for one inter-section edge."""
+
+    edge: Edge
+    source_section: str
+    target_section: str
+    exit_side: PortSide
+    entry_side: PortSide
+
+
+@dataclass(slots=True)
+class SectionEndpointResolution:
+    """Pre-port edge classification and boundary grouping for section resolve."""
+
+    internal_edges: list[Edge]
+    inter_section_edges: list[Edge]
+    connectors: tuple[ResolvedConnectorEndpoint, ...]
+    entry_side_for_line: dict[tuple[str, str], PortSide]
+    exit_sides: dict[tuple[str, str], set[PortSide]]
+    exit_group_edges: dict[tuple[str, PortSide], list[Edge]]
+    entry_group_edges: dict[tuple[str, PortSide], list[Edge]]
+
+
+def resolve_section_endpoints(graph: MetroGraph) -> SectionEndpointResolution:
+    """Resolve inter-section endpoint sides once, before creating synthetic ports."""
+    internal_edges, inter_section_edges = _classify_edges(graph)
+    _reside_folded_flow_ports_to_grid(graph, inter_section_edges)
+    _reanchor_flow_axis_ports(graph, inter_section_edges)
+    entry_side_for_line = _build_entry_side_mapping(graph, inter_section_edges)
+    exit_sides = _build_exit_side_mapping(graph)
+    connectors, exit_group_edges, entry_group_edges = _group_inter_section_edges(
+        graph, inter_section_edges, entry_side_for_line, exit_sides
+    )
+    return SectionEndpointResolution(
+        internal_edges=internal_edges,
+        inter_section_edges=inter_section_edges,
+        connectors=connectors,
+        entry_side_for_line=entry_side_for_line,
+        exit_sides=exit_sides,
+        exit_group_edges=exit_group_edges,
+        entry_group_edges=entry_group_edges,
+    )
+
+
+def _resolve_sections(
+    graph: MetroGraph, resolution: SectionEndpointResolution | None = None
+) -> None:
     """Post-parse: classify edges, create ports, rewrite inter-section edges.
 
     Key design: ONE exit port per source section. All lines leaving a section
@@ -566,15 +655,11 @@ def _resolve_sections(graph: MetroGraph) -> None:
     to multiple target sections. ONE entry port per target section per side
     (side from hints or LEFT default).
     """
-    internal_edges, inter_section_edges = _classify_edges(graph)
-    _reside_folded_flow_ports_to_grid(graph, inter_section_edges)
-    _reanchor_flow_axis_ports(graph, inter_section_edges)
-    entry_side_for_line = _build_entry_side_mapping(graph, inter_section_edges)
+    if resolution is None:
+        resolution = resolve_section_endpoints(graph)
 
-    if inter_section_edges:
-        _create_ports_and_junctions(
-            graph, internal_edges, inter_section_edges, entry_side_for_line
-        )
+    if resolution.inter_section_edges:
+        _create_ports_and_junctions(graph, resolution)
         _insert_merge_junctions(graph)
 
     _assign_section_numbers(graph)
@@ -1155,10 +1240,12 @@ def _group_inter_section_edges(
     entry_side_for_line: dict[tuple[str, str], PortSide],
     exit_sides: dict[tuple[str, str], set[PortSide]],
 ) -> tuple[
+    tuple[ResolvedConnectorEndpoint, ...],
     dict[tuple[str, PortSide], list[Edge]],
     dict[tuple[str, PortSide], list[Edge]],
 ]:
-    """Group inter-section edges by (exit section, side) and (entry section, side)."""
+    """Resolve and group inter-section edges by their section-boundary sides."""
+    connectors: list[ResolvedConnectorEndpoint] = []
     exit_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
     entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
 
@@ -1173,10 +1260,19 @@ def _group_inter_section_edges(
             graph, edge, src_sec, tgt_sec, exit_sides, entry_side_for_line
         )
 
+        connectors.append(
+            ResolvedConnectorEndpoint(
+                edge=edge,
+                source_section=src_sec,
+                target_section=tgt_sec,
+                exit_side=exit_side,
+                entry_side=entry_side,
+            )
+        )
         exit_group_edges.setdefault((src_sec, exit_side), []).append(edge)
         entry_group_edges.setdefault((tgt_sec, entry_side), []).append(edge)
 
-    return exit_group_edges, entry_group_edges
+    return tuple(connectors), exit_group_edges, entry_group_edges
 
 
 def _create_port_stations(
@@ -1224,31 +1320,21 @@ def _create_port_stations(
 
 def _rewrite_edges_with_junctions(
     graph: MetroGraph,
-    internal_edges: list[Edge],
-    inter_section_edges: list[Edge],
-    entry_side_for_line: dict[tuple[str, str], PortSide],
-    exit_sides: dict[tuple[str, str], set[PortSide]],
+    resolution: SectionEndpointResolution,
     exit_port_map: dict[tuple[str, PortSide], str],
     entry_port_map: dict[tuple[str, PortSide], str],
     port_counter: int,
 ) -> None:
     """Rewrite inter-section edges into 3-part chains with junctions."""
-    new_edges: list[Edge] = list(internal_edges)
+    new_edges: list[Edge] = list(resolution.internal_edges)
 
     # Group by exit port to detect fan-outs
     exit_fan: dict[str, dict[str, list[Edge]]] = {}
 
-    for edge in inter_section_edges:
-        src_sec = graph.section_for_station(edge.source)
-        tgt_sec = graph.section_for_station(edge.target)
-        assert src_sec is not None and tgt_sec is not None
-        entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
-        exit_side = _exit_side_for_edge(
-            graph, edge, src_sec, tgt_sec, exit_sides, entry_side_for_line
-        )
-
-        exit_port_id = exit_port_map[(src_sec, exit_side)]
-        entry_port_id = entry_port_map[(tgt_sec, entry_side)]
+    for connector in resolution.connectors:
+        edge = connector.edge
+        exit_port_id = exit_port_map[(connector.source_section, connector.exit_side)]
+        entry_port_id = entry_port_map[(connector.target_section, connector.entry_side)]
 
         new_edges.append(
             Edge(source=edge.source, target=exit_port_id, line_id=edge.line_id)
@@ -1311,9 +1397,7 @@ def _rewrite_edges_with_junctions(
 
 def _create_ports_and_junctions(
     graph: MetroGraph,
-    internal_edges: list[Edge],
-    inter_section_edges: list[Edge],
-    entry_side_for_line: dict[tuple[str, str], PortSide],
+    resolution: SectionEndpointResolution,
 ) -> None:
     """Create exit/entry ports and junctions, rewrite inter-section edges.
 
@@ -1321,19 +1405,12 @@ def _create_ports_and_junctions(
     (target_section, entry_side), and inserts junction stations where an exit
     port fans out to multiple entry ports.
     """
-    exit_sides = _build_exit_side_mapping(graph)
-    exit_groups, entry_groups = _group_inter_section_edges(
-        graph, inter_section_edges, entry_side_for_line, exit_sides
-    )
     exit_port_map, entry_port_map, port_counter = _create_port_stations(
-        graph, exit_groups, entry_groups
+        graph, resolution.exit_group_edges, resolution.entry_group_edges
     )
     _rewrite_edges_with_junctions(
         graph,
-        internal_edges,
-        inter_section_edges,
-        entry_side_for_line,
-        exit_sides,
+        resolution,
         exit_port_map,
         entry_port_map,
         port_counter,

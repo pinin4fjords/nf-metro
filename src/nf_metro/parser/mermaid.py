@@ -42,8 +42,13 @@ from nf_metro.parser.resolve import (
     _insert_terminus_convergence_stations,
     _remove_empty_sections,
     _resolve_sections,
+    resolve_section_endpoints,
 )
-from nf_metro.parser.route_topology import build_route_topology
+from nf_metro.parser.route_topology import (
+    AuthoredEdgeLineage,
+    build_route_topology,
+    capture_authored_routes,
+)
 from nf_metro.parser.validate import find_cycle, find_section_cycle
 
 # A row-wrap width no real map reaches, so section packing never folds: the
@@ -213,7 +218,6 @@ def parse_metro_mermaid(
 def _apply_statements(statements: list[_Statement], graph: MetroGraph) -> None:
     """Apply parsed statements in source order, tracking the enclosing section."""
     current_section_id: str | None = None
-    authored_edge_ordinal = 0
 
     for stmt in statements:
         if isinstance(stmt, _End):
@@ -230,8 +234,7 @@ def _apply_statements(statements: list[_Statement], graph: MetroGraph) -> None:
         elif isinstance(stmt, _Junk):
             warnings.warn(f"Ignored unrecognised line: {stmt.text!r}", stacklevel=2)
         elif isinstance(stmt, _Edge):
-            _apply_edge(stmt, graph, current_section_id, authored_edge_ordinal)
-            authored_edge_ordinal += 1
+            _apply_edge(stmt, graph, current_section_id)
         elif isinstance(stmt, _Node):
             _apply_node(stmt.node_id, stmt.label, graph, current_section_id)
 
@@ -289,8 +292,11 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
     if not graph.sections and graph.interchanges:
         _create_implicit_section(graph)
 
+    authored_capture = capture_authored_routes(graph)
+    authored_lineage = AuthoredEdgeLineage.from_capture(graph.edges, authored_capture)
+
     if graph.sections:
-        _expand_interchanges(graph)
+        _expand_interchanges(graph, authored_lineage)
 
         # Row-wrap width precedence: an explicit caller value (the
         # --max-layers-per-row CLI flag) wins over a %%metro fold_threshold
@@ -321,12 +327,15 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
             if relocated:
                 graph._fold_threshold_effective = eff_cols
                 graph._fold_compressed_sections = relocated
-        graph.route_topology = build_route_topology(graph)
-        _insert_terminus_convergence_stations(graph)
-        _resolve_sections(graph)
+        _insert_terminus_convergence_stations(graph, authored_lineage)
+        endpoint_resolution = resolve_section_endpoints(graph)
+        graph.route_topology = build_route_topology(
+            authored_capture, authored_lineage, endpoint_resolution
+        )
+        _resolve_sections(graph, endpoint_resolution)
         _insert_bypass_stations(graph)
     else:
-        graph.route_topology = build_route_topology(graph)
+        graph.route_topology = build_route_topology(authored_capture, authored_lineage)
 
 
 def _apply_pending_metadata(graph: MetroGraph) -> None:
@@ -439,7 +448,6 @@ def _apply_edge(
     edge: _Edge,
     graph: MetroGraph,
     section_id: str | None,
-    authored_edge_ordinal: int,
 ) -> None:
     """Register an edge and its endpoints (one ``Edge`` per line id).
 
@@ -455,16 +463,12 @@ def _apply_edge(
         else:
             _ensure_station(graph, node_id, section_id)
 
-    for line_ordinal, line_id in enumerate(edge.line_ids):
+    for line_id in edge.line_ids:
         graph.add_edge(
             Edge(
                 source=edge.source,
                 target=edge.target,
                 line_id=line_id,
                 source_line=edge.line_no,
-                authored_edge_ordinal=authored_edge_ordinal,
-                authored_line_ordinal=line_ordinal,
-                authored_source=edge.source,
-                authored_target=edge.target,
             )
         )
