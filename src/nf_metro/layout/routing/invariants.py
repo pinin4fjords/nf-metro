@@ -50,6 +50,11 @@ from nf_metro.layout.geometry import (
     point_to_polyline_distance,
 )
 from nf_metro.layout.phases.guards import GuardSpec
+from nf_metro.layout.route_topology import (
+    convergence_entry_port_id,
+    convergence_junction_ids,
+    divergence_junction_sources,
+)
 from nf_metro.layout.routing.common import (
     Direction,
     OffsetRegime,
@@ -782,25 +787,8 @@ class FanoutTailGap:
 
 
 def fanout_junctions(graph) -> dict[str, str]:  # noqa: ANN001 - MetroGraph (avoid cycle)
-    """Map each *fan-out* junction id to its single upstream source id.
-
-    A fan-out junction is a junction station fed by edges from exactly
-    ONE distinct upstream source (a single exit port or upstream
-    junction) and fanning out to one or more inter-section targets.
-    Merge junctions (>1 distinct upstream source) are excluded: their
-    trunk routing intentionally lands branches on a shared bypass Y and
-    must not be snapped together at the junction.
-    """
-    junction_ids = graph.junction_ids
-    result: dict[str, str] = {}
-    for jid in junction_ids:
-        sources = {e.source for e in graph.edges_to(jid)}
-        if len(sources) != 1:
-            continue
-        if not any(True for _ in graph.edges_from(jid)):
-            continue
-        result[jid] = next(iter(sources))
-    return result
+    """Map resolved divergence junction ids to their upstream exit ports."""
+    return divergence_junction_sources(graph)
 
 
 def _fanout_route_maps(
@@ -3949,11 +3937,8 @@ def check_diamond_fan_in_diverges_together(
 
 def _merge_entry_port(graph: MetroGraph, merge_id: str) -> Station | None:
     """The entry-port successor of a merge junction, if any."""
-    for e in graph.edges_from(merge_id):
-        port = graph.ports.get(e.target)
-        if port and port.is_entry:
-            return graph.station_for_edge_target(e)
-    return None
+    port_id = convergence_entry_port_id(graph, merge_id)
+    return graph.stations.get(port_id) if port_id is not None else None
 
 
 @dataclass(frozen=True)
@@ -4004,7 +3989,7 @@ def _iter_merge_convergences(
     reconvergence, or whose markers are missing, are skipped.
     """
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
-    for merge_id in graph.junctions:
+    for merge_id in convergence_junction_ids(graph):
         feeders = list(graph.edges_to(merge_id))
         entry_port = _merge_entry_port(graph, merge_id)
         merge_st = graph.stations.get(merge_id)

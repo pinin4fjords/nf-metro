@@ -57,6 +57,10 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.route_topology import (
+    RouteTopologyQuery,
+    build_route_topology_query,
+)
 
 # Tolerances used across offset phases
 _SAME_Y_TOLERANCE: float = SAME_Y_TOLERANCE
@@ -68,6 +72,7 @@ class _OffsetCtx:
     """Shared state threaded through offset computation phases."""
 
     graph: MetroGraph
+    topology: RouteTopologyQuery | None = None
     offsets: dict[tuple[str, str], float] = field(default_factory=dict)
     line_priority: dict[str, int] = field(default_factory=dict)
     max_priority: int = 0
@@ -106,6 +111,7 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
 
     return _OffsetCtx(
         graph=graph,
+        topology=build_route_topology_query(graph),
         line_priority=line_priority,
         max_priority=max_priority,
         offset_step=offset_step,
@@ -790,12 +796,20 @@ def _reorder_reconvergence(
 
 def _section_exit_fanout_junction(ctx: _OffsetCtx, section: Section) -> str | None:
     """The single fan-out junction *section* exits into, if exactly one."""
-    junction_ids = ctx.graph.junction_ids
+    if ctx.topology is not None:
+        junction_ids = tuple(
+            divergence.junction_id
+            for divergence in ctx.topology.divergences
+            if ctx.topology.endpoint_group_for_port(divergence.exit_port_id).section_id
+            == section.id
+        )
+        return junction_ids[0] if len(junction_ids) == 1 else None
+    graph_junction_ids = ctx.graph.junction_ids
     junctions = {
         e.target
         for pid in section.exit_ports
         for e in ctx.graph.edges_from(pid)
-        if e.target in junction_ids
+        if e.target in graph_junction_ids
     }
     return next(iter(junctions)) if len(junctions) == 1 else None
 
@@ -823,7 +837,9 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         jid = _section_exit_fanout_junction(ctx, section)
         if jid is None:
             continue
-        peel_order = fanout_divergence_peel_order(graph, jid, ctx.line_priority)
+        peel_order = fanout_divergence_peel_order(
+            graph, jid, ctx.line_priority, ctx.topology
+        )
         if peel_order is None:
             continue
 
@@ -1491,6 +1507,13 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
     ordering, which may not match the exit port feeding them.
     """
     graph = ctx.graph
+    if ctx.topology is not None:
+        for divergence in ctx.topology.divergences:
+            for line_id in graph.station_lines(divergence.junction_id):
+                port_offset = ctx.offsets.get((divergence.exit_port_id, line_id))
+                if port_offset is not None:
+                    ctx.offsets[(divergence.junction_id, line_id)] = port_offset
+        return
     for jid in graph.junctions:
         for edge in graph.edges_to(jid):
             src = graph.station_for_edge_source(edge)

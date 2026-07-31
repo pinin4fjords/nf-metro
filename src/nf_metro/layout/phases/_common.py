@@ -26,6 +26,7 @@ from nf_metro.layout.geometry import (
     quantize_coord,
 )
 from nf_metro.layout.phase_state import require_phase_field
+from nf_metro.layout.route_topology import divergence_junction_sources
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
     Edge,
@@ -1765,21 +1766,19 @@ def _section_span_clear(
 def _is_fanout_junction(graph: MetroGraph, jid: str) -> bool:
     """Whether *jid* is a fan-out junction whose Y follows its exit port.
 
-    A stricter, single-junction variant of
-    :func:`nf_metro.layout.routing.invariants.fanout_junctions`: that one keys
-    purely on a single distinct upstream source, this one additionally requires
-    every successor to be an entry port so the anchoring caller only claims the
-    plain exit -> junction -> entries shape.  Such a junction takes its Y from
-    the single exit-port predecessor (see :func:`_position_junctions`), so
-    anchoring that exit drives the junction's row and the fan-out risers fall in
-    the inter-section gap rather than the climb falling inside the section.
+    The authored topology identifies the divergence. This helper additionally
+    requires every immediate successor to be an entry port, so its caller only
+    claims the plain exit -> junction -> entries shape. Such a junction takes
+    its Y from the resolved exit port (see :func:`_position_junctions`), so
+    anchoring that exit drives the junction's row and keeps the fan-out risers
+    in the inter-section gap.
     """
     succ = list(graph.edges_from(jid))
     if not succ:
         return False
     if any((tp := graph.ports.get(e.target)) is None or not tp.is_entry for e in succ):
         return False
-    return len({e.source for e in graph.edges_to(jid)}) == 1
+    return jid in divergence_junction_sources(graph)
 
 
 def _exit_anchorable_downstream(

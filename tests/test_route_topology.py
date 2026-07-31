@@ -27,8 +27,11 @@ from nf_metro.parser.resolve import _resolve_sections, resolve_section_endpoints
 from nf_metro.parser.route_topology import (
     AuthoredEdgeLineage,
     ConnectorId,
+    ResolvedEdge,
     RouteTopology,
+    RouteTopologyQueryError,
     build_route_topology,
+    build_route_topology_query,
     capture_authored_routes,
 )
 
@@ -391,6 +394,161 @@ graph LR
         assert all(left.target == right.source for left, right in zip(path, path[1:]))
 
 
+def test_route_topology_query_reverse_maps_duplicate_connectors_in_order() -> None:
+    graph = _parse(_two_section_text("    a -->|red,blue| b\n    a -->|red| b\n"))
+    query = build_route_topology_query(graph)
+    assert query is not None
+
+    red_connectors = tuple(
+        connector.id for connector in query.connectors if connector.line_id == "red"
+    )
+    red_edge = query.resolved_paths(red_connectors[0])[0][1]
+
+    assert isinstance(red_edge, ResolvedEdge)
+    assert query.connector_ids_for_edge(red_edge) == red_connectors
+
+
+def test_route_topology_query_reverse_maps_every_bypass_path_leg() -> None:
+    graph = _parse(
+        """\
+%%metro line: red | Red | #f00
+%%metro line: blue | Blue | #00f
+graph LR
+    subgraph s [S]
+        p[P]
+        a[A]
+        b[B]
+        q[Q]
+        p -->|red| a
+        a -->|red| b
+        b -->|red| q
+    end
+    subgraph t [T]
+        z[Z]
+    end
+    p -->|blue| z
+"""
+    )
+    query = build_route_topology_query(graph)
+    assert query is not None
+    connector_id = query.connectors[0].id
+
+    for path in query.resolved_paths(connector_id):
+        for edge in path:
+            assert query.connector_ids_for_edge(edge) == (connector_id,)
+
+
+def test_route_topology_query_resolves_ordered_fans_merges_and_ports() -> None:
+    graph = _parse((ROOT / "examples" / "guide" / "03b_fan_in_merge.mmd").read_text())
+    query = build_route_topology_query(graph)
+    assert query is not None
+
+    topology = graph.route_topology
+    assert topology is not None
+    assert tuple(view.group for view in query.divergences) == topology.divergences
+    assert tuple(view.group for view in query.convergences) == topology.convergences
+    for view in query.divergences:
+        assert query.divergence_for_junction(view.junction_id) is view
+        assert query.connector_ids_for_junction(view.junction_id) == (
+            view.group.connector_ids
+        )
+        assert query.connector_ids_for_port(view.exit_port_id) == (
+            query.endpoint_group_for_port(view.exit_port_id).connector_ids
+        )
+        assert (
+            query.endpoint_group_for_port(view.exit_port_id).id
+            == view.group.exit_group_id
+        )
+        assert (
+            tuple(
+                query.endpoint_group_for_port(port_id).id
+                for port_id in view.entry_port_ids
+            )
+            == view.group.entry_group_ids
+        )
+    for view in query.convergences:
+        assert query.convergence_for_junction(view.junction_id) is view
+        assert query.connector_ids_for_junction(view.junction_id) == (
+            view.group.connector_ids
+        )
+        assert (
+            query.endpoint_group_for_port(view.entry_port_id).id
+            == view.group.entry_group_id
+        )
+        assert view.source_junction_ids == tuple(
+            query.divergence_by_id(divergence_id).junction_id
+            for divergence_id in view.group.divergence_ids
+        )
+
+
+def test_route_topology_query_metadata_contract_is_explicit() -> None:
+    assert build_route_topology_query(MetroGraph()) is None
+
+    topology_only = _parse(_two_section_text("    a -->|red| b\n"))
+    topology_only.route_resolution = None
+    with pytest.raises(
+        RouteTopologyQueryError, match="both route_topology and route_resolution"
+    ):
+        build_route_topology_query(topology_only)
+
+    resolution_only = _parse(_two_section_text("    a -->|red| b\n"))
+    resolution_only.route_topology = None
+    with pytest.raises(
+        RouteTopologyQueryError, match="both route_topology and route_resolution"
+    ):
+        build_route_topology_query(resolution_only)
+
+
+def test_corpus_query_matches_resolved_semantic_junction_shapes() -> None:
+    for path in CORPUS:
+        graph = parse_metro_mermaid(path.read_text())
+        query = build_route_topology_query(graph)
+        assert query is not None
+
+        predecessors: dict[str, set[str]] = defaultdict(set)
+        successors: dict[str, set[str]] = defaultdict(set)
+        for edge in graph.edges:
+            predecessors[edge.target].add(edge.source)
+            successors[edge.source].add(edge.target)
+
+        legacy_divergences = {
+            junction_id: next(iter(predecessors[junction_id]))
+            for junction_id in graph.junctions
+            if len(predecessors[junction_id]) == 1 and successors[junction_id]
+        }
+        legacy_convergences = {
+            junction_id
+            for junction_id in graph.junctions
+            if len(predecessors[junction_id]) > 1
+            and len(successors[junction_id]) == 1
+            and (port := graph.ports.get(next(iter(successors[junction_id]))))
+            is not None
+            and port.is_entry
+        }
+
+        assert {
+            divergence.junction_id: divergence.exit_port_id
+            for divergence in query.divergences
+        } == legacy_divergences, path
+        assert {
+            convergence.junction_id for convergence in query.convergences
+        } == legacy_convergences, path
+        assert {
+            *legacy_divergences,
+            *legacy_convergences,
+        } == set(graph.junctions), path
+
+        legacy_merge_fanouts: set[str] = set()
+        for source_id in graph.stations:
+            merge_targets_by_line: dict[str, set[str]] = defaultdict(set)
+            for edge in graph.edges_from(source_id):
+                if edge.target in legacy_convergences:
+                    merge_targets_by_line[edge.line_id].add(edge.target)
+            if any(len(targets) >= 2 for targets in merge_targets_by_line.values()):
+                legacy_merge_fanouts.add(source_id)
+        assert set(query.merge_fanout_junction_ids()) == legacy_merge_fanouts, path
+
+
 def test_topology_records_are_deeply_immutable_and_detached() -> None:
     graph = _parse(_two_section_text("    a -->|red| b\n"))
     topology = graph.route_topology
@@ -739,9 +897,11 @@ def test_route_topology_is_hash_seed_deterministic() -> None:
     script = (
         "from pathlib import Path; "
         "from nf_metro.parser.mermaid import parse_metro_mermaid; "
+        "from nf_metro.parser.route_topology import build_route_topology_query; "
         f"p=Path({str(fixture)!r}); "
         "g=parse_metro_mermaid(p.read_text()); "
-        "print(repr((g.route_topology,g.route_resolution)))"
+        "q=build_route_topology_query(g); "
+        "print(repr((g.route_topology,g.route_resolution,q)))"
     )
     outputs = []
     for seed in ("1", "7", "41"):
