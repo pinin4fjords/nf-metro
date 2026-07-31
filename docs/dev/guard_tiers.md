@@ -209,33 +209,33 @@ rather than through the Pass C / final dispatch, so they carry no `needs` /
 `narrow_reason`. Costs are not separately measured; each is a single structural
 pass.
 
-| guard                                         | tier | role                                                                                                             |
-| --------------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------- |
-| `_guard_stations_within_bbox`                 | A    | Always-on postcondition: every station centre lies within its section bbox.                                      |
-| `_guard_no_negative_grid_columns`             | A    | No section sits at a negative grid column.                                                                       |
-| `_guard_explicit_grid_directions`             | A    | Explicit-grid sections skip auto direction inference; only a typed resolver reversal may replace the LR default. |
-| `_guard_no_mixed_entry_directions`            | A    | A section's incoming lines approach from a single side.                                                          |
-| `_guard_independent_components_disjoint`      | A    | Independently-stacked components do not overlap.                                                                 |
-| `_guard_no_same_row_backward_feed`            | A    | A same-row inter-section edge does not run against source flow.                                                  |
-| `_guard_anchors_frozen_during_placement`      | B    | Content placement leaves resolved anchors fixed.                                                                 |
-| `_guard_bypass_v_flat_visible`                | B    | Every bypass V keeps a visible horizontal run through its X.                                                     |
-| `_guard_centered_line_spread_balanced`        | B    | A `centered` section's weave balances about its trunk.                                                           |
-| `_guard_file_icon_no_name_label`              | B    | A file-icon station gets no separate node-name label.                                                            |
-| `_guard_interchange_bar_clears_non_members`   | B    | An interchange bar does not cross a non-member station.                                                          |
-| `_guard_no_diagonal_strikes_horizontal_label` | B    | No foreign fan diagonal rakes a stacked station's name.                                                          |
-| `_guard_no_label_overlap`                     | B    | No station label overlaps another label or a marker.                                                             |
-| `_guard_no_line_crosses_file_icon`            | B    | No rendered line passes through a file/terminus icon.                                                            |
-| `_guard_no_line_strikes_label`                | B    | No rendered line strikes through a station label.                                                                |
-| `_guard_no_wrapped_label_trunk_strike`        | B    | No wrapped label overruns a foreign horizontal trunk.                                                            |
-| `_guard_off_track_consumer_on_trunk`          | B    | An off-track input's straight-through consumer stays on trunk (`#650`).                                          |
-| `_guard_off_track_input_column_stack`         | B    | Single-trunk off-track inputs hug their consumer column (`#651`).                                                |
-| `_guard_off_track_not_hub`                    | B    | No off-track station has edges on both sides (`#1295`).                                                          |
-| `_guard_rail_above_label_band`                | B    | A rail section reserves room above its top rail for labels.                                                      |
-| `_guard_rail_one_station_per_column`          | B    | Rails place one distinct station per column.                                                                     |
-| `_guard_rail_stations_seat_on_rails`          | B    | Rail stations seat on their lines' fixed rails.                                                                  |
-| `_guard_single_trunk_off_track_step`          | B    | Single-trunk sections lift off-track stations by the base pitch (`#580`).                                        |
-| `_guard_tall_anchor_stack_well_formed`        | B    | A tall-anchor vertical stack keeps its downstream chain intact.                                                  |
-| `_guard_tb_top_entry_drop_hugs_top`           | B    | A clean TB TOP-entry drop seats its first station at the top.                                                    |
+| guard                                         | tier | role                                                                        |
+| --------------------------------------------- | ---- | --------------------------------------------------------------------------- |
+| `_guard_stations_within_bbox`                 | A    | Always-on postcondition: every station centre lies within its section bbox. |
+| `_guard_no_negative_grid_columns`             | A    | No section sits at a negative grid column.                                  |
+| `_guard_explicit_grid_directions`             | A    | Explicit-grid sections retain direction unless resolution reverses it.      |
+| `_guard_no_mixed_entry_directions`            | A    | A section's incoming lines approach from a single side.                     |
+| `_guard_independent_components_disjoint`      | A    | Independently-stacked components do not overlap.                            |
+| `_guard_no_same_row_backward_feed`            | A    | A same-row inter-section edge does not run against source flow.             |
+| `_guard_anchors_frozen_during_placement`      | B    | Content placement leaves resolved anchors fixed.                            |
+| `_guard_bypass_v_flat_visible`                | B    | Every bypass V keeps a visible horizontal run through its X.                |
+| `_guard_centered_line_spread_balanced`        | B    | A `centered` section's weave balances about its trunk.                      |
+| `_guard_file_icon_no_name_label`              | B    | A file-icon station gets no separate node-name label.                       |
+| `_guard_interchange_bar_clears_non_members`   | B    | An interchange bar does not cross a non-member station.                     |
+| `_guard_no_diagonal_strikes_horizontal_label` | B    | No foreign fan diagonal rakes a stacked station's name.                     |
+| `_guard_no_label_overlap`                     | B    | No station label overlaps another label or a marker.                        |
+| `_guard_no_line_crosses_file_icon`            | B    | No rendered line passes through a file/terminus icon.                       |
+| `_guard_no_line_strikes_label`                | B    | No rendered line strikes through a station label.                           |
+| `_guard_no_wrapped_label_trunk_strike`        | B    | No wrapped label overruns a foreign horizontal trunk.                       |
+| `_guard_off_track_consumer_on_trunk`          | B    | An off-track input's straight-through consumer stays on trunk (`#650`).     |
+| `_guard_off_track_input_column_stack`         | B    | Single-trunk off-track inputs hug their consumer column (`#651`).           |
+| `_guard_off_track_not_hub`                    | B    | No off-track station has edges on both sides (`#1295`).                     |
+| `_guard_rail_above_label_band`                | B    | A rail section reserves room above its top rail for labels.                 |
+| `_guard_rail_one_station_per_column`          | B    | Rails place one distinct station per column.                                |
+| `_guard_rail_stations_seat_on_rails`          | B    | Rail stations seat on their lines' fixed rails.                             |
+| `_guard_single_trunk_off_track_step`          | B    | Single-trunk sections lift off-track stations by the base pitch (`#580`).   |
+| `_guard_tall_anchor_stack_well_formed`        | B    | A tall-anchor vertical stack keeps its downstream chain intact.             |
+| `_guard_tb_top_entry_drop_hugs_top`           | B    | A clean TB TOP-entry drop seats its first station at the top.               |
 
 ## Consolidation
 
