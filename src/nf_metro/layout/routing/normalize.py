@@ -29,6 +29,7 @@ from nf_metro.layout.routing.common import (
     GapSlot,
     HTrunkSeg,
     OffsetRegime,
+    PortPeeloffBundle,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -43,6 +44,7 @@ from nf_metro.layout.routing.common import (
     merge_fanout_pivot_reference,
     packed_cell_neighbor_edges,
     peeloff_target_slots,
+    peeloff_trunk_line_order,
     perp_peeloff_off_horizontal_junction,
     seat_peeloff_port_y,
     symmetric_bundle_midpoint,
@@ -266,6 +268,153 @@ def _layout_gap_bundle(
             continue
         for ch, (li, nx) in targets:
             _restack_channel(ch, nx, li, n, step, ctx.curve_radius, lead_right)
+            ch.x = nx
+
+
+def _required_channel_clearance(
+    a: _VChannel, b: _VChannel, curve_radius: float
+) -> float:
+    """Required spacing for counter-running channels in one corridor."""
+    if a.down is b.down:
+        return 0.0
+    overlap = min(a.y_hi, b.y_hi) - max(a.y_lo, b.y_lo)
+    if overlap <= MIN_CORRIDOR_Y_OVERLAP:
+        return 0.0
+    if a.route.line_id == b.route.line_id:
+        return curve_radius + COORD_TOLERANCE
+    return BUNDLE_TO_BUNDLE_CLEARANCE
+
+
+def _anchor_same_direction_fixed_channels(
+    bundles: list[tuple[bool, list[_VChannel]]],
+    fixed: list[_VChannel],
+    ctx: _RoutingCtx,
+) -> None:
+    """Extend movable same-direction bundles from their fixed member's column."""
+    for down, chans in bundles:
+        anchors = [
+            obstacle
+            for obstacle in fixed
+            if obstacle.down is down
+            and all(obstacle.route.line_id != ch.route.line_id for ch in chans)
+            and any(
+                min(ch.y_hi, obstacle.y_hi) - max(ch.y_lo, obstacle.y_lo)
+                > MIN_CORRIDOR_Y_OVERLAP
+                for ch in chans
+            )
+        ]
+        if not anchors:
+            continue
+        combined = [*anchors, *chans]
+        order = _distinct_line_order(combined)
+        rank = {line_id: i for i, line_id in enumerate(order)}
+        bases = [
+            anchor.x - rank[anchor.route.line_id] * ctx.offset_step
+            for anchor in anchors
+        ]
+        if any(abs(base - bases[0]) > COORD_TOLERANCE for base in bases[1:]):
+            continue
+        base = bases[0]
+        for ch in chans:
+            target = base + rank[ch.route.line_id] * ctx.offset_step
+            if abs(target - ch.x) <= COORD_TOLERANCE:
+                continue
+            _set_vchannel_x(ch, target)
+            ch.x = target
+
+
+def _separate_opposing_gap_bundles(
+    bundles: list[tuple[bool, list[_VChannel]]],
+    fixed: list[_VChannel],
+    gap_left: float,
+    gap_right: float,
+    ctx: _RoutingCtx,
+) -> None:
+    """Translate movable bundles clear of counter-running fixed channels.
+
+    Exempt handlers own their channel geometry, so their declared gap legs are
+    immutable obstacles. Movable bundles retain their internal line spacing and
+    are translated by the smallest feasible amount that gives every
+    counter-running channel the bundle clearance. Bundles settled earlier in
+    the gap become obstacles for later bundles, which also separates two
+    movable counter-running streams.
+    """
+    settled = list(fixed)
+    for down, chans in bundles:
+        if not chans:
+            continue
+        obstacles = [
+            obstacle
+            for obstacle in settled
+            if any(
+                _required_channel_clearance(ch, obstacle, ctx.curve_radius) > 0
+                for ch in chans
+            )
+        ]
+        if not obstacles:
+            settled.extend(chans)
+            continue
+
+        candidates = {0.0}
+        for ch in chans:
+            for obstacle in obstacles:
+                clearance = _required_channel_clearance(ch, obstacle, ctx.curve_radius)
+                if clearance <= 0:
+                    continue
+                candidates.add(obstacle.x - clearance - ch.x)
+                candidates.add(obstacle.x + clearance - ch.x)
+
+        def feasible(delta: float) -> bool:
+            targets = [(ch, ch.x + delta) for ch in chans]
+            usable_left = gap_left + EDGE_TO_BUNDLE_CLEARANCE
+            usable_right = gap_right - EDGE_TO_BUNDLE_CLEARANCE
+            if any(
+                x < usable_left - COORD_TOLERANCE
+                or x > usable_right + COORD_TOLERANCE
+                or _section_intrudes(ctx.graph, x, ch.y_lo, ch.y_hi)
+                for ch, x in targets
+            ):
+                return False
+            return all(
+                (
+                    clearance := _required_channel_clearance(
+                        ch, obstacle, ctx.curve_radius
+                    )
+                )
+                <= 0
+                or abs(x - obstacle.x) >= clearance - COORD_TOLERANCE
+                for ch, x in targets
+                for obstacle in obstacles
+            )
+
+        delta = next(
+            (
+                candidate
+                for candidate in sorted(candidates, key=lambda d: (abs(d), d))
+                if feasible(candidate)
+            ),
+            None,
+        )
+        if delta is None or abs(delta) <= COORD_TOLERANCE:
+            settled.extend(chans)
+            continue
+
+        order = _convergence_line_order(chans, ctx.graph) or _distinct_line_order(chans)
+        rank = {line_id: i for i, line_id in enumerate(order)}
+        lead_right = _corridor_leadout_right(chans, down)
+        for ch in chans:
+            new_x = ch.x + delta
+            _restack_channel(
+                ch,
+                new_x,
+                rank[ch.route.line_id],
+                len(order),
+                ctx.offset_step,
+                ctx.curve_radius,
+                lead_right,
+            )
+            ch.x = new_x
+        settled.extend(chans)
 
 
 def _locate_slot_channel(
@@ -390,6 +539,54 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
         _layout_gap_bundle(bundles, gap_left, gap_right, ctx, owned.get((lo, row)))
 
 
+def _separate_declared_opposing_gap_bundles(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Separate settled counter-running gap bundles around exempt obstacles."""
+    graph = ctx.graph
+    movable: dict[tuple[int, int | None], list[_VChannel]] = defaultdict(list)
+    fixed: dict[tuple[int, int | None], list[_VChannel]] = defaultdict(list)
+    seen: set[tuple[tuple[int, int | None], int, int]] = set()
+    for rp in routes:
+        for slot in rp.gap_slots:
+            key = (slot.gap_lo_col, slot.row)
+            ch = _locate_slot_channel(rp, slot, graph)
+            if ch is None or (key, id(rp), ch.idx) in seen:
+                continue
+            seen.add((key, id(rp), ch.idx))
+            (fixed if rp.normalize_exempt else movable)[key].append(ch)
+
+    bands = _grid_row_bands(graph)
+    for (lo, row), chans in movable.items():
+        gap_left, gap_right = column_gap_edges(graph, lo, lo + 1, row=row)
+        if gap_right <= gap_left:
+            continue
+        crossed_spans = [(c.y_lo, c.y_hi) for c in chans]
+        crossed_spans += [(c.y_lo, c.y_hi) for c in fixed.get((lo, row), [])]
+        for r, band in bands.items():
+            if not any(
+                y_lo < band[1] and band[0] < y_hi for y_lo, y_hi in crossed_spans
+            ):
+                continue
+            r_left, r_right = column_gap_edges(graph, lo, lo + 1, row=r)
+            if r_right > r_left:
+                gap_left = max(gap_left, r_left)
+                gap_right = min(gap_right, r_right)
+        bundles = [
+            (down, corridor)
+            for down in (True, False)
+            for corridor in _split_corridors([c for c in chans if c.down is down])
+        ]
+        _anchor_same_direction_fixed_channels(bundles, fixed.get((lo, row), []), ctx)
+        _separate_opposing_gap_bundles(
+            bundles,
+            fixed.get((lo, row), []),
+            gap_left,
+            gap_right,
+            ctx,
+        )
+
+
 @dataclass
 class _HTrunk:
     """One horizontal bypass-trunk segment of an inter-section route.
@@ -442,6 +639,143 @@ def _collect_htrunks(
                 )
             )
     return out
+
+
+def _eligible_destination_tail_bundles(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    curve_radius: float,
+) -> Iterator[tuple[PortPeeloffBundle, dict[str, _HTrunk], dict[str, float]]]:
+    """Yield same-port tails that can occupy one collision-free trunk band.
+
+    Eligibility is deliberately narrower than sharing a target.  Every member
+    has the same H-V-H tail directions, a destination-facing common suffix at
+    least two curve radii long, a unique line, and a candidate tight band that
+    clears every section across each member's complete trunk and both flanking
+    verticals.  Rail routes keep their independent tracks.
+
+    The returned target Ys are ordered from the destination port through the
+    tail's horizontal-direction parity.  This makes the common band begin where
+    the trunks first overlap while preserving the port's line order through
+    both turns.
+    """
+    all_trunks = _collect_htrunks(routes, include_exempt=True)
+    trunks_by_route = {id(t.route): t for t in all_trunks}
+    for bundle in iter_port_peeloff_bundles(
+        routes,
+        graph,
+        step,
+        require_contiguous=False,
+        min_common_suffix=2 * curve_radius,
+    ):
+        if len(bundle.entries) != len(bundle.per_line):
+            continue
+        if any(
+            graph.station_is_rail(rp.edge.source)
+            or graph.station_is_rail(rp.edge.target)
+            for rp, _tail in bundle.entries
+        ):
+            continue
+        trunks = {
+            rp.line_id: trunks_by_route[id(rp)]
+            for rp, _tail in bundle.entries
+            if id(rp) in trunks_by_route
+        }
+        if len(trunks) != len(bundle.per_line):
+            continue
+        if (
+            all(rp.normalize_exempt for rp, _tail in bundle.entries)
+            and len({rp.edge.source for rp, _tail in bundle.entries}) == 1
+        ):
+            continue
+
+        order = peeloff_trunk_line_order(bundle)
+        rank_of = {line_id: rank for rank, line_id in enumerate(order)}
+        group_routes = {id(t.route) for t in trunks.values()}
+        pinned_bases: list[float] = []
+        for line_id, trunk in trunks.items():
+            if any(
+                id(sibling.route) not in group_routes
+                and sibling.route.line_id == line_id
+                and sibling.sign_x == trunk.sign_x
+                and abs(sibling.y - trunk.y) <= COORD_TOLERANCE
+                and _x_overlap(
+                    (sibling.x_lo, sibling.x_hi),
+                    (trunk.x_lo, trunk.x_hi),
+                )
+                > 0
+                for sibling in all_trunks
+            ):
+                pinned_bases.append(trunk.y - rank_of[line_id] * step)
+        if pinned_bases and any(
+            abs(base - pinned_bases[0]) > COORD_TOLERANCE for base in pinned_bases[1:]
+        ):
+            continue
+        base = pinned_bases[0] if pinned_bases else min(t.y for t in trunks.values())
+        targets = {line_id: base + rank * step for rank, line_id in enumerate(order)}
+        clear = True
+        for rp, _tail in bundle.entries:
+            trunk = trunks[rp.line_id]
+            target_y = targets[rp.line_id]
+            points = rp.points
+            k = trunk.idx
+            if k == 0 or k + 2 >= len(points):
+                clear = False
+                break
+            own_sections = {
+                section_id
+                for station_id in (rp.edge.source, rp.edge.target)
+                if (section_id := graph.section_for_station(station_id)) is not None
+            }
+            xa, xb = points[k][0], points[k + 1][0]
+            source_section_id = graph.section_for_station(rp.edge.source)
+            source_section = (
+                graph.sections.get(source_section_id) if source_section_id else None
+            )
+            if (
+                (
+                    source_section is not None
+                    and _h_segment_penetrates_section(
+                        min(xa, xb),
+                        max(xa, xb),
+                        target_y,
+                        source_section,
+                        0.0,
+                    )
+                )
+                or _h_segment_crosses_other_section(
+                    graph, xa, xb, target_y, own_sections
+                )
+                or _v_segment_crosses_other_section(
+                    graph, xa, points[k - 1][1], target_y, own_sections
+                )
+                or _v_segment_crosses_other_section(
+                    graph, xb, target_y, points[k + 2][1], own_sections
+                )
+            ):
+                clear = False
+                break
+        if clear:
+            yield bundle, trunks, targets
+
+
+def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+    """Seat eligible same-port destination tails on one eager concentric band."""
+    for _bundle, trunks, targets in _eligible_destination_tail_bundles(
+        routes, ctx.graph, ctx.offset_step, ctx.curve_radius
+    ):
+        for line_id, trunk in trunks.items():
+            target_y = targets[line_id]
+            if abs(trunk.y - target_y) <= COORD_TOLERANCE:
+                continue
+            _set_htrunk_y(
+                trunk.route,
+                trunk.idx,
+                target_y,
+                offset_in=0.0,
+                offset_out=0.0,
+            )
 
 
 def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
@@ -998,19 +1332,19 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
 
 
 def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
-    """Re-stack peel-off risers onto the slot their settled trunk depth earns.
+    """Re-stack port approaches onto the slots their settled trunk depth earns.
 
     The riser order is assigned during gap materialisation from the trunk
     depths known then, but the later trunk-slot pass can repack those depths --
     a hand-authored grid can stagger them against their source columns -- which
     can leave a riser on a slot a different depth earns: the braid
     :func:`check_peeloff_concentric` flags.  Running after the trunk pass, this
-    reads the settled depths and permutes each off-slot riser onto the
-    depth-earned slot -- its peel-x via the standard :func:`_restack_channel`
-    path and its port-slot Y to match -- the per-line slot assignment the guard
-    certifies.  The in-section continuation leaves the port at its base Y, so
-    this only re-seats the concentric stagger at the port, never the section
-    linkage.
+    reads the settled depths and permutes each off-slot approach onto the
+    depth-earned peel-X and port-Y slots.  Those ranks are independent for a
+    half-turn: reversing horizontal direction transposes the port order without
+    necessarily reversing the vertical channels.  The in-section continuation
+    leaves the port at its base Y, so this only re-seats the concentric stagger
+    at the port, never the section linkage.
     """
     step = ctx.offset_step
     for bundle in iter_port_peeloff_bundles(routes, ctx.graph, step):
@@ -1029,7 +1363,13 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 down=tail.port_y > tail.trunk_y,
             )
             _restack_channel(
-                ch, slot.peel_x, slot.rank, n, step, ctx.curve_radius, ch.down
+                ch,
+                slot.peel_x,
+                slot.rank,
+                n,
+                step,
+                ctx.curve_radius,
+                ch.down,
             )
             seat_peeloff_port_y(rp, slot.port_y)
 
@@ -1810,6 +2150,8 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         _stack_trunk_bands(bands, ctx, step, bundled)
 
     _dogleg_off_exempt_trunks(routes, ctx, skip=bundled)
+    _bundle_same_destination_tails(routes, ctx)
+    _separate_declared_opposing_gap_bundles(routes, ctx)
 
 
 def _stack_trunk_bands(
@@ -2110,7 +2452,18 @@ def _suboptimal_trunk_bands(
     checks each realized top-to-bottom order against the crossing-minimal
     permutation.  An empty result means every band is crossing-optimal.
     """
-    trunks = _declared_htrunks(routes)
+    destination_owned = {
+        id(trunk.route)
+        for _bundle, trunks, _targets in _eligible_destination_tail_bundles(
+            routes, ctx.graph, ctx.offset_step, ctx.curve_radius
+        )
+        for trunk in trunks.values()
+    }
+    trunks = [
+        trunk
+        for trunk in _declared_htrunks(routes)
+        if id(trunk.route) not in destination_owned
+    ]
     if len(trunks) < 2:
         return []
     groups = _group_channel_trunks(trunks, ctx.offset_step)

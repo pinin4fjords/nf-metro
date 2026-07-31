@@ -13,6 +13,7 @@ from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     JUNCTION_MARGIN,
+    SAME_Y_TOLERANCE,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import AxisFrame, lane_delta, station_lane_coord
@@ -43,6 +44,63 @@ from nf_metro.parser.model import (
 )
 
 _EdgeKey = tuple[str, str, str]
+
+
+def partial_flat_continuation_lines(
+    graph: MetroGraph, port_id: str, port_lines: set[str]
+) -> set[str]:
+    """The largest partial bundle continuing flat into a packed cell-mate.
+
+    A multi-line continuation through a facing entry port in the same packed
+    grid cell defines a flat lane frame. Lines leaving the same exit for other
+    targets are branches.
+    """
+    exit_port = graph.ports[port_id]
+    exit_station = graph.stations[port_id]
+    feeder_section = graph.section_for_port(exit_port)
+    junctions = {
+        edge.target
+        for edge in graph.edges_from(port_id)
+        if edge.target in graph.junction_ids
+    }
+    for junction_id in junctions:
+        by_entry: dict[str, set[str]] = {}
+        for edge in graph.edges_from(junction_id):
+            entry_port = graph.ports.get(edge.target)
+            if entry_port is None or not entry_port.is_entry:
+                continue
+            entry_station = graph.stations[edge.target]
+            consumer = graph.section_for_port(entry_port)
+            if consumer.grid_row != feeder_section.grid_row:
+                continue
+            same_pack = any(
+                feeder_section.id in members and consumer.id in members
+                for members in graph.cell_packs.values()
+            )
+            faces_forward = (
+                exit_port.side is PortSide.RIGHT
+                and entry_port.side is PortSide.LEFT
+                and entry_station.x > exit_station.x + COORD_TOLERANCE
+            ) or (
+                exit_port.side is PortSide.LEFT
+                and entry_port.side is PortSide.RIGHT
+                and entry_station.x < exit_station.x - COORD_TOLERANCE
+            )
+            if (
+                not same_pack
+                or not faces_forward
+                or abs(entry_station.y - exit_station.y) > SAME_Y_TOLERANCE
+            ):
+                continue
+            by_entry.setdefault(edge.target, set()).add(edge.line_id)
+        candidates = [
+            lines
+            for lines in by_entry.values()
+            if len(lines) >= 2 and bool(port_lines - lines)
+        ]
+        if candidates:
+            return max(candidates, key=len)
+    return set()
 
 
 @dataclass

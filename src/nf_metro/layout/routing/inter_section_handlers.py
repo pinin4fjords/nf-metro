@@ -546,6 +546,9 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
         and f.src_row == f.tgt_row
         and not _source_is_boxed_fanout_junction(f)
     ):
+        shared_handoff = _route_packed_cell_same_line_handoff(f)
+        if shared_handoff is not None:
+            return shared_handoff
         geometry = _left_entry_over_top_geometry(f)
         if geometry is not None:
             return _route_left_entry_over_top(f, geometry)
@@ -1039,6 +1042,116 @@ class _LeftEntryOverTopGeometry:
     delta: float
     corner_x: float
     descent_x: float
+
+
+def _packed_cell_target_sibling(f: _InterFacts) -> tuple[Edge, Station, Section] | None:
+    """A nearer same-line target packed immediately before this target."""
+    target_port = f.graph.ports.get(f.edge.target)
+    if target_port is None:
+        return None
+    target_section = f.graph.section_for_port(target_port)
+    pack = next(
+        (
+            members
+            for members in f.graph.cell_packs.values()
+            if target_section.id in members
+        ),
+        None,
+    )
+    if pack is None:
+        return None
+
+    candidates: list[tuple[Edge, Station, Section]] = []
+    for edge in f.graph.edges_from(f.edge.source):
+        if edge is f.edge or edge.line_id != f.edge.line_id:
+            continue
+        sibling_port = f.graph.ports.get(edge.target)
+        if sibling_port is None or not sibling_port.is_entry:
+            continue
+        sibling_section = f.graph.section_for_port(sibling_port)
+        sibling_station = f.graph.stations[edge.target]
+        if (
+            sibling_section.id not in pack
+            or sibling_section.id == target_section.id
+            or sibling_port.side is not target_port.side
+            or sibling_section.bbox_x + sibling_section.bbox_w
+            > target_section.bbox_x + COORD_TOLERANCE
+            or sibling_station.x <= f.src.x + COORD_TOLERANCE
+        ):
+            continue
+        candidates.append((edge, sibling_station, sibling_section))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[2].bbox_x)
+
+
+def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
+    """Share the nearer packed sibling's corridor, then pass below its box."""
+    sibling = _packed_cell_target_sibling(f)
+    if sibling is None:
+        return None
+    sibling_edge, sibling_target, sibling_section = sibling
+    sibling_facts = _build_inter_facts(sibling_edge, f.src, sibling_target, f.ctx)
+    if (
+        not sibling_facts.needs_bypass
+        or sibling_facts.src_col is None
+        or sibling_facts.tgt_col is None
+        or sibling_facts.cellmate_blocks_source_row
+    ):
+        return None
+    sibling_route = _route_bypass(
+        sibling_edge,
+        f.src,
+        sibling_target,
+        sibling_facts.i,
+        sibling_facts.src_col,
+        sibling_facts.tgt_col,
+        f.ctx,
+        sibling_facts.src_row,
+    )
+    if sibling_route is None or len(sibling_route.points) < 6:
+        return None
+
+    prefix = sibling_route.points[:4]
+    split_x, split_y = prefix[-1]
+    _fan, pos_n, _delta, _corner_x = _wrap_fan_geometry(
+        f.ctx, f.edge, f.src, f.i, f.n, Direction.D
+    )
+    descent_x = _left_entry_descent_x(f.ctx, f.tgt.x, pos_n)
+    under_y = sibling_section.bbox_y + sibling_section.bbox_h + BYPASS_CLEARANCE
+    target_y = f.tgt.y + _get_offset(f.ctx, f.edge.target, f.edge.line_id)
+    exclude = {sid for sid in (f.src.section_id, f.tgt.section_id) if sid is not None}
+    if (
+        _v_segment_crosses_other_section(f.graph, split_x, split_y, under_y, exclude)
+        or _h_segment_crosses_other_section(
+            f.graph, split_x, descent_x, under_y, exclude
+        )
+        or _v_segment_crosses_other_section(
+            f.graph, descent_x, under_y, target_y, exclude
+        )
+    ):
+        return None
+
+    centerline = [
+        *prefix,
+        (split_x, under_y),
+        (descent_x, under_y),
+        (descent_x, target_y),
+        (f.tgt.x, target_y),
+    ]
+    ctx = f.ctx
+    route = route_along(
+        f.edge,
+        [(f.edge, f.edge.line_id, 0.0)],
+        centerline,
+        base_radius=ctx.curve_radius,
+        normalize_exempt=False,
+    )
+    assert route is not None
+    _declare_channel(route, f.ctx, prefix[1][0], Direction.D)
+    _declare_channel(route, f.ctx, split_x, Direction.D)
+    _declare_channel(route, f.ctx, descent_x, Direction.U)
+    return route
 
 
 def _left_entry_over_top_geometry(
@@ -3903,6 +4016,7 @@ def _route_left_entry_wrap(
         entry_side=PortSide.LEFT,
     )
     _declare_channel(route, ctx, vx, vertical_direction(ty - hy))
+    _declare_channel(route, ctx, corner_x, vertical_direction(hy - sy))
     return route
 
 
@@ -4361,6 +4475,7 @@ def _route_around_section_below(
         entry_side=PortSide.LEFT,
     )
     _declare_channel(route, ctx, vx, vertical_direction(ey - by))
+    _declare_channel(route, ctx, corner_x, vertical_direction(by - sy))
     return route
 
 
@@ -4832,6 +4947,7 @@ def _route_left_entry_via_gap_above(
         entry_side=PortSide.LEFT,
     )
     _declare_channel(route, ctx, vx, vertical_direction(tgt.y - channel_y_base))
+    _declare_channel(route, ctx, corner_x, vertical_direction(channel_y_base - src.y))
     return route
 
 

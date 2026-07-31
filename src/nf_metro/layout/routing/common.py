@@ -14,6 +14,7 @@ from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
+    CURVE_RADIUS,
     DEFAULT_LINE_PRIORITY,
     EDGE_TO_BUNDLE_CLEARANCE,
     HEADER_CLEARANCE,
@@ -932,22 +933,36 @@ def iter_horizontal_trunks(rp: RoutedPath) -> Iterator[tuple[int, HTrunkSeg]]:
 
 
 class PeeloffTail(NamedTuple):
-    """A riser peeling off a horizontal trunk into an entry port."""
+    """A vertical approach peeling off a horizontal trunk into an entry port."""
 
+    trunk_start_x: float
     trunk_y: float
     peel_x: float
     port_y: float
     trunk_sign: int  # +1 trunk runs left->right toward the peel, -1 right->left
+    vertical_sign: int  # +1 approaches down, -1 approaches up
+    port_lead_sign: int  # +1 enters rightward, -1 enters leftward
+
+    @property
+    def x_lo(self) -> float:
+        """Left edge of the destination-facing horizontal trunk."""
+        return min(self.trunk_start_x, self.peel_x)
+
+    @property
+    def x_hi(self) -> float:
+        """Right edge of the destination-facing horizontal trunk."""
+        return max(self.trunk_start_x, self.peel_x)
 
 
 def port_peeloff_tail(rp: RoutedPath) -> PeeloffTail | None:
-    """The peel-off tail of a riser ending at an entry port, or ``None``.
+    """The peel-off tail ending at an entry port, or ``None``.
 
     A peel-off-into-port tail ends ``... (tx, trunk_y) -> (peel_x, trunk_y)
-    -> (peel_x, port_y) -> (ex, port_y)``: a horizontal trunk, an upward
-    vertical riser, then a short horizontal lead into the port (the port sits
-    above the trunk).  ``trunk_sign`` records the trunk's traversal direction
-    toward the peel corner.  Returns ``None`` for any other tail.
+    -> (peel_x, port_y) -> (ex, port_y)``: a horizontal trunk, a vertical
+    approach, then a short horizontal lead into the port.  The three direction
+    signs describe the two turns, including downward approaches whose half-turn
+    transposes the bundle between the trunk and the port.  Returns ``None`` for
+    any other tail.
     """
     pts = rp.points
     if len(pts) < 4:
@@ -959,25 +974,33 @@ def port_peeloff_tail(rp: RoutedPath) -> PeeloffTail | None:
         return None  # riser is not vertical
     if abs(y4 - y3) > COORD_TOLERANCE or abs(x4 - x3) <= COORD_TOLERANCE:
         return None  # trunk is not horizontal
-    if y2 >= y3 - COORD_TOLERANCE:
-        return None  # not an upward riser (port not above the trunk)
-    return PeeloffTail(y3, x3, y2, 1 if x3 > x4 else -1)
+    return PeeloffTail(
+        trunk_start_x=x4,
+        trunk_y=y3,
+        peel_x=x3,
+        port_y=y2,
+        trunk_sign=1 if x3 > x4 else -1,
+        vertical_sign=1 if y2 > y3 else -1,
+        port_lead_sign=1 if x1 > x2 else -1,
+    )
 
 
 class PortPeeloffBundle(NamedTuple):
     """One concentric bundle of lines peeling off a shared trunk into a port.
 
-    ``entries`` holds every ``(route, tail)`` rising into the port (a line can
-    feed several risers); ``per_line`` is one representative tail per distinct
-    line, the unit the slot order is assigned over.  ``reverse`` is the trunk's
-    traversal sense toward the peel corner (a right-to-left trunk peels at the
-    far end, so its slot order is reversed).
+    ``entries`` holds every ``(route, tail)`` reaching the port (a line can feed
+    several approaches); ``per_line`` is one representative tail per distinct
+    line, the unit the slot order is assigned over.  The direction signs are
+    common to every member and define how trunk order maps independently onto
+    approach-X order and port-Y order.
     """
 
     port_id: str
     entries: list[tuple[RoutedPath, PeeloffTail]]
     per_line: dict[str, PeeloffTail]
-    reverse: bool
+    trunk_sign: int
+    vertical_sign: int
+    port_lead_sign: int
 
 
 class PeeloffSlot(NamedTuple):
@@ -998,66 +1021,103 @@ def trunk_depths_contiguous(trunk_ys: list[float], n: int, step: float) -> bool:
 
 
 def iter_port_peeloff_bundles(
-    routes: list[RoutedPath], graph: MetroGraph, step: float
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    *,
+    require_contiguous: bool = True,
+    min_common_suffix: float = 2 * CURVE_RADIUS,
 ) -> Iterator[PortPeeloffBundle]:
-    """Yield each contiguous concentric peel-off bundle into a LEFT entry port.
+    """Yield each destination-facing peel-off bundle into a side entry port.
 
-    A bundle is several inter-section lines riding one shared bypass trunk that
-    rise into a common LEFT entry port.  Only the bundles whose ordering is a
-    single concentric turn are yielded: at least two distinct lines, distinct
-    trunk depths to order by, every member within the bundle's own
-    ``OFFSET_STEP`` width of a neighbour (one contiguous bundle, not lines that
-    reach the port on trunks rows apart), and all peeling at the same trunk end
-    (one traversal sense).  The reordering pass and its runtime guard share this
-    membership test.
+    Members terminate at one port through the same ``H-V-H`` tail shape and
+    share at least ``min_common_suffix`` of destination-facing horizontal
+    corridor.  With ``require_contiguous`` they must already occupy one tight
+    track-step band; the runtime guard disables that filter so a missing eager
+    bundling pass cannot make the check vacuous.
     """
-    by_port: dict[str, list[tuple[RoutedPath, PeeloffTail]]] = defaultdict(list)
+    by_shape: dict[
+        tuple[str, int, int, int],
+        list[tuple[RoutedPath, PeeloffTail]],
+    ] = defaultdict(list)
     for rp in routes:
         tail = port_peeloff_tail(rp)
         if tail is None:
             continue
         port = graph.ports.get(rp.edge.target)
-        if port is None or not port.is_entry or port.side is not PortSide.LEFT:
+        if (
+            port is None
+            or not port.is_entry
+            or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+        ):
             continue
-        by_port[rp.edge.target].append((rp, tail))
+        by_shape[
+            (
+                rp.edge.target,
+                tail.trunk_sign,
+                tail.vertical_sign,
+                tail.port_lead_sign,
+            )
+        ].append((rp, tail))
 
-    for port_id, entries in by_port.items():
+    for shape, entries in by_shape.items():
+        port_id, trunk_sign, vertical_sign, port_lead_sign = shape
         # One representative tail per distinct line (a line feeding several
-        # risers shares a single slot, so its risers move together).
+        # approaches shares a single slot, so its approaches move together).
         per_line: dict[str, PeeloffTail] = {}
         for rp, t in entries:
             per_line.setdefault(rp.edge.line_id, t)
         n = len(per_line)
         if n < 2:
             continue
+        overlap_lo = max(t.x_lo for t in per_line.values())
+        overlap_hi = min(t.x_hi for t in per_line.values())
+        if overlap_hi - overlap_lo < min_common_suffix - COORD_TOLERANCE:
+            continue
         trunk_ys = sorted(t.trunk_y for t in per_line.values())
         if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:
             continue  # no distinct trunk depths to order by
-        if not trunk_depths_contiguous(trunk_ys, n, step):
+        if require_contiguous and not trunk_depths_contiguous(trunk_ys, n, step):
             continue  # not one contiguous concentric bundle
-        signs = {t.trunk_sign for t in per_line.values()}
-        if len(signs) != 1:
-            continue  # lines peel at different trunk ends; ambiguous
-        yield PortPeeloffBundle(port_id, entries, per_line, signs.pop() < 0)
+        yield PortPeeloffBundle(
+            port_id,
+            entries,
+            per_line,
+            trunk_sign,
+            vertical_sign,
+            port_lead_sign,
+        )
+
+
+def peeloff_trunk_line_order(bundle: PortPeeloffBundle) -> list[str]:
+    """Top-to-bottom trunk order implied by the destination port's line slots."""
+    port_order = sorted(bundle.per_line, key=lambda lid: bundle.per_line[lid].port_y)
+    if bundle.trunk_sign == bundle.port_lead_sign:
+        return port_order
+    return list(reversed(port_order))
 
 
 def peeloff_target_slots(bundle: PortPeeloffBundle) -> dict[str, PeeloffSlot]:
     """Map each line of *bundle* to the slot its trunk depth earns.
 
-    The peel-x and port-slot Ys the bundle already occupies are reassigned by
-    trunk depth so the bundle turns into the port concentrically: the shallowest
-    trunk line takes the slot nearest the trunk's near end (the inner slot for a
-    left-to-right trunk, the outer for a right-to-left one).  Spacing is
-    preserved -- the slots are permuted among the bundle's existing ones.
+    Peel-X and port-Y use separate ranks.  A half-turn reverses the horizontal
+    direction and therefore transposes port order relative to trunk order,
+    while the first H-to-V turn independently decides whether approach X
+    follows or reverses trunk order.
     """
     per_line = bundle.per_line
     n = len(per_line)
     x_slots = sorted(t.peel_x for t in per_line.values())
     y_slots = sorted(t.port_y for t in per_line.values())
     ranked = sorted(per_line, key=lambda lid: per_line[lid].trunk_y)
-    slot = list(range(n - 1, -1, -1)) if bundle.reverse else list(range(n))
+    x_follows_trunk = -bundle.vertical_sign == bundle.trunk_sign
+    y_follows_trunk = bundle.port_lead_sign == bundle.trunk_sign
     return {
-        lid: PeeloffSlot(x_slots[slot[i]], y_slots[slot[i]], slot[i])
+        lid: PeeloffSlot(
+            x_slots[i if x_follows_trunk else n - 1 - i],
+            y_slots[i if y_follows_trunk else n - 1 - i],
+            i if x_follows_trunk else n - 1 - i,
+        )
         for i, lid in enumerate(ranked)
     }
 

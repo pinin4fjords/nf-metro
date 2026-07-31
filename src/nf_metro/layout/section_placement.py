@@ -1010,6 +1010,61 @@ def _bundles_in_gap(
             if lo == edge_hi - 1 and hi == edge_hi:
                 bundles[("U", h_dir)].add(edge.line_id)
 
+    # A same-line fan into two horizontal cell-mates can share its lead-in and
+    # then split into opposing target-side channels. Endpoint-only inference
+    # sees both edges as one target-side line, but routing must reserve both
+    # physical columns before it can materialize that split.
+    packed_targets: dict[tuple[str, str, tuple[str, ...], int], set[str]] = defaultdict(
+        set
+    )
+    pack_for_section = {
+        section_id: tuple(members)
+        for members in graph.cell_packs.values()
+        if len(members) > 1
+        for section_id in members
+    }
+    for edge in graph.edges:
+        target_port = graph.ports.get(edge.target)
+        if target_port is None or not target_port.is_entry:
+            continue
+        target_section = graph.sections.get(target_port.section_id)
+        if target_section is None:
+            continue
+        pack = pack_for_section.get(target_section.id)
+        if pack is None:
+            continue
+        source = graph.station_for_edge_source(edge)
+        source_section = resolve_section(graph, source)
+        source_col = _station_column(graph, source, col_assign, junction_ids)
+        target_col = target_section.grid_col
+        if (
+            source_section is None
+            or source_col is None
+            or source_section.grid_row != target_section.grid_row
+        ):
+            continue
+        h_dir = 1 if target_col > source_col else -1
+        faces_pack = (
+            h_dir == 1
+            and target_port.side is PortSide.LEFT
+            and target_col - source_col > 1
+            and (lo, hi) == (target_col - 1, target_col)
+        ) or (
+            h_dir == -1
+            and target_port.side is PortSide.RIGHT
+            and source_col - target_col > 1
+            and (lo, hi) == (target_col, target_col + 1)
+        )
+        if faces_pack:
+            packed_targets[(edge.source, edge.line_id, pack, h_dir)].add(
+                target_section.id
+            )
+    for (source_id, line_id, _pack, h_dir), targets in packed_targets.items():
+        for split_index in range(max(0, len(targets) - 1)):
+            bundles[("U", h_dir)].add(
+                f"{line_id}\0packed-split\0{source_id}\0{split_index}"
+            )
+
     return [len(lines) for lines in bundles.values() if lines]
 
 
@@ -1082,6 +1137,62 @@ def _has_merge_routing_in_gap(
     return False
 
 
+def _has_leftmost_merge_wrap_channel(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+    col_a: int,
+    col_b: int,
+) -> bool:
+    """Whether a fixed around-below merge descent occupies this source gap.
+
+    A merge feeding a LEFT entry in the leftmost column has no target-side
+    inter-column channel. Its rightmost feeder wraps below the target and owns
+    the gap immediately right of its source, so an opposing movable bundle
+    needs one curve runway beyond the symmetric bundle footprint.
+    """
+    merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
+    if not merge_ids:
+        return False
+    junction_ids = graph.junction_ids
+    lo, hi = min(col_a, col_b), max(col_a, col_b)
+    min_col = min(col_assign.values(), default=0)
+    for merge_id in merge_ids:
+        entry_ports = [
+            graph.ports.get(edge.target) for edge in graph.edges_from(merge_id)
+        ]
+        leftmost_entry = next(
+            (
+                port
+                for port in entry_ports
+                if port is not None
+                and port.is_entry
+                and port.side is PortSide.LEFT
+                and col_assign.get(port.section_id) == min_col
+            ),
+            None,
+        )
+        if leftmost_entry is None:
+            continue
+        source_cols = [
+            source_col
+            for edge in graph.edges_to(merge_id)
+            if (
+                source_col := _station_column(
+                    graph,
+                    graph.station_for_edge_source(edge),
+                    col_assign,
+                    junction_ids,
+                )
+            )
+            is not None
+        ]
+        if source_cols:
+            source_col = max(source_cols)
+            if (lo, hi) == (source_col, source_col + 1):
+                return True
+    return False
+
+
 def _column_pair_min_gap(
     graph: MetroGraph,
     col_assign: dict[str, int],
@@ -1106,8 +1217,18 @@ def _column_pair_min_gap(
     offset_step = graph_offset_step(graph)
     bundle_min = _min_gap_for_bundles(bundles, offset_step=offset_step)
     effective_min = max(min_gap, bundle_min)
-    if _has_merge_routing_in_gap(graph, col_assign, col, col + 1):
+    has_merge = _has_merge_routing_in_gap(graph, col_assign, col, col + 1)
+    if has_merge:
         effective_min = max(effective_min, MERGE_GAP_MIN)
+    if _has_leftmost_merge_wrap_channel(graph, col_assign, col, col + 1):
+        # Merge-around handlers can own a fixed channel one curve runway
+        # farther into the gap than the symmetric A/B allocation. Reserve that
+        # runway in addition to the prospective bundle footprints so an
+        # opposing movable bundle has a feasible A-bounded position.
+        effective_min = max(
+            effective_min,
+            bundle_min + CURVE_RADIUS,
+        )
     return effective_min, bundles
 
 
