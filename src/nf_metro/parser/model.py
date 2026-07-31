@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 from nf_metro.errors import NfMetroError
 
 if TYPE_CHECKING:
-    from nf_metro.parser.route_topology import RouteTopology
+    from nf_metro.parser.route_topology import RouteResolutionTrace, RouteTopology
 
 
 class RowGridInfo(TypedDict):
@@ -453,6 +453,9 @@ class MetroGraph:
     ports: dict[str, Port] = field(default_factory=dict)
     junctions: list[str] = field(default_factory=list)
     route_topology: RouteTopology | None = field(
+        default=None, compare=False, repr=False
+    )
+    route_resolution: RouteResolutionTrace | None = field(
         default=None, compare=False, repr=False
     )
     groups: list[StationGroup] = field(default_factory=list)

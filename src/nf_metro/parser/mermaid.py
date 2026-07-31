@@ -46,6 +46,7 @@ from nf_metro.parser.resolve import (
 )
 from nf_metro.parser.route_topology import (
     AuthoredEdgeLineage,
+    RouteResolutionTrace,
     build_route_topology,
     capture_authored_routes,
 )
@@ -328,14 +329,17 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
                 graph._fold_threshold_effective = eff_cols
                 graph._fold_compressed_sections = relocated
         _insert_terminus_convergence_stations(graph, authored_lineage)
-        endpoint_resolution = resolve_section_endpoints(graph)
+        endpoint_resolution = resolve_section_endpoints(graph, authored_lineage)
         graph.route_topology = build_route_topology(
             authored_capture, authored_lineage, endpoint_resolution
         )
-        _resolve_sections(graph, endpoint_resolution)
-        _insert_bypass_stations(graph)
+        graph.route_resolution = _resolve_sections(
+            graph, endpoint_resolution, graph.route_topology
+        )
+        graph.route_resolution = _insert_bypass_stations(graph, graph.route_resolution)
     else:
         graph.route_topology = build_route_topology(authored_capture, authored_lineage)
+        graph.route_resolution = RouteResolutionTrace()
 
 
 def _apply_pending_metadata(graph: MetroGraph) -> None:

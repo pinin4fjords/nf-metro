@@ -17,7 +17,12 @@ from nf_metro.render.plan import (
     contains_mutable_model_reference,
     thaw_render_value,
 )
-from nf_metro.render.svg import build_render_plan, emit_render_plan, render_svg
+from nf_metro.render.svg import (
+    _copy_graph_for_render,
+    build_render_plan,
+    emit_render_plan,
+    render_svg,
+)
 
 ROOT = Path(__file__).parents[1]
 
@@ -72,6 +77,18 @@ def test_render_plan_is_deeply_immutable_and_has_no_mutable_models() -> None:
         plan.graph.stations["new"] = object()  # type: ignore[index]
 
 
+def test_render_copy_shares_only_frozen_route_metadata() -> None:
+    source = ROOT / "examples" / "guide" / "03b_fan_in_merge.mmd"
+    graph = prepare_graph(source.read_text(), source_dir=str(source.parent))
+
+    copied = _copy_graph_for_render(graph)
+
+    assert copied is not graph
+    assert copied.stations is not graph.stations
+    assert copied.route_topology is graph.route_topology
+    assert copied.route_resolution is graph.route_resolution
+
+
 def test_repeated_plan_emission_is_byte_identical() -> None:
     _graph, plan = _plan("examples/topologies/fold_double.mmd")
     before = repr(plan)
@@ -104,13 +121,15 @@ def test_repeated_html_emission_is_byte_identical() -> None:
         "examples/guide/03b_fan_in_merge.mmd",
     ],
 )
-def test_route_topology_is_excluded_from_render_artifacts(path: str) -> None:
+def test_route_metadata_is_excluded_from_render_artifacts(path: str) -> None:
     graph, observed = _plan(path)
     graph.route_topology = None
+    graph.route_resolution = None
     baseline = build_render_plan(graph, resolve_theme(None, graph))
 
     assert observed == baseline
     assert not hasattr(observed.graph, "route_topology")
+    assert not hasattr(observed.graph, "route_resolution")
     assert emit_render_plan(observed) == emit_render_plan(baseline)
     assert emit_render_plan_html(observed) == emit_render_plan_html(baseline)
 

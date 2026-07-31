@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NewType
+from typing import TYPE_CHECKING, NamedTuple, NewType
 
 import networkx as nx
 
@@ -21,6 +21,14 @@ BundleId = NewType("BundleId", str)
 EndpointGroupId = NewType("EndpointGroupId", str)
 DivergenceId = NewType("DivergenceId", str)
 ConvergenceId = NewType("ConvergenceId", str)
+
+
+class ResolvedEdge(NamedTuple):
+    """One final graph edge in an authored connector's resolved path."""
+
+    source: str
+    target: str
+    line_id: str
 
 
 def _route_id(kind: str, *parts: object) -> str:
@@ -239,6 +247,49 @@ class RouteTopology:
     entry_groups: tuple[EndpointGroup, ...]
     divergences: tuple[DivergenceGroup, ...]
     convergences: tuple[ConvergenceGroup, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedEndpointPort:
+    """Synthetic port created for one topology endpoint group."""
+
+    group_id: EndpointGroupId
+    port_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedDivergence:
+    """Synthetic junction created for one topology divergence."""
+
+    group_id: DivergenceId
+    junction_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedConvergence:
+    """Synthetic junction created for one topology convergence."""
+
+    group_id: ConvergenceId
+    junction_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedConnector:
+    """Final ordered graph-edge paths for one authored connector."""
+
+    connector_id: ConnectorId
+    edge_paths: tuple[tuple[ResolvedEdge, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RouteResolutionTrace:
+    """Immutable mapping from authored topology to resolved synthetic ids."""
+
+    connectors: tuple[ResolvedConnector, ...] = ()
+    exit_ports: tuple[ResolvedEndpointPort, ...] = ()
+    entry_ports: tuple[ResolvedEndpointPort, ...] = ()
+    divergences: tuple[ResolvedDivergence, ...] = ()
+    convergences: tuple[ResolvedConvergence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

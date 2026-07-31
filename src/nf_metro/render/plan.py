@@ -207,6 +207,7 @@ class RenderPlan:
 
 
 _RENDER_GRAPH_EXCLUDED_FIELDS = {
+    "route_resolution",
     "route_topology",
     "_station_lines_cache",
     "_edges_from_cache",

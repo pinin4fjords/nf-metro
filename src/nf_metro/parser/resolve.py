@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import warnings
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import networkx as nx
 
@@ -24,7 +24,23 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
-from nf_metro.parser.route_topology import AuthoredEdgeKey, AuthoredEdgeLineage
+from nf_metro.parser.route_topology import (
+    AuthoredEdgeKey,
+    AuthoredEdgeLineage,
+    ConnectorId,
+    ConvergenceId,
+    DivergenceGroup,
+    DivergenceId,
+    EndpointGroupId,
+    ResolvedConnector,
+    ResolvedConvergence,
+    ResolvedDivergence,
+    ResolvedEdge,
+    ResolvedEndpointPort,
+    RouteConnector,
+    RouteResolutionTrace,
+    RouteTopology,
+)
 
 
 def _remove_empty_sections(graph: MetroGraph) -> None:
@@ -350,7 +366,33 @@ def _insert_terminus_convergence_stations(
         graph.add_edge(edge)
 
 
-def _insert_bypass_stations(graph: MetroGraph) -> None:
+def _expand_resolved_paths(
+    edge_paths: tuple[tuple[ResolvedEdge, ...], ...],
+    replacements: dict[ResolvedEdge, list[tuple[ResolvedEdge, ...]]],
+) -> tuple[tuple[ResolvedEdge, ...], ...]:
+    """Expand connector paths across edges replaced by parallel bypass paths."""
+    expanded_paths: list[tuple[ResolvedEdge, ...]] = []
+    changed = False
+    for path in edge_paths:
+        variants: list[tuple[ResolvedEdge, ...]] = [()]
+        for edge in path:
+            replacement_paths = replacements.get(edge)
+            if replacement_paths is None:
+                replacement_paths = [(edge,)]
+            else:
+                changed = True
+            variants = [
+                prefix + replacement
+                for prefix in variants
+                for replacement in replacement_paths
+            ]
+        expanded_paths.extend(variants)
+    return tuple(expanded_paths) if changed else edge_paths
+
+
+def _insert_bypass_stations(
+    graph: MetroGraph, route_resolution: RouteResolutionTrace
+) -> RouteResolutionTrace:
     """Insert virtual stations so non-consumed lines bypass intermediate stops.
 
     When a station S sits in the layer-path between an in-section
@@ -402,7 +444,7 @@ def _insert_bypass_stations(graph: MetroGraph) -> None:
       (L)``.
     """
     if not graph.sections:
-        return
+        return route_resolution
 
     pending_terminus_ids: set[str] = set(graph._pending_terminus.keys())
 
@@ -413,6 +455,7 @@ def _insert_bypass_stations(graph: MetroGraph) -> None:
     new_stations: list[Station] = []
     new_edges: list[Edge] = []
     edges_to_remove: set[int] = set()
+    bypass_replacements: dict[ResolvedEdge, list[tuple[ResolvedEdge, ...]]] = {}
     bypass_count = 0
 
     for section in graph.sections.values():
@@ -441,15 +484,19 @@ def _insert_bypass_stations(graph: MetroGraph) -> None:
                 )
                 for idx, edge in bypass_edges:
                     edges_to_remove.add(idx)
-                    new_edges.append(
-                        Edge(source=edge.source, target=v_id, line_id=edge.line_id)
-                    )
-                    new_edges.append(
-                        Edge(source=v_id, target=edge.target, line_id=edge.line_id)
+                    first = Edge(source=edge.source, target=v_id, line_id=edge.line_id)
+                    second = Edge(source=v_id, target=edge.target, line_id=edge.line_id)
+                    new_edges.extend((first, second))
+                    replaced = ResolvedEdge(edge.source, edge.target, edge.line_id)
+                    bypass_replacements.setdefault(replaced, []).append(
+                        (
+                            ResolvedEdge(first.source, first.target, first.line_id),
+                            ResolvedEdge(second.source, second.target, second.line_id),
+                        )
                     )
 
     if not new_stations:
-        return
+        return route_resolution
 
     for st in new_stations:
         graph.register_station(st)
@@ -460,6 +507,21 @@ def _insert_bypass_stations(graph: MetroGraph) -> None:
         )
     for edge in new_edges:
         graph.add_edge(edge)
+
+    shared_paths: dict[
+        tuple[tuple[ResolvedEdge, ...], ...],
+        tuple[tuple[ResolvedEdge, ...], ...],
+    ] = {}
+    connectors: list[ResolvedConnector] = []
+    for item in route_resolution.connectors:
+        paths = _expand_resolved_paths(item.edge_paths, bypass_replacements)
+        paths = shared_paths.setdefault(paths, paths)
+        connectors.append(
+            item
+            if paths is item.edge_paths
+            else ResolvedConnector(item.connector_id, paths)
+        )
+    return replace(route_resolution, connectors=tuple(connectors))
 
 
 def _section_topo_layers(graph: MetroGraph, section_ids: set[str]) -> dict[str, int]:
@@ -609,45 +671,42 @@ class ResolvedConnectorEndpoint:
     target_section: str
     exit_side: PortSide
     entry_side: PortSide
+    connector_ids: tuple[ConnectorId, ...]
 
 
 @dataclass(slots=True)
 class SectionEndpointResolution:
-    """Pre-port edge classification and boundary grouping for section resolve."""
+    """Pre-port edge classification and current boundary endpoints."""
 
     internal_edges: list[Edge]
     inter_section_edges: list[Edge]
     connectors: tuple[ResolvedConnectorEndpoint, ...]
-    entry_side_for_line: dict[tuple[str, str], PortSide]
-    exit_sides: dict[tuple[str, str], set[PortSide]]
-    exit_group_edges: dict[tuple[str, PortSide], list[Edge]]
-    entry_group_edges: dict[tuple[str, PortSide], list[Edge]]
 
 
-def resolve_section_endpoints(graph: MetroGraph) -> SectionEndpointResolution:
+def resolve_section_endpoints(
+    graph: MetroGraph, lineage: AuthoredEdgeLineage
+) -> SectionEndpointResolution:
     """Resolve inter-section endpoint sides once, before creating synthetic ports."""
     internal_edges, inter_section_edges = _classify_edges(graph)
     _reside_folded_flow_ports_to_grid(graph, inter_section_edges)
     _reanchor_flow_axis_ports(graph, inter_section_edges)
     entry_side_for_line = _build_entry_side_mapping(graph, inter_section_edges)
     exit_sides = _build_exit_side_mapping(graph)
-    connectors, exit_group_edges, entry_group_edges = _group_inter_section_edges(
-        graph, inter_section_edges, entry_side_for_line, exit_sides
+    connectors = _group_inter_section_edges(
+        graph, inter_section_edges, entry_side_for_line, exit_sides, lineage
     )
     return SectionEndpointResolution(
         internal_edges=internal_edges,
         inter_section_edges=inter_section_edges,
         connectors=connectors,
-        entry_side_for_line=entry_side_for_line,
-        exit_sides=exit_sides,
-        exit_group_edges=exit_group_edges,
-        entry_group_edges=entry_group_edges,
     )
 
 
 def _resolve_sections(
-    graph: MetroGraph, resolution: SectionEndpointResolution | None = None
-) -> None:
+    graph: MetroGraph,
+    resolution: SectionEndpointResolution,
+    topology: RouteTopology,
+) -> RouteResolutionTrace:
     """Post-parse: classify edges, create ports, rewrite inter-section edges.
 
     Key design: ONE exit port per source section. All lines leaving a section
@@ -655,14 +714,13 @@ def _resolve_sections(
     to multiple target sections. ONE entry port per target section per side
     (side from hints or LEFT default).
     """
-    if resolution is None:
-        resolution = resolve_section_endpoints(graph)
-
     if resolution.inter_section_edges:
-        _create_ports_and_junctions(graph, resolution)
-        _insert_merge_junctions(graph)
+        trace = _create_ports_and_junctions(graph, resolution, topology)
+    else:
+        trace = RouteResolutionTrace()
 
     _assign_section_numbers(graph)
+    return trace
 
 
 _LEADING_SIDE = {
@@ -1239,15 +1297,10 @@ def _group_inter_section_edges(
     inter_section_edges: list[Edge],
     entry_side_for_line: dict[tuple[str, str], PortSide],
     exit_sides: dict[tuple[str, str], set[PortSide]],
-) -> tuple[
-    tuple[ResolvedConnectorEndpoint, ...],
-    dict[tuple[str, PortSide], list[Edge]],
-    dict[tuple[str, PortSide], list[Edge]],
-]:
-    """Resolve and group inter-section edges by their section-boundary sides."""
+    lineage: AuthoredEdgeLineage,
+) -> tuple[ResolvedConnectorEndpoint, ...]:
+    """Resolve current inter-section endpoints and their authored identities."""
     connectors: list[ResolvedConnectorEndpoint] = []
-    exit_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
-    entry_group_edges: dict[tuple[str, PortSide], list[Edge]] = {}
 
     for edge in inter_section_edges:
         src_sec = graph.section_for_station(edge.source)
@@ -1267,19 +1320,21 @@ def _group_inter_section_edges(
                 target_section=tgt_sec,
                 exit_side=exit_side,
                 entry_side=entry_side,
+                connector_ids=tuple(key.id for key in lineage.origins(edge)),
             )
         )
-        exit_group_edges.setdefault((src_sec, exit_side), []).append(edge)
-        entry_group_edges.setdefault((tgt_sec, entry_side), []).append(edge)
 
-    return tuple(connectors), exit_group_edges, entry_group_edges
+    return tuple(connectors)
 
 
 def _create_port_stations(
     graph: MetroGraph,
-    exit_group_edges: dict[tuple[str, PortSide], list[Edge]],
-    entry_group_edges: dict[tuple[str, PortSide], list[Edge]],
-) -> tuple[dict[tuple[str, PortSide], str], dict[tuple[str, PortSide], str], int]:
+    topology: RouteTopology,
+) -> tuple[
+    dict[EndpointGroupId, str],
+    dict[EndpointGroupId, str],
+    int,
+]:
     """Create exit and entry port stations on the graph.
 
     A section gets one exit port per side it leaves by, so a line declared on
@@ -1287,54 +1342,120 @@ def _create_port_stations(
     each.  Returns (exit_port_map, entry_port_map, next_port_counter).
     """
     port_counter = 0
-    exit_port_map: dict[tuple[str, PortSide], str] = {}
+    exit_port_map: dict[EndpointGroupId, str] = {}
 
-    for sec_id, side in exit_group_edges:
-        port_id = f"{sec_id}__exit_{side.value}_{port_counter}"
+    for group in topology.exit_groups:
+        port_id = f"{group.section_id}__exit_{group.side.value}_{port_counter}"
         port = Port(
             id=port_id,
-            section_id=sec_id,
-            side=side,
+            section_id=group.section_id,
+            side=group.side,
             is_entry=False,
         )
         graph.add_port(port)
-        exit_port_map[(sec_id, side)] = port_id
+        exit_port_map[group.id] = port_id
         port_counter += 1
 
-    entry_port_map: dict[tuple[str, PortSide], str] = {}
+    entry_port_map: dict[EndpointGroupId, str] = {}
 
-    for sec_id, side in entry_group_edges:
-        port_id = f"{sec_id}__entry_{side.value}_{port_counter}"
+    for group in topology.entry_groups:
+        port_id = f"{group.section_id}__entry_{group.side.value}_{port_counter}"
         port = Port(
             id=port_id,
-            section_id=sec_id,
-            side=side,
+            section_id=group.section_id,
+            side=group.side,
             is_entry=True,
         )
         graph.add_port(port)
-        entry_port_map[(sec_id, side)] = port_id
+        entry_port_map[group.id] = port_id
         port_counter += 1
 
     return exit_port_map, entry_port_map, port_counter
 
 
+@dataclass(slots=True)
+class _BoundaryRewriteState:
+    """Mutable resolver state indexed by immutable topology identities."""
+
+    exit_ports: dict[EndpointGroupId, str]
+    entry_ports: dict[EndpointGroupId, str]
+    connectors: dict[ConnectorId, RouteConnector]
+    divergences_by_exit: dict[EndpointGroupId, DivergenceGroup]
+    connector_paths: dict[ConnectorId, list[list[ResolvedEdge]]]
+    divergence_junctions: dict[DivergenceId, str]
+    fan_edge_order: list[tuple[ResolvedEdge, DivergenceId, EndpointGroupId]]
+
+    def replace_connector_edge(
+        self,
+        connector_ids: tuple[ConnectorId, ...],
+        old_edge: ResolvedEdge,
+        replacement: tuple[ResolvedEdge, ...],
+    ) -> None:
+        """Replace one resolved edge in every named connector path."""
+        for connector_id in connector_ids:
+            replaced = False
+            for path in self.connector_paths[connector_id]:
+                for index, edge in enumerate(path):
+                    if edge != old_edge:
+                        continue
+                    path[index : index + 1] = replacement
+                    replaced = True
+            if not replaced:
+                raise ValueError("connector path is missing its convergence edge")
+
+
 def _rewrite_edges_with_junctions(
     graph: MetroGraph,
     resolution: SectionEndpointResolution,
-    exit_port_map: dict[tuple[str, PortSide], str],
-    entry_port_map: dict[tuple[str, PortSide], str],
+    topology: RouteTopology,
+    exit_port_map: dict[EndpointGroupId, str],
+    entry_port_map: dict[EndpointGroupId, str],
     port_counter: int,
-) -> None:
+) -> _BoundaryRewriteState:
     """Rewrite inter-section edges into 3-part chains with junctions."""
     new_edges: list[Edge] = list(resolution.internal_edges)
+    state = _BoundaryRewriteState(
+        exit_ports=exit_port_map,
+        entry_ports=entry_port_map,
+        connectors={connector.id: connector for connector in topology.connectors},
+        divergences_by_exit={
+            divergence.exit_group_id: divergence for divergence in topology.divergences
+        },
+        connector_paths={},
+        divergence_junctions={},
+        fan_edge_order=[],
+    )
+    connectors_by_id = state.connectors
+    divergence_by_exit = state.divergences_by_exit
+    boundary_groups: dict[
+        EndpointGroupId,
+        dict[EndpointGroupId, list[ResolvedConnectorEndpoint]],
+    ] = {}
 
-    # Group by exit port to detect fan-outs
-    exit_fan: dict[str, dict[str, list[Edge]]] = {}
-
-    for connector in resolution.connectors:
-        edge = connector.edge
-        exit_port_id = exit_port_map[(connector.source_section, connector.exit_side)]
-        entry_port_id = entry_port_map[(connector.target_section, connector.entry_side)]
+    for endpoint in resolution.connectors:
+        connector_ids = endpoint.connector_ids
+        if not connector_ids:
+            raise ValueError("boundary connector has no authored topology identity")
+        try:
+            topology_connectors = [connectors_by_id[item] for item in connector_ids]
+        except KeyError as error:
+            raise ValueError(
+                "boundary connector lineage is absent from RouteTopology"
+            ) from error
+        exit_group_ids = {item.exit_group_id for item in topology_connectors}
+        entry_group_ids = {item.entry_group_id for item in topology_connectors}
+        line_ids = {item.line_id for item in topology_connectors}
+        if (
+            len(exit_group_ids) != 1
+            or len(entry_group_ids) != 1
+            or line_ids != {endpoint.edge.line_id}
+        ):
+            raise ValueError("boundary connector lineage disagrees with RouteTopology")
+        exit_group_id = next(iter(exit_group_ids))
+        entry_group_id = next(iter(entry_group_ids))
+        exit_port_id = exit_port_map[exit_group_id]
+        entry_port_id = entry_port_map[entry_group_id]
+        edge = endpoint.edge
 
         new_edges.append(
             Edge(source=edge.source, target=exit_port_id, line_id=edge.line_id)
@@ -1342,13 +1463,21 @@ def _rewrite_edges_with_junctions(
         new_edges.append(
             Edge(source=entry_port_id, target=edge.target, line_id=edge.line_id)
         )
+        boundary_groups.setdefault(exit_group_id, {}).setdefault(
+            entry_group_id, []
+        ).append(endpoint)
 
-        exit_fan.setdefault(exit_port_id, {}).setdefault(entry_port_id, []).append(edge)
-
-    for exit_port_id, entry_targets in exit_fan.items():
-        if len(entry_targets) <= 1:
-            for entry_port_id, edges in entry_targets.items():
-                for edge in edges:
+    fan_edge_metadata: dict[ResolvedEdge, tuple[DivergenceId, EndpointGroupId]] = {}
+    for exit_group_id, entry_targets in boundary_groups.items():
+        exit_port_id = exit_port_map[exit_group_id]
+        divergence = divergence_by_exit.get(exit_group_id)
+        if divergence is None:
+            if len(entry_targets) != 1:
+                raise ValueError("resolved fan-out is absent from RouteTopology")
+            for entry_group_id, endpoints in entry_targets.items():
+                entry_port_id = entry_port_map[entry_group_id]
+                for endpoint in endpoints:
+                    edge = endpoint.edge
                     new_edges.append(
                         Edge(
                             source=exit_port_id,
@@ -1356,24 +1485,37 @@ def _rewrite_edges_with_junctions(
                             line_id=edge.line_id,
                         )
                     )
+                    path = [
+                        ResolvedEdge(edge.source, exit_port_id, edge.line_id),
+                        ResolvedEdge(exit_port_id, entry_port_id, edge.line_id),
+                        ResolvedEdge(entry_port_id, edge.target, edge.line_id),
+                    ]
+                    for connector_id in endpoint.connector_ids:
+                        state.connector_paths[connector_id] = [path.copy()]
         else:
+            if len(entry_targets) <= 1 or set(divergence.entry_group_ids) != set(
+                entry_targets
+            ):
+                raise ValueError("resolved fan-out disagrees with RouteTopology")
             junction_id = f"__junction_{port_counter}"
             port_counter += 1
             junction = Station(id=junction_id, label="", is_port=True, section_id=None)
             graph.add_station(junction)
             graph.add_junction(junction_id)
+            state.divergence_junctions[divergence.id] = junction_id
 
-            all_line_ids_set: set[str] = set()
-            for edges in entry_targets.values():
-                for edge in edges:
-                    all_line_ids_set.add(edge.line_id)
-            for lid in sorted(all_line_ids_set):
+            fan_line_ids = sorted(
+                {connectors_by_id[item].line_id for item in divergence.connector_ids}
+            )
+            for lid in fan_line_ids:
                 new_edges.append(
                     Edge(source=exit_port_id, target=junction_id, line_id=lid)
                 )
 
-            for entry_port_id, edges in entry_targets.items():
-                for edge in edges:
+            for entry_group_id, endpoints in entry_targets.items():
+                entry_port_id = entry_port_map[entry_group_id]
+                for endpoint in endpoints:
+                    edge = endpoint.edge
                     new_edges.append(
                         Edge(
                             source=junction_id,
@@ -1381,6 +1523,18 @@ def _rewrite_edges_with_junctions(
                             line_id=edge.line_id,
                         )
                     )
+                    middle = ResolvedEdge(junction_id, entry_port_id, edge.line_id)
+                    fan_edge_metadata.setdefault(
+                        middle, (divergence.id, entry_group_id)
+                    )
+                    path = [
+                        ResolvedEdge(edge.source, exit_port_id, edge.line_id),
+                        ResolvedEdge(exit_port_id, junction_id, edge.line_id),
+                        middle,
+                        ResolvedEdge(entry_port_id, edge.target, edge.line_id),
+                    ]
+                    for connector_id in endpoint.connector_ids:
+                        state.connector_paths[connector_id] = [path.copy()]
 
     # Deduplicate edges by (source, target, line_id) - multiple original
     # inter-section edges targeting different stations in the same section
@@ -1393,31 +1547,78 @@ def _rewrite_edges_with_junctions(
             seen.add(key)
             deduped.append(edge)
     graph.replace_edges(deduped)
+    state.fan_edge_order = [
+        (ResolvedEdge(edge.source, edge.target, edge.line_id), *fan_edge_metadata[key])
+        for edge in deduped
+        if (key := ResolvedEdge(edge.source, edge.target, edge.line_id))
+        in fan_edge_metadata
+    ]
+    if set(state.connector_paths) != set(connectors_by_id):
+        raise ValueError("not every topology connector resolved to a synthetic chain")
+    return state
 
 
 def _create_ports_and_junctions(
     graph: MetroGraph,
     resolution: SectionEndpointResolution,
-) -> None:
+    topology: RouteTopology,
+) -> RouteResolutionTrace:
     """Create exit/entry ports and junctions, rewrite inter-section edges.
 
     Creates one exit port per (source_section, exit_side), one entry port per
     (target_section, entry_side), and inserts junction stations where an exit
     port fans out to multiple entry ports.
     """
-    exit_port_map, entry_port_map, port_counter = _create_port_stations(
-        graph, resolution.exit_group_edges, resolution.entry_group_edges
-    )
-    _rewrite_edges_with_junctions(
+    exit_port_map, entry_port_map, port_counter = _create_port_stations(graph, topology)
+    state = _rewrite_edges_with_junctions(
         graph,
         resolution,
+        topology,
         exit_port_map,
         entry_port_map,
         port_counter,
     )
+    convergence_junctions = _insert_merge_junctions(graph, topology, state)
+    frozen_paths: dict[
+        tuple[tuple[ResolvedEdge, ...], ...],
+        tuple[tuple[ResolvedEdge, ...], ...],
+    ] = {}
+
+    def connector_paths(
+        connector_id: ConnectorId,
+    ) -> tuple[tuple[ResolvedEdge, ...], ...]:
+        paths = tuple(tuple(path) for path in state.connector_paths[connector_id])
+        return frozen_paths.setdefault(paths, paths)
+
+    return RouteResolutionTrace(
+        connectors=tuple(
+            ResolvedConnector(connector.id, connector_paths(connector.id))
+            for connector in topology.connectors
+        ),
+        exit_ports=tuple(
+            ResolvedEndpointPort(group.id, exit_port_map[group.id])
+            for group in topology.exit_groups
+        ),
+        entry_ports=tuple(
+            ResolvedEndpointPort(group.id, entry_port_map[group.id])
+            for group in topology.entry_groups
+        ),
+        divergences=tuple(
+            ResolvedDivergence(group.id, state.divergence_junctions[group.id])
+            for group in topology.divergences
+        ),
+        convergences=tuple(
+            ResolvedConvergence(group.id, convergence_junctions[group.id])
+            for group in topology.convergences
+        ),
+    )
 
 
-def _insert_merge_junctions(graph: MetroGraph) -> None:
+def _insert_merge_junctions(
+    graph: MetroGraph,
+    topology: RouteTopology,
+    state: _BoundaryRewriteState,
+) -> dict[ConvergenceId, str]:
     """Insert merge junctions where multiple same-line edges converge on one entry port.
 
     After _create_ports_and_junctions, multiple inter-section edges of the same
@@ -1432,30 +1633,33 @@ def _insert_merge_junctions(graph: MetroGraph) -> None:
     _resolve_section_col() in routing correctly resolves its column for bypass
     detection.
     """
-    # Find edges from fan-out junctions targeting entry ports, grouped
-    # by (entry_port_id, line_id).  Only junction sources are counted -
-    # exit port sources route fine as normal L-shapes and shouldn't be
-    # merged (merging disrupts exit port positioning).
-    convergent: dict[tuple[str, str], list[Edge]] = {}
-    for edge in graph.edges:
-        tgt_port = graph.ports.get(edge.target)
-        if not tgt_port or not tgt_port.is_entry:
-            continue
-        if edge.source not in graph.junctions:
-            continue
-        key = (edge.target, edge.line_id)
-        convergent.setdefault(key, []).append(edge)
+    convergence_by_key = {
+        (group.entry_group_id, group.line_id): group for group in topology.convergences
+    }
+    ordered_groups: dict[
+        tuple[EndpointGroupId, str],
+        list[tuple[ResolvedEdge, DivergenceId]],
+    ] = {}
+    for edge, divergence_id, entry_group_id in state.fan_edge_order:
+        key = (entry_group_id, edge.line_id)
+        if key in convergence_by_key:
+            ordered_groups.setdefault(key, []).append((edge, divergence_id))
 
-    # Only process groups with N>1 convergent edges
-    merge_groups = {k: v for k, v in convergent.items() if len(v) > 1}
-    if not merge_groups:
-        return
+    if set(ordered_groups) != set(convergence_by_key):
+        raise ValueError("resolved merge groups disagree with RouteTopology")
 
     counter = len(graph.junctions)
     edges_to_remove: set[tuple[str, str, str]] = set()
     new_edges: list[Edge] = []
+    convergence_junctions: dict[ConvergenceId, str] = {}
 
-    for (entry_port_id, line_id), edges in merge_groups.items():
+    for (entry_group_id, line_id), edges in ordered_groups.items():
+        convergence = convergence_by_key[(entry_group_id, line_id)]
+        if {divergence_id for _, divergence_id in edges} != set(
+            convergence.divergence_ids
+        ):
+            raise ValueError("resolved merge membership disagrees with RouteTopology")
+        entry_port_id = state.entry_ports[entry_group_id]
         entry_port = graph.ports[entry_port_id]
         merge_id = f"__merge_{counter}"
         counter += 1
@@ -1468,10 +1672,10 @@ def _insert_merge_junctions(graph: MetroGraph) -> None:
         )
         graph.add_station(merge_station)
         graph.add_junction(merge_id)
+        convergence_junctions[convergence.id] = merge_id
 
-        # Rewrite: each source -> merge junction
-        for edge in edges:
-            edges_to_remove.add((edge.source, edge.target, edge.line_id))
+        for edge, _divergence_id in edges:
+            edges_to_remove.add(edge)
             new_edges.append(Edge(source=edge.source, target=merge_id, line_id=line_id))
 
         # One edge: merge junction -> entry port
@@ -1482,3 +1686,19 @@ def _insert_merge_junctions(graph: MetroGraph) -> None:
         e for e in graph.edges if (e.source, e.target, e.line_id) not in edges_to_remove
     ]
     graph.replace_edges(kept + new_edges)
+
+    for convergence in topology.convergences:
+        merge_id = convergence_junctions[convergence.id]
+        entry_port_id = state.entry_ports[convergence.entry_group_id]
+        for connector_id in convergence.connector_ids:
+            connector = state.connectors[connector_id]
+            divergence = state.divergences_by_exit[connector.exit_group_id]
+            junction_id = state.divergence_junctions[divergence.id]
+            old_edge = ResolvedEdge(junction_id, entry_port_id, convergence.line_id)
+            replacement = (
+                ResolvedEdge(junction_id, merge_id, convergence.line_id),
+                ResolvedEdge(merge_id, entry_port_id, convergence.line_id),
+            )
+            state.replace_connector_edge((connector_id,), old_edge, replacement)
+
+    return convergence_junctions
