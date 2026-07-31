@@ -249,7 +249,7 @@ def test_render_unexpected_exception_becomes_click_exception(tmp_path, monkeypat
         raise KeyError("boom")
 
     monkeypatch.delenv("NF_METRO_DEBUG", raising=False)
-    monkeypatch.setattr("nf_metro.cli.render_graph", _boom)
+    monkeypatch.setattr("nf_metro.cli.render_graph_result", _boom)
     src = tmp_path / "a.mmd"
     src.write_text(RNASEQ_MMD.read_text())
     runner = CliRunner()
@@ -266,7 +266,7 @@ def test_render_unexpected_exception_reraises_under_debug_env(tmp_path, monkeypa
         raise KeyError("boom")
 
     monkeypatch.setenv("NF_METRO_DEBUG", "1")
-    monkeypatch.setattr("nf_metro.cli.render_graph", _boom)
+    monkeypatch.setattr("nf_metro.cli.render_graph_result", _boom)
     src = tmp_path / "a.mmd"
     src.write_text(RNASEQ_MMD.read_text())
     runner = CliRunner()
@@ -279,7 +279,7 @@ def test_render_permissive_flag_reports_downgraded_guards(tmp_path, monkeypatch)
     and reports what was downgraded on stderr."""
     import warnings
 
-    from nf_metro.api import render_graph as real_render_graph
+    from nf_metro.api import render_graph_result as real_render_graph
     from nf_metro.parser.model import PermissiveGuardWarning
 
     def _render_graph_with_warning(*args, **kwargs):
@@ -290,7 +290,7 @@ def test_render_permissive_flag_reports_downgraded_guards(tmp_path, monkeypatch)
         )
         return real_render_graph(*args, **kwargs)
 
-    monkeypatch.setattr("nf_metro.cli.render_graph", _render_graph_with_warning)
+    monkeypatch.setattr("nf_metro.cli.render_graph_result", _render_graph_with_warning)
     src = tmp_path / "a.mmd"
     src.write_text(RNASEQ_MMD.read_text())
     runner = CliRunner()

@@ -888,14 +888,12 @@ in pipeline order.
   nearest row-wide grid slot, removing fractional Ys left by earlier
   shifts. Stations listed in `graph.half_grid_station_ids` (populated
   by Stage 6.3) are skipped so they keep their intentional half-pitch
-  Y. Fan-in targets are then put back on their sources' midpoint, and
-  under `diamond_style='symmetric'` a fork hub already centred on its
-  targets is put back on theirs, together with the unbranched trunk run
-  that shared its Y before the snap (the section's own LR/RL ports and
-  the single-line stations beyond them) so the whole centreline stays
-  one straight track. Those ids join
-  `graph.half_grid_station_ids` when the restored midpoint is genuinely
-  half a pitch off the branch grid.
+  Y. The stage then restores each fan-in target to the midpoint of its
+  sources. For a symmetric diamond, it also restores the fork hub and
+  its unbranched trunk to the branch midpoint. This keeps the complete
+  centreline straight. A restored station joins
+  `graph.half_grid_station_ids` if it sits half a pitch from the branch
+  grid.
 - **Helper**: `_snap_all_y_to_grid`, with
   `_restore_convergence_midpoints` / `_restore_divergence_midpoints`
   and `_centreline_trunk_followers` (`phases/fan_bundles.py`) for the
@@ -1278,9 +1276,8 @@ in pipeline order.
   on the side it already sits, its half-grid marking cleared, and the
   section bbox grown over the moved branch alone. Stations marked
   half-grid whose settled Y is already a whole number of rows from the
-  anchor are left alone. A Stage 6.4 centreline - the fork hub and the
-  trunk run riding its midpoint - has no mirror member to look for, so it
-  is exempt.
+  anchor are left alone. A Stage 6.4 centreline has no mirror member, so
+  the fork hub and its midpoint trunk are exempt.
 - **Helper**: `_expand_orphaned_half_grid_stations`
   (`phases/fan_bundles.py`), sharing `_half_grid_frame` /
   `_straddles_nothing` with the invariant test.

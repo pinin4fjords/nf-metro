@@ -70,7 +70,7 @@ def _render(rel_name: str) -> str:
     theme_name = graph.style if graph.style in THEMES else "nfcore"
     plan = build_render_plan(graph, THEMES[theme_name])
     _PLANS[rel_name] = plan
-    return emit_render_plan(plan, THEMES[theme_name])
+    return emit_render_plan(plan)
 
 
 @pytest.mark.parametrize("name", CORPUS)
@@ -97,8 +97,8 @@ def test_clean_corpus_has_no_marker_cross(name: str) -> None:
 def test_clean_corpus_has_no_offset_collapse(name: str) -> None:
     """No gallery render draws an offset-spread line pair flush into one stroke.
 
-    Passing the laid-out graph enables the offset-pitch-aware check; a clean
-    corpus has only same-slot bundles, which it does not flag.
+    Passing the render plan enables this check. Lines assigned to the same slot
+    may share a stroke and are not reported.
     """
     svg = _render(name)
     findings = validate_render(svg, plan=_PLANS[name])

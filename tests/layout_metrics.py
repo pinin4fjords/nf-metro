@@ -17,9 +17,8 @@ distance -- so they are read straight off the drawn polylines.  Their
 definitions are those measured against human layout judgement in
 ``datasets/layout_preferences/scripts/extract_features.py``.
 
-Scoring the render means scoring the geometry the renderer drew, which a
-rendered graph carries and which cannot be re-derived from it -- see
-``measured_geometry``.
+When a ``RenderPlan`` is available, the scorecard reads the exact routes used
+for the SVG. See ``measured_geometry``.
 
 Module-level imports are kept stdlib-only so the spec and formatting helpers
 can be imported by ``build_render_diff.py`` without pulling in the layout
@@ -79,13 +78,10 @@ METRIC_KEYS: list[str] = [m.key for m in METRICS]
 def measured_geometry(
     graph: MetroGraph, plan: RenderPlan | None = None
 ) -> tuple[dict[tuple[str, str], float], list[RoutedPath]]:
-    """The ``(station_offsets, routes)`` the scorecard scores.
+    """Return the station offsets and routes used by the scorecard.
 
-    A supplied plan carries the exact immutable geometry the emitter consumes.
-    Without one, a laid-out graph is routed for pre-render optimisation callers.
-
-    The single seam between the scorecard and the geometry it reads, so a test
-    can assert that geometry is the ink the renderer drew.
+    A supplied plan provides the exact geometry used for the SVG. Without a
+    plan, the function routes the laid-out graph for pre-render callers.
     """
     from nf_metro.layout.routing import compute_station_offsets, route_edges
 

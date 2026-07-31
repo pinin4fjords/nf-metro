@@ -7,7 +7,7 @@ cascade that drives that path - explicit option > ``%%metro`` directive >
 default - lives here so both surfaces resolve it identically.
 
 :func:`prepare_graph` returns a laid-out graph for callers that need to inspect
-layout state or build a :class:`~nf_metro.render.plan.RenderPlan`;
+layout state or build a :class:`~nf_metro.render.plan.RenderPlan`.
 :func:`render_string` is the one-call convenience that returns the rendered
 string.
 """
@@ -24,14 +24,17 @@ from nf_metro.options import LAYOUT_OPTIONS
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.parser.directives import apply_legend_directive
 from nf_metro.parser.model import LineSpread, MetroGraph, PermissiveGuardWarning
-from nf_metro.render import render_svg
-from nf_metro.render.html import render_html
+from nf_metro.render.font_embed import apply_font_portability
+from nf_metro.render.html import emit_render_plan_html
 from nf_metro.render.legend import (
     logo_certainly_shows,
     logo_is_resolvable,
     resolve_logo_file,
 )
+from nf_metro.render.ns import class_prefix_context
+from nf_metro.render.plan import RenderPlan
 from nf_metro.render.style import Theme
+from nf_metro.render.svg import build_render_plan, emit_render_plan
 from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 
 # `style: dark` predates theme names; alias it onto the nfcore brand.
@@ -100,39 +103,65 @@ def resolve_theme(
     return THEMES.get(brand, THEMES["nfcore"])
 
 
-def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
-    """Route a settled graph to the appropriate renderer using *cfg*.
+@dataclass(frozen=True)
+class RenderResult:
+    """Rendered content and the immutable plan used to create it."""
 
-    Use this when you already hold a laid-out graph (e.g. from
-    :func:`prepare_graph`) and want the render half of :func:`render_string`
-    without re-parsing.
-    """
+    content: str
+    plan: RenderPlan
+
+
+def render_graph_result(
+    graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig
+) -> RenderResult:
+    """Render a laid-out graph and return its content and plan."""
     font_portability: Literal["embed", "paths"] | None = (
         "paths" if cfg.text_to_paths else "embed" if cfg.embed_font else None
     )
     if cfg.output_format == "html":
-        return render_html(
+        plan = build_render_plan(
             graph,
             theme_obj,
             debug=cfg.debug,
+            legend_position="none",
+        )
+        content = emit_render_plan_html(
+            plan,
+            animate=graph.animate,
             embed_basename=cfg.embed_basename,
             font_portability=font_portability,
             inject_dark_mode_css=cfg.inject_dark_mode_css,
             baked_mode=cfg.baked_mode,
         )
-    return render_svg(
+        return RenderResult(content, plan)
+
+    plan = build_render_plan(
         graph,
         theme_obj,
         debug=cfg.debug,
-        responsive=cfg.responsive,
-        font_portability=font_portability,
-        svg_class_prefix=cfg.svg_class_prefix,
-        inject_dark_mode_css=cfg.inject_dark_mode_css,
         chrome_css=cfg.chrome_css,
-        self_color_scheme=cfg.self_color_scheme,
-        baked_mode=cfg.baked_mode,
         bare=cfg.bare,
     )
+    with class_prefix_context(cfg.svg_class_prefix):
+        content = emit_render_plan(
+            plan,
+            animate=graph.animate,
+            responsive=cfg.responsive,
+            inject_dark_mode_css=cfg.inject_dark_mode_css,
+            self_color_scheme=cfg.self_color_scheme,
+            baked_mode=cfg.baked_mode,
+        )
+    return RenderResult(apply_font_portability(content, font_portability), plan)
+
+
+def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
+    """Render a laid-out graph using *cfg*.
+
+    Use this when you already hold a laid-out graph (e.g. from
+    :func:`prepare_graph`) and want the render half of :func:`render_string`
+    without re-parsing.
+    """
+    return render_graph_result(graph, theme_obj, cfg).content
 
 
 def prepare_graph(

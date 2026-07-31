@@ -105,7 +105,7 @@ def test_busy_pipeline_reports_positive_counts() -> None:
 
 
 def test_plan_scoring_does_not_inherit_render_settlement_gap() -> None:
-    """Render-only accommodation must not become a layout gap violation."""
+    """A render-only section shift must not count as a layout gap error."""
     graph = _layout(EXAMPLES / "topologies" / "paired_input_fan_branch_tree.mmd")
     plan = build_render_plan(graph, resolve_theme(None, graph))
 

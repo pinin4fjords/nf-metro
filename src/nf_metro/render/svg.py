@@ -149,6 +149,7 @@ from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.ns import ns as _ns
 from nf_metro.render.plan import (
     FrozenGraph,
+    FrozenRecord,
     RenderPlan,
     freeze_render_value,
     thaw_render_value,
@@ -475,67 +476,33 @@ def render_svg(
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
-    if width is None:
-        width = graph.width
-    if height is None:
-        height = graph.height
     if animate is None:
         animate = graph.animate
 
-    scaled_theme = _scale_theme_strokes(
-        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
-    )
-    with (
-        class_prefix_context(svg_class_prefix),
-        font_scale_context(graph.font_scale),
-        stroke_scale_context(graph.stroke_scale),
-    ):
-        try:
-            plan = _build_render_plan_scaled(
-                graph,
-                scaled_theme,
-                width=width,
-                height=height,
-                padding=padding,
-                debug=debug,
-                legend_position=legend_position,
-                chrome_css=chrome_css,
-                bare=bare,
-            )
-            svg = emit_render_plan(
-                plan,
-                theme,
-                animate=animate,
-                debug=debug,
-                responsive=responsive,
-                inject_dark_mode_css=inject_dark_mode_css,
-                chrome_css=chrome_css,
-                self_color_scheme=self_color_scheme,
-                baked_mode=baked_mode,
-                bare=bare,
-            )
-        except (CurveInvariantError, SectionHeaderClashError) as exc:
-            reframed = _fold_threshold_error(graph)
-            if reframed is not None:
-                raise reframed from exc
-            raise
+    with class_prefix_context(svg_class_prefix):
+        plan = build_render_plan(
+            graph,
+            theme,
+            width=width,
+            height=height,
+            padding=padding,
+            debug=debug,
+            legend_position=legend_position,
+            chrome_css=chrome_css,
+            bare=bare,
+        )
+        svg = emit_render_plan(
+            plan,
+            animate=animate,
+            responsive=responsive,
+            inject_dark_mode_css=inject_dark_mode_css,
+            self_color_scheme=self_color_scheme,
+            baked_mode=baked_mode,
+        )
 
-    if _fold_back_under_compression(graph):
-        reframed = _fold_threshold_error(graph)
-        if reframed is not None:
-            raise reframed
+    from nf_metro.render.font_embed import apply_font_portability
 
-    if font_portability == "paths":
-        from nf_metro.render.font_embed import text_to_paths as _text_to_paths
-
-        return _text_to_paths(svg)
-
-    if font_portability == "embed":
-        from nf_metro.render.font_embed import embed_font as _embed_font
-
-        return _embed_font(svg)
-
-    return svg
+    return apply_font_portability(svg, font_portability)
 
 
 def build_render_plan(
@@ -550,7 +517,7 @@ def build_render_plan(
     chrome_css: bool = True,
     bare: bool = False,
 ) -> RenderPlan:
-    """Settle a caller graph into the immutable geometry emission contract."""
+    """Build an immutable render plan without changing the caller's graph."""
     scaled_theme = _scale_theme_strokes(
         _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
     )
@@ -558,17 +525,29 @@ def build_render_plan(
         font_scale_context(graph.font_scale),
         stroke_scale_context(graph.stroke_scale),
     ):
-        return _build_render_plan_scaled(
-            graph,
-            scaled_theme,
-            width=width if width is not None else graph.width,
-            height=height if height is not None else graph.height,
-            padding=padding,
-            debug=debug,
-            legend_position=legend_position,
-            chrome_css=chrome_css,
-            bare=bare,
-        )
+        try:
+            plan = _build_render_plan_scaled(
+                graph,
+                scaled_theme,
+                width=width if width is not None else graph.width,
+                height=height if height is not None else graph.height,
+                padding=padding,
+                debug=debug,
+                legend_position=legend_position,
+                chrome_css=chrome_css,
+                bare=bare,
+            )
+        except (CurveInvariantError, SectionHeaderClashError) as exc:
+            reframed = _fold_threshold_error(graph)
+            if reframed is not None:
+                raise reframed from exc
+            raise
+
+    if _fold_back_under_compression(graph):
+        reframed = _fold_threshold_error(graph)
+        if reframed is not None:
+            raise reframed
+    return plan
 
 
 def _fold_threshold_error(graph: MetroGraph) -> FoldThresholdError | None:
@@ -721,7 +700,7 @@ def _build_render_plan_scaled(
     chrome_css: bool = True,
     bare: bool = False,
 ) -> RenderPlan:
-    """Settle all geometry on an isolated graph, then freeze the render view."""
+    """Finish render geometry on a private graph copy and freeze the result."""
     graph = copy.deepcopy(source_graph)
     effective_legend_position = (
         legend_position if legend_position is not None else graph.legend_position
@@ -738,9 +717,10 @@ def _build_render_plan_scaled(
     edge_routes = sorted(
         routes, key=lambda route: -line_priority.get(route.line_id, -1)
     )
-    edge_polylines = [
-        apply_route_offsets(route, station_offsets) for route in edge_routes
-    ]
+    route_indices = {id(route): index for index, route in enumerate(routes)}
+    edge_route_indices = tuple(route_indices[id(route)] for route in edge_routes)
+    route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    edge_polylines = [route_polylines[index] for index in edge_route_indices]
     bridges = (
         compute_bridges(
             graph, edge_routes, edge_polylines, curve_radius=SVG_CURVE_RADIUS
@@ -750,7 +730,7 @@ def _build_render_plan_scaled(
     )
     bridge_breaks = tuple(tuple(bridges.get(id(route), ())) for route in edge_routes)
 
-    header_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    header_polylines = route_polylines
 
     # Per-station rendered label (top, bottom) Y, so group bands clear the
     # (possibly diagonal) station labels rather than just the markers.
@@ -856,8 +836,6 @@ def _build_render_plan_scaled(
 
     positive_fan = tb_positive_fan_sections(graph)
 
-    frozen_graph = freeze_render_value(graph)
-    assert isinstance(frozen_graph, FrozenGraph)
     manifest = None
     if graph.embed_manifest:
         boxes: dict[str, dict[str, float]] = {}
@@ -869,17 +847,23 @@ def _build_render_plan_scaled(
             )
             boxes[s.id] = {"x": cx, "y": cy, "w": w, "h": h, "rx": rx}
         manifest = build_manifest(
-            frozen_graph,  # type: ignore[arg-type]
+            graph,
             width=svg_width,
             height=svg_height,
             station_radius=theme.station_radius,
             extra_node_data=boxes,
         )
+    frozen_graph = freeze_render_value(graph)
+    assert isinstance(frozen_graph, FrozenGraph)
+    frozen_theme = freeze_render_value(theme)
+    assert isinstance(frozen_theme, FrozenRecord)
     return RenderPlan(
+        theme=frozen_theme,
         graph=frozen_graph,
         station_offsets=freeze_render_value(station_offsets),
         routes=freeze_render_value(routes),
-        edge_routes=freeze_render_value(edge_routes),
+        route_polylines=freeze_render_value(route_polylines),
+        edge_route_indices=edge_route_indices,
         bridge_breaks=freeze_render_value(bridge_breaks),
         labels=freeze_render_value(labels),
         header_placements=freeze_render_value(header_placements),
@@ -905,27 +889,27 @@ def _build_render_plan_scaled(
         logo_h=logo_h,
         legend_logo_size=legend_logo_size,
         manifest=freeze_render_value(manifest) if manifest is not None else None,
+        debug=debug,
+        chrome_css=chrome_css,
+        bare=bare,
     )
 
 
 def emit_render_plan(
     plan: RenderPlan,
-    theme: Theme,
     *,
     animate: bool = False,
-    debug: bool = False,
     responsive: bool = False,
     inject_dark_mode_css: bool = True,
-    chrome_css: bool = True,
     self_color_scheme: bool = True,
     baked_mode: str | None = None,
-    bare: bool = False,
 ) -> str:
-    """Emit SVG from immutable settled geometry and format options only."""
+    """Create an SVG string from an immutable render plan."""
     graph: Any = plan.graph
-    theme = _scale_theme_strokes(
-        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
-    )
+    theme: Any = plan.theme
+    debug = plan.debug
+    chrome_css = plan.chrome_css
+    bare = plan.bare
     station_offsets: Any = plan.station_offsets
     routes: Any = plan.routes
     edge_routes: Any = plan.edge_routes

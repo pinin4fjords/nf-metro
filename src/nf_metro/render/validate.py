@@ -1,33 +1,13 @@
-"""Render-geometry guards that read the rendered SVG as their own oracle.
+"""Check the geometry drawn in a rendered SVG.
 
-The layout guards in :mod:`nf_metro.layout.phases.guards` and the routing
-invariants validate geometry *before* the render-time regimes run -- the
-per-line offsets applied by :func:`~nf_metro.render.svg.apply_route_offsets`,
-the multi-line label Y-shifts, and the wrapped-label lift off foreign trunks.
-The picture the user actually sees only exists in the emitted SVG.
+Layout guards run before rendering applies line offsets and final label
+adjustments. These checks parse the finished SVG so they can find problems
+introduced during rendering.
 
-:func:`validate_render` closes that gap from the other side: it parses the
-finished artifact back into node markers (from the embedded manifest), route
-polylines (from the drawn ``<path data-line-id>`` ink), and label ink boxes
-(from the drawn ``<text>`` ink), then runs render-geometry checks on what was
-drawn.  Because the predicate is the project's authoritative one
-(:func:`~nf_metro.layout.labels.segment_strikes_label`) applied to the parsed
-ink, a finding means the rendered image is wrong, not that a re-derivation
-diverged.
-
-Three checks run on the drawn ink.  The **label-strike** and **marker-cross**
-checks are pure artifact oracles -- they need only the SVG string, so they
-validate a produced file standalone without re-running layout.  The
-**offset-collapse** check is offset-pitch-aware: telling an acceptable
-same-slot bundle (distinct lines the regime put on one offset, drawn flush by
-design) from a real collapse (lines the regime spread apart, drawn flush)
-needs the assigned offsets, which the bare artifact cannot supply.  It
-therefore runs only when the ``graph`` that produced the SVG is passed
-alongside it, carrying the geometry the render published; the standalone path
-runs the two artifact-only checks.
-
-All three see the render-only geometry (the offset regime, label Y-shifts, the
-wrapped-label lift) that the pre-render layout guards never observe.
+The label-strike and marker-cross checks need only the SVG. The offset-collapse
+check also needs the :class:`~nf_metro.render.plan.RenderPlan` used to create
+the SVG. The plan records whether two lines should share a track or remain
+separate.
 """
 
 from __future__ import annotations
@@ -369,16 +349,10 @@ def check_offset_collapse(
     plan: RenderPlan,
     routes: list[tuple[str, _Subpaths]],
 ) -> list[RenderFinding]:
-    """Distinct lines drawn flush where the offset regime spread them apart.
+    """Find lines drawn together when the plan keeps them separate.
 
-    Two lines the regime assigned the same offset slot legitimately draw flush
-    (a shared-trunk bundle), so a bare perpendicular-distance floor cannot
-    distinguish that from a real collapse.  This compares the *drawn* gap on a
-    shared run against the gap the offset regime *assigned* the pair there: a
-    pair drawn flush whose assigned gap is at least one offset step has
-    collapsed into a single stroke.  The assigned geometry is the geometry the
-    renderer published, the drawn geometry comes from the artifact, so a finding
-    is a real render-time merge, not a re-derivation mismatch.
+    Lines assigned to the same offset may share a track. Lines separated by at
+    least one offset step must remain visually distinct.
     """
     expected = _expected_line_segments(plan)
     if not expected:
@@ -419,10 +393,7 @@ def check_offset_collapse(
 
 
 def _expected_line_segments(plan: RenderPlan) -> dict[str, list[_Segment]]:
-    """The post-offset routed segments the render drew, grouped by line.
-
-    Read from the immutable geometry the emitter consumed rather than re-routed.
-    """
+    """Return the plan's offset route segments, grouped by metro line."""
     segments: dict[str, list[_Segment]] = {}
     for line_id, pts in plan.offset_polylines():
         segments.setdefault(line_id, []).extend(zip(pts, pts[1:]))
@@ -497,15 +468,11 @@ def validate_render(
     plan: RenderPlan | None = None,
     graph: MetroGraph | None = None,
 ) -> list[RenderFinding]:
-    """Run the render-geometry guards on a rendered SVG and return findings.
+    """Check a rendered SVG and return its geometry problems.
 
-    Reads the embedded manifest for node identities and parses the drawn route
-    and label ink, then checks the geometry as drawn for label strikes and
-    non-consumer marker crossings (both pure artifact oracles).  When the
-    *plan* that produced this SVG is supplied it additionally checks for
-    offset-pitch collapse, which needs the assigned offsets to tell an intended
-    same-slot bundle from a real merge. ``graph`` remains accepted for source
-    compatibility but is not inspected.
+    The SVG alone supports label-strike and marker-cross checks. Pass the
+    matching *plan* to also check whether separate lines collapsed onto one
+    track. The *graph* argument remains for API compatibility and is ignored.
     """
     manifest = read_manifest(svg)
     if manifest is None:

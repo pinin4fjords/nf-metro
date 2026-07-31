@@ -1,4 +1,4 @@
-"""Contracts at the settled-geometry to artifact-emission boundary."""
+"""Tests for building and reusing immutable render plans."""
 
 from __future__ import annotations
 
@@ -60,23 +60,24 @@ def test_representative_plan_geometry_snapshot(
     assert all(isinstance(route.points, tuple) for route in plan.routes)
 
 
-def test_render_plan_is_deeply_immutable_and_model_free() -> None:
+def test_render_plan_is_deeply_immutable_and_has_no_mutable_models() -> None:
     _, plan = _plan("examples/rail_mode.mmd")
 
     assert not contains_mutable_model_reference(plan)
     with pytest.raises(FrozenInstanceError):
         plan.svg_width = 1  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        plan.theme.line_width = 1  # type: ignore[misc]
     with pytest.raises(TypeError):
         plan.graph.stations["new"] = object()  # type: ignore[index]
 
 
 def test_repeated_plan_emission_is_byte_identical() -> None:
-    graph, plan = _plan("examples/topologies/fold_double.mmd")
-    theme = resolve_theme(None, graph)
+    _graph, plan = _plan("examples/topologies/fold_double.mmd")
     before = repr(plan)
 
-    first = emit_render_plan(plan, theme)
-    second = emit_render_plan(plan, theme)
+    first = emit_render_plan(plan)
+    second = emit_render_plan(plan)
 
     assert first == second
     assert repr(plan) == before
@@ -90,10 +91,9 @@ def test_bridge_gaps_are_settled_in_plan() -> None:
 
 
 def test_repeated_html_emission_is_byte_identical() -> None:
-    graph, plan = _plan("examples/guide/01_minimal.mmd")
-    theme = resolve_theme(None, graph)
+    _graph, plan = _plan("examples/guide/01_minimal.mmd")
 
-    assert emit_render_plan_html(plan, theme) == emit_render_plan_html(plan, theme)
+    assert emit_render_plan_html(plan) == emit_render_plan_html(plan)
 
 
 def test_rendering_does_not_mutate_prepared_graph() -> None:
@@ -109,12 +109,11 @@ def test_rendering_does_not_mutate_prepared_graph() -> None:
 
 def test_manifest_geometry_is_frozen_in_plan() -> None:
     graph, plan = _plan("examples/guide/01_minimal.mmd")
-    theme = resolve_theme(None, graph)
     expected = thaw_render_value(plan.manifest)
     assert expected is not None
 
     graph.stations["fastqc"].x += 1000
-    emitted = read_manifest(emit_render_plan(plan, theme))
+    emitted = read_manifest(emit_render_plan(plan))
 
     assert emitted == expected
     nodes = {node["id"]: node for node in emitted["nodes"]}

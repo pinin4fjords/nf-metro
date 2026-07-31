@@ -163,8 +163,6 @@ def render_mmd(
     plan = build_render_plan(graph, theme, debug=debug)
     svg_str = emit_render_plan(
         plan,
-        theme,
-        debug=debug,
         self_color_scheme=self_color_scheme,
     )
     svg_path.write_text(svg_str)

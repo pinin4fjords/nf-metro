@@ -1,11 +1,12 @@
-"""Immutable settled geometry consumed by render artifact emitters."""
+"""Immutable geometry used to create SVG and HTML output."""
 # ruff: noqa: ANN401
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
 from nf_metro.parser.model import LineSpread, MetroGraph
@@ -13,15 +14,16 @@ from nf_metro.parser.model import LineSpread, MetroGraph
 
 @dataclass(frozen=True)
 class FrozenMap(Mapping[Any, Any]):
-    """Insertion-ordered immutable mapping used inside a :class:`RenderPlan`."""
+    """An immutable mapping that preserves insertion order."""
 
     entries: tuple[tuple[Any, Any], ...]
+    _index: Mapping[Any, Any] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_index", MappingProxyType(dict(self.entries)))
 
     def __getitem__(self, key: Any) -> Any:
-        for candidate, value in self.entries:
-            if candidate == key:
-                return value
-        raise KeyError(key)
+        return self._index[key]
 
     def __iter__(self) -> Iterator[Any]:
         return (key for key, _ in self.entries)
@@ -32,7 +34,7 @@ class FrozenMap(Mapping[Any, Any]):
 
 @dataclass(frozen=True)
 class FrozenRecord:
-    """A named immutable record copied from a parser or layout value."""
+    """An immutable copy of one parser or layout value."""
 
     kind: str
     values: FrozenMap
@@ -60,25 +62,64 @@ class FrozenRecord:
 
 @dataclass(frozen=True)
 class FrozenGraph(FrozenRecord):
-    """Read-only render view of a settled ``MetroGraph``."""
+    """The final, read-only graph stored in a ``RenderPlan``."""
+
+    _station_lines: FrozenMap = field(init=False, repr=False, compare=False)
+    _edges_from: FrozenMap = field(init=False, repr=False, compare=False)
+    _edges_to: FrozenMap = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        station_lines: dict[str, set[str]] = {}
+        edges_from: dict[str, list[FrozenRecord]] = {}
+        edges_to: dict[str, list[FrozenRecord]] = {}
+        for edge in self.edges:
+            station_lines.setdefault(edge.source, set()).add(edge.line_id)
+            station_lines.setdefault(edge.target, set()).add(edge.line_id)
+            edges_from.setdefault(edge.source, []).append(edge)
+            edges_to.setdefault(edge.target, []).append(edge)
+        object.__setattr__(
+            self,
+            "_station_lines",
+            FrozenMap(
+                tuple(
+                    (station_id, tuple(sorted(line_ids)))
+                    for station_id, line_ids in station_lines.items()
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_edges_from",
+            FrozenMap(
+                tuple(
+                    (station_id, tuple(station_edges))
+                    for station_id, station_edges in edges_from.items()
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_edges_to",
+            FrozenMap(
+                tuple(
+                    (station_id, tuple(station_edges))
+                    for station_id, station_edges in edges_to.items()
+                )
+            ),
+        )
 
     def station_lines(self, station_id: str) -> list[str]:
-        lines = {
-            edge.line_id
-            for edge in self.edges
-            if edge.source == station_id or edge.target == station_id
-        }
-        return sorted(lines)
+        return list(self._station_lines.get(station_id, ()))
 
     def station_lines_ordered(self, station_id: str) -> list[str]:
         served = set(self.station_lines(station_id))
         return [line_id for line_id in self.lines if line_id in served]
 
     def edges_from(self, station_id: str) -> list[FrozenRecord]:
-        return [edge for edge in self.edges if edge.source == station_id]
+        return list(self._edges_from.get(station_id, ()))
 
     def edges_to(self, station_id: str) -> list[FrozenRecord]:
-        return [edge for edge in self.edges if edge.target == station_id]
+        return list(self._edges_to.get(station_id, ()))
 
     def station_for_edge_source(self, edge: FrozenRecord) -> FrozenRecord:
         return self.stations[edge.source]
@@ -113,12 +154,14 @@ class FrozenGraph(FrozenRecord):
 
 @dataclass(frozen=True)
 class RenderPlan:
-    """Complete immutable render state, in SVG user-space pixels."""
+    """All data needed to render a map, stored in SVG pixels."""
 
+    theme: FrozenRecord
     graph: FrozenGraph
     station_offsets: FrozenMap
     routes: tuple[FrozenRecord, ...]
-    edge_routes: tuple[FrozenRecord, ...]
+    route_polylines: tuple[tuple[tuple[float, float], ...], ...]
+    edge_route_indices: tuple[int, ...]
     bridge_breaks: tuple[tuple[FrozenRecord, ...], ...]
     labels: tuple[FrozenRecord, ...]
     header_placements: FrozenMap
@@ -144,29 +187,27 @@ class RenderPlan:
     logo_h: float
     legend_logo_size: tuple[float, float] | None
     manifest: FrozenMap | None
+    debug: bool
+    chrome_css: bool
+    bare: bool
+
+    @property
+    def edge_routes(self) -> tuple[FrozenRecord, ...]:
+        """Return routes in SVG drawing order."""
+        return tuple(self.routes[index] for index in self.edge_route_indices)
 
     def offset_polylines(
         self,
     ) -> tuple[tuple[str, tuple[tuple[float, float], ...]], ...]:
-        """Return the exact per-line polylines intended for SVG emission."""
-        from nf_metro.layout.routing.common import apply_route_offsets
-
+        """Return the polylines used to draw each metro line."""
         return tuple(
-            (
-                route.line_id,
-                tuple(
-                    apply_route_offsets(
-                        route,  # type: ignore[arg-type]
-                        self.station_offsets,  # type: ignore[arg-type]
-                    )
-                ),
-            )
-            for route in self.routes
+            (route.line_id, points)
+            for route, points in zip(self.routes, self.route_polylines)
         )
 
 
 def freeze_render_value(value: Any) -> Any:
-    """Recursively copy render input into immutable scalar and tuple records."""
+    """Copy a render value into immutable containers."""
     if isinstance(value, (str, bytes, int, float, bool, type(None), Enum)):
         return value
     if isinstance(value, Mapping):
@@ -212,7 +253,7 @@ def freeze_render_value(value: Any) -> Any:
 
 
 def thaw_render_value(value: Any) -> Any:
-    """Convert immutable plan containers to ordinary serialization values."""
+    """Convert plan containers to values that JSON can serialize."""
     if isinstance(value, FrozenMap):
         return {
             thaw_render_value(key): thaw_render_value(item)
@@ -226,7 +267,7 @@ def thaw_render_value(value: Any) -> Any:
 
 
 def contains_mutable_model_reference(value: Any) -> bool:
-    """Whether a plan value retains a parser/layout model instance."""
+    """Return whether a value contains a mutable parser or layout object."""
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import Edge, Port, Section, Station
 

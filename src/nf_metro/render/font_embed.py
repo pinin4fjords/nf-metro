@@ -23,8 +23,10 @@ import html
 import re
 from collections import namedtuple
 from pathlib import Path
+from typing import Literal
 
 __all__ = [
+    "apply_font_portability",
     "embed_font",
     "text_to_paths",
     "EMBEDDED_FONT_FAMILY",
@@ -123,6 +125,15 @@ def _parse_dy(dy_str: str, font_size: float) -> float:
 
 
 # ── public API ───────────────────────────────────────────────────────────────
+
+
+def apply_font_portability(svg: str, mode: Literal["embed", "paths"] | None) -> str:
+    """Apply the requested font-portability mode to an SVG string."""
+    if mode == "paths":
+        return text_to_paths(svg)
+    if mode == "embed":
+        return embed_font(svg)
+    return svg
 
 
 def embed_font(svg: str) -> str:
