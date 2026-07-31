@@ -265,6 +265,7 @@ from nf_metro.layout.phases.ports import (  # noqa: F401
     _push_ports_from_termini,
     _push_termini_from_port,
     _realign_fold_lr_exit_ports,
+    _reconcile_flow_exit_carrier_anchors,
     _resolve_downstream_entry_y,
     _resolve_tb_exit_y,
     _set_port_x,
@@ -1553,6 +1554,9 @@ def _compute_section_layout(
     # content downward in shallower sections so the inter-section bundle
     # passes through at a single Y per row.  Bbox tops are preserved.
     _align_row_trunk_ys(graph)
+    # Carrier eligibility needs final boundary X coordinates for its corridor
+    # check and final carrier Ys after row-trunk alignment.
+    _reconcile_flow_exit_carrier_anchors(graph)
     _snap(graph, "4.8")
 
     # The trunk anchors (LR/RL port Ys) are now resolved.  The phases below
