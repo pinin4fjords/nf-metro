@@ -49,6 +49,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import networkx as nx
+
+from nf_metro.graph_views import line_graphs
 from nf_metro.parser.model import Edge, MetroGraph
 
 if TYPE_CHECKING:
@@ -133,36 +136,29 @@ def _shares_endpoint(e1: Edge, e2: Edge) -> bool:
     return bool({e1.source, e1.target} & {e2.source, e2.target})
 
 
-def _line_adj(graph: MetroGraph) -> dict[str, dict[str, set[str]]]:
-    """Per-line forward adjacency: ``succ[line_id][node]`` is the set of nodes
-    that node feeds along that line."""
-    succ: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for e in graph.edges:
-        succ[e.line_id][e.source].add(e.target)
-    return succ
+_LineReachability = dict[
+    str, tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]
+]
 
 
-_line_succ = _line_adj
-
-
-def _reachable(adj: dict[str, set[str]], start: str) -> set[str]:
-    seen = {start}
-    stack = [start]
-    while stack:
-        n = stack.pop()
-        for m in adj.get(n, ()):
-            if m not in seen:
-                seen.add(m)
-                stack.append(m)
-    return seen
+def _line_reachability(graph: MetroGraph) -> _LineReachability:
+    """Inclusive descendants and ancestors, computed once for each line."""
+    reachability: _LineReachability = {}
+    for line_id, view in line_graphs(graph).items():
+        descendants = {
+            node: frozenset((node, *nx.descendants(view, node))) for node in view
+        }
+        ancestors = {
+            node: frozenset((node, *nx.ancestors(view, node))) for node in view
+        }
+        reachability[line_id] = descendants, ancestors
+    return reachability
 
 
 def _same_line_is_fan(
     e1: Edge,
     e2: Edge,
-    line_succ: dict[str, dict[str, set[str]]],
-    *,
-    line_pred: dict[str, dict[str, set[str]]] | None = None,
+    line_reachability: _LineReachability,
 ) -> bool:
     """True when two same-line edges are one fan-out/fan-in rather than a
     genuine crossover.
@@ -180,24 +176,10 @@ def _same_line_is_fan(
     exist; reconvergence alone is not enough."""
     if _shares_endpoint(e1, e2):
         return True
-    succ = line_succ.get(e1.line_id, {})
-    if line_pred is None:
-        line_pred = _line_pred_from_succ(line_succ)
-    pred = line_pred.get(e1.line_id, {})
-    rejoins = not _reachable(succ, e1.target).isdisjoint(_reachable(succ, e2.target))
-    forks = not _reachable(pred, e1.source).isdisjoint(_reachable(pred, e2.source))
+    descendants, ancestors = line_reachability[e1.line_id]
+    rejoins = not descendants[e1.target].isdisjoint(descendants[e2.target])
+    forks = not ancestors[e1.source].isdisjoint(ancestors[e2.source])
     return rejoins and forks
-
-
-def _line_pred_from_succ(
-    line_succ: dict[str, dict[str, set[str]]],
-) -> dict[str, dict[str, set[str]]]:
-    pred: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for lid, adj in line_succ.items():
-        for src, tgts in adj.items():
-            for t in tgts:
-                pred[lid][t].add(src)
-    return pred
 
 
 def _near_node(pt: Point, node_xy: list[Point]) -> bool:
@@ -228,10 +210,9 @@ def compute_bridges(
         for s in graph.stations.values()
         if not s.is_port and not s.is_hidden and not s.id.startswith("__")
     }
-    line_succ = _line_adj(graph)
-    line_pred = _line_pred_from_succ(line_succ)
+    line_reachability = _line_reachability(graph)
     crossings = _find_crossings(
-        routes, polylines, node_pos, station_xy, line_succ, line_pred
+        routes, polylines, node_pos, station_xy, line_reachability
     )
     clusters = _cluster_crossings(crossings)
 
@@ -311,8 +292,7 @@ def _find_crossings(
     polylines: list[list[Point]],
     node_pos: dict[str, Point],
     station_xy: dict[str, Point],
-    line_succ: dict[str, dict[str, set[str]]],
-    line_pred: dict[str, dict[str, set[str]]],
+    line_reachability: _LineReachability,
 ) -> list[_Crossing]:
     """All genuine non-merging segment crossings.
 
@@ -335,7 +315,7 @@ def _find_crossings(
             if shares and not same_line:
                 continue
             is_fan = same_line and _same_line_is_fan(
-                ra.edge, rb.edge, line_succ, line_pred=line_pred
+                ra.edge, rb.edge, line_reachability
             )
             shared_nodes = (
                 {ra.edge.source, ra.edge.target} & {rb.edge.source, rb.edge.target}
@@ -397,14 +377,8 @@ def _near_join(
 
 def _cluster_crossings(crossings: list[_Crossing]) -> list[list[_Crossing]]:
     """Group crossings whose points lie within ``BRIDGE_CLUSTER_RADIUS``."""
-    parent = list(range(len(crossings)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
+    proximity: nx.Graph[int] = nx.Graph()
+    proximity.add_nodes_from(range(len(crossings)))
     for i in range(len(crossings)):
         for j in range(i + 1, len(crossings)):
             pi, pj = crossings[i].point, crossings[j].point
@@ -412,12 +386,11 @@ def _cluster_crossings(crossings: list[_Crossing]) -> list[list[_Crossing]]:
                 abs(pi[0] - pj[0]) <= BRIDGE_CLUSTER_RADIUS
                 and abs(pi[1] - pj[1]) <= BRIDGE_CLUSTER_RADIUS
             ):
-                parent[find(i)] = find(j)
-
-    groups: dict[int, list[_Crossing]] = defaultdict(list)
-    for i, c in enumerate(crossings):
-        groups[find(i)].append(c)
-    return list(groups.values())
+                proximity.add_edge(i, j)
+    return [
+        [crossings[index] for index in sorted(component)]
+        for component in nx.connected_components(proximity)
+    ]
 
 
 def _crossing_graph(
@@ -425,43 +398,34 @@ def _crossing_graph(
     routes: list[RoutedPath],
     *,
     same_line_only: bool = False,
-) -> tuple[set[int], dict[int, set[int]], dict[int, int]]:
-    """Build a cluster's crossing graph as ``(nodes, adj, seg_of)``.
+) -> tuple[nx.Graph[int], dict[int, int]]:
+    """Build a cluster's crossing graph and route-to-segment map.
 
     With ``same_line_only`` the distinct-line crossings are dropped: they never
     bridge, and a third line cornering through a same-line crossover can only
     skew the over/under colouring."""
-    adj: dict[int, set[int]] = defaultdict(set)
-    nodes: set[int] = set()
+    graph: nx.Graph[int] = nx.Graph()
     seg_of: dict[int, int] = {}
     for c in cluster:
         if same_line_only and routes[c.a].line_id != routes[c.b].line_id:
             continue
-        adj[c.a].add(c.b)
-        adj[c.b].add(c.a)
-        nodes |= {c.a, c.b}
+        graph.add_edge(c.a, c.b)
         seg_of[c.a] = c.seg_a
         seg_of[c.b] = c.seg_b
-    return nodes, adj, seg_of
+    return graph, seg_of
 
 
-def _two_colour(nodes: set[int], adj: dict[int, set[int]]) -> dict[int, int] | None:
+def _two_colour(graph: nx.Graph[int]) -> dict[int, int] | None:
     """2-colour the crossing graph; None if it is not bipartite."""
-    colour: dict[int, int] = {}
-    for start in sorted(nodes):
-        if start in colour:
-            continue
-        colour[start] = 0
-        queue = [start]
-        while queue:
-            n = queue.pop()
-            for m in adj[n]:
-                if m not in colour:
-                    colour[m] = colour[n] ^ 1
-                    queue.append(m)
-                elif colour[m] == colour[n]:
-                    return None
-    return colour
+    ordered: nx.Graph[int] = nx.Graph()
+    ordered.add_nodes_from(sorted(graph))
+    ordered.add_edges_from(graph.edges)
+    try:
+        return {
+            node: colour ^ 1 for node, colour in nx.bipartite.color(ordered).items()
+        }
+    except nx.NetworkXError:
+        return None
 
 
 Gap = tuple[Point, Point]
@@ -478,30 +442,30 @@ def _cluster_gaps(
     the under bundle.  The gap is the same span (in the shared crossing
     direction) for all parallel under-lines, so the bundle breaks with one
     aligned, uniform-width gap rather than ragged per-line gaps."""
-    nodes, adj, seg_of = _crossing_graph(cluster, routes)
+    crossing_graph, seg_of = _crossing_graph(cluster, routes)
 
-    colour = _two_colour(nodes, adj)
+    colour = _two_colour(crossing_graph)
     if colour is None:
         # A distinct-line crossing (a third line cornering through a same-line
         # crossover) can form an odd cycle with it, leaving the full graph
         # non-bipartite.  Distinct-line crossings never bridge - colour reads
         # them apart - so recolour on the same-line crossings alone; the
         # spectator lines drop out of the over/under split.
-        nodes, adj, seg_of = _crossing_graph(cluster, routes, same_line_only=True)
-        colour = _two_colour(nodes, adj)
-        if not nodes or colour is None:
+        crossing_graph, seg_of = _crossing_graph(cluster, routes, same_line_only=True)
+        colour = _two_colour(crossing_graph)
+        if not crossing_graph or colour is None:
             # No same-line crossing, or 3+ same-line arms mutually crossing:
             # no clean over/under split.
             return []
 
     group = {
-        0: [n for n in nodes if colour[n] == 0],
-        1: [n for n in nodes if colour[n] == 1],
+        0: [n for n in crossing_graph if colour[n] == 0],
+        1: [n for n in crossing_graph if colour[n] == 1],
     }
     under, lines_under, lines_over = _under_group(
         group, routes, polylines, line_priority, seg_of
     )
-    over = nodes - under
+    over = set(crossing_graph) - under
 
     # Only bridge where the two bundles share a colour.  When all the colours
     # differ the lines already read as distinct where they cross, so a gap

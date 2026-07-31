@@ -26,7 +26,7 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.render.bridges import (
     BRIDGE_NODE_TOLERANCE,
-    _line_succ,
+    _line_reachability,
     _same_line_is_fan,
     _segment_intersection,
     compute_bridges,
@@ -228,15 +228,15 @@ def test_same_line_fan_legs_are_not_a_crossover():
             Edge("right", "join", "x"),
         ]
     )
-    succ = _line_succ(g)
+    reachability = _line_reachability(g)
     e_left = Edge("fork", "left", "x")
     e_right = Edge("fork", "right", "x")
     # Distinct legs that rejoin downstream at "join" -> a fan, not a crossover.
     assert _same_line_is_fan(
-        Edge("left", "join", "x"), Edge("right", "join", "x"), succ
+        Edge("left", "join", "x"), Edge("right", "join", "x"), reachability
     )
     # Edges sharing the fork node are also a fan.
-    assert _same_line_is_fan(e_left, e_right, succ)
+    assert _same_line_is_fan(e_left, e_right, reachability)
 
 
 def test_same_line_independent_legs_are_a_crossover():
@@ -250,9 +250,11 @@ def test_same_line_independent_legs_are_a_crossover():
             Edge("b1", "b2", "x"),
         ]
     )
-    succ = _line_succ(g)
+    reachability = _line_reachability(g)
     # a1->a2 and b1->b2 share no endpoint and never reconverge downstream.
-    assert not _same_line_is_fan(Edge("a1", "a2", "x"), Edge("b1", "b2", "x"), succ)
+    assert not _same_line_is_fan(
+        Edge("a1", "a2", "x"), Edge("b1", "b2", "x"), reachability
+    )
 
 
 def test_issue484_same_colour_crossover_is_bridged():
