@@ -2136,11 +2136,10 @@ def _separate_opposing_inter_row_trunks(
     track (#1520).
 
     This direction-aware net groups every declared inter-row trunk by the gap
-    it occupies and, wherever a gap carries both dip directions over a shared
-    X range, lays the down-dip feed on an upper band and the up-dip return on a
-    lower band, a full :data:`BUNDLE_TO_BUNDLE_CLEARANCE` lane apart.  Keeping
-    the return low stops it rising to bundle with the LR feed.  Gaps with only
-    one dip direction are left to the same-direction fanning above.
+    it occupies and separates every overlapping pair whose dip direction or
+    horizontal traversal direction opposes. Down-dip feeds stay above up-dip
+    returns; flows with the same dip retain their current vertical order. Each
+    direction class receives a full :data:`BUNDLE_TO_BUNDLE_CLEARANCE` band.
     """
     step = ctx.offset_step
     by_gap: dict[int, list[_HTrunk]] = defaultdict(list)
@@ -2150,24 +2149,33 @@ def _separate_opposing_inter_row_trunks(
             by_gap[slot.gap_upper_row].append(t)
 
     for gtrunks in by_gap.values():
-        down = [t for t in gtrunks if t.dips_down]
-        up = [t for t in gtrunks if not t.dips_down]
-        if not down or not up:
-            continue
-        # Only separate when the two dip directions actually share a corridor:
-        # a down trunk overlapping a return trunk in X while within a lane of
-        # it in Y.  Well-separated or X-disjoint flows already read cleanly.
-        shares_corridor = any(
-            _x_overlap((d.x_lo, d.x_hi), (u.x_lo, u.x_hi)) > 0
-            and abs(d.y - u.y) < BUNDLE_TO_BUNDLE_CLEARANCE
-            for d in down
-            for u in up
-        )
-        if not shares_corridor:
+        by_direction: defaultdict[tuple[bool, int], list[_HTrunk]] = defaultdict(list)
+        for trunk in gtrunks:
+            by_direction[(trunk.dips_down, trunk.sign_x)].append(trunk)
+
+        participating: set[tuple[bool, int]] = set()
+        groups = list(by_direction.items())
+        for i, (a_key, a_trunks) in enumerate(groups):
+            for b_key, b_trunks in groups[i + 1 :]:
+                if not any(
+                    _x_overlap((a.x_lo, a.x_hi), (b.x_lo, b.x_hi)) > 0
+                    and abs(a.y - b.y) < BUNDLE_TO_BUNDLE_CLEARANCE
+                    for a in a_trunks
+                    for b in b_trunks
+                ):
+                    continue
+                participating.update((a_key, b_key))
+        if len(participating) < 2:
             continue
 
-        # down-dip feed on top, up-dip return beneath it, a clear lane apart.
-        _stack_trunk_bands([down, up], ctx, step, set())
+        bands = [(key, by_direction[key]) for key in participating]
+        bands.sort(
+            key=lambda item: (
+                0 if item[0][0] else 1,
+                min(trunk.y for trunk in item[1]),
+            )
+        )
+        _stack_trunk_bands([band for _key, band in bands], ctx, step, set())
 
 
 class _SlotFeatures(NamedTuple):

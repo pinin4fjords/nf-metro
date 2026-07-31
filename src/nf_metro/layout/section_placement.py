@@ -750,6 +750,13 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
         if abs(src_row - tgt_row) == 1:
             # Adjacent-row wrap: the run centres in the gap this pair separates.
             gap = (src_row, tgt_row) if tgt_row > src_row else (tgt_row, src_row)
+        elif port.side == PortSide.RIGHT and src_row < tgt_row:
+            # A multi-row RIGHT entry reached from a source above and to its
+            # left runs just below the source row before descending beside the
+            # target (``_route_right_entry_wrap``). Reserve that source-adjacent
+            # band so the traverse keeps its bypass clearance from the upper
+            # bbox instead of being squeezed against the next row's header.
+            gap = (src_row, src_row + 1)
         elif port.side == PortSide.LEFT and src_row < tgt_row:
             # A multi-row LEFT entry reached from a source ABOVE runs its long
             # horizontal in the band abutting the target row

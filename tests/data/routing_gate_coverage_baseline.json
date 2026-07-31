@@ -27,6 +27,7 @@
   "common.py::if other.section_id:::#1",
   "common.py::if pinned_bases and any(::#1",
   "common.py::if s.bbox_h <= 0:::#1",
+  "common.py::if safe_cap >= row_bottom:::#1",
   "common.py::if sec.bbox_w <= 0:::#1",
   "common.py::if sec.bbox_w <= 0:::#2",
   "common.py::if sec:::#1",
