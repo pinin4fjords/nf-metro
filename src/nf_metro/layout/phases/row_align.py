@@ -594,6 +594,34 @@ def _top_align_row_bboxes_only(graph: MetroGraph) -> None:
         level_group_anchor_edges(graph, group, "y", 1.0)
 
 
+def _packed_row_header_groups(graph: MetroGraph) -> list[list[Section]]:
+    """Return row groups whose header line includes a packed cell."""
+    packed_members = {
+        member
+        for members in graph.cell_packs.values()
+        if len(members) > 1
+        for member in members
+    }
+    if not packed_members:
+        return []
+    return [
+        group
+        for group in _row_contiguous_column_groups(graph)
+        if any(section.id in packed_members for section in group)
+    ]
+
+
+def _top_align_packed_row_bboxes(graph: MetroGraph) -> None:
+    """Preserve one header line across rows containing packed cells.
+
+    A packed cell places multiple boxes side by side within one grid column.
+    Its header line belongs to the surrounding contiguous row, so content-fit
+    compaction must not leave those adjacent badges on a staircase.
+    """
+    for group in _packed_row_header_groups(graph):
+        level_group_anchor_edges(graph, group, "y", 1.0)
+
+
 def _align_row_trunk_ys(graph: MetroGraph) -> None:
     """Shift sections vertically so trunk Ys align within each grid row.
 

@@ -57,9 +57,11 @@ from nf_metro.layout.routing.common import (
     _vert_horiz_cross,
     apply_route_offsets,
     gap_lo_for_x,
+    gap_lookup_geometry,
     horizontal_direction,
     initial_fanout_descent_span,
     is_orthogonal_turn,
+    iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
@@ -76,6 +78,7 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
     vertical_flow_sections,
 )
+from nf_metro.layout.routing.context import partial_flat_continuation_lines
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -1575,6 +1578,8 @@ def check_exit_inherits_entry_bundle_order(
             graph.station_lines(reference_id)
         ):
             continue
+        if partial_flat_continuation_lines(graph, port_id, exit_lines):
+            continue
         entry_order = _order(reference_id, exit_lines)
         exit_order = _order(port_id, exit_lines)
         if entry_order != exit_order:
@@ -1591,7 +1596,7 @@ def check_exit_inherits_entry_bundle_order(
         levels = distinct_offset_levels(
             offsets.get((port_id, lid), 0.0) for lid in exit_lines
         )
-        gap = max_interior_offset_gap(levels)
+        gap = max_interior_offset_gap(levels, graph_offset_step(graph))
         if gap is not None:
             violations.append(
                 ExitBundleOrderViolation(
@@ -2644,6 +2649,110 @@ def check_no_split_same_line_fanout_descents(
                         x_b=xb,
                         sep=sep,
                         overlap=overlap,
+                    )
+                )
+    return violations
+
+
+@dataclass(frozen=True)
+class PackedCellHandoffDivergence:
+    """Same-line branches into a packed row open in opposite directions."""
+
+    line_id: str
+    source: str
+    near_target: str
+    far_target: str
+    near_down: bool
+    far_down: bool
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        near_direction = "down" if self.near_down else "up"
+        far_direction = "down" if self.far_down else "up"
+        return (
+            f"packed-cell same-line handoff diverges at {self.source}: "
+            f"line {self.line_id!r} opens {near_direction} toward "
+            f"{self.near_target} but {far_direction} toward {self.far_target} "
+            f"instead of sharing one corridor before splitting"
+        )
+
+
+def check_packed_cell_same_line_handoff(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[PackedCellHandoffDivergence]:
+    """Return packed-cell same-line branches that open in opposite directions.
+
+    When a source sits left of two horizontally packed sections and feeds both
+    through LEFT entries on one line, the farther branch must follow the nearer
+    branch's opening corridor.  An opposite initial vertical direction creates
+    a whole-row wrap even though both branches can travel together until the
+    nearer target.
+    """
+    pack_for_section = {
+        section_id: tuple(members)
+        for members in graph.cell_packs.values()
+        if len(members) > 1
+        for section_id in members
+    }
+    grouped: dict[
+        tuple[str, str],
+        list[tuple[RoutedPath, Section, tuple[str, ...], bool]],
+    ] = defaultdict(list)
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        target_port = graph.ports.get(rp.edge.target)
+        source_station = graph.stations.get(rp.edge.source)
+        target = graph.stations.get(rp.edge.target)
+        if (
+            target_port is None
+            or not target_port.is_entry
+            or target_port.side is not PortSide.LEFT
+            or source_station is None
+            or target is None
+            or target.x <= source_station.x + COORD_TOLERANCE
+        ):
+            continue
+        target_section = graph.section_for_port(target_port)
+        pack = pack_for_section.get(target_section.id)
+        if pack is None:
+            continue
+        opening = opening_horizontal_vertical(apply_route_offsets(rp, offsets))
+        if opening is None:
+            continue
+        _start, (_turn_x, turn_y), (_drop_x, drop_y) = opening
+        grouped[(rp.edge.source, rp.line_id)].append(
+            (rp, target_section, pack, drop_y > turn_y)
+        )
+
+    violations: list[PackedCellHandoffDivergence] = []
+    for (source_id, line_id), branches in grouped.items():
+        for i, branch_a in enumerate(branches):
+            rp_a, section_a, pack_a, down_a = branch_a
+            for rp_b, section_b, pack_b, down_b in branches[i + 1 :]:
+                if pack_a != pack_b or section_a.id == section_b.id or down_a == down_b:
+                    continue
+                if section_a.bbox_x <= section_b.bbox_x:
+                    near_rp, near_section, near_down = rp_a, section_a, down_a
+                    far_rp, far_section, far_down = rp_b, section_b, down_b
+                else:
+                    near_rp, near_section, near_down = rp_b, section_b, down_b
+                    far_rp, far_section, far_down = rp_a, section_a, down_a
+                if (
+                    near_section.bbox_x + near_section.bbox_w
+                    > far_section.bbox_x + COORD_TOLERANCE
+                ):
+                    continue
+                violations.append(
+                    PackedCellHandoffDivergence(
+                        line_id=line_id,
+                        source=source_id,
+                        near_target=near_rp.edge.target,
+                        far_target=far_rp.edge.target,
+                        near_down=near_down,
+                        far_down=far_down,
                     )
                 )
     return violations
@@ -4763,13 +4872,20 @@ def check_gap_channels_materialized(
     :func:`_materialize_gap_slots` re-stacks it concentrically.  A leg in a gap
     with no slot of the same low column and direction escaped materialization.
     """
+    lookup = gap_lookup_geometry(graph)
     out: list[UndeclaredGapChannel] = []
     for rp in routes:
         if not rp.is_inter_section or rp.normalize_exempt:
             continue
         declared = {(s.gap_lo_col, s.direction is Direction.D) for s in rp.gap_slots}
         for _k, x, y_lo, y_hi, down in iter_vertical_segments(rp):
-            match = gap_lo_for_x(graph, x, y_lo, y_hi)
+            match = gap_lo_for_x(
+                graph,
+                x,
+                y_lo,
+                y_hi,
+                lookup=lookup,
+            )
             if match is None:
                 continue
             lo, _row = match
@@ -4784,6 +4900,98 @@ def check_gap_channels_materialized(
                     )
                 )
     return out
+
+
+@dataclass(frozen=True)
+class OpposingGapChannelCrowding:
+    """Opposite-running vertical bundles share an under-separated gap corridor."""
+
+    line_a: str
+    line_b: str
+    edge_a: tuple[str, str]
+    edge_b: tuple[str, str]
+    gap_lo_col: int
+    row: int | None
+    x_a: float
+    x_b: float
+    y_overlap: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"opposing gap channels: line {self.line_a!r} "
+            f"({self.edge_a[0]}->{self.edge_a[1]}) at x={self.x_a:.1f} and "
+            f"line {self.line_b!r} ({self.edge_b[0]}->{self.edge_b[1]}) at "
+            f"x={self.x_b:.1f} run in opposite directions through gap "
+            f"(cols {self.gap_lo_col},{self.gap_lo_col + 1}, row {self.row}) "
+            f"with {self.y_overlap:.1f}px of shared corridor but only "
+            f"{abs(self.x_a - self.x_b):.1f}px between them "
+            f"(< {BUNDLE_TO_BUNDLE_CLEARANCE})"
+        )
+
+
+def check_opposing_gap_channel_clearance(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[OpposingGapChannelCrowding]:
+    """Return counter-running vertical gap bundles closer than the bundle floor.
+
+    A substantial Y overlap means two vertical legs share one true corridor,
+    rather than merely meeting within their rounded elbow zones. Opposite-running
+    bundles in that corridor must keep :data:`BUNDLE_TO_BUNDLE_CLEARANCE` between
+    their nearest centrelines so they read as separate streams.
+    """
+    lookup = gap_lookup_geometry(graph)
+    channels: defaultdict[
+        tuple[int, int | None],
+        list[tuple[RoutedPath, float, float, float, bool]],
+    ] = defaultdict(list)
+    for route in routes:
+        if not route.is_inter_section:
+            continue
+        points = apply_route_offsets(route, offsets)
+        for (x0, y0), (x1, y1) in zip(points, points[1:]):
+            if abs(x1 - x0) >= COORD_TOLERANCE:
+                continue
+            y_lo, y_hi = sorted((y0, y1))
+            if y_hi - y_lo <= COORD_TOLERANCE:
+                continue
+            match = gap_lo_for_x(
+                graph,
+                x0,
+                y_lo,
+                y_hi,
+                lookup=lookup,
+            )
+            if match is not None:
+                channels[match].append((route, x0, y_lo, y_hi, y1 > y0))
+
+    violations: list[OpposingGapChannelCrowding] = []
+    for (lo_col, row), group in channels.items():
+        for i, (a, xa, alo, ahi, adown) in enumerate(group):
+            for b, xb, blo, bhi, bdown in group[i + 1 :]:
+                if adown is bdown or a.line_id == b.line_id:
+                    continue
+                overlap = min(ahi, bhi) - max(alo, blo)
+                if overlap <= MIN_CORRIDOR_Y_OVERLAP:
+                    continue
+                if abs(xa - xb) >= BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE:
+                    continue
+                violations.append(
+                    OpposingGapChannelCrowding(
+                        line_a=a.line_id,
+                        line_b=b.line_id,
+                        edge_a=(a.edge.source, a.edge.target),
+                        edge_b=(b.edge.source, b.edge.target),
+                        gap_lo_col=lo_col,
+                        row=row,
+                        x_a=xa,
+                        x_b=xb,
+                        y_overlap=overlap,
+                    )
+                )
+    return violations
 
 
 @dataclass
@@ -4860,9 +5068,29 @@ class PeeloffBundleCrossing:
         )
 
 
+@dataclass(frozen=True)
+class LooseDestinationTail:
+    """A same-port destination tail remains outside its eager bundle slot."""
+
+    port_id: str
+    line_id: str
+    trunk_y: float
+    expected_trunk_y: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"destination-tail bundle into port {self.port_id!r}: line "
+            f"{self.line_id!r} runs at trunk y={self.trunk_y:.1f}, but its "
+            f"destination order earns y={self.expected_trunk_y:.1f}"
+        )
+
+
 def check_peeloff_concentric(
-    graph: MetroGraph, routes: list[RoutedPath]
-) -> list[PeeloffBundleCrossing]:
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    curve_radius: float = CURVE_RADIUS,
+) -> list[PeeloffBundleCrossing | LooseDestinationTail]:
     """Return peel-off bundles that braid into a LEFT entry port.
 
     Every contiguous concentric peel-off bundle - lines sharing one bypass trunk
@@ -4873,8 +5101,58 @@ def check_peeloff_concentric(
     ``_convergence_line_order`` (riser peel-x) and ``_order_convergence_entry_ports``
     (port slots), so the bundle nests through the standard layout path.
     """
-    out: list[PeeloffBundleCrossing] = []
-    for bundle in iter_port_peeloff_bundles(routes, graph, OFFSET_STEP):
+    step = graph_offset_step(graph)
+    out: list[PeeloffBundleCrossing | LooseDestinationTail] = []
+    checked: set[tuple[str, int, int, int]] = set()
+    for bundle, trunks, target_ys in iter_eligible_destination_tail_bundles(
+        routes, graph, step, curve_radius
+    ):
+        checked.add(
+            (
+                bundle.port_id,
+                bundle.trunk_sign,
+                bundle.vertical_sign,
+                bundle.port_lead_sign,
+            )
+        )
+        loose = False
+        for line_id, trunk in trunks.items():
+            expected_y = target_ys[line_id]
+            if abs(trunk.y - expected_y) <= COORD_TOLERANCE:
+                continue
+            loose = True
+            out.append(
+                LooseDestinationTail(
+                    port_id=bundle.port_id,
+                    line_id=line_id,
+                    trunk_y=trunk.y,
+                    expected_trunk_y=expected_y,
+                )
+            )
+        if loose:
+            continue
+        targets = peeloff_target_slots(bundle)
+        for line_id, tail in bundle.per_line.items():
+            slot = targets[line_id]
+            if not tail_on_slot(tail, slot):
+                out.append(
+                    PeeloffBundleCrossing(
+                        port_id=bundle.port_id,
+                        line_id=line_id,
+                        peel_x=tail.peel_x,
+                        expected_peel_x=slot.peel_x,
+                    )
+                )
+
+    for bundle in iter_port_peeloff_bundles(routes, graph, step):
+        key = (
+            bundle.port_id,
+            bundle.trunk_sign,
+            bundle.vertical_sign,
+            bundle.port_lead_sign,
+        )
+        if key in checked:
+            continue
         targets = peeloff_target_slots(bundle)
         for line_id, tail in bundle.per_line.items():
             slot = targets[line_id]
@@ -4983,6 +5261,8 @@ def assert_render_curve_invariants(
     graph: MetroGraph,
     routes: list[RoutedPath],
     offsets: dict[tuple[str, str], float],
+    *,
+    curve_radius: float = CURVE_RADIUS,
 ) -> None:
     """Raise :class:`CurveInvariantError` if the final render routes are defective.
 
@@ -5039,6 +5319,10 @@ def assert_render_curve_invariants(
             check_no_same_line_parallel_descents(graph, routes, offsets),
         ),
         (
+            "packed-cell same-line handoff divergence",
+            check_packed_cell_same_line_handoff(graph, routes, offsets),
+        ),
+        (
             "riser hugs section edge",
             check_no_riser_hugs_section_edge(graph, routes, offsets),
         ),
@@ -5075,12 +5359,16 @@ def assert_render_curve_invariants(
             check_gap_channels_materialized(graph, routes),
         ),
         (
+            "opposing gap channels under-separated",
+            check_opposing_gap_channel_clearance(graph, routes, offsets),
+        ),
+        (
             "undeclared trunk",
             check_trunks_declared(routes),
         ),
         (
             "peel-off bundle braids into port",
-            check_peeloff_concentric(graph, routes),
+            check_peeloff_concentric(graph, routes, curve_radius),
         ),
         (
             "junction peel-off leaves horizontal trunk at a hard 90",
@@ -5176,6 +5464,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_coincident_corner_radii, "A"),
     _check_spec(check_collinear_distinct_lines, "A"),
     _check_spec(check_no_same_line_parallel_descents, "A"),
+    _check_spec(check_packed_cell_same_line_handoff, "A"),
     _check_spec(check_no_riser_hugs_section_edge, "A"),
     _check_spec(check_stacked_right_ports_bow_out, "A"),
     _check_spec(check_merge_branches_meet_trunk, "A"),
@@ -5185,6 +5474,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_bottom_row_climb_run_on_source_track, "A"),
     _check_spec(check_exit_row_bypass_no_early_upstep, "A"),
     _check_spec(check_gap_channels_materialized, "A"),
+    _check_spec(check_opposing_gap_channel_clearance, "A"),
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
     _check_spec(check_junction_peeloff_rounded, "A"),
@@ -5300,6 +5590,9 @@ __all__ = [
     "MergeFeederOffTrunk",
     "MergePortApproachViolation",
     "NonConcentricCornerViolation",
+    "LooseDestinationTail",
+    "OpposingGapChannelCrowding",
+    "PackedCellHandoffDivergence",
     "PartialBranchGapViolation",
     "PeeloffBundleCrossing",
     "PortCornerOvershoot",
@@ -5319,6 +5612,7 @@ __all__ = [
     "check_exit_row_bypass_no_early_upstep",
     "check_bundle_order_preserved",
     "check_gap_channels_materialized",
+    "check_opposing_gap_channel_clearance",
     "check_trunks_declared",
     "check_concentric_bundle_corners",
     "check_coincident_corner_radii",
@@ -5332,6 +5626,7 @@ __all__ = [
     "check_no_hanging_routes",
     "check_collinear_distinct_lines",
     "check_no_same_line_parallel_descents",
+    "check_packed_cell_same_line_handoff",
     "check_no_riser_hugs_section_edge",
     "check_stacked_right_ports_bow_out",
     "check_junction_peeloff_rounded",

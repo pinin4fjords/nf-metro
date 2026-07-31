@@ -871,29 +871,13 @@ def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> No
             x: [s for s in sids if set(graph.station_lines(s)) >= trunk]
             for x, sids in cols.items()
         }
-        # Snapshot pre-fan Ys so iteration order of columns doesn't
-        # drift the trunk reference: a later column must not see an
-        # earlier column's already-fanned positions.
-        pre_fan_y = {
-            sid: graph.stations[sid].y for sids in cols.values() for sid in sids
-        }
-        # The trunk reference is the section's inter-section bundle line,
-        # where its full-bundle stations sit.  A flow-axis port snapped to a
-        # downstream section's entry sits off every full-bundle row; averaging
-        # it in would drag the trunk off that line and fan the column
-        # asymmetrically, so it is excluded whenever a port that does sit on a
-        # bundle row is available.
-        bundle_row_ys = [pre_fan_y[s] for sids in full_by_col.values() for s in sids]
         lr_port_ys = [
             graph.ports[pid].y
             for pid in port_ids
             if graph.ports.get(pid) is not None
             and graph.ports[pid].side in (PortSide.LEFT, PortSide.RIGHT)
         ]
-        on_bundle_port_ys = [
-            py for py in lr_port_ys if any(abs(py - ry) <= 1.0 for ry in bundle_row_ys)
-        ]
-        port_ys = on_bundle_port_ys or lr_port_ys
+        port_ys = lr_port_ys
 
         # A column participates in the section-wide symfan when it has
         # at least one full-bundle station to anchor on AND any other
@@ -946,15 +930,7 @@ def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> No
             if port_ys:
                 trunk_y = sum(port_ys) / len(port_ys)
             else:
-                others = sorted(
-                    pre_fan_y[s]
-                    for ox, sids in full_by_col.items()
-                    if ox != x
-                    for s in sids
-                )
-                if not others:
-                    continue
-                trunk_y = others[len(others) // 2]
+                continue
             participants.sort(key=lambda s: (graph.stations[s].track, s))
             n = len(participants)
             offsets = _fan_offsets(n)

@@ -31,6 +31,7 @@ FIXTURES = [
     TOPOLOGIES / "packed_cell_left_entry_under_neighbour.mmd",
     TOPOLOGIES / "packed_cell_cellmate_bypass.mmd",
     TOPOLOGIES / "packed_cell_consumer_drop_in.mmd",
+    TOPOLOGIES / "packed_cell_left_entry_blocked_top_corridor.mmd",
 ]
 IDS = [p.stem for p in FIXTURES]
 

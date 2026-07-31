@@ -84,15 +84,17 @@ def _reverses(
     feeder: Section,
     consumer: Section,
 ) -> bool:
-    if (
-        _is_over_top_right_entry(exit_port, entry_port, feeder, consumer)
-        or _is_around_below_left_entry(graph, exit_port, entry_port, feeder, consumer)
-        or _is_vertical_column_continuation(exit_port, entry_port, feeder, consumer)
+    if _is_over_top_right_entry(
+        exit_port, entry_port, feeder, consumer
+    ) or _is_vertical_column_continuation(exit_port, entry_port, feeder, consumer):
+        return True
+    # The remaining reversal idioms need the graph walk that resolves whether
+    # this exit reaches the entry through a junction.
+    via_junction = _seam_via_junction(graph, exit_port, entry_port)
+    if _is_around_below_left_entry(
+        graph, exit_port, entry_port, feeder, consumer, via_junction
     ):
         return True
-    # Only the junction idioms need the (graph-walking) junction-mediation check,
-    # so defer it past the O(1) side/grid idioms above.
-    via_junction = _seam_via_junction(graph, exit_port, entry_port)
     return _is_fold_right_entry(exit_port, entry_port, via_junction) or (
         _is_fold_turn_right_entry(exit_port, entry_port, feeder, consumer, via_junction)
     )
@@ -141,14 +143,16 @@ def _is_around_below_left_entry(
     entry_port: Port,
     feeder: Section,
     consumer: Section,
+    via_junction: bool,
 ) -> bool:
     """Half-turn: a far-side LEFT exit wraps below into a LEFT entry.
 
-    A LEFT entry fed by a LEFT exit more than one column to its right, with an
-    intervening section on either row, is a reverse-flow bypass that drops below
-    every box and rises into the outward side -- transposing the bundle.
+    A direct LEFT exit feeding a LEFT entry more than one column to its right,
+    with an intervening section on either row, takes the around-below half-turn
+    that transposes the bundle. A junction-mediated feed uses the generic bypass
+    family instead and preserves its delivered order.
     """
-    if not (
+    if via_junction or not (
         entry_port.side is PortSide.LEFT
         and exit_port.side is PortSide.LEFT
         and not exit_port.is_entry
