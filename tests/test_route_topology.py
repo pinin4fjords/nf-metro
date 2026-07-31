@@ -27,6 +27,7 @@ from nf_metro.parser.resolve import _resolve_sections, resolve_section_endpoints
 from nf_metro.parser.route_topology import (
     AuthoredEdgeLineage,
     ConnectorId,
+    NetworkId,
     ResolvedEdge,
     RouteTopology,
     RouteTopologyQueryError,
@@ -497,6 +498,21 @@ def test_route_topology_query_metadata_contract_is_explicit() -> None:
         RouteTopologyQueryError, match="both route_topology and route_resolution"
     ):
         build_route_topology_query(resolution_only)
+
+
+def test_route_topology_query_rejects_unknown_topology_references() -> None:
+    graph = _parse(_two_section_text("    a -->|red| b\n"))
+    topology = graph.route_topology
+    assert topology is not None
+
+    connector = dataclasses.replace(
+        topology.connectors[0],
+        network_id=NetworkId("missing-network"),
+    )
+    graph.route_topology = dataclasses.replace(topology, connectors=(connector,))
+
+    with pytest.raises(RouteTopologyQueryError, match="unknown network references"):
+        build_route_topology_query(graph)
 
 
 def test_corpus_query_matches_resolved_semantic_junction_shapes() -> None:

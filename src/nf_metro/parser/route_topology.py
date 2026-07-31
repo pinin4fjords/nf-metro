@@ -348,6 +348,20 @@ def _exact_index(
     return MappingProxyType(result)
 
 
+def _require_references(
+    owner: str,
+    field: str,
+    references: tuple[_RecordId, ...],
+    known: Mapping[_RecordId, object],
+) -> None:
+    """Reject references to records absent from the same route topology."""
+    missing = tuple(reference for reference in references if reference not in known)
+    if missing:
+        raise RouteTopologyQueryError(
+            f"{owner} has unknown {field} references: {missing!r}"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class RouteTopologyQuery:
     """Ordered read-only queries over authored topology and resolver mappings."""
@@ -368,7 +382,6 @@ class RouteTopologyQuery:
     _divergences_by_junction: Mapping[str, ResolvedDivergenceView]
     _convergences_by_id: Mapping[ConvergenceId, ResolvedConvergenceView]
     _convergences_by_junction: Mapping[str, ResolvedConvergenceView]
-    _connector_ids_by_edge: Mapping[ResolvedEdge, tuple[ConnectorId, ...]]
     _merge_fanout_junction_ids: tuple[str, ...]
 
     @classmethod
@@ -396,6 +409,115 @@ class RouteTopologyQuery:
             id_getter=lambda item: item.id,
             label="bundle",
         )
+        exit_groups_by_id = _exact_index(
+            topology.exit_groups,
+            tuple(item.id for item in topology.exit_groups),
+            id_getter=lambda item: item.id,
+            label="exit group",
+        )
+        entry_groups_by_id = _exact_index(
+            topology.entry_groups,
+            tuple(item.id for item in topology.entry_groups),
+            id_getter=lambda item: item.id,
+            label="entry group",
+        )
+        divergence_groups_by_id = _exact_index(
+            topology.divergences,
+            tuple(item.id for item in topology.divergences),
+            id_getter=lambda item: item.id,
+            label="divergence group",
+        )
+        _exact_index(
+            topology.convergences,
+            tuple(item.id for item in topology.convergences),
+            id_getter=lambda item: item.id,
+            label="convergence group",
+        )
+
+        for network in topology.line_networks:
+            _require_references(
+                f"line network {network.id!r}",
+                "connector",
+                network.connector_ids,
+                connectors_by_id,
+            )
+        for connector in topology.connectors:
+            _require_references(
+                f"connector {connector.id!r}",
+                "network",
+                (connector.network_id,),
+                networks_by_id,
+            )
+            _require_references(
+                f"connector {connector.id!r}",
+                "bundle",
+                (connector.bundle_id,),
+                bundles_by_id,
+            )
+            _require_references(
+                f"connector {connector.id!r}",
+                "exit group",
+                (connector.exit_group_id,),
+                exit_groups_by_id,
+            )
+            _require_references(
+                f"connector {connector.id!r}",
+                "entry group",
+                (connector.entry_group_id,),
+                entry_groups_by_id,
+            )
+        for bundle in topology.bundles:
+            _require_references(
+                f"bundle {bundle.id!r}",
+                "connector",
+                bundle.connector_ids,
+                connectors_by_id,
+            )
+        for endpoint_group in (*topology.exit_groups, *topology.entry_groups):
+            _require_references(
+                f"endpoint group {endpoint_group.id!r}",
+                "connector",
+                endpoint_group.connector_ids,
+                connectors_by_id,
+            )
+        for divergence_group in topology.divergences:
+            _require_references(
+                f"divergence {divergence_group.id!r}",
+                "exit group",
+                (divergence_group.exit_group_id,),
+                exit_groups_by_id,
+            )
+            _require_references(
+                f"divergence {divergence_group.id!r}",
+                "entry group",
+                divergence_group.entry_group_ids,
+                entry_groups_by_id,
+            )
+            _require_references(
+                f"divergence {divergence_group.id!r}",
+                "connector",
+                divergence_group.connector_ids,
+                connectors_by_id,
+            )
+        for convergence_group in topology.convergences:
+            _require_references(
+                f"convergence {convergence_group.id!r}",
+                "entry group",
+                (convergence_group.entry_group_id,),
+                entry_groups_by_id,
+            )
+            _require_references(
+                f"convergence {convergence_group.id!r}",
+                "divergence",
+                convergence_group.divergence_ids,
+                divergence_groups_by_id,
+            )
+            _require_references(
+                f"convergence {convergence_group.id!r}",
+                "connector",
+                convergence_group.connector_ids,
+                connectors_by_id,
+            )
         resolved_connectors = _exact_index(
             resolution.connectors,
             tuple(item.id for item in topology.connectors),
@@ -427,8 +549,6 @@ class RouteTopologyQuery:
             label="resolved convergence",
         )
 
-        exit_groups_by_id = {item.id: item for item in topology.exit_groups}
-        entry_groups_by_id = {item.id: item for item in topology.entry_groups}
         exit_port_ids = {
             group_id: record.port_id for group_id, record in exit_ports.items()
         }
@@ -486,17 +606,6 @@ class RouteTopologyQuery:
                 "one resolved junction represents multiple convergence groups"
             )
 
-        connector_ids_by_edge: dict[ResolvedEdge, list[ConnectorId]] = defaultdict(list)
-        for connector in topology.connectors:
-            seen: set[ResolvedEdge] = set()
-            resolved = resolved_connectors[connector.id]
-            for path in resolved.edge_paths:
-                for edge in path:
-                    if edge in seen:
-                        continue
-                    seen.add(edge)
-                    connector_ids_by_edge[edge].append(connector.id)
-
         convergence_by_entry_line = {
             (view.group.entry_group_id, view.group.line_id): view
             for view in convergence_views
@@ -534,12 +643,6 @@ class RouteTopologyQuery:
             _divergences_by_junction=MappingProxyType(divergences_by_junction),
             _convergences_by_id=MappingProxyType(convergences_by_id),
             _convergences_by_junction=MappingProxyType(convergences_by_junction),
-            _connector_ids_by_edge=MappingProxyType(
-                {
-                    edge: tuple(connector_ids)
-                    for edge, connector_ids in connector_ids_by_edge.items()
-                }
-            ),
             _merge_fanout_junction_ids=tuple(merge_fanout_junction_ids),
         )
 
@@ -563,7 +666,14 @@ class RouteTopologyQuery:
 
     def connector_ids_for_edge(self, edge: ResolvedEdge) -> tuple[ConnectorId, ...]:
         """Return every authored connector owning a final edge, in authored order."""
-        return self._connector_ids_by_edge.get(edge, ())
+        return tuple(
+            connector.id
+            for connector in self.connectors
+            if any(
+                edge in path
+                for path in self._resolved_connectors[connector.id].edge_paths
+            )
+        )
 
     def exit_port(self, group_id: EndpointGroupId) -> str:
         """Return the resolved exit port for an authored endpoint group."""

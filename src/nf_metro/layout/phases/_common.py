@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -1763,7 +1763,11 @@ def _section_span_clear(
     return True
 
 
-def _is_fanout_junction(graph: MetroGraph, jid: str) -> bool:
+def _is_fanout_junction(
+    graph: MetroGraph,
+    jid: str,
+    divergence_sources: Mapping[str, str],
+) -> bool:
     """Whether *jid* is a fan-out junction whose Y follows its exit port.
 
     The authored topology identifies the divergence. This helper additionally
@@ -1778,11 +1782,14 @@ def _is_fanout_junction(graph: MetroGraph, jid: str) -> bool:
         return False
     if any((tp := graph.ports.get(e.target)) is None or not tp.is_entry for e in succ):
         return False
-    return jid in divergence_junction_sources(graph)
+    return jid in divergence_sources
 
 
 def _exit_anchorable_downstream(
-    graph: MetroGraph, exit_port_id: str, junction_ids: set[str]
+    graph: MetroGraph,
+    exit_port_id: str,
+    junction_ids: set[str],
+    divergence_sources: Mapping[str, str],
 ) -> bool:
     """Whether an exit's downstream lets its level change defer to the gap.
 
@@ -1795,7 +1802,7 @@ def _exit_anchorable_downstream(
     saw_target = False
     for e in edges:
         if e.target in junction_ids:
-            if not _is_fanout_junction(graph, e.target):
+            if not _is_fanout_junction(graph, e.target, divergence_sources):
                 return False
         else:
             tp = graph.ports.get(e.target)
@@ -1871,7 +1878,13 @@ def flow_exit_carrier_anchor(
     """
     if _is_fold_section(section) or section.direction not in ("LR", "RL"):
         return None
-    if not _exit_anchorable_downstream(graph, exit_port_id, junction_ids):
+    divergence_sources = divergence_junction_sources(graph)
+    if not _exit_anchorable_downstream(
+        graph,
+        exit_port_id,
+        junction_ids,
+        divergence_sources,
+    ):
         return None
     carriers = _in_section_exit_carriers(graph, exit_port_id, section)
     if not carriers:
@@ -1886,7 +1899,12 @@ def flow_exit_carrier_anchor(
         single_line_chain = (
             len(exit_lines) == 1
             and _carriers_form_flow_chain(graph, section, list(carriers))
-            and _exit_fans_out_via_junction(graph, exit_port_id, junction_ids)
+            and _exit_fans_out_via_junction(
+                graph,
+                exit_port_id,
+                junction_ids,
+                divergence_sources,
+            )
         )
         carriers_anchor = share_row and (one_line_per_carrier or single_line_chain)
         if not carriers_anchor:
@@ -1923,7 +1941,10 @@ def _carriers_form_flow_chain(
 
 
 def _exit_fans_out_via_junction(
-    graph: MetroGraph, exit_port_id: str, junction_ids: set[str]
+    graph: MetroGraph,
+    exit_port_id: str,
+    junction_ids: set[str],
+    divergence_sources: Mapping[str, str],
 ) -> bool:
     """Whether every edge out of the exit lands on a fan-out junction.
 
@@ -1935,7 +1956,9 @@ def _exit_fans_out_via_junction(
     """
     edges = list(graph.edges_from(exit_port_id))
     return bool(edges) and all(
-        e.target in junction_ids and _is_fanout_junction(graph, e.target) for e in edges
+        e.target in junction_ids
+        and _is_fanout_junction(graph, e.target, divergence_sources)
+        for e in edges
     )
 
 
