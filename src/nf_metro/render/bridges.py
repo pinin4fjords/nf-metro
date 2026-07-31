@@ -136,23 +136,33 @@ def _shares_endpoint(e1: Edge, e2: Edge) -> bool:
     return bool({e1.source, e1.target} & {e2.source, e2.target})
 
 
-_LineReachability = dict[
-    str, tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]
-]
+class _LineReachability:
+    """Per-line reachability cached only for endpoints bridge detection queries."""
+
+    def __init__(self, graph: MetroGraph) -> None:
+        self._views = line_graphs(graph)
+        self._descendants: dict[tuple[str, str], frozenset[str]] = {}
+        self._ancestors: dict[tuple[str, str], frozenset[str]] = {}
+
+    def descendants(self, line_id: str, node: str) -> frozenset[str]:
+        key = (line_id, node)
+        if key not in self._descendants:
+            self._descendants[key] = frozenset(
+                (node, *nx.descendants(self._views[line_id], node))
+            )
+        return self._descendants[key]
+
+    def ancestors(self, line_id: str, node: str) -> frozenset[str]:
+        key = (line_id, node)
+        if key not in self._ancestors:
+            self._ancestors[key] = frozenset(
+                (node, *nx.ancestors(self._views[line_id], node))
+            )
+        return self._ancestors[key]
 
 
 def _line_reachability(graph: MetroGraph) -> _LineReachability:
-    """Inclusive descendants and ancestors, computed once for each line."""
-    reachability: _LineReachability = {}
-    for line_id, view in line_graphs(graph).items():
-        descendants = {
-            node: frozenset((node, *nx.descendants(view, node))) for node in view
-        }
-        ancestors = {
-            node: frozenset((node, *nx.ancestors(view, node))) for node in view
-        }
-        reachability[line_id] = descendants, ancestors
-    return reachability
+    return _LineReachability(graph)
 
 
 def _same_line_is_fan(
@@ -176,9 +186,13 @@ def _same_line_is_fan(
     exist; reconvergence alone is not enough."""
     if _shares_endpoint(e1, e2):
         return True
-    descendants, ancestors = line_reachability[e1.line_id]
-    rejoins = not descendants[e1.target].isdisjoint(descendants[e2.target])
-    forks = not ancestors[e1.source].isdisjoint(ancestors[e2.source])
+    line_id = e1.line_id
+    rejoins = not line_reachability.descendants(line_id, e1.target).isdisjoint(
+        line_reachability.descendants(line_id, e2.target)
+    )
+    forks = not line_reachability.ancestors(line_id, e1.source).isdisjoint(
+        line_reachability.ancestors(line_id, e2.source)
+    )
     return rejoins and forks
 
 

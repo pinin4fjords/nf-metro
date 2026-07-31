@@ -327,10 +327,9 @@ def _classify_edges(
     return intra_edges, inter_edges
 
 
-def _declaration_topological_order(
-    graph: nx.DiGraph[str], declaration_order: list[str]
-) -> list[str]:
+def _declaration_topological_order(graph: nx.DiGraph[str]) -> list[str]:
     """Use declaration order for ties and append cycle-blocked nodes unchanged."""
+    declaration_order = list(graph)
     rank = {node: index for index, node in enumerate(declaration_order)}
     try:
         return list(nx.lexicographical_topological_sort(graph, key=rank.__getitem__))
@@ -341,9 +340,9 @@ def _declaration_topological_order(
                 graph.has_edge(node, node) for node in component
             ):
                 cycle_nodes.update(component)
-        blocked = set(cycle_nodes)
-        for node in cycle_nodes:
-            blocked.update(nx.descendants(graph, node))
+        blocked = set(
+            nx.multi_source_dijkstra_path_length(graph, cycle_nodes, weight=None)
+        )
         sortable = graph.subgraph(
             node for node in declaration_order if node not in blocked
         )
@@ -367,7 +366,7 @@ def _order_section_nodes(
             if src in local_nodes and tgt in local_nodes
         )
         graph = directed_graph(nids, local_edges)
-        section_node_order[sec_key] = _declaration_topological_order(graph, nids)
+        section_node_order[sec_key] = _declaration_topological_order(graph)
 
     return section_node_order
 
@@ -386,7 +385,7 @@ def _topological_order(
             section_edges.add((src_sec, tgt_sec))
 
     graph = directed_graph(section_ids, sorted(section_edges))
-    return _declaration_topological_order(graph, section_ids)
+    return _declaration_topological_order(graph)
 
 
 _MAX_LABEL_LEN = 16
