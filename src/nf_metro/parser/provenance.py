@@ -155,6 +155,33 @@ class AuthoredLayoutIntent:
             item.value for item in self.connector_sides if item.endpoint == endpoint
         )
 
+    def endpoint_values_index(
+        self,
+    ) -> dict[ConnectorEndpointKey, tuple[PortSide, ...]]:
+        """Index authored side options by semantic connector endpoint."""
+        values: dict[ConnectorEndpointKey, list[PortSide]] = {}
+        for item in self.connector_sides:
+            values.setdefault(item.endpoint, []).append(item.value)
+        return {endpoint: tuple(sides) for endpoint, sides in values.items()}
+
+    def port_hint_index(
+        self,
+    ) -> dict[tuple[str, ConnectorEndpointRole, str], tuple[PortSide, ...]]:
+        """Index authored side options by section, endpoint role, and line."""
+        return _index_port_hints(self.port_hints)
+
+
+def _index_port_hints(
+    port_hints: tuple[PortHintIntent, ...] | list[PortHintIntent],
+) -> dict[tuple[str, ConnectorEndpointRole, str], tuple[PortSide, ...]]:
+    values: dict[tuple[str, ConnectorEndpointRole, str], list[PortSide]] = {}
+    for hint in port_hints:
+        for line_id in hint.line_ids:
+            values.setdefault((hint.section_id, hint.role, line_id), []).append(
+                hint.side
+            )
+    return {key: tuple(sides) for key, sides in values.items()}
+
 
 @dataclass(frozen=True, slots=True)
 class EndpointSideSelection:
@@ -220,23 +247,17 @@ class LayoutProvenance:
         if self.authored is not None:
             raise RuntimeError("authored layout intent has already been captured")
 
-        section_rank = {sid: rank for rank, sid in enumerate(graph.sections)}
-        trailing_rank = len(section_rank)
         grids = tuple(
-            SectionIntent(section_id, decision.value)
-            for section_id, decision in sorted(
-                self.grids.items(),
-                key=lambda item: (section_rank.get(item[0], trailing_rank), item[0]),
-            )
-            if decision.origin is DecisionOrigin.AUTHORED
+            SectionIntent(section_id, grid_decision.value)
+            for section_id in routes.section_ids
+            if (grid_decision := self.grids.get(section_id)) is not None
+            and grid_decision.origin is DecisionOrigin.AUTHORED
         )
         directions = tuple(
-            SectionIntent(section_id, decision.value)
-            for section_id, decision in sorted(
-                self.directions.items(),
-                key=lambda item: (section_rank.get(item[0], trailing_rank), item[0]),
-            )
-            if decision.origin is DecisionOrigin.AUTHORED
+            SectionIntent(section_id, direction_decision.value)
+            for section_id in routes.section_ids
+            if (direction_decision := self.directions.get(section_id)) is not None
+            and direction_decision.origin is DecisionOrigin.AUTHORED
         )
 
         port_hints: list[PortHintIntent] = []
@@ -250,6 +271,7 @@ class LayoutProvenance:
                     for side, line_ids in hints
                 )
 
+        hint_index = _index_port_hints(port_hints)
         connector_sides: list[ConnectorSideIntent] = []
         for fact in routes.edges:
             if (
@@ -262,18 +284,11 @@ class LayoutProvenance:
                 (ConnectorEndpointRole.EXIT, fact.source_section),
                 (ConnectorEndpointRole.ENTRY, fact.target_section),
             ):
-                endpoint_section = graph.sections.get(section_id)
-                if endpoint_section is None:
-                    continue
-                hints = (
-                    endpoint_section.exit_hints
-                    if role is ConnectorEndpointRole.EXIT
-                    else endpoint_section.entry_hints
-                )
                 endpoint = ConnectorEndpointKey(fact.key.id, role)
-                for side, line_ids in hints:
-                    if fact.key.line_id in line_ids:
-                        connector_sides.append(ConnectorSideIntent(endpoint, side))
+                connector_sides.extend(
+                    ConnectorSideIntent(endpoint, side)
+                    for side in hint_index.get((section_id, role, fact.key.line_id), ())
+                )
 
         directive = graph.fold_threshold
         if caller_fold_threshold is not None:
@@ -383,9 +398,9 @@ class LayoutProvenance:
         self,
         endpoint: ConnectorEndpointKey,
         selection: EndpointSideSelection,
+        authored_values: tuple[PortSide, ...],
     ) -> None:
         """Record the typed resolver selection for one connector boundary."""
-        authored_values = self.authored_endpoint_values(endpoint)
         origin = selection.origin
         locked = selection.locked
         reason = selection.reason

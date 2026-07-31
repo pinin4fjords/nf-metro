@@ -31,6 +31,7 @@ from nf_metro.parser.route_topology import build_route_topology_query
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
+    from nf_metro.parser.route_topology import RouteConnector
 
 __all__ = ["build_info", "format_info_json", "format_info_text", "station_kind"]
 
@@ -60,33 +61,19 @@ def _decision_info(decision: EffectiveDecision[Any] | None) -> dict[str, Any] | 
 
 def _connector_side_info(
     graph: MetroGraph,
-    section_id: str,
+    connector: RouteConnector,
     role: ConnectorEndpointRole,
-) -> list[dict[str, Any]]:
-    topology = graph.route_topology
-    if topology is None:
-        return []
-    records: list[dict[str, Any]] = []
-    for connector in topology.connectors:
-        endpoint_section = (
-            connector.source_section
-            if role is ConnectorEndpointRole.EXIT
-            else connector.target_section
-        )
-        if endpoint_section != section_id:
-            continue
-        endpoint = graph.layout_provenance.endpoint_key(connector.id, role)
-        decision = graph.layout_provenance.endpoint_decision(endpoint)
-        records.append(
-            {
-                "connector_id": str(connector.id),
-                "line_id": connector.line_id,
-                "source": connector.source,
-                "target": connector.target,
-                "provenance": _decision_info(decision),
-            }
-        )
-    return records
+) -> dict[str, Any]:
+    endpoint = graph.layout_provenance.endpoint_key(connector.id, role)
+    return {
+        "connector_id": str(connector.id),
+        "line_id": connector.line_id,
+        "source": connector.source,
+        "target": connector.target,
+        "provenance": _decision_info(
+            graph.layout_provenance.endpoint_decision(endpoint)
+        ),
+    }
 
 
 def _inferred_summary(records: list[dict[str, Any]]) -> bool | None:
@@ -96,7 +83,7 @@ def _inferred_summary(records: list[dict[str, Any]]) -> bool | None:
         if record["provenance"] is not None
     }
     if not ownership:
-        return True
+        return None
     if len(ownership) > 1:
         return None
     return not next(iter(ownership))
@@ -132,6 +119,17 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
     parser emits these via :mod:`warnings`); pass ``None`` for none.
     """
     real_sections = graph.real_sections
+    topology_query = build_route_topology_query(graph)
+    connector_sides: dict[tuple[str, ConnectorEndpointRole], list[dict[str, Any]]] = {}
+    if topology_query is not None:
+        for connector in topology_query.connectors:
+            for section_id, role in (
+                (connector.source_section, ConnectorEndpointRole.EXIT),
+                (connector.target_section, ConnectorEndpointRole.ENTRY),
+            ):
+                connector_sides.setdefault((section_id, role), []).append(
+                    _connector_side_info(graph, connector, role)
+                )
 
     lines = []
     for lid, line in graph.lines.items():
@@ -154,8 +152,8 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
     for sid, sec in graph.sections.items():
         direction = graph.layout_provenance.direction_decision(sid)
         grid = graph.layout_provenance.grid_decision(sid)
-        entry_sides = _connector_side_info(graph, sid, ConnectorEndpointRole.ENTRY)
-        exit_sides = _connector_side_info(graph, sid, ConnectorEndpointRole.EXIT)
+        entry_sides = connector_sides.get((sid, ConnectorEndpointRole.ENTRY), [])
+        exit_sides = connector_sides.get((sid, ConnectorEndpointRole.EXIT), [])
         sections.append(
             {
                 "id": sid,
@@ -203,7 +201,6 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
         )
 
     ports = []
-    topology_query = build_route_topology_query(graph)
     for pid, port in graph.ports.items():
         role = (
             ConnectorEndpointRole.ENTRY if port.is_entry else ConnectorEndpointRole.EXIT
