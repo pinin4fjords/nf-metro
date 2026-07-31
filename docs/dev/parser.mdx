@@ -276,9 +276,10 @@ runs a post-parse sequence (only when the graph has sections):
 3. `infer_section_layout` (from `layout/auto_layout.py`) - infer missing
    grid positions, section directions, and port sides from the section
    DAG, preserving anything set explicitly by directives.
-4. `_insert_terminus_convergence_stations`.
-5. `_resolve_sections` - the core rewrite (below).
-6. `_insert_bypass_stations`.
+4. Build the immutable `RouteTopology` observation described below.
+5. `_insert_terminus_convergence_stations`.
+6. `_resolve_sections` - the core rewrite (below).
+7. `_insert_bypass_stations`.
 
 Finally the parser applies pending terminus icons, `off_track` marks,
 and per-station markers that were buffered during the statement scan.
@@ -307,6 +308,30 @@ junctions and `_assign_section_numbers` numbers any unnumbered sections.
 
 The result is a `MetroGraph` whose edges all live within a section or
 run port-to-port, ready for the layout stage.
+
+### Authored route topology
+
+`RouteTopology` captures route meaning before the resolver replaces authored
+cross-section connectors with synthetic chains. It is built immediately after
+`infer_section_layout`, when section grid positions and inferred port hints are
+available, and before terminus-convergence, port, junction, or bypass insertion.
+Resolved entry and exit sides are calculated on an isolated copy; construction
+does not mutate the graph that the resolver consumes.
+
+The topology contains one connected `LineNetwork` per line component, exact
+endpoint `BundleRun`s, cross-section connectors, resolved endpoint groups,
+divergences, and resolver-shaped convergences. Every connector links back to a
+deterministic authored-edge ordinal and the line ordinal within that authored
+edge. This distinguishes duplicate endpoint/line edges and comma-separated
+multi-line edges without relying on source line numbers.
+
+All records are frozen and contain only scalar values, `PortSide` values, and
+tuples. They retain no `MetroGraph`, station, section, edge, mutable container,
+or NetworkX object. Top-level and nested collections have explicit canonical
+ordering, so the same input produces the same topology under every hash seed.
+The resolver remains authoritative: later parser rewrites do not consume these
+records yet, and topology construction must leave resolved graph and render
+output byte-identical.
 
 ## Adding things
 

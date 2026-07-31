@@ -5,9 +5,12 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from nf_metro.errors import NfMetroError
+
+if TYPE_CHECKING:
+    from nf_metro.parser.route_topology import RouteTopology
 
 
 class RowGridInfo(TypedDict):
@@ -268,6 +271,10 @@ class Edge:
     target: str
     line_id: str
     source_line: int | None = None
+    authored_edge_ordinal: int | None = None
+    authored_line_ordinal: int | None = None
+    authored_source: str | None = None
+    authored_target: str | None = None
 
 
 @dataclass
@@ -449,6 +456,7 @@ class MetroGraph:
     sections: dict[str, Section] = field(default_factory=dict)
     ports: dict[str, Port] = field(default_factory=dict)
     junctions: list[str] = field(default_factory=list)
+    route_topology: RouteTopology | None = None
     groups: list[StationGroup] = field(default_factory=list)
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
     # Section IDs that received an explicit %%metro grid: directive (i.e.

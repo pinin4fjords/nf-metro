@@ -135,6 +135,11 @@ def _expand_interchanges(graph: MetroGraph) -> None:
                 source=moved.get((e.source, e.line_id), e.source),
                 target=moved.get((e.target, e.line_id), e.target),
                 line_id=e.line_id,
+                source_line=e.source_line,
+                authored_edge_ordinal=e.authored_edge_ordinal,
+                authored_line_ordinal=e.authored_line_ordinal,
+                authored_source=e.authored_source,
+                authored_target=e.authored_target,
             )
             for e in graph.edges
         ]
