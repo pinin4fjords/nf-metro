@@ -1,9 +1,9 @@
 "use strict";
 
-// Pinned so the install path is reproducible; bump deliberately.
-const PYODIDE_VERSION = "v0.27.2";
-
 const REPO = "seqeralabs/nf-metro";
+const DRAFT_KEY = "nf-metro-playground-draft-v2";
+const RECENTS_KEY = "nf-metro-playground-recents-v1";
+const WELCOME_KEY = "nf-metro-playground-welcome-v1";
 
 const SEED = `%%metro title: Example Pipeline
 %%metro line: qc | QC | #2dd4bf
@@ -46,93 +46,39 @@ const SAMPLE_NEXTFLOW_DAG = `flowchart TB
     v3 --> v4
 `;
 
-// Glue defined inside the Pyodide runtime: returns a JSON envelope so a render
-// error surfaces as data rather than a thrown PythonError to unwind in JS.
-//
-// Layout cache: parse+compute_layout is expensive (~200-500ms). We cache the
-// settled MetroGraph keyed on (normalised mmd + geometry options). Brand, mode,
-// debug, animate, and directional are render-only - they don't affect station
-// coordinates, so changing them skips layout and only re-runs render_svg.
-// The style: and mode: directives are stripped before hashing so toggling brand
-// or render mode doesn't bust the geometry cache.
-//
-// permissive is always forced on (see currentOptions()): a guard failure
-// downgrades to a PermissiveGuardWarning and the render proceeds best-effort,
-// instead of the whole editor going blank on one bad topology. Warnings are
-// collected per-call (never accumulated onto the cached graph) and returned
-// alongside the svg so the UI can show both.
-const PY_GLUE = `
-import hashlib
-import json
-import re as _re
-import warnings
-from nf_metro.api import prepare_graph, resolve_theme
-from nf_metro.convert import convert_nextflow_dag
-from nf_metro.parser.model import PermissiveGuardWarning, split_guard_warnings
-from nf_metro.render import render_svg
-
-_cached_graph = None
-_cached_key = None
-_RENDER_ONLY = frozenset({"animate", "directional"})
-_STYLE_RE = _re.compile(r"^\\s*%%metro\\s+(?:style|mode):.*$", _re.MULTILINE)
-
-def nfm_render(mmd, opts_json):
-    global _cached_graph, _cached_key
-    opts = json.loads(opts_json)
-    all_layout = {k: v for k, v in (opts.get("layout_options") or {}).items() if v is not None}
-
-    layout_geom = {k: v for k, v in all_layout.items() if k not in _RENDER_ONLY}
-    render_only = {k: v for k, v in all_layout.items() if k in _RENDER_ONLY}
-
-    mmd_norm = _STYLE_RE.sub("", mmd).strip()
-    cache_key = hashlib.md5((mmd_norm + "\\x00" + json.dumps(layout_geom, sort_keys=True)).encode()).hexdigest()
-
-    svg = None
-    error = None
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.filterwarnings("always", category=PermissiveGuardWarning)
-        try:
-            if cache_key != _cached_key:
-                graph = prepare_graph(mmd, layout_options=layout_geom)
-                _cached_graph = graph
-                _cached_key = cache_key
-            else:
-                graph = _cached_graph
-
-            for k, v in render_only.items():
-                setattr(graph, k, bool(v))
-
-            theme_obj = resolve_theme(opts.get("theme") or None, graph, mode=opts.get("mode") or None)
-            svg = render_svg(
-                graph,
-                theme_obj,
-                debug=bool(opts.get("debug")),
-                responsive=True,
-                font_portability="embed",
-                self_color_scheme=False,
-            )
-        except Exception as e:
-            error = f"{type(e).__name__}: {e}"
-
-    guard_warnings = [str(w.message) for w in split_guard_warnings(caught)[0]]
-    if svg is not None:
-        return json.dumps({"ok": True, "svg": svg, "warnings": guard_warnings})
-    return json.dumps({"ok": False, "error": error, "warnings": guard_warnings})
-
-def nfm_convert(nextflow_dag):
-    try:
-        return json.dumps({"ok": True, "mmd": convert_nextflow_dag(nextflow_dag)})
-    except Exception as e:
-        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"})
-`;
+const SOURCE_COMPLETIONS = [
+  ["%%metro title: ", "Map title"],
+  ["%%metro line: id | Name | #19b7a5", "Define a route"],
+  ["%%metro style: nfcore", "Map brand"],
+  ["%%metro mode: light", "Light or dark output"],
+  ["%%metro direction: LR", "Section direction"],
+  ["%%metro grid: section | 0,0", "Place a section"],
+  ["%%metro file: station | FORMAT", "File terminus"],
+  ["%%metro files: station | FORMAT", "Multiple-file terminus"],
+  ["%%metro dir: station | Results", "Directory terminus"],
+  ["%%metro line_spread: rails", "Parallel route rails"],
+  ["%%metro animate: true", "Animated route markers"],
+  ["%%metro directional: true", "Direction chevrons"],
+  ["subgraph section_id [Section name]", "Start a section"],
+  ["station_id[Station label]", "Add a station"],
+  ["source -->|line_id| target", "Connect stations"],
+  ["end", "End a section"],
+].map(([text, detail]) => ({ text, displayText: `${text}  -  ${detail}` }));
 
 const el = (id) => document.getElementById(id);
 let editor = null;
-let pyRender = null;
-let pyConvert = null;
+let renderWorker = null;
+let workerReady = false;
+let workerRequestId = 0;
+let bootTimeout = null;
+let latestRenderId = 0;
+let queuedRender = null;
+const workerRequests = new Map();
 let lastSvg = "";
 let nfMetroVersion = "";
 let buildSha = "";
+let draftTimer = null;
+let lastSavedSource = "";
 const examples = {};
 
 /* ------------------------------- editor -------------------------------- */
@@ -156,12 +102,23 @@ function initEditor() {
     lineNumbers: true,
     lineWrapping: false,
     theme: "default",
+    gutters: ["CodeMirror-linenumbers", "nfm-diagnostics"],
+    extraKeys: {
+      "Ctrl-Space": showSourceCompletions,
+      "Cmd-Space": showSourceCompletions,
+    },
   });
-  editor.setValue(loadFromHash() || SEED);
+  editor.setValue(loadInitialSource());
+  lastSavedSource = editor.getValue();
   loadFromHashGz().then((src) => {
     if (src != null) editor.setValue(src);
   });
-  editor.on("change", debounce(doRender, 300));
+  const renderAfterChange = debounce(doRender, 300);
+  editor.on("change", () => {
+    renderAfterChange();
+    scheduleDraftSave();
+    updateDocumentState();
+  });
 
   // CodeMirror measures gutter and line geometry once at creation and never
   // re-measures when its container resizes; refresh() re-runs that measurement.
@@ -175,6 +132,7 @@ function initEditor() {
     getValue: () => editor.getValue(),
     setValue: (v) => editor.setValue(v),
     render: doRender,
+    complete: showSourceCompletions,
     setMode,
     getMode: () => editMode,
     select: setSelection,
@@ -194,50 +152,246 @@ function initEditor() {
   };
 }
 
+function showSourceCompletions(instance = editor) {
+  const cursor = instance.getCursor();
+  const line = instance.getLine(cursor.line);
+  const start = line.search(/\S|$/);
+  const query = line.slice(start, cursor.ch).toLowerCase();
+  const list = SOURCE_COMPLETIONS.filter((item) =>
+    item.text.toLowerCase().includes(query),
+  );
+  CodeMirror.showHint(instance, () => ({
+    from: CodeMirror.Pos(cursor.line, start),
+    to: cursor,
+    list: list.length ? list : SOURCE_COMPLETIONS,
+  }));
+}
+
+/* -------------------------- local documents --------------------------- */
+
+function storedJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function loadInitialSource() {
+  const shared = loadFromHash();
+  if (shared != null) return shared;
+  const draft = storedJson(DRAFT_KEY, null);
+  return draft && draft.source ? draft.source : SEED;
+}
+
+function mapTitle(source = editor?.getValue() || "") {
+  const match = source.match(/^\s*%%metro\s+title:\s*(.+)$/m);
+  return match ? match[1].trim() : "Untitled map";
+}
+
+function updateDocumentState() {
+  if (!editor) return;
+  el("document-name").textContent = mapTitle();
+  const changed = editor.getValue() !== lastSavedSource;
+  el("draft-status").textContent = changed
+    ? "Saving local draft…"
+    : "Saved locally";
+  el("route-source").classList.toggle("active", changed);
+}
+
+function saveDraft() {
+  const source = editor.getValue();
+  try {
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        source,
+        title: mapTitle(source),
+        updatedAt: Date.now(),
+      }),
+    );
+    lastSavedSource = source;
+    updateDocumentState();
+  } catch (_) {
+    el("draft-status").textContent = "Local saving unavailable";
+  }
+}
+
+function scheduleDraftSave() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraft, 450);
+}
+
+function recentDocuments() {
+  return storedJson(RECENTS_KEY, []);
+}
+
+function archiveSource(source = editor.getValue()) {
+  if (!source.trim() || source === SEED) return;
+  const recents = recentDocuments().filter((entry) => entry.source !== source);
+  recents.unshift({
+    id: String(Date.now()),
+    title: mapTitle(source),
+    source,
+    updatedAt: Date.now(),
+  });
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(recents.slice(0, 8)));
+  } catch (_) {}
+  refreshRecents();
+}
+
+function refreshRecents() {
+  const select = el("recent-select");
+  if (!select) return;
+  select.replaceChildren(new Option("Choose…", ""));
+  recentDocuments().forEach((entry) => {
+    const option = new Option(entry.title, entry.id);
+    option.title = new Date(entry.updatedAt).toLocaleString();
+    select.append(option);
+  });
+}
+
+function loadRecent(id) {
+  const entry = recentDocuments().find((item) => item.id === id);
+  if (!entry) return;
+  archiveSource();
+  editor.setValue(entry.source);
+  el("recent-select").value = "";
+  toast(`Opened ${entry.title}`);
+}
+
+function replaceDocument(source, message) {
+  archiveSource();
+  editor.setValue(source);
+  editor.clearHistory();
+  saveDraft();
+  showMobileView("source");
+  if (message) toast(message);
+}
+
+function newDocument() {
+  if (
+    editor.getValue() !== lastSavedSource &&
+    !confirm("Start a new map? Your current work is saved in Recent maps.")
+  )
+    return;
+  replaceDocument(SEED, "Started a new map");
+}
+
+async function openSourceFile(file) {
+  if (!file) return;
+  const source = await file.text();
+  if (
+    /^\s*(?:flowchart|graph)\s+(?:TB|TD)\b/m.test(source) &&
+    !source.includes("%%metro")
+  ) {
+    if (!workerReady) {
+      toast("The DAG importer is still loading");
+      return;
+    }
+    setRenderStatus("Converting Nextflow DAG", "loading");
+    const result = await workerCall("convert", { source });
+    if (!result.ok) {
+      showError(`Conversion failed: ${result.error}`);
+      return;
+    }
+    replaceDocument(result.mmd, `Imported ${file.name}`);
+    return;
+  }
+  replaceDocument(source, `Opened ${file.name}`);
+}
+
+function setRenderStatus(message, state) {
+  const status = el("render-status");
+  if (!status) return;
+  status.dataset.state = state;
+  const text = status.querySelector(".status-text");
+  if (text) text.textContent = message;
+  else
+    status.replaceChildren(
+      Object.assign(document.createElement("span"), {
+        className: "status-dot",
+      }),
+      document.createTextNode(message),
+    );
+}
+
 /* --------------------------------- boot -------------------------------- */
 
 function setBootMsg(msg) {
   el("boot-msg").textContent = msg;
+  setRenderStatus(msg, "loading");
 }
 
-async function resolveWheel() {
-  // Prefer a dev wheel shipped alongside the page (built from the current
-  // source); fall back to the released package on PyPI.
-  try {
-    const resp = await fetch("wheels/index.json", { cache: "no-store" });
-    if (resp.ok) {
-      const { wheel } = await resp.json();
-      if (wheel) return new URL("wheels/" + wheel, location.href).href;
+function showBootFailure(message) {
+  clearTimeout(bootTimeout);
+  setBootMsg(message);
+  setRenderStatus("Renderer unavailable", "error");
+  el("boot").querySelector(".spinner").classList.add("hidden");
+  el("boot-retry").classList.remove("hidden");
+}
+
+function workerCall(type, payload = {}) {
+  return new Promise((resolve, reject) => {
+    const id = ++workerRequestId;
+    workerRequests.set(id, { resolve, reject });
+    renderWorker.postMessage({ type, id, ...payload });
+  });
+}
+
+function boot() {
+  clearTimeout(bootTimeout);
+  if (renderWorker) renderWorker.terminate();
+  workerReady = false;
+  el("boot").classList.remove("hidden");
+  el("boot").querySelector(".spinner").classList.remove("hidden");
+  el("boot-retry").classList.add("hidden");
+  setBootMsg("Loading the browser runtime");
+  renderWorker = new Worker("worker.js");
+  renderWorker.onmessage = ({ data }) => {
+    if (data.type === "progress") {
+      setBootMsg(data.message);
+      return;
     }
-  } catch (_) {
-    /* no dev wheel; use PyPI */
-  }
-  return "nf-metro";
-}
-
-async function boot() {
-  try {
-    setBootMsg("Starting Python runtime…");
-    const pyodide = await loadPyodide({
-      indexURL: `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`,
-    });
-    setBootMsg("Installing nf-metro…");
-    await pyodide.loadPackage("micropip");
-    const micropip = pyodide.pyimport("micropip");
-    await micropip.install(await resolveWheel());
-    pyodide.runPython(PY_GLUE);
-    pyRender = pyodide.globals.get("nfm_render");
-    pyConvert = pyodide.globals.get("nfm_convert");
-    nfMetroVersion = pyodide.runPython("import nf_metro; nf_metro.__version__");
-    el("boot").classList.add("hidden");
-    doRender();
-    // Readiness means the runtime is up, independent of whether the first
-    // render happened to succeed.
-    window.__nfMetroReady = true;
-  } catch (err) {
-    setBootMsg("Failed to start: " + err);
-    el("boot").querySelector(".spinner").classList.add("hidden");
-  }
+    if (data.type === "ready") {
+      clearTimeout(bootTimeout);
+      workerReady = true;
+      nfMetroVersion = data.version;
+      el("runtime-version").textContent = `nf-metro ${nfMetroVersion}`;
+      setRenderStatus("Renderer ready", "ready");
+      el("route-layout").classList.add("complete");
+      showWelcomeIfNeeded();
+      el("boot").classList.add("hidden");
+      doRender();
+      window.__nfMetroReady = true;
+      return;
+    }
+    if (data.type === "boot-error") {
+      showBootFailure(`Renderer failed to start: ${data.error}`);
+      return;
+    }
+    if (data.type === "render-result") {
+      handleRenderResult(data);
+      return;
+    }
+    const pending = workerRequests.get(data.id);
+    if (!pending) return;
+    workerRequests.delete(data.id);
+    if (data.type === "worker-error") pending.reject(new Error(data.error));
+    else pending.resolve(data.result);
+  };
+  renderWorker.onerror = (event) => {
+    showBootFailure(`Renderer failed to start: ${event.message}`);
+  };
+  bootTimeout = setTimeout(
+    () =>
+      showBootFailure(
+        "Renderer startup timed out. Check your connection and retry.",
+      ),
+    90000,
+  );
+  renderWorker.postMessage({ type: "boot" });
 }
 
 /* -------------------------------- render ------------------------------- */
@@ -260,60 +414,105 @@ function currentOptions() {
   };
 }
 
-function showError(msg) {
+function diagnosticPosition(message) {
+  const match = String(message || "").match(
+    /line\s+(\d+)(?:[, :] +column\s+(\d+))?/i,
+  );
+  if (!match) return null;
+  return {
+    line: Math.max(0, Number(match[1]) - 1),
+    ch: Math.max(0, Number(match[2] || 1) - 1),
+  };
+}
+
+function clearDiagnosticMarker() {
+  editor.clearGutter("nfm-diagnostics");
+}
+
+function showError(msg, severity = "error") {
   const box = el("error");
+  clearDiagnosticMarker();
   if (!msg) {
     box.classList.add("hidden");
     box.textContent = "";
+    box.dataset.severity = "";
   } else {
-    box.textContent = msg;
+    box.replaceChildren();
+    box.dataset.severity = severity;
+    const label = document.createElement("strong");
+    label.textContent =
+      severity === "warning" ? "Layout warning" : "Source error";
+    const text = document.createElement("span");
+    text.textContent = msg;
+    box.append(label, text);
+    const position = diagnosticPosition(msg);
+    if (position) {
+      const marker = document.createElement("span");
+      marker.className = `diagnostic-marker ${severity}`;
+      marker.textContent = severity === "warning" ? "!" : "×";
+      marker.title = severity === "warning" ? "Layout warning" : "Source error";
+      editor.setGutterMarker(position.line, "nfm-diagnostics", marker);
+      const jump = document.createElement("button");
+      jump.className = "diagnostic-jump";
+      jump.textContent = `Go to line ${position.line + 1}`;
+      jump.addEventListener("click", () => {
+        editor.setCursor(position);
+        editor.focus();
+      });
+      box.append(jump);
+    }
     box.classList.remove("hidden");
   }
 }
 
 function doRender() {
-  if (!pyRender) return;
-  // Snapshot inputs before the setTimeout so we render the state at the moment
-  // doRender fired, not what the editor contains when the callback runs.
-  const mmd = editor.getValue();
-  const optsJson = JSON.stringify(currentOptions());
-  // Mark the preview as rendering and yield one paint cycle so the browser can
-  // show the dimmed state before the synchronous Python call blocks the thread.
+  queuedRender = {
+    mmd: editor.getValue(),
+    options: JSON.stringify(currentOptions()),
+  };
+  if (!workerReady) return;
+  const id = ++workerRequestId;
+  latestRenderId = id;
+  const payload = queuedRender;
+  queuedRender = null;
   el("preview").classList.add("rendering");
-  setTimeout(() => {
-    let res;
-    try {
-      res = JSON.parse(pyRender(mmd, optsJson));
-    } catch (err) {
-      el("preview").classList.remove("rendering");
-      showError("Render runtime error: " + err);
-      return;
-    }
-    el("preview").classList.remove("rendering");
-    // permissive mode means a guard failure can still hand back an svg (of the
-    // defective geometry) alongside the warning(s) it downgraded, so the two
-    // are reported independently rather than one replacing the other.
-    if (res.svg) {
-      lastSvg = res.svg;
-      el("preview").innerHTML = res.svg;
-      applyZoom();
-    }
-    const warnings =
-      res.warnings && res.warnings.length ? res.warnings.join("\n\n") : "";
-    if (!res.ok) {
-      // No svg at all (or a fatal error on top of any downgraded guards):
-      // keep the last good render visible and report everything we know.
-      const parts = warnings ? [warnings, res.error] : [res.error];
-      showError(friendlyRenderError(parts.join("\n\n")));
-    } else if (warnings) {
-      showError(friendlyRenderError(warnings));
-    } else {
-      showError(null);
-    }
-    refreshLineColors();
-    syncDirectiveControls();
-    reapplySelection();
-  }, 0);
+  el("stale-preview").classList.toggle("hidden", !lastSvg);
+  setRenderStatus("Rendering map", "loading");
+  el("route-layout").classList.add("active");
+  renderWorker.postMessage({ type: "render", id, ...payload });
+  return id;
+}
+
+function handleRenderResult({ id, result: res, duration }) {
+  if (id !== latestRenderId) return;
+  el("preview").classList.remove("rendering");
+  el("stale-preview").classList.add("hidden");
+  el("route-layout").classList.remove("active");
+  if (res.svg) {
+    lastSvg = res.svg;
+    el("preview").innerHTML = res.svg;
+    applyZoom();
+  }
+  const warnings =
+    res.warnings && res.warnings.length ? res.warnings.join("\n\n") : "";
+  if (!res.ok) {
+    const parts = warnings ? [warnings, res.error] : [res.error];
+    showError(friendlyRenderError(parts.join("\n\n")), "error");
+    setRenderStatus(`Render failed after ${duration} ms`, "error");
+    el("route-layout").classList.add("error");
+  } else if (warnings) {
+    showError(friendlyRenderError(warnings), "warning");
+    setRenderStatus(`Rendered with warnings in ${duration} ms`, "warning");
+    el("route-layout").classList.add("warning");
+  } else {
+    showError(null);
+    setRenderStatus(`Rendered in ${duration} ms`, "ready");
+    el("route-layout").classList.remove("error", "warning");
+    el("route-layout").classList.add("complete");
+  }
+  refreshLineColors();
+  syncDirectiveControls();
+  reapplySelection();
 }
 
 /* --------------------------------- zoom -------------------------------- */
@@ -1015,6 +1214,7 @@ function selectorFor(sel) {
 
 function setSelection(sel) {
   selection = sel;
+  if (sel) showControlPanel("inspect");
   highlightSelection();
   renderPropPanel();
   if (sel && sel.kind === "station") jumpToStation(sel.id);
@@ -1506,6 +1706,7 @@ function exportSvg() {
   if (!lastSvg) return;
   const svg = pinColorScheme(lastSvg, modeFromSource());
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), "metro_map.svg");
+  markExportComplete();
 }
 
 function svgWithIntrinsicSize(svg) {
@@ -1546,11 +1747,28 @@ async function exportPng() {
     );
     if (!blob) throw new Error("canvas produced no image");
     downloadBlob(blob, "metro_map.png");
+    markExportComplete();
   } catch (err) {
     toast("PNG export failed: " + err.message);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+function exportSourceFile() {
+  const source = editor.getValue();
+  const name =
+    mapTitle(source)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "metro-map";
+  downloadBlob(new Blob([source], { type: "text/plain" }), `${name}.mmd`);
+  saveDraft();
+  markExportComplete();
+}
+
+function markExportComplete() {
+  el("route-export").classList.add("complete");
 }
 
 /* ------------------------------- sharing ------------------------------- */
@@ -1639,6 +1857,7 @@ async function compressedShareUrl() {
 async function shareLink() {
   const url = await compressedShareUrl();
   history.replaceState(null, "", url);
+  markExportComplete();
   try {
     await navigator.clipboard.writeText(url);
     toast("Share link copied to clipboard");
@@ -1739,14 +1958,19 @@ function closeConvert() {
   el("convert-modal").classList.add("hidden");
 }
 
-function submitConvert() {
+async function submitConvert() {
   const dag = el("convert-text").value;
-  if (!dag.trim() || !pyConvert) return;
+  if (!dag.trim() || !workerReady) return;
+  el("convert-submit").disabled = true;
+  el("convert-submit").textContent = "Converting…";
   let res;
   try {
-    res = JSON.parse(pyConvert(dag));
+    res = await workerCall("convert", { source: dag });
   } catch (err) {
     res = { ok: false, error: String(err) };
+  } finally {
+    el("convert-submit").disabled = false;
+    el("convert-submit").textContent = "Convert";
   }
   if (!res.ok) {
     const box = el("convert-error");
@@ -1875,17 +2099,41 @@ async function loadExamples() {
     return; // no manifest shipped; the starter remains available
   }
   const select = el("example-select");
-  groups.forEach(({ label, entries }) => {
+  const available = new Map(
+    groups
+      .flatMap(({ entries }) => entries)
+      .map((entry) => [entry.name, entry.mmd]),
+  );
+  const curated = [
+    ["Start here", ["simple_pipeline", "rnaseq_auto", "rnaseq_sections"]],
+    [
+      "Pipeline shapes",
+      [
+        "fanout_bundle_plus_spurs",
+        "folded_corridor_distinct_lanes",
+        "cross_track_interchange",
+      ],
+    ],
+    [
+      "Presentation",
+      ["directional_flow", "line_spread", "marker_styles", "file_icons"],
+    ],
+  ];
+  curated.forEach(([label, names]) => {
     const optgroup = document.createElement("optgroup");
     optgroup.label = label;
-    entries.forEach(({ name, mmd }) => {
+    names.forEach((name) => {
+      const mmd = available.get(name);
+      if (mmd == null) return;
       examples[name] = mmd;
       const opt = document.createElement("option");
       opt.value = name;
-      opt.textContent = name;
+      opt.textContent = name
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
       optgroup.append(opt);
     });
-    select.append(optgroup);
+    if (optgroup.children.length) select.append(optgroup);
   });
 }
 
@@ -1917,16 +2165,244 @@ async function loadBuildInfo() {
 function loadExample(value) {
   if (!value) return;
   const mmd = value === "__seed__" ? SEED : examples[value];
-  if (mmd != null) editor.setValue(mmd);
+  if (mmd != null) replaceDocument(mmd, "Loaded example");
   // The dropdown is an action menu, not a state mirror: reset to the
   // placeholder so re-picking the same entry fires `change` again.
   el("example-select").value = "";
 }
 
+function closeWelcome() {
+  el("welcome-modal")?.classList.add("hidden");
+  try {
+    localStorage.setItem(WELCOME_KEY, "seen");
+  } catch (_) {}
+}
+
+function showWelcomeIfNeeded() {
+  if (new URLSearchParams(location.search).has("skip-welcome")) return;
+  let seen = false;
+  try {
+    seen = localStorage.getItem(WELCOME_KEY) === "seen";
+  } catch (_) {}
+  if (!seen && !location.hash) {
+    const draft = storedJson(DRAFT_KEY, null);
+    el("welcome-continue").classList.toggle(
+      "hidden",
+      !draft?.source || draft.source === SEED,
+    );
+    el("welcome-modal").classList.remove("hidden");
+    el("welcome-import").focus();
+  }
+}
+
+function showControlPanel(name) {
+  document.querySelectorAll(".preview-tab").forEach((button) => {
+    const active = button.dataset.panel === name;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll(".control-panel").forEach((panel) => {
+    const active = panel.id === `panel-${name}`;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+  if (name === "layout") el("advanced").open = true;
+}
+
+function showMobileView(view) {
+  document.querySelectorAll(".mobile-view").forEach((button) => {
+    const active = button.dataset.view === view;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  el("split").dataset.mobileView = view;
+  if (view === "source") setTimeout(() => editor.refresh(), 0);
+}
+
+function wireFileDrop() {
+  const target = el("drop-target");
+  ["dragenter", "dragover"].forEach((type) =>
+    target.addEventListener(type, (event) => {
+      event.preventDefault();
+      el("drop-invitation").classList.remove("hidden");
+    }),
+  );
+  ["dragleave", "drop"].forEach((type) =>
+    target.addEventListener(type, (event) => {
+      event.preventDefault();
+      el("drop-invitation").classList.add("hidden");
+    }),
+  );
+  target.addEventListener("drop", (event) =>
+    openSourceFile(event.dataTransfer.files[0]),
+  );
+}
+
+function cycleFocusInModal(event) {
+  if (event.key !== "Tab") return;
+  const modal = event.currentTarget;
+  const focusable = [
+    ...modal.querySelectorAll("button, input, textarea, select, a[href]"),
+  ].filter((node) => !node.disabled && !node.classList.contains("hidden"));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+let commandSelection = 0;
+
+function commandActions() {
+  return [
+    ["Import a Nextflow DAG", "Document", openConvert],
+    ["Open a map file", "Document", () => el("file-open").click()],
+    ["Start a new map", "Document", newDocument],
+    [
+      "Show source completions",
+      "Source",
+      () => {
+        closeCommands();
+        editor.focus();
+        showSourceCompletions();
+      },
+    ],
+    ["Insert a section block", "Source", () => insertSnippet("btn-section")],
+    ["Insert a line", "Source", () => insertSnippet("btn-line")],
+    ["Insert an edge", "Source", () => insertSnippet("btn-edge")],
+    ["Undo source edit", "Source", () => editor.undo()],
+    ["Redo source edit", "Source", () => editor.redo()],
+    ["Open style controls", "Preview", () => showControlPanel("style")],
+    ["Open layout controls", "Preview", () => showControlPanel("layout")],
+    ["Inspect the map", "Preview", () => showControlPanel("inspect")],
+    ["Fit map to view", "Preview", zoomFit],
+    ["Share this map", "Export", shareLink],
+    ["Download SVG", "Export", exportSvg],
+    ["Download PNG", "Export", exportPng],
+    ["Download metro source", "Export", exportSourceFile],
+    ["Report a problem", "Help", openReport],
+  ].map(([label, group, run]) => ({ label, group, run }));
+}
+
+function visibleCommands() {
+  const query = el("command-search").value.trim().toLowerCase();
+  return commandActions().filter(({ label, group }) =>
+    `${label} ${group}`.toLowerCase().includes(query),
+  );
+}
+
+function renderCommands() {
+  const list = el("command-list");
+  const actions = visibleCommands();
+  commandSelection = Math.min(
+    commandSelection,
+    Math.max(0, actions.length - 1),
+  );
+  list.replaceChildren();
+  actions.forEach((action, index) => {
+    const button = document.createElement("button");
+    button.className = `command-item${index === commandSelection ? " selected" : ""}`;
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(index === commandSelection));
+    button.append(
+      document.createTextNode(action.label),
+      Object.assign(document.createElement("span"), {
+        textContent: action.group,
+      }),
+    );
+    button.addEventListener("mouseenter", () => {
+      commandSelection = index;
+      renderCommands();
+    });
+    button.addEventListener("click", () => runCommand(action));
+    list.append(button);
+  });
+}
+
+function runCommand(action = visibleCommands()[commandSelection]) {
+  if (!action) return;
+  closeCommands();
+  action.run();
+}
+
+function openCommands() {
+  commandSelection = 0;
+  el("command-search").value = "";
+  renderCommands();
+  el("command-modal").classList.remove("hidden");
+  el("command-search").focus();
+}
+
+function closeCommands() {
+  el("command-modal").classList.add("hidden");
+}
+
+function handleCommandKeys(event) {
+  const actions = visibleCommands();
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    commandSelection = Math.min(actions.length - 1, commandSelection + 1);
+    renderCommands();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    commandSelection = Math.max(0, commandSelection - 1);
+    renderCommands();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    runCommand(actions[commandSelection]);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeCommands();
+  }
+}
+
 function wireControls() {
+  refreshRecents();
+  updateDocumentState();
+  showMobileView("source");
   el("example-select").addEventListener("change", (e) =>
     loadExample(e.target.value),
   );
+  el("recent-select").addEventListener("change", (e) =>
+    loadRecent(e.target.value),
+  );
+  el("btn-new").addEventListener("click", newDocument);
+  el("btn-open").addEventListener("click", () => el("file-open").click());
+  el("file-open").addEventListener("change", (event) => {
+    openSourceFile(event.target.files[0]);
+    event.target.value = "";
+  });
+  el("btn-undo").addEventListener("click", () => editor.undo());
+  el("btn-redo").addEventListener("click", () => editor.redo());
+  el("btn-commands").addEventListener("click", openCommands);
+  el("boot-retry").addEventListener("click", boot);
+  el("command-search").addEventListener("input", () => {
+    commandSelection = 0;
+    renderCommands();
+  });
+  el("command-search").addEventListener("keydown", handleCommandKeys);
+  el("command-modal").addEventListener("click", (event) => {
+    if (event.target === el("command-modal")) closeCommands();
+  });
+  document
+    .querySelectorAll(".preview-tab")
+    .forEach((button) =>
+      button.addEventListener("click", () =>
+        showControlPanel(button.dataset.panel),
+      ),
+    );
+  document
+    .querySelectorAll(".mobile-view")
+    .forEach((button) =>
+      button.addEventListener("click", () =>
+        showMobileView(button.dataset.view),
+      ),
+    );
   el("opt-theme").addEventListener("change", (e) =>
     setThemeDirective(e.target.value),
   );
@@ -1981,13 +2457,46 @@ function wireControls() {
     if (e.target === el("logo-modal")) closeLogo();
   });
 
+  el("welcome-import").addEventListener("click", () => {
+    closeWelcome();
+    openConvert();
+  });
+  el("welcome-new").addEventListener("click", () => {
+    closeWelcome();
+    replaceDocument(SEED, "Started a simple map");
+  });
+  el("welcome-example").addEventListener("click", () => {
+    closeWelcome();
+    el("example-select").focus();
+  });
+  el("welcome-continue").addEventListener("click", closeWelcome);
+
+  document
+    .querySelectorAll(".modal-overlay")
+    .forEach((modal) => modal.addEventListener("keydown", cycleFocusInModal));
+
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    if (!el("report-modal").classList.contains("hidden")) closeReport();
-    if (!el("convert-modal").classList.contains("hidden")) closeConvert();
-    if (!el("logo-modal").classList.contains("hidden")) closeLogo();
+    if (e.key === "Escape") {
+      if (!el("command-modal").classList.contains("hidden")) closeCommands();
+      if (!el("report-modal").classList.contains("hidden")) closeReport();
+      if (!el("convert-modal").classList.contains("hidden")) closeConvert();
+      if (!el("logo-modal").classList.contains("hidden")) closeLogo();
+      return;
+    }
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      openCommands();
+    } else if (e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      exportSourceFile();
+    } else if (e.key.toLowerCase() === "o") {
+      e.preventDefault();
+      el("file-open").click();
+    }
   });
 
+  wireFileDrop();
   wireEditTools();
 }
 
@@ -2031,4 +2540,7 @@ initEditor();
 wireControls();
 loadExamples();
 loadBuildInfo();
+window.addEventListener("pagehide", () => {
+  if (editor) saveDraft();
+});
 boot();
