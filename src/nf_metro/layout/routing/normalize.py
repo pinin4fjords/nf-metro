@@ -29,7 +29,6 @@ from nf_metro.layout.routing.common import (
     GapSlot,
     HTrunkSeg,
     OffsetRegime,
-    PortPeeloffBundle,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -37,6 +36,7 @@ from nf_metro.layout.routing.common import (
     gap_lo_for_x,
     initial_fanout_descent_span,
     is_orthogonal_turn,
+    iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
     iter_inter_row_gaps,
     iter_port_peeloff_bundles,
@@ -44,7 +44,6 @@ from nf_metro.layout.routing.common import (
     merge_fanout_pivot_reference,
     packed_cell_neighbor_edges,
     peeloff_target_slots,
-    peeloff_trunk_line_order,
     perp_peeloff_off_horizontal_junction,
     seat_peeloff_port_y,
     symmetric_bundle_midpoint,
@@ -701,128 +700,9 @@ def _collect_htrunks(
     return out
 
 
-def _eligible_destination_tail_bundles(
-    routes: list[RoutedPath],
-    graph: MetroGraph,
-    step: float,
-    curve_radius: float,
-) -> Iterator[tuple[PortPeeloffBundle, dict[str, _HTrunk], dict[str, float]]]:
-    """Yield same-port tails that can occupy one collision-free trunk band.
-
-    Eligibility is deliberately narrower than sharing a target.  Every member
-    has the same H-V-H tail directions, a destination-facing common suffix at
-    least two curve radii long, a unique line, and a candidate tight band that
-    clears every section across each member's complete trunk and both flanking
-    verticals.  Rail routes keep their independent tracks.
-
-    The returned target Ys are ordered from the destination port through the
-    tail's horizontal-direction parity.  This makes the common band begin where
-    the trunks first overlap while preserving the port's line order through
-    both turns.
-    """
-    all_trunks = _collect_htrunks(routes, include_exempt=True)
-    trunks_by_route = {id(t.route): t for t in all_trunks}
-    for bundle in iter_port_peeloff_bundles(
-        routes,
-        graph,
-        step,
-        require_contiguous=False,
-        min_common_suffix=2 * curve_radius,
-    ):
-        if len(bundle.entries) != len(bundle.per_line):
-            continue
-        if any(
-            graph.station_is_rail(rp.edge.source)
-            or graph.station_is_rail(rp.edge.target)
-            for rp, _tail in bundle.entries
-        ):
-            continue
-        trunks = {
-            rp.line_id: trunks_by_route[id(rp)]
-            for rp, _tail in bundle.entries
-            if id(rp) in trunks_by_route
-        }
-        if len(trunks) != len(bundle.per_line):
-            continue
-        if (
-            all(rp.normalize_exempt for rp, _tail in bundle.entries)
-            and len({rp.edge.source for rp, _tail in bundle.entries}) == 1
-        ):
-            continue
-
-        order = peeloff_trunk_line_order(bundle)
-        rank_of = {line_id: rank for rank, line_id in enumerate(order)}
-        group_routes = {id(t.route) for t in trunks.values()}
-        pinned_bases: list[float] = []
-        for line_id, trunk in trunks.items():
-            if any(
-                id(sibling.route) not in group_routes
-                and sibling.route.line_id == line_id
-                and sibling.sign_x == trunk.sign_x
-                and abs(sibling.y - trunk.y) <= COORD_TOLERANCE
-                and _x_overlap(
-                    (sibling.x_lo, sibling.x_hi),
-                    (trunk.x_lo, trunk.x_hi),
-                )
-                > 0
-                for sibling in all_trunks
-            ):
-                pinned_bases.append(trunk.y - rank_of[line_id] * step)
-        if pinned_bases and any(
-            abs(base - pinned_bases[0]) > COORD_TOLERANCE for base in pinned_bases[1:]
-        ):
-            continue
-        base = pinned_bases[0] if pinned_bases else min(t.y for t in trunks.values())
-        targets = {line_id: base + rank * step for rank, line_id in enumerate(order)}
-        clear = True
-        for rp, _tail in bundle.entries:
-            trunk = trunks[rp.line_id]
-            target_y = targets[rp.line_id]
-            points = rp.points
-            k = trunk.idx
-            if k == 0 or k + 2 >= len(points):
-                clear = False
-                break
-            own_sections = {
-                section_id
-                for station_id in (rp.edge.source, rp.edge.target)
-                if (section_id := graph.section_for_station(station_id)) is not None
-            }
-            xa, xb = points[k][0], points[k + 1][0]
-            source_section_id = graph.section_for_station(rp.edge.source)
-            source_section = (
-                graph.sections.get(source_section_id) if source_section_id else None
-            )
-            if (
-                (
-                    source_section is not None
-                    and _h_segment_penetrates_section(
-                        min(xa, xb),
-                        max(xa, xb),
-                        target_y,
-                        source_section,
-                        0.0,
-                    )
-                )
-                or _h_segment_crosses_other_section(
-                    graph, xa, xb, target_y, own_sections
-                )
-                or _v_segment_crosses_other_section(
-                    graph, xa, points[k - 1][1], target_y, own_sections
-                )
-                or _v_segment_crosses_other_section(
-                    graph, xb, target_y, points[k + 2][1], own_sections
-                )
-            ):
-                clear = False
-                break
-        if clear:
-            yield bundle, trunks, targets
-
-
 def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Seat eligible same-port destination tails on one eager concentric band."""
-    for _bundle, trunks, targets in _eligible_destination_tail_bundles(
+    for _bundle, trunks, targets in iter_eligible_destination_tail_bundles(
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
         for line_id, trunk in trunks.items():
@@ -2514,7 +2394,7 @@ def _suboptimal_trunk_bands(
     """
     destination_owned = {
         id(trunk.route)
-        for _bundle, trunks, _targets in _eligible_destination_tail_bundles(
+        for _bundle, trunks, _targets in iter_eligible_destination_tail_bundles(
             routes, ctx.graph, ctx.offset_step, ctx.curve_radius
         )
         for trunk in trunks.values()

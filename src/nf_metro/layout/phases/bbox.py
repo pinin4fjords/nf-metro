@@ -1197,44 +1197,48 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
     if not sections_by_start_row:
         return
     max_row = max(sections_by_end_row)
-    connected_pairs = {
-        frozenset((source_section, target_section))
-        for edge in graph.edges
-        if (source_section := graph.section_for_station(edge.source)) is not None
-        and (target_section := graph.section_for_station(edge.target)) is not None
-        and source_section != target_section
-    }
+    connected_sections: dict[str, set[str]] = defaultdict(set)
+    for edge in graph.edges:
+        source_section = graph.section_for_station(edge.source)
+        target_section = graph.section_for_station(edge.target)
+        if (
+            source_section is None
+            or target_section is None
+            or source_section == target_section
+        ):
+            continue
+        connected_sections[source_section].add(target_section)
+        connected_sections[target_section].add(source_section)
+    struct = graph._struct_height_below_top
 
+    def _structural_bottom(section: Section) -> float:
+        """Return the settled bottom, honouring an earlier height snapshot."""
+        height = section.bbox_h
+        if struct:
+            height = max(struct.get(section.id, height), height)
+        return section.bbox_y + height
+
+    def _sections_constrain(upper: Section, lower: Section) -> bool:
+        upper_hi = upper.grid_col + upper.grid_col_span - 1
+        lower_hi = lower.grid_col + lower.grid_col_span - 1
+        grid_overlap = not (upper_hi < lower.grid_col or lower_hi < upper.grid_col)
+        bbox_overlap = not (
+            upper.bbox_x + upper.bbox_w <= lower.bbox_x + SAME_COORD_TOLERANCE
+            or lower.bbox_x + lower.bbox_w <= upper.bbox_x + SAME_COORD_TOLERANCE
+        )
+        return (
+            grid_overlap
+            or bbox_overlap
+            or lower.id in connected_sections.get(upper.id, ())
+        )
+
+    upper_sections: list[Section] = []
     for r in range(1, max_row + 1):
+        upper_sections.extend(sections_by_end_row.get(r - 1, []))
         lower = sections_by_start_row.get(r, [])
         ending_at_prev = sections_by_end_row.get(r - 1, [])
         if not lower or not ending_at_prev:
             continue
-        upper_sections = [
-            section
-            for end_row, sections in sections_by_end_row.items()
-            if end_row < r
-            for section in sections
-        ]
-        struct = graph._struct_height_below_top
-
-        def _structural_bottom(section: Section) -> float:
-            """Return the settled bottom, honouring an earlier height snapshot."""
-            height = section.bbox_h
-            if struct:
-                height = max(struct.get(section.id, height), height)
-            return section.bbox_y + height
-
-        def _sections_constrain(upper: Section, lower: Section) -> bool:
-            upper_hi = upper.grid_col + upper.grid_col_span - 1
-            lower_hi = lower.grid_col + lower.grid_col_span - 1
-            grid_overlap = not (upper_hi < lower.grid_col or lower_hi < upper.grid_col)
-            bbox_overlap = not (
-                upper.bbox_x + upper.bbox_w <= lower.bbox_x + SAME_COORD_TOLERANCE
-                or lower.bbox_x + lower.bbox_w <= upper.bbox_x + SAME_COORD_TOLERANCE
-            )
-            route_connects = frozenset((upper.id, lower.id)) in connected_pairs
-            return grid_overlap or bbox_overlap or route_connects
 
         # Bypass routes dip below intervening bboxes into the inter-row
         # gap; tightening must not pull lower rows up into them.

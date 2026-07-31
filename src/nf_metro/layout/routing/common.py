@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import NamedTuple
@@ -551,12 +551,33 @@ def _grid_row_bands(graph: MetroGraph) -> dict[int, tuple[float, float]]:
     return bands
 
 
+@dataclass(frozen=True)
+class GapLookupGeometry:
+    """Static section geometry shared by repeated inter-column gap lookups."""
+
+    cols: tuple[int, ...]
+    rows: tuple[int, ...]
+    row_bands: Mapping[int, tuple[float, float]]
+
+
+def gap_lookup_geometry(graph: MetroGraph) -> GapLookupGeometry:
+    """Build the static lookup state used by :func:`gap_lo_for_x`."""
+    sections = [section for section in graph.sections.values() if section.bbox_w > 0]
+    return GapLookupGeometry(
+        cols=tuple(sorted({section.grid_col for section in sections})),
+        rows=tuple(sorted({section.grid_row for section in sections})),
+        row_bands=_grid_row_bands(graph),
+    )
+
+
 def gap_lo_for_x(
     graph: MetroGraph,
     x: float,
     y_lo: float,
     y_hi: float,
     tol: float = COORD_TOLERANCE,
+    *,
+    lookup: GapLookupGeometry | None = None,
 ) -> tuple[int, int | None] | None:
     """``(lower column, row)`` of the inter-column gap a vertical leg occupies.
 
@@ -568,12 +589,11 @@ def gap_lo_for_x(
     to the row-agnostic union (``row = None``).  ``None`` when *x* sits outside
     every inter-column gap.
     """
-    cols = sorted({s.grid_col for s in graph.sections.values() if s.bbox_w > 0})
-    rows = sorted({s.grid_row for s in graph.sections.values() if s.bbox_w > 0})
-    bands = _grid_row_bands(graph)
+    if lookup is None:
+        lookup = gap_lookup_geometry(graph)
     bracket: tuple[int, int | None] | None = None
-    for r in rows:
-        for lo, hi in zip(cols, cols[1:]):
+    for r in lookup.rows:
+        for lo, hi in zip(lookup.cols, lookup.cols[1:]):
             if hi != lo + 1:
                 continue
             left, right = column_gap_edges(graph, lo, hi, row=r)
@@ -581,12 +601,12 @@ def gap_lo_for_x(
                 continue
             if bracket is None:
                 bracket = (lo, r)
-            band = bands.get(r)
+            band = lookup.row_bands.get(r)
             if band is not None and y_lo < band[1] and band[0] < y_hi:
                 return lo, r
     if bracket is not None:
         return bracket
-    for lo, hi in zip(cols, cols[1:]):
+    for lo, hi in zip(lookup.cols, lookup.cols[1:]):
         if hi != lo + 1:
             continue
         left, right = column_gap_edges(graph, lo, hi, row=None)
@@ -1011,6 +1031,17 @@ class PeeloffSlot(NamedTuple):
     rank: int
 
 
+class DestinationTailTrunk(NamedTuple):
+    """Horizontal trunk geometry for one destination-tail bundle member."""
+
+    route: RoutedPath
+    idx: int
+    y: float
+    x_lo: float
+    x_hi: float
+    sign_x: int
+
+
 def trunk_depths_contiguous(trunk_ys: list[float], n: int, step: float) -> bool:
     """Whether ``n`` trunk depths span at most one concentric bundle width.
 
@@ -1120,6 +1151,147 @@ def peeloff_target_slots(bundle: PortPeeloffBundle) -> dict[str, PeeloffSlot]:
         )
         for i, lid in enumerate(ranked)
     }
+
+
+def iter_eligible_destination_tail_bundles(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    curve_radius: float,
+) -> Iterator[
+    tuple[PortPeeloffBundle, dict[str, DestinationTailTrunk], dict[str, float]]
+]:
+    """Yield same-port tails that can occupy one collision-free trunk band.
+
+    Every member has the same H-V-H tail directions, a destination-facing
+    common suffix at least two curve radii long, a unique line, and a candidate
+    tight band that clears every section across its trunk and both flanking
+    verticals. Rail routes retain their independent tracks.
+    """
+    all_trunks: list[DestinationTailTrunk] = []
+    for route in routes:
+        if not route.is_inter_section:
+            continue
+        for idx, segment in iter_horizontal_trunks(route):
+            all_trunks.append(
+                DestinationTailTrunk(
+                    route=route,
+                    idx=idx,
+                    y=segment.y,
+                    x_lo=segment.x_lo,
+                    x_hi=segment.x_hi,
+                    sign_x=1 if segment.xb > segment.xa else -1,
+                )
+            )
+    trunks_by_route = {id(trunk.route): trunk for trunk in all_trunks}
+
+    for bundle in iter_port_peeloff_bundles(
+        routes,
+        graph,
+        step,
+        require_contiguous=False,
+        min_common_suffix=2 * curve_radius,
+    ):
+        if len(bundle.entries) != len(bundle.per_line):
+            continue
+        if any(
+            graph.station_is_rail(route.edge.source)
+            or graph.station_is_rail(route.edge.target)
+            for route, _tail in bundle.entries
+        ):
+            continue
+        trunks = {
+            route.line_id: trunks_by_route[id(route)]
+            for route, _tail in bundle.entries
+            if id(route) in trunks_by_route
+        }
+        if len(trunks) != len(bundle.per_line):
+            continue
+        if (
+            all(route.normalize_exempt for route, _tail in bundle.entries)
+            and len({route.edge.source for route, _tail in bundle.entries}) == 1
+        ):
+            continue
+
+        order = peeloff_trunk_line_order(bundle)
+        rank_of = {line_id: rank for rank, line_id in enumerate(order)}
+        group_routes = {id(trunk.route) for trunk in trunks.values()}
+        pinned_bases: list[float] = []
+        for line_id, trunk in trunks.items():
+            if any(
+                id(sibling.route) not in group_routes
+                and sibling.route.line_id == line_id
+                and sibling.sign_x == trunk.sign_x
+                and abs(sibling.y - trunk.y) <= COORD_TOLERANCE
+                and min(sibling.x_hi, trunk.x_hi) - max(sibling.x_lo, trunk.x_lo)
+                > COORD_TOLERANCE
+                for sibling in all_trunks
+            ):
+                pinned_bases.append(trunk.y - rank_of[line_id] * step)
+        if pinned_bases and any(
+            abs(base - pinned_bases[0]) > COORD_TOLERANCE for base in pinned_bases[1:]
+        ):
+            continue
+        base = pinned_bases[0] if pinned_bases else min(t.y for t in trunks.values())
+        targets = {line_id: base + rank * step for rank, line_id in enumerate(order)}
+
+        clear = True
+        for route, _tail in bundle.entries:
+            trunk = trunks[route.line_id]
+            target_y = targets[route.line_id]
+            points = route.points
+            k = trunk.idx
+            if k == 0 or k + 2 >= len(points):
+                clear = False
+                break
+            own_sections = {
+                section_id
+                for station_id in (route.edge.source, route.edge.target)
+                if (section_id := graph.section_for_station(station_id)) is not None
+            }
+            xa, xb = points[k][0], points[k + 1][0]
+            source_section_id = graph.section_for_station(route.edge.source)
+            source_section = (
+                graph.sections.get(source_section_id) if source_section_id else None
+            )
+            horizontal_blocked = source_section is not None and (
+                _h_segment_penetrates_section(
+                    min(xa, xb),
+                    max(xa, xb),
+                    target_y,
+                    source_section,
+                    0.0,
+                )
+            )
+            if not horizontal_blocked:
+                horizontal_blocked = any(
+                    section.id not in own_sections
+                    and _h_segment_penetrates_section(
+                        min(xa, xb), max(xa, xb), target_y, section, 0.0
+                    )
+                    for section in graph.sections.values()
+                )
+
+            def vertical_blocked(x: float, y1: float, y2: float) -> bool:
+                y_lo, y_hi = sorted((y1, y2))
+                return any(
+                    section.bbox_w > 0
+                    and section.id not in own_sections
+                    and y_lo < section.bbox_y + section.bbox_h
+                    and section.bbox_y < y_hi
+                    and section.bbox_x <= x <= section.bbox_x + section.bbox_w
+                    for section in graph.sections.values()
+                )
+
+            if (
+                horizontal_blocked
+                or vertical_blocked(xa, points[k - 1][1], target_y)
+                or vertical_blocked(xb, target_y, points[k + 2][1])
+            ):
+                clear = False
+                break
+        if clear:
+            yield bundle, trunks, targets
 
 
 def tail_on_slot(tail: PeeloffTail, slot: PeeloffSlot) -> bool:

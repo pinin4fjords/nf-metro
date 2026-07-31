@@ -63,7 +63,8 @@ def partial_flat_continuation_lines(
         for edge in graph.edges_from(port_id)
         if edge.target in graph.junction_ids
     }
-    for junction_id in junctions:
+    candidates: list[tuple[str, str, set[str]]] = []
+    for junction_id in sorted(junctions):
         by_entry: dict[str, set[str]] = {}
         for edge in graph.edges_from(junction_id):
             entry_port = graph.ports.get(edge.target)
@@ -73,9 +74,13 @@ def partial_flat_continuation_lines(
             consumer = graph.section_for_port(entry_port)
             if consumer.grid_row != feeder_section.grid_row:
                 continue
-            same_pack = any(
-                feeder_section.id in members and consumer.id in members
-                for members in graph.cell_packs.values()
+            members = graph.cell_packs.get(
+                (feeder_section.grid_col, feeder_section.grid_row), ()
+            )
+            same_pack = (
+                len(members) > 1
+                and feeder_section.id in members
+                and consumer.id in members
             )
             faces_forward = (
                 exit_port.side is PortSide.RIGHT
@@ -93,14 +98,22 @@ def partial_flat_continuation_lines(
             ):
                 continue
             by_entry.setdefault(edge.target, set()).add(edge.line_id)
-        candidates = [
-            lines
-            for lines in by_entry.values()
-            if len(lines) >= 2 and bool(port_lines - lines)
-        ]
-        if candidates:
-            return max(candidates, key=len)
-    return set()
+        for entry_id, lines in by_entry.items():
+            continuing = lines & port_lines
+            if len(continuing) >= 2 and bool(port_lines - continuing):
+                candidates.append((junction_id, entry_id, continuing))
+    if not candidates:
+        return set()
+    _junction_id, _entry_id, lines = min(
+        candidates,
+        key=lambda candidate: (
+            -len(candidate[2]),
+            candidate[0],
+            candidate[1],
+            tuple(sorted(candidate[2])),
+        ),
+    )
+    return lines
 
 
 @dataclass

@@ -11,12 +11,62 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
-from nf_metro.layout.routing.common import iter_horizontal_trunks
+from nf_metro.layout.routing.common import (
+    iter_horizontal_trunks,
+    port_peeloff_tail,
+)
+from nf_metro.layout.routing.context import partial_flat_continuation_lines
 from nf_metro.layout.routing.invariants import check_peeloff_concentric
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 FIXTURE = EXAMPLES / "topologies" / "packed_cell_right_exit_left_entry_wrap.mmd"
+
+
+def test_partial_flat_continuation_chooses_one_port_scoped_bundle() -> None:
+    graph = MetroGraph(
+        sections={
+            section_id: Section(
+                id=section_id,
+                name=section_id,
+                grid_col=0,
+                grid_row=0,
+            )
+            for section_id in ("feeder", "consumer_a", "consumer_b")
+        },
+        stations={
+            "exit": Station("exit", "", section_id="feeder", is_port=True, y=10),
+            "entry_a": Station(
+                "entry_a", "", section_id="consumer_a", is_port=True, x=20, y=10
+            ),
+            "entry_b": Station(
+                "entry_b", "", section_id="consumer_b", is_port=True, x=30, y=10
+            ),
+            "junction_b": Station("junction_b", "", is_hidden=True),
+            "junction_a": Station("junction_a", "", is_hidden=True),
+        },
+        ports={
+            "exit": Port("exit", "feeder", PortSide.RIGHT, is_entry=False),
+            "entry_a": Port("entry_a", "consumer_a", PortSide.LEFT),
+            "entry_b": Port("entry_b", "consumer_b", PortSide.LEFT),
+        },
+        junctions=["junction_b", "junction_a"],
+        edges=[
+            Edge("exit", "junction_b", "c"),
+            Edge("exit", "junction_a", "a"),
+            Edge("junction_b", "entry_b", "c"),
+            Edge("junction_b", "entry_b", "d"),
+            Edge("junction_a", "entry_a", "a"),
+            Edge("junction_a", "entry_a", "b"),
+            Edge("junction_a", "entry_a", "foreign"),
+        ],
+        cell_packs={(0, 0): ["feeder", "consumer_a", "consumer_b"]},
+    )
+
+    lines = partial_flat_continuation_lines(graph, "exit", {"a", "b", "c", "d"})
+
+    assert lines == {"a", "b"}
 
 
 def _routes_into(port_id: str):
@@ -32,21 +82,17 @@ def _routes_into(port_id: str):
 
 
 def _tail(route):
-    points = route.points
-    assert len(points) >= 4
+    tail = port_peeloff_tail(route)
+    assert tail is not None
     trunk = list(iter_horizontal_trunks(route))[-1][1]
-    trunk_start, trunk_end, approach_end, port_end = points[-4:]
-    assert trunk_start[1] == pytest.approx(trunk_end[1])
-    assert trunk_end[0] == pytest.approx(approach_end[0])
-    assert approach_end[1] == pytest.approx(port_end[1])
     return {
         "trunk": trunk,
         "trunk_y": trunk.y,
-        "peel_x": approach_end[0],
-        "port_y": port_end[1],
-        "trunk_sign": 1 if trunk_end[0] > trunk_start[0] else -1,
-        "vertical_sign": 1 if approach_end[1] > trunk_end[1] else -1,
-        "port_lead_sign": 1 if port_end[0] > approach_end[0] else -1,
+        "peel_x": tail.peel_x,
+        "port_y": tail.port_y,
+        "trunk_sign": tail.trunk_sign,
+        "vertical_sign": tail.vertical_sign,
+        "port_lead_sign": tail.port_lead_sign,
     }
 
 

@@ -57,9 +57,11 @@ from nf_metro.layout.routing.common import (
     _vert_horiz_cross,
     apply_route_offsets,
     gap_lo_for_x,
+    gap_lookup_geometry,
     horizontal_direction,
     initial_fanout_descent_span,
     is_orthogonal_turn,
+    iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
@@ -4870,13 +4872,20 @@ def check_gap_channels_materialized(
     :func:`_materialize_gap_slots` re-stacks it concentrically.  A leg in a gap
     with no slot of the same low column and direction escaped materialization.
     """
+    lookup = gap_lookup_geometry(graph)
     out: list[UndeclaredGapChannel] = []
     for rp in routes:
         if not rp.is_inter_section or rp.normalize_exempt:
             continue
         declared = {(s.gap_lo_col, s.direction is Direction.D) for s in rp.gap_slots}
         for _k, x, y_lo, y_hi, down in iter_vertical_segments(rp):
-            match = gap_lo_for_x(graph, x, y_lo, y_hi)
+            match = gap_lo_for_x(
+                graph,
+                x,
+                y_lo,
+                y_hi,
+                lookup=lookup,
+            )
             if match is None:
                 continue
             lo, _row = match
@@ -4933,6 +4942,7 @@ def check_opposing_gap_channel_clearance(
     bundles in that corridor must keep :data:`BUNDLE_TO_BUNDLE_CLEARANCE` between
     their nearest centrelines so they read as separate streams.
     """
+    lookup = gap_lookup_geometry(graph)
     channels: defaultdict[
         tuple[int, int | None],
         list[tuple[RoutedPath, float, float, float, bool]],
@@ -4947,7 +4957,13 @@ def check_opposing_gap_channel_clearance(
             y_lo, y_hi = sorted((y0, y1))
             if y_hi - y_lo <= COORD_TOLERANCE:
                 continue
-            match = gap_lo_for_x(graph, x0, y_lo, y_hi)
+            match = gap_lo_for_x(
+                graph,
+                x0,
+                y_lo,
+                y_hi,
+                lookup=lookup,
+            )
             if match is not None:
                 channels[match].append((route, x0, y_lo, y_hi, y1 > y0))
 
@@ -5071,7 +5087,9 @@ class LooseDestinationTail:
 
 
 def check_peeloff_concentric(
-    graph: MetroGraph, routes: list[RoutedPath]
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    curve_radius: float = CURVE_RADIUS,
 ) -> list[PeeloffBundleCrossing | LooseDestinationTail]:
     """Return peel-off bundles that braid into a LEFT entry port.
 
@@ -5083,13 +5101,11 @@ def check_peeloff_concentric(
     ``_convergence_line_order`` (riser peel-x) and ``_order_convergence_entry_ports``
     (port slots), so the bundle nests through the standard layout path.
     """
-    from nf_metro.layout.routing.normalize import _eligible_destination_tail_bundles
-
     step = graph_offset_step(graph)
     out: list[PeeloffBundleCrossing | LooseDestinationTail] = []
     checked: set[tuple[str, int, int, int]] = set()
-    for bundle, trunks, target_ys in _eligible_destination_tail_bundles(
-        routes, graph, step, CURVE_RADIUS
+    for bundle, trunks, target_ys in iter_eligible_destination_tail_bundles(
+        routes, graph, step, curve_radius
     ):
         checked.add(
             (
@@ -5245,6 +5261,8 @@ def assert_render_curve_invariants(
     graph: MetroGraph,
     routes: list[RoutedPath],
     offsets: dict[tuple[str, str], float],
+    *,
+    curve_radius: float = CURVE_RADIUS,
 ) -> None:
     """Raise :class:`CurveInvariantError` if the final render routes are defective.
 
@@ -5350,7 +5368,7 @@ def assert_render_curve_invariants(
         ),
         (
             "peel-off bundle braids into port",
-            check_peeloff_concentric(graph, routes),
+            check_peeloff_concentric(graph, routes, curve_radius),
         ),
         (
             "junction peel-off leaves horizontal trunk at a hard 90",
