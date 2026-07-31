@@ -34,219 +34,171 @@ import { base } from "../site";
           href: "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css",
         },
       },
+      {
+        tag: "link",
+        attrs: {
+          rel: "stylesheet",
+          href: "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css",
+        },
+      },
     ],
   }}
 >
   <div class="nfm-playground not-content">
+    <header class="app-command-bar">
+      <div class="route-strip" aria-label="Map workflow">
+        <span id="route-source" class="route-stop complete">
+          <span class="route-dot"></span><span>Source</span>
+        </span>
+        <span id="route-layout" class="route-stop">
+          <span class="route-dot"></span><span>Layout</span>
+        </span>
+        <span id="route-export" class="route-stop">
+          <span class="route-dot"></span><span>Export</span>
+        </span>
+      </div>
+      <div class="document-actions">
+        <button id="btn-new" title="Start a new map">New</button>
+        <button id="btn-open" title="Open a .mmd or Nextflow DAG file">Open</button>
+        <input id="file-open" class="hidden" type="file" accept=".mmd,.mermaid,.txt,text/plain" />
+        <button id="btn-convert" class="primary" title="Convert a Nextflow -with-dag Mermaid into a metro map">
+          Import DAG
+        </button>
+        <span class="command-sep"></span>
+        <button id="btn-share">Share</button>
+        <button id="btn-svg">SVG</button>
+        <button id="btn-png">PNG</button>
+        <button id="btn-copy-source" title="Copy the metro source">Copy source</button>
+        <button id="btn-commands" title="Open commands (Ctrl or Command + K)">Commands</button>
+      </div>
+      <div class="app-meta">
+        <span id="draft-status">Local draft</span>
+        <a id="build-hint" class="build-hint hidden" target="_blank" rel="noopener"></a>
+      </div>
+    </header>
+
+    <nav class="mobile-view-switch" aria-label="Playground view">
+      <button class="mobile-view active" data-view="source" aria-pressed="true">Source</button>
+      <button class="mobile-view" data-view="preview" aria-pressed="false">Preview</button>
+    </nav>
+
     <main id="split">
       <section id="editor-pane">
-        <div class="pane-toolbar">
-          <label
-            >Load
+        <div class="pane-heading">
+          <div>
+            <span class="pane-kicker">Source</span>
+            <strong id="document-name">Example Pipeline</strong>
+          </div>
+          <div class="history-actions">
+            <button id="btn-undo" title="Undo (Ctrl or Command + Z)">Undo</button>
+            <button id="btn-redo" title="Redo (Ctrl or Command + Shift + Z)">Redo</button>
+          </div>
+        </div>
+        <div class="pane-toolbar source-toolbar">
+          <label>Example
             <select id="example-select">
-              <option value="" selected>example…</option>
+              <option value="" selected>Choose…</option>
               <option value="__seed__">Starter pipeline</option>
             </select>
           </label>
-          <button
-            id="btn-convert"
-            title="Convert a Nextflow -with-dag Mermaid into a metro map"
-          >
-            Import Nextflow DAG
-          </button>
+          <label>Recent
+            <select id="recent-select"><option value="" selected>Choose…</option></select>
+          </label>
           <span class="sep"></span>
-          <span class="group-label">Insert</span>
+          <span class="group-label">Insert source</span>
           <button id="btn-section" title="Insert a section block">
-            + Section
+            Section block
           </button>
-          <button id="btn-line" title="Insert a line definition">+ Line</button>
-          <button id="btn-edge" title="Insert an edge">+ Edge</button>
-          <button
-            id="btn-logo"
-            title="Attach a logo image (embedded inline, since the playground can't read files from disk)"
-          >
-            + Logo
-          </button>
-          <span class="sep"></span>
-          <span class="group-label">Lines</span>
-          <div id="line-colors" class="swatches"></div>
+          <button id="btn-line" title="Insert a line definition">Line</button>
+          <button id="btn-edge" title="Insert an edge">Edge</button>
+          <button id="btn-logo" title="Attach a logo image">Logo</button>
+          <a class="source-help" href={`${base}guide/`} target="_blank">Syntax guide ↗</a>
         </div>
         <textarea id="editor"></textarea>
         <div id="error" class="hidden" role="alert"></div>
       </section>
 
       <section id="preview-pane">
-        <div class="pane-toolbar">
-          <label
-            >Brand
-            <select id="opt-theme">
-              <option value="nfcore">nf-core</option>
-              <option value="seqera">Seqera</option>
-            </select>
-          </label>
-          <label
-            >Mode
-            <select id="opt-mode">
-              <option value="dark">dark</option>
-              <option value="light">light</option>
-            </select>
-          </label>
-          <label class="check"
-            ><input type="checkbox" id="opt-animate" /> Animate</label
-          >
-          <label class="check"
-            ><input type="checkbox" id="opt-directional" /> Chevrons</label
-          >
-          <label class="check"
-            ><input type="checkbox" id="opt-debug" /> Debug</label
-          >
-          <label class="check"
-            ><input type="checkbox" id="opt-center-ports" /> Centre ports</label
-          >
-          <label
-            >Line gap
-            <input
-              type="number"
-              id="opt-track-gap"
-              min="0"
-              max="3"
-              step="0.5"
-              placeholder="1.0"
-            />
-          </label>
-        </div>
-
-        <div class="pane-toolbar">
-          <span class="group-label">Export</span>
-          <button id="btn-svg">SVG</button>
-          <button id="btn-png">PNG</button>
-          <button id="btn-share">Share link</button>
-          <button id="btn-copy-source">Copy source</button>
-          <div class="toolbar-right">
-            <a id="build-hint" class="muted small build-hint hidden"
-              target="_blank" rel="noopener"></a>
-            <button
-              id="btn-report"
-              class="report-btn"
-              title="Report a bug with this map"
-            >
-              Report a bug
-            </button>
+        <div class="pane-heading preview-heading">
+          <div>
+            <span class="pane-kicker">Preview</span>
+            <strong>Rendered map</strong>
+          </div>
+          <div class="preview-tabs" role="tablist" aria-label="Preview controls">
+            <button class="preview-tab active" data-panel="style" role="tab" aria-selected="true">Style</button>
+            <button class="preview-tab" data-panel="layout" role="tab" aria-selected="false">Layout</button>
+            <button class="preview-tab" data-panel="inspect" role="tab" aria-selected="false">Edit</button>
           </div>
         </div>
 
-        <details id="advanced" class="advanced">
-          <summary>Advanced options</summary>
-          <div class="pane-toolbar advanced-controls">
-            <span class="group-label">Layout</span>
-            <label
-              >Line spread
-              <select id="opt-line-spread">
-                <option value="">auto</option>
-                <option value="bundle">bundle</option>
-                <option value="centered">centered</option>
-                <option value="rails">rails</option>
+        <div class="preview-control-rail" aria-label="Preview controls">
+        <div id="panel-style" class="control-panel active">
+          <div class="control-row">
+            <span class="control-title">Style</span>
+            <label>Brand
+              <select id="opt-theme">
+                <option value="nfcore">nf-core</option>
+                <option value="seqera">Seqera</option>
               </select>
             </label>
-            <label
-              >Diamonds
-              <select id="opt-diamond-style">
-                <option value="">auto</option>
-                <option value="straight">straight</option>
-                <option value="symmetric">symmetric</option>
+            <label>Mode
+              <select id="opt-mode">
+                <option value="dark">dark</option>
+                <option value="light">light</option>
               </select>
             </label>
-            <label
-              >Line order
-              <select id="opt-line-order">
-                <option value="">auto</option>
-                <option value="definition">definition</option>
-                <option value="span">span</option>
-              </select>
-            </label>
-            <label class="check"
-              ><input type="checkbox" id="opt-compact-offsets" /> Compact offsets</label
-            >
-            <label
-              >Font scale
-              <input
-                type="number"
-                id="opt-font-scale"
-                min="0.1"
-                step="0.1"
-                placeholder="1.0"
-              />
-            </label>
-            <label
-              >Fold cols
-              <input
-                type="number"
-                id="opt-fold-threshold"
-                min="1"
-                step="1"
-                placeholder="auto"
-              />
-            </label>
-            <label
-              >X-spacing
-              <input
-                type="number"
-                id="opt-x-spacing"
-                min="1"
-                step="10"
-                placeholder="auto"
-              />
-            </label>
-            <label
-              >Y-spacing
-              <input
-                type="number"
-                id="opt-y-spacing"
-                min="1"
-                step="10"
-                placeholder="auto"
-              />
-            </label>
+            <label class="check"><input type="checkbox" id="opt-animate" /> Animate</label>
+            <label class="check"><input type="checkbox" id="opt-directional" /> Chevrons</label>
+            <span class="sep"></span>
+            <span class="group-label">Lines</span>
+            <div id="line-colors" class="swatches"></div>
           </div>
-        </details>
-
-        <div class="pane-toolbar edit-toolbar">
-          <span class="group-label">Edit map</span>
-          <button
-            class="mode-btn"
-            data-mode="select"
-            aria-pressed="true"
-            title="Select an element to inspect or edit it"
-          >
-            Select
-          </button>
-          <button
-            class="mode-btn"
-            data-mode="add-station"
-            aria-pressed="false"
-            title="Click a section to add a station to it"
-          >
-            + Station
-          </button>
-          <button
-            class="mode-btn"
-            data-mode="add-edge"
-            aria-pressed="false"
-            title="Click a source station, then a target, to connect them"
-          >
-            Connect
-          </button>
-          <span class="sep"></span>
-          <button id="btn-add-section" title="Add a new section">
-            + Section
-          </button>
-          <span class="sep"></span>
-          <span id="edit-hint" class="muted small"
-            >Click an element to select it.</span
-          >
         </div>
 
-        <div id="preview"></div>
+        <div id="panel-layout" class="control-panel" hidden>
+          <details id="advanced" class="advanced" open>
+            <summary>Layout controls</summary>
+            <div class="control-row advanced-controls">
+              <span class="control-title">Layout</span>
+              <label>Line spread
+                <select id="opt-line-spread"><option value="">auto</option><option value="bundle">bundle</option><option value="centered">centered</option><option value="rails">rails</option></select>
+              </label>
+              <label>Diamonds
+                <select id="opt-diamond-style"><option value="">auto</option><option value="straight">straight</option><option value="symmetric">symmetric</option></select>
+              </label>
+              <label>Line order
+                <select id="opt-line-order"><option value="">auto</option><option value="definition">definition</option><option value="span">span</option></select>
+              </label>
+              <label class="check"><input type="checkbox" id="opt-compact-offsets" /> Compact offsets</label>
+              <label class="check"><input type="checkbox" id="opt-center-ports" /> Centre ports</label>
+              <label class="check"><input type="checkbox" id="opt-debug" /> Debug geometry</label>
+              <label>Line gap <input type="number" id="opt-track-gap" min="0" max="3" step="0.5" placeholder="1.0" /></label>
+              <label>Font scale <input type="number" id="opt-font-scale" min="0.1" step="0.1" placeholder="1.0" /></label>
+              <label>Fold cols <input type="number" id="opt-fold-threshold" min="1" step="1" placeholder="auto" /></label>
+              <label>X-spacing <input type="number" id="opt-x-spacing" min="1" step="10" placeholder="auto" /></label>
+              <label>Y-spacing <input type="number" id="opt-y-spacing" min="1" step="10" placeholder="auto" /></label>
+            </div>
+          </details>
+        </div>
+
+        <div id="panel-inspect" class="control-panel" hidden>
+          <div class="control-row edit-toolbar">
+            <span class="control-title">Edit map</span>
+            <button class="mode-btn" data-mode="select" aria-pressed="true" title="Select an element to inspect or edit it">Select</button>
+            <button class="mode-btn" data-mode="add-station" aria-pressed="false" title="Click a section to add a station to it">Add station</button>
+            <button class="mode-btn" data-mode="add-edge" aria-pressed="false" title="Click a source station, then a target, to connect them">Connect</button>
+            <button id="btn-add-section" title="Add a new section">Add section</button>
+            <span class="sep"></span>
+            <span id="edit-hint" class="muted small">Click an element to select it.</span>
+          </div>
+        </div>
+        </div>
+
+        <div class="canvas-shell" id="drop-target">
+          <div id="stale-preview" class="stale-preview hidden">Showing the previous render</div>
+          <div id="preview"></div>
+          <div class="drop-invitation hidden" id="drop-invitation">Drop a .mmd file or Nextflow DAG</div>
+        </div>
 
         <div id="zoom-controls">
           <button id="zoom-out" title="Zoom out" aria-label="Zoom out">
@@ -280,16 +232,55 @@ import { base } from "../site";
 
         <div id="boot" class="overlay">
           <div class="spinner"></div>
-          <p id="boot-msg">Starting Python runtime…</p>
+          <p id="boot-msg">Loading the browser runtime</p>
           <p class="muted small">
-            First load fetches the WASM runtime (~10&nbsp;MB); subsequent loads
-            are cached.
+            Editing stays responsive while the renderer starts. The runtime is cached after the first visit.
           </p>
+          <button id="boot-retry" class="hidden">Retry renderer</button>
         </div>
       </section>
     </main>
 
+    <footer class="status-bar" aria-live="polite">
+      <span id="render-status" data-state="loading"><span class="status-dot"></span>Renderer starting</span>
+      <span id="runtime-version">Browser renderer</span>
+      <button id="btn-report" class="status-action" title="Report a bug with this map">Report a problem</button>
+    </footer>
+
     <div id="toast" class="hidden"></div>
+
+    <div id="command-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="command-title">
+      <div class="modal command-modal">
+        <h2 id="command-title">Commands</h2>
+        <label class="command-search-label" for="command-search">Search actions</label>
+        <input id="command-search" class="command-search" type="search" autocomplete="off" placeholder="Type a command…" />
+        <div id="command-list" class="command-list" role="listbox"></div>
+        <p class="command-hint">↑↓ choose · Enter run · Esc close</p>
+      </div>
+    </div>
+
+    <div id="welcome-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      <div class="modal welcome-modal">
+        <p class="modal-kicker">nf-metro playground</p>
+        <h2 id="welcome-title">Where do you want to start?</h2>
+        <p class="muted">Build a publishable pipeline map without installing anything. Your work stays in this browser unless you share or download it.</p>
+        <div class="start-options">
+          <button id="welcome-import" class="start-option primary-option">
+            <strong>Import a Nextflow DAG</strong>
+            <span>Convert a <code>-with-dag</code> Mermaid file into an editable metro map.</span>
+          </button>
+          <button id="welcome-new" class="start-option">
+            <strong>Start a simple map</strong>
+            <span>Use a small, working pipeline and edit the source or canvas.</span>
+          </button>
+          <button id="welcome-example" class="start-option">
+            <strong>Explore examples</strong>
+            <span>Choose from a curated set of common pipeline shapes.</span>
+          </button>
+        </div>
+        <button id="welcome-continue" class="welcome-continue">Continue with the recovered draft</button>
+      </div>
+    </div>
 
     <div
       id="report-modal"
@@ -391,8 +382,8 @@ import { base } from "../site";
 
   <!--
     CDN scripts and app.js are loaded as inline (unprocessed) script tags so
-    Vite does not try to bundle them. CodeMirror 5 and Pyodide expose globals
-    (CodeMirror, loadPyodide) that app.js depends on; load order matters.
+    Vite does not try to bundle them. CodeMirror exposes the editor globals;
+    Pyodide is loaded independently inside worker.js.
   -->
   <script
     is:inline
@@ -404,7 +395,8 @@ import { base } from "../site";
   ></script>
   <script
     is:inline
-    src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"
+  ></script>
   <!--
     app.js lives in public/playground/ and is served at /playground/app.js.
     Its relative fetch calls (wheels/index.json, examples.json) resolve against
@@ -519,15 +511,15 @@ import { base } from "../site";
   /* Custom properties and flex fill */
   .nfm-playground {
     color-scheme: dark;
-    --pg-bg: #0b0e14;
-    --pg-panel: #11161f;
-    --pg-panel-2: #161c27;
-    --pg-border: #232b39;
-    --pg-text: #c9d1d9;
-    --pg-muted: #7d8794;
-    --pg-accent: #2dd4bf;
-    --pg-accent-press: #14b8a6;
-    --pg-danger: #f0716f;
+    --pg-bg: #0b1320;
+    --pg-panel: #111b2a;
+    --pg-panel-2: #172437;
+    --pg-border: #2a394d;
+    --pg-text: #e5ebf2;
+    --pg-muted: #8e9bae;
+    --pg-accent: #19b7a5;
+    --pg-accent-press: #129887;
+    --pg-danger: #d95d57;
     --pg-danger-bg: #2a1414;
 
     /* Expose the short names used throughout app.js-generated HTML */
@@ -566,15 +558,15 @@ import { base } from "../site";
   */
   :root[data-theme="light"] .nfm-playground {
     color-scheme: light;
-    --pg-bg: #ffffff;
-    --pg-panel: #f6f7f9;
-    --pg-panel-2: #eceef1;
-    --pg-border: #d8dde4;
-    --pg-text: #1f2530;
-    --pg-muted: #5a6472;
-    --pg-accent: #0d9488;
+    --pg-bg: #f7f9fc;
+    --pg-panel: #ffffff;
+    --pg-panel-2: #edf2f7;
+    --pg-border: #dbe2ea;
+    --pg-text: #172234;
+    --pg-muted: #5c6879;
+    --pg-accent: #0b8f82;
     --pg-accent-press: #0f766e;
-    --pg-danger: #c0392b;
+    --pg-danger: #b84742;
     --pg-danger-bg: #fdeaea;
   }
 
@@ -1230,14 +1222,472 @@ import { base } from "../site";
     border: 1px solid var(--border);
   }
 
+  /* Playground information architecture */
+  .app-command-bar {
+    min-height: 54px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 7px 12px;
+    background: color-mix(in srgb, var(--panel) 92%, var(--accent));
+    border-bottom: 1px solid var(--border);
+  }
+  .route-strip {
+    display: flex;
+    align-items: center;
+    min-width: 262px;
+  }
+  .route-stop {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-family: "Degular", "Arial Narrow", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .route-stop:not(:last-child)::after {
+    content: "";
+    width: 42px;
+    height: 3px;
+    margin: 0 7px;
+    border-radius: 3px;
+    background: var(--border);
+  }
+  .route-dot {
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--muted);
+    border-radius: 50%;
+    background: var(--panel);
+  }
+  .route-stop.complete,
+  .route-stop.active {
+    color: var(--text);
+  }
+  .route-stop.complete .route-dot {
+    border-color: #19b7a5;
+    background: #19b7a5;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #19b7a5 18%, transparent);
+  }
+  .route-stop.active .route-dot {
+    border-color: #8b6fcf;
+    animation: route-pulse 1.2s ease-in-out infinite;
+  }
+  .route-stop.warning .route-dot {
+    border-color: #d9a441;
+    background: #d9a441;
+  }
+  .route-stop.error .route-dot {
+    border-color: var(--danger);
+    background: var(--danger);
+  }
+  @keyframes route-pulse {
+    50% { box-shadow: 0 0 0 5px color-mix(in srgb, #8b6fcf 20%, transparent); }
+  }
+  .document-actions,
+  .history-actions,
+  .preview-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .document-actions {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .document-actions::-webkit-scrollbar { display: none; }
+  .command-sep {
+    width: 1px;
+    height: 24px;
+    flex: 0 0 auto;
+    margin: 0 3px;
+    background: var(--border);
+  }
+  .nfm-playground button.primary {
+    border-color: #19b7a5;
+    background: #19b7a5;
+    color: #061511;
+    font-weight: 650;
+  }
+  .app-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font: 11px/1.2 "SF Mono", Menlo, monospace;
+    white-space: nowrap;
+  }
+  .mobile-view-switch { display: none; }
+  .pane-heading {
+    min-height: 51px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .pane-heading > div:first-child {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .pane-heading strong {
+    overflow: hidden;
+    color: var(--text);
+    font: 600 15px/1.15 "Degular", "Arial Narrow", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pane-kicker {
+    color: var(--accent);
+    font: 700 10px/1.1 "SF Mono", Menlo, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .history-actions button { padding: 3px 7px; color: var(--muted); }
+  .source-help {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .source-help:hover { color: var(--accent); }
+  .preview-tabs {
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+  .nfm-playground .preview-tab {
+    border: 0;
+    padding: 4px 9px;
+    background: transparent;
+  }
+  .nfm-playground .preview-tab.active {
+    background: var(--panel-2);
+    color: var(--accent);
+  }
+  .control-panel {
+    min-height: 48px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+  }
+  .preview-control-rail {
+    display: block;
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .preview-control-rail .control-panel {
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .preview-control-rail .control-panel[hidden] { display: none; }
+  .preview-control-rail .control-row {
+    flex-wrap: wrap;
+    min-height: 44px;
+    padding-block: 5px;
+  }
+  .control-title {
+    color: var(--accent);
+    font: 700 10px/1 "SF Mono", Menlo, monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .control-row {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    padding: 7px 12px;
+  }
+  .control-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .control-row.edit-toolbar { border: 0; }
+  .advanced { border: 0; }
+  .advanced > summary { display: none; }
+  .canvas-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background-color: var(--bg);
+    background-image: radial-gradient(circle, color-mix(in srgb, var(--border) 48%, transparent) 0.7px, transparent 0.8px);
+    background-size: 18px 18px;
+  }
+  .canvas-shell #preview { width: 100%; height: 100%; }
+  .stale-preview {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 8;
+    transform: translateX(-50%);
+    padding: 4px 9px;
+    border: 1px solid #d9a441;
+    border-radius: 999px;
+    background: var(--panel);
+    color: #d9a441;
+    font-size: 11px;
+  }
+  .drop-invitation {
+    position: absolute;
+    inset: 14px;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    color: var(--text);
+    font: 600 16px "Degular", sans-serif;
+    pointer-events: none;
+  }
+  .status-bar {
+    min-height: 29px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 4px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font: 11px/1 "SF Mono", Menlo, monospace;
+  }
+  #render-status { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  #render-status[data-state="loading"] .status-dot { background: #8b6fcf; }
+  #render-status[data-state="ready"] .status-dot { background: #19b7a5; }
+  #render-status[data-state="warning"] .status-dot { background: #d9a441; }
+  #render-status[data-state="error"] .status-dot { background: var(--danger); }
+  .nfm-playground button.status-action {
+    margin-left: auto;
+    border: 0;
+    padding: 2px 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  #error {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 9px;
+    max-height: 34%;
+  }
+  #error[data-severity="warning"] {
+    border-color: #d9a441;
+    background: color-mix(in srgb, #d9a441 12%, var(--panel));
+    color: #d9a441;
+  }
+  #error strong { font-family: system-ui, sans-serif; white-space: nowrap; }
+  #error span { min-width: 0; }
+  .nfm-playground button.diagnostic-jump {
+    border-color: currentColor;
+    background: transparent;
+    color: inherit;
+    white-space: nowrap;
+  }
+  .diagnostic-marker {
+    display: grid;
+    width: 15px;
+    height: 15px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--danger);
+    color: white;
+    font: 700 10px/1 system-ui;
+  }
+  .diagnostic-marker.warning { background: #d9a441; color: #1a1200; }
+  .welcome-modal { width: min(720px, 100%); }
+  .command-modal { width: min(520px, 100%); padding: 14px; }
+  .command-search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .nfm-playground .command-search {
+    width: 100%;
+    margin-top: 7px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px "SF Mono", Menlo, monospace;
+  }
+  .command-list {
+    max-height: 310px;
+    margin-top: 8px;
+    overflow: auto;
+  }
+  .nfm-playground .command-item {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    border: 0;
+    padding: 8px 10px;
+    background: transparent;
+    text-align: left;
+  }
+  .nfm-playground .command-item.selected { background: var(--panel-2); }
+  .command-item span { color: var(--muted); font-size: 11px; }
+  .command-hint {
+    margin: 8px 2px 0 !important;
+    color: var(--muted);
+    font: 10px "SF Mono", Menlo, monospace;
+  }
+  html:has(#split) .CodeMirror-hints {
+    z-index: 40;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 8px;
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+    font: 12px "SF Mono", Menlo, monospace;
+  }
+  html:has(#split) .CodeMirror-hint { padding: 5px 8px; }
+  html:has(#split) li.CodeMirror-hint-active { background: var(--sl-color-accent); color: white; }
+  .modal-kicker {
+    color: var(--accent);
+    font: 700 10px/1 "SF Mono", Menlo, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .start-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .nfm-playground .start-option {
+    min-height: 142px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 16px;
+    text-align: left;
+  }
+  .start-option strong { font: 600 17px/1.1 "Degular", sans-serif; }
+  .start-option span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .nfm-playground .start-option.primary-option {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+  }
+  .nfm-playground .welcome-continue {
+    display: block;
+    margin: 14px auto 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    text-decoration: underline;
+  }
+  .nfm-playground button:focus-visible,
+  .nfm-playground select:focus-visible,
+  .nfm-playground input:focus-visible,
+  .nfm-playground textarea:focus-visible,
+  .nfm-playground summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .route-stop.active .route-dot,
+    .spinner { animation: none; }
+  }
+
+  @media (max-width: 900px) {
+    .route-strip { min-width: auto; }
+    .route-stop span:last-child { display: none; }
+    .route-stop:not(:last-child)::after { width: 22px; }
+    .app-meta { display: none; }
+  }
+
   @media (max-width: 720px) {
+    .app-command-bar {
+      min-height: 51px;
+      display: flex;
+      gap: 10px;
+      padding: 6px 8px;
+    }
+    .route-strip { flex: 0 0 auto; }
+    .route-stop:not(:last-child)::after { width: 11px; margin-inline: 4px; }
+    .document-actions { flex: 1; }
+    .document-actions button { min-height: 38px; white-space: nowrap; }
+    .document-actions .command-sep,
+    #btn-copy-source { display: none; }
+    .mobile-view-switch {
+      min-height: 43px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 5px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .nfm-playground .mobile-view {
+      min-height: 32px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+    }
+    .nfm-playground .mobile-view.active {
+      background: var(--panel-2);
+      color: var(--accent);
+    }
     #split {
       grid-template-columns: 1fr;
-      grid-template-rows: 1fr 1fr;
+      grid-template-rows: minmax(0, 1fr);
     }
-    #editor-pane {
-      border-right: none;
-      border-bottom: 1px solid var(--border);
+    #split[data-mobile-view="source"] #preview-pane,
+    #split[data-mobile-view="preview"] #editor-pane { display: none; }
+    #editor-pane { border-right: 0; }
+    .pane-heading { min-height: 49px; }
+    .source-toolbar,
+    .control-row {
+      min-height: 49px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
+    .source-toolbar::-webkit-scrollbar,
+    .control-row::-webkit-scrollbar { display: none; }
+    .preview-heading { align-items: center; }
+    .preview-heading > div:first-child { display: none; }
+    .preview-tabs { width: 100%; }
+    .preview-tab { flex: 1; min-height: 34px; }
+    .control-panel { min-height: 49px; }
+    .advanced .advanced-controls { flex-wrap: nowrap; }
+    .start-options { grid-template-columns: 1fr; }
+    .nfm-playground .start-option { min-height: 96px; }
+    .modal-overlay { padding: 12px; }
+    .welcome-modal { max-height: calc(100vh - 24px); overflow: auto; }
+    .status-bar { padding-inline: 9px; }
+    #runtime-version { display: none; }
+    #error { grid-template-columns: 1fr; }
   }
 </style>
