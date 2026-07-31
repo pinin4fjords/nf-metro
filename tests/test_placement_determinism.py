@@ -77,6 +77,7 @@ def test_convergence_split_excludes_cascade_only_companion():
         _col_groups(_CASCADE_COL),
         _CASCADE_SUCC,
         _predecessors(_CASCADE_SUCC),
+        section_rank={sid: rank for rank, sid in enumerate(_SECTIONS)},
     )
     assert result is not None
     assert "Q" not in result
@@ -90,10 +91,18 @@ def test_convergence_split_is_order_independent(order):
     groups = _col_groups(_CASCADE_COL)
 
     baseline = _detect_convergence_split(
-        _reorder(_CASCADE_COL, _SECTIONS), groups, _CASCADE_SUCC, pred
+        _reorder(_CASCADE_COL, _SECTIONS),
+        groups,
+        _CASCADE_SUCC,
+        pred,
+        section_rank={sid: rank for rank, sid in enumerate(_SECTIONS)},
     )
     permuted = _detect_convergence_split(
-        _reorder(_CASCADE_COL, order), groups, _CASCADE_SUCC, pred
+        _reorder(_CASCADE_COL, order),
+        groups,
+        _CASCADE_SUCC,
+        pred,
+        section_rank={sid: rank for rank, sid in enumerate(_SECTIONS)},
     )
     assert permuted == baseline, (
         f"return set depends on col_assign key order: {order} -> {permuted} "

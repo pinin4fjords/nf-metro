@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 
 import networkx as nx
 
+from nf_metro.graph_views import directed_graph, longest_path_layers
 from nf_metro.parser.model import (
     BYPASS_V_PREFIX,
     CONVERGE_PREFIX,
@@ -526,21 +527,19 @@ def _insert_bypass_stations(
 
 def _section_topo_layers(graph: MetroGraph, section_ids: set[str]) -> dict[str, int]:
     """Longest-path layer index for the in-section subgraph (empty if cyclic)."""
-    sub: nx.DiGraph[str] = nx.DiGraph()
-    for sid in section_ids:
-        sub.add_node(sid)
-    for edge in graph.edges:
-        if edge.source in section_ids and edge.target in section_ids:
-            sub.add_edge(edge.source, edge.target)
+    station_ids = [sid for sid in graph.stations if sid in section_ids]
+    section_graph = directed_graph(
+        station_ids,
+        (
+            (edge.source, edge.target)
+            for edge in graph.edges
+            if edge.source in section_ids and edge.target in section_ids
+        ),
+    )
     try:
-        topo = list(nx.topological_sort(sub))
+        return longest_path_layers(section_graph, station_ids)
     except nx.NetworkXUnfeasible:
         return {}
-    layers: dict[str, int] = {}
-    for node in topo:
-        preds = list(sub.predecessors(node))
-        layers[node] = max((layers[p] for p in preds), default=-1) + 1 if preds else 0
-    return layers
 
 
 @dataclass
@@ -787,20 +786,20 @@ def _section_flow_ranks(section: Section) -> dict[str, int]:
     flow-sink end (trailing edge).  Returns an empty dict if the internal
     edges form a cycle.
     """
-    g: nx.DiGraph[str] = nx.DiGraph()
-    g.add_nodes_from(section.station_ids)
-    for e in section.internal_edges:
-        if e.source in g and e.target in g:
-            g.add_edge(e.source, e.target)
+    station_ids = list(section.station_ids)
+    station_set = set(station_ids)
+    section_graph = directed_graph(
+        station_ids,
+        (
+            (edge.source, edge.target)
+            for edge in section.internal_edges
+            if edge.source in station_set and edge.target in station_set
+        ),
+    )
     try:
-        order = list(nx.topological_sort(g))
+        return longest_path_layers(section_graph, station_ids)
     except nx.NetworkXUnfeasible:
         return {}
-    ranks: dict[str, int] = {}
-    for node in order:
-        preds = list(g.predecessors(node))
-        ranks[node] = max((ranks[p] for p in preds), default=-1) + 1
-    return ranks
 
 
 def _port_fold_target(

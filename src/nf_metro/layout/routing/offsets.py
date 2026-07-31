@@ -86,6 +86,7 @@ class _OffsetCtx:
     # Pre-computed per-station inbound/outbound line sets
     inbound: dict[str, set[str]] = field(default_factory=dict)
     outbound: dict[str, set[str]] = field(default_factory=dict)
+    station_rank: dict[str, int] = field(default_factory=dict)
     # Section -> flat-frame component root, populated by section-local re-indexing
     frame_roots: dict[str, str] = field(default_factory=dict)
 
@@ -125,6 +126,7 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
         lr_rl_sections=lr_rl_sections,
         inbound=inbound,
         outbound=outbound,
+        station_rank={sid: rank for rank, sid in enumerate(graph.stations)},
     )
 
 
@@ -1183,7 +1185,7 @@ def _propagate_exit_offsets_to_hubs(
     if len(feeder_ids) < 2:
         return
     hub_candidates = {edge.source for fid in feeder_ids for edge in graph.edges_to(fid)}
-    for hub_id in hub_candidates:
+    for hub_id in sorted(hub_candidates, key=ctx.station_rank.__getitem__):
         overlap = [lid for lid in graph.station_lines(hub_id) if lid in offs]
         if len(overlap) < 2 or _hub_copy_would_desync_trunk_row(
             ctx, hub_id, overlap, offs
@@ -1255,6 +1257,7 @@ def _exit_trunk_feeder(
     graph: MetroGraph,
     line_feeders: dict[str, list[tuple[str, float]]],
     port_lines: set[str],
+    station_rank: dict[str, int],
 ) -> str | None:
     """The feeder that carries the whole exit bundle out on one row, or None.
 
@@ -1273,23 +1276,23 @@ def _exit_trunk_feeder(
     for lid, entries in line_feeders.items():
         for fid, _ in entries:
             feeder_port_lines.setdefault(fid, set()).add(lid)
-    trunk_feeder_id = next(
-        (sid for sid in all_feeders if port_lines.issubset(graph.station_lines(sid))),
-        None,
-    )
-    if trunk_feeder_id is None or port_lines.issubset(
-        feeder_port_lines.get(trunk_feeder_id, set())
-    ):
-        return trunk_feeder_id
-    trunk_y = graph.stations[trunk_feeder_id].y
-    unforwarded_ys = {
-        y
-        for lid in port_lines - feeder_port_lines.get(trunk_feeder_id, set())
-        for _, y in line_feeders[lid]
-    }
-    if any(abs(y - trunk_y) > _SAME_Y_TOLERANCE for y in unforwarded_ys):
-        return None
-    return trunk_feeder_id
+    ordered_feeders = sorted(all_feeders, key=station_rank.__getitem__)
+    for feeder_id in ordered_feeders:
+        if port_lines.issubset(feeder_port_lines.get(feeder_id, set())):
+            return feeder_id
+
+    for feeder_id in ordered_feeders:
+        if not port_lines.issubset(graph.station_lines(feeder_id)):
+            continue
+        trunk_y = graph.stations[feeder_id].y
+        unforwarded_ys = {
+            y
+            for lid in port_lines - feeder_port_lines.get(feeder_id, set())
+            for _, y in line_feeders[lid]
+        }
+        if all(abs(y - trunk_y) <= _SAME_Y_TOLERANCE for y in unforwarded_ys):
+            return feeder_id
+    return None
 
 
 def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
@@ -1393,7 +1396,9 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
                 _propagate_exit_offsets_to_hubs(ctx, port_id, inherited)
                 continue
 
-        trunk_feeder_id = _exit_trunk_feeder(graph, line_feeders, port_lines)
+        trunk_feeder_id = _exit_trunk_feeder(
+            graph, line_feeders, port_lines, ctx.station_rank
+        )
         if trunk_feeder_id is not None:
             trunk_y = graph.stations[trunk_feeder_id].y
             line_avg_y = {lid: trunk_y for lid in line_feeders}
@@ -2216,7 +2221,7 @@ def _propagate_touched_exit_ports_to_entries(
     be wrong, not merely redundant.
     """
     graph = ctx.graph
-    for sid in touched:
+    for sid in sorted(touched, key=ctx.station_rank.__getitem__):
         src_port = graph.ports.get(sid)
         if src_port is None or src_port.is_entry:
             continue
@@ -2240,7 +2245,7 @@ def _propagate_touched_exit_ports_to_entries(
 
 def _seed_compaction(ctx: _OffsetCtx, seed_sid: str) -> dict[str, float] | None:
     """Target offsets that pack the seed's lines into consecutive slots, or None."""
-    seed_lines = ctx.graph.station_lines(seed_sid)
+    seed_lines = ctx.graph.station_lines_ordered(seed_sid)
     if len(seed_lines) < 2:
         return None
 
@@ -2271,12 +2276,12 @@ def _anchored_seed_compaction(
     into the free slots immediately below and above it instead.
     """
     graph = ctx.graph
-    seed_lines = graph.station_lines(seed_sid)
+    seed_lines = graph.station_lines_ordered(seed_sid)
     if len(seed_lines) < 2:
         return None
 
     current = {lid: ctx.offsets.get((seed_sid, lid), 0.0) for lid in seed_lines}
-    fixed_here = fixed & set(seed_lines)
+    fixed_here = [lid for lid in seed_lines if lid in fixed]
     movable = [lid for lid in seed_lines if lid not in fixed_here]
     if not fixed_here or not movable:
         return None
@@ -2328,12 +2333,12 @@ def _compact_one_seed(
     compacted = _seed_compaction(ctx, seed_sid)
     if compacted is None:
         return set()
-    changed_lids = {
+    changed_lids = [
         lid
-        for lid in ctx.graph.station_lines(seed_sid)
+        for lid in ctx.graph.station_lines_ordered(seed_sid)
         if abs(compacted[lid] - ctx.offsets.get((seed_sid, lid), 0.0))
         > _OFFSET_EQ_TOLERANCE
-    }
+    ]
 
     pending = _propagate_compaction(
         ctx,
@@ -2377,7 +2382,7 @@ def _compact_one_seed_with_retry(
     :func:`_propagate_compaction`.
     """
     graph = ctx.graph
-    seed_lines = graph.station_lines(seed_sid)
+    seed_lines = graph.station_lines_ordered(seed_sid)
     fixed: set[str] = set()
     for _ in range(len(seed_lines)):
         compacted = (
@@ -2387,12 +2392,12 @@ def _compact_one_seed_with_retry(
         )
         if compacted is None:
             return set()
-        changed_lids = {
+        changed_lids = [
             lid
             for lid in seed_lines
             if abs(compacted[lid] - ctx.offsets.get((seed_sid, lid), 0.0))
             > _OFFSET_EQ_TOLERANCE
-        }
+        ]
         if not changed_lids:
             return set()
 
@@ -2462,7 +2467,7 @@ def _propagate_compaction(
     sec_id: str,
     seed_sid: str,
     compacted: dict[str, float],
-    changed_lids: set[str],
+    changed_lids: Sequence[str],
     n_sec_stations: int,
     *,
     mover: str | None = None,

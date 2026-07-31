@@ -76,6 +76,35 @@ def _deepest_real_anchor(graph: MetroGraph, section: Section) -> tuple[str, str]
     return None
 
 
+def test_internal_station_depths_uses_longest_predecessor_path() -> None:
+    graph = parse_metro_mermaid(
+        """\
+%%metro line: main | Main | #ff0000
+graph LR
+    subgraph work [Work]
+        start[Start]
+        short[Short]
+        long_1[Long 1]
+        long_2[Long 2]
+        join[Join]
+        tail[Tail]
+        start -->|main| short
+        short -->|main| join
+        start -->|main| long_1
+        long_1 -->|main| long_2
+        long_2 -->|main| join
+        join -->|main| tail
+    end
+"""
+    )
+
+    depths = _internal_station_depths(graph, "work")
+
+    assert depths is not None
+    assert depths["join"] == 3
+    assert depths["tail"] == 4
+
+
 def _inject_leaf(text: str, section_id: str, anchor: str, line_id: str) -> str:
     """Append ``anchor -->|line_id| __stability_leaf`` inside ``section_id``.
 

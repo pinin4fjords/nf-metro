@@ -10,6 +10,7 @@ __all__ = ["assign_layers", "build_station_digraph"]
 
 import networkx as nx
 
+from nf_metro.graph_views import longest_path_layers
 from nf_metro.parser.model import MetroGraph
 
 
@@ -39,15 +40,4 @@ def assign_layers(graph: MetroGraph) -> dict[str, int]:
     """
     G = build_station_digraph(graph)
 
-    # Topological sort (will raise if cycles exist)
-    topo_order = list(nx.topological_sort(G))
-
-    layers: dict[str, int] = {}
-    for node in topo_order:
-        preds = list(G.predecessors(node))
-        if not preds:
-            layers[node] = 0
-        else:
-            layers[node] = max(layers[p] for p in preds) + 1
-
-    return layers
+    return longest_path_layers(G, graph.stations)
