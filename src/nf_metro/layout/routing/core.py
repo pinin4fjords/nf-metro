@@ -98,6 +98,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _restack_htrunk,
     _restack_trunk_band,
     _round_junction_perp_peeloff,
+    _separate_declared_opposing_gap_bundles,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
     _stagger_convergent_distinct_lines,
@@ -219,6 +220,9 @@ def _route_edges(
     # Re-stack peel-off risers against the settled trunk depths, so each rises
     # on the concentric slot its post-repack depth earns.
     _reconcile_port_peeloff_risers(routes, ctx)
+    # Peel-off reconciliation can transpose riser order, so symmetric
+    # divergences must be joined against those final columns.
+    _separate_declared_opposing_gap_bundles(routes, ctx)
     # A merge fan-out's branches leave one fork and turn off its lead-out
     # through a first corner each; fuse those corners onto one shared pivot
     # column so the fork opens as one stroke, before the same-line coincidence

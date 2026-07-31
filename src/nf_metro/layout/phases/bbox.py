@@ -180,6 +180,10 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
     if not graph.sections:
         return False
 
+    from nf_metro.layout.section_placement import _inter_row_routing_minimums
+
+    routing_min = _inter_row_routing_minimums(graph)
+
     sections_by_row_start: dict[int, list[Section]] = defaultdict(list)
     for s in graph.sections.values():
         sections_by_row_start[s.grid_row].append(s)
@@ -207,6 +211,7 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
         if not ending_at_prev:
             continue
         bypass_by_span = _aggregate_bypass_spans(graph, ending_at_prev)
+        target_gap = max(section_y_gap, routing_min.get((r - 1, r), 0.0))
 
         # Only consider column-overlapping (upper, lower) pairs for
         # deficit computation: a tall upper-row bbox that lives in a
@@ -221,7 +226,7 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
                     continue
                 upper_bot = us.bbox_y + us.bbox_h
                 lower_top = ls.bbox_y
-                d = (upper_bot + section_y_gap) - lower_top
+                d = (upper_bot + target_gap) - lower_top
                 if d > deficit:
                     deficit = d
         # Bypass routes do not need column overlap with the upper-row
@@ -235,7 +240,7 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
                 ls_hi = ls.grid_col + ls.grid_col_span - 1
                 if ls_hi < lo or ls_lo > hi:
                     continue
-                d = (bypass_bot + section_y_gap) - ls.bbox_y
+                d = (bypass_bot + target_gap) - ls.bbox_y
                 if d > deficit:
                     deficit = d
         if deficit <= SAME_COORD_TOLERANCE:
@@ -1192,48 +1197,80 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
     if not sections_by_start_row:
         return
     max_row = max(sections_by_end_row)
+    connected_pairs = {
+        frozenset((source_section, target_section))
+        for edge in graph.edges
+        if (source_section := graph.section_for_station(edge.source)) is not None
+        and (target_section := graph.section_for_station(edge.target)) is not None
+        and source_section != target_section
+    }
 
     for r in range(1, max_row + 1):
         lower = sections_by_start_row.get(r, [])
         ending_at_prev = sections_by_end_row.get(r - 1, [])
         if not lower or not ending_at_prev:
             continue
-        # Use the Phase 1 content-hugging bbox bottom (bbox_y + bbox_h) as the
-        # row-ending extent.  When a pre-populated structural snapshot exists,
-        # take it as a lower bound on the extent but never below the section's
-        # actual drawn bbox bottom: a snapshot captured before a later pass grew
-        # the box (e.g. an off-track lift adding real content) would otherwise
-        # understate the extent and let the tighten pull the row below up into
-        # the grown box.
+        upper_sections = [
+            section
+            for end_row, sections in sections_by_end_row.items()
+            if end_row < r
+            for section in sections
+        ]
         struct = graph._struct_height_below_top
-        if struct:
-            max_above_bot = max(
-                s.bbox_y + max(struct.get(s.id, s.bbox_h), s.bbox_h)
-                for s in ending_at_prev
+
+        def _structural_bottom(section: Section) -> float:
+            """Return the settled bottom, honouring an earlier height snapshot."""
+            height = section.bbox_h
+            if struct:
+                height = max(struct.get(section.id, height), height)
+            return section.bbox_y + height
+
+        def _sections_constrain(upper: Section, lower: Section) -> bool:
+            upper_hi = upper.grid_col + upper.grid_col_span - 1
+            lower_hi = lower.grid_col + lower.grid_col_span - 1
+            grid_overlap = not (upper_hi < lower.grid_col or lower_hi < upper.grid_col)
+            bbox_overlap = not (
+                upper.bbox_x + upper.bbox_w <= lower.bbox_x + SAME_COORD_TOLERANCE
+                or lower.bbox_x + lower.bbox_w <= upper.bbox_x + SAME_COORD_TOLERANCE
             )
-        else:
-            max_above_bot = max(s.bbox_y + s.bbox_h for s in ending_at_prev)
+            route_connects = frozenset((upper.id, lower.id)) in connected_pairs
+            return grid_overlap or bbox_overlap or route_connects
+
         # Bypass routes dip below intervening bboxes into the inter-row
         # gap; tightening must not pull lower rows up into them.
         bypass_spans = _aggregate_bypass_spans(graph, ending_at_prev)
         target_gap = max(section_y_gap, routing_min.get((r - 1, r), 0.0))
         # The whole row shifts up by one amount, so it can rise only as far as
         # its most-constrained section allows -- hence the min over ``lower``.
-        # Each section's floor counts only the bypass spans whose columns it
-        # actually sits under (as ``push_lower_rows_after_bbox_grow`` does):
-        # a bypass running over columns a section never spans reserves no
-        # clearance against it.
-        slack = float("inf")
+        # Each lower section's floor counts only earlier-row sections and bypass
+        # spans whose columns it actually sits under.  Looking through every
+        # earlier row is necessary because a tall bbox can extend past its
+        # immediate lower neighbour.  A tall box or route in another column
+        # does not reserve empty vertical space here.  Because the whole row
+        # moves by one amount, unconstrained members can be omitted whenever
+        # another member supplies a real column constraint.  Fall back to the
+        # preceding row's global floor only when the row has no local constraint
+        # at all.
+        global_floor = max(_structural_bottom(us) for us in ending_at_prev)
+        constrained: list[tuple[Section, float]] = []
         for ls in lower:
             ls_lo = ls.grid_col
             ls_hi = ls.grid_col + ls.grid_col_span - 1
-            floor = max_above_bot
+            overlapping_floors = [
+                _structural_bottom(us)
+                for us in upper_sections
+                if _sections_constrain(us, ls)
+            ]
+            floors = list(overlapping_floors)
             for (lo, hi), bypass_bot in bypass_spans.items():
                 if ls_hi < lo or ls_lo > hi:
                     continue
-                if bypass_bot > floor:
-                    floor = bypass_bot
-            slack = min(slack, ls.bbox_y - (floor + target_gap))
+                floors.append(bypass_bot)
+            if floors:
+                constrained.append((ls, max(floors)))
+        if not constrained:
+            constrained = [(ls, global_floor) for ls in lower]
+        slack = min(ls.bbox_y - (floor + target_gap) for ls, floor in constrained)
         if slack <= SAME_COORD_TOLERANCE:
             continue
 

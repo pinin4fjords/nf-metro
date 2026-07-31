@@ -285,13 +285,59 @@ def _required_channel_clearance(
     return BUNDLE_TO_BUNDLE_CLEARANCE
 
 
+def _channels_form_symmetric_divergence(a: _VChannel, b: _VChannel) -> bool:
+    """Whether same-line siblings split up and down from one trunk endpoint."""
+    if (
+        a.down is b.down
+        or a.route.line_id != b.route.line_id
+        or a.route.edge.source != b.route.edge.source
+    ):
+        return False
+    overlap = min(a.y_hi, b.y_hi) - max(a.y_lo, b.y_lo)
+    if abs(overlap) > COORD_TOLERANCE:
+        return False
+
+    def _opening_trunk(
+        channel: _VChannel,
+    ) -> tuple[tuple[float, float], float, int] | None:
+        if channel.idx == 0:
+            return None
+        start = channel.route.points[channel.idx - 1]
+        turn = channel.route.points[channel.idx]
+        dx = turn[0] - start[0]
+        if abs(turn[1] - start[1]) > COORD_TOLERANCE or abs(dx) <= COORD_TOLERANCE:
+            return None
+        return start, turn[1], 1 if dx > 0 else -1
+
+    a_trunk = _opening_trunk(a)
+    b_trunk = _opening_trunk(b)
+    if a_trunk is None or b_trunk is None:
+        return False
+    a_start, a_y, a_direction = a_trunk
+    b_start, b_y, b_direction = b_trunk
+    return (
+        abs(a_start[0] - b_start[0]) <= COORD_TOLERANCE
+        and abs(a_start[1] - b_start[1]) <= COORD_TOLERANCE
+        and abs(a_y - b_y) <= COORD_TOLERANCE
+        and a_direction == b_direction
+    )
+
+
 def _anchor_same_direction_fixed_channels(
     bundles: list[tuple[bool, list[_VChannel]]],
     fixed: list[_VChannel],
     ctx: _RoutingCtx,
 ) -> None:
     """Extend movable same-direction bundles from their fixed member's column."""
+    movable = [ch for _down, group in bundles for ch in group]
     for down, chans in bundles:
+        if any(
+            _channels_form_symmetric_divergence(ch, sibling)
+            for ch in chans
+            for sibling in movable
+            if sibling is not ch
+        ):
+            continue
         anchors = [
             obstacle
             for obstacle in fixed
@@ -343,6 +389,18 @@ def _separate_opposing_gap_bundles(
     for down, chans in bundles:
         if not chans:
             continue
+        join_candidates = [
+            sibling.x - ch.x
+            for ch in chans
+            for sibling in settled
+            if _channels_form_symmetric_divergence(ch, sibling)
+        ]
+        join_delta = None
+        if join_candidates and all(
+            abs(candidate - join_candidates[0]) <= COORD_TOLERANCE
+            for candidate in join_candidates[1:]
+        ):
+            join_delta = join_candidates[0]
         obstacles = [
             obstacle
             for obstacle in settled
@@ -351,7 +409,7 @@ def _separate_opposing_gap_bundles(
                 for ch in chans
             )
         ]
-        if not obstacles:
+        if not obstacles and join_delta is None:
             settled.extend(chans)
             continue
 
@@ -387,14 +445,16 @@ def _separate_opposing_gap_bundles(
                 for obstacle in obstacles
             )
 
-        delta = next(
-            (
-                candidate
-                for candidate in sorted(candidates, key=lambda d: (abs(d), d))
-                if feasible(candidate)
-            ),
-            None,
-        )
+        delta = join_delta if join_delta is not None and feasible(join_delta) else None
+        if delta is None:
+            delta = next(
+                (
+                    candidate
+                    for candidate in sorted(candidates, key=lambda d: (abs(d), d))
+                    if feasible(candidate)
+                ),
+                None,
+            )
         if delta is None or abs(delta) <= COORD_TOLERANCE:
             settled.extend(chans)
             continue

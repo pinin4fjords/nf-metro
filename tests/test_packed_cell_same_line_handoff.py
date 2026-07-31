@@ -4,14 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro.layout.constants import (
-    BUNDLE_TO_BUNDLE_CLEARANCE,
-)
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing.common import apply_route_offsets, column_gap_edges
 from nf_metro.layout.routing.core import route_edges
 from nf_metro.layout.routing.invariants import check_packed_cell_same_line_handoff
 from nf_metro.layout.routing.offsets import compute_station_offsets
+from nf_metro.layout.section_placement import _inter_row_routing_minimums
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 TOPOLOGY = (
@@ -57,8 +55,7 @@ def test_far_packed_cell_branch_reuses_near_sibling_corridor() -> None:
     qc_section = graph.sections["qc"]
 
     assert annotation[:3] == pytest.approx(qc[:3])
-    assert annotation[3][1] == pytest.approx(qc[3][1])
-    assert abs(qc[3][0] - annotation[3][0]) >= BUNDLE_TO_BUNDLE_CLEARANCE
+    assert annotation[3] == pytest.approx(qc[3])
     gap_left, gap_right = column_gap_edges(graph, 1, 2, row=0)
     assert gap_left <= min(qc[3][0], annotation[3][0])
     assert max(qc[3][0], annotation[3][0]) <= gap_right
@@ -100,3 +97,39 @@ def test_packed_cell_handoff_guard_rejects_opposite_opening_directions() -> None
     assert len(violations) == 1
     assert violations[0].near_target == "qc__entry_left_6"
     assert violations[0].far_target == "annot__entry_left_9"
+
+
+def test_straight_polish_diamond_uses_a_branch_as_its_trunk() -> None:
+    graph, _routes, _routed_paths, _offsets = _routed()
+
+    source_y = graph.stations["assembly_file_in"].y
+    join_y = graph.stations["polished_file"].y
+    upper_branch_y = graph.stations["polish_short"].y
+    trunk_branch_y = graph.stations["polish_ont"].y
+
+    assert source_y == pytest.approx(trunk_branch_y)
+    assert join_y == pytest.approx(trunk_branch_y)
+    assert upper_branch_y < trunk_branch_y
+
+
+def test_top_row_boxes_share_one_header_line() -> None:
+    graph, _routes, _routed_paths, _offsets = _routed()
+
+    top_row = [
+        section
+        for section in graph.sections.values()
+        if section.grid_row == 0 and section.bbox_h > 0
+    ]
+
+    assert len({round(section.bbox_y, 6) for section in top_row}) == 1
+
+
+def test_lower_row_closes_only_to_its_overlapping_upper_sections() -> None:
+    graph, _routes, _routed_paths, _offsets = _routed()
+    qc = graph.sections["qc"]
+    scaffold = graph.sections["scaffold"]
+    required = _inter_row_routing_minimums(graph)[(0, 1)]
+
+    actual = scaffold.bbox_y - (qc.bbox_y + qc.bbox_h)
+
+    assert actual == pytest.approx(required)

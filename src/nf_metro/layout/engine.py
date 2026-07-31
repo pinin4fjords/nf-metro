@@ -280,6 +280,7 @@ from nf_metro.layout.phases.row_align import (  # noqa: F401
     _compact_row_content_to_bbox_top,
     _distribute_stacked_rows_in_rowspan_band,
     _recompute_grid_group_bboxes,
+    _top_align_packed_row_bboxes,
     _top_align_row_bboxes_only,
     _top_align_row_sections,
 )
@@ -1942,6 +1943,8 @@ def _finalize_layout(
     # canvas snap below.
     _reserve_row_gap_for_top_padding(graph, section_y_padding, section_y_gap)
     _fit_bboxes_to_content_top(graph, section_y_padding, section_y_gap)
+    _top_align_packed_row_bboxes(graph)
+    push_lower_rows_after_bbox_grow(graph, section_y_gap)
     # Follows the grow above: a side-entered vertical section beside a
     # row-mate whose top just grew is lifted to that feeder.
     _top_align_side_entered_vertical_to_feeder(graph)
