@@ -688,6 +688,18 @@ def _settle_render_geometry(
     return station_offsets, routes, labels
 
 
+def _copy_graph_for_render(source_graph: MetroGraph) -> MetroGraph:
+    """Copy mutable render state while sharing frozen parser metadata."""
+    immutable_metadata = (
+        source_graph.route_topology,
+        source_graph.route_resolution,
+    )
+    return copy.deepcopy(
+        source_graph,
+        {id(value): value for value in immutable_metadata if value is not None},
+    )
+
+
 def _build_render_plan_scaled(
     source_graph: MetroGraph,
     theme: Theme,
@@ -701,7 +713,7 @@ def _build_render_plan_scaled(
     bare: bool = False,
 ) -> RenderPlan:
     """Finish render geometry on a private graph copy and freeze the result."""
-    graph = copy.deepcopy(source_graph)
+    graph = _copy_graph_for_render(source_graph)
     effective_legend_position = (
         legend_position if legend_position is not None else graph.legend_position
     )

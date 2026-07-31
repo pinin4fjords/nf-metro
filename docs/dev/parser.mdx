@@ -282,10 +282,11 @@ runs a post-parse sequence (only when the graph has sections):
    through each synthetic convergence edge.
 6. `resolve_section_endpoints` - classify connectors and settle their entry
    and exit sides once, before ports exist.
-7. Build the immutable `RouteTopology` observation described below.
-8. `_resolve_sections` - consume the same endpoint resolution in the core
-   rewrite (below).
-9. `_insert_bypass_stations`.
+7. Build the immutable `RouteTopology` described below.
+8. `_resolve_sections` - create ports and junctions from that topology, using
+   the endpoint result for current edge endpoints and compatibility order.
+9. `_insert_bypass_stations` - split any required exit legs and update their
+   connector traces.
 
 Finally the parser applies pending terminus icons, `off_track` marks,
 and per-station markers that were buffered during the statement scan.
@@ -302,15 +303,16 @@ chains. It is split into three helpers:
 - `_classify_edges` - split edges into internal (both endpoints in one
   section) and inter-section, and populate each section's
   `internal_edges`.
-- `_create_ports_and_junctions` - create `Port` objects and rewrite each
-  inter-section edge into a chain: `source -> exit_port -> entry_port ->
-target`. The design rule is **one exit port per source section** (all
-  lines leave together for consistent ordering) and **one entry port per
-  target section per side**; junction stations handle fan-out to multiple
-  target sections.
+- `_create_ports_and_junctions` - create `Port` objects from topology endpoint
+  groups and rewrite each inter-section edge into a chain:
+  `source -> exit_port -> entry_port -> target`. The design rule is **one exit
+  port per source section and side** and **one entry port per target section
+  and side**. Lines sharing a boundary leave together for consistent ordering.
+  Topology divergence groups decide where fan-out junctions are required.
 
-After ports and junctions exist, `_insert_merge_junctions` adds merge
-junctions and `_assign_section_numbers` numbers any unnumbered sections.
+After ports and fan junctions exist, topology convergence groups decide where
+merge junctions are required. `_assign_section_numbers` then numbers any
+unnumbered sections.
 
 The result is a `MetroGraph` whose edges all live within a section or
 run port-to-port, ready for the layout stage.
@@ -324,9 +326,11 @@ authored connector through interchange and terminus-convergence rewrites, but
 is never stored on `MetroGraph` or `Edge`.
 
 After terminus convergence, `resolve_section_endpoints` settles every boundary
-side on the production graph. The topology builder and `_resolve_sections`
-consume that one result, so observation and resolution cannot choose different
-sides. The result is transient and is not retained by the resolved graph.
+side on the production graph. It retains the current edge endpoints and their
+encounter order. The topology builder uses those boundary facts to describe
+the semantic groups. `_resolve_sections` then creates ports and junctions from
+the topology, while the boundary result preserves the current edge endpoints
+and output order.
 
 The topology contains one connected `LineNetwork` per line component, exact
 endpoint `BundleRun`s, cross-section connectors, resolved endpoint groups,
@@ -339,8 +343,16 @@ All records are frozen and contain only scalar values, `PortSide` values, and
 tuples. They retain no `MetroGraph`, station, section, edge, mutable container,
 or NetworkX object. Top-level and nested collections have explicit canonical
 ordering, so the same input produces the same topology under every hash seed.
-`RouteTopology` is parser observation state and is excluded from `RenderPlan`;
-clearing it cannot change plan, SVG, HTML, manifest, or layout output.
+The resolver also records a `RouteResolutionTrace`. It maps endpoint groups to
+ports, fan and merge groups to junctions, and each authored connector to its
+ordered final edge paths. Most connectors have one path. A connector can have
+several when one exit leg needs parallel bypass helpers. The records use scalar
+ids and tuples, so duplicate authored connectors can safely share paths. Bypass
+insertion updates the affected paths when it splits an exit leg.
+
+`RouteTopology` and `RouteResolutionTrace` are parser metadata and are excluded
+from `RenderPlan`. Clearing them cannot change plan, SVG, HTML, manifest, or
+layout output.
 
 ## Adding things
 
