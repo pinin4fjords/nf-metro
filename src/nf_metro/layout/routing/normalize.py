@@ -1186,7 +1186,12 @@ def _bundle_divergent_distinct_traverses(
             _set_htrunk_y(m.route, m.idx, ty, off, 0.0)
 
 
-def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _drop_covered_merge_entry_hops(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    report_coverage: bool = False,
+) -> tuple[tuple[tuple[str, str, str], tuple[str, str, str]], ...]:
     """Drop a merge -> entry hop that every feeder already runs for itself.
 
     The merge station is placed at ``max(feeder.x) + margin``, which is not the
@@ -1207,7 +1212,7 @@ def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -
     the feeders converge.
     """
     if not ctx.merge.junctions:
-        return
+        return ()
     feeders_by_merge: dict[str, list[RoutedPath]] = defaultdict(list)
     hop_by_merge: dict[str, RoutedPath] = {}
     for rp in routes:
@@ -1222,15 +1227,31 @@ def _drop_covered_merge_entry_hops(routes: list[RoutedPath], ctx: _RoutingCtx) -
             and abs(rp.points[-1][1] - point[1]) <= COORD_TOLERANCE
         )
 
-    covered = {
-        id(hop)
-        for mjid, hop in hop_by_merge.items()
-        if (feeders := feeders_by_merge.get(mjid))
-        and not any(ends_at(r, hop.points[0]) for r in feeders)
-        and any(ends_at(r, hop.points[-1]) for r in feeders)
-    }
-    if covered:
-        routes[:] = [r for r in routes if id(r) not in covered]
+    covered: set[int] = set()
+    coverage_records: list[tuple[tuple[str, str, str], tuple[str, str, str]]] | None = (
+        [] if report_coverage else None
+    )
+    for merge_id, hop in hop_by_merge.items():
+        feeders = feeders_by_merge.get(merge_id)
+        if not feeders or any(ends_at(route, hop.points[0]) for route in feeders):
+            continue
+        carrier = next(
+            (route for route in feeders if ends_at(route, hop.points[-1])), None
+        )
+        if carrier is None:
+            continue
+        covered.add(id(hop))
+        if coverage_records is not None:
+            coverage_records.append(
+                (
+                    (hop.edge.source, hop.edge.target, hop.line_id),
+                    (carrier.edge.source, carrier.edge.target, carrier.line_id),
+                )
+            )
+    if not covered:
+        return ()
+    routes[:] = [route for route in routes if id(route) not in covered]
+    return tuple(coverage_records) if coverage_records is not None else ()
 
 
 def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:

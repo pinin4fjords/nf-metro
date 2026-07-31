@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from nf_metro.layout import PhaseInvariantError, compute_layout
-from nf_metro.options import LAYOUT_OPTIONS
+from nf_metro.options import LAYOUT_OPTIONS, is_line_order
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.parser.directives import apply_legend_directive
 from nf_metro.parser.model import LineSpread, MetroGraph, PermissiveGuardWarning
@@ -76,6 +76,8 @@ def apply_layout_overrides(graph: MetroGraph, opts: Mapping[str, object]) -> Non
         value = opts.get(opt.name)
         if value is not None:
             setattr(graph, opt.target_attr, value)
+            if opt.name == "line_order" and is_line_order(value):
+                graph.layout_provenance.record_caller_line_order(value)
 
 
 def resolve_theme(
@@ -238,11 +240,15 @@ def prepare_graph(
     fold = opts.get("fold_threshold")
     auto_process = opts.get("auto_process")
     process_scope = opts.get("process_scope")
+    caller_line_order = opts.get("line_order")
     graph = parse_metro_mermaid(
         text,
         max_station_columns=fold if isinstance(fold, int) else None,
         auto_process=auto_process if isinstance(auto_process, bool) else None,
         process_scope=process_scope if isinstance(process_scope, str) else None,
+        caller_line_order=(
+            caller_line_order if is_line_order(caller_line_order) else None
+        ),
     )
 
     apply_layout_overrides(graph, opts)

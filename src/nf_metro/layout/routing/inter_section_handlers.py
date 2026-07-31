@@ -13,7 +13,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+from nf_metro.layout.routing.families import RouteFamilyId
+
+if TYPE_CHECKING:
+    from nf_metro.layout.route_plan import RoutePlanObserver
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
@@ -1314,6 +1319,7 @@ def _route_right_entry_plough_bypass(f: _InterFacts) -> RoutedPath | None:
 class _Rule:
     """One row of the dispatch table: a named predicate and its route builder."""
 
+    family_id: RouteFamilyId
     name: str
     when: Callable[[_InterFacts], bool]
     route: Callable[[_InterFacts], RoutedPath | None]
@@ -1329,6 +1335,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # same-Y shortcut, which would graze both boxes when exit and entry share an
     # edge Y.
     _Rule(
+        RouteFamilyId.PERP_EXIT,
         "perp-exit",
         lambda f: f.is_perp_exit,
         lambda f: _route_perp_exit(f.edge, f.src, f.tgt, f.src_col, f.tgt_col, f.ctx),
@@ -1340,6 +1347,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # corridor shape before the same-Y shortcut and the TB bottom-exit drop below
     # claim it.
     _Rule(
+        RouteFamilyId.TB_PERP_EXIT_OVER,
         "TB perp-exit over",
         lambda f: f.is_tb_perp_exit_against_flow,
         lambda f: _route_perp_exit_over(f.edge, f.src, f.tgt, f.ctx),
@@ -1349,6 +1357,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # edge) would cut through the target interior to reach the port, so it cedes
     # to the wrap families below.
     _Rule(
+        RouteFamilyId.SAME_Y_STRAIGHT,
         "same-Y straight",
         lambda f: (
             f.same_y
@@ -1366,6 +1375,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # before that drop and the LEFT/RIGHT-entry wrap families, whose flow-
     # direction drop / sideways lead-out mis-route this shape.
     _Rule(
+        RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
         "perp-exit -> far-side entry wrap",
         lambda f: f.is_perp_exit_farside_entry_wrap,
         lambda f: _route_perp_exit_farside_entry_wrap(f),
@@ -1375,11 +1385,13 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # plain straight drop below would plough those boxes.  Checked first so only
     # the obstructed feeders divert and adjacent ones keep the straight drop.
     _Rule(
+        RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
         "TB bottom exit around stack",
         lambda f: f.tb_bottom_exit_drops_through_stack,
         lambda f: _route_tb_bottom_exit_around_stack(f),
     ),
     _Rule(
+        RouteFamilyId.TB_BOTTOM_EXIT,
         "TB bottom exit",
         lambda f: f.is_tb_bottom_exit,
         lambda f: _route_tb_bottom_exit(f.edge, f.src, f.tgt, f.ctx),
@@ -1387,12 +1399,14 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # TOP entry needs an L-shape lead-in; checked before the same-X shortcut,
     # which would drop straight in with no horizontal approach.
     _Rule(
+        RouteFamilyId.TOP_ENTRY_L_SHAPE,
         "TOP entry L-shape",
         lambda f: f.entry_side is PortSide.TOP,
         lambda f: _route_top_entry_l_shape(f.edge, f.src, f.tgt, f.n, f.ctx),
     ),
     # BOTTOM entry needs the mirror-image L-shape lead-in, for the same reason.
     _Rule(
+        RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
         "BOTTOM entry L-shape",
         lambda f: f.entry_side is PortSide.BOTTOM,
         lambda f: _route_bottom_entry_l_shape(f.edge, f.src, f.tgt, f.n, f.ctx),
@@ -1404,6 +1418,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # bows it out past the port's outward edge so both ports curve and a
     # co-terminating feed shares the descent channel).
     _Rule(
+        RouteFamilyId.SAME_X_VERTICAL_DROP,
         "same-X vertical drop",
         lambda f: (
             f.same_x
@@ -1413,6 +1428,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         _route_straight_connector,
     ),
     _Rule(
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION,
         "bottom-exit junction",
         lambda f: f.edge.source in f.ctx.bottom_exit_junctions,
         lambda f: _route_bottom_exit_junction(f.edge, f.src, f.tgt, f.i, f.n, f.ctx),
@@ -1423,10 +1439,26 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # trunk's channel.  These precede the bypass / merge-entry rules, which
     # would otherwise route a non-bypass feeder straight into the entry on its
     # own lateral slot (a second parallel stroke).
-    _Rule("merge trunk", lambda f: f.is_merge_trunk, _route_merge_trunk_feeder),
-    _Rule("merge branch", lambda f: f.is_merge_branch, _route_merge_branch_feeder),
-    _Rule("bypass family", lambda f: f.needs_bypass, _route_bypass_family),
     _Rule(
+        RouteFamilyId.MERGE_TRUNK,
+        "merge trunk",
+        lambda f: f.is_merge_trunk,
+        _route_merge_trunk_feeder,
+    ),
+    _Rule(
+        RouteFamilyId.MERGE_BRANCH,
+        "merge branch",
+        lambda f: f.is_merge_branch,
+        _route_merge_branch_feeder,
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_FAMILY,
+        "bypass family",
+        lambda f: f.needs_bypass,
+        _route_bypass_family,
+    ),
+    _Rule(
+        RouteFamilyId.NEAR_VERTICAL_JUNCTION,
         "near-vertical same-col junction",
         lambda f: f.takes_near_vertical_junction_drop,
         _route_near_vertical_junction,
@@ -1435,6 +1467,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # a same-row source, below the source row for a cross-row one) rather than
     # cut through the interior.
     _Rule(
+        RouteFamilyId.RIGHT_ENTRY_WRAP,
         "RIGHT entry wrap",
         lambda f: (
             (f.entry_side is PortSide.RIGHT and f.horizontal is Direction.R)
@@ -1443,11 +1476,13 @@ _INTER_SECTION_RULES: list[_Rule] = [
         lambda f: _route_right_entry_wrap(f.edge, f.src, f.tgt, f.i, f.n, f.ctx),
     ),
     _Rule(
+        RouteFamilyId.LEFT_ENTRY_WRAP,
         "LEFT entry wrap family",
         lambda f: f.entry_side is PortSide.LEFT and f.dx < 0 and f.cross_row,
         _route_left_entry_family,
     ),
     _Rule(
+        RouteFamilyId.SERPENTINE_LEFT,
         "serpentine LEFT exit -> LEFT entry",
         lambda f: f.is_serpentine_left_exit_left_entry,
         lambda f: _route_left_exit_left_entry_drop(f.edge, f.src, f.tgt, f.ctx),
@@ -1459,11 +1494,13 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # own outward side, the same shape the bypass family uses for the multi-hop
     # case.
     _Rule(
+        RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP,
         "LEFT exit -> far-side LEFT entry wrap",
         lambda f: f.left_entry_from_right and f.is_left_exit,
         lambda f: _route_left_exit_around_below_left_entry(f.edge, f.src, f.tgt, f.ctx),
     ),
     _Rule(
+        RouteFamilyId.MERGE_ENTRY,
         "merge entry family",
         lambda f: f.merge_ep is not None,
         _route_merge_entry_family,
@@ -1471,6 +1508,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # A higher-row L-shape to a RIGHT entry that would plough an intervening
     # same-row section deflects through the bypass instead.
     _Rule(
+        RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
         "RIGHT entry plough -> bypass",
         _right_entry_plough_needs_bypass,
         _route_right_entry_plough_bypass,
@@ -1483,6 +1521,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # side.  This rule carries no obstacle test, so the plough rule (earlier)
     # claims the with-obstacle cases and this is the obstacle-free remainder.
     _Rule(
+        RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP,
         "RIGHT entry cross-row wrap",
         lambda f: (
             f.entry_side is PortSide.RIGHT
@@ -1497,7 +1536,12 @@ _INTER_SECTION_RULES: list[_Rule] = [
 
 
 def _route_inter_section(
-    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+    *,
+    observer: RoutePlanObserver | None = None,
 ) -> RoutedPath | None:
     """Route an edge between ports/junctions via the dispatch table.
 
@@ -1515,10 +1559,14 @@ def _route_inter_section(
     f = _build_inter_facts(edge, src, tgt, ctx)
     rule = _match_inter_section_rule(f)
     if rule is not None:
+        family_id = rule.family_id
         route = rule.route(f)
     else:
         # Standard L-shape: the default when no rule above claims the edge.
+        family_id = RouteFamilyId.STANDARD_L_SHAPE
         route = _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
+    if observer is not None and route is not None:
+        observer.record_dispatch((edge.source, edge.target, edge.line_id), family_id)
     _declare_trunk(route, ctx)
     return route
 

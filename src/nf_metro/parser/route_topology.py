@@ -33,7 +33,7 @@ class ResolvedEdge(NamedTuple):
     line_id: str
 
 
-def _route_id(kind: str, *parts: object) -> str:
+def semantic_route_id(kind: str, *parts: object) -> str:
     """Build an unambiguous content-derived identifier from typed parts."""
     encoded = "|".join(f"{len(str(part))}:{part}" for part in parts)
     return f"{kind}|{encoded}"
@@ -52,7 +52,7 @@ class AuthoredEdgeKey:
     def id(self) -> ConnectorId:
         """Identity unaffected by authored edges with different content."""
         return ConnectorId(
-            _route_id(
+            semantic_route_id(
                 "connector",
                 self.source,
                 self.target,
@@ -820,7 +820,7 @@ def _line_networks(
             components, edges_by_component, strict=True
         ):
             edge_ids = tuple(fact.key.id for fact in component_edges)
-            network_id = NetworkId(_route_id("network", line_id, *edge_ids))
+            network_id = NetworkId(semantic_route_id("network", line_id, *edge_ids))
             records.append(
                 LineNetwork(
                     id=network_id,
@@ -839,7 +839,7 @@ def _line_networks(
 
 
 def _endpoint_group_id(kind: str, section_id: str, side: PortSide) -> EndpointGroupId:
-    return EndpointGroupId(_route_id(kind, section_id, side.value))
+    return EndpointGroupId(semantic_route_id(kind, section_id, side.value))
 
 
 def _resolved_connectors(
@@ -913,7 +913,7 @@ def build_route_topology(
         entry_members[(item.target_section, item.entry_side)].append(fact.key.id)
 
     bundle_id_by_endpoint = {
-        endpoint: BundleId(_route_id("bundle", *endpoint))
+        endpoint: BundleId(semantic_route_id("bundle", *endpoint))
         for endpoint in bundles_by_endpoint
     }
     bundles = tuple(
@@ -989,7 +989,9 @@ def build_route_topology(
 
     divergences = tuple(
         DivergenceGroup(
-            id=DivergenceId(_route_id("divergence", exit_group_id, *entry_group_ids)),
+            id=DivergenceId(
+                semantic_route_id("divergence", exit_group_id, *entry_group_ids)
+            ),
             exit_group_id=exit_group_id,
             entry_group_ids=tuple(entry_group_ids),
             connector_ids=tuple(connector_ids_by_exit[exit_group_id]),
@@ -1019,7 +1021,9 @@ def build_route_topology(
     convergences = tuple(
         ConvergenceGroup(
             id=ConvergenceId(
-                _route_id("convergence", entry_group_id, line_id, *divergence_ids)
+                semantic_route_id(
+                    "convergence", entry_group_id, line_id, *divergence_ids
+                )
             ),
             entry_group_id=entry_group_id,
             line_id=line_id,

@@ -17,13 +17,20 @@ layout engine and renderer read it. Precedence is uniform: CLI flag (when set)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 # Returned by :func:`coerce` in place of a value when the payload is unusable.
 INVALID = object()
 
 OptionKind = Literal["float", "int", "bool", "choice", "str"]
 NumberSign = Literal["any", "nonneg", "positive"]
+LineOrder = Literal["definition", "span"]
+LINE_ORDER_CHOICES: tuple[LineOrder, ...] = ("definition", "span")
+
+
+def is_line_order(value: object) -> TypeGuard[LineOrder]:
+    """Return whether *value* is a supported line-order policy."""
+    return isinstance(value, str) and value in LINE_ORDER_CHOICES
 
 
 @dataclass(frozen=True)
@@ -148,7 +155,7 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
     LayoutOption(
         name="line_order",
         kind="choice",
-        choices=("definition", "span"),
+        choices=LINE_ORDER_CHOICES,
         help="Line ordering for track assignment: 'definition' (default) "
         "preserves .mmd order, 'span' gives longest-spanning lines inner tracks.",
     ),

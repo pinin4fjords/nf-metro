@@ -20,6 +20,7 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable
 
+from nf_metro.options import LineOrder, is_line_order
 from nf_metro.parser.directives import _apply_directive
 from nf_metro.parser.grammar import (
     _Comment,
@@ -193,6 +194,7 @@ def parse_metro_mermaid(
     max_station_columns: int | None = None,
     auto_process: bool | None = None,
     process_scope: str | None = None,
+    caller_line_order: LineOrder | None = None,
 ) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives.
 
@@ -208,11 +210,22 @@ def parse_metro_mermaid(
     overrides the ``%%metro process_scope`` directive, supplying the common FQN
     prefix that explicit ``process:`` tails are joined under and matched
     literally against.
+
+    ``caller_line_order`` is the validated caller policy whose provenance must
+    be captured before layout inference.
     """
+    if caller_line_order is not None and not is_line_order(caller_line_order):
+        raise ValueError(f"unsupported caller line order {caller_line_order!r}")
     _check_unsupported_input(text)
     graph = MetroGraph()
     _apply_statements(parse_statements(text), graph)
-    _finalize_graph(graph, max_station_columns, auto_process, process_scope)
+    _finalize_graph(
+        graph,
+        max_station_columns,
+        auto_process,
+        process_scope,
+        caller_line_order,
+    )
     return graph
 
 
@@ -245,6 +258,7 @@ def _finalize_graph(
     max_station_columns: int | None,
     auto_process: bool | None = None,
     process_scope: str | None = None,
+    caller_line_order: LineOrder | None = None,
 ) -> None:
     """Validate, run the post-parse resolution, and apply buffered metadata."""
     _validate_edge_annotations(graph)
@@ -252,6 +266,7 @@ def _finalize_graph(
         graph,
         capture_authored_routes(graph),
         max_station_columns,
+        caller_line_order,
     )
 
     if graph.sections:

@@ -139,9 +139,13 @@ Three steps:
 Before auto-layout or resolver rewrites begin, the parser freezes the accepted
 layout input in `graph.layout_provenance.authored`. This snapshot contains the
 authored grid cells, section directions, entry and exit hints, connector-side
-choices, and both possible fold-threshold inputs. It is immutable, so later
-inference cannot make an authored value look inferred or make an inferred value
-look authored.
+choices, both possible fold-threshold inputs, and line-order inputs. The
+line-order record distinguishes a directive, a caller override, and the default,
+and also keeps line definition order. The effective decision records the chosen
+policy and source. A caller override is captured before inference but remains
+applied at the established API override stage, preserving current layout
+behaviour. The snapshot is immutable, so later inference cannot make an
+authored value look inferred or make an inferred value look authored.
 
 Because the appliers receive structured fields, the driver stays a thin
 dispatch: a `_Node` registers a station, an `_Edge` registers one edge

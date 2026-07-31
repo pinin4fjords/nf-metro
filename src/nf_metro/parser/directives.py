@@ -13,7 +13,13 @@ import warnings
 from collections.abc import Callable
 from typing import Literal
 
-from nf_metro.options import INVALID, LAYOUT_OPTIONS, LayoutOption, coerce
+from nf_metro.options import (
+    INVALID,
+    LAYOUT_OPTIONS,
+    LayoutOption,
+    coerce,
+    is_line_order,
+)
 from nf_metro.parser.grammar import _split_csv, _unquote
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
@@ -490,6 +496,9 @@ def _make_layout_option_handler(
             _warn_malformed(opt.name, value, expected)
         else:
             setattr(graph, opt.target_attr, result)
+            if opt.name == "line_order":
+                assert is_line_order(result)
+                graph.layout_provenance.record_authored_line_order(result)
 
     return handler
 
