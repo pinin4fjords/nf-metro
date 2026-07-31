@@ -13,6 +13,10 @@ import re
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
+import networkx as nx
+
+from nf_metro.graph_views import directed_graph
+
 # ---------------------------------------------------------------------------
 # Colour palette for auto-generated metro lines
 # ---------------------------------------------------------------------------
@@ -235,32 +239,17 @@ def _reconnect_edges(
 def _break_cycles(
     nodes: set[str], edges: list[tuple[str, str]]
 ) -> list[tuple[str, str]]:
-    """Remove back edges to break cycles (DFS-based)."""
-    adj: dict[str, list[str]] = defaultdict(list)
-    for src, tgt in edges:
-        adj[src].append(tgt)
-
-    WHITE, GRAY, BLACK = 0, 1, 2
-    color: dict[str, int] = {n: WHITE for n in nodes}
+    """Remove the deterministic DFS back edges that make the graph cyclic."""
+    graph = directed_graph(sorted(nodes), edges)
+    active: set[str] = set()
     back_edges: set[tuple[str, str]] = set()
-
-    def dfs(u: str) -> None:
-        color[u] = GRAY
-        for v in adj[u]:
-            if v not in color:
-                continue
-            if color[v] == WHITE:
-                dfs(v)
-            elif color[v] == GRAY:
-                back_edges.add((u, v))
-        color[u] = BLACK
-
-    for n in sorted(nodes):
-        if color[n] == WHITE:
-            dfs(n)
-
-    if not back_edges:
-        return edges
+    for source, target, label in nx.dfs_labeled_edges(graph):
+        if label == "forward":
+            active.add(target)
+        elif label == "reverse":
+            active.discard(target)
+        elif label == "nontree" and target in active:
+            back_edges.add((source, target))
     return [(s, t) for s, t in edges if (s, t) not in back_edges]
 
 
@@ -338,39 +327,46 @@ def _classify_edges(
     return intra_edges, inter_edges
 
 
+def _declaration_topological_order(graph: nx.DiGraph[str]) -> list[str]:
+    """Use declaration order for ties and append cycle-blocked nodes unchanged."""
+    declaration_order = list(graph)
+    rank = {node: index for index, node in enumerate(declaration_order)}
+    try:
+        return list(nx.lexicographical_topological_sort(graph, key=rank.__getitem__))
+    except nx.NetworkXUnfeasible:
+        cycle_nodes: set[str] = set()
+        for component in nx.strongly_connected_components(graph):
+            if len(component) > 1 or any(
+                graph.has_edge(node, node) for node in component
+            ):
+                cycle_nodes.update(component)
+        blocked = set(
+            nx.multi_source_dijkstra_path_length(graph, cycle_nodes, weight=None)
+        )
+        sortable = graph.subgraph(
+            node for node in declaration_order if node not in blocked
+        )
+        ordered = list(
+            nx.lexicographical_topological_sort(sortable, key=rank.__getitem__)
+        )
+        ordered.extend(node for node in declaration_order if node in blocked)
+        return ordered
+
+
 def _order_section_nodes(
     section_nodes: dict[str, list[str]], edges: list[tuple[str, str]]
 ) -> dict[str, list[str]]:
-    """Topologically order the nodes within each section (Kahn's algorithm).
-
-    Ordering uses every edge whose endpoints both fall inside the section
-    (intra and inter alike). Nodes not reachable by the sort are appended in
-    their original order.
-    """
+    """Topologically order each section, breaking ready ties by declaration."""
     section_node_order: dict[str, list[str]] = {}
     for sec_key, nids in section_nodes.items():
         local_nodes = set(nids)
-        local_adj: dict[str, list[str]] = {n: [] for n in nids}
-        local_in: dict[str, int] = {n: 0 for n in nids}
-
-        for src, tgt in edges:
-            if src in local_nodes and tgt in local_nodes:
-                local_adj[src].append(tgt)
-                local_in[tgt] += 1
-
-        q = deque(n for n in nids if local_in[n] == 0)
-        ordered: list[str] = []
-        while q:
-            n = q.popleft()
-            ordered.append(n)
-            for succ in local_adj[n]:
-                local_in[succ] -= 1
-                if local_in[succ] == 0:
-                    q.append(succ)
-        for n in nids:
-            if n not in ordered:
-                ordered.append(n)
-        section_node_order[sec_key] = ordered
+        local_edges = (
+            (src, tgt)
+            for src, tgt in edges
+            if src in local_nodes and tgt in local_nodes
+        )
+        graph = directed_graph(nids, local_edges)
+        section_node_order[sec_key] = _declaration_topological_order(graph)
 
     return section_node_order
 
@@ -380,36 +376,16 @@ def _topological_order(
     edges: list[tuple[str, str]],
     node_section: dict[str, str],
 ) -> list[str]:
-    """Topological ordering of sections based on inter-section edges."""
-    # Build section-level DAG
-    sec_adj: dict[str, set[str]] = defaultdict(set)
-    in_degree: dict[str, int] = {sid: 0 for sid in section_ids}
-
+    """Topologically order sections, breaking ready ties by declaration."""
+    section_edges: set[tuple[str, str]] = set()
     for src, tgt in edges:
         src_sec = node_section.get(src)
         tgt_sec = node_section.get(tgt)
         if src_sec and tgt_sec and src_sec != tgt_sec:
-            if tgt_sec not in sec_adj[src_sec]:
-                sec_adj[src_sec].add(tgt_sec)
-                in_degree[tgt_sec] = in_degree.get(tgt_sec, 0) + 1
+            section_edges.add((src_sec, tgt_sec))
 
-    # Kahn's algorithm
-    queue = deque(sid for sid in section_ids if in_degree.get(sid, 0) == 0)
-    result: list[str] = []
-    while queue:
-        sid = queue.popleft()
-        result.append(sid)
-        for tgt in sorted(sec_adj.get(sid, set())):
-            in_degree[tgt] -= 1
-            if in_degree[tgt] == 0:
-                queue.append(tgt)
-
-    # Add any remaining (disconnected) sections
-    for sid in section_ids:
-        if sid not in result:
-            result.append(sid)
-
-    return result
+    graph = directed_graph(section_ids, sorted(section_edges))
+    return _declaration_topological_order(graph)
 
 
 _MAX_LABEL_LEN = 16

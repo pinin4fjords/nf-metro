@@ -10,9 +10,11 @@ import pytest
 from nf_metro.convert import (
     _break_cycles,
     _humanize_label,
+    _order_section_nodes,
     _parse_nextflow_mermaid,
     _reconnect_edges,
     _sanitize_id,
+    _topological_order,
     convert_nextflow_dag,
     is_nextflow_dag,
 )
@@ -193,6 +195,72 @@ class TestBreakCycles:
         edges = [("a", "b"), ("b", "c"), ("c", "a")]
         result = _break_cycles({"a", "b", "c"}, edges)
         assert len(result) == 2  # one back edge removed
+
+    def test_preserves_dfs_back_edge_choice_and_edge_order(self):
+        edges = [
+            ("a", "b"),
+            ("a", "d"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"),
+            ("d", "b"),
+        ]
+
+        assert _break_cycles({"a", "b", "c", "d"}, edges) == [
+            ("a", "b"),
+            ("a", "d"),
+            ("b", "c"),
+            ("c", "d"),
+        ]
+
+
+class TestDeterministicTopologicalOrdering:
+    def test_section_nodes_use_declaration_order_for_ready_ties(self):
+        section_nodes = {"section": ["a", "b", "c", "d"]}
+        edges = [("a", "d"), ("b", "c")]
+
+        assert _order_section_nodes(section_nodes, edges) == {
+            "section": ["a", "b", "c", "d"]
+        }
+
+    def test_sections_use_declaration_order_for_ready_ties(self):
+        section_ids = ["s1", "s2", "s3", "s4"]
+        node_section = {
+            "a": "s1",
+            "b": "s2",
+            "c": "s3",
+            "d": "s4",
+        }
+
+        assert (
+            _topological_order(
+                section_ids,
+                [("a", "d"), ("b", "c")],
+                node_section,
+            )
+            == section_ids
+        )
+
+    def test_section_cycle_keeps_sortable_prefix_then_declaration_order(self):
+        section_ids = ["root", "section_a", "section_b", "tail"]
+        node_section = {
+            "root_node": "root",
+            "a_in": "section_a",
+            "a_out": "section_a",
+            "b_in": "section_b",
+            "b_out": "section_b",
+            "tail_node": "tail",
+        }
+
+        assert _topological_order(
+            section_ids,
+            [
+                ("root_node", "tail_node"),
+                ("a_out", "b_in"),
+                ("b_out", "a_in"),
+            ],
+            node_section,
+        ) == ["root", "tail", "section_a", "section_b"]
 
 
 # ---------------------------------------------------------------------------
