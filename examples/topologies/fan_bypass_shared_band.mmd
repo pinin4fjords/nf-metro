@@ -1,0 +1,40 @@
+%%metro title: Junction fan sharing a bypass band
+%%metro line: local | Local branch | #2db572
+%%metro line: long | Bypass branch | #a855f7
+%%metro line: obstacle | Obstacle | #f59e0b
+%%metro grid: source | 0,0
+%%metro grid: local | 1,0
+%%metro grid: blocker | 2,0
+%%metro grid: lower_blocker | 2,1
+%%metro grid: distant | 3,2
+
+graph LR
+    subgraph source [Source]
+        %%metro exit: right | local, long
+        source_step[Source step]
+    end
+
+    subgraph local [Local branch]
+        %%metro entry: left | local
+        local_step[Local step]
+    end
+
+    subgraph blocker [Intervening section]
+        blocker_start[Blocker start]
+        blocker_end[Blocker end]
+        blocker_start -->|obstacle| blocker_end
+    end
+
+    subgraph distant [Distant branch]
+        %%metro entry: left | long
+        distant_step[Distant step]
+    end
+
+    subgraph lower_blocker [Lower intervening section]
+        lower_start[Lower blocker start]
+        lower_end[Lower blocker end]
+        lower_start -->|obstacle| lower_end
+    end
+
+    source_step -->|local| local_step
+    source_step -->|long| distant_step

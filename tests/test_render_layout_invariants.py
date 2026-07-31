@@ -53,6 +53,7 @@ CLEAN_FIXTURES = [
     "rnaseq_auto.mmd",
     "variant_calling.mmd",
     "sarek_metro.mmd",
+    "topologies/packed_cell_right_exit_left_entry_wrap.mmd",
 ]
 
 
@@ -350,15 +351,24 @@ ROUTE_AROUND_REPROS = [
     ("examples", "variant_calling_tuned.mmd", 8),
 ]
 
+ROUTE_AROUND_INTERIOR_REPROS = [
+    *ROUTE_AROUND_REPROS,
+    ("topologies", "packed_cell_right_exit_left_entry_wrap.mmd", None),
+]
+
 
 def _laid_out_repro(fixture_dir: str, name: str, fold: int | None) -> MetroGraph:
-    base = FIXTURES if fixture_dir == "regressions" else EXAMPLES
+    base = {
+        "regressions": FIXTURES,
+        "examples": EXAMPLES,
+        "topologies": EXAMPLES / "topologies",
+    }[fixture_dir]
     graph = parse_metro_mermaid((base / name).read_text(), max_station_columns=fold)
     compute_layout(graph)
     return graph
 
 
-@pytest.mark.parametrize("fixture_dir,name,fold", ROUTE_AROUND_REPROS)
+@pytest.mark.parametrize("fixture_dir,name,fold", ROUTE_AROUND_INTERIOR_REPROS)
 def test_away_facing_exit_routes_around_own_section(
     fixture_dir: str, name: str, fold: int | None
 ) -> None:

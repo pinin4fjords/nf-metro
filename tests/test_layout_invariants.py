@@ -104,6 +104,7 @@ from nf_metro.layout.phases.off_track import (
     _reanchor_off_track_to_consumer,
     _section_distinct_trunk_cross_coords,
 )
+from nf_metro.layout.phases.row_align import _packed_row_header_groups
 from nf_metro.layout.routing import (
     OffsetRegime,
     compute_station_offsets,
@@ -7567,6 +7568,9 @@ def test_section_bbox_top_hugs_content(fixture):
     empty band.  This is the equality companion to the ``>=`` floor
     invariant ``test_section_bbox_has_top_padding``.
 
+    Packed cells deliberately share the surrounding row's header line, so
+    their contiguous row group is also excluded.
+
     Ceiling-bound sections (where the row-above grow ceiling raises
     :func:`_section_fit_top` above the ceiling-free
     :func:`_section_content_hug_top`) legitimately keep a band so the
@@ -7575,10 +7579,24 @@ def test_section_bbox_top_hugs_content(fixture):
     """
     graph = _layout(fixture)
     tol = 1.0
+    packed_header_groups = _packed_row_header_groups(graph)
+    for group in packed_header_groups:
+        tops = [section.bbox_y for section in group]
+        assert max(tops) - min(tops) <= tol, (
+            f"{fixture}: packed row header is not level: "
+            + ", ".join(f"{section.id}={section.bbox_y:.1f}" for section in group)
+        )
+    packed_header_ids = {
+        section.id for group in packed_header_groups for section in group
+    }
 
     offenders: list[str] = []
     for sec in graph.sections.values():
-        if sec.bbox_h <= 0 or not _section_band_is_empty(graph, sec):
+        if (
+            sec.bbox_h <= 0
+            or sec.id in packed_header_ids
+            or not _section_band_is_empty(graph, sec)
+        ):
             continue
         fit = _section_fit_top(graph, sec, SECTION_Y_PADDING, SECTION_Y_GAP)
         hug = _section_content_hug_top(graph, sec, SECTION_Y_PADDING)

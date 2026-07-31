@@ -37,6 +37,7 @@ from nf_metro.layout.routing.context import (
     _section_lane_frame,
     fanout_divergence_peel_order,
     is_near_vertical_junction_right_entry,
+    partial_flat_continuation_lines,
 )
 from nf_metro.layout.routing.corners import reversed_offset
 from nf_metro.layout.routing.invariants import (
@@ -1358,7 +1359,8 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
         # feeder Y.
         section = graph.section_for_port(port_obj)
         entry_ports = list(section.entry_ports)
-        if len(entry_ports) == 1:
+        flat_continuation = partial_flat_continuation_lines(graph, port_id, port_lines)
+        if len(entry_ports) == 1 and not flat_continuation:
             entry_id = entry_ports[0]
             entry_lines = graph.station_lines(entry_id)
             if port_lines.issubset(entry_lines):
@@ -1454,6 +1456,8 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
             for lid, dy in dest_ys.items()
             if dy is not None and abs(dy - port_y) <= _SAME_Y_TOLERANCE
         }
+        if flat_continuation:
+            level_lines = {lid: port_y for lid in flat_continuation}
         if level_lines and anchor_line not in level_lines:
             anchor_line = min(
                 level_lines,
@@ -1476,7 +1480,8 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
         for lid, off in spatial_offs.items():
             ctx.offsets[(port_id, lid)] = off
 
-        _propagate_exit_offsets_to_hubs(ctx, port_id, spatial_offs)
+        if not flat_continuation:
+            _propagate_exit_offsets_to_hubs(ctx, port_id, spatial_offs)
 
 
 def _propagate_to_junctions(ctx: _OffsetCtx) -> None:

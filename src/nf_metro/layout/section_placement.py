@@ -43,6 +43,7 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.routing.common import (
     inter_row_wrap_band,
     max_grid_row_with_content,
+    merge_junction_ids,
     resolve_section,
     section_exists_above_row,
 )
@@ -749,6 +750,13 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
         if abs(src_row - tgt_row) == 1:
             # Adjacent-row wrap: the run centres in the gap this pair separates.
             gap = (src_row, tgt_row) if tgt_row > src_row else (tgt_row, src_row)
+        elif port.side == PortSide.RIGHT and src_row < tgt_row:
+            # A multi-row RIGHT entry reached from a source above and to its
+            # left runs just below the source row before descending beside the
+            # target (``_route_right_entry_wrap``). Reserve that source-adjacent
+            # band so the traverse keeps its bypass clearance from the upper
+            # bbox instead of being squeezed against the next row's header.
+            gap = (src_row, src_row + 1)
         elif port.side == PortSide.LEFT and src_row < tgt_row:
             # A multi-row LEFT entry reached from a source ABOVE runs its long
             # horizontal in the band abutting the target row
@@ -836,7 +844,7 @@ def _merge_trunk_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
     Returns the required bbox-to-bbox gap for the ``(max_row - 1, max_row)``
     pair when any such merge exists; empty otherwise.
     """
-    merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
+    merge_ids = merge_junction_ids(graph)
     if not merge_ids:
         return {}
     max_row = max_grid_row_with_content(graph)
@@ -950,6 +958,7 @@ def _bundles_in_gap(
     col_assign: dict[str, int],
     col_a: int,
     col_b: int,
+    pack_for_section: dict[str, tuple[str, ...]] | None = None,
 ) -> list[int]:
     """Return ``[n_lines, ...]`` for every distinct bundle traversing the gap.
 
@@ -1010,6 +1019,62 @@ def _bundles_in_gap(
             if lo == edge_hi - 1 and hi == edge_hi:
                 bundles[("U", h_dir)].add(edge.line_id)
 
+    # A same-line fan into two horizontal cell-mates can share its lead-in and
+    # then split into opposing target-side channels. Endpoint-only inference
+    # sees both edges as one target-side line, but routing must reserve both
+    # physical columns before it can materialize that split.
+    if pack_for_section is None:
+        pack_for_section = {
+            section_id: tuple(members)
+            for members in graph.cell_packs.values()
+            if len(members) > 1
+            for section_id in members
+        }
+    packed_targets: dict[tuple[str, str, tuple[str, ...], int], set[str]] = defaultdict(
+        set
+    )
+    for edge in graph.edges:
+        target_port = graph.ports.get(edge.target)
+        if target_port is None or not target_port.is_entry:
+            continue
+        target_section = graph.sections.get(target_port.section_id)
+        if target_section is None:
+            continue
+        pack = pack_for_section.get(target_section.id)
+        if pack is None:
+            continue
+        source = graph.station_for_edge_source(edge)
+        source_section = resolve_section(graph, source)
+        source_col = _station_column(graph, source, col_assign, junction_ids)
+        target_col = target_section.grid_col
+        if (
+            source_section is None
+            or source_col is None
+            or source_section.grid_row != target_section.grid_row
+        ):
+            continue
+        h_dir = 1 if target_col > source_col else -1
+        faces_pack = (
+            h_dir == 1
+            and target_port.side is PortSide.LEFT
+            and target_col - source_col > 1
+            and (lo, hi) == (target_col - 1, target_col)
+        ) or (
+            h_dir == -1
+            and target_port.side is PortSide.RIGHT
+            and source_col - target_col > 1
+            and (lo, hi) == (target_col, target_col + 1)
+        )
+        if faces_pack:
+            packed_targets[(edge.source, edge.line_id, pack, h_dir)].add(
+                target_section.id
+            )
+    for (source_id, line_id, _pack, h_dir), targets in packed_targets.items():
+        for split_index in range(max(0, len(targets) - 1)):
+            bundles[("U", h_dir)].add(
+                f"{line_id}\0packed-split\0{source_id}\0{split_index}"
+            )
+
     return [len(lines) for lines in bundles.values() if lines]
 
 
@@ -1041,26 +1106,14 @@ def _min_gap_for_bundles(
     return 2 * edge_clearance + widths + (count - 1) * inter_bundle
 
 
-def _has_merge_routing_in_gap(
+def _merge_routing_gap_pairs(
     graph: MetroGraph,
     col_assign: dict[str, int],
-    col_a: int,
-    col_b: int,
-) -> bool:
-    """Check if any merge junction has bypass routes crossing this gap.
-
-    Returns True when both a branch descent AND a trunk ascent will
-    route through the gap between *col_a* and *col_b*, requiring
-    extra width for symmetric spacing.
-    """
-    merge_ids = {j for j in graph.junctions if j.startswith("__merge_")}
-    if not merge_ids:
-        return False
-
+) -> set[tuple[int, int]]:
+    """Adjacent column pairs crossed by a merge-routing bypass."""
+    pairs: set[tuple[int, int]] = set()
     junction_ids = graph.junction_ids
-    lo, hi = min(col_a, col_b), max(col_a, col_b)
-
-    for mjid in merge_ids:
+    for mjid in merge_junction_ids(graph):
         mst = graph.stations.get(mjid)
         if not mst:
             continue
@@ -1076,16 +1129,68 @@ def _has_merge_routing_in_gap(
             if src_col is not None and tgt_col >= 0:
                 edge_lo = min(src_col, tgt_col)
                 edge_hi = max(src_col, tgt_col)
-                if edge_lo <= lo and edge_hi >= hi and edge_hi - edge_lo > 1:
-                    return True
+                if edge_hi - edge_lo > 1:
+                    pairs.update((col, col + 1) for col in range(edge_lo, edge_hi))
+    return pairs
 
-    return False
+
+def _leftmost_merge_wrap_gap_pairs(
+    graph: MetroGraph,
+    col_assign: dict[str, int],
+) -> set[tuple[int, int]]:
+    """Adjacent gaps occupied by fixed around-below merge descents.
+
+    A merge feeding a LEFT entry in the leftmost column has no target-side
+    inter-column channel. Its rightmost feeder wraps below the target and owns
+    the gap immediately right of its source, so an opposing movable bundle
+    needs one curve runway beyond the symmetric bundle footprint.
+    """
+    pairs: set[tuple[int, int]] = set()
+    junction_ids = graph.junction_ids
+    min_col = min(col_assign.values(), default=0)
+    for merge_id in merge_junction_ids(graph):
+        entry_ports = [
+            graph.ports.get(edge.target) for edge in graph.edges_from(merge_id)
+        ]
+        leftmost_entry = next(
+            (
+                port
+                for port in entry_ports
+                if port is not None
+                and port.is_entry
+                and port.side is PortSide.LEFT
+                and col_assign.get(port.section_id) == min_col
+            ),
+            None,
+        )
+        if leftmost_entry is None:
+            continue
+        source_cols = [
+            source_col
+            for edge in graph.edges_to(merge_id)
+            if (
+                source_col := _station_column(
+                    graph,
+                    graph.station_for_edge_source(edge),
+                    col_assign,
+                    junction_ids,
+                )
+            )
+            is not None
+        ]
+        if source_cols:
+            source_col = max(source_cols)
+            pairs.add((source_col, source_col + 1))
+    return pairs
 
 
 def _column_pair_min_gap(
     graph: MetroGraph,
     col_assign: dict[str, int],
     col: int,
+    pack_for_section: dict[str, tuple[str, ...]],
+    merge_routing_pairs: set[tuple[int, int]],
+    leftmost_merge_wrap_pairs: set[tuple[int, int]],
     min_gap: float = MIN_INTER_SECTION_GAP,
 ) -> tuple[float, list[int]]:
     """Minimum inter-section gap needed between columns ``col`` and ``col+1``.
@@ -1102,12 +1207,22 @@ def _column_pair_min_gap(
     Multi-line or multi-bundle corridors deterministically claim only the
     horizontal space their visual width actually occupies.
     """
-    bundles = _bundles_in_gap(graph, col_assign, col, col + 1)
+    gap = (col, col + 1)
+    bundles = _bundles_in_gap(graph, col_assign, *gap, pack_for_section)
     offset_step = graph_offset_step(graph)
     bundle_min = _min_gap_for_bundles(bundles, offset_step=offset_step)
     effective_min = max(min_gap, bundle_min)
-    if _has_merge_routing_in_gap(graph, col_assign, col, col + 1):
+    if gap in merge_routing_pairs:
         effective_min = max(effective_min, MERGE_GAP_MIN)
+    if gap in leftmost_merge_wrap_pairs:
+        # Merge-around handlers can own a fixed channel one curve runway
+        # farther into the gap than the symmetric A/B allocation. Reserve that
+        # runway in addition to the prospective bundle footprints so an
+        # opposing movable bundle has a feasible A-bounded position.
+        effective_min = max(
+            effective_min,
+            bundle_min + CURVE_RADIUS,
+        )
     return effective_min, bundles
 
 
@@ -1139,6 +1254,14 @@ def _apply_column_gap_deficits(
     col_sections: dict[int, list[Section]] = defaultdict(list)
     for sid, section in graph.sections.items():
         col_sections[col_assign.get(sid, 0)].append(section)
+    pack_for_section = {
+        section_id: tuple(members)
+        for members in graph.cell_packs.values()
+        if len(members) > 1
+        for section_id in members
+    }
+    merge_routing_pairs = _merge_routing_gap_pairs(graph, col_assign)
+    leftmost_merge_wrap_pairs = _leftmost_merge_wrap_gap_pairs(graph, col_assign)
 
     for col in range(min_col, max_col):
         left_secs = col_sections.get(col, [])
@@ -1146,7 +1269,15 @@ def _apply_column_gap_deficits(
         if not left_secs or not right_secs:
             continue
 
-        effective_min, bundles = _column_pair_min_gap(graph, col_assign, col, min_gap)
+        effective_min, bundles = _column_pair_min_gap(
+            graph,
+            col_assign,
+            col,
+            pack_for_section,
+            merge_routing_pairs,
+            leftmost_merge_wrap_pairs,
+            min_gap,
+        )
 
         worst_gap: float | None = None
         for ls in left_secs:

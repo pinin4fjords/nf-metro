@@ -1,6 +1,6 @@
 "use strict";
 
-// Keep in sync with PYODIDE_VERSION in app.js. Bumping this constant
+// Keep in sync with PYODIDE_VERSION in worker.js. Bumping this constant
 // changes the cache name, which causes the activate handler to evict all
 // assets from the previous version.
 const PYODIDE_VERSION = "v0.27.2";

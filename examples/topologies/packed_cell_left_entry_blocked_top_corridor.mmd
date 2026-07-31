@@ -1,0 +1,29 @@
+%%metro title: Packed-cell LEFT-entry wrap with a blocked row-top corridor
+%%metro line: flow | Flow | #2db572
+%%metro line: obstacle | Obstacle | #8f8f8f
+%%metro grid: source, blocker | 0,1
+%%metro grid: obstacle_section | 1,0,2
+%%metro grid: target | 2,1
+
+graph LR
+    subgraph source [Source]
+        %%metro exit: right | flow
+        source_step[Source step]
+    end
+
+    subgraph blocker [Packed cell-mate]
+        blocker_step[Blocking step]
+    end
+
+    subgraph target [Target]
+        %%metro entry: left | flow
+        target_step[Target step]
+    end
+
+    subgraph obstacle_section [Spanning obstacle]
+        obstacle_start[Obstacle start]
+        obstacle_end[Obstacle end]
+        obstacle_start -->|obstacle| obstacle_end
+    end
+
+    source_step -->|flow| target_step

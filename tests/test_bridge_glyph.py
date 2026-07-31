@@ -28,6 +28,7 @@ from nf_metro.render.bridges import (
     BRIDGE_NODE_TOLERANCE,
     _line_succ,
     _same_line_is_fan,
+    _segment_intersection,
     compute_bridges,
 )
 from nf_metro.render.svg import apply_route_offsets, render_svg
@@ -286,7 +287,7 @@ def test_issue1322_forked_arms_recross_far_from_fork_is_bridged():
     meeting only at the junction, not a re-cross in open space, and the
     distinct-colour l2 corner reads apart by colour so must not veto it."""
     path = Path(__file__).parent / "fixtures" / "target_entry_runway_bypass.mmd"
-    _, routes, _, bridges = _bridges(path)
+    graph, routes, polylines, bridges = _bridges(path)
     by_id = {id(r): r for r in routes}
     l1_breaks = [
         bk
@@ -294,9 +295,49 @@ def test_issue1322_forked_arms_recross_far_from_fork_is_bridged():
         for bk in breaks
         if by_id[rid].line_id == "l1"
     ]
+    destination_ports = {
+        next(
+            pid
+            for pid, port in graph.ports.items()
+            if port.section_id == section_id and port.is_entry
+        )
+        for section_id in ("branch_b", "feeder_l1")
+    }
+    arm_candidates = [
+        (route.edge.source, route.edge.target, route, polyline)
+        for route, polyline in zip(routes, polylines)
+        if route.line_id == "l1" and route.edge.target in destination_ports
+    ]
+    fork_sources = {
+        source
+        for source, _, _, _ in arm_candidates
+        if {
+            target
+            for candidate_source, target, _, _ in arm_candidates
+            if candidate_source == source
+        }
+        == destination_ports
+    }
+    assert len(fork_sources) == 1
+    fork_source = next(iter(fork_sources))
+    fork_arms = [
+        (route, polyline)
+        for source, _, route, polyline in arm_candidates
+        if source == fork_source
+    ]
+    assert len(fork_arms) == 2
+    crossings = [
+        crossing
+        for a, b in zip(fork_arms[0][1], fork_arms[0][1][1:])
+        for c, d in zip(fork_arms[1][1], fork_arms[1][1][1:])
+        if (crossing := _segment_intersection(a, b, c, d)) is not None
+    ]
+    assert len(crossings) == 1
+    cross_x, cross_y = crossings[0]
+    assert cross_x == pytest.approx(1432, abs=1)
     assert any(
-        abs((bk.cut_a[0] + bk.cut_b[0]) / 2 - 1432) < 30
-        and abs((bk.cut_a[1] + bk.cut_b[1]) / 2 - 468) < 30
+        (bk.cut_a[0] + bk.cut_b[0]) / 2 == pytest.approx(cross_x, abs=1)
+        and (bk.cut_a[1] + bk.cut_b[1]) / 2 == pytest.approx(cross_y, abs=1)
         for bk in l1_breaks
     ), "expected an l1 crossover bridge at the Branch B / Feeder L1 crossroads"
 

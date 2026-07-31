@@ -58,6 +58,95 @@ from nf_metro.layout.phases.off_track import (
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station, is_bypass_v
 
 
+def _align_straight_diamond_trunks(
+    sub: MetroGraph,
+    tracks: dict[str, float],
+) -> None:
+    """Put a straight diamond's fork and join on its nearest branch track.
+
+    Phantom entry tracks can push both branches to one side of the track that
+    ``assign_tracks`` chose for the fork and join.  Leaving the shared trunk
+    outside the branch envelope makes both arms bend in the same direction and
+    consumes an otherwise empty track.  A clean one-layer fork/join diamond can
+    instead use its nearest branch as the straight arm.
+
+    The join's sole same-track continuation follows it so a convergence helper
+    and its visible endpoint remain one horizontal trunk.
+    """
+    for fork_id, fork in sub.stations.items():
+        if fork.is_hidden or fork_id not in tracks:
+            continue
+        branches = {
+            edge.target
+            for edge in sub.edges_from(fork_id)
+            if edge.target in tracks and not sub.stations[edge.target].is_hidden
+        }
+        if len(branches) != 2:
+            continue
+        if any(
+            {
+                edge.source
+                for edge in sub.edges_to(branch_id)
+                if not sub.stations[edge.source].is_hidden
+            }
+            != {fork_id}
+            for branch_id in branches
+        ):
+            continue
+
+        branch_successors = [
+            {edge.target for edge in sub.edges_from(branch_id) if edge.target in tracks}
+            for branch_id in branches
+        ]
+        if (
+            len(branch_successors[0]) != 1
+            or branch_successors[0] != branch_successors[1]
+        ):
+            continue
+
+        join_id = next(iter(branch_successors[0]))
+        join = sub.stations[join_id]
+        if join.is_port or join.is_hidden:
+            continue
+        if {edge.source for edge in sub.edges_to(join_id)} != branches:
+            continue
+        branch_tracks = [tracks[branch_id] for branch_id in branches]
+        branch_lo = min(branch_tracks)
+        branch_hi = max(branch_tracks)
+        if branch_hi - branch_lo < SAME_COORD_TOLERANCE:
+            continue
+
+        trunk_track = tracks[fork_id]
+        if (
+            branch_lo - SAME_COORD_TOLERANCE
+            <= trunk_track
+            <= (branch_hi + SAME_COORD_TOLERANCE)
+        ):
+            continue
+        if abs(tracks[join_id] - trunk_track) > SAME_COORD_TOLERANCE:
+            continue
+
+        branch_track = branch_lo if trunk_track < branch_lo else branch_hi
+        tracks[fork_id] = branch_track
+        tracks[join_id] = branch_track
+
+        current = join_id
+        while True:
+            successors = {edge.target for edge in sub.edges_from(current)}
+            if len(successors) != 1:
+                break
+            successor = next(iter(successors))
+            if successor not in tracks:
+                break
+            predecessors = {edge.source for edge in sub.edges_to(successor)}
+            if predecessors != {current}:
+                break
+            if abs(tracks[successor] - trunk_track) > SAME_COORD_TOLERANCE:
+                break
+            tracks[successor] = branch_track
+            current = successor
+
+
 def _align_terminus_to_upstream(graph: MetroGraph) -> None:
     """Pin a single downstream terminus to its sole upstream's Y.
 
@@ -204,6 +293,8 @@ def _layout_single_section(
     # Snap phantom pass-throughs' successors to the pass-through track
     # so the trunk line stays horizontal past bypassed stations.
     _align_phantom_pass_throughs(sub, tracks)
+    if graph.diamond_style == "straight":
+        _align_straight_diamond_trunks(sub, tracks)
 
     # Compact tracks so widely-spaced line priorities don't inflate
     # the vertical spread.  Gaps larger than LINE_GAP get capped so

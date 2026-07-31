@@ -3240,7 +3240,16 @@ def _compute_row_boundary_segments(
             b_top = sb.bbox_y
             if a_bot >= b_top:
                 continue
-            segments.append((ra, rb, x_start, x_end, (a_bot + b_top) / 2))
+            y = (a_bot + b_top) / 2
+            if any(
+                sec.grid_row_span == 1
+                and sec.grid_row in (ra, rb)
+                and max(x_start, sec.bbox_x) < min(x_end, sec.bbox_x + sec.bbox_w)
+                and sec.bbox_y < y < sec.bbox_y + sec.bbox_h
+                for sec in sections
+            ):
+                continue
+            segments.append((ra, rb, x_start, x_end, y))
     return segments
 
 

@@ -1,0 +1,114 @@
+%%metro title: nf-core/genomeassembler
+%%metro line_order: span
+%%metro center_ports: true
+%%metro fold_threshold: 1
+%%metro font_scale: 1
+%%metro line_spread: centered
+%%metro track_gap: 2
+%%metro mode: light
+%%metro line: ont | ONT | #2DD4BF
+%%metro line: hifi | HiFi | #C792EA
+%%metro line: hic | HiC | #EBD894
+%%metro line: short | short genomic | #98D7EC
+%%metro line: reference | refs | #A1834F
+%%metro line: annotation | annotation | #B191EE
+%%metro line: assembled | assembly | #808080
+%%metro line: qc | QC | #85D05D
+%%metro file: fasta | FASTA | fasta
+%%metro file: assembly_file_out | FASTA | assembly
+%%metro file: assembly_file_in | FASTA | assembly
+%%metro file: polished_file | FASTA | polished assembly
+%%metro file: scaffolded_in | FASTA | (polished) assembly
+%%metro file: scaffolded_out | FASTA | scaffolded assembly
+%%metro file: liftoff_in | FASTA | assembly
+%%metro grid: input | 0,0
+%%metro grid: prep,assemble | 1,0
+%%metro grid: qc,annot | 2,0
+%%metro grid: polish | 1,1
+%%metro grid: scaffold | 2,1
+%%metro legend: br
+
+graph LR
+    subgraph input [Inputs]
+        ontreads [ONT reads]
+        hifireads [HiFi reads]
+        hicreads [HiC reads]
+        shortreads [short reads]
+        ref_genome [Reference genome]
+        ref_anno [Reference annotation]
+        _input_out
+    end
+    subgraph prep [Prepare]
+        fastplong
+        fastp
+    end
+    subgraph assemble [Assemble]
+        single [hifiasm \n flye]
+        hybrid [hifiasm_ul]
+        scaff_ass [Scaffold:\n ONT / HiFi]
+        assembly_file_out
+        single --> |assembled| assembly_file_out
+        hybrid --> |assembled| assembly_file_out
+        scaff_ass --> |assembled| assembly_file_out
+    end
+    subgraph polish [Polish]
+        assembly_file_in
+        polish_ont [medaka \n dorado]
+        polish_short [pilon]
+        polished_file
+        assembly_file_in --> |assembled| polish_ont
+        assembly_file_in --> |assembled| polish_short
+        polish_ont --> |assembled| polished_file
+        polish_short --> |assembled| polished_file
+    end
+    subgraph scaffold [Scaffold]
+        scaffolded_in
+        scaffolded_in --> |assembled|scaff_ref
+        scaffolded_in --> |assembled|scaff_ont
+        scaffolded_in --> |assembled|scaff_hic
+
+        scaff_ref --> |assembled|scaffolded_out
+        scaff_ont --> |assembled|scaffolded_out
+        scaff_hic --> |assembled|scaffolded_out
+
+        scaff_ref[Ref: \n  RagTag]
+        scaff_hic[HiC: \n yahs]
+        scaff_ont[longstitch \n LINKS]
+        scaffolded_out
+    end
+    subgraph qc [QC]
+        fasta
+        kmer [k-mer: meryl / merqury]
+        quast [QUAST]
+        busco [BUSCO]
+        fasta --> |qc| kmer
+        fasta --> |qc| quast
+        fasta --> |qc| busco
+    end
+
+    subgraph annot [Annotation]
+        liftoff_in[ ]
+        liftoff [liftoff]
+        liftoff_in --> |annotation| liftoff
+    end
+
+    ontreads --> |ont| _input_out
+    hifireads --> |hifi| _input_out
+    hicreads --> |hic| _input_out
+    shortreads --> |short| _input_out
+    _input_out --> |ont| fastplong
+    _input_out --> |hifi| fastplong
+    _input_out --> |hic| fastp
+    _input_out --> |short| fastp
+
+    fastplong --> |ont,hifi| single
+    fastplong --> |ont,hifi| hybrid
+    fastplong --> |ont,hifi| scaff_ass
+    fastp --> |short| kmer
+    fastp --> |short| polish_short
+    ref_genome --> |reference| _input_out
+    ref_anno --> |reference| _input_out
+    assembly_file_out --> |assembled| assembly_file_in
+    polished_file --> |assembled| scaffolded_in
+    _input_out --> |reference| liftoff_in
+    _input_out --> |reference| fasta

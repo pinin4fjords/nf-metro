@@ -23,6 +23,9 @@ test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
   await page.goto("/harness.html");
   await waitReady(page);
+  if (await page.locator("#welcome-modal").isVisible()) {
+    await page.locator("#welcome-new").click();
+  }
 });
 
 test.afterAll(async () => {
@@ -53,6 +56,23 @@ test("boots and renders the seed map", async () => {
   await expect(page.locator("#error")).toBeHidden();
 });
 
+test("standalone harness fills the browser viewport", async () => {
+  const dimensions = await page.evaluate(() => ({
+    appHeight: document.querySelector(".nfm-playground").getBoundingClientRect()
+      .height,
+    viewportHeight: window.innerHeight,
+  }));
+  expect(dimensions.appHeight).toBeGreaterThanOrEqual(
+    dimensions.viewportHeight - 1,
+  );
+});
+
+test("renderer startup message does not show the obsolete download warning", async () => {
+  await expect(page.locator("body")).not.toContainText(
+    "First load fetches the WASM runtime",
+  );
+});
+
 test("live edit re-renders with the new station", async () => {
   await expect(
     page.locator('#preview [data-station-id="brandnew"]'),
@@ -77,14 +97,10 @@ test("animate toggle adds motion elements", async () => {
   await expect(balls).toHaveCount(0);
 });
 
-test("advanced options are collapsed by default and toggle open", async () => {
-  // Progressive disclosure: power-user knobs are hidden until requested.
-  await expect(page.locator("#advanced")).not.toHaveAttribute("open", /.*/);
+test("layout options are disclosed in their dedicated control panel", async () => {
   await expect(page.locator("#opt-line-spread")).toBeHidden();
-  await page.locator("#advanced > summary").click();
+  await openAdvanced();
   await expect(page.locator("#opt-line-spread")).toBeVisible();
-  await page.locator("#advanced > summary").click();
-  await expect(page.locator("#opt-line-spread")).toBeHidden();
 });
 
 test("directional toggle adds chevron markers", async () => {
@@ -278,6 +294,7 @@ test("syntax error surfaces inline and keeps the last good render", async () => 
     );
   });
   await expect(page.locator("#error")).toBeVisible();
+  await expect(page.locator("#error strong")).toHaveText("Source error");
   // Preview is untouched: the broken edit did not blank it.
   expect(await page.locator("#preview").innerHTML()).toBe(good);
 });
@@ -399,12 +416,6 @@ test("example dropdown loads a chosen example and renders it", async () => {
     .toBeGreaterThan(0);
   // Action menu resets to its placeholder after loading.
   await expect(select).toHaveValue("");
-
-  // A topology fixture (only in the render diff, not examples/*.mmd) loads too.
-  await select.selectOption("single_section");
-  await expect
-    .poll(async () => page.evaluate(() => window.__nfMetro.getValue()))
-    .toContain("graph");
 
   // The starter entry is always available even without the manifest.
   await select.selectOption("__seed__");
@@ -687,4 +698,99 @@ test("the line panel offers add and delete on each edge", async () => {
   await expect(page.locator(".prop-edge button.del").first()).toBeVisible();
   await page.locator(".prop-edge button.add").first().click();
   expect(await getValue()).toContain("node1");
+});
+
+test("rendering runs off the main browser thread", async () => {
+  const elapsed = await page.evaluate(async () => {
+    const started = performance.now();
+    window.__nfMetro.render();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return performance.now() - started;
+  });
+  expect(elapsed).toBeLessThan(100);
+});
+
+test("the example picker exposes a curated set", async () => {
+  const options = page.locator("#example-select option");
+  await expect.poll(async () => options.count()).toBeGreaterThan(2);
+  expect(await options.count()).toBeLessThanOrEqual(12);
+});
+
+test("opening a metro source file replaces the document", async () => {
+  const source =
+    "%%metro title: Opened File\n%%metro line: a | A | #f00\n" +
+    "graph LR\n  one[One] -->|a| two[Two]\n";
+  await page.locator("#file-open").setInputFiles({
+    name: "opened.mmd",
+    mimeType: "text/plain",
+    buffer: Buffer.from(source),
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__nfMetro.getValue()))
+    .toContain("Opened File");
+  await expect(
+    page.locator('#preview [data-station-id="one"]').first(),
+  ).toBeVisible();
+});
+
+test("a local draft survives a page reload", async () => {
+  const source =
+    "%%metro title: Recovered Draft\n%%metro line: a | A | #f00\n" +
+    "graph LR\n  saved[Saved] -->|a| restored[Restored]\n";
+  await page.evaluate((value) => window.__nfMetro.setValue(value), source);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => localStorage.getItem("nf-metro-playground-draft-v2") || "",
+      ),
+    )
+    .toContain("Recovered Draft");
+  await page.evaluate(() => history.replaceState(null, "", location.pathname));
+  await page.reload();
+  await waitReady(page);
+  await expect
+    .poll(() => page.evaluate(() => window.__nfMetro.getValue()))
+    .toContain("Recovered Draft");
+  await expect(
+    page.locator('#preview [data-station-id="saved"]').first(),
+  ).toBeVisible();
+});
+
+test("replaced documents remain available as recent maps", async () => {
+  await page.evaluate(() => document.getElementById("btn-new").click());
+  await expect
+    .poll(async () => page.locator("#recent-select option").count())
+    .toBeGreaterThan(1);
+});
+
+test("source completion exposes directives and graph snippets", async () => {
+  await page.evaluate(() => window.__nfMetro.complete());
+  await expect(page.locator(".CodeMirror-hints")).toBeVisible();
+  await expect(page.locator(".CodeMirror-hint").first()).toContainText("metro");
+  await page.keyboard.press("Escape");
+});
+
+test("the command palette filters and runs keyboard-first actions", async () => {
+  await page.keyboard.press("Control+k");
+  await expect(page.locator("#command-modal")).toBeVisible();
+  await page.locator("#command-search").fill("layout controls");
+  await expect(page.locator(".command-item")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#command-modal")).toBeHidden();
+});
+
+test("mobile switches between full-height source and preview views", async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.mobile-view[data-view="source"]').click();
+  await expect(page.locator("#editor-pane")).toBeVisible();
+  await expect(page.locator("#preview-pane")).toBeHidden();
+  await page.locator('.mobile-view[data-view="preview"]').click();
+  await expect(page.locator("#editor-pane")).toBeHidden();
+  await expect(page.locator("#preview-pane")).toBeVisible();
+  const sizes = await page.evaluate(() => [
+    innerWidth,
+    document.body.scrollWidth,
+  ]);
+  expect(sizes[1]).toBeLessThanOrEqual(sizes[0]);
+  await page.setViewportSize({ width: 1280, height: 720 });
 });

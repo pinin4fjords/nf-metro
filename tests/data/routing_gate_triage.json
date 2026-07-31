@@ -63,10 +63,6 @@
     "note": "Non-cross_row bypass guard: the endpoints list always includes the source and target sections (both in src_row), so it is never empty; the default-clearance arm only guards a degenerate empty endpoint set.",
     "status": "defensive"
   },
-  "common.py::if len(signs) != 1:::#1": {
-    "note": "Mixed-peel-end guard in iter_port_peeloff_bundles: a concentric peel-off bundle into a LEFT entry port is always fed from the left, so every member's trunk traverses toward the peel corner with the same trunk_sign. Lines approaching from the right of the port form an entry-wrap route, not a peel-off tail (verified: a right-side source produces zero peel tails), so the bundle never mixes signs. Belt-and-suspenders beyond the contiguity check.",
-    "status": "defensive"
-  },
   "common.py::if n == 0:::#1": {
     "note": "Empty-bundle guard: all callers (normalize.py 291/1648, inter_section_handlers.py 783/796/2132) derive bundle_widths from a non-empty bundle line count, so n is always >=1; the empty-list arm is never taken.",
     "status": "defensive"
@@ -77,6 +73,10 @@
   },
   "common.py::if s.bbox_h <= 0:::#1": {
     "note": "Degenerate-bbox guard in _grid_row_bands: a laid-out section always has bbox_h > 0, so the skip arm only protects against a zero/negative-height section that the layout never produces.",
+    "status": "defensive"
+  },
+  "common.py::if safe_cap >= row_bottom:::#1": {
+    "note": "The false arm is a defensive midpoint fallback for an inter-row gap too narrow to clear both an upper-row bypass and the lower section header. Placement reserves the routing band before bypass geometry is computed, so settled corpus layouts provide enough clearance for the safe-cap arm.",
     "status": "defensive"
   },
   "common.py::if sec.bbox_w <= 0:::#1": {
@@ -331,10 +331,6 @@
     "note": "entry_port.section_id is always set and the section has bbox_w>0 after layout; the else arm never fires.",
     "status": "defensive"
   },
-  "inter_section_handlers.py::if f.horizontal is Direction.L:::#1": {
-    "note": "Near-vertical same-column junction channel push: the junction always sits right of its same-column LEFT entry, so horizontal is always Direction.L; the Direction.R arm never fires (#762). Defensive.",
-    "status": "defensive"
-  },
   "inter_section_handlers.py::if fan is None and gap_bottom > gap_top:::#1": {
     "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
     "status": "needs-review"
@@ -539,6 +535,10 @@
     "note": "_snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs.",
     "status": "defensive"
   },
+  "normalize.py::if abs(overlap) > COORD_TOLERANCE:::#1": {
+    "note": "The symmetric-divergence recognizer rejects opposite vertical legs whose spans overlap instead of meeting at one endpoint. Corpus candidates reaching this helper are same-source branch openings and therefore meet at the shared turn Y; the overlapping arm is a defensive rejection for malformed or independently routed channels.",
+    "status": "defensive"
+  },
   "normalize.py::if abs(ly - pts[1][1]) < COORD_TOLERANCE:::#1": {
     "note": "A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
@@ -551,8 +551,8 @@
     "note": "_gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint.",
     "status": "defensive"
   },
-  "normalize.py::if any(::#4": {
-    "note": "In _bundle_divergent_distinct_traverses: the section-cross veto. No corpus fan would re-band a traverse across a foreign section, so the veto arm is never taken. Defensive.",
+  "normalize.py::if a_trunk is None or b_trunk is None:::#1": {
+    "note": "A symmetric divergence is considered only for declared gap channels produced by a same-source branch opening. Those channels follow a horizontal opening run, so both opening trunks resolve; the missing-trunk arm defensively rejects a different route shape.",
     "status": "defensive"
   },
   "normalize.py::if band is not None:::#1": {
@@ -571,9 +571,9 @@
     "note": "_suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path.",
     "status": "defensive"
   },
-  "normalize.py::if ca != cb:::#1": {
-    "note": "Peel-off ordering tie-break by deep-end crossings: after the fan-band sharing pins bypass siblings on one shared trunk, no corpus fan reaches this comparator with the approach-crossing counts equal but the peel crossings differing, so the arm is unexercised.",
-    "status": "needs-review"
+  "normalize.py::if channel.idx == 0:::#1": {
+    "note": "A declared gap channel participating in a same-source divergence follows the branch's horizontal opening and therefore cannot be the route's first segment. The zero-index arm defensively rejects a vertical-first route shape.",
+    "status": "defensive"
   },
   "normalize.py::if col is None:::#1": {
     "note": "Defensive guard in _convergence_line_order: a peel-off riser channel always resolves to a source-section column, so the unresolved-column early return is never taken on the corpus.",
@@ -681,6 +681,10 @@
   },
   "normalize.py::if trunk_ch is None:::#1": {
     "note": "Defensive guard: the merge trunk route opens horizontal-then-vertical (lead into the gap, then descend), so its initial fan-out descent is always found; the skip arm is never taken.",
+    "status": "defensive"
+  },
+  "normalize.py::if abs(turn[1] - start[1]) > COORD_TOLERANCE or abs(dx) <= COORD_TOLERANCE:::#1": {
+    "note": "The opening segment before a declared same-source divergence channel is a non-degenerate horizontal run by construction. The non-horizontal or zero-length arm defensively rejects a route shape that cannot provide a shared trunk endpoint.",
     "status": "defensive"
   },
   "normalize.py::if trunk_rp is not None:::#1": {
