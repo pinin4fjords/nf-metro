@@ -15,6 +15,7 @@ exactly and breaks at bridge-hop gaps rather than spanning them.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -40,33 +41,24 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 TOPOLOGIES = EXAMPLES / "topologies"
 
 
-def _renderable_corpus() -> tuple[list[str], dict[str, MetroGraph]]:
-    """Collect renderable fixtures and their laid-out graphs in one pass.
-
-    Filtering at import time keeps the parametrization to fixtures that
-    actually render (a newly-broken one drops out, caught by the count guard);
-    caching the laid-out graph lets each test render without a second layout.
-    """
-    names: list[str] = []
-    graphs: dict[str, MetroGraph] = {}
-    for path in sorted(EXAMPLES.glob("*.mmd")) + sorted(TOPOLOGIES.glob("*.mmd")):
-        try:
-            graph = parse_metro_mermaid(path.read_text())
-            compute_layout(graph)
-        except Exception:  # noqa: BLE001 - unrenderable fixtures are not our subject
-            continue
-        rel = path.relative_to(EXAMPLES).as_posix()
-        names.append(rel)
-        graphs[rel] = graph
-    return names, graphs
-
-
-CORPUS, _LAID_OUT = _renderable_corpus()
+CORPUS = [
+    path.relative_to(EXAMPLES).as_posix()
+    for path in sorted(EXAMPLES.glob("*.mmd")) + sorted(TOPOLOGIES.glob("*.mmd"))
+]
 _PLANS = {}
 
 
+@lru_cache(maxsize=None)
+def _layout(rel_name: str) -> MetroGraph:
+    path = EXAMPLES / rel_name
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    return graph
+
+
+@lru_cache(maxsize=None)
 def _render(rel_name: str) -> str:
-    graph = _LAID_OUT[rel_name]
+    graph = _layout(rel_name)
     theme_name = graph.style if graph.style in THEMES else "nfcore"
     plan = build_render_plan(graph, THEMES[theme_name])
     _PLANS[rel_name] = plan
@@ -74,34 +66,14 @@ def _render(rel_name: str) -> str:
 
 
 @pytest.mark.parametrize("name", CORPUS)
-def test_clean_corpus_has_no_label_strike(name: str) -> None:
-    """No gallery render draws a line through a non-consumer station's label."""
-    findings = validate_render(_render(name))
-    strikes = [f for f in findings if f.kind == LABEL_STRIKE]
-    assert not strikes, f"{name}: {[f.message for f in strikes]}"
-
-
-@pytest.mark.parametrize("name", CORPUS)
-def test_clean_corpus_has_no_marker_cross(name: str) -> None:
-    """No gallery render rakes a line through a non-consumer station marker.
-
-    The two corpus crossings are rail interchanges (the intended idiom); the
-    guard exempts them by reading the rail markers back from the SVG.
-    """
-    findings = validate_render(_render(name))
-    crossings = [f for f in findings if f.kind == MARKER_CROSS]
-    assert not crossings, f"{name}: {[f.message for f in crossings]}"
-
-
-@pytest.mark.parametrize("name", CORPUS)
-def test_clean_corpus_has_no_offset_collapse(name: str) -> None:
-    """No gallery render draws an offset-spread line pair flush into one stroke.
-
-    Passing the render plan enables this check. Lines assigned to the same slot
-    may share a stroke and are not reported.
-    """
+def test_clean_corpus_has_no_render_geometry_findings(name: str) -> None:
+    """Gallery renders have no label, marker, or offset geometry defects."""
     svg = _render(name)
     findings = validate_render(svg, plan=_PLANS[name])
+    strikes = [f for f in findings if f.kind == LABEL_STRIKE]
+    assert not strikes, f"{name}: {[f.message for f in strikes]}"
+    crossings = [f for f in findings if f.kind == MARKER_CROSS]
+    assert not crossings, f"{name}: {[f.message for f in crossings]}"
     collapses = [f for f in findings if f.kind == OFFSET_COLLAPSE]
     assert not collapses, f"{name}: {[f.message for f in collapses]}"
 
