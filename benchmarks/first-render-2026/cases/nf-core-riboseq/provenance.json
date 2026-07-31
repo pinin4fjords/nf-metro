@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/riboseq",
+  "original_timestamp": "2026-07-12T12:18:56Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/1421",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "2df8449111995cd3c95de1795cf30effa607aabcdcc596bc45ceac14abf6f020",
+  "assets": [],
+  "reconstruction_status": "derived",
+  "transformations": [
+    "Substituted the later tuned #1421 map because the original external branch/session source was unavailable."
+  ],
+  "linked_issues": [
+    "https://github.com/seqeralabs/nf-metro/issues/1292",
+    "https://github.com/seqeralabs/nf-metro/issues/1293",
+    "https://github.com/seqeralabs/nf-metro/issues/1421"
+  ],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/1408"],
+  "first_engine_commit": null,
+  "notes": "The original external branch/session first-render source could not be recovered. Issue #1293 contains a later full bug repro, and #1421 contains this later tuned gallery candidate. This case is derived and excluded from the primary denominator."
+}

@@ -1,0 +1,88 @@
+%%metro title: nf-core/phaseimpute
+%%metro logo: docs/images/logo/nf-core-phaseimpute_logo_light.png
+%%metro style: dark
+%%metro file: panel_vcf_in | VCF
+%%metro file: panel_vcf_out | VCF
+%%metro file: chunks_txt_out | TXT
+%%metro file: sites_tsv_out | TSV
+%%metro file: input_bam_in | BAM
+%%metro file: input_bam_out | BAM
+%%metro file: sample_vcf_imputed | VCF
+%%metro file: truth_in | VCF
+%%metro file: statitistics_out | CSV
+%%metro line: vcf_panel | VCF reference panel | #0570b0
+%%metro line: bam_input | BAM input | #2db572
+%%metro line: vcf_imputed | VCF imputed | #f5c542
+%%metro line: truth_bam_input | Truth high depth BAM | #7b2d3b
+%%metro line: txt_statistics | Statistics produced | #e63946
+%%metro legend: br
+
+graph LR
+    subgraph panelprep [Panel preparation]
+        %%metro exit: right | vcf_panel
+        panel_vcf_in[ ]
+        norm_panel[Normalize panel]
+        phase_panel[Phase panel]
+        chunk_panel[Chunk contigs]
+        extract_sites[Extract sites]
+        panel_vcf_out[ ]
+        chunks_txt_out[ ]
+        sites_tsv_out[ ]
+        _h1[hidden]
+        _h2[hidden]
+
+        panel_vcf_in -->|vcf_panel| norm_panel
+        norm_panel -->|vcf_panel| phase_panel
+        norm_panel -->|vcf_panel| extract_sites
+        norm_panel -->|vcf_panel| chunk_panel
+        chunk_panel -->|vcf_panel| phase_panel
+        norm_panel -->|vcf_panel| phase_panel
+        phase_panel -->|vcf_panel| panel_vcf_out
+        chunk_panel -->|vcf_panel| _h1
+        _h1 -->|vcf_panel| chunks_txt_out
+        extract_sites -->|vcf_panel| _h2
+        _h2 -->|vcf_panel| sites_tsv_out
+    end
+
+    subgraph simulation [Low-Pass simulation]
+        %%metro entry: left | bam_input
+        %%metro exit: right | bam_input
+        input_bam_in[ ]
+        extract_region[Extract region]
+        downsample[Downsample to depth]
+        input_bam_out[ ]
+
+        input_bam_in -->|bam_input| extract_region
+        extract_region -->|bam_input| downsample
+        downsample -->|bam_input| input_bam_out
+    end
+
+    subgraph impute [Imputation]
+        %%metro entry: left | vcf_panel, bam_input
+        %%metro exit: right | vcf_imputed
+
+        impute[Impute with tool]
+        sample_vcf_imputed[ ]
+
+        input_bam_out -->|bam_input| impute
+        panel_vcf_out -->|vcf_panel| impute
+        chunks_txt_out -->|vcf_panel| impute
+        sites_tsv_out -->|vcf_panel| impute
+        impute -->|vcf_imputed| sample_vcf_imputed
+    end
+
+    subgraph validate [Validation]
+        %%metro entry: left | vcf_imputed, truth_bam_input
+        %%metro exit: right | txt_statistics
+        truth_in[ ]
+        gl_truth[Compute GL]
+        stats[Statistics]
+        concordance[Concordance]
+        statitistics_out[ ]
+
+        truth_in -->|truth_bam_input| gl_truth
+        gl_truth -->|truth_bam_input| stats
+        sample_vcf_imputed -->|vcf_imputed| stats
+        stats -->|truth_bam_input,vcf_imputed| concordance
+        concordance -->|txt_statistics| statitistics_out
+    end

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seqeralabs.github.io/nf-metro/schemas/first-render-manifest-v1.json",
+  "title": "First-render holdout manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "population",
+    "hash_seeds",
+    "engine_commit",
+    "render_options",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "population": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "ordering", "definition"],
+      "properties": {
+        "start": { "type": "string", "format": "date" },
+        "end": { "type": "string", "format": "date" },
+        "ordering": { "const": "original_timestamp_then_canonical_pipeline" },
+        "definition": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hash_seeds": { "const": [0, 1, 2, 43] },
+    "engine_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "render_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["theme", "mode"],
+      "properties": {
+        "theme": { "type": ["string", "null"] },
+        "mode": { "type": ["string", "null"] }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "canonical_pipeline",
+          "original_timestamp",
+          "reconstruction_status",
+          "source",
+          "provenance",
+          "human_verdict"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "canonical_pipeline": {
+            "type": "string",
+            "pattern": "^[^/]+/[^/]+$"
+          },
+          "original_timestamp": { "type": "string", "format": "date-time" },
+          "reconstruction_status": {
+            "enum": ["exact", "derived", "unavailable"]
+          },
+          "source": { "type": ["string", "null"] },
+          "provenance": { "type": "string" },
+          "human_verdict": { "type": "string" }
+        }
+      }
+    }
+  }
+}

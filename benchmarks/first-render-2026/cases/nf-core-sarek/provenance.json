@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/sarek",
+  "original_timestamp": "2026-05-20T11:43:23+01:00",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/0f93e0e7778d97d76382f1ae195baf5c15e02e01",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "6232f327829f16bebe39c83ec59349131ed61dbcff5d3da6527c2d488ae3eb5d",
+  "assets": [
+    {
+      "path": "nf-core-sarek_logo_dark.png",
+      "sha256": "7a1209a83ffe8111da3a117986e65c1d185cfda371c12768262e494941b8f310",
+      "source_url_or_ref": "https://github.com/nf-core/sarek/blob/f1152ec0748b144776a1843de6d118c03b26b963/docs/images/nf-core-sarek_logo_dark.png"
+    }
+  ],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [],
+  "linked_prs": [],
+  "first_engine_commit": "0f93e0e7778d97d76382f1ae195baf5c15e02e01",
+  "notes": "First source-bearing draft commit."
+}

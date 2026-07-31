@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/variantbenchmarking",
+  "original_timestamp": "2026-02-24T19:44:10+00:00",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/7dacc6b3c8da7ac195b0cc8639a7b7b965401fc1",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "bc2cf490e52e4e234834ddaabf8ad6cbc01cc7b64762067cd84d59b66369898b",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/157"],
+  "first_engine_commit": "7dacc6b3c8da7ac195b0cc8639a7b7b965401fc1",
+  "notes": "First source-bearing commit, before the later expanded and auto-layout variants."
+}

@@ -1,0 +1,199 @@
+{
+  "case_id": "nf-core-differentialabundance",
+  "engine_commit": "33d8e6ff50bd1a59307c0356878b2393a441f5ef",
+  "engine_source_sha256": "b8b32f376ce99da4e28accbef4ae8d860ec0b5f92e31a17baa07647415221587",
+  "environment": {
+    "architecture": "arm64",
+    "dependencies": {
+      "click": "8.4.2",
+      "drawsvg": "2.4.1",
+      "lark": "1.3.1",
+      "networkx": "3.6.1",
+      "pillow": "12.3.0"
+    },
+    "fonts": {
+      "Inter-Bold.woff2": "a80d85ae8e8928616c8060f9488a18ce1fb3441d9a37ddf0be3346458eae1e91",
+      "Inter-Regular.woff2": "9d661a08bc10d00ba1f886a8faf966b8a74bd66a6003a87590862cfeef41a1b8"
+    },
+    "locale": "C/C.UTF-8/C/C/C/C",
+    "locale_environment": {
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8",
+      "LC_CTYPE": "C.UTF-8"
+    },
+    "os": "Darwin",
+    "os_release": "25.5.0",
+    "python": "3.11.15",
+    "python_implementation": "CPython"
+  },
+  "hash_seed": 43,
+  "machine_findings": {
+    "bundle_discontinuity": {
+      "count": 0,
+      "count_rule": "sum of callable bundle-order and seam findings",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "hanging_route": {
+      "count": 0,
+      "count_rule": "one per hanging-route finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "label_strike": {
+      "count": 0,
+      "count_rule": "one per rendered label-strike finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "passed"
+    },
+    "layout_crossings": {
+      "count": 53,
+      "count_rule": "one per layout-validator crossing finding",
+      "details": [
+        "route_segment_crossing: Lines 'rnaseq' (deseq2->annotate) and 'affy' (limma->differential__exit_right_1) cross at (675,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (dream->annotate) and 'affy' (limma->differential__exit_right_1) cross at (676,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (propd->annotate) and 'affy' (limma->differential__exit_right_1) cross at (676,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (net_in->decoupler) and 'affy' (functional__entry_left_4->gsea) cross at (1007,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (net_in->decoupler) and 'maxquant' (functional__entry_left_4->gsea) cross at (1008,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (net_in->decoupler) and 'geo' (functional__entry_left_4->gsea) cross at (1009,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (net_in->decoupler) and 'rnaseq' (functional__entry_left_4->gsea) cross at (1002,234) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (net_in->decoupler) and 'maxquant' (functional__entry_left_4->gsea) cross at (1004,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (net_in->decoupler) and 'geo' (functional__entry_left_4->gsea) cross at (1005,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (net_in->decoupler) and 'rnaseq' (functional__entry_left_4->gsea) cross at (998,234) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (net_in->decoupler) and 'affy' (functional__entry_left_4->gsea) cross at (999,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (net_in->decoupler) and 'geo' (functional__entry_left_4->gsea) cross at (1001,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (net_in->decoupler) and 'rnaseq' (functional__entry_left_4->gsea) cross at (994,234) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (net_in->decoupler) and 'affy' (functional__entry_left_4->gsea) cross at (995,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (net_in->decoupler) and 'maxquant' (functional__entry_left_4->gsea) cross at (996,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (functional__entry_left_4->gprofiler2) and 'maxquant' (functional__entry_left_4->decoupler) cross at (905,274) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (functional__entry_left_4->gprofiler2) and 'geo' (functional__entry_left_4->decoupler) cross at (910,294) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (functional__entry_left_4->gprofiler2) and 'geo' (functional__entry_left_4->decoupler) cross at (902,278) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (functional__entry_left_4->gprofiler2) and 'rnaseq' (functional__entry_left_4->grea) cross at (903,282) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (functional__entry_left_4->gprofiler2) and 'rnaseq' (functional__entry_left_4->grea) cross at (911,330) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (functional__entry_left_4->gprofiler2) and 'rnaseq' (functional__entry_left_4->grea) cross at (916,362) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (functional__entry_left_4->decoupler) and 'rnaseq' (functional__entry_left_4->grea) cross at (902,279) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (gprofiler2->functional__exit_right_2) and 'maxquant' (decoupler->functional__exit_right_2) cross at (1113,274) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (gprofiler2->functional__exit_right_2) and 'geo' (decoupler->functional__exit_right_2) cross at (1108,294) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (gprofiler2->functional__exit_right_2) and 'geo' (decoupler->functional__exit_right_2) cross at (1117,278) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (gprofiler2->functional__exit_right_2) and 'rnaseq' (grea->functional__exit_right_2) cross at (1116,282) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (gprofiler2->functional__exit_right_2) and 'rnaseq' (grea->functional__exit_right_2) cross at (1107,330) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (gprofiler2->functional__exit_right_2) and 'rnaseq' (grea->functional__exit_right_2) cross at (1102,362) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (decoupler->functional__exit_right_2) and 'rnaseq' (grea->functional__exit_right_2) cross at (1116,279) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (__junction_7->functional__entry_left_4) and 'rnaseq' (__junction_7->plots__entry_left_5) cross at (856,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (__junction_7->functional__entry_left_4) and 'rnaseq' (__junction_7->reporting__entry_left_6) cross at (856,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (__junction_7->functional__entry_left_4) and 'rnaseq' (__junction_7->plots__entry_left_5) cross at (856,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (__junction_7->functional__entry_left_4) and 'affy' (__junction_7->plots__entry_left_5) cross at (852,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (__junction_7->functional__entry_left_4) and 'rnaseq' (__junction_7->reporting__entry_left_6) cross at (856,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (__junction_7->functional__entry_left_4) and 'affy' (__junction_7->reporting__entry_left_6) cross at (852,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (__junction_7->functional__entry_left_4) and 'rnaseq' (__junction_7->plots__entry_left_5) cross at (856,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (__junction_7->functional__entry_left_4) and 'affy' (__junction_7->plots__entry_left_5) cross at (852,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (__junction_7->functional__entry_left_4) and 'maxquant' (__junction_7->plots__entry_left_5) cross at (848,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (__junction_7->functional__entry_left_4) and 'rnaseq' (__junction_7->reporting__entry_left_6) cross at (856,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (__junction_7->functional__entry_left_4) and 'affy' (__junction_7->reporting__entry_left_6) cross at (852,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'geo' (__junction_7->functional__entry_left_4) and 'maxquant' (__junction_7->reporting__entry_left_6) cross at (848,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (__junction_7->plots__entry_left_5) and 'affy' (__junction_7->reporting__entry_left_6) cross at (856,475) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (__junction_7->plots__entry_left_5) and 'maxquant' (__junction_7->reporting__entry_left_6) cross at (856,479) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (__junction_7->plots__entry_left_5) and 'geo' (__junction_7->reporting__entry_left_6) cross at (856,483) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (__junction_7->plots__entry_left_5) and 'maxquant' (__junction_7->reporting__entry_left_6) cross at (852,479) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (__junction_7->plots__entry_left_5) and 'geo' (__junction_7->reporting__entry_left_6) cross at (852,483) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (__junction_7->plots__entry_left_5) and 'geo' (__junction_7->reporting__entry_left_6) cross at (848,483) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (__junction_7->reporting__entry_left_6) and 'affy' (functional__exit_right_2->reporting__entry_left_6) cross at (1178,238) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (__junction_7->reporting__entry_left_6) and 'maxquant' (functional__exit_right_2->reporting__entry_left_6) cross at (1178,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'rnaseq' (__junction_7->reporting__entry_left_6) and 'geo' (functional__exit_right_2->reporting__entry_left_6) cross at (1178,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (__junction_7->reporting__entry_left_6) and 'maxquant' (functional__exit_right_2->reporting__entry_left_6) cross at (1182,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'affy' (__junction_7->reporting__entry_left_6) and 'geo' (functional__exit_right_2->reporting__entry_left_6) cross at (1182,246) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'maxquant' (__junction_7->reporting__entry_left_6) and 'geo' (functional__exit_right_2->reporting__entry_left_6) cross at (1186,246) - not at a station, so the crossing is avoidable"
+      ],
+      "severity": "error",
+      "stage": "routing",
+      "status": "failed"
+    },
+    "marker_cross": {
+      "count": 0,
+      "count_rule": "one per rendered marker-cross finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "passed"
+    },
+    "offset_collapse": {
+      "count": 0,
+      "count_rule": "one per rendered offset-collapse finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "passed"
+    },
+    "reservation_violation": {
+      "count": 0,
+      "count_rule": "one per bypass-section-clearance finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "route_through_section": {
+      "count": 0,
+      "count_rule": "one per edge-section-crossing finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "strict_layout_guards": {
+      "count": 0,
+      "count_rule": "one per raised strict layout guard",
+      "details": [],
+      "severity": "error",
+      "stage": "layout",
+      "status": "passed"
+    },
+    "strict_routing_guards": {
+      "count": 0,
+      "count_rule": "one per raised strict routing guard",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    }
+  },
+  "render_options": {
+    "mode": null,
+    "theme": null
+  },
+  "render_plan_sha256": "f016c36209475d5c7acf390c91202b699500518702365299e9853be41fa6f2ba",
+  "schema_version": 1,
+  "settled_geometry_sha256": "d5820fe5742ad53f8501dab90c773a22c7d23f5697559d8ade4fba6956bcf322",
+  "stages": {
+    "layout": {
+      "exception": null,
+      "status": "passed"
+    },
+    "parse": {
+      "exception": null,
+      "status": "passed"
+    },
+    "render": {
+      "exception": null,
+      "status": "passed"
+    },
+    "resolution": {
+      "exception": null,
+      "status": "passed"
+    },
+    "routing": {
+      "exception": null,
+      "status": "passed"
+    }
+  },
+  "svg": {
+    "byte_length": 123650,
+    "sha256": "d73f930a0c0794b9583b5d168bdb66831f5a4242468c0def82a576b4a553a577"
+  }
+}

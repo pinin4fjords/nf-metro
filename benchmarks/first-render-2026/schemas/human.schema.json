@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seqeralabs.github.io/nf-metro/schemas/first-render-human-v1.json",
+  "title": "First-render human adjudication",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reviewers",
+    "adjudicated_verdict",
+    "protocol_deviation"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "reviewers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reviewer",
+          "issue_history_visible",
+          "verdict",
+          "semantic_failure_class",
+          "affected_region",
+          "semantic_owner"
+        ],
+        "properties": {
+          "reviewer": { "type": "string", "minLength": 1 },
+          "issue_history_visible": { "type": "boolean" },
+          "verdict": { "$ref": "#/$defs/verdict" },
+          "semantic_failure_class": { "type": ["string", "null"] },
+          "affected_region": { "type": ["string", "null"] },
+          "semantic_owner": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "adjudicated_verdict": { "$ref": "#/$defs/verdict" },
+    "protocol_deviation": { "type": "boolean" },
+    "protocol_deviation_notes": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "verdict": {
+      "enum": [
+        "accepted_without_correction",
+        "minor_polish_only",
+        "major_layout_correction_required",
+        "unusable_or_aborting"
+      ]
+    }
+  }
+}

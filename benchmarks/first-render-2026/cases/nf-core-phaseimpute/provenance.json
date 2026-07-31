@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/phaseimpute",
+  "original_timestamp": "2026-02-27T18:39:50Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/169",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "2ae767326ddbfd3aac0a71111617459d512089cb42128a97b971ceed4485846b",
+  "assets": [
+    {
+      "path": "docs/images/logo/nf-core-phaseimpute_logo_light.png",
+      "sha256": "c87a328dd5e034e0840ab3729a668b65756d89923b8abe620f3919212e3eba85",
+      "source_url_or_ref": "https://github.com/nf-core/phaseimpute/blob/728c500387392076a60a5a3ac5a8115999f16a89/docs/images/logo/nf-core-phaseimpute_logo_light.png"
+    }
+  ],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/169"],
+  "linked_prs": [],
+  "first_engine_commit": null,
+  "notes": "Exact fenced source submitted with issue #169."
+}

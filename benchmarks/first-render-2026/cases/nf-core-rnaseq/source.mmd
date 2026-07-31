@@ -1,0 +1,71 @@
+%%metro title: nf-core/rnaseq
+%%metro style: dark
+%%metro line: star_rsem | Aligner: STAR, Quantification: RSEM | #0570b0
+%%metro line: star_salmon | Aligner: STAR, Quantification: Salmon (default) | #2db572
+%%metro line: hisat2 | Aligner: HISAT2, Quantification: None | #f5c542
+%%metro line: pseudo_salmon | Pseudo-aligner: Salmon, Quantification: Salmon | #e63946
+%%metro line: pseudo_kallisto | Pseudo-aligner: Kallisto, Quantification: Kallisto | #7b2d3b
+
+%%metro section: 1 | Pre-processing | cat_fastq | sortmerna
+%%metro section: 2 | Genome alignment & quantification | star | section2_end
+%%metro section: 3 | Pseudo-alignment & quantification | salmon_pseudo | multiqc_pseudo
+
+graph LR
+    %% Section 1: Pre-processing (all 5 tracks)
+    cat_fastq[cat fastq]
+    fastqc_raw[FastQC]
+    infer_strandedness[infer strandedness]
+    umi_tools_extract[UMI-tools extract]
+    fastp[FastP]
+    trimgalore[Trim Galore!]
+    fastqc_trimmed[FastQC]
+    bbsplit[BBSplit]
+    sortmerna[SortMeRNA]
+
+    cat_fastq -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_raw
+    fastqc_raw -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| infer_strandedness
+    infer_strandedness -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| umi_tools_extract
+
+    %% Trimmer choice bulge (all tracks split through both FastP and TrimGalore)
+    umi_tools_extract -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastp
+    umi_tools_extract -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| trimgalore
+    fastp -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_trimmed
+    trimgalore -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| fastqc_trimmed
+
+    fastqc_trimmed -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| bbsplit
+    bbsplit -->|star_salmon,star_rsem,hisat2,pseudo_salmon,pseudo_kallisto| sortmerna
+
+    %% Section 3: Pseudo-alignment (tracks 4 & 5 diverge after sortmerna)
+    sortmerna -->|pseudo_salmon| salmon_pseudo
+    sortmerna -->|pseudo_kallisto| kallisto
+
+    salmon_pseudo[Salmon]
+    kallisto[Kallisto]
+    multiqc_pseudo[MultiQC]
+
+    salmon_pseudo -->|pseudo_salmon| multiqc_pseudo
+    kallisto -->|pseudo_kallisto| multiqc_pseudo
+
+    %% Section 2: Genome alignment (tracks 1, 2, 3 continue after sortmerna)
+    sortmerna -->|star_salmon,star_rsem| star
+    sortmerna -->|hisat2| hisat2_align
+
+    star[STAR]
+    hisat2_align[HISAT2]
+    rsem[RSEM]
+    salmon_quant[Salmon]
+    umi_tools_dedup[UMI-tools dedup]
+
+    %% STAR branches: RSEM and Salmon
+    star -->|star_rsem| rsem
+    star -->|star_salmon| salmon_quant
+
+    %% UMI-tools dedup: crossing station linking salmon and hisat2 lines
+    salmon_quant -->|star_salmon| umi_tools_dedup
+    hisat2_align -->|hisat2| umi_tools_dedup
+
+    %% Placeholder end of section 2: all 3 lines converge
+    section2_end[...]
+    umi_tools_dedup -->|star_salmon| section2_end
+    rsem -->|star_rsem| section2_end
+    umi_tools_dedup -->|hisat2| section2_end

@@ -1,0 +1,4127 @@
+{
+  "render_plan": {
+    "adaptive_logo": false,
+    "bare": false,
+    "bridge_breaks": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "chrome_css": true,
+    "debug": false,
+    "edge_route_indices": [
+      12, 13, 14, 22, 23, 24, 25, 1, 3, 5, 11, 15, 16, 26, 28, 0, 2, 4, 6, 7, 8,
+      9, 10, 17, 18, 19, 20, 21, 27, 29, 30
+    ],
+    "effective_logo": "",
+    "graph": {
+      "kind": "MetroGraph",
+      "values": {
+        "entries": [
+          ["title", "nf-core/variantprioritization"],
+          ["caption", ""],
+          ["style", "dark"],
+          ["mode", ""],
+          [
+            "lines",
+            {
+              "entries": [
+                [
+                  "somatic",
+                  {
+                    "kind": "MetroLine",
+                    "values": {
+                      "entries": [
+                        ["id", "somatic"],
+                        ["display_name", "Somatic"],
+                        ["color", "#4CAF50"],
+                        ["style", "solid"]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "germline",
+                  {
+                    "kind": "MetroLine",
+                    "values": {
+                      "entries": [
+                        ["id", "germline"],
+                        ["display_name", "Germline"],
+                        ["color", "#9923A0"],
+                        ["style", "solid"]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "reference",
+                  {
+                    "kind": "MetroLine",
+                    "values": {
+                      "entries": [
+                        ["id", "reference"],
+                        ["display_name", "Reference"],
+                        ["color", "#2196F3"],
+                        ["style", "solid"]
+                      ]
+                    }
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "stations",
+            {
+              "entries": [
+                [
+                  "vcf_in",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "vcf_in"],
+                        ["label", ""],
+                        ["section_id", "preprocessing"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", ["VCF"]],
+                        ["terminus_icon_types", ["file"]],
+                        ["terminus_names", [""]],
+                        ["terminus_icon_banners", [false]],
+                        ["x", 80.0],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "tabix",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "tabix"],
+                        ["label", "tabix"],
+                        ["section_id", "preprocessing"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 140.0],
+                        ["y", 120.0],
+                        ["layer", 1],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "bcftools_norm",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "bcftools_norm"],
+                        ["label", "bcftools/norm"],
+                        ["section_id", "preprocessing"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 200.0],
+                        ["y", 120.0],
+                        ["layer", 2],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "bcftools_filter",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "bcftools_filter"],
+                        ["label", "bcftools/filter"],
+                        ["section_id", "preprocessing"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 260.0],
+                        ["y", 120.0],
+                        ["layer", 3],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "reformat_vcf",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "reformat_vcf"],
+                        ["label", "Reformat VCF"],
+                        ["section_id", "format_files"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 439.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", -0.6529129224720931],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "intersect",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "intersect"],
+                        ["label", "Intersect VCF"],
+                        ["section_id", "format_files"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 535.5],
+                        ["y", 120.0],
+                        ["layer", 1],
+                        ["track", -0.6529129224720931],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "prepare_pcgr",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "prepare_pcgr"],
+                        ["label", "Prepare VCF"],
+                        ["section_id", "format_files"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 595.5],
+                        ["y", 160.0],
+                        ["layer", 2],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "cna_in",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "cna_in"],
+                        ["label", ""],
+                        ["section_id", "format_files"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", ["CNA"]],
+                        ["terminus_icon_types", ["file"]],
+                        ["terminus_names", [""]],
+                        ["terminus_icon_banners", [false]],
+                        ["x", 439.5],
+                        ["y", 200.0],
+                        ["layer", 0],
+                        ["track", 0.6529129224720931],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "reformat_cna",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "reformat_cna"],
+                        ["label", "Reformat CNA"],
+                        ["section_id", "format_files"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 535.5],
+                        ["y", 200.0],
+                        ["layer", 1],
+                        ["track", 0.6529129224720931],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "get_pcgr",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "get_pcgr"],
+                        ["label", "PCGR DB"],
+                        ["section_id", "get_reference"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 128.0],
+                        ["y", 350.0],
+                        ["layer", 0],
+                        ["track", 3.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "get_vep",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "get_vep"],
+                        ["label", "VEP Cache"],
+                        ["section_id", "get_reference"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 128.0],
+                        ["y", 390.0],
+                        ["layer", 0],
+                        ["track", 4.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "pcgr",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "pcgr"],
+                        ["label", "PCGR"],
+                        ["section_id", "run_pcgr"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 781.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "report_pcgr",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "report_pcgr"],
+                        ["label", ""],
+                        ["section_id", "run_pcgr"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", ["HTML"]],
+                        ["terminus_icon_types", ["file"]],
+                        ["terminus_names", [""]],
+                        ["terminus_icon_banners", [false]],
+                        ["x", 841.5],
+                        ["y", 120.0],
+                        ["layer", 1],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "cpsr",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "cpsr"],
+                        ["label", "CPSR"],
+                        ["section_id", "run_cpsr"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 431.5],
+                        ["y", 350.0],
+                        ["layer", 0],
+                        ["track", 1.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "report_cpsr",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "report_cpsr"],
+                        ["label", ""],
+                        ["section_id", "run_cpsr"],
+                        ["is_port", false],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", ["HTML"]],
+                        ["terminus_icon_types", ["file"]],
+                        ["terminus_names", [""]],
+                        ["terminus_icon_banners", [false]],
+                        ["x", 491.5],
+                        ["y", 350.0],
+                        ["layer", 1],
+                        ["track", 1.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "get_reference__exit_right_0",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "get_reference__exit_right_0"],
+                        ["label", ""],
+                        ["section_id", "get_reference"],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 196.0],
+                        ["y", 350.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "preprocessing__exit_right_1",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "preprocessing__exit_right_1"],
+                        ["label", ""],
+                        ["section_id", "preprocessing"],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 331.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "format_files__exit_right_2",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "format_files__exit_right_2"],
+                        ["label", ""],
+                        ["section_id", "format_files"],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 681.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "run_cpsr__entry_left_3",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "run_cpsr__entry_left_3"],
+                        ["label", ""],
+                        ["section_id", "run_cpsr"],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 381.5],
+                        ["y", 350.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "format_files__entry_left_4",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "format_files__entry_left_4"],
+                        ["label", ""],
+                        ["section_id", "format_files"],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 381.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "run_pcgr__entry_left_5",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "run_pcgr__entry_left_5"],
+                        ["label", ""],
+                        ["section_id", "run_pcgr"],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 731.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "__junction_6",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "__junction_6"],
+                        ["label", ""],
+                        ["section_id", null],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 206.0],
+                        ["y", 350.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "__junction_7",
+                  {
+                    "kind": "Station",
+                    "values": {
+                      "entries": [
+                        ["id", "__junction_7"],
+                        ["label", ""],
+                        ["section_id", null],
+                        ["is_port", true],
+                        ["is_hidden", false],
+                        ["bypasses_station_id", null],
+                        ["marker", null],
+                        ["off_track", false],
+                        ["terminus_labels", []],
+                        ["terminus_icon_types", []],
+                        ["terminus_names", []],
+                        ["terminus_icon_banners", []],
+                        ["x", 341.5],
+                        ["y", 120.0],
+                        ["layer", 0],
+                        ["track", 0.0],
+                        ["rail_top_y", null],
+                        ["rail_bottom_y", null],
+                        ["rail_used_ys", []],
+                        ["interchange_id", null]
+                      ]
+                    }
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "edges",
+            [
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "vcf_in"],
+                    ["target", "tabix"],
+                    ["line_id", "somatic"],
+                    ["source_line", 18]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "vcf_in"],
+                    ["target", "tabix"],
+                    ["line_id", "germline"],
+                    ["source_line", 18]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "tabix"],
+                    ["target", "bcftools_norm"],
+                    ["line_id", "somatic"],
+                    ["source_line", 19]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "tabix"],
+                    ["target", "bcftools_norm"],
+                    ["line_id", "germline"],
+                    ["source_line", 19]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_norm"],
+                    ["target", "bcftools_filter"],
+                    ["line_id", "somatic"],
+                    ["source_line", 20]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_norm"],
+                    ["target", "bcftools_filter"],
+                    ["line_id", "germline"],
+                    ["source_line", 20]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "reformat_vcf"],
+                    ["target", "intersect"],
+                    ["line_id", "somatic"],
+                    ["source_line", 30]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "reformat_vcf"],
+                    ["target", "prepare_pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", 31]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "intersect"],
+                    ["target", "prepare_pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", 32]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "cna_in"],
+                    ["target", "reformat_cna"],
+                    ["line_id", "somatic"],
+                    ["source_line", 33]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "pcgr"],
+                    ["target", "report_pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", 45]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "cpsr"],
+                    ["target", "report_cpsr"],
+                    ["line_id", "germline"],
+                    ["source_line", 52]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "get_pcgr"],
+                    ["target", "get_reference__exit_right_0"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_cpsr__entry_left_3"],
+                    ["target", "cpsr"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "get_vep"],
+                    ["target", "get_reference__exit_right_0"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_filter"],
+                    ["target", "preprocessing__exit_right_1"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_cpsr__entry_left_3"],
+                    ["target", "cpsr"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_filter"],
+                    ["target", "preprocessing__exit_right_1"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "format_files__entry_left_4"],
+                    ["target", "reformat_vcf"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "reformat_cna"],
+                    ["target", "format_files__exit_right_2"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_pcgr__entry_left_5"],
+                    ["target", "pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "prepare_pcgr"],
+                    ["target", "format_files__exit_right_2"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_pcgr__entry_left_5"],
+                    ["target", "pcgr"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "get_reference__exit_right_0"],
+                    ["target", "__junction_6"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_6"],
+                    ["target", "run_cpsr__entry_left_3"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_6"],
+                    ["target", "run_pcgr__entry_left_5"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "preprocessing__exit_right_1"],
+                    ["target", "__junction_7"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "preprocessing__exit_right_1"],
+                    ["target", "__junction_7"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_7"],
+                    ["target", "run_cpsr__entry_left_3"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_7"],
+                    ["target", "format_files__entry_left_4"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              },
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "format_files__exit_right_2"],
+                    ["target", "run_pcgr__entry_left_5"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ]
+          ],
+          [
+            "sections",
+            {
+              "entries": [
+                [
+                  "preprocessing",
+                  {
+                    "kind": "Section",
+                    "values": {
+                      "entries": [
+                        ["id", "preprocessing"],
+                        ["name", "Pre-processing of vcf files"],
+                        ["number", 1],
+                        [
+                          "station_ids",
+                          [
+                            "vcf_in",
+                            "tabix",
+                            "bcftools_norm",
+                            "bcftools_filter",
+                            "preprocessing__exit_right_1"
+                          ]
+                        ],
+                        [
+                          "internal_edges",
+                          [
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "vcf_in"],
+                                  ["target", "tabix"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 18]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "vcf_in"],
+                                  ["target", "tabix"],
+                                  ["line_id", "germline"],
+                                  ["source_line", 18]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "tabix"],
+                                  ["target", "bcftools_norm"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 19]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "tabix"],
+                                  ["target", "bcftools_norm"],
+                                  ["line_id", "germline"],
+                                  ["source_line", 19]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "bcftools_norm"],
+                                  ["target", "bcftools_filter"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 20]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "bcftools_norm"],
+                                  ["target", "bcftools_filter"],
+                                  ["line_id", "germline"],
+                                  ["source_line", 20]
+                                ]
+                              }
+                            }
+                          ]
+                        ],
+                        ["entry_ports", []],
+                        ["exit_ports", ["preprocessing__exit_right_1"]],
+                        ["exit_hints", [["right", ["germline", "somatic"]]]],
+                        ["entry_hints", []],
+                        ["direction", "LR"],
+                        ["bbox_x", 22.0],
+                        ["bbox_y", 70.0],
+                        ["bbox_w", 309.5],
+                        ["bbox_h", 100.0],
+                        ["grid_col", 0],
+                        ["grid_row", 0],
+                        ["grid_row_span", 1],
+                        ["grid_col_span", 1],
+                        ["offset_x", 0.0],
+                        ["offset_y", 0.0],
+                        ["is_implicit", false],
+                        ["label_strike_entry_cols", 0],
+                        ["label_strike_exit_cols", 0],
+                        [
+                          "label_strike_layer_gaps",
+                          {
+                            "entries": []
+                          }
+                        ],
+                        [
+                          "off_track_lead_extra",
+                          {
+                            "entries": []
+                          }
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "format_files",
+                  {
+                    "kind": "Section",
+                    "values": {
+                      "entries": [
+                        ["id", "format_files"],
+                        ["name", "Prepare files for PCGR"],
+                        ["number", 3],
+                        [
+                          "station_ids",
+                          [
+                            "reformat_vcf",
+                            "intersect",
+                            "prepare_pcgr",
+                            "cna_in",
+                            "reformat_cna",
+                            "format_files__exit_right_2",
+                            "format_files__entry_left_4"
+                          ]
+                        ],
+                        [
+                          "internal_edges",
+                          [
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "reformat_vcf"],
+                                  ["target", "intersect"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 30]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "reformat_vcf"],
+                                  ["target", "prepare_pcgr"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 31]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "intersect"],
+                                  ["target", "prepare_pcgr"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 32]
+                                ]
+                              }
+                            },
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "cna_in"],
+                                  ["target", "reformat_cna"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 33]
+                                ]
+                              }
+                            }
+                          ]
+                        ],
+                        ["entry_ports", ["format_files__entry_left_4"]],
+                        ["exit_ports", ["format_files__exit_right_2"]],
+                        ["exit_hints", [["right", ["somatic"]]]],
+                        ["entry_hints", [["left", ["somatic"]]]],
+                        ["direction", "LR"],
+                        ["bbox_x", 381.5],
+                        ["bbox_y", 70.0],
+                        ["bbox_w", 300.0],
+                        ["bbox_h", 180.0],
+                        ["grid_col", 1],
+                        ["grid_row", 0],
+                        ["grid_row_span", 1],
+                        ["grid_col_span", 1],
+                        ["offset_x", 351.5],
+                        ["offset_y", 0.0],
+                        ["is_implicit", false],
+                        ["label_strike_entry_cols", 0],
+                        ["label_strike_exit_cols", 0],
+                        [
+                          "label_strike_layer_gaps",
+                          {
+                            "entries": []
+                          }
+                        ],
+                        [
+                          "off_track_lead_extra",
+                          {
+                            "entries": []
+                          }
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "get_reference",
+                  {
+                    "kind": "Section",
+                    "values": {
+                      "entries": [
+                        ["id", "get_reference"],
+                        ["name", "Reference"],
+                        ["number", 2],
+                        [
+                          "station_ids",
+                          ["get_pcgr", "get_vep", "get_reference__exit_right_0"]
+                        ],
+                        ["internal_edges", []],
+                        ["entry_ports", []],
+                        ["exit_ports", ["get_reference__exit_right_0"]],
+                        ["exit_hints", [["right", ["reference"]]]],
+                        ["entry_hints", []],
+                        ["direction", "LR"],
+                        ["bbox_x", 60.0],
+                        ["bbox_y", 300.0],
+                        ["bbox_w", 136.0],
+                        ["bbox_h", 140.0],
+                        ["grid_col", 0],
+                        ["grid_row", 1],
+                        ["grid_row_span", 1],
+                        ["grid_col_span", 1],
+                        ["offset_x", 0.0],
+                        ["offset_y", 230.0],
+                        ["is_implicit", false],
+                        ["label_strike_entry_cols", 0],
+                        ["label_strike_exit_cols", 0],
+                        [
+                          "label_strike_layer_gaps",
+                          {
+                            "entries": []
+                          }
+                        ],
+                        [
+                          "off_track_lead_extra",
+                          {
+                            "entries": []
+                          }
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "run_pcgr",
+                  {
+                    "kind": "Section",
+                    "values": {
+                      "entries": [
+                        ["id", "run_pcgr"],
+                        ["name", "PCGR"],
+                        ["number", 5],
+                        [
+                          "station_ids",
+                          ["pcgr", "report_pcgr", "run_pcgr__entry_left_5"]
+                        ],
+                        [
+                          "internal_edges",
+                          [
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "pcgr"],
+                                  ["target", "report_pcgr"],
+                                  ["line_id", "somatic"],
+                                  ["source_line", 45]
+                                ]
+                              }
+                            }
+                          ]
+                        ],
+                        ["entry_ports", ["run_pcgr__entry_left_5"]],
+                        ["exit_ports", []],
+                        ["exit_hints", []],
+                        ["entry_hints", [["left", ["reference", "somatic"]]]],
+                        ["direction", "LR"],
+                        ["bbox_x", 731.5],
+                        ["bbox_y", 70.0],
+                        ["bbox_w", 168.0],
+                        ["bbox_h", 100.0],
+                        ["grid_col", 2],
+                        ["grid_row", 0],
+                        ["grid_row_span", 1],
+                        ["grid_col_span", 1],
+                        ["offset_x", 701.5],
+                        ["offset_y", 0.0],
+                        ["is_implicit", false],
+                        ["label_strike_entry_cols", 0],
+                        ["label_strike_exit_cols", 0],
+                        [
+                          "label_strike_layer_gaps",
+                          {
+                            "entries": []
+                          }
+                        ],
+                        [
+                          "off_track_lead_extra",
+                          {
+                            "entries": []
+                          }
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "run_cpsr",
+                  {
+                    "kind": "Section",
+                    "values": {
+                      "entries": [
+                        ["id", "run_cpsr"],
+                        ["name", "CPSR"],
+                        ["number", 4],
+                        [
+                          "station_ids",
+                          ["cpsr", "report_cpsr", "run_cpsr__entry_left_3"]
+                        ],
+                        [
+                          "internal_edges",
+                          [
+                            {
+                              "kind": "Edge",
+                              "values": {
+                                "entries": [
+                                  ["source", "cpsr"],
+                                  ["target", "report_cpsr"],
+                                  ["line_id", "germline"],
+                                  ["source_line", 52]
+                                ]
+                              }
+                            }
+                          ]
+                        ],
+                        ["entry_ports", ["run_cpsr__entry_left_3"]],
+                        ["exit_ports", []],
+                        ["exit_hints", []],
+                        ["entry_hints", [["left", ["germline", "reference"]]]],
+                        ["direction", "LR"],
+                        ["bbox_x", 381.5],
+                        ["bbox_y", 300.0],
+                        ["bbox_w", 168.0],
+                        ["bbox_h", 100.0],
+                        ["grid_col", 1],
+                        ["grid_row", 1],
+                        ["grid_row_span", 1],
+                        ["grid_col_span", 1],
+                        ["offset_x", 351.5],
+                        ["offset_y", 230.0],
+                        ["is_implicit", false],
+                        ["label_strike_entry_cols", 0],
+                        ["label_strike_exit_cols", 0],
+                        [
+                          "label_strike_layer_gaps",
+                          {
+                            "entries": []
+                          }
+                        ],
+                        [
+                          "off_track_lead_extra",
+                          {
+                            "entries": []
+                          }
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "ports",
+            {
+              "entries": [
+                [
+                  "get_reference__exit_right_0",
+                  {
+                    "kind": "Port",
+                    "values": {
+                      "entries": [
+                        ["id", "get_reference__exit_right_0"],
+                        ["section_id", "get_reference"],
+                        ["side", "right"],
+                        ["is_entry", false],
+                        ["x", 196.0],
+                        ["y", 350.0]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "preprocessing__exit_right_1",
+                  {
+                    "kind": "Port",
+                    "values": {
+                      "entries": [
+                        ["id", "preprocessing__exit_right_1"],
+                        ["section_id", "preprocessing"],
+                        ["side", "right"],
+                        ["is_entry", false],
+                        ["x", 331.5],
+                        ["y", 120.0]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "format_files__exit_right_2",
+                  {
+                    "kind": "Port",
+                    "values": {
+                      "entries": [
+                        ["id", "format_files__exit_right_2"],
+                        ["section_id", "format_files"],
+                        ["side", "right"],
+                        ["is_entry", false],
+                        ["x", 681.5],
+                        ["y", 120.0]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "run_cpsr__entry_left_3",
+                  {
+                    "kind": "Port",
+                    "values": {
+                      "entries": [
+                        ["id", "run_cpsr__entry_left_3"],
+                        ["section_id", "run_cpsr"],
+                        ["side", "left"],
+                        ["is_entry", true],
+                        ["x", 381.5],
+                        ["y", 350.0]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "format_files__entry_left_4",
+                  {
+                    "kind": "Port",
+                    "values": {
+                      "entries": [
+                        ["id", "format_files__entry_left_4"],
+                        ["section_id", "format_files"],
+                        ["side", "left"],
+                        ["is_entry", true],
+                        ["x", 381.5],
+                        ["y", 120.0]
+                      ]
+                    }
+                  }
+                ],
+                [
+                  "run_pcgr__entry_left_5",
+                  {
+                    "kind": "Port",
+                    "values": {
+                      "entries": [
+                        ["id", "run_pcgr__entry_left_5"],
+                        ["section_id", "run_pcgr"],
+                        ["side", "left"],
+                        ["is_entry", true],
+                        ["x", 731.5],
+                        ["y", 120.0]
+                      ]
+                    }
+                  }
+                ]
+              ]
+            }
+          ],
+          ["junctions", ["__junction_6", "__junction_7"]],
+          ["groups", []],
+          [
+            "grid_overrides",
+            {
+              "entries": [
+                ["preprocessing", [0, 0, 1, 1]],
+                ["get_reference", [0, 1, 1, 1]],
+                ["format_files", [1, 0, 1, 1]],
+                ["run_cpsr", [1, 1, 1, 1]],
+                ["run_pcgr", [2, 0, 1, 1]]
+              ]
+            }
+          ],
+          ["_explicit_grid", []],
+          [
+            "cell_packs",
+            {
+              "entries": []
+            }
+          ],
+          ["line_order", "definition"],
+          ["diamond_style", "straight"],
+          ["compact_offsets", false],
+          ["center_ports", false],
+          ["x_spacing", null],
+          ["y_spacing", null],
+          ["section_x_gap", null],
+          ["section_y_gap", null],
+          ["track_gap", null],
+          ["width", null],
+          ["height", null],
+          ["animate", false],
+          ["directional", false],
+          ["strict", false],
+          ["permissive", false],
+          ["embed_manifest", true],
+          ["reserve_title_band", true],
+          ["auto_process", false],
+          ["process_scope", ""],
+          ["fold_threshold", null],
+          ["line_spread", "bundle"],
+          [
+            "line_spread_overrides",
+            {
+              "entries": []
+            }
+          ],
+          ["interchanges", []],
+          ["legend_position", "bottom"],
+          ["legend_min_height", 0.0],
+          ["label_angle", null],
+          [
+            "bypass_label_obstacles",
+            {
+              "entries": []
+            }
+          ],
+          ["legend_combos", []],
+          ["legend_anchor", "content"],
+          ["legend_offset", null],
+          ["legend_at", null],
+          ["logo_path", ""],
+          ["logo_path_light", ""],
+          ["logo_path_dark", ""],
+          [
+            "source_dir",
+            "/Users/jonathan.manning/projects/nf-metro-1661-baseline/benchmarks/first-render-2026/cases/nf-core-variantprioritization"
+          ],
+          ["logo_scale", 1.0],
+          ["legend_logo_gap", null],
+          ["font_scale", 1.0],
+          ["stroke_scale", 1.0],
+          ["marker_legend", []],
+          [
+            "section_dag",
+            {
+              "kind": "SectionDAG",
+              "values": {
+                "entries": [
+                  [
+                    "successors",
+                    {
+                      "entries": [
+                        ["get_reference", ["run_cpsr", "run_pcgr"]],
+                        ["preprocessing", ["format_files", "run_cpsr"]],
+                        ["format_files", ["run_pcgr"]]
+                      ]
+                    }
+                  ],
+                  [
+                    "predecessors",
+                    {
+                      "entries": [
+                        ["run_cpsr", ["get_reference", "preprocessing"]],
+                        ["format_files", ["preprocessing"]],
+                        ["run_pcgr", ["format_files", "get_reference"]]
+                      ]
+                    }
+                  ],
+                  [
+                    "edge_lines",
+                    {
+                      "entries": [
+                        [["get_reference", "run_cpsr"], ["reference"]],
+                        [["preprocessing", "run_cpsr"], ["germline"]],
+                        [["preprocessing", "format_files"], ["somatic"]],
+                        [["format_files", "run_pcgr"], ["somatic"]],
+                        [["get_reference", "run_pcgr"], ["reference"]]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            }
+          ],
+          ["_explicit_directions", []],
+          ["_fold_reoriented_sections", []],
+          ["_explicit_entry", []],
+          ["_explicit_exit", []],
+          ["_cross_column_perp_bridges", []],
+          ["_fold_threshold_effective", null],
+          ["_fold_compressed_sections", []],
+          [
+            "_pending_terminus",
+            {
+              "entries": [
+                ["cna_in", [["CNA", "file", "", false]]],
+                ["vcf_in", [["VCF", "file", "", false]]],
+                ["report_pcgr", [["HTML", "file", "", false]]],
+                ["report_cpsr", [["HTML", "file", "", false]]]
+              ]
+            }
+          ],
+          ["_pending_off_track", []],
+          [
+            "_pending_markers",
+            {
+              "entries": []
+            }
+          ],
+          ["_pending_process", []],
+          [
+            "process_mapping",
+            {
+              "entries": []
+            }
+          ],
+          [
+            "_row_y_grid_info",
+            {
+              "entries": [
+                [
+                  0,
+                  {
+                    "entries": [
+                      [
+                        "section_ids",
+                        ["preprocessing", "format_files", "run_pcgr"]
+                      ],
+                      ["slot_count", 2],
+                      ["slot_spacing", 40.0],
+                      ["max_y_pad", 50.0]
+                    ]
+                  }
+                ],
+                [
+                  1,
+                  {
+                    "entries": [
+                      ["section_ids", ["get_reference", "run_cpsr"]],
+                      ["slot_count", 2],
+                      ["slot_spacing", 40.0],
+                      ["max_y_pad", 50.0]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          ["half_grid_station_ids", []],
+          ["symfan_trunk_station_ids", []],
+          ["_consumers_grid_snapped", true],
+          [
+            "_struct_height_below_top",
+            {
+              "entries": [
+                ["preprocessing", 100.0],
+                ["format_files", 180.0],
+                ["get_reference", 140.0],
+                ["run_pcgr", 100.0],
+                ["run_cpsr", 100.0]
+              ]
+            }
+          ],
+          [
+            "_placement_ref_y",
+            {
+              "entries": [
+                ["vcf_in", 120.0],
+                ["tabix", 120.0],
+                ["bcftools_norm", 120.0],
+                ["bcftools_filter", 120.0],
+                ["reformat_vcf", 120.0],
+                ["intersect", 120.0],
+                ["prepare_pcgr", 160.0],
+                ["cna_in", 200.0],
+                ["reformat_cna", 200.0],
+                ["get_pcgr", 350.0],
+                ["get_vep", 390.0],
+                ["pcgr", 120.0],
+                ["report_pcgr", 120.0],
+                ["cpsr", 350.0],
+                ["report_cpsr", 350.0],
+                ["get_reference__exit_right_0", 350.0],
+                ["preprocessing__exit_right_1", 120.0],
+                ["format_files__exit_right_2", 120.0],
+                ["run_cpsr__entry_left_3", 350.0],
+                ["format_files__entry_left_4", 120.0],
+                ["run_pcgr__entry_left_5", 120.0],
+                ["__junction_6", 350.0],
+                ["__junction_7", 120.0]
+              ]
+            }
+          ],
+          [
+            "_placement_ref_bbox_top",
+            {
+              "entries": [
+                ["preprocessing", 70.0],
+                ["format_files", 70.0],
+                ["get_reference", 300.0],
+                ["run_pcgr", 70.0],
+                ["run_cpsr", 300.0]
+              ]
+            }
+          ],
+          ["_phase_snapshots_enabled", false],
+          ["_defer_final_guards", false],
+          ["_after_final_deferred", true],
+          [
+            "_rail_y",
+            {
+              "entries": []
+            }
+          ],
+          ["_base_y_spacing", 40.0],
+          ["_resolved_x_spacing", 60.0],
+          [
+            "_stages_completed",
+            [
+              "1.1",
+              "1.2",
+              "1.3",
+              "1.4",
+              "1.5",
+              "2.1",
+              "3.1",
+              "3.2",
+              "3.3",
+              "3.4",
+              "3.5",
+              "3.6",
+              "4.1",
+              "4.2",
+              "4.3",
+              "4.4",
+              "4.5",
+              "4.6",
+              "4.7",
+              "4.8",
+              "4.9",
+              "4.10",
+              "5.1",
+              "5.2",
+              "5.3",
+              "5.4",
+              "5.5",
+              "6.1",
+              "6.2",
+              "6.4",
+              "6.5",
+              "6.6",
+              "6.10",
+              "6.11",
+              "6.12",
+              "6.13",
+              "6.14",
+              "6.15a",
+              "6.15",
+              "6.16",
+              "6.18",
+              "final"
+            ]
+          ],
+          ["_validate_active", true]
+        ]
+      }
+    },
+    "group_bands": [],
+    "header_placements": {
+      "entries": [
+        [
+          "preprocessing",
+          {
+            "kind": "SectionHeaderPlacement",
+            "values": {
+              "entries": [
+                ["mode", "above"],
+                ["badge_cx", 33.0],
+                ["badge_cy", 55.0],
+                ["label_x", 49.0],
+                ["label_y", 55.0],
+                ["label_rotation", 0.0],
+                ["label_lines", ["Pre-processing of vcf files"]],
+                ["keepout", [22.0, 42.2, 308.2, 70.0]],
+                ["height_capped", false]
+              ]
+            }
+          }
+        ],
+        [
+          "format_files",
+          {
+            "kind": "SectionHeaderPlacement",
+            "values": {
+              "entries": [
+                ["mode", "above"],
+                ["badge_cx", 392.5],
+                ["badge_cy", 55.0],
+                ["label_x", 408.5],
+                ["label_y", 55.0],
+                ["label_rotation", 0.0],
+                ["label_lines", ["Prepare files for PCGR"]],
+                ["keepout", [381.5, 42.2, 619.7, 70.0]],
+                ["height_capped", false]
+              ]
+            }
+          }
+        ],
+        [
+          "get_reference",
+          {
+            "kind": "SectionHeaderPlacement",
+            "values": {
+              "entries": [
+                ["mode", "above"],
+                ["badge_cx", 71.0],
+                ["badge_cy", 285.0],
+                ["label_x", 87.0],
+                ["label_y", 285.0],
+                ["label_rotation", 0.0],
+                ["label_lines", ["Reference"]],
+                ["keepout", [60.0, 272.2, 173.39999999999998, 300.0]],
+                ["height_capped", false]
+              ]
+            }
+          }
+        ],
+        [
+          "run_pcgr",
+          {
+            "kind": "SectionHeaderPlacement",
+            "values": {
+              "entries": [
+                ["mode", "above"],
+                ["badge_cx", 742.5],
+                ["badge_cy", 55.0],
+                ["label_x", 758.5],
+                ["label_y", 55.0],
+                ["label_rotation", 0.0],
+                ["label_lines", ["PCGR"]],
+                ["keepout", [731.5, 42.2, 796.9, 70.0]],
+                ["height_capped", false]
+              ]
+            }
+          }
+        ],
+        [
+          "run_cpsr",
+          {
+            "kind": "SectionHeaderPlacement",
+            "values": {
+              "entries": [
+                ["mode", "above"],
+                ["badge_cx", 392.5],
+                ["badge_cy", 285.0],
+                ["label_x", 408.5],
+                ["label_y", 285.0],
+                ["label_rotation", 0.0],
+                ["label_lines", ["CPSR"]],
+                ["keepout", [381.5, 272.2, 446.9, 300.0]],
+                ["height_capped", false]
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    "labels": [
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "reformat_vcf"],
+            ["text", "Reformat VCF"],
+            ["x", 439.5],
+            ["y", 131.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "pcgr"],
+            ["text", "PCGR"],
+            ["x", 781.5],
+            ["y", 135.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "cpsr"],
+            ["text", "CPSR"],
+            ["x", 431.5],
+            ["y", 369.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "get_pcgr"],
+            ["text", "PCGR DB"],
+            ["x", 128.0],
+            ["y", 344.0],
+            ["above", true],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "get_vep"],
+            ["text", "VEP Cache"],
+            ["x", 128.0],
+            ["y", 401.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "intersect"],
+            ["text", "Intersect VCF"],
+            ["x", 535.5],
+            ["y", 106.0],
+            ["above", true],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "tabix"],
+            ["text", "tabix"],
+            ["x", 140.0],
+            ["y", 106.0],
+            ["above", true],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "reformat_cna"],
+            ["text", "Reformat CNA"],
+            ["x", 535.5],
+            ["y", 211.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "bcftools_norm"],
+            ["text", "bcftools/norm"],
+            ["x", 200.0],
+            ["y", 135.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "prepare_pcgr"],
+            ["text", "Prepare VCF"],
+            ["x", 595.5],
+            ["y", 171.0],
+            ["above", false],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      },
+      {
+        "kind": "LabelPlacement",
+        "values": {
+          "entries": [
+            ["station_id", "bcftools_filter"],
+            ["text", "bcftools/filter"],
+            ["x", 260.0],
+            ["y", 106.0],
+            ["above", true],
+            ["angle", 0.0],
+            ["text_anchor", "middle"],
+            ["dominant_baseline", ""],
+            ["obstacle_bbox", null]
+          ]
+        }
+      }
+    ],
+    "legend_h": 96.0,
+    "legend_logo_size": null,
+    "legend_w": 129.3,
+    "legend_x": 22.0,
+    "legend_y": 495.0,
+    "logo_h": 0.0,
+    "logo_in_legend": false,
+    "logo_w": 0.0,
+    "logo_x": 0.0,
+    "logo_y": 0.0,
+    "manifest": {
+      "entries": [
+        ["version", "1.0"],
+        [
+          "match",
+          {
+            "entries": [
+              ["target", "fqProcessName"],
+              ["type", "regex"],
+              ["flags", "i"]
+            ]
+          }
+        ],
+        ["title", "nf-core/variantprioritization"],
+        ["width", 959],
+        ["height", 615],
+        [
+          "groups",
+          [
+            {
+              "entries": [
+                ["id", "somatic"],
+                ["label", "Somatic"],
+                ["color", "#4CAF50"]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "germline"],
+                ["label", "Germline"],
+                ["color", "#9923A0"]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "reference"],
+                ["label", "Reference"],
+                ["color", "#2196F3"]
+              ]
+            }
+          ]
+        ],
+        [
+          "regions",
+          [
+            {
+              "entries": [
+                ["id", "preprocessing"],
+                ["label", "Pre-processing of vcf files"]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "format_files"],
+                ["label", "Prepare files for PCGR"]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "get_reference"],
+                ["label", "Reference"]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "run_pcgr"],
+                ["label", "PCGR"]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "run_cpsr"],
+                ["label", "CPSR"]
+              ]
+            }
+          ]
+        ],
+        [
+          "nodes",
+          [
+            {
+              "entries": [
+                ["id", "vcf_in"],
+                ["label", "vcf_in"],
+                ["x", 80.0],
+                ["y", 122.0],
+                ["r", 5.0],
+                ["groups", ["germline", "somatic"]],
+                ["patterns", []],
+                ["region", "preprocessing"],
+                ["w", 10.0],
+                ["h", 14.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "tabix"],
+                ["label", "tabix"],
+                ["x", 140.0],
+                ["y", 122.0],
+                ["r", 5.0],
+                ["groups", ["germline", "somatic"]],
+                ["patterns", []],
+                ["region", "preprocessing"],
+                ["w", 10.0],
+                ["h", 14.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "bcftools_norm"],
+                ["label", "bcftools/norm"],
+                ["x", 200.0],
+                ["y", 122.0],
+                ["r", 5.0],
+                ["groups", ["germline", "somatic"]],
+                ["patterns", []],
+                ["region", "preprocessing"],
+                ["w", 10.0],
+                ["h", 14.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "bcftools_filter"],
+                ["label", "bcftools/filter"],
+                ["x", 260.0],
+                ["y", 122.0],
+                ["r", 5.0],
+                ["groups", ["germline", "somatic"]],
+                ["patterns", []],
+                ["region", "preprocessing"],
+                ["w", 10.0],
+                ["h", 14.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "reformat_vcf"],
+                ["label", "Reformat VCF"],
+                ["x", 439.5],
+                ["y", 120.0],
+                ["r", 5.0],
+                ["groups", ["somatic"]],
+                ["patterns", []],
+                ["region", "format_files"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "intersect"],
+                ["label", "Intersect VCF"],
+                ["x", 535.5],
+                ["y", 120.0],
+                ["r", 5.0],
+                ["groups", ["somatic"]],
+                ["patterns", []],
+                ["region", "format_files"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "prepare_pcgr"],
+                ["label", "Prepare VCF"],
+                ["x", 595.5],
+                ["y", 160.0],
+                ["r", 5.0],
+                ["groups", ["somatic"]],
+                ["patterns", []],
+                ["region", "format_files"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "cna_in"],
+                ["label", "cna_in"],
+                ["x", 439.5],
+                ["y", 200.0],
+                ["r", 5.0],
+                ["groups", ["somatic"]],
+                ["patterns", []],
+                ["region", "format_files"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "reformat_cna"],
+                ["label", "Reformat CNA"],
+                ["x", 535.5],
+                ["y", 200.0],
+                ["r", 5.0],
+                ["groups", ["somatic"]],
+                ["patterns", []],
+                ["region", "format_files"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "get_pcgr"],
+                ["label", "PCGR DB"],
+                ["x", 128.0],
+                ["y", 358.0],
+                ["r", 5.0],
+                ["groups", ["reference"]],
+                ["patterns", []],
+                ["region", "get_reference"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "get_vep"],
+                ["label", "VEP Cache"],
+                ["x", 128.0],
+                ["y", 390.0],
+                ["r", 5.0],
+                ["groups", ["reference"]],
+                ["patterns", []],
+                ["region", "get_reference"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "pcgr"],
+                ["label", "PCGR"],
+                ["x", 781.5],
+                ["y", 122.0],
+                ["r", 5.0],
+                ["groups", ["reference", "somatic"]],
+                ["patterns", []],
+                ["region", "run_pcgr"],
+                ["w", 10.0],
+                ["h", 14.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "report_pcgr"],
+                ["label", "report_pcgr"],
+                ["x", 841.5],
+                ["y", 120.0],
+                ["r", 5.0],
+                ["groups", ["somatic"]],
+                ["patterns", []],
+                ["region", "run_pcgr"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "cpsr"],
+                ["label", "CPSR"],
+                ["x", 431.5],
+                ["y", 356.0],
+                ["r", 5.0],
+                ["groups", ["germline", "reference"]],
+                ["patterns", []],
+                ["region", "run_cpsr"],
+                ["w", 10.0],
+                ["h", 14.0],
+                ["rx", 5.0]
+              ]
+            },
+            {
+              "entries": [
+                ["id", "report_cpsr"],
+                ["label", "report_cpsr"],
+                ["x", 491.5],
+                ["y", 354.0],
+                ["r", 5.0],
+                ["groups", ["germline"]],
+                ["patterns", []],
+                ["region", "run_cpsr"],
+                ["w", 10.0],
+                ["h", 10.0],
+                ["rx", 5.0]
+              ]
+            }
+          ]
+        ]
+      ]
+    },
+    "padding": 60.0,
+    "positive_fan_sections": [],
+    "resolved_logo_dark": "",
+    "resolved_logo_light": "",
+    "route_polylines": [
+      [
+        [80.0, 120.0],
+        [140.0, 120.0]
+      ],
+      [
+        [80.0, 124.0],
+        [140.0, 124.0]
+      ],
+      [
+        [140.0, 120.0],
+        [200.0, 120.0]
+      ],
+      [
+        [140.0, 124.0],
+        [200.0, 124.0]
+      ],
+      [
+        [200.0, 120.0],
+        [260.0, 120.0]
+      ],
+      [
+        [200.0, 124.0],
+        [260.0, 124.0]
+      ],
+      [
+        [439.5, 120.0],
+        [535.5, 120.0]
+      ],
+      [
+        [439.5, 120.0],
+        [493.5, 120.0],
+        [523.5, 160.0],
+        [595.5, 160.0]
+      ],
+      [
+        [535.5, 120.0],
+        [555.5, 120.0],
+        [585.5, 160.0],
+        [595.5, 160.0]
+      ],
+      [
+        [439.5, 200.0],
+        [535.5, 200.0]
+      ],
+      [
+        [781.5, 120.0],
+        [841.5, 120.0]
+      ],
+      [
+        [431.5, 354.0],
+        [491.5, 354.0]
+      ],
+      [
+        [128.0, 358.0],
+        [196.0, 358.0]
+      ],
+      [
+        [381.5, 358.0],
+        [431.5, 358.0]
+      ],
+      [
+        [128.0, 390.0],
+        [151.0, 390.0],
+        [181.0, 358.0],
+        [196.0, 358.0]
+      ],
+      [
+        [260.0, 124.0],
+        [331.5, 124.0]
+      ],
+      [
+        [381.5, 354.0],
+        [431.5, 354.0]
+      ],
+      [
+        [260.0, 120.0],
+        [331.5, 120.0]
+      ],
+      [
+        [381.5, 120.0],
+        [439.5, 120.0]
+      ],
+      [
+        [535.5, 200.0],
+        [636.5, 200.0],
+        [666.5, 120.0],
+        [681.5, 120.0]
+      ],
+      [
+        [731.5, 120.0],
+        [781.5, 120.0]
+      ],
+      [
+        [595.5, 160.0],
+        [636.5, 160.0],
+        [666.5, 120.0],
+        [681.5, 120.0]
+      ],
+      [
+        [731.5, 124.0],
+        [781.5, 124.0]
+      ],
+      [
+        [196.0, 358.0],
+        [206.0, 358.0]
+      ],
+      [
+        [206.0, 358.0],
+        [381.5, 358.0]
+      ],
+      [
+        [206.0, 358.0],
+        [288.75, 358.0],
+        [288.75, 465.0],
+        [706.5, 465.0],
+        [706.5, 124.0],
+        [731.5, 124.0]
+      ],
+      [
+        [331.5, 124.0],
+        [341.5, 124.0]
+      ],
+      [
+        [331.5, 120.0],
+        [341.5, 120.0]
+      ],
+      [
+        [341.5, 124.0],
+        [356.5, 124.0],
+        [356.5, 354.0],
+        [381.5, 354.0]
+      ],
+      [
+        [341.5, 120.0],
+        [381.5, 120.0]
+      ],
+      [
+        [681.5, 120.0],
+        [731.5, 120.0]
+      ]
+    ],
+    "routes": [
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "vcf_in"],
+                    ["target", "tabix"],
+                    ["line_id", "somatic"],
+                    ["source_line", 18]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [80.0, 120.0],
+                [140.0, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "vcf_in"],
+                    ["target", "tabix"],
+                    ["line_id", "germline"],
+                    ["source_line", 18]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [80.0, 120.0],
+                [140.0, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "tabix"],
+                    ["target", "bcftools_norm"],
+                    ["line_id", "somatic"],
+                    ["source_line", 19]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [140.0, 120.0],
+                [200.0, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "tabix"],
+                    ["target", "bcftools_norm"],
+                    ["line_id", "germline"],
+                    ["source_line", 19]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [140.0, 120.0],
+                [200.0, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_norm"],
+                    ["target", "bcftools_filter"],
+                    ["line_id", "somatic"],
+                    ["source_line", 20]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [200.0, 120.0],
+                [260.0, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_norm"],
+                    ["target", "bcftools_filter"],
+                    ["line_id", "germline"],
+                    ["source_line", 20]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [200.0, 120.0],
+                [260.0, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "reformat_vcf"],
+                    ["target", "intersect"],
+                    ["line_id", "somatic"],
+                    ["source_line", 30]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [439.5, 120.0],
+                [535.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "reformat_vcf"],
+                    ["target", "prepare_pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", 31]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [439.5, 120.0],
+                [493.5, 120.0],
+                [523.5, 160.0],
+                [595.5, 160.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "intersect"],
+                    ["target", "prepare_pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", 32]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [535.5, 120.0],
+                [555.5, 120.0],
+                [585.5, 160.0],
+                [595.5, 160.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "cna_in"],
+                    ["target", "reformat_cna"],
+                    ["line_id", "somatic"],
+                    ["source_line", 33]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [439.5, 200.0],
+                [535.5, 200.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "pcgr"],
+                    ["target", "report_pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", 45]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [781.5, 120.0],
+                [841.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "cpsr"],
+                    ["target", "report_cpsr"],
+                    ["line_id", "germline"],
+                    ["source_line", 52]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [431.5, 350.0],
+                [491.5, 350.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "get_pcgr"],
+                    ["target", "get_reference__exit_right_0"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [128.0, 350.0],
+                [196.0, 350.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_cpsr__entry_left_3"],
+                    ["target", "cpsr"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [381.5, 350.0],
+                [431.5, 350.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "get_vep"],
+                    ["target", "get_reference__exit_right_0"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [128.0, 390.0],
+                [151.0, 390.0],
+                [181.0, 350.0],
+                [196.0, 350.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_filter"],
+                    ["target", "preprocessing__exit_right_1"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [260.0, 120.0],
+                [331.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_cpsr__entry_left_3"],
+                    ["target", "cpsr"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [381.5, 350.0],
+                [431.5, 350.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "bcftools_filter"],
+                    ["target", "preprocessing__exit_right_1"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [260.0, 120.0],
+                [331.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "format_files__entry_left_4"],
+                    ["target", "reformat_vcf"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [381.5, 120.0],
+                [439.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "reformat_cna"],
+                    ["target", "format_files__exit_right_2"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [535.5, 200.0],
+                [636.5, 200.0],
+                [666.5, 120.0],
+                [681.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_pcgr__entry_left_5"],
+                    ["target", "pcgr"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [731.5, 120.0],
+                [781.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "prepare_pcgr"],
+                    ["target", "format_files__exit_right_2"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [595.5, 160.0],
+                [636.5, 160.0],
+                [666.5, 120.0],
+                [681.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "run_pcgr__entry_left_5"],
+                    ["target", "pcgr"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [731.5, 120.0],
+                [781.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", false],
+            ["curve_radii", null],
+            ["offset_regime", "deferred"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "get_reference__exit_right_0"],
+                    ["target", "__junction_6"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [196.0, 358.0],
+                [206.0, 358.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", null],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_6"],
+                    ["target", "run_cpsr__entry_left_3"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [206.0, 358.0],
+                [381.5, 358.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", null],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_6"],
+                    ["target", "run_pcgr__entry_left_5"],
+                    ["line_id", "reference"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "reference"],
+            [
+              "points",
+              [
+                [206.0, 358.0],
+                [288.75, 358.0],
+                [288.75, 465.0],
+                [706.5, 465.0],
+                [706.5, 124.0],
+                [731.5, 124.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", [10.0, 10.0, 10.0, 10.0]],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            [
+              "gap_slots",
+              [
+                {
+                  "kind": "GapSlot",
+                  "values": {
+                    "entries": [
+                      ["gap_lo_col", 0],
+                      ["gap_hi_col", 1],
+                      ["row", 1],
+                      ["direction", "D"],
+                      ["slot_index", 0],
+                      ["n_slots", 1]
+                    ]
+                  }
+                },
+                {
+                  "kind": "GapSlot",
+                  "values": {
+                    "entries": [
+                      ["gap_lo_col", 1],
+                      ["gap_hi_col", 2],
+                      ["row", 0],
+                      ["direction", "U"],
+                      ["slot_index", 0],
+                      ["n_slots", 1]
+                    ]
+                  }
+                }
+              ]
+            ],
+            [
+              "trunk_slot",
+              {
+                "kind": "TrunkSlot",
+                "values": {
+                  "entries": [["gap_upper_row", null]]
+                }
+              }
+            ]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "preprocessing__exit_right_1"],
+                    ["target", "__junction_7"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [331.5, 124.0],
+                [341.5, 124.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", null],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "preprocessing__exit_right_1"],
+                    ["target", "__junction_7"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [331.5, 120.0],
+                [341.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", null],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_7"],
+                    ["target", "run_cpsr__entry_left_3"],
+                    ["line_id", "germline"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "germline"],
+            [
+              "points",
+              [
+                [341.5, 124.0],
+                [356.5, 124.0],
+                [356.5, 354.0],
+                [381.5, 354.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", [10.0, 10.0]],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            [
+              "gap_slots",
+              [
+                {
+                  "kind": "GapSlot",
+                  "values": {
+                    "entries": [
+                      ["gap_lo_col", 0],
+                      ["gap_hi_col", 1],
+                      ["row", 0],
+                      ["direction", "D"],
+                      ["slot_index", 0],
+                      ["n_slots", 1]
+                    ]
+                  }
+                }
+              ]
+            ],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "__junction_7"],
+                    ["target", "format_files__entry_left_4"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [341.5, 120.0],
+                [381.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", null],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      },
+      {
+        "kind": "RoutedPath",
+        "values": {
+          "entries": [
+            [
+              "edge",
+              {
+                "kind": "Edge",
+                "values": {
+                  "entries": [
+                    ["source", "format_files__exit_right_2"],
+                    ["target", "run_pcgr__entry_left_5"],
+                    ["line_id", "somatic"],
+                    ["source_line", null]
+                  ]
+                }
+              }
+            ],
+            ["line_id", "somatic"],
+            [
+              "points",
+              [
+                [681.5, 120.0],
+                [731.5, 120.0]
+              ]
+            ],
+            ["is_inter_section", true],
+            ["curve_radii", null],
+            ["offset_regime", "baked"],
+            ["normalize_exempt", false],
+            ["gap_slots", []],
+            ["trunk_slot", null]
+          ]
+        }
+      }
+    ],
+    "show_legend": true,
+    "show_logo": false,
+    "station_offsets": {
+      "entries": [
+        [["vcf_in", "germline"], 4.0],
+        [["vcf_in", "somatic"], 0.0],
+        [["tabix", "germline"], 4.0],
+        [["tabix", "somatic"], 0.0],
+        [["bcftools_norm", "germline"], 4.0],
+        [["bcftools_norm", "somatic"], 0.0],
+        [["bcftools_filter", "germline"], 4.0],
+        [["bcftools_filter", "somatic"], 0.0],
+        [["reformat_vcf", "somatic"], 0.0],
+        [["intersect", "somatic"], 0.0],
+        [["prepare_pcgr", "somatic"], 0.0],
+        [["cna_in", "somatic"], 0.0],
+        [["reformat_cna", "somatic"], 0.0],
+        [["get_pcgr", "reference"], 8.0],
+        [["get_vep", "reference"], 0.0],
+        [["pcgr", "reference"], 4.0],
+        [["pcgr", "somatic"], 0.0],
+        [["report_pcgr", "somatic"], 0.0],
+        [["cpsr", "germline"], 4.0],
+        [["cpsr", "reference"], 8.0],
+        [["report_cpsr", "germline"], 4.0],
+        [["get_reference__exit_right_0", "reference"], 8.0],
+        [["preprocessing__exit_right_1", "germline"], 4.0],
+        [["preprocessing__exit_right_1", "somatic"], 0.0],
+        [["format_files__exit_right_2", "somatic"], 0.0],
+        [["run_cpsr__entry_left_3", "germline"], 4.0],
+        [["run_cpsr__entry_left_3", "reference"], 8.0],
+        [["format_files__entry_left_4", "somatic"], 0.0],
+        [["run_pcgr__entry_left_5", "reference"], 4.0],
+        [["run_pcgr__entry_left_5", "somatic"], 0.0],
+        [["__junction_6", "reference"], 8.0],
+        [["__junction_7", "germline"], 4.0],
+        [["__junction_7", "somatic"], 0.0]
+      ]
+    },
+    "svg_height": 615,
+    "svg_width": 959,
+    "theme": {
+      "kind": "Theme",
+      "values": {
+        "entries": [
+          ["name", "nfcore-dark"],
+          ["brand", "nfcore"],
+          ["mode", "dark"],
+          ["background_color", "#2b2b2b"],
+          ["station_fill", "#ffffff"],
+          ["station_stroke", "#333333"],
+          ["station_radius", 5.0],
+          ["station_stroke_width", 1.5],
+          ["line_width", 3.0],
+          ["label_color", "#e0e0e0"],
+          [
+            "label_font_family",
+            "'Helvetica Neue', Helvetica, Arial, sans-serif"
+          ],
+          ["label_font_size", 13.0],
+          ["label_font_weight", "bold"],
+          ["label_halo_width", 3.0],
+          ["label_halo_color", ""],
+          ["title_color", "#ffffff"],
+          ["title_font_size", 24.0],
+          ["section_fill", "#373737"],
+          ["section_stroke", "#595959"],
+          ["section_label_color", "#c8c8c8"],
+          ["section_label_font_size", 16.0],
+          ["legend_background", "rgba(0, 0, 0, 0.3)"],
+          ["legend_text_color", "#e0e0e0"],
+          ["legend_font_size", 14.0],
+          ["animation_ball_radius", 3.0],
+          ["animation_ball_color", "#ffffff"],
+          ["animation_ball_stroke", "#333333"],
+          ["animation_ball_stroke_width", 1.5],
+          ["animation_balls_per_line", 1],
+          ["animation_speed", 80.0],
+          ["directional_marker_size", 4.0],
+          ["directional_marker_spacing", 64.0],
+          ["directional_marker_opacity", 0.75],
+          ["directional_marker_color", ""],
+          ["terminus_width", 28.0],
+          ["terminus_height", 32.0],
+          ["terminus_fold_size", 8.0],
+          ["terminus_fill", ""],
+          ["terminus_stroke", ""],
+          ["terminus_stroke_width", 1.5],
+          ["terminus_corner_radius", 2.0],
+          ["terminus_font_size", 7.5],
+          ["terminus_font_color", ""],
+          ["bridge_glyph", true],
+          ["marker_open_fill", ""],
+          ["marker_stroke", "#f0f0f0"]
+        ]
+      }
+    }
+  },
+  "sections": {
+    "format_files": {
+      "height": null,
+      "width": null,
+      "x": null,
+      "y": null
+    },
+    "get_reference": {
+      "height": null,
+      "width": null,
+      "x": null,
+      "y": null
+    },
+    "preprocessing": {
+      "height": null,
+      "width": null,
+      "x": null,
+      "y": null
+    },
+    "run_cpsr": {
+      "height": null,
+      "width": null,
+      "x": null,
+      "y": null
+    },
+    "run_pcgr": {
+      "height": null,
+      "width": null,
+      "x": null,
+      "y": null
+    }
+  },
+  "stations": {
+    "__junction_6": {
+      "is_port": true,
+      "section": null,
+      "x": 206.0,
+      "y": 350.0
+    },
+    "__junction_7": {
+      "is_port": true,
+      "section": null,
+      "x": 341.5,
+      "y": 120.0
+    },
+    "bcftools_filter": {
+      "is_port": false,
+      "section": "preprocessing",
+      "x": 260.0,
+      "y": 120.0
+    },
+    "bcftools_norm": {
+      "is_port": false,
+      "section": "preprocessing",
+      "x": 200.0,
+      "y": 120.0
+    },
+    "cna_in": {
+      "is_port": false,
+      "section": "format_files",
+      "x": 439.5,
+      "y": 200.0
+    },
+    "cpsr": {
+      "is_port": false,
+      "section": "run_cpsr",
+      "x": 431.5,
+      "y": 350.0
+    },
+    "format_files__entry_left_4": {
+      "is_port": true,
+      "section": "format_files",
+      "x": 381.5,
+      "y": 120.0
+    },
+    "format_files__exit_right_2": {
+      "is_port": true,
+      "section": "format_files",
+      "x": 681.5,
+      "y": 120.0
+    },
+    "get_pcgr": {
+      "is_port": false,
+      "section": "get_reference",
+      "x": 128.0,
+      "y": 350.0
+    },
+    "get_reference__exit_right_0": {
+      "is_port": true,
+      "section": "get_reference",
+      "x": 196.0,
+      "y": 350.0
+    },
+    "get_vep": {
+      "is_port": false,
+      "section": "get_reference",
+      "x": 128.0,
+      "y": 390.0
+    },
+    "intersect": {
+      "is_port": false,
+      "section": "format_files",
+      "x": 535.5,
+      "y": 120.0
+    },
+    "pcgr": {
+      "is_port": false,
+      "section": "run_pcgr",
+      "x": 781.5,
+      "y": 120.0
+    },
+    "prepare_pcgr": {
+      "is_port": false,
+      "section": "format_files",
+      "x": 595.5,
+      "y": 160.0
+    },
+    "preprocessing__exit_right_1": {
+      "is_port": true,
+      "section": "preprocessing",
+      "x": 331.5,
+      "y": 120.0
+    },
+    "reformat_cna": {
+      "is_port": false,
+      "section": "format_files",
+      "x": 535.5,
+      "y": 200.0
+    },
+    "reformat_vcf": {
+      "is_port": false,
+      "section": "format_files",
+      "x": 439.5,
+      "y": 120.0
+    },
+    "report_cpsr": {
+      "is_port": false,
+      "section": "run_cpsr",
+      "x": 491.5,
+      "y": 350.0
+    },
+    "report_pcgr": {
+      "is_port": false,
+      "section": "run_pcgr",
+      "x": 841.5,
+      "y": 120.0
+    },
+    "run_cpsr__entry_left_3": {
+      "is_port": true,
+      "section": "run_cpsr",
+      "x": 381.5,
+      "y": 350.0
+    },
+    "run_pcgr__entry_left_5": {
+      "is_port": true,
+      "section": "run_pcgr",
+      "x": 731.5,
+      "y": 120.0
+    },
+    "tabix": {
+      "is_port": false,
+      "section": "preprocessing",
+      "x": 140.0,
+      "y": 120.0
+    },
+    "vcf_in": {
+      "is_port": false,
+      "section": "preprocessing",
+      "x": 80.0,
+      "y": 120.0
+    }
+  }
+}

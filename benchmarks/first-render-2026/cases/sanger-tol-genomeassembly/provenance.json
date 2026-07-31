@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "sanger-tol/genomeassembly",
+  "original_timestamp": "2026-03-17T10:05:28Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/174",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "643e46e9b61e1212bbcddb5594904a98dcea46452727e5db3bc2af461c2080b0",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [
+    "https://github.com/seqeralabs/nf-metro/issues/174",
+    "https://github.com/seqeralabs/nf-metro/issues/250",
+    "https://github.com/seqeralabs/nf-metro/issues/251"
+  ],
+  "linked_prs": [],
+  "first_engine_commit": null,
+  "notes": "Exact issue #174 source. Cross-check: the first pipeline-repository version at f9785e5a1208a447b471490968e6525c6938ccac is later and adds organellar assembly, so it is not substituted."
+}

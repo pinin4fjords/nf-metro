@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/differentialabundance",
+  "original_timestamp": "2026-05-16T09:02:15Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/30d31e099022f184fd0045cbbf67855d687b2260",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "cfbfa2b81b82682ae18e628b89b38a6184e7c309a83c5009e6df23f4760c3038",
+  "assets": [
+    {
+      "path": "nf-core-differentialabundance_logo_dark.png",
+      "sha256": "d4886b9585818b29531e689f2a50ba13409db45505e10ec689fac9bd713c7068",
+      "source_url_or_ref": "https://github.com/nf-core/differentialabundance/blob/0a300ffa2c7e4244fde07720ca3d2ae3d6c1082b/docs/images/nf-core-differentialabundance_logo_dark.png"
+    }
+  ],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/319"],
+  "first_engine_commit": "30d31e099022f184fd0045cbbf67855d687b2260",
+  "notes": "First source-bearing commit of PR #319, described there as a verbatim upstream copy."
+}

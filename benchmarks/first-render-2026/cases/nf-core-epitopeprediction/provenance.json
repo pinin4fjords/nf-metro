@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/epitopeprediction",
+  "original_timestamp": "2026-02-24T09:43:20+00:00",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/6fe039d7d93bf758998d187b82f0990aabef8d2a",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "6c01e4d62a8df5e718468ffbd07afa6365e258b81f824e267cb6375b7f5cf08d",
+  "assets": [
+    {
+      "path": "docs/images/nf-core-epitopeprediction_logo_dark.png",
+      "sha256": "07d56c20645542440685b68d8f014efed135afdaf3198f85b895b6354e41673f",
+      "source_url_or_ref": "https://github.com/nf-core/epitopeprediction/blob/3cee487ad3c77969fd4491fefc96e4b8e860b0d6/docs/images/nf-core-epitopeprediction_logo_dark.png"
+    }
+  ],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/144"],
+  "first_engine_commit": "6fe039d7d93bf758998d187b82f0990aabef8d2a",
+  "notes": "First source-bearing commit for the pipeline example."
+}

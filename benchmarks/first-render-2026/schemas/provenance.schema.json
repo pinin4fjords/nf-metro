@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seqeralabs.github.io/nf-metro/schemas/first-render-provenance-v1.json",
+  "title": "First-render case provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_pipeline",
+    "original_timestamp",
+    "source_url_or_ref",
+    "retrieval_date",
+    "source_sha256",
+    "assets",
+    "reconstruction_status",
+    "transformations",
+    "linked_issues",
+    "linked_prs",
+    "first_engine_commit",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "canonical_pipeline": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "original_timestamp": { "type": "string", "format": "date-time" },
+    "source_url_or_ref": { "type": "string", "minLength": 1 },
+    "retrieval_date": { "type": "string", "format": "date" },
+    "source_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "source_url_or_ref"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "source_url_or_ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "reconstruction_status": { "enum": ["exact", "derived", "unavailable"] },
+    "transformations": { "type": "array", "items": { "type": "string" } },
+    "linked_issues": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" }
+    },
+    "linked_prs": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" }
+    },
+    "first_engine_commit": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "notes": { "type": "string", "minLength": 1 }
+  }
+}

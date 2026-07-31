@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/taxprofiler",
+  "original_timestamp": "2026-02-20T14:53:32Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/96",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "e073e4ef2ed352405b219f1be7f7f956322c73e6d93f82b6b98e1008521c5e34",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/96"],
+  "linked_prs": [],
+  "first_engine_commit": null,
+  "notes": "Exact fenced source submitted with issue #96."
+}

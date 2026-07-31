@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "sacgf/valor",
+  "original_timestamp": "2026-06-01T02:48:29Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/484",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "bd466163bea109529c75082e8cac3f8b9eeeefcbf2f9df8e3e71fdce6d6c2b86",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/484"],
+  "linked_prs": [],
+  "first_engine_commit": null,
+  "notes": "Exact first fenced source. The later anonymised longread_variant_calling gallery map is grouped as a derivative and is not a census case."
+}

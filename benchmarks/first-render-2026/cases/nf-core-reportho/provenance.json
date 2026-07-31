@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/reportho",
+  "original_timestamp": "2026-07-28T09:35:21Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/1591#issuecomment-5102424483",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "305d24617b5c9799d23d07061c33b33e5c3ae2211bf5bfa94bc921ed7ccd938c",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/1591"],
+  "linked_prs": [],
+  "first_engine_commit": "a9c8cfbc33efc158a7bd705a4f62056b4640dc48",
+  "notes": "Exact source attached as issue comment 5102424483; the issue records engine commit a9c8cfbc."
+}

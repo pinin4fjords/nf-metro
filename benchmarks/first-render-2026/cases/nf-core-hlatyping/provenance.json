@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/hlatyping",
+  "original_timestamp": "2026-02-24T09:43:20+00:00",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/6fe039d7d93bf758998d187b82f0990aabef8d2a",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "5e64688b9c20d52f0a5d7fa73f24848b317fcc5ff6af10653e282c6534656a11",
+  "assets": [
+    {
+      "path": "docs/images/nf-core-hlatyping_logo_dark.png",
+      "sha256": "4564962734a2d7502a7ad3ac091d0052be8069091b6a70a4069c4f4cff70a3a2",
+      "source_url_or_ref": "https://github.com/nf-core/hlatyping/blob/2863a4208c475022b9850936d0330e3aa0c22490/docs/images/nf-core-hlatyping_logo_dark.png"
+    }
+  ],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/144"],
+  "first_engine_commit": "6fe039d7d93bf758998d187b82f0990aabef8d2a",
+  "notes": "First source-bearing commit for the pipeline example."
+}

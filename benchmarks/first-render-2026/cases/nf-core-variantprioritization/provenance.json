@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/variantprioritization",
+  "original_timestamp": "2026-03-09T15:33:50Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/173",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "a9f784b149e4c628e811090059012850a18d6c7b502603d16ba017f74f9d2dc8",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/173"],
+  "linked_prs": [],
+  "first_engine_commit": null,
+  "notes": "Exact issue source predates the committed gallery copy."
+}

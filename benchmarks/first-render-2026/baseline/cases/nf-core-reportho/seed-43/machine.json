@@ -1,0 +1,147 @@
+{
+  "case_id": "nf-core-reportho",
+  "engine_commit": "33d8e6ff50bd1a59307c0356878b2393a441f5ef",
+  "engine_source_sha256": "b8b32f376ce99da4e28accbef4ae8d860ec0b5f92e31a17baa07647415221587",
+  "environment": {
+    "architecture": "arm64",
+    "dependencies": {
+      "click": "8.4.2",
+      "drawsvg": "2.4.1",
+      "lark": "1.3.1",
+      "networkx": "3.6.1",
+      "pillow": "12.3.0"
+    },
+    "fonts": {
+      "Inter-Bold.woff2": "a80d85ae8e8928616c8060f9488a18ce1fb3441d9a37ddf0be3346458eae1e91",
+      "Inter-Regular.woff2": "9d661a08bc10d00ba1f886a8faf966b8a74bd66a6003a87590862cfeef41a1b8"
+    },
+    "locale": "C/C.UTF-8/C/C/C/C",
+    "locale_environment": {
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8",
+      "LC_CTYPE": "C.UTF-8"
+    },
+    "os": "Darwin",
+    "os_release": "25.5.0",
+    "python": "3.11.15",
+    "python_implementation": "CPython"
+  },
+  "hash_seed": 43,
+  "machine_findings": {
+    "bundle_discontinuity": {
+      "count": null,
+      "count_rule": "sum of callable bundle-order and seam findings",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "not_run"
+    },
+    "hanging_route": {
+      "count": null,
+      "count_rule": "one per hanging-route finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "not_run"
+    },
+    "label_strike": {
+      "count": null,
+      "count_rule": "one per rendered label-strike finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "not_run"
+    },
+    "layout_crossings": {
+      "count": null,
+      "count_rule": "one per layout-validator crossing finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "not_run"
+    },
+    "marker_cross": {
+      "count": null,
+      "count_rule": "one per rendered marker-cross finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "not_run"
+    },
+    "offset_collapse": {
+      "count": null,
+      "count_rule": "one per rendered offset-collapse finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "not_run"
+    },
+    "reservation_violation": {
+      "count": null,
+      "count_rule": "one per bypass-section-clearance finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "not_run"
+    },
+    "route_through_section": {
+      "count": null,
+      "count_rule": "one per edge-section-crossing finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "not_run"
+    },
+    "strict_layout_guards": {
+      "count": 1,
+      "count_rule": "one per raised strict layout guard",
+      "details": [
+        "final: foreign fan diagonal strikes horizontal label(s): 'inspector_online' ('OrthoInspector online')"
+      ],
+      "severity": "error",
+      "stage": "layout",
+      "status": "failed"
+    },
+    "strict_routing_guards": {
+      "count": null,
+      "count_rule": "one per raised strict routing guard",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "not_run"
+    }
+  },
+  "render_options": {
+    "mode": null,
+    "theme": null
+  },
+  "render_plan_sha256": null,
+  "schema_version": 1,
+  "settled_geometry_sha256": null,
+  "stages": {
+    "layout": {
+      "exception": {
+        "message": "final: foreign fan diagonal strikes horizontal label(s): 'inspector_online' ('OrthoInspector online')",
+        "type": "nf_metro.layout.phases.guards.PhaseInvariantError"
+      },
+      "status": "failed"
+    },
+    "parse": {
+      "exception": null,
+      "status": "passed"
+    },
+    "render": {
+      "exception": null,
+      "status": "not_run"
+    },
+    "resolution": {
+      "exception": null,
+      "status": "passed"
+    },
+    "routing": {
+      "exception": null,
+      "status": "not_run"
+    }
+  },
+  "svg": null
+}

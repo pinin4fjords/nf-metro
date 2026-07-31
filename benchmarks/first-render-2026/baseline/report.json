@@ -1,0 +1,377 @@
+{
+  "cases": [
+    {
+      "canonical_pipeline": "nf-core/rnaseq",
+      "human": null,
+      "id": "nf-core-rnaseq",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-02-14T21:11:14+00:00",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "ba8e9982d6831d08d203fee308248fe898ef324cafa80c367badaa5d36f7c58e"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/createtaxdb",
+      "human": null,
+      "id": "nf-core-createtaxdb",
+      "machine": {
+        "crash_free": false,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-02-19T14:35:04Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/taxprofiler",
+      "human": null,
+      "id": "nf-core-taxprofiler",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-02-20T14:53:32Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "9401ca3ea4ad579665a9c410fb24bc3b4bf06ff2a370ec591773728dc8be037e"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/epitopeprediction",
+      "human": null,
+      "id": "nf-core-epitopeprediction",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-02-24T09:43:20+00:00",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "244c62dc7d8dce8450d2315bd82859d8a9d802ba36a50bd3d17206dc52d65e5c"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/hlatyping",
+      "human": null,
+      "id": "nf-core-hlatyping",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-02-24T09:43:20+00:00",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "442ca14edb2ac263bbf50532d1fddcdda4212651ca8656a8521bbaf6af2ebfd5"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/variantbenchmarking",
+      "human": null,
+      "id": "nf-core-variantbenchmarking",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-02-24T19:44:10+00:00",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "cbb3406bdecba97e45e4c6e86b84058511e000f4f76d7369fad80bcd5f4d114c"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/phaseimpute",
+      "human": null,
+      "id": "nf-core-phaseimpute",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-02-27T18:39:50Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "94953c450dbcc0f179030a32f5a8c61c19379447ae41f360d0fd2b8959254c65"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/variantprioritization",
+      "human": null,
+      "id": "nf-core-variantprioritization",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-03-09T15:33:50Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "7e0a2791daf26dba27e5fe8f5eae8623dfdf882d61e2bc95f0d5ea3cf0f95bbd"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "sanger-tol/genomeassembly",
+      "human": null,
+      "id": "sanger-tol-genomeassembly",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-03-17T10:05:28Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "82d9ddf48b9bcbdeefff848c767d7a7641e1c10d84f82ed5f2a047ceb5a509a2"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/funcprofiler",
+      "human": null,
+      "id": "nf-core-funcprofiler",
+      "machine": {
+        "crash_free": false,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-04-06T22:32:44Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/differentialabundance",
+      "human": null,
+      "id": "nf-core-differentialabundance",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-05-16T09:02:15Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "d73f930a0c0794b9583b5d168bdb66831f5a4242468c0def82a576b4a553a577"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/sarek",
+      "human": null,
+      "id": "nf-core-sarek",
+      "machine": {
+        "crash_free": false,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-05-20T11:43:23+01:00",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "sacgf/valor",
+      "human": null,
+      "id": "sacgf-valor",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-06-01T02:48:29Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "8cd2bcf79b6ef64577c4280c0c8a664f5eaee28da1ae1b82d69fb014a59ac147"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/seqinspector",
+      "human": null,
+      "id": "nf-core-seqinspector",
+      "machine": {
+        "crash_free": true,
+        "strict_invariants_pass": true
+      },
+      "original_timestamp": "2026-06-30T18:21:45+01:00",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [
+          "f3dbd5dc0c0f41b45974aeeb83175d1aef03cf0c3ff1184a79ad003562fe4fa5"
+        ],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/riboseq",
+      "human": null,
+      "id": "nf-core-riboseq",
+      "machine": {
+        "crash_free": false,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-07-12T12:18:56Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "derived",
+      "seed_comparison": {
+        "distinct_svg_sha256": [],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    },
+    {
+      "canonical_pipeline": "nf-core/reportho",
+      "human": null,
+      "id": "nf-core-reportho",
+      "machine": {
+        "crash_free": false,
+        "strict_invariants_pass": false
+      },
+      "original_timestamp": "2026-07-28T09:35:21Z",
+      "protocol_deviation": false,
+      "reconstruction_status": "exact",
+      "seed_comparison": {
+        "distinct_svg_sha256": [],
+        "geometry_identical": true,
+        "plan_identical": true,
+        "retained_output_seeds": [0],
+        "seeds": [0, 1, 2, 43],
+        "status_identical": true,
+        "svg_identical": true
+      }
+    }
+  ],
+  "excluded_from_primary_denominator": [
+    {
+      "id": "nf-core-riboseq",
+      "reconstruction_status": "derived"
+    }
+  ],
+  "hash_seeds": [0, 1, 2, 43],
+  "population": {
+    "definition": "Every identifiable first nf-metro source for a real named pipeline submitted to the project in the inclusive date window, grouped by canonical pipeline slug.",
+    "end": "2026-07-31",
+    "ordering": "original_timestamp_then_canonical_pipeline",
+    "start": "2026-01-01"
+  },
+  "rates": null,
+  "schema_version": 1
+}

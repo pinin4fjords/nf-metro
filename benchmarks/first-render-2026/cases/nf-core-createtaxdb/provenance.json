@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/createtaxdb",
+  "original_timestamp": "2026-02-19T14:35:04Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/51",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "c8a357d582235dd7c63a3512f346b1482e4aca4356a89de8ab1758f7351e638e",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/51"],
+  "linked_prs": [],
+  "first_engine_commit": null,
+  "notes": "First fenced mmd attempt in issue #51. The more complete second attempt is later in the same issue and is not substituted."
+}

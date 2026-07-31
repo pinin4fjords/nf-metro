@@ -1,0 +1,33 @@
+%%metro title: nf-core/createtaxdb
+%%metro style: dark
+%%metro line: dna | Nucleotide sequences | #004b86
+%%metro line: aa | Amino acid sequences | #d9aa00
+
+graph LR
+    input_fna[.fna]
+    input_faa[.faa]
+    input_taxdmp[taxdmp]
+
+    output_db[db]
+    output_tsv[tsv]
+
+    gunzip[gunzip]
+    cat[cat]
+    seqkit[SeqKit]
+
+    kraken2[Kraken2]
+    bracken[Bracken]
+    centrifuge[centrifuge]
+    ganon[ganon]
+    krakenuniq[KrakenUniq]
+    kmcp[KMCP]
+    metacache[MetaCache]
+    malt[MALT]
+    sourmash_dna[Sourmash (DNA)]
+    sylph[Sylph]
+    kaiju[Kaiju]
+    diamond[DIAMOND]
+    sourmash_aa[Sourmash (AA)]
+
+    input_fna -->|gzip| gunzip
+    input_faa -->|cat| cat

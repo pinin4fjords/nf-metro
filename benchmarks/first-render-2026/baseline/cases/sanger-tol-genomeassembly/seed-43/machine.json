@@ -1,0 +1,152 @@
+{
+  "case_id": "sanger-tol-genomeassembly",
+  "engine_commit": "33d8e6ff50bd1a59307c0356878b2393a441f5ef",
+  "engine_source_sha256": "b8b32f376ce99da4e28accbef4ae8d860ec0b5f92e31a17baa07647415221587",
+  "environment": {
+    "architecture": "arm64",
+    "dependencies": {
+      "click": "8.4.2",
+      "drawsvg": "2.4.1",
+      "lark": "1.3.1",
+      "networkx": "3.6.1",
+      "pillow": "12.3.0"
+    },
+    "fonts": {
+      "Inter-Bold.woff2": "a80d85ae8e8928616c8060f9488a18ce1fb3441d9a37ddf0be3346458eae1e91",
+      "Inter-Regular.woff2": "9d661a08bc10d00ba1f886a8faf966b8a74bd66a6003a87590862cfeef41a1b8"
+    },
+    "locale": "C/C.UTF-8/C/C/C/C",
+    "locale_environment": {
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8",
+      "LC_CTYPE": "C.UTF-8"
+    },
+    "os": "Darwin",
+    "os_release": "25.5.0",
+    "python": "3.11.15",
+    "python_implementation": "CPython"
+  },
+  "hash_seed": 43,
+  "machine_findings": {
+    "bundle_discontinuity": {
+      "count": 0,
+      "count_rule": "sum of callable bundle-order and seam findings",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "hanging_route": {
+      "count": 0,
+      "count_rule": "one per hanging-route finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "label_strike": {
+      "count": 0,
+      "count_rule": "one per rendered label-strike finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "passed"
+    },
+    "layout_crossings": {
+      "count": 6,
+      "count_rule": "one per layout-validator crossing finding",
+      "details": [
+        "route_segment_crossing: Lines 'long_reads' (__junction_8->purging__entry_left_4) and 'assemblies' (__junction_8->__merge_3) cross at (253,124) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'long_reads' (__junction_8->purging__entry_left_4) and 'assemblies' (__junction_8->__merge_4) cross at (253,124) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'long_reads' (__junction_8->purging__entry_left_4) and 'assemblies' (__junction_8->__merge_5) cross at (253,124) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'hic_reads' (__junction_8->scaffolding__entry_left_5) and 'assemblies' (__junction_8->__merge_5) cross at (253,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'hic_reads' (__junction_8->scaffolding__entry_left_5) and 'assemblies' (__junction_9->__merge_5) cross at (455,242) - not at a station, so the crossing is avoidable",
+        "route_segment_crossing: Lines 'hic_reads' (__junction_8->scaffolding__entry_left_5) and 'assemblies' (__junction_10->__merge_5) cross at (767,242) - not at a station, so the crossing is avoidable"
+      ],
+      "severity": "error",
+      "stage": "routing",
+      "status": "failed"
+    },
+    "marker_cross": {
+      "count": 0,
+      "count_rule": "one per rendered marker-cross finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "passed"
+    },
+    "offset_collapse": {
+      "count": 0,
+      "count_rule": "one per rendered offset-collapse finding",
+      "details": [],
+      "severity": "error",
+      "stage": "rendered_artifact",
+      "status": "passed"
+    },
+    "reservation_violation": {
+      "count": 0,
+      "count_rule": "one per bypass-section-clearance finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "route_through_section": {
+      "count": 0,
+      "count_rule": "one per edge-section-crossing finding",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    },
+    "strict_layout_guards": {
+      "count": 0,
+      "count_rule": "one per raised strict layout guard",
+      "details": [],
+      "severity": "error",
+      "stage": "layout",
+      "status": "passed"
+    },
+    "strict_routing_guards": {
+      "count": 0,
+      "count_rule": "one per raised strict routing guard",
+      "details": [],
+      "severity": "error",
+      "stage": "routing",
+      "status": "passed"
+    }
+  },
+  "render_options": {
+    "mode": null,
+    "theme": null
+  },
+  "render_plan_sha256": "fa4a61078af4a9616393a6eb24b75e243a15d2d1317812f8f30f03352b5cffba",
+  "schema_version": 1,
+  "settled_geometry_sha256": "876e326607a55d82b4ae678a92ebe50df17236610da6555f862528f32afee799",
+  "stages": {
+    "layout": {
+      "exception": null,
+      "status": "passed"
+    },
+    "parse": {
+      "exception": null,
+      "status": "passed"
+    },
+    "render": {
+      "exception": null,
+      "status": "passed"
+    },
+    "resolution": {
+      "exception": null,
+      "status": "passed"
+    },
+    "routing": {
+      "exception": null,
+      "status": "passed"
+    }
+  },
+  "svg": {
+    "byte_length": 42817,
+    "sha256": "82d9ddf48b9bcbdeefff848c767d7a7641e1c10d84f82ed5f2a047ceb5a509a2"
+  }
+}

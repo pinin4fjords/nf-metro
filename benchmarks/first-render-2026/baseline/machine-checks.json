@@ -1,0 +1,62 @@
+{
+  "bundle_discontinuity": {
+    "count_rule": "sum of callable bundle-order and seam findings",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "routing"
+  },
+  "hanging_route": {
+    "count_rule": "one per hanging-route finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "routing"
+  },
+  "label_strike": {
+    "count_rule": "one per rendered label-strike finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "rendered_artifact"
+  },
+  "layout_crossings": {
+    "count_rule": "one per layout-validator crossing finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "routing"
+  },
+  "marker_cross": {
+    "count_rule": "one per rendered marker-cross finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "rendered_artifact"
+  },
+  "offset_collapse": {
+    "count_rule": "one per rendered offset-collapse finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "rendered_artifact"
+  },
+  "reservation_violation": {
+    "count_rule": "one per bypass-section-clearance finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "routing"
+  },
+  "route_through_section": {
+    "count_rule": "one per edge-section-crossing finding",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "routing"
+  },
+  "strict_layout_guards": {
+    "count_rule": "one per raised strict layout guard",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "layout"
+  },
+  "strict_routing_guards": {
+    "count_rule": "one per raised strict routing guard",
+    "implementation": "callable",
+    "severity": "error",
+    "stage": "routing"
+  }
+}

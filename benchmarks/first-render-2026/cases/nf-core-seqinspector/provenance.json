@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/seqinspector",
+  "original_timestamp": "2026-06-30T18:21:45+01:00",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/1c6fe1ab17f22423aa838a2843ef6fd27c3a9155",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "f3ee45520a510107331e8721070ff00461c8f9eb9c3ac5b2b3166536dc85c621",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/1223"],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/1214"],
+  "first_engine_commit": "1c6fe1ab17f22423aa838a2843ef6fd27c3a9155",
+  "notes": "First source-bearing commit under the original filename single_row_rowspan_neighbor.mmd; later renamed to seqinspector.mmd."
+}

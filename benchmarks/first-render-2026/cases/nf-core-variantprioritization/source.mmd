@@ -1,0 +1,63 @@
+%%metro title: nf-core/variantprioritization
+%%metro file: cna_in | CNA
+%%metro file: vcf_in | VCF
+%%metro file: report_pcgr | HTML
+%%metro file: report_cpsr | HTML
+%%metro line: somatic | Somatic | #4CAF50
+%%metro line: germline | Germline | #9923A0
+%%metro line: reference | Reference | #2196F3
+
+graph LR
+
+    subgraph preprocessing [Pre-processing of vcf files]
+        vcf_in[ ]
+        tabix[tabix]
+        bcftools_norm[bcftools/norm]
+        bcftools_filter[bcftools/filter]
+
+        vcf_in -->|somatic,germline| tabix
+        tabix -->|somatic,germline| bcftools_norm
+        bcftools_norm -->|somatic,germline| bcftools_filter
+    end
+
+    subgraph format_files [Prepare files for PCGR]
+        reformat_vcf[Reformat VCF]
+        intersect[Intersect VCF]
+        prepare_pcgr[Prepare VCF]
+        cna_in[ ]
+        reformat_cna[Reformat CNA]
+
+        reformat_vcf -->|somatic| intersect
+        reformat_vcf -->|somatic| prepare_pcgr
+        intersect -->|somatic| prepare_pcgr
+        cna_in -->|somatic| reformat_cna
+    end
+
+    subgraph get_reference [Reference]
+        get_pcgr[PCGR DB]
+        get_vep[VEP Cache]
+    end
+
+    subgraph run_pcgr [PCGR]
+        pcgr[PCGR]
+        report_pcgr[ ]
+
+        pcgr -->|somatic| report_pcgr
+    end
+
+    subgraph run_cpsr [CPSR]
+        cpsr[CPSR]
+        report_cpsr[ ]
+
+        cpsr -->|germline| report_cpsr
+    end
+
+    %% Inter-section edges
+    get_pcgr -->|reference| cpsr
+    get_vep -->|reference| cpsr
+    bcftools_filter -->|germline| cpsr
+    bcftools_filter -->|somatic| reformat_vcf
+    reformat_cna -->|somatic| pcgr
+    prepare_pcgr -->|somatic| pcgr
+    get_pcgr -->|reference| pcgr
+    get_vep -->|reference| pcgr

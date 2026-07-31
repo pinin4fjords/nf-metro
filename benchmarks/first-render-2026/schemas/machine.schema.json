@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seqeralabs.github.io/nf-metro/schemas/first-render-machine-v1.json",
+  "title": "First-render machine result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "hash_seed",
+    "engine_commit",
+    "engine_source_sha256",
+    "environment",
+    "render_options",
+    "stages",
+    "machine_findings",
+    "settled_geometry_sha256",
+    "render_plan_sha256",
+    "svg"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "case_id": { "type": "string" },
+    "hash_seed": { "enum": [0, 1, 2, 43] },
+    "engine_commit": { "type": ["string", "null"] },
+    "engine_source_sha256": { "type": ["string", "null"] },
+    "environment": { "type": ["object", "null"] },
+    "render_options": { "type": ["object", "null"] },
+    "stages": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/stage" },
+      "required": ["parse", "resolution", "layout", "routing", "render"]
+    },
+    "machine_findings": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/finding" }
+    },
+    "settled_geometry_sha256": { "type": ["string", "null"] },
+    "render_plan_sha256": { "type": ["string", "null"] },
+    "svg": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256", "byte_length"],
+          "properties": {
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "byte_length": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "exception"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "not_run"] },
+        "exception": { "type": ["object", "null"] }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "severity",
+        "count_rule",
+        "status",
+        "count",
+        "details"
+      ],
+      "properties": {
+        "stage": { "enum": ["layout", "routing", "rendered_artifact"] },
+        "severity": { "enum": ["error", "warning"] },
+        "count_rule": { "type": "string" },
+        "status": { "enum": ["passed", "failed", "unsupported", "not_run"] },
+        "count": { "type": ["integer", "null"], "minimum": 0 },
+        "details": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

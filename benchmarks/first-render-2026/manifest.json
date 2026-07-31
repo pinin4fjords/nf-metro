@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "population": {
+    "start": "2026-01-01",
+    "end": "2026-07-31",
+    "ordering": "original_timestamp_then_canonical_pipeline",
+    "definition": "Every identifiable first nf-metro source for a real named pipeline submitted to the project in the inclusive date window, grouped by canonical pipeline slug."
+  },
+  "hash_seeds": [0, 1, 2, 43],
+  "engine_commit": "33d8e6ff50bd1a59307c0356878b2393a441f5ef",
+  "render_options": {
+    "theme": null,
+    "mode": null
+  },
+  "cases": [
+    {
+      "id": "nf-core-rnaseq",
+      "canonical_pipeline": "nf-core/rnaseq",
+      "original_timestamp": "2026-02-14T21:11:14+00:00",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-rnaseq/source.mmd",
+      "provenance": "cases/nf-core-rnaseq/provenance.json",
+      "human_verdict": "cases/nf-core-rnaseq/human.json"
+    },
+    {
+      "id": "nf-core-createtaxdb",
+      "canonical_pipeline": "nf-core/createtaxdb",
+      "original_timestamp": "2026-02-19T14:35:04Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-createtaxdb/source.mmd",
+      "provenance": "cases/nf-core-createtaxdb/provenance.json",
+      "human_verdict": "cases/nf-core-createtaxdb/human.json"
+    },
+    {
+      "id": "nf-core-taxprofiler",
+      "canonical_pipeline": "nf-core/taxprofiler",
+      "original_timestamp": "2026-02-20T14:53:32Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-taxprofiler/source.mmd",
+      "provenance": "cases/nf-core-taxprofiler/provenance.json",
+      "human_verdict": "cases/nf-core-taxprofiler/human.json"
+    },
+    {
+      "id": "nf-core-epitopeprediction",
+      "canonical_pipeline": "nf-core/epitopeprediction",
+      "original_timestamp": "2026-02-24T09:43:20+00:00",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-epitopeprediction/source.mmd",
+      "provenance": "cases/nf-core-epitopeprediction/provenance.json",
+      "human_verdict": "cases/nf-core-epitopeprediction/human.json"
+    },
+    {
+      "id": "nf-core-hlatyping",
+      "canonical_pipeline": "nf-core/hlatyping",
+      "original_timestamp": "2026-02-24T09:43:20+00:00",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-hlatyping/source.mmd",
+      "provenance": "cases/nf-core-hlatyping/provenance.json",
+      "human_verdict": "cases/nf-core-hlatyping/human.json"
+    },
+    {
+      "id": "nf-core-variantbenchmarking",
+      "canonical_pipeline": "nf-core/variantbenchmarking",
+      "original_timestamp": "2026-02-24T19:44:10+00:00",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-variantbenchmarking/source.mmd",
+      "provenance": "cases/nf-core-variantbenchmarking/provenance.json",
+      "human_verdict": "cases/nf-core-variantbenchmarking/human.json"
+    },
+    {
+      "id": "nf-core-phaseimpute",
+      "canonical_pipeline": "nf-core/phaseimpute",
+      "original_timestamp": "2026-02-27T18:39:50Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-phaseimpute/source.mmd",
+      "provenance": "cases/nf-core-phaseimpute/provenance.json",
+      "human_verdict": "cases/nf-core-phaseimpute/human.json"
+    },
+    {
+      "id": "nf-core-variantprioritization",
+      "canonical_pipeline": "nf-core/variantprioritization",
+      "original_timestamp": "2026-03-09T15:33:50Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-variantprioritization/source.mmd",
+      "provenance": "cases/nf-core-variantprioritization/provenance.json",
+      "human_verdict": "cases/nf-core-variantprioritization/human.json"
+    },
+    {
+      "id": "sanger-tol-genomeassembly",
+      "canonical_pipeline": "sanger-tol/genomeassembly",
+      "original_timestamp": "2026-03-17T10:05:28Z",
+      "reconstruction_status": "exact",
+      "source": "cases/sanger-tol-genomeassembly/source.mmd",
+      "provenance": "cases/sanger-tol-genomeassembly/provenance.json",
+      "human_verdict": "cases/sanger-tol-genomeassembly/human.json"
+    },
+    {
+      "id": "nf-core-funcprofiler",
+      "canonical_pipeline": "nf-core/funcprofiler",
+      "original_timestamp": "2026-04-06T22:32:44Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-funcprofiler/source.mmd",
+      "provenance": "cases/nf-core-funcprofiler/provenance.json",
+      "human_verdict": "cases/nf-core-funcprofiler/human.json"
+    },
+    {
+      "id": "nf-core-differentialabundance",
+      "canonical_pipeline": "nf-core/differentialabundance",
+      "original_timestamp": "2026-05-16T09:02:15Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-differentialabundance/source.mmd",
+      "provenance": "cases/nf-core-differentialabundance/provenance.json",
+      "human_verdict": "cases/nf-core-differentialabundance/human.json"
+    },
+    {
+      "id": "nf-core-sarek",
+      "canonical_pipeline": "nf-core/sarek",
+      "original_timestamp": "2026-05-20T11:43:23+01:00",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-sarek/source.mmd",
+      "provenance": "cases/nf-core-sarek/provenance.json",
+      "human_verdict": "cases/nf-core-sarek/human.json"
+    },
+    {
+      "id": "sacgf-valor",
+      "canonical_pipeline": "sacgf/valor",
+      "original_timestamp": "2026-06-01T02:48:29Z",
+      "reconstruction_status": "exact",
+      "source": "cases/sacgf-valor/source.mmd",
+      "provenance": "cases/sacgf-valor/provenance.json",
+      "human_verdict": "cases/sacgf-valor/human.json"
+    },
+    {
+      "id": "nf-core-seqinspector",
+      "canonical_pipeline": "nf-core/seqinspector",
+      "original_timestamp": "2026-06-30T18:21:45+01:00",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-seqinspector/source.mmd",
+      "provenance": "cases/nf-core-seqinspector/provenance.json",
+      "human_verdict": "cases/nf-core-seqinspector/human.json"
+    },
+    {
+      "id": "nf-core-riboseq",
+      "canonical_pipeline": "nf-core/riboseq",
+      "original_timestamp": "2026-07-12T12:18:56Z",
+      "reconstruction_status": "derived",
+      "source": "cases/nf-core-riboseq/source.mmd",
+      "provenance": "cases/nf-core-riboseq/provenance.json",
+      "human_verdict": "cases/nf-core-riboseq/human.json"
+    },
+    {
+      "id": "nf-core-reportho",
+      "canonical_pipeline": "nf-core/reportho",
+      "original_timestamp": "2026-07-28T09:35:21Z",
+      "reconstruction_status": "exact",
+      "source": "cases/nf-core-reportho/source.mmd",
+      "provenance": "cases/nf-core-reportho/provenance.json",
+      "human_verdict": "cases/nf-core-reportho/human.json"
+    }
+  ]
+}

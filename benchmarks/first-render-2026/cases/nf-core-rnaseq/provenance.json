@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/rnaseq",
+  "original_timestamp": "2026-02-14T21:11:14+00:00",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/commit/32d602a53cdffaa8b9b9efdca9bb3c8da5a1146b",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "16b34b7b2b770177b9d36290fb41a15b5595903dd190e67b27912a12136c3c7d",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": [],
+  "linked_prs": [],
+  "first_engine_commit": "32d602a53cdffaa8b9b9efdca9bb3c8da5a1146b",
+  "notes": "First source in the nf-metro initial commit."
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_pipeline": "nf-core/funcprofiler",
+  "original_timestamp": "2026-04-06T22:32:44Z",
+  "source_url_or_ref": "https://github.com/seqeralabs/nf-metro/issues/248",
+  "retrieval_date": "2026-07-31",
+  "source_sha256": "a1e5e226eef0eadffc9404744f584aa97f18cb2df47bd58aaa5c8d0808121dc4",
+  "assets": [],
+  "reconstruction_status": "exact",
+  "transformations": [],
+  "linked_issues": ["https://github.com/seqeralabs/nf-metro/issues/248"],
+  "linked_prs": ["https://github.com/seqeralabs/nf-metro/pull/239"],
+  "first_engine_commit": null,
+  "notes": "Exact upstream source frozen in issue #248; later gallery variants are grouped under this slug."
+}
