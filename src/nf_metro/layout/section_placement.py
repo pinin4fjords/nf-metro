@@ -951,7 +951,7 @@ def _bundles_in_gap(
     col_assign: dict[str, int],
     col_a: int,
     col_b: int,
-    pack_for_section: dict[str, tuple[str, ...]],
+    pack_for_section: dict[str, tuple[str, ...]] | None = None,
 ) -> list[int]:
     """Return ``[n_lines, ...]`` for every distinct bundle traversing the gap.
 
@@ -1016,6 +1016,13 @@ def _bundles_in_gap(
     # then split into opposing target-side channels. Endpoint-only inference
     # sees both edges as one target-side line, but routing must reserve both
     # physical columns before it can materialize that split.
+    if pack_for_section is None:
+        pack_for_section = {
+            section_id: tuple(members)
+            for members in graph.cell_packs.values()
+            if len(members) > 1
+            for section_id in members
+        }
     packed_targets: dict[tuple[str, str, tuple[str, ...], int], set[str]] = defaultdict(
         set
     )
