@@ -112,10 +112,39 @@ def test_inferred_when_no_directives() -> None:
     for sec in info["sections"]:
         assert sec["direction_inferred"] is True
         assert sec["grid_inferred"] is True
-        assert sec["entry_sides_inferred"] is True
-        assert sec["exit_sides_inferred"] is True
+        assert sec["entry_sides_inferred"] is (
+            True if sec["entry_side_provenance"] else None
+        )
+        assert sec["exit_sides_inferred"] is (
+            True if sec["exit_side_provenance"] else None
+        )
     for port in info["ports"]:
         assert port["side_inferred"] is True
+
+
+def test_sections_without_connector_endpoints_report_no_side_ownership() -> None:
+    graph = parse_metro_mermaid(
+        """\
+%%metro line: a | A | #ff0000
+graph LR
+    subgraph source [Source]
+        %%metro entry: top | a
+        s1[S1]
+    end
+    subgraph target [Target]
+        t1[T1]
+    end
+    s1 -->|a| t1
+"""
+    )
+    sections = {item["id"]: item for item in build_info(graph)["sections"]}
+
+    assert sections["source"]["entry_side_provenance"] == []
+    assert sections["source"]["entry_sides_inferred"] is None
+    assert sections["source"]["exit_sides_inferred"] is True
+    assert sections["target"]["entry_sides_inferred"] is True
+    assert sections["target"]["exit_side_provenance"] == []
+    assert sections["target"]["exit_sides_inferred"] is None
 
 
 def test_explicit_directives_reported_as_explicit() -> None:
@@ -135,18 +164,54 @@ def test_explicit_directives_reported_as_explicit() -> None:
     # A section without a direction: directive keeps the inferred default.
     assert sections["preprocessing"]["direction_inferred"] is True
 
-    # preprocessing writes an explicit exit: but no entry: directive.
-    assert sections["preprocessing"]["exit_sides_inferred"] is False
-    assert sections["preprocessing"]["entry_sides_inferred"] is True
+    # preprocessing has authored right and bottom exit hints. Resolution keeps
+    # the right hints and selects right for the bottom-hinted connectors.
+    assert sections["preprocessing"]["exit_sides_inferred"] is None
+    assert sections["preprocessing"]["entry_sides_inferred"] is None
 
 
 def test_port_side_inferred_tracks_section_directive() -> None:
-    """A port's side_inferred mirrors whether its section authored that side."""
+    """A port's summary is derived from its connector endpoint records."""
     graph = _graph("rnaseq_sections.mmd")
     info = build_info(graph)
     for port in info["ports"]:
-        explicit = graph._explicit_entry if port["is_entry"] else graph._explicit_exit
-        assert port["side_inferred"] is (port["section_id"] not in explicit)
+        origins = {item["provenance"]["origin"] for item in port["side_provenance"]}
+        expected = None if len(origins) > 1 else origins != {"authored"}
+        assert port["side_inferred"] is expected
+
+
+def test_partially_hinted_port_reports_connector_specific_provenance() -> None:
+    graph = parse_metro_mermaid(
+        """\
+%%metro line: a | A | #ff0000
+%%metro line: b | B | #0000ff
+%%metro grid: source | 0,0
+%%metro grid: target | 1,0
+graph LR
+    subgraph source [Source]
+        s1[S1]
+    end
+    subgraph target [Target]
+        %%metro entry: top | a
+        t1[T1]
+    end
+    s1 -->|a,b| t1
+"""
+    )
+    target = next(
+        section
+        for section in build_info(graph)["sections"]
+        if section["id"] == "target"
+    )
+    by_line = {
+        record["line_id"]: record["provenance"]
+        for record in target["entry_side_provenance"]
+    }
+
+    assert target["entry_sides_inferred"] is None
+    assert by_line["a"]["state"] == "authored"
+    assert by_line["b"]["state"] == "inferred"
+    assert by_line["b"]["reason"] == "shared-connector-entry-side"
 
 
 def test_warnings_passed_through() -> None:

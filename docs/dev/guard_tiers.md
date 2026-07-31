@@ -213,7 +213,7 @@ pass.
 | --------------------------------------------- | ---- | --------------------------------------------------------------------------- |
 | `_guard_stations_within_bbox`                 | A    | Always-on postcondition: every station centre lies within its section bbox. |
 | `_guard_no_negative_grid_columns`             | A    | No section sits at a negative grid column.                                  |
-| `_guard_explicit_grid_directions`             | A    | Explicit-grid sections keep the LR default unless they declare a direction. |
+| `_guard_explicit_grid_directions`             | A    | Explicit-grid sections retain direction unless resolution reverses it.      |
 | `_guard_no_mixed_entry_directions`            | A    | A section's incoming lines approach from a single side.                     |
 | `_guard_independent_components_disjoint`      | A    | Independently-stacked components do not overlap.                            |
 | `_guard_no_same_row_backward_feed`            | A    | A same-row inter-section edge does not run against source flow.             |

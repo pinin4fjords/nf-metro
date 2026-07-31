@@ -60,7 +60,7 @@ def _snap_inter_section_port_pairs(graph: MetroGraph) -> None:
     branch below runs unconditionally because it only moves the entry
     port (not the exit), preserving the auto-layout fan-in convergence.
     """
-    explicit_grid = bool(graph._explicit_grid)
+    explicit_grid = graph.layout_provenance.has_authored_grids()
     junction_ids = graph.junction_ids
 
     for port_id, port in graph.ports.items():
@@ -199,7 +199,7 @@ def _fan_free_content_upward(
     Scoped to pipelines using explicit ``%%metro grid:`` directives so
     the auto-layout path is unaffected.
     """
-    if not graph._explicit_grid:
+    if not graph.layout_provenance.has_authored_grids():
         return
     for section in graph.sections.values():
         if section.bbox_h <= 0 or section.direction not in ("LR", "RL"):
@@ -335,7 +335,7 @@ def _fan_source_inputs_upward(graph: MetroGraph, y_spacing: float) -> None:
     path is unaffected.  U-turn risk is nil because sources have no
     upstream feeders by definition.
     """
-    if not graph._explicit_grid:
+    if not graph.layout_provenance.has_authored_grids():
         return
 
     for section in graph.sections.values():
@@ -502,7 +502,7 @@ def _balance_section_content_around_trunk(
     safety prevents lifts that would force the line to climb past the
     trunk and double back.
     """
-    if not graph._explicit_grid:
+    if not graph.layout_provenance.has_authored_grids():
         return
     if not graph.center_ports:
         return

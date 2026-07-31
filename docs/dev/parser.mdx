@@ -136,6 +136,13 @@ Three steps:
    closes it, and the nodes/edges/directives in between are attached to
    it.
 
+Before auto-layout or resolver rewrites begin, the parser freezes the accepted
+layout input in `graph.layout_provenance.authored`. This snapshot contains the
+authored grid cells, section directions, entry and exit hints, connector-side
+choices, and both possible fold-threshold inputs. It is immutable, so later
+inference cannot make an authored value look inferred or make an inferred value
+look authored.
+
 Because the appliers receive structured fields, the driver stays a thin
 dispatch: a `_Node` registers a station, an `_Edge` registers one edge
 per line id (declaring any inline-shaped endpoints), a `_Directive` is
@@ -354,7 +361,33 @@ insertion updates the affected paths when it splits an exit leg.
 routing run. They identify the authored fan, merge, and endpoint group behind
 each resolver-created port or junction. They are excluded from `RenderPlan`
 because that plan is created only after geometry has settled and needs no parser
-provenance to render SVG, HTML, or a manifest.
+provenance to render SVG, HTML, or a manifest. `LayoutProvenance` is excluded
+for the same reason.
+
+### Layout decision provenance
+
+`LayoutProvenance` keeps two views of layout intent:
+
+- `authored` is the frozen pre-inference snapshot described above.
+- `grids`, `directions`, `connector_sides`, and `fold_threshold_decision`
+  describe the effective values the engine uses.
+
+Each effective decision answers three separate questions: who selected the
+value, whether another inference pass may replace it, and why it was selected.
+The compact states shown by `nf-metro info --verbose` and `nf-metro explain`
+are `authored`, `inferred`, and `inferred-then-pinned`. A value can therefore be
+engine-selected and locked without being misreported as authored.
+
+Grid and direction decisions are keyed by section id. Port-side decisions are
+keyed by the semantic `ConnectorId` plus `entry` or `exit`, so two lines sharing
+one visible port can retain different histories. If resolution changes an
+authored side, the effective decision records the new side and retains the
+original authored options.
+
+The fold threshold follows caller, directive, then default precedence. The
+snapshot retains the caller and directive values separately, while the
+effective decision records the selected source. Rendering reads this typed
+decision when it reports an unsafe fold threshold.
 
 ## Adding things
 

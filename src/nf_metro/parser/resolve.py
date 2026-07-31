@@ -25,6 +25,14 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.provenance import (
+    ConnectorEndpointKey,
+    ConnectorEndpointRole,
+    DecisionOrigin,
+    DecisionReason,
+    EndpointSideSelection,
+    EndpointSideTransition,
+)
 from nf_metro.parser.route_topology import (
     AuthoredEdgeKey,
     AuthoredEdgeLineage,
@@ -668,9 +676,17 @@ class ResolvedConnectorEndpoint:
     edge: Edge
     source_section: str
     target_section: str
-    exit_side: PortSide
-    entry_side: PortSide
+    exit_selection: EndpointSideSelection
+    entry_selection: EndpointSideSelection
     connector_ids: tuple[ConnectorId, ...]
+
+    @property
+    def exit_side(self) -> PortSide:
+        return self.exit_selection.side
+
+    @property
+    def entry_side(self) -> PortSide:
+        return self.entry_selection.side
 
 
 @dataclass(slots=True)
@@ -687,12 +703,22 @@ def resolve_section_endpoints(
 ) -> SectionEndpointResolution:
     """Resolve inter-section endpoint sides once, before creating synthetic ports."""
     internal_edges, inter_section_edges = _classify_edges(graph)
-    _reside_folded_flow_ports_to_grid(graph, inter_section_edges)
-    _reanchor_flow_axis_ports(graph, inter_section_edges)
-    entry_side_for_line = _build_entry_side_mapping(graph, inter_section_edges)
+    transitions = [
+        *_reside_folded_flow_ports_to_grid(graph, inter_section_edges),
+        *_reanchor_flow_axis_ports(graph, inter_section_edges),
+    ]
+    provenance = _build_endpoint_provenance_context(graph, transitions)
+    entry_side_for_line = _build_entry_side_mapping(
+        graph, inter_section_edges, provenance
+    )
     exit_sides = _build_exit_side_mapping(graph)
     connectors = _group_inter_section_edges(
-        graph, inter_section_edges, entry_side_for_line, exit_sides, lineage
+        graph,
+        inter_section_edges,
+        entry_side_for_line,
+        exit_sides,
+        lineage,
+        provenance,
     )
     return SectionEndpointResolution(
         internal_edges=internal_edges,
@@ -850,7 +876,7 @@ def _expected_flow_side(cols: set[int], col: int) -> PortSide | None:
 
 def _reside_folded_flow_ports_to_grid(
     graph: MetroGraph, inter_section_edges: list[Edge]
-) -> None:
+) -> tuple[EndpointSideTransition, ...]:
     """Turn a fold-relocated section's flow-axis port toward its connecting sections.
 
     A lowered fold threshold relocates sections onto a return row, which can
@@ -865,7 +891,9 @@ def _reside_folded_flow_ports_to_grid(
     """
     relocated = graph._fold_compressed_sections
     if not relocated:
-        return
+        return ()
+
+    transitions: list[EndpointSideTransition] = []
 
     exit_cols: dict[tuple[str, str], set[int]] = defaultdict(set)
     entry_cols: dict[tuple[str, str], set[int]] = defaultdict(set)
@@ -894,6 +922,20 @@ def _reside_folded_flow_ports_to_grid(
                 if target is None or side == target:
                     continue
                 hints[idx] = (target, lines)
+                transitions.append(
+                    EndpointSideTransition(
+                        section_id=sec_id,
+                        role=(
+                            ConnectorEndpointRole.ENTRY
+                            if is_entry
+                            else ConnectorEndpointRole.EXIT
+                        ),
+                        line_ids=tuple(lines),
+                        previous=side,
+                        effective=target,
+                        reason=DecisionReason.FOLD_RELOCATED_SIDE,
+                    )
+                )
                 warnings.warn(
                     f"Section '{sec_id}': {'entry' if is_entry else 'exit'} port "
                     f"declared on {side.value} but the fold placed its connecting "
@@ -902,11 +944,12 @@ def _reside_folded_flow_ports_to_grid(
                     f"section.",
                     stacklevel=2,
                 )
+    return tuple(transitions)
 
 
 def _reanchor_flow_axis_ports(
     graph: MetroGraph, inter_section_edges: list[Edge]
-) -> None:
+) -> tuple[EndpointSideTransition, ...]:
     """Keep a flow-axis entry/exit port on the same end as its consumer/producer.
 
     A LEFT/RIGHT (LR/RL) or TOP/BOTTOM (TB) port lies on the section's flow
@@ -920,6 +963,7 @@ def _reanchor_flow_axis_ports(
     the offending port moved to its connecting station's own edge.  Ports that
     run with the flow, and cross-axis ports, are left alone.
     """
+    transitions: list[EndpointSideTransition] = []
     consumers: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     producers: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     # The flow-axis side each endpoint's connecting section sits on, so a port's
@@ -1005,7 +1049,7 @@ def _reanchor_flow_axis_ports(
         # block re-orientation.
         if (
             section.direction in _HORIZONTAL_FLOW_REVERSAL
-            and sec_id not in graph._explicit_directions
+            and not graph.layout_provenance.direction_is_locked(sec_id)
             and not with_flow
         ):
             new_dir = _HORIZONTAL_FLOW_REVERSAL[section.direction]
@@ -1016,12 +1060,30 @@ def _reanchor_flow_axis_ports(
                 stacklevel=2,
             )
             section.direction = new_dir
-            graph._explicit_directions.add(sec_id)
-            graph._fold_reoriented_sections.add(sec_id)
+            graph.layout_provenance.record_inferred_direction(
+                sec_id,
+                new_dir,
+                DecisionReason.FLOW_REORIENTED_DIRECTION,
+                locked=True,
+            )
         else:
             for hints, idx, target in folds:
                 side, lines = hints[idx]
                 hints[idx] = (target, lines)
+                transitions.append(
+                    EndpointSideTransition(
+                        section_id=sec_id,
+                        role=(
+                            ConnectorEndpointRole.ENTRY
+                            if hints is section.entry_hints
+                            else ConnectorEndpointRole.EXIT
+                        ),
+                        line_ids=tuple(lines),
+                        previous=side,
+                        effective=target,
+                        reason=DecisionReason.FLOW_REANCHORED_SIDE,
+                    )
+                )
                 warnings.warn(
                     f"Section '{sec_id}': port declared on {side.value} but its "
                     f"connecting station sits at the {target.value} end; "
@@ -1029,6 +1091,7 @@ def _reanchor_flow_axis_ports(
                     f"back through the section's other stations.",
                     stacklevel=2,
                 )
+    return tuple(transitions)
 
 
 def _assign_section_numbers(graph: MetroGraph) -> None:
@@ -1124,9 +1187,94 @@ def _dominant_entry_side(graph: MetroGraph, sec_id: str) -> PortSide | None:
     return _priority_side({s for s, count in votes.items() if count == best})
 
 
+_LineEndpointKey = tuple[str, ConnectorEndpointRole, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _EndpointProvenanceContext:
+    """Resolver-local indexes for classifying endpoint decisions."""
+
+    authored_line_sides: dict[_LineEndpointKey, tuple[PortSide, ...]]
+    authored_endpoint_values: dict[ConnectorEndpointKey, tuple[PortSide, ...]]
+    transition_reasons: dict[_LineEndpointKey, DecisionReason]
+
+
+def _build_endpoint_provenance_context(
+    graph: MetroGraph,
+    transitions: tuple[EndpointSideTransition, ...] | list[EndpointSideTransition],
+) -> _EndpointProvenanceContext:
+    authored = graph.layout_provenance.authored
+    authored_line_sides = authored.port_hint_index() if authored is not None else {}
+    authored_endpoint_values = (
+        authored.endpoint_values_index() if authored is not None else {}
+    )
+    transition_reasons: dict[_LineEndpointKey, DecisionReason] = {}
+    for transition in transitions:
+        for line_id in transition.line_ids:
+            transition_reasons[(transition.section_id, transition.role, line_id)] = (
+                transition.reason
+            )
+    return _EndpointProvenanceContext(
+        authored_line_sides,
+        authored_endpoint_values,
+        transition_reasons,
+    )
+
+
+def _endpoint_selection(
+    provenance: _EndpointProvenanceContext,
+    section_id: str,
+    role: ConnectorEndpointRole,
+    line_id: str,
+    side: PortSide,
+    *,
+    shared_connector: bool = False,
+) -> EndpointSideSelection:
+    """Classify a resolved side without inferring ownership from hint presence."""
+    key = (section_id, role, line_id)
+    transition = provenance.transition_reasons.get(key)
+    if transition is not None:
+        return EndpointSideSelection(side, DecisionOrigin.INFERRED, True, transition)
+
+    authored = provenance.authored_line_sides.get(key, ())
+    if authored and all(value is side for value in authored):
+        return EndpointSideSelection(
+            side,
+            DecisionOrigin.AUTHORED,
+            True,
+            DecisionReason.AUTHOR_DIRECTIVE,
+        )
+    if authored:
+        return EndpointSideSelection(
+            side,
+            DecisionOrigin.INFERRED,
+            False,
+            DecisionReason.RESOLUTION_SIDE_SELECTION,
+        )
+    if shared_connector:
+        return EndpointSideSelection(
+            side,
+            DecisionOrigin.INFERRED,
+            False,
+            DecisionReason.SHARED_CONNECTOR_ENTRY_SIDE,
+        )
+    return EndpointSideSelection(
+        side,
+        DecisionOrigin.INFERRED,
+        False,
+        (
+            DecisionReason.AUTO_ENTRY_SIDE
+            if role is ConnectorEndpointRole.ENTRY
+            else DecisionReason.AUTO_EXIT_SIDE
+        ),
+    )
+
+
 def _build_entry_side_mapping(
-    graph: MetroGraph, inter_section_edges: list[Edge]
-) -> dict[tuple[str, str], PortSide]:
+    graph: MetroGraph,
+    inter_section_edges: list[Edge],
+    provenance: _EndpointProvenanceContext | None = None,
+) -> dict[tuple[str, str], EndpointSideSelection]:
     """Build a per-line entry side lookup from hints and feed geometry.
 
     A line resolves to one entry side:
@@ -1147,6 +1295,8 @@ def _build_entry_side_mapping(
     downstream by ``_guard_no_mixed_entry_directions``.  Returns dict mapping
     (section_id, line_id) -> PortSide.
     """
+    if provenance is None:
+        provenance = _build_endpoint_provenance_context(graph, ())
     dag = graph.section_dag
     connectors_by_line: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
     for edge in inter_section_edges:
@@ -1154,7 +1304,7 @@ def _build_entry_side_mapping(
         if tgt_sec is not None:
             connectors_by_line[(tgt_sec, edge.line_id)].add((edge.source, edge.target))
 
-    entry_side_for_line: dict[tuple[str, str], PortSide] = {}
+    entry_side_for_line: dict[tuple[str, str], EndpointSideSelection] = {}
     for sec_id, section in graph.sections.items():
         incoming: set[str] = set()
         if dag is not None:
@@ -1175,7 +1325,7 @@ def _build_entry_side_mapping(
             hinted_connectors.update(connectors_by_line.get((sec_id, lid), set()))
 
         for lid in incoming:
-            shares_hinted_connector = hinted_side is not None and (
+            shares_hinted_connector = hinted_side is not None and bool(
                 connectors_by_line.get((sec_id, lid), set()) & hinted_connectors
             )
             side = (
@@ -1184,7 +1334,15 @@ def _build_entry_side_mapping(
                 else dominant
             )
             if side is not None:
-                entry_side_for_line[(sec_id, lid)] = side
+                entry_side_for_line[(sec_id, lid)] = _endpoint_selection(
+                    provenance,
+                    sec_id,
+                    ConnectorEndpointRole.ENTRY,
+                    lid,
+                    side,
+                    shared_connector=shares_hinted_connector
+                    and lid not in hinted_lines,
+                )
     return entry_side_for_line
 
 
@@ -1248,8 +1406,9 @@ def _exit_side_for_edge(
     src_sec: str,
     tgt_sec: str,
     exit_sides: dict[tuple[str, str], set[PortSide]],
-    entry_side_for_line: dict[tuple[str, str], PortSide],
-) -> PortSide:
+    entry_side_for_line: dict[tuple[str, str], EndpointSideSelection],
+    provenance: _EndpointProvenanceContext,
+) -> EndpointSideSelection:
     """Choose the exit side an inter-section edge leaves its source by.
 
     A perpendicular (TOP/BOTTOM) exit forms a clean vertical drop only when it
@@ -1264,9 +1423,16 @@ def _exit_side_for_edge(
 
     sides = exit_sides.get((src_sec, edge.line_id))
     if not sides:
-        return PortSide.RIGHT
+        return _endpoint_selection(
+            provenance,
+            src_sec,
+            ConnectorEndpointRole.EXIT,
+            edge.line_id,
+            PortSide.RIGHT,
+        )
 
-    entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
+    entry_selection = entry_side_for_line.get((tgt_sec, edge.line_id))
+    entry_side = entry_selection.side if entry_selection is not None else PortSide.LEFT
 
     preferred: PortSide | None
     if len(sides) == 1:
@@ -1285,18 +1451,29 @@ def _exit_side_for_edge(
         preferred = geo if geo in sides else None
 
     if preferred in _PERP_DROP_PAIR and _PERP_DROP_PAIR[preferred] == entry_side:
-        return preferred
+        selected = preferred
+    else:
+        section_sides = {s for s, _ in graph.sections[src_sec].exit_hints}
+        selected = (
+            next(iter(section_sides)) if len(section_sides) == 1 else PortSide.RIGHT
+        )
 
-    section_sides = {s for s, _ in graph.sections[src_sec].exit_hints}
-    return next(iter(section_sides)) if len(section_sides) == 1 else PortSide.RIGHT
+    return _endpoint_selection(
+        provenance,
+        src_sec,
+        ConnectorEndpointRole.EXIT,
+        edge.line_id,
+        selected,
+    )
 
 
 def _group_inter_section_edges(
     graph: MetroGraph,
     inter_section_edges: list[Edge],
-    entry_side_for_line: dict[tuple[str, str], PortSide],
+    entry_side_for_line: dict[tuple[str, str], EndpointSideSelection],
     exit_sides: dict[tuple[str, str], set[PortSide]],
     lineage: AuthoredEdgeLineage,
+    provenance: _EndpointProvenanceContext,
 ) -> tuple[ResolvedConnectorEndpoint, ...]:
     """Resolve current inter-section endpoints and their authored identities."""
     connectors: list[ResolvedConnectorEndpoint] = []
@@ -1307,19 +1484,52 @@ def _group_inter_section_edges(
         # _classify_edges only files an edge as inter-section when both
         # endpoints resolve to a section, so neither lookup is None here.
         assert src_sec is not None and tgt_sec is not None
-        entry_side = entry_side_for_line.get((tgt_sec, edge.line_id), PortSide.LEFT)
-        exit_side = _exit_side_for_edge(
-            graph, edge, src_sec, tgt_sec, exit_sides, entry_side_for_line
+        entry_selection = entry_side_for_line.get((tgt_sec, edge.line_id))
+        if entry_selection is None:
+            entry_selection = _endpoint_selection(
+                provenance,
+                tgt_sec,
+                ConnectorEndpointRole.ENTRY,
+                edge.line_id,
+                PortSide.LEFT,
+            )
+        exit_selection = _exit_side_for_edge(
+            graph,
+            edge,
+            src_sec,
+            tgt_sec,
+            exit_sides,
+            entry_side_for_line,
+            provenance,
         )
+
+        connector_ids = tuple(key.id for key in lineage.origins(edge))
+        for connector_id in connector_ids:
+            exit_endpoint = graph.layout_provenance.endpoint_key(
+                connector_id, ConnectorEndpointRole.EXIT
+            )
+            graph.layout_provenance.record_endpoint_selection(
+                exit_endpoint,
+                exit_selection,
+                provenance.authored_endpoint_values.get(exit_endpoint, ()),
+            )
+            entry_endpoint = graph.layout_provenance.endpoint_key(
+                connector_id, ConnectorEndpointRole.ENTRY
+            )
+            graph.layout_provenance.record_endpoint_selection(
+                entry_endpoint,
+                entry_selection,
+                provenance.authored_endpoint_values.get(entry_endpoint, ()),
+            )
 
         connectors.append(
             ResolvedConnectorEndpoint(
                 edge=edge,
                 source_section=src_sec,
                 target_section=tgt_sec,
-                exit_side=exit_side,
-                entry_side=entry_side,
-                connector_ids=tuple(key.id for key in lineage.origins(edge)),
+                exit_selection=exit_selection,
+                entry_selection=entry_selection,
+                connector_ids=connector_ids,
             )
         )
 

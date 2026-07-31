@@ -46,7 +46,7 @@ def test_explain_decision_schema():
     }
     for d in data["decisions"]:
         assert required <= set(d), f"Decision missing keys: {d}"
-        assert d["source"] in ("inferred", "synthetic")
+        assert d["source"] in ("inferred", "inferred-then-pinned", "synthetic")
         assert d["subject_type"] in ("section", "station", "layout")
 
 
@@ -106,24 +106,32 @@ def test_explain_explicit_direction_not_reported():
     }
     # rnaseq_sections.mmd has two explicit direction directives; check none of
     # those sections show up as inferred.
-    for sid in graph._explicit_directions:
+    for sid in graph.sections:
+        if not graph.layout_provenance.author_owns_direction(sid):
+            continue
         assert sid not in inferred_dir_subjects, (
             f"Section {sid!r} has an explicit direction but appeared as inferred"
         )
 
 
-def test_explain_explicit_grid_sections_skipped_in_directions():
-    """Sections in _explicit_grid do not appear in direction decisions."""
+def test_explain_explicit_grid_default_has_truthful_inferred_provenance():
+    """An author-owned grid does not falsely make its LR default authored."""
     graph = parse_metro_mermaid(DA_MMD.read_text())
     data = build_explain(graph)
 
-    dir_subjects = {
-        d["subject"] for d in data["decisions"] if d["aspect"] == "direction"
+    directions = {
+        d["subject"]: d for d in data["decisions"] if d["aspect"] == "direction"
     }
-    for sid in graph._explicit_grid:
-        assert sid not in dir_subjects, (
-            f"Explicitly-gridded section {sid!r} appeared in direction decisions"
-        )
+    inferred_defaults = {
+        sid
+        for sid in graph.sections
+        if graph.layout_provenance.author_owns_grid(sid)
+        and not graph.layout_provenance.author_owns_direction(sid)
+    }
+    assert inferred_defaults
+    for sid in inferred_defaults:
+        assert directions[sid]["source"] == "inferred"
+        assert directions[sid]["rule"] == "explicit-grid-default-direction"
 
 
 def test_explain_fan_out_junction():
@@ -168,6 +176,35 @@ def test_explain_port_sides_inferred():
     assert entry_sides.get("qc_report") == "vertical-drop"
     # genome_align is LR -> flow-aligned LEFT entry
     assert entry_sides.get("genome_align") == "flow-aligned-entry"
+
+
+def test_explain_keeps_inferred_connector_in_partially_hinted_section():
+    graph = parse_metro_mermaid(
+        """\
+%%metro line: a | A | #ff0000
+%%metro line: b | B | #0000ff
+%%metro grid: source | 0,0
+%%metro grid: target | 1,0
+graph LR
+    subgraph source [Source]
+        s1[S1]
+    end
+    subgraph target [Target]
+        %%metro entry: top | a
+        t1[T1]
+    end
+    s1 -->|a,b| t1
+"""
+    )
+    entries = [
+        decision
+        for decision in build_explain(graph)["decisions"]
+        if decision["aspect"] == "entry_side"
+    ]
+
+    assert len(entries) == 1
+    assert "Connector b" in entries[0]["detail"]
+    assert entries[0]["provenance_reason"] == "shared-connector-entry-side"
 
 
 def test_explain_no_decisions_single_section(tmp_path):

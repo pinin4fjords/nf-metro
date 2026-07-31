@@ -46,14 +46,10 @@ CONTRACT = LAYOUT_DIR / "CONTRACT.md"
 #     machinery itself.
 #   - _phase_snapshots_enabled: a per-run coordinate-snapshot flag stashed to
 #     avoid signature churn (#363), pure observation.
-#   - _explicit_grid / _explicit_directions: authoring provenance mutated by
-#     inference; owned by #681's provenance design rather than this protocol.
 _BOOKKEEPING_ALLOWLIST = {
     "_stages_completed",
     "_validate_active",
     "_phase_snapshots_enabled",
-    "_explicit_grid",
-    "_explicit_directions",
 }
 
 _COMMENT = re.compile(r"#.*$", re.MULTILINE)

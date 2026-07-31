@@ -286,7 +286,7 @@ def test_direction_explicit_preserved():
         [("sec1_s1", "sec1", "sec2_s1", "sec2", "main")],
     )
     graph.sections["sec1"].direction = "TB"
-    graph._explicit_directions.add("sec1")
+    graph.layout_provenance.record_authored_direction("sec1", "TB")
 
     successors, predecessors, _ = _build_section_dag(graph)
     _assign_grid_positions(graph, successors, predecessors, max_station_columns=100)
@@ -310,7 +310,7 @@ def test_explicit_grid_section_keeps_lr_against_auto_successor_below():
     )
     # 'manual' is explicitly gridded; 'downstream' is left to auto-layout.
     graph.grid_overrides["manual"] = (0, 0, 1, 1)
-    graph._explicit_grid.add("manual")
+    graph.layout_provenance.record_authored_grid("manual", (0, 0, 1, 1))
 
     successors, predecessors, _ = _build_section_dag(graph)
     _assign_grid_positions(graph, successors, predecessors, max_station_columns=100)
@@ -339,7 +339,12 @@ def test_explicit_grid_sections_default_lr(fixture):
     text = (EXAMPLES / fixture).read_text()
     graph = parse_metro_mermaid(text)
 
-    explicit = graph._explicit_grid - graph._explicit_directions
+    explicit = {
+        sid
+        for sid in graph.sections
+        if graph.layout_provenance.author_owns_grid(sid)
+        and not graph.layout_provenance.author_owns_direction(sid)
+    }
     assert explicit, f"{fixture} has no explicit-grid sections to check"
     for sec_id in explicit:
         assert graph.sections[sec_id].direction == "LR", (

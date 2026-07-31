@@ -47,7 +47,7 @@ def test_settled_graph_snapshot_includes_semantic_route_state() -> None:
     field_names = {
         name for name, _value in _freeze_settled_graph(MetroGraph()).values.entries
     }
-    assert {"route_topology", "route_resolution"} <= field_names
+    assert {"route_topology", "route_resolution", "layout_provenance"} <= field_names
     assert (
         not {
             "_station_lines_cache",

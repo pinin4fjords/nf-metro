@@ -592,7 +592,7 @@ def place_sections(
     section_edges = graph.section_dag.section_edges
 
     components = _weakly_connected_components(graph, section_edges)
-    if len(components) <= 1 or graph._explicit_grid:
+    if len(components) <= 1 or graph.layout_provenance.has_authored_grids():
         _place_section_group(graph, section_edges, section_x_gap, section_y_gap, None)
         _reserve_over_top_headroom(graph)
         return

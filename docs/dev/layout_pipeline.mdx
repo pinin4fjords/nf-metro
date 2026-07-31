@@ -17,6 +17,12 @@ postconditions, invariants preserved, related tests), see
 For the source itself, the orchestrator is `_compute_section_layout`
 in `src/nf_metro/layout/engine.py`.
 
+The parser also attaches typed layout provenance to the graph before this
+pipeline starts. Layout passes use its effective decisions to distinguish an
+authored choice from an engine choice and to tell whether a choice may be
+inferred again. The [parser guide's provenance section](/nf-metro/dev/parser/#layout-decision-provenance)
+describes the snapshot, decision states, and connector endpoint keys.
+
 ## What "layout" means here
 
 Parsing produces a `MetroGraph` with sections, stations, edges, lines,

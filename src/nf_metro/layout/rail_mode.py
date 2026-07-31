@@ -503,7 +503,9 @@ def _layout_section_rails(
     section.bbox_y = bbox_y
     section.bbox_w = bbox_w
     section.bbox_h = bbox_h
-    if section.direction != "LR" and section.id in graph._explicit_directions:
+    if section.direction != "LR" and graph.layout_provenance.author_owns_direction(
+        section.id
+    ):
         raise ValueError(
             f"rail-mode section {section.id!r} declares direction "
             f"{section.direction!r}; rail mode lays rails left-to-right only. "

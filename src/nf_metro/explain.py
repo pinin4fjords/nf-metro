@@ -21,6 +21,11 @@ if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph, Section
 
 from nf_metro.introspect import station_kind
+from nf_metro.parser.provenance import (
+    ConnectorEndpointRole,
+    DecisionReason,
+    EffectiveDecision,
+)
 
 __all__ = ["build_explain", "format_explain_json", "format_explain_text"]
 
@@ -34,6 +39,7 @@ _A_BYPASS = "bypass"
 
 # Source labels
 _SRC_INFERRED = "inferred"
+_SRC_INFERRED_PINNED = "inferred-then-pinned"
 _SRC_SYNTHETIC = "synthetic"
 
 _ASPECT_ORDER = [_A_LAYOUT, _A_DIRECTION, _A_ENTRY, _A_EXIT, _A_JUNCTION, _A_BYPASS]
@@ -83,7 +89,9 @@ def build_explain(
     if station_filter:
         decisions = [d for d in decisions if d.get("subject") == station_filter]
 
-    inferred = sum(1 for d in decisions if d["source"] == _SRC_INFERRED)
+    inferred = sum(
+        1 for d in decisions if d["source"] in (_SRC_INFERRED, _SRC_INFERRED_PINNED)
+    )
     synthetic = sum(1 for d in decisions if d["source"] == _SRC_SYNTHETIC)
 
     return {
@@ -150,7 +158,9 @@ def format_explain_text(data: dict[str, Any]) -> str:
             elif aspect in (_A_JUNCTION, _A_BYPASS):
                 out.append(f"  {subject}: {detail}")
             else:
-                out.append(f"  [{subject}] -> {decision}: {detail}")
+                state = d.get("state")
+                state_suffix = f" [{state}]" if state else ""
+                out.append(f"  [{subject}] -> {decision}{state_suffix}: {detail}")
 
     return "\n".join(out)
 
@@ -169,8 +179,9 @@ def _decision(
     rule: str,
     detail: str,
     sections: list[str],
+    provenance: EffectiveDecision[Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "subject": subject,
         "subject_type": subject_type,
         "aspect": aspect,
@@ -180,6 +191,19 @@ def _decision(
         "detail": detail,
         "sections": sections,
     }
+    if provenance is not None:
+        result.update(
+            {
+                "state": provenance.state.value,
+                "locked": provenance.is_reinference_locked,
+                "provenance_reason": provenance.reason.value,
+                "authored_values": [
+                    value.value if hasattr(value, "value") else value
+                    for value in provenance.authored_values
+                ],
+            }
+        )
+    return result
 
 
 def _add_layout_decisions(
@@ -200,11 +224,12 @@ def _add_layout_decisions(
         return
 
     if not any(
-        row > 0 and sid not in graph._explicit_grid for sid, row in sid_rows.items()
+        row > 0 and not graph.layout_provenance.author_owns_grid(sid)
+        for sid, row in sid_rows.items()
     ):
         return
 
-    threshold = graph.fold_threshold if graph.fold_threshold is not None else 15
+    threshold = graph.layout_provenance.effective_fold_threshold
     n_rows = len(rows)
     section_list = ", ".join(
         f"row {r}: [{', '.join(sorted(sids))}]" for r, sids in sorted(rows.items())
@@ -235,24 +260,44 @@ def _add_direction_decisions(
 ) -> None:
     """Emit a direction decision for each section whose direction was inferred."""
     for sec_id, section in graph.sections.items():
-        if sec_id in graph._explicit_directions:
-            continue
-        # Sections with explicit grids are skipped by _infer_directions;
-        # their direction keeps the LR default without inference running.
-        if sec_id in graph._explicit_grid:
+        provenance = graph.layout_provenance.direction_decision(sec_id)
+        if provenance is None or provenance.is_author_owned:
             continue
 
-        rule, detail = _explain_direction(graph, sec_id, section, dag_succs, dag_preds)
+        if provenance.reason is DecisionReason.TALL_ANCHOR_DIRECTION:
+            rule = provenance.reason.value
+            detail = (
+                "The tall-anchor packer selected horizontal flow and locked it "
+                "so later direction inference cannot rotate the stacked chain."
+            )
+        elif provenance.reason is DecisionReason.FLOW_REORIENTED_DIRECTION:
+            rule = provenance.reason.value
+            detail = (
+                "Endpoint resolution reversed the inferred horizontal flow and "
+                "locked it so the port remains beside its connecting station."
+            )
+        elif provenance.reason is DecisionReason.EXPLICIT_GRID_DEFAULT_DIRECTION:
+            rule = provenance.reason.value
+            detail = (
+                "The section keeps the horizontal default because its grid cell "
+                "is author-owned, so the initial geometry inference does not "
+                "derive a direction from neighbouring cells."
+            )
+        else:
+            rule, detail = _explain_direction(
+                graph, sec_id, section, dag_succs, dag_preds
+            )
         decisions.append(
             _decision(
                 sec_id,
                 "section",
                 _A_DIRECTION,
                 section.direction,
-                _SRC_INFERRED,
+                provenance.state.value,
                 rule,
                 detail,
                 [sec_id],
+                provenance,
             )
         )
 
@@ -262,37 +307,72 @@ def _add_port_decisions(
     dag_preds: dict[str, set[str]],
     decisions: list[dict[str, Any]],
 ) -> None:
-    """Emit entry/exit side decisions for sections whose port sides were inferred."""
-    for sec_id, section in graph.sections.items():
-        if sec_id not in graph._explicit_entry and section.entry_hints:
-            sides = sorted({s.value for s, _ in section.entry_hints})
-            rule, detail = _explain_entry_side(graph, sec_id, section, dag_preds, sides)
-            decisions.append(
-                _decision(
-                    sec_id,
-                    "section",
-                    _A_ENTRY,
-                    ", ".join(sides),
-                    _SRC_INFERRED,
-                    rule,
-                    detail,
-                    [sec_id],
-                )
-            )
+    """Emit each engine-owned connector-side decision independently."""
+    topology = graph.route_topology
+    if topology is None:
+        return
 
-        if sec_id not in graph._explicit_exit and section.exit_hints:
-            sides = sorted({s.value for s, _ in section.exit_hints})
-            rule, detail = _explain_exit_side(section, sides)
+    for connector in topology.connectors:
+        for role, sec_id, aspect in (
+            (
+                ConnectorEndpointRole.EXIT,
+                connector.source_section,
+                _A_EXIT,
+            ),
+            (
+                ConnectorEndpointRole.ENTRY,
+                connector.target_section,
+                _A_ENTRY,
+            ),
+        ):
+            endpoint = graph.layout_provenance.endpoint_key(connector.id, role)
+            provenance = graph.layout_provenance.endpoint_decision(endpoint)
+            if provenance is None or provenance.is_author_owned:
+                continue
+
+            section = graph.sections[sec_id]
+            side = provenance.value.value
+            if provenance.reason in (
+                DecisionReason.FOLD_RELOCATED_SIDE,
+                DecisionReason.FLOW_REANCHORED_SIDE,
+                DecisionReason.RESOLUTION_SIDE_SELECTION,
+            ):
+                authored = ", ".join(
+                    value.value for value in provenance.authored_values
+                )
+                original = authored or "an inferred side"
+                rule = provenance.reason.value
+                detail = (
+                    f"Connector {connector.line_id} ({connector.source} -> "
+                    f"{connector.target}) uses {side.upper()} after endpoint "
+                    f"resolution replaced {original.upper()}; the effective side "
+                    "is engine-owned."
+                )
+            elif role is ConnectorEndpointRole.ENTRY:
+                rule, detail = _explain_entry_side(
+                    graph, sec_id, section, dag_preds, [side]
+                )
+                detail = (
+                    f"Connector {connector.line_id} ({connector.source} -> "
+                    f"{connector.target}): {detail}"
+                )
+            else:
+                rule, detail = _explain_exit_side(section, [side])
+                detail = (
+                    f"Connector {connector.line_id} ({connector.source} -> "
+                    f"{connector.target}): {detail}"
+                )
             decisions.append(
                 _decision(
                     sec_id,
                     "section",
-                    _A_EXIT,
-                    ", ".join(sides),
-                    _SRC_INFERRED,
+                    aspect,
+                    side,
+                    provenance.state.value,
                     rule,
                     detail,
                     [sec_id],
+                    provenance,
                 )
             )
 
