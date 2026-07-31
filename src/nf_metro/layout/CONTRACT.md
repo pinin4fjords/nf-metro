@@ -670,13 +670,18 @@ in pipeline order.
 ### Stage 4.8: align row trunk Ys
 - **Purpose**: Within each row, shift content downward in shallower
   sections so the inter-section trunk bundle passes through at a
-  single Y. Bbox tops preserved (heights grow downward).
-- **Helper**: `_align_row_trunk_ys` (`phases/row_align.py`).
+  single Y, then seat each eligible flow exit on its internal carrier
+  row so the level change occurs in the inter-section corridor.
+- **Helpers**: `_align_row_trunk_ys` (`phases/row_align.py`), then
+  `_reconcile_flow_exit_carrier_anchors` (`phases/ports.py`).
 - **Precondition**: Stage 4.7 done.
 - **Postcondition**: For sections in a row's contiguous column run,
-  the trunk Y is the row's deepest pre-pass trunk Y. Row-spanning
+  the trunk Y is the row's deepest pre-pass trunk Y. A non-fold LR/RL
+  exit selected by `flow_exit_carrier_anchor` shares its carrier Y;
+  its downstream entry remains on the consumer row. Row-spanning
   sections are skipped.
-- **Invariants preserved**: Bbox tops. Row-spanning sections.
+- **Invariants preserved**: Bbox tops, downstream entry coordinates,
+  perpendicular exits, and row-spanning sections.
 - **Lifecycle:** invariant - the per-row trunk Y is consistent at the
   final boundary (`test_row_trunk_marker_cy_consistent`).
 

@@ -189,7 +189,9 @@ fan-out and full-bundle columns around the trunk.
   top-align after the Stage 4.5 expansions.
 - **Stage 4.8**: Align trunk Ys across same-row sections. Shifts
   shallower sections' content down so the inter-section bundle passes
-  through at a single Y per row.
+  through at a single Y per row, then restores carrier-owned exits to
+  their internal row while leaving downstream entries on their consumer
+  row. Any level change therefore happens in the inter-section corridor.
 - **Stages 4.9 to 4.10**: Redistribute fan-out siblings and full-bundle
   columns symmetrically around the trunk. Both gated on `center_ports`.
 

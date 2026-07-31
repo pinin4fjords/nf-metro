@@ -1851,6 +1851,8 @@ def flow_exit_carrier_anchor(
     exit_port_id: str,
     section: Section,
     junction_ids: set[str],
+    *,
+    divergence_sources: Mapping[str, str] | None = None,
 ) -> tuple[float, list[str]] | None:
     """Carrier row a flow-aligned exit should anchor to, with its carriers.
 
@@ -1876,9 +1878,13 @@ def flow_exit_carrier_anchor(
     section, a merge junction on the far side, or a corridor blocked by another
     station also keep the downstream-aligned placement.
     """
+    port = graph.ports.get(exit_port_id)
+    if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return None
     if _is_fold_section(section) or section.direction not in ("LR", "RL"):
         return None
-    divergence_sources = divergence_junction_sources(graph)
+    if divergence_sources is None:
+        divergence_sources = divergence_junction_sources(graph)
     if not _exit_anchorable_downstream(
         graph,
         exit_port_id,

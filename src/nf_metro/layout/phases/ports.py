@@ -26,6 +26,7 @@ from nf_metro.layout.phases._common import (
     _lr_exit_aligned_target,
     dominant_value,
     exit_entry_ports_face,
+    flow_axis_exit_ports,
     flow_exit_carrier_anchor,
     iter_fold_lr_exits_short_of_target,
     perp_entry_lands_left,
@@ -38,6 +39,7 @@ from nf_metro.layout.phases.junctions import (
     _resolve_source_section_id,
     _resolve_source_xy,
 )
+from nf_metro.layout.route_topology import divergence_junction_sources
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 
@@ -999,6 +1001,26 @@ def _snap_grid_group_exit_ports(graph: MetroGraph) -> None:
 
         if abs(port_st.y - target_y) >= COORD_TOLERANCE:
             _set_port_y(graph, port_id, target_y)
+
+
+def _reconcile_flow_exit_carrier_anchors(graph: MetroGraph) -> None:
+    """Set each selected flow exit port's Y coordinate to its carrier row."""
+    junction_ids = graph.junction_ids
+    divergence_sources = divergence_junction_sources(graph)
+    for section in graph.sections.values():
+        flow_exits = flow_axis_exit_ports(section, graph)
+        for port_id in section.exit_ports:
+            if port_id not in flow_exits:
+                continue
+            anchor = flow_exit_carrier_anchor(
+                graph,
+                port_id,
+                section,
+                junction_ids,
+                divergence_sources=divergence_sources,
+            )
+            if anchor is not None:
+                _set_port_y(graph, port_id, anchor[0])
 
 
 def _resolve_downstream_entry_y(

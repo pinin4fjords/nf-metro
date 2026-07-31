@@ -87,6 +87,7 @@ from nf_metro.layout.phases.bbox import (
     _section_fit_top,
 )
 from nf_metro.layout.phases.guards import (
+    _guard_flow_exit_anchored_to_carrier,
     _guard_port_station_coords_synced,
     _perp_fed_entry_consumer_y,
     _tb_top_entry_drop_overshoot,
@@ -1140,6 +1141,59 @@ def test_flow_exit_port_anchors_to_carrying_station(fixture):
             f"row y={carrier_y:.1f} (carriers {sorted(carrier_ids)}); the "
             f"boundary run will read as a diagonal instead of a clean riser"
         )
+
+
+def test_seed_72_flow_exit_reconciles_to_carrier_without_moving_consumer_entry():
+    """A carrier-anchored exit keeps its downstream entry on the consumer row."""
+    graph = _layout("hash_seed_determinism/seed_72.mmd", center_ports=False)
+
+    exit_port = graph.stations["s7__exit_left_5"]
+    carrier = graph.stations["n7_3"]
+    entry_port = graph.stations["s8__entry_right_13"]
+    consumer = graph.stations["n8_0"]
+
+    assert abs(exit_port.y - carrier.y) <= _Y_TOL
+    assert abs(entry_port.y - consumer.y) <= _Y_TOL
+    assert abs(entry_port.y - carrier.y) > _Y_TOL
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    (
+        "hash_seed_determinism/seed_15.mmd",
+        "hash_seed_determinism/seed_41.mmd",
+        "hash_seed_determinism/seed_72.mmd",
+        "hash_seed_determinism/seed_77.mmd",
+    ),
+)
+def test_hash_seed_flow_exit_carrier_anchors_are_reconciled(fixture):
+    """Every frozen recovery seed honours the shared carrier predicate."""
+    graph = _layout(fixture, center_ports=False)
+    _guard_flow_exit_anchored_to_carrier(graph, "test")
+
+
+def test_perpendicular_exit_is_not_a_flow_carrier_anchor():
+    """A horizontal section's BOTTOM exit is outside this carrier contract."""
+    graph = _layout("topologies/lr_perp_bottom_exit_side_entry.mmd")
+    junction_ids = graph.junction_ids
+    perpendicular_exits = [
+        port_id
+        for section in graph.sections.values()
+        for port_id in section.exit_ports
+        if graph.ports[port_id].side in (PortSide.TOP, PortSide.BOTTOM)
+    ]
+
+    assert perpendicular_exits
+    assert all(
+        flow_exit_carrier_anchor(
+            graph,
+            port_id,
+            graph.sections[graph.ports[port_id].section_id],
+            junction_ids,
+        )
+        is None
+        for port_id in perpendicular_exits
+    )
 
 
 def test_single_line_dual_source_exit_shares_feeder_row():
