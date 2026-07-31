@@ -17,9 +17,8 @@ distance -- so they are read straight off the drawn polylines.  Their
 definitions are those measured against human layout judgement in
 ``datasets/layout_preferences/scripts/extract_features.py``.
 
-Scoring the render means scoring the geometry the renderer drew, which a
-rendered graph carries and which cannot be re-derived from it -- see
-``measured_geometry``.
+When a ``RenderPlan`` is available, the scorecard reads the exact routes used
+for the SVG. See ``measured_geometry``.
 
 Module-level imports are kept stdlib-only so the spec and formatting helpers
 can be imported by ``build_render_diff.py`` without pulling in the layout
@@ -35,6 +34,7 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import MetroGraph
+    from nf_metro.render.plan import RenderPlan
 
 MetricKind = Literal["count", "decimal", "ratio"]
 
@@ -76,26 +76,17 @@ METRIC_KEYS: list[str] = [m.key for m in METRICS]
 
 
 def measured_geometry(
-    graph: MetroGraph,
+    graph: MetroGraph, plan: RenderPlan | None = None
 ) -> tuple[dict[tuple[str, str], float], list[RoutedPath]]:
-    """The ``(station_offsets, routes)`` the scorecard scores.
+    """Return the station offsets and routes used by the scorecard.
 
-    A rendered graph carries the geometry the renderer drew, which is the only
-    faithful answer: label placement grows the section bboxes routing consults,
-    so re-routing a rendered graph yields paths that were never drawn.  A graph
-    that was laid out but never rendered has no published geometry, so it is
-    routed here -- pre-label-growth, which is what such a graph would draw.
-    ``route_edges`` rather than ``route_edges_centred`` keeps the read free of
-    side effects: the centred variant settles markers onto ``graph.stations``.
-
-    The single seam between the scorecard and the geometry it reads, so a test
-    can assert that geometry is the ink the renderer drew.
+    A supplied plan provides the exact geometry used for the SVG. Without a
+    plan, the function routes the laid-out graph for pre-render callers.
     """
     from nf_metro.layout.routing import compute_station_offsets, route_edges
 
-    drawn = graph.rendered_geometry
-    if drawn is not None:
-        return drawn.station_offsets, list(drawn.routes)
+    if plan is not None:
+        return plan.station_offsets, list(plan.routes)
     try:
         offsets = compute_station_offsets(graph)
         return offsets, route_edges(graph, station_offsets=offsets)
@@ -246,7 +237,10 @@ derived term instead of repairing the raw feature locally.
 
 
 def compute_metrics(
-    graph: MetroGraph, *, canvas: tuple[float, float] | None = None
+    graph: MetroGraph,
+    *,
+    plan: RenderPlan | None = None,
+    canvas: tuple[float, float] | None = None,
 ) -> dict[str, float | None]:
     """Compute the layout-quality scorecard for one laid-out graph.
 
@@ -258,20 +252,24 @@ def compute_metrics(
 
     from layout_validator import validate_layout
 
-    from nf_metro.layout.phases.guards import iter_line_label_strikes
-
     counts = Counter(v.check for v in validate_layout(graph))
 
-    offsets, routes = measured_geometry(graph)
+    geometry_graph = plan.graph if plan is not None else graph
+    offsets, routes = measured_geometry(graph, plan)
     polylines = drawn_polylines(routes, offsets)
     corners, bends_per_route, turn_per_route = _bend_scores(polylines)
 
     # Distinct (line, station) strikes: one visual mark per line crossing a
     # label, not one per route segment that happens to clip it.
-    strikes = {
-        (s.line_id, s.station_id)
-        for s in iter_line_label_strikes(graph, offsets=offsets, routes=routes)
-    }
+    if plan is None:
+        from nf_metro.layout.phases.guards import iter_line_label_strikes
+
+        strikes = {
+            (strike.line_id, strike.station_id)
+            for strike in iter_line_label_strikes(graph, offsets=offsets, routes=routes)
+        }
+    else:
+        strikes = _plan_label_strikes(plan)
 
     return {
         "crossings": float(
@@ -283,10 +281,34 @@ def compute_metrics(
         "corners_total": corners,
         "turn_angle_per_route": turn_per_route,
         "label_strikes": float(len(strikes)),
-        "marker_clearance": _min_non_consumer_clearance(graph, polylines),
+        "marker_clearance": _min_non_consumer_clearance(geometry_graph, polylines),
         "excessive_gaps": float(counts["excessive_column_gap"]),
-        "wasted_canvas": _wasted_canvas_ratio(graph, routes, canvas),
+        "wasted_canvas": _wasted_canvas_ratio(geometry_graph, routes, canvas),
     }
+
+
+def _plan_label_strikes(plan: RenderPlan) -> set[tuple[str, str]]:
+    """Distinct line/station label strikes in settled plan geometry."""
+    from nf_metro.layout.labels import segment_strikes_label
+
+    placements = {
+        placement.station_id: placement
+        for placement in plan.labels
+        if placement.station_id
+    }
+    strikes: set[tuple[str, str]] = set()
+    for route, (_line_id, points) in zip(plan.routes, plan.offset_polylines()):
+        for station_id, placement in placements.items():
+            if station_id in (route.edge.source, route.edge.target):
+                continue
+            if route.line_id in plan.graph.station_lines(station_id):
+                continue
+            if any(
+                segment_strikes_label(*start, *end, placement)
+                for start, end in zip(points, points[1:])
+            ):
+                strikes.add((route.line_id, station_id))
+    return strikes
 
 
 def _wasted_canvas_ratio(

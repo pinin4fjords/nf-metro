@@ -22,7 +22,7 @@ import pytest
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
-from nf_metro.render import render_svg, validate_render
+from nf_metro.render import build_render_plan, emit_render_plan, validate_render
 from nf_metro.render.manifest import read_manifest
 from nf_metro.render.validate import (
     LABEL_STRIKE,
@@ -62,12 +62,15 @@ def _renderable_corpus() -> tuple[list[str], dict[str, MetroGraph]]:
 
 
 CORPUS, _LAID_OUT = _renderable_corpus()
+_PLANS = {}
 
 
 def _render(rel_name: str) -> str:
     graph = _LAID_OUT[rel_name]
     theme_name = graph.style if graph.style in THEMES else "nfcore"
-    return render_svg(graph, THEMES[theme_name])
+    plan = build_render_plan(graph, THEMES[theme_name])
+    _PLANS[rel_name] = plan
+    return emit_render_plan(plan)
 
 
 @pytest.mark.parametrize("name", CORPUS)
@@ -94,10 +97,11 @@ def test_clean_corpus_has_no_marker_cross(name: str) -> None:
 def test_clean_corpus_has_no_offset_collapse(name: str) -> None:
     """No gallery render draws an offset-spread line pair flush into one stroke.
 
-    Passing the laid-out graph enables the offset-pitch-aware check; a clean
-    corpus has only same-slot bundles, which it does not flag.
+    Passing the render plan enables this check. Lines assigned to the same slot
+    may share a stroke and are not reported.
     """
-    findings = validate_render(_render(name), graph=_LAID_OUT[name])
+    svg = _render(name)
+    findings = validate_render(svg, plan=_PLANS[name])
     collapses = [f for f in findings if f.kind == OFFSET_COLLAPSE]
     assert not collapses, f"{name}: {[f.message for f in collapses]}"
 
@@ -293,14 +297,14 @@ def _parallel_drawn_pair(svg: str) -> tuple[str, str, float, float, float, float
 def test_offset_collapse_caught_when_spread_pair_drawn_flush() -> None:
     """An offset-spread pair drawn onto one Y collapses into a single stroke."""
     svg = _render("genomic_pipeline.mmd")
-    graph = _LAID_OUT["genomic_pipeline.mmd"]
-    clean = validate_render(svg, graph=graph)
+    plan = _PLANS["genomic_pipeline.mmd"]
+    clean = validate_render(svg, plan=plan)
     assert not [f for f in clean if f.kind == OFFSET_COLLAPSE]
 
     line_a, line_b, _y_a, y_b, x_lo, x_hi = _parallel_drawn_pair(svg)
     merged = _inject_segment(svg, line_a, (x_lo + 2, y_b), (x_hi - 2, y_b))
     collapses = [
-        f for f in validate_render(merged, graph=graph) if f.kind == OFFSET_COLLAPSE
+        f for f in validate_render(merged, plan=plan) if f.kind == OFFSET_COLLAPSE
     ]
     assert collapses
     assert collapses[0].line_id in {line_a, line_b}
@@ -326,9 +330,9 @@ def test_same_slot_bundle_is_not_offset_collapse() -> None:
     )
 
     name = "rail_mode.mmd"
-    graph = _LAID_OUT[name]
     svg = _render(name)
-    expected = _expected_line_segments(graph)
+    plan = _PLANS[name]
+    expected = _expected_line_segments(plan)
 
     def h_runs(line: str) -> list[tuple[float, float, float]]:
         return [
@@ -366,7 +370,7 @@ def test_same_slot_bundle_is_not_offset_collapse() -> None:
 
     collapses = [
         f
-        for f in validate_render(merged, graph=graph)
+        for f in validate_render(merged, plan=plan)
         if f.kind == OFFSET_COLLAPSE
         and f"'{line_a}'" in f.message
         and f"'{line_b}'" in f.message

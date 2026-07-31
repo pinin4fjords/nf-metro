@@ -50,19 +50,16 @@ mid-pipeline reroute; its most expensive members
 (`routing/invariants.py`) run through a separate chokepoint and include
 members up to `check_no_hanging_routes` at ~470 us; cost alone does not gate
 Tier-A membership in either family, visibility of the defect does. **Tier C**
-holds the corpus oracles. Two are seam checks -
+contains checks that run only against the test corpus. Two check section seams:
 `check_seam_approach_equals_departure` and `check_seam_segments_meet_at_port` -
-which verify the rotation-unification property: at every inter-section seam the
-approach must place each line on the lane coordinate that `lane_x` assigns it.
-Both are correctness oracles for the rotation series rather than runtime guards,
-so they live in the test suite (`tests/test_seam_lane_x.py`). The third,
-`check_merge_feeders_land_on_trunk` (`tests/test_merge_branch_trunk_invariant.py`),
-asserts exact coincidence where its always-on Tier-A sibling
-`check_merge_branches_meet_trunk` allows two corner radii of slack: a property a
-routing pass establishes by construction, so on the render path it could only
-fire for a feeder shaped by some other handler, aborting a map that is imperfect
-rather than broken. Every other guard and check is reachable from
-`compute_layout` or the render chokepoint.
+verify that each inter-section approach uses the lane assigned by `lane_x`.
+They live in `tests/test_seam_lane_x.py`.
+
+The third check is `check_merge_feeders_land_on_trunk` in
+`tests/test_merge_branch_trunk_invariant.py`. It requires exact contact between
+a feeder and its trunk. Its Tier-A counterpart allows a small tolerance because
+an alternate routing handler can produce a valid map without exact contact.
+Every other guard and check is reachable from `compute_layout` or rendering.
 
 ## Registries
 

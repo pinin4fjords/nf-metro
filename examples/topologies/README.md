@@ -171,7 +171,9 @@ A section with both RIGHT and BOTTOM exits, sending lines in two directions. Tes
 
 ### Exit Run Three Drop Columns
 
-Three lines leave one exit junction on a shared horizontal run and each turns down, routed onward by three different inter-section handlers. One returns to its own grid row while the other two continue to the row below, so two of them ride the same inter-row band in opposite exit directions. Tests that the fan pivots through a single corner column rather than one per handler family, and that its lane order follows each branch's destination row, since a concentric turn puts the line highest on the run at the largest x and a branch leaving the band deeper has to turn off the run earlier.
+Three lines leave one exit junction along a shared horizontal run. Each line
+then turns down through a different inter-section routing handler. The fixture
+checks that all three lines use one corner column and preserve their lane order.
 
 ![Exit Run Three Drop Columns](exit_run_three_drop_columns.png)
 

@@ -718,7 +718,7 @@ def find_wrapped_label_trunk_strikes(
     """
     if not routes:
         return []
-    from nf_metro.render.svg import apply_route_offsets
+    from nf_metro.layout.routing.common import apply_route_offsets
 
     # Every line's horizontal runs at their drawn Y: (line_id, x_lo, x_hi, y).
     trunks: list[tuple[str, float, float, float]] = []

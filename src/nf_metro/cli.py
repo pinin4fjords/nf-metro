@@ -12,7 +12,7 @@ from typing import Any, Literal, TypeVar, cast
 import click
 
 from nf_metro import __version__
-from nf_metro.api import RenderConfig, prepare_graph, render_graph, resolve_theme
+from nf_metro.api import RenderConfig, prepare_graph, render_graph_result, resolve_theme
 from nf_metro.explain import build_explain, format_explain_json, format_explain_text
 from nf_metro.introspect import build_info, format_info_json, format_info_text
 from nf_metro.layout import (
@@ -513,7 +513,7 @@ def _render_one_unsafe(
         # under --strict (LayoutInvariantError is a PhaseInvariantError); without
         # --strict they are warnings the default handler prints to stderr.
         try:
-            content = render_graph(
+            rendered = render_graph_result(
                 graph,
                 theme_obj,
                 RenderConfig(
@@ -531,13 +531,14 @@ def _render_one_unsafe(
                     embed_basename=output.name,
                 ),
             )
+            content = rendered.content
         except (ValueError, FoldThresholdError, PhaseInvariantError) as e:
             raise click.ClickException(str(e))
 
         if validate_geometry:
             if format_ == "html":
                 raise click.ClickException("--validate applies to --format svg only.")
-            findings = validate_render(content, graph=graph)
+            findings = validate_render(content, plan=rendered.plan)
             if findings:
                 detail = "\n".join(f"  - {f.message}" for f in findings)
                 raise click.ClickException(

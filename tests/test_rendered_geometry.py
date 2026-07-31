@@ -1,19 +1,4 @@
-"""The geometry instruments read is the geometry the renderer drew (#1590).
-
-Routing consults section bounding boxes, and label placement grows those boxes
-*after* the routes are settled.  Re-routing a rendered graph therefore routes
-against grown boxes and yields paths the viewer never saw -- on the corpus the
-divergence reaches 24px.  Anything that claims to measure or guard the render
-(the render-diff quality scorecard, the offset-collapse oracle) must read the
-geometry the renderer published rather than re-derive it.
-
-The oracle here is the drawn SVG ink: ``parse_route_polylines`` recovers each
-route's logical vertices exactly (smoothing ``Q`` control points collapse back
-to their pre-smoothing corner), so every vertex of the measured geometry must
-appear in the ink of its line.  Bridge hop gaps and corner smoothing only add
-vertices, never move them, which is why containment is the exact relation and
-not an approximation.
-"""
+"""Confirm that metrics and validators inspect the geometry drawn in the SVG."""
 
 from __future__ import annotations
 
@@ -25,17 +10,14 @@ import pytest
 from conftest import parse_and_layout
 from layout_metrics import measured_geometry
 
-from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing.common import RoutedPath, apply_route_offsets
-from nf_metro.render import render_svg
+from nf_metro.parser.model import MetroGraph
+from nf_metro.render import build_render_plan, emit_render_plan
+from nf_metro.render.plan import RenderPlan
 from nf_metro.render.validate import _expected_line_segments, parse_route_polylines
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-
-# Fixtures whose render mutates a section bbox enough to move a re-routed path
-# (sarek_metro by 24px, the widest on the corpus), alongside clean maps where the
-# two agreed all along.
 FIXTURES = [
     EXAMPLES / "sarek_metro.mmd",
     EXAMPLES / "diagonal_labels.mmd",
@@ -45,22 +27,25 @@ FIXTURES = [
     EXAMPLES / "simple_pipeline.mmd",
     EXAMPLES / "rnaseq_auto.mmd",
 ]
-
 _PRECISION = 3
+Point = tuple[float, float]
+VerticesByLine = dict[str, set[Point]]
+SegmentsByLine = dict[str, list[tuple[Point, Point]]]
 
 
-def _render(path: Path):
-    """Lay out and render *path*, returning ``(graph, svg)``."""
+def _render(path: Path) -> tuple[MetroGraph, RenderPlan, str]:
+    """Build a plan and SVG for one example map."""
     graph = parse_and_layout(path.read_text())
-    theme = graph.style if graph.style in THEMES else "nfcore"
-    return graph, render_svg(graph, THEMES[theme])
+    theme = THEMES[graph.style if graph.style in THEMES else "nfcore"]
+    plan = build_render_plan(graph, theme)
+    return graph, plan, emit_render_plan(plan)
 
 
 def _vertices_by_line(
-    runs: Iterable[tuple[str, Iterable[tuple[float, float]]]],
-) -> dict[str, set[tuple[float, float]]]:
-    """Pool each ``(line_id, points)`` run into one rounded vertex set per line."""
-    out: dict[str, set[tuple[float, float]]] = defaultdict(set)
+    runs: Iterable[tuple[str, Iterable[Point]]],
+) -> VerticesByLine:
+    """Group rounded route vertices by metro line."""
+    out: VerticesByLine = defaultdict(set)
     for line_id, points in runs:
         out[line_id].update(
             (round(x, _PRECISION), round(y, _PRECISION)) for x, y in points
@@ -68,8 +53,8 @@ def _vertices_by_line(
     return out
 
 
-def _ink_vertices(svg: str) -> dict[str, set[tuple[float, float]]]:
-    """Every drawn route vertex in the SVG, grouped by line id."""
+def _ink_vertices(svg: str) -> VerticesByLine:
+    """Read all route vertices from the rendered SVG."""
     return _vertices_by_line(
         (line_id, subpath)
         for line_id, subpaths in parse_route_polylines(svg)
@@ -79,106 +64,75 @@ def _ink_vertices(svg: str) -> dict[str, set[tuple[float, float]]]:
 
 def _route_vertices(
     offsets: dict[tuple[str, str], float], routes: list[RoutedPath]
-) -> dict[str, set[tuple[float, float]]]:
-    """Every post-offset route vertex, grouped by line id."""
+) -> VerticesByLine:
+    """Apply route offsets and group the result by metro line."""
     return _vertices_by_line(
         (route.line_id, apply_route_offsets(route, offsets)) for route in routes
     )
 
 
-def _segment_vertices(
-    segments: dict[str, list[tuple[tuple[float, float], tuple[float, float]]]],
-) -> dict[str, set[tuple[float, float]]]:
-    """Every endpoint of the offset-collapse oracle's segments, by line id."""
+def _segment_vertices(segments: SegmentsByLine) -> VerticesByLine:
+    """Group segment endpoints by metro line."""
     return _vertices_by_line(
-        (line_id, segment) for line_id, segs in segments.items() for segment in segs
+        (line_id, segment) for line_id, values in segments.items() for segment in values
     )
 
 
-def _assert_contained_in_ink(
-    measured: dict[str, set[tuple[float, float]]], svg: str, what: str
-) -> None:
+def _assert_contained(measured: VerticesByLine, svg: str, source: str) -> None:
+    """Assert that every measured vertex appears in the rendered SVG."""
     ink = _ink_vertices(svg)
     stray = {
-        line_id: sorted(verts - ink[line_id])
-        for line_id, verts in measured.items()
-        if verts - ink[line_id]
+        line_id: sorted(vertices - ink[line_id])
+        for line_id, vertices in measured.items()
+        if vertices - ink[line_id]
     }
     assert not stray, (
-        f"{what} reads {sum(len(v) for v in stray.values())} vertex/vertices the "
-        f"render never drew: "
-        + "; ".join(f"line {ln!r} at {pts[:3]}" for ln, pts in sorted(stray.items()))
+        f"{source} contains {sum(len(points) for points in stray.values())} "
+        "route vertices that do not appear in the SVG: "
+        + "; ".join(
+            f"{line_id}: {points[:3]}" for line_id, points in sorted(stray.items())
+        )
     )
 
 
-@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
-def test_scorecard_measures_the_drawn_geometry(path: Path) -> None:
-    """Every route vertex the quality scorecard scores was actually drawn."""
-    graph, svg = _render(path)
-    _assert_contained_in_ink(
-        _route_vertices(*measured_geometry(graph)), svg, "the quality scorecard"
-    )
-
-
-@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
-def test_offset_collapse_oracle_reads_the_drawn_geometry(path: Path) -> None:
-    """The offset-collapse oracle's reference segments were actually drawn.
-
-    It compares the drawn ink against the separation the offset regime assigned,
-    so a reference derived from paths the renderer never emitted would report
-    collapses (and clear real ones) against a picture that does not exist.
-    """
-    graph, svg = _render(path)
-    _assert_contained_in_ink(
-        _segment_vertices(_expected_line_segments(graph)),
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda path: path.stem)
+def test_scorecard_measures_emitted_plan(path: Path) -> None:
+    """Every route vertex scored by the metrics appears in the SVG."""
+    graph, plan, svg = _render(path)
+    _assert_contained(
+        _route_vertices(*measured_geometry(graph, plan)),
         svg,
-        "the offset-collapse oracle",
+        "layout metrics",
     )
 
 
-def test_offset_collapse_needs_a_rendered_graph() -> None:
-    """The oracle abstains on a graph that was laid out but never rendered.
-
-    It has no drawn geometry to compare the ink against, and re-deriving one is
-    exactly the defect; abstaining is deliberate, not an accident of the lookup.
-    """
-    graph = parse_and_layout((EXAMPLES / "sarek_metro.mmd").read_text())
-    assert graph.rendered_geometry is None
-    assert _expected_line_segments(graph) == {}
-
-    render_svg(graph, THEMES["nfcore"])
-    assert graph.rendered_geometry is not None
-    assert _expected_line_segments(graph)
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda path: path.stem)
+def test_offset_oracle_measures_emitted_plan(path: Path) -> None:
+    """Every route vertex checked for collapse appears in the SVG."""
+    _graph, plan, svg = _render(path)
+    _assert_contained(
+        _segment_vertices(_expected_line_segments(plan)),
+        svg,
+        "offset-collapse validation",
+    )
 
 
-def test_laying_out_again_discards_the_published_geometry() -> None:
-    """A fresh layout drops the record rather than leaving a stale one readable.
-
-    The published routes are only meaningful against the coordinates they were
-    routed from, which a re-layout is free to move.
-    """
-    text = (EXAMPLES / "sarek_metro.mmd").read_text()
-    graph = parse_and_layout(text)
-    render_svg(graph, THEMES["nfcore"])
-    assert graph.rendered_geometry is not None
-
-    compute_layout(graph)
-    assert graph.rendered_geometry is None
+def test_plan_geometry_is_independent_of_source_graph() -> None:
+    """Changing the source graph cannot change an existing plan."""
+    graph, plan, _svg = _render(EXAMPLES / "sarek_metro.mmd")
+    before = plan.offset_polylines()
+    next(iter(graph.stations.values())).x += 1000
+    assert plan.offset_polylines() == before
 
 
-@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
-def test_reading_the_geometry_does_not_perturb_the_render(path: Path) -> None:
-    """Measuring leaves station coordinates and offsets as the render left them.
-
-    An instrument that settled bubble-centred markers onto ``graph.stations``
-    would move the very geometry the next reader measures, so reads must stay
-    free of side effects.
-    """
-    graph, _ = _render(path)
-    before = {sid: (s.x, s.y) for sid, s in graph.stations.items()}
-
-    offsets, _ = measured_geometry(graph)
-    _expected_line_segments(graph)
-
-    assert {sid: (s.x, s.y) for sid, s in graph.stations.items()} == before
-    assert measured_geometry(graph)[0] == offsets
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda path: path.stem)
+def test_reading_plan_geometry_is_pure(path: Path) -> None:
+    """Metrics and validation do not change the graph or plan."""
+    graph, plan, _svg = _render(path)
+    before = {station_id: (s.x, s.y) for station_id, s in graph.stations.items()}
+    offsets, _ = measured_geometry(graph, plan)
+    _expected_line_segments(plan)
+    assert {
+        station_id: (s.x, s.y) for station_id, s in graph.stations.items()
+    } == before
+    assert measured_geometry(graph, plan)[0] == offsets

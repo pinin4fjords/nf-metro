@@ -1,51 +1,58 @@
 ---
 title: "Render"
-description: The render subsystem — how a laid-out MetroGraph becomes an SVG, including animation, bridges, legends, and themes.
+description: How a laid-out MetroGraph becomes an SVG, including animation, bridges, legends, and themes.
 sidebar:
   order: 9
 ---
 
-Rendering turns a laid-out `MetroGraph` (stations, ports, junctions, and
-sections with coordinates, plus routed `RoutedPath` polylines) into output
-files. The primary entry point is `render_svg` in
+Rendering has two steps. First, `build_render_plan` copies a laid-out
+`MetroGraph` and finishes the render-specific geometry. It stores the result in
+an immutable `RenderPlan`. Second, an emitter turns that plan into SVG or HTML.
+
+This split prevents rendering from changing the caller's graph. It also gives
+validators and metrics the exact geometry used to draw the output.
+The plan stores the resolved theme and all settings that affect geometry.
+Emitters accept only output options such as animation and responsive sizing.
+
+The main entry point is `render_svg` in
 [`src/nf_metro/render/svg.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/render/svg.py),
-which returns an SVG string. From there, `render_html` wraps that SVG in
-an interactive HTML page, and `build_manifest` embeds a data manifest into
-the SVG for downstream tooling.
+which performs both steps and returns an SVG string. Callers that need to reuse
+a plan can call `build_render_plan`, `emit_render_plan`, or
+`emit_render_plan_html` directly.
+
+`build_render_plan` makes one deep copy of the graph. Render-specific routing,
+label placement, and section adjustments run on this private copy. This is
+safer than changing the caller's graph and trying to restore it after an error.
+Across three representative maps, the copy took 1.8 to 2.2 ms. That was 1.6%
+to 2.8% of the combined plan-build and SVG-emission time.
 
 ## SVG generation (`svg.py`)
 
 `render_svg(graph, theme, ...)` is the top-level call. It:
 
 1. Scales theme fonts by `graph.font_scale` (set by the `%%metro font_scale:`
-   directive or the `--font-scale` CLI flag, and covering the label halo), then
-   theme stroke weights and the station pill radius by `graph.stroke_scale`
-   (`%%metro stroke_scale:` /
-   `--stroke-scale`). Layout reserves against the same scales via
-   `layout/pass_metrics.py`, and both sides resolve bundle pitch through
-   `graph_offset_step`, so what the renderer draws cannot outgrow what layout
-   reserved.
-2. Calls `_render_svg_scaled`, which does the actual drawing via the
-   `drawsvg` library.
-3. If `graph.animate` is set (or `--animate` was passed), calls
+   directive or the `--font-scale` CLI flag). It also scales stroke widths and
+   station pills by `graph.stroke_scale`. Layout reserves space with the same
+   scale values.
+2. Builds a `RenderPlan` from a private graph copy.
+3. Calls `emit_render_plan`, which draws the plan with `drawsvg`.
+4. If `graph.animate` is set (or `--animate` was passed), calls
    `render_animation` from `animate.py` to add travelling balls.
-4. If a manifest is requested, calls `build_manifest` from `manifest.py`
-   and injects it into the SVG element.
+5. If requested, embeds the plan's node, group, region, marker, and canvas
+   geometry as a manifest.
 
-`apply_route_offsets(routes, station_offsets)` is also exported from
-`svg.py`. It fans a bundle of co-travelling routes into parallel tracks
-by applying the per-station Y offsets computed by `compute_station_offsets`
-in `routing/offsets.py`. This is a separate function (not called inside
-`render_svg`) so that `animate.py` can share the same offset-applied paths
-rather than recomputing them.
+`apply_route_offsets(routes, station_offsets)` lives in
+`layout/routing/common.py`. It separates a route bundle into parallel tracks.
+It uses the per-station offsets from `compute_station_offsets` in
+`routing/offsets.py`. Animation uses the same offset paths.
 
 ### What gets drawn
 
-`_render_svg_scaled` draws in layers:
+`emit_render_plan` draws in layers:
 
 1. **Section boxes** - rounded rectangles with optional section labels and
    tick marks for group labels.
-2. **Edges** - polylines from `RoutedPath.waypoints`, with quadratic Bézier
+2. **Edges** - polylines from `RoutedPath.points`, with quadratic Bézier
    curves at corners (radius computed by `routing/corners.py`). Where
    `compute_bridges` identifies a non-merging crossing, `_render_bridged_edge`
    draws the under-route with a gap (see [Bridges](#bridges-bridgespy) below).
@@ -87,9 +94,9 @@ polyline at the gap span and renders each piece separately.
 
 ## Interactive HTML (`html.py`)
 
-`render_html(graph, theme, ...)` wraps `render_svg` in a self-contained
-HTML page. It suppresses the SVG legend (the side panel takes its place)
-and returns a full HTML string.
+`render_html(graph, theme, ...)` builds a plan without an SVG legend, because
+the HTML side panel replaces it. It then passes the plan to
+`emit_render_plan_html` and returns a complete HTML page.
 
 The HTML output has two delivery modes:
 
@@ -102,14 +109,14 @@ The HTML output has two delivery modes:
   a `<div>` with scoped CSS and an IIFE - paste into any HTML host (MkDocs,
   Confluence, blog templates) without hosting a separate file.
 
-Both modes share a single `_SHARED_JS` block (`attachMetroMap`) so the
+Both modes use the same driver from `get_driver_js`, so the
 interaction behaviour is identical. The embed snippet scopes CSS under a
 per-render hash (`.nfmm-<sha1[:8]>`) so multiple maps can coexist on one
 page.
 
 ## Manifest (`manifest.py`)
 
-`build_manifest(graph)` maps the laid-out `MetroGraph` onto the
+Plan construction maps the final render geometry onto the
 [embedded-manifest standard](/nf-metro/manifest/): stations become nodes,
 sections become groups, and visual regions (section bboxes) become regions.
 The manifest is serialised to JSON and injected as a `<metadata>` element
@@ -121,52 +128,39 @@ own distribution). `render/manifest.py` is the thin nf-metro-specific
 adapter: it imports from `nf_metro.manifest` and re-exports the public API
 so that existing `nf_metro.render.manifest` import paths keep working.
 
-`manifest_metadata_svg(graph)` returns the raw SVG `<metadata>` XML string
+`manifest_metadata_svg(manifest)` returns the raw SVG `<metadata>` XML string
 for cases where the caller assembles the SVG element manually.
 
 ## Render-geometry validation (`validate.py`)
 
-The layout guards and routing invariants validate geometry _before_ the
-render-time regimes run - the per-line offsets `apply_route_offsets` applies,
-the multi-line label Y-shifts, and the wrapped-label lift. The picture the
-user sees only exists in the emitted SVG, so a class of defect (a line drawn
-through a label only after the offsets shift it) is invisible to them.
+Layout guards run before rendering applies line offsets and final label
+adjustments. Some problems can appear only in the finished SVG. For example,
+an offset can move a line across a label.
 
-`validate_render(svg)` closes that gap from the other side. It reads the
-finished artifact back into geometry - node markers from the embedded
-manifest, route polylines from the drawn `<path data-line-id>` ink (splitting
-at each `M` so a bridge-hop gap is a real break, and collapsing each smoothing
-`Q` to its corner), and label ink boxes from the drawn `<text>` ink - then
-runs render-geometry checks on what was drawn. Three checks run:
+`validate_render(svg)` checks the finished output. It reads station markers
+from the embedded manifest, routes from the drawn path elements, and labels
+from the drawn text elements. It then runs three checks:
 
-- **label-strike** reuses the authoritative `segment_strikes_label` predicate
-  at the label's drawn font scale, so a finding means the rendered image is
-  wrong, not that a re-derivation diverged.
+- **label-strike** finds lines drawn through station-label text. It uses
+  `segment_strikes_label` at the rendered font size.
 - **marker-cross** flags a route segment through a non-consumer station's
-  marker (a line the station carries, via the manifest `groups`, is exempt).
-  Rail-interchange stations are exempt too - a line threading an interchange
-  knob is the intended rail idiom - and their ids are read back from the drawn
-  `...-rail-...` markers, since the manifest carries no rail flag.
+  marker. A station that carries the line is exempt. Rail interchanges are
+  also exempt because lines are meant to pass through their markers.
 - **offset-collapse** flags two distinct lines drawn flush where the offset
-  regime assigned them a full `OFFSET_STEP` apart. Two lines on the same
-  assigned slot draw flush by design (a shared-trunk bundle), so the check
-  compares the drawn gap against the gap the regime _assigned_, not a constant.
+  plan placed them at least one `OFFSET_STEP` apart. Lines assigned to the same
+  slot may share a track by design.
 
-label-strike and marker-cross are pure artifact oracles (the SVG string is
-enough), so they run on a produced file in CI, via `validate-svg --geometry`,
-and behind `render --validate`. offset-collapse needs the engine's assigned
-offsets to tell an intended same-slot bundle from a real merge, so
-`validate_render(svg, *, graph=...)` runs it only when the laid-out graph is
-supplied - the `render --validate` path and the CI corpus test, not the
-standalone SVG path.
+The label and marker checks need only the SVG. They run in
+`validate-svg --geometry` and `render --validate`. The offset check also needs
+the original `RenderPlan`, so call `validate_render(svg, plan=plan)` to enable
+it.
 
 ## Animation (`animate.py`)
 
-`render_animation(d, graph, routes, station_offsets, theme)` appends
-animated `<circle>` elements to an existing `drawsvg.Drawing`, each driven
-along its line by a CSS `offset-path` animation plus a shared `<style>`
-block of `@keyframes`. It is called by `_render_svg_scaled` when `animate`
-is `True`.
+`render_animation(d, graph, routes, station_offsets, theme)` appends animated
+`<circle>` elements to an existing `drawsvg.Drawing`. CSS `offset-path` and
+`@keyframes` move each circle along its line. `emit_render_plan` calls it when
+`animate` is `True`.
 
 CSS animation is used rather than SMIL `<animateMotion>` because SMIL does
 not run when an SVG is injected into a host page via `innerHTML` (the
@@ -199,7 +193,8 @@ selectable via `%%metro style: <key>` or `--style`.
 
 | Module         | Responsibility                                                                                                                     |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `svg.py`       | `render_svg` entry point; `apply_route_offsets`; all drawing passes (sections, edges, stations, icons, labels, legend)             |
+| `plan.py`      | Immutable `RenderPlan` data and conversion helpers                                                                                 |
+| `svg.py`       | `render_svg`, plan construction, SVG output, and drawing passes                                                                    |
 | `bridges.py`   | `compute_bridges` - detects genuine non-merging crossings and returns `BridgeBreak` gap spans; drawing is in `svg.py`              |
 | `html.py`      | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                       |
 | `manifest.py`  | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                     |

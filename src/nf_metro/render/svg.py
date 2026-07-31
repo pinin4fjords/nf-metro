@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-__all__ = ["apply_route_offsets", "render_svg"]
+__all__ = ["build_render_plan", "emit_render_plan", "render_svg"]
 
+import copy
 import html
 import math
 import re
@@ -39,7 +40,6 @@ from nf_metro.layout.phases.guards import (
 )
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.routing import (
-    RenderedGeometry,
     RoutedPath,
     apply_route_offsets,
     compute_station_offsets,
@@ -147,6 +147,13 @@ from nf_metro.render.manifest import build_manifest, manifest_metadata_svg
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.ns import ns as _ns
+from nf_metro.render.plan import (
+    FrozenGraph,
+    FrozenRecord,
+    RenderPlan,
+    freeze_render_value,
+    thaw_render_value,
+)
 from nf_metro.render.section_header import (
     SectionHeaderClashError,
     SectionHeaderOverflowError,
@@ -469,36 +476,65 @@ def render_svg(
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
-    if width is None:
-        width = graph.width
-    if height is None:
-        height = graph.height
     if animate is None:
         animate = graph.animate
 
+    with class_prefix_context(svg_class_prefix):
+        plan = build_render_plan(
+            graph,
+            theme,
+            width=width,
+            height=height,
+            padding=padding,
+            debug=debug,
+            legend_position=legend_position,
+            chrome_css=chrome_css,
+            bare=bare,
+        )
+        svg = emit_render_plan(
+            plan,
+            animate=animate,
+            responsive=responsive,
+            inject_dark_mode_css=inject_dark_mode_css,
+            self_color_scheme=self_color_scheme,
+            baked_mode=baked_mode,
+        )
+
+    from nf_metro.render.font_embed import apply_font_portability
+
+    return apply_font_portability(svg, font_portability)
+
+
+def build_render_plan(
+    graph: MetroGraph,
+    theme: Theme,
+    width: int | None = None,
+    height: int | None = None,
+    padding: float = CANVAS_PADDING,
+    *,
+    debug: bool = False,
+    legend_position: str | None = None,
+    chrome_css: bool = True,
+    bare: bool = False,
+) -> RenderPlan:
+    """Build an immutable render plan without changing the caller's graph."""
     scaled_theme = _scale_theme_strokes(
         _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
     )
     with (
-        class_prefix_context(svg_class_prefix),
         font_scale_context(graph.font_scale),
         stroke_scale_context(graph.stroke_scale),
     ):
         try:
-            svg = _render_svg_scaled(
+            plan = _build_render_plan_scaled(
                 graph,
                 scaled_theme,
-                width=width,
-                height=height,
+                width=width if width is not None else graph.width,
+                height=height if height is not None else graph.height,
                 padding=padding,
-                animate=animate,
                 debug=debug,
                 legend_position=legend_position,
-                responsive=responsive,
-                inject_dark_mode_css=inject_dark_mode_css,
                 chrome_css=chrome_css,
-                self_color_scheme=self_color_scheme,
-                baked_mode=baked_mode,
                 bare=bare,
             )
         except (CurveInvariantError, SectionHeaderClashError) as exc:
@@ -511,18 +547,7 @@ def render_svg(
         reframed = _fold_threshold_error(graph)
         if reframed is not None:
             raise reframed
-
-    if font_portability == "paths":
-        from nf_metro.render.font_embed import text_to_paths as _text_to_paths
-
-        return _text_to_paths(svg)
-
-    if font_portability == "embed":
-        from nf_metro.render.font_embed import embed_font as _embed_font
-
-        return _embed_font(svg)
-
-    return svg
+    return plan
 
 
 def _fold_threshold_error(graph: MetroGraph) -> FoldThresholdError | None:
@@ -617,11 +642,6 @@ def _settle_render_geometry(
     sections.  A smaller sub-``section_y_gap`` shortfall draws no overlap and is
     left as laid out.
 
-    The settled geometry is published on ``graph.rendered_geometry``: label
-    placement grows section bboxes that routing consults, so a graph re-routed
-    after this returns yields paths that were never drawn.  Publishing is the
-    only way a later reader of the picture can see it.
-
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
     render-time row shift, so a collision involving one is left for the guard to
@@ -665,30 +685,23 @@ def _settle_render_geometry(
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
     assert_render_header_clearance(graph, strict=effective_strict)
-    graph.rendered_geometry = RenderedGeometry(
-        station_offsets=station_offsets, routes=tuple(routes)
-    )
     return station_offsets, routes, labels
 
 
-def _render_svg_scaled(
-    graph: MetroGraph,
+def _build_render_plan_scaled(
+    source_graph: MetroGraph,
     theme: Theme,
     *,
     width: int | None,
     height: int | None,
     padding: float,
-    animate: bool,
     debug: bool,
     legend_position: str | None,
-    responsive: bool = False,
-    inject_dark_mode_css: bool = True,
     chrome_css: bool = True,
-    self_color_scheme: bool = True,
-    baked_mode: str | None = None,
     bare: bool = False,
-) -> str:
-    """Render body, run with ``theme`` fonts and label metrics already scaled."""
+) -> RenderPlan:
+    """Finish render geometry on a private graph copy and freeze the result."""
+    graph = copy.deepcopy(source_graph)
     effective_legend_position = (
         legend_position if legend_position is not None else graph.legend_position
     )
@@ -700,8 +713,24 @@ def _render_svg_scaled(
     station_offsets, routes, labels = _settle_render_geometry(
         graph, theme, offset_step, section_y_gap
     )
+    line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
+    edge_routes = sorted(
+        routes, key=lambda route: -line_priority.get(route.line_id, -1)
+    )
+    route_indices = {id(route): index for index, route in enumerate(routes)}
+    edge_route_indices = tuple(route_indices[id(route)] for route in edge_routes)
+    route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    edge_polylines = [route_polylines[index] for index in edge_route_indices]
+    bridges = (
+        compute_bridges(
+            graph, edge_routes, edge_polylines, curve_radius=SVG_CURVE_RADIUS
+        )
+        if theme.bridge_glyph
+        else {}
+    )
+    bridge_breaks = tuple(tuple(bridges.get(id(route), ())) for route in edge_routes)
 
-    header_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    header_polylines = route_polylines
 
     # Per-station rendered label (top, bottom) Y, so group bands clear the
     # (possibly diagonal) station labels rather than just the markers.
@@ -805,22 +834,9 @@ def _render_svg_scaled(
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
 
-    # Local import: themes imports render.style, so a module-level import here
-    # would close a render <-> themes cycle depending on first-import order.
-    from nf_metro.themes import mode_pair
-
-    root_attrs: dict[str, str] = {}
-    if responsive:
-        root_attrs["preserveAspectRatio"] = "xMinYMin meet"
-    if self_color_scheme and mode_pair(theme) is not None:
-        color_scheme = baked_mode if baked_mode is not None else "light dark"
-        root_attrs["style"] = f"color-scheme: {color_scheme}"
-    d = draw.Drawing(svg_width, svg_height, **root_attrs)
-
     positive_fan = tb_positive_fan_sections(graph)
 
-    # Embed the machine-readable manifest first, so the file is a durable,
-    # self-describing contract regardless of what is drawn below it.
+    manifest = None
     if graph.embed_manifest:
         boxes: dict[str, dict[str, float]] = {}
         for s in graph.stations.values():
@@ -837,7 +853,97 @@ def _render_svg_scaled(
             station_radius=theme.station_radius,
             extra_node_data=boxes,
         )
-        d.append(draw.Raw(manifest_metadata_svg(manifest)))
+    frozen_graph = freeze_render_value(graph)
+    assert isinstance(frozen_graph, FrozenGraph)
+    frozen_theme = freeze_render_value(theme)
+    assert isinstance(frozen_theme, FrozenRecord)
+    return RenderPlan(
+        theme=frozen_theme,
+        graph=frozen_graph,
+        station_offsets=freeze_render_value(station_offsets),
+        routes=freeze_render_value(routes),
+        route_polylines=freeze_render_value(route_polylines),
+        edge_route_indices=edge_route_indices,
+        bridge_breaks=freeze_render_value(bridge_breaks),
+        labels=freeze_render_value(labels),
+        header_placements=freeze_render_value(header_placements),
+        group_bands=freeze_render_value(group_bands),
+        positive_fan_sections=frozenset(positive_fan),
+        svg_width=svg_width,
+        svg_height=svg_height,
+        padding=padding,
+        legend_x=legend_x,
+        legend_y=legend_y,
+        legend_w=legend_w,
+        legend_h=legend_h,
+        show_legend=show_legend,
+        show_logo=show_logo,
+        logo_in_legend=logo_in_legend,
+        adaptive_logo=adaptive_logo,
+        effective_logo=effective_logo,
+        resolved_logo_light=resolved_logo_light,
+        resolved_logo_dark=resolved_logo_dark,
+        logo_x=logo_x,
+        logo_y=logo_y,
+        logo_w=logo_w,
+        logo_h=logo_h,
+        legend_logo_size=legend_logo_size,
+        manifest=freeze_render_value(manifest) if manifest is not None else None,
+        debug=debug,
+        chrome_css=chrome_css,
+        bare=bare,
+    )
+
+
+def emit_render_plan(
+    plan: RenderPlan,
+    *,
+    animate: bool = False,
+    responsive: bool = False,
+    inject_dark_mode_css: bool = True,
+    self_color_scheme: bool = True,
+    baked_mode: str | None = None,
+) -> str:
+    """Create an SVG string from an immutable render plan."""
+    graph: Any = plan.graph
+    theme: Any = plan.theme
+    debug = plan.debug
+    chrome_css = plan.chrome_css
+    bare = plan.bare
+    station_offsets: Any = plan.station_offsets
+    routes: Any = plan.routes
+    edge_routes: Any = plan.edge_routes
+    bridge_breaks: Any = plan.bridge_breaks
+    labels: Any = plan.labels
+    header_placements: Any = plan.header_placements
+    group_bands: Any = plan.group_bands
+    positive_fan: Any = plan.positive_fan_sections
+    svg_width, svg_height = plan.svg_width, plan.svg_height
+    padding = plan.padding
+    legend_x, legend_y = plan.legend_x, plan.legend_y
+    show_legend = plan.show_legend
+    show_logo = plan.show_logo
+    logo_in_legend = plan.logo_in_legend
+    adaptive_logo = plan.adaptive_logo
+    effective_logo = plan.effective_logo
+    resolved_logo_light = plan.resolved_logo_light
+    resolved_logo_dark = plan.resolved_logo_dark
+    logo_x, logo_y = plan.logo_x, plan.logo_y
+    logo_w, logo_h = plan.logo_w, plan.logo_h
+    legend_logo_size = plan.legend_logo_size
+
+    from nf_metro.themes import mode_pair
+
+    root_attrs: dict[str, str] = {}
+    if responsive:
+        root_attrs["preserveAspectRatio"] = "xMinYMin meet"
+    if self_color_scheme and mode_pair(theme) is not None:
+        color_scheme = baked_mode if baked_mode is not None else "light dark"
+        root_attrs["style"] = f"color-scheme: {color_scheme}"
+    d = draw.Drawing(svg_width, svg_height, **root_attrs)
+
+    if plan.manifest is not None:
+        d.append(draw.Raw(manifest_metadata_svg(thaw_render_value(plan.manifest))))
 
     # Chrome CSS: custom properties so hosts can recolor without re-rendering.
     # Injected before the background rect so browser parsing order is correct.
@@ -900,7 +1006,7 @@ def _render_svg_scaled(
         _render_first_class_sections(d, graph, theme, header_placements)
 
     # Draw edges (lines) behind stations
-    _render_edges(d, graph, routes, station_offsets, theme)
+    _render_edges(d, graph, edge_routes, station_offsets, bridge_breaks, theme)
 
     # Directional chevrons ride on top of the lines but behind stations.
     if graph.directional:
@@ -1474,36 +1580,31 @@ def _render_edges(
     graph: MetroGraph,
     routes: list[RoutedPath],
     station_offsets: dict[tuple[str, str], float],
+    bridge_breaks: tuple[tuple[BridgeBreak, ...], ...],
     theme: Theme,
     curve_radius: float = SVG_CURVE_RADIUS,
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
 
-    # Group routes by metro line so each line's paths are contiguous in
-    # document order, then any two lines have the same relative paint order
-    # at every overlap.  Reverse-of-definition order makes the first-defined
-    # line paint last (on top everywhere).  Unknown line_ids sort to the
-    # back (painted last); Python's stable sort preserves within-group order.
-    line_priority = {lid: i for i, lid in enumerate(graph.lines)}
-    routes = sorted(routes, key=lambda r: -line_priority.get(r.line_id, -1))
-
     polylines = [apply_route_offsets(route, station_offsets) for route in routes]
-    bridges: dict[int, list[BridgeBreak]] = (
-        compute_bridges(graph, routes, polylines, curve_radius=curve_radius)
-        if theme.bridge_glyph
-        else {}
-    )
 
-    for route, pts in zip(routes, polylines):
+    for route, pts, breaks in zip(routes, polylines, bridge_breaks):
         line = graph.lines.get(route.line_id)
         color = line.color if line else FALLBACK_LINE_COLOR
         style_kw = line_style_kwargs(line.style) if line else {}
         class_name = _ns(f"metro-line-{route.line_id}")
-        breaks = bridges.get(id(route))
 
         if breaks:
             _render_bridged_edge(
-                d, pts, route, breaks, color, style_kw, class_name, theme, curve_radius
+                d,
+                pts,
+                route,
+                list(breaks),
+                color,
+                style_kw,
+                class_name,
+                theme,
+                curve_radius,
             )
         elif len(pts) == 2:
             d.append(
@@ -2997,64 +3098,6 @@ def _reserve_section_space_for_groups(
         target_bottom = far_y + GROUP_LABEL_BAND_PADDING
         if target_bottom > sec.bbox_y + sec.bbox_h:
             sec.bbox_h = target_bottom - sec.bbox_y
-
-
-def _reserve_rail_space_for_termini(graph: MetroGraph, theme: Theme) -> None:
-    """Grow rail-section boxes to contain their terminus file icons.
-
-    Rail-section bboxes are sized to the station columns only, so a terminus
-    station's icons (which march outward past the last station) can be cut by
-    the box edge.  Grow the box so the icons sit inside with clearance.  Gated
-    on rail sections, leaving normal-mode fixtures byte-identical.
-    """
-    if not graph.has_rail_sections:
-        return
-    clearance = ICON_STATION_GAP * 2
-    r = theme.station_radius
-    hw = theme.terminus_width / 2
-    hh = theme.terminus_height / 2
-    caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
-    for station in graph.stations.values():
-        if not (graph.station_is_rail(station.id) and station.is_terminus):
-            continue
-        sec = graph.sections.get(station.section_id) if station.section_id else None
-        if sec is None or sec.is_implicit:
-            continue
-        n = len(station.terminus_labels)
-        names = station.terminus_names or [""] * n
-        name_widths = [
-            len(nm) * caption_font_size * 0.55 if nm else 0.0 for nm in names
-        ]
-        is_vertical_flow = lanes_run_along_x(sec.direction)
-        if is_vertical_flow:
-            step = theme.terminus_height + ICON_INTER_GAP
-            half_flow = hh
-        else:
-            step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
-            half_flow = hw
-        centers = _terminus_icon_centers(
-            station,
-            sec.direction,
-            not graph.edges_to(station.id),
-            n,
-            r + ICON_STATION_GAP + half_flow,
-            step,
-            0.0,
-            is_rail=True,
-        )
-        for cx, cy in centers:
-            left, right = cx - hw - clearance, cx + hw + clearance
-            top, bot = cy - hh - clearance, cy + hh + clearance
-            if left < sec.bbox_x:
-                sec.bbox_w = sec.bbox_x + sec.bbox_w - left
-                sec.bbox_x = left
-            if right > sec.bbox_x + sec.bbox_w:
-                sec.bbox_w = right - sec.bbox_x
-            if top < sec.bbox_y:
-                sec.bbox_h = sec.bbox_y + sec.bbox_h - top
-                sec.bbox_y = top
-            if bot > sec.bbox_y + sec.bbox_h:
-                sec.bbox_h = bot - sec.bbox_y
 
 
 def _render_station_groups(

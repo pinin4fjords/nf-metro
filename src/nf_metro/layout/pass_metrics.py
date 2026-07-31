@@ -27,53 +27,50 @@ __all__ = [
 ]
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Iterator
 
 from nf_metro.layout.constants import STATION_RADIUS_APPROX, STATION_STROKE_APPROX
 
-_ACTIVE_FONT_SCALE: float = 1.0
-_ACTIVE_STROKE_SCALE: float = 1.0
+_ACTIVE_FONT_SCALE: ContextVar[float] = ContextVar("active_font_scale", default=1.0)
+_ACTIVE_STROKE_SCALE: ContextVar[float] = ContextVar("active_stroke_scale", default=1.0)
 
 
 def active_font_scale() -> float:
     """Font-size multiplier in effect for the current layout/render pass."""
-    return _ACTIVE_FONT_SCALE
+    return _ACTIVE_FONT_SCALE.get()
 
 
 @contextmanager
 def font_scale_context(scale: float) -> Iterator[None]:
     """Apply ``scale`` to the text metrics for the duration of the block."""
-    global _ACTIVE_FONT_SCALE
-    previous = _ACTIVE_FONT_SCALE
-    _ACTIVE_FONT_SCALE = scale
+    token = _ACTIVE_FONT_SCALE.set(scale)
     try:
         yield
     finally:
-        _ACTIVE_FONT_SCALE = previous
+        _ACTIVE_FONT_SCALE.reset(token)
 
 
 def active_stroke_scale() -> float:
     """Stroke-weight multiplier in effect for the current layout/render pass."""
-    return _ACTIVE_STROKE_SCALE
+    return _ACTIVE_STROKE_SCALE.get()
 
 
 @contextmanager
 def stroke_scale_context(scale: float) -> Iterator[None]:
     """Apply ``scale`` to the station-marker metrics for the block's duration."""
-    global _ACTIVE_STROKE_SCALE
-    previous = _ACTIVE_STROKE_SCALE
-    _ACTIVE_STROKE_SCALE = scale
+    token = _ACTIVE_STROKE_SCALE.set(scale)
     try:
         yield
     finally:
-        _ACTIVE_STROKE_SCALE = previous
+        _ACTIVE_STROKE_SCALE.reset(token)
 
 
 def station_radius_approx() -> float:
     """Station pill radius to reserve against, under the active stroke scale."""
-    return STATION_RADIUS_APPROX * _ACTIVE_STROKE_SCALE
+    return STATION_RADIUS_APPROX * active_stroke_scale()
 
 
 def station_stroke_approx() -> float:
     """Station marker stroke width to reserve against, under the active scale."""
-    return STATION_STROKE_APPROX * _ACTIVE_STROKE_SCALE
+    return STATION_STROKE_APPROX * active_stroke_scale()

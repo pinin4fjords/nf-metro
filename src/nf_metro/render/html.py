@@ -11,8 +11,10 @@ from typing import Literal
 
 from nf_metro.parser.model import MetroGraph
 from nf_metro.render.driver import get_driver_js
+from nf_metro.render.font_embed import apply_font_portability
+from nf_metro.render.plan import RenderPlan
 from nf_metro.render.style import Theme
-from nf_metro.render.svg import render_svg
+from nf_metro.render.svg import build_render_plan, emit_render_plan
 
 _pkg = files(__package__)
 
@@ -46,19 +48,43 @@ def render_html(
     ``font_portability``, ``inject_dark_mode_css``, and ``baked_mode`` are
     forwarded to the inlined SVG.  See :func:`nf_metro.render.svg.render_svg`.
     """
-    svg = render_svg(
+    plan = build_render_plan(
         graph,
         theme,
         width=width,
         height=height,
-        animate=animate,
         debug=debug,
         legend_position="none",
+    )
+    return emit_render_plan_html(
+        plan,
+        animate=graph.animate if animate is None else animate,
+        embed_basename=embed_basename,
         font_portability=font_portability,
         inject_dark_mode_css=inject_dark_mode_css,
         baked_mode=baked_mode,
     )
 
+
+def emit_render_plan_html(
+    plan: RenderPlan,
+    *,
+    animate: bool = False,
+    embed_basename: str = "metro_map.html",
+    font_portability: Literal["embed", "paths"] | None = None,
+    inject_dark_mode_css: bool = True,
+    baked_mode: str | None = None,
+) -> str:
+    """Create a standalone HTML page from an immutable render plan."""
+    svg = emit_render_plan(
+        plan,
+        animate=animate,
+        inject_dark_mode_css=inject_dark_mode_css,
+        baked_mode=baked_mode,
+    )
+    svg = apply_font_portability(svg, font_portability)
+
+    graph = plan.graph
     title = graph.title or "nf-metro map"
     lines = [
         {
