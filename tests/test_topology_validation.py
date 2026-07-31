@@ -67,103 +67,64 @@ def _compute_routes(graph):
 # --- Parametrized validation across all topologies ---
 
 
-@pytest.fixture(params=TOPOLOGY_FILES, ids=TOPOLOGY_IDS)
-def topology_graph(request):
-    """Load and lay out each topology fixture."""
-    return _load_and_layout(request.param)
+_ALMOST_HORIZONTAL_XFAILS = {
+    "funcprofiler_upstream": "known almost-horizontal humann3 junction edge",
+    "bypass_fan_in_outer_slot": "meth slope 0.075 in minimum-width column gap",
+}
+
+_ERROR_VALIDATORS = (
+    check_section_overlap,
+    check_station_containment,
+    check_port_boundary,
+    check_coordinate_sanity,
+    check_coincident_stations,
+    check_edge_waypoints,
+    check_edge_section_crossing,
+    check_perp_entry_precedes_flow_start,
+    check_intra_section_chain_alignment,
+    check_exit_port_feeder_alignment,
+)
 
 
-class TestTopologyValidation:
-    """Run all validator checks against every topology."""
+@pytest.mark.parametrize("path", TOPOLOGY_FILES, ids=TOPOLOGY_IDS)
+def test_topology_validation(path: Path) -> None:
+    """Run every read-only layout validator against one settled topology."""
+    graph = _load_and_layout(path)
+    problems: list[str] = []
+    for validator in _ERROR_VALIDATORS:
+        problems.extend(
+            f"{validator.__name__}: {violation.message}"
+            for violation in validator(graph)
+            if violation.severity == Severity.ERROR
+        )
+    if path.stem not in _ALMOST_HORIZONTAL_XFAILS:
+        problems.extend(
+            f"{check_almost_horizontal_edges.__name__}: {violation.message}"
+            for violation in check_almost_horizontal_edges(graph)
+            if violation.severity == Severity.WARNING
+        )
+    problems.extend(
+        f"station {sid!r} remains at the origin"
+        for sid, station in graph.stations.items()
+        if not station.is_port
+        and sid not in graph.junctions
+        and station.section_id is not None
+        and station.x == 0
+        and station.y == 0
+    )
+    assert not problems, "\n".join(problems)
 
-    def test_no_section_overlap(self, topology_graph):
-        violations = check_section_overlap(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
 
-    def test_station_containment(self, topology_graph):
-        violations = check_station_containment(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_port_boundary(self, topology_graph):
-        violations = check_port_boundary(topology_graph)
-        # Port boundary is a warning, but we still flag issues
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_coordinate_sanity(self, topology_graph):
-        violations = check_coordinate_sanity(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_no_coincident_stations(self, topology_graph):
-        violations = check_coincident_stations(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_edge_waypoints(self, topology_graph):
-        violations = check_edge_waypoints(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_no_edge_section_crossing(self, topology_graph):
-        violations = check_edge_section_crossing(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_perp_entry_precedes_flow_start(self, topology_graph):
-        violations = check_perp_entry_precedes_flow_start(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_no_almost_horizontal_edges(self, topology_graph, request):
-        # funcprofiler_upstream is the canonical bad-case fixture; its
-        # humann3 junction routing is a known defect (see #241 family).
-        if "funcprofiler_upstream" in request.node.name:
-            pytest.xfail("funcprofiler_upstream has a known almost-horizontal edge")
-        if "bypass_fan_in_outer_slot" in request.node.name:
-            pytest.xfail(
-                "bypass_fan_in_outer_slot: meth slope 0.075 in minimum-width column gap"
-            )
-        violations = check_almost_horizontal_edges(topology_graph)
-        warnings = [v for v in violations if v.severity == Severity.WARNING]
-        assert not warnings, "\n".join(v.message for v in warnings)
-
-    def test_intra_section_chain_alignment_no_errors(self, topology_graph):
-        """Same-line same-section consecutive stations should align (warning).
-
-        Multi-line hubs legitimately centre across tracks so routing absorbs
-        moderate offsets via L-shapes; failures here are upgraded only when
-        the engine emits ERROR severity (currently never - kept as a guard
-        against future tightening).
-        """
-        violations = check_intra_section_chain_alignment(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_exit_port_feeder_alignment_no_errors(self, topology_graph):
-        """Exit ports should align with at least one feeder (warning).
-
-        Multi-feeder fan-ins legitimately misalign all-but-one feeder.
-        ERROR severity is reserved for future tightening; CI gate is on
-        errors only.
-        """
-        violations = check_exit_port_feeder_alignment(topology_graph)
-        errors = [v for v in violations if v.severity == Severity.ERROR]
-        assert not errors, "\n".join(v.message for v in errors)
-
-    def test_all_stations_have_coordinates(self, topology_graph):
-        """Every real station should have been assigned non-default coords."""
-        for sid, station in topology_graph.stations.items():
-            if station.is_port or sid in topology_graph.junctions:
-                continue
-            if station.section_id is None:
-                continue
-            # At least one coordinate should be non-zero (offset is >= 80)
-            assert station.x != 0 or station.y != 0, (
-                f"Station '{sid}' still at origin (0,0)"
-            )
+@pytest.mark.parametrize(
+    ("stem", "reason"),
+    [
+        pytest.param(stem, reason, id=stem)
+        for stem, reason in _ALMOST_HORIZONTAL_XFAILS.items()
+    ],
+)
+def test_no_almost_horizontal_edges_known_defects(stem: str, reason: str) -> None:
+    """Document fixtures excluded from the almost-horizontal corpus check."""
+    pytest.xfail(f"{stem}: {reason}")
 
 
 # --- Serpentine stacked-section invariant (issue #421) ---

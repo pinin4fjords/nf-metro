@@ -14,6 +14,7 @@ two-section grid with simpler topology (variant calling).
 from __future__ import annotations
 
 import copy
+import json
 import warnings
 from collections import defaultdict
 from collections.abc import Iterator
@@ -277,6 +278,9 @@ def _discover_fixtures() -> list[str]:
 
 
 ALL_FIXTURES = _discover_fixtures()
+_FEATURE_MANIFEST = json.loads(
+    (REPO_ROOT / "tests/data/layout_fixture_features.json").read_text()
+)
 
 
 @lru_cache(maxsize=None)
@@ -345,17 +349,7 @@ _FIXTURES_MULTI_SECTION = _fixtures_with(lambda t: t.count("subgraph") >= 2)
 _FIXTURES_COMPACT = _fixtures_with(lambda t: "compact_offsets: true" in t)
 
 
-def _has_merge_fanout(text: str) -> bool:
-    """Whether a fixture contains a merge fan-out (one line to two merges)."""
-    try:
-        g = parse_metro_mermaid(text)
-        compute_layout(g)
-    except Exception:
-        return False
-    return bool(merge_fanout_junctions(g))
-
-
-_FIXTURES_WITH_MERGE_FANOUT = _fixtures_with(_has_merge_fanout)
+_FIXTURES_WITH_MERGE_FANOUT = _FEATURE_MANIFEST["merge_fanout"]
 
 # Multi-section gallery fixtures plus the serpentine-stacked
 # regression.  The regression's narrow ``reporting`` column nests under the
@@ -371,62 +365,9 @@ _FIXTURES_DOGLEG = _FIXTURES_MULTI_SECTION_PLUS_STACK
 _FIXTURES_INTER_ROW_CLEARANCE = _FIXTURES_MULTI_SECTION_PLUS_STACK
 
 
-def _fixtures_with_bypass() -> list[str]:
-    """Return fixtures whose layout produces at least one ``__bypass_``
-    hidden virtual station.  Computed by running layout once per fixture
-    at import time; cached at module level so the test parametrization
-    doesn't repeat the work.
-    """
-    out: list[str] = []
-    for name in ALL_FIXTURES:
-        try:
-            g = _layout(name)
-        except Exception:
-            continue
-        if any(st.is_hidden and is_bypass_v(sid) for sid, st in g.stations.items()):
-            out.append(name)
-    return out
-
-
-_FIXTURES_WITH_BYPASS = _fixtures_with_bypass()
-
-
-def _fixtures_with_downward_output() -> list[str]:
-    """Fixtures whose layout routes at least one off-track output below its
-    producer (a downward-branch output; see
-    :func:`_off_track_output_below`).
-    """
-    out: list[str] = []
-    for name in _FIXTURES_WITH_OFF_TRACK_OUTPUT:
-        try:
-            g = _layout(name)
-        except Exception:
-            continue
-        if _off_track_output_below(g):
-            out.append(name)
-    return out
-
-
-_FIXTURES_WITH_DOWNWARD_OUTPUT = _fixtures_with_downward_output()
-
-
-def _fixtures_with_above_output() -> list[str]:
-    """Off-track-output fixtures that lift at least one output *above* its
-    producer, excluding any whose only outputs route downward.
-    """
-    out: list[str] = []
-    for name in _FIXTURES_WITH_OFF_TRACK_OUTPUT:
-        try:
-            g = _layout(name)
-        except Exception:
-            continue
-        below = _off_track_output_below(g)
-        if any(o not in below for o in _off_track_output_sinks(g)):
-            out.append(name)
-    return out
-
-
-_FIXTURES_WITH_ABOVE_OUTPUT = _fixtures_with_above_output()
+_FIXTURES_WITH_BYPASS = _FEATURE_MANIFEST["bypass"]
+_FIXTURES_WITH_DOWNWARD_OUTPUT = _FEATURE_MANIFEST["downward_output"]
+_FIXTURES_WITH_ABOVE_OUTPUT = _FEATURE_MANIFEST["above_output"]
 
 
 def _off_track_input_consumer_map(
@@ -483,28 +424,9 @@ def _in_section_on_track_successors(
     return succs
 
 
-def _fixtures_with_linear_off_track_consumer() -> list[str]:
-    """Off-track-input fixtures with at least one consumer that continues
-    straight into the section trunk (exactly one on-track in-section
-    successor), the precondition of
-    :func:`test_off_track_consumer_on_section_trunk`.
-    """
-    out: list[str] = []
-    for name in _FIXTURES_WITH_OFF_TRACK_INPUT:
-        try:
-            g = _layout(name)
-        except Exception:
-            continue
-        jids = set(g.junctions)
-        consumers = _off_track_consumer_ids(g, jids)
-        if any(
-            len(_in_section_on_track_successors(g, cid, jids)) == 1 for cid in consumers
-        ):
-            out.append(name)
-    return out
-
-
-_FIXTURES_WITH_LINEAR_OFF_TRACK_CONSUMER = _fixtures_with_linear_off_track_consumer()
+_FIXTURES_WITH_LINEAR_OFF_TRACK_CONSUMER = _FEATURE_MANIFEST[
+    "linear_off_track_consumer"
+]
 
 
 def _fp(name: str, fail_reason: str | None = None):
@@ -944,25 +866,7 @@ def _sole_continuation_pairs(graph: MetroGraph) -> list[tuple[str, str, str]]:
     return pairs
 
 
-def _fixtures_with_sole_continuation() -> list[str]:
-    """Corpus fixtures that lay out at least one in-section sole continuation.
-
-    Layout is required to detect the pattern (bypass-V siblings are inserted
-    during resolve), so this lays out each fixture once via the shared cache.
-    Fixtures that fail to lay out are skipped here and caught elsewhere.
-    """
-    out: list[str] = []
-    for fixture in ALL_FIXTURES:
-        try:
-            graph = _layout(fixture)
-        except Exception:
-            continue
-        if _sole_continuation_pairs(graph):
-            out.append(fixture)
-    return out
-
-
-_FIXTURES_WITH_SOLE_CONTINUATION = _fixtures_with_sole_continuation()
+_FIXTURES_WITH_SOLE_CONTINUATION = _FEATURE_MANIFEST["sole_continuation"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_SOLE_CONTINUATION)
@@ -1092,23 +996,7 @@ def test_flat_frame_boundary_run_stays_level(fixture, src_sec, dst_sec, line_id)
 # ---------------------------------------------------------------------------
 
 
-def _fixtures_with_corridor_solo() -> list[str]:
-    """Corpus fixtures with at least one corridor-fed single-line section."""
-    out: list[str] = []
-    for fixture in ALL_FIXTURES:
-        try:
-            graph = _layout(fixture)
-        except Exception:
-            continue
-        if (
-            next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None)
-            is not None
-        ):
-            out.append(fixture)
-    return out
-
-
-_FIXTURES_WITH_CORRIDOR_SOLO = _fixtures_with_corridor_solo()
+_FIXTURES_WITH_CORRIDOR_SOLO = _FEATURE_MANIFEST["corridor_solo"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_CORRIDOR_SOLO)
@@ -9245,27 +9133,63 @@ def test_thick_bundle_row_pitch(fixture):
 # ---------------------------------------------------------------------------
 
 
-def _fixtures_with_merge_port() -> list[str]:
-    """Fixtures with at least one reconvergence merge port.
+_FIXTURES_WITH_MERGE_PORT = _FEATURE_MANIFEST["merge_port"]
 
-    A merge port here is an LR/RL entry port fed by >= 2 exit ports with
-    both a horizontal co-traveller and a perpendicular feeder - the case
-    the approach-side allocation governs.  Computed once at import time.
-    """
+
+def _layout_feature_names(graph: MetroGraph, fixture: str) -> set[str]:
+    """Return the layout-derived parametrization features present in a graph."""
     from nf_metro.layout.routing.invariants import classify_merge_port_feeders
 
-    out: list[str] = []
-    for name in ALL_FIXTURES:
-        try:
-            g = _layout(name)
-        except Exception:
-            continue
-        if any(classify_merge_port_feeders(g, pid) is not None for pid in g.ports):
-            out.append(name)
-    return out
+    features: set[str] = set()
+    if merge_fanout_junctions(graph):
+        features.add("merge_fanout")
+    if any(
+        station.is_hidden and is_bypass_v(station_id)
+        for station_id, station in graph.stations.items()
+    ):
+        features.add("bypass")
+    if fixture in _FIXTURES_WITH_OFF_TRACK_OUTPUT:
+        below = _off_track_output_below(graph)
+        if below:
+            features.add("downward_output")
+        if any(output not in below for output in _off_track_output_sinks(graph)):
+            features.add("above_output")
+    if fixture in _FIXTURES_WITH_OFF_TRACK_INPUT:
+        junction_ids = set(graph.junctions)
+        consumers = _off_track_consumer_ids(graph, junction_ids)
+        if any(
+            len(_in_section_on_track_successors(graph, consumer, junction_ids)) == 1
+            for consumer in consumers
+        ):
+            features.add("linear_off_track_consumer")
+    if _sole_continuation_pairs(graph):
+        features.add("sole_continuation")
+    if next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None) is not None:
+        features.add("corridor_solo")
+    if any(
+        classify_merge_port_feeders(graph, port_id) is not None
+        for port_id in graph.ports
+    ):
+        features.add("merge_port")
+    return features
 
 
-_FIXTURES_WITH_MERGE_PORT = _fixtures_with_merge_port()
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_layout_fixture_feature_manifest(fixture: str) -> None:
+    """The lightweight parametrization manifest matches settled geometry."""
+    expected = {
+        feature
+        for feature, fixtures in _FEATURE_MANIFEST.items()
+        if fixture in fixtures
+    }
+    try:
+        actual = _layout_feature_names(_layout(fixture), fixture)
+    except Exception:
+        actual = set()
+    assert actual == expected, (
+        f"{fixture}: layout feature manifest differs; "
+        f"expected {sorted(expected)}, found {sorted(actual)}"
+    )
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_MERGE_PORT)
