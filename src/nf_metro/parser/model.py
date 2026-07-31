@@ -8,6 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 from nf_metro.errors import NfMetroError
+from nf_metro.parser.provenance import LayoutProvenance
 
 if TYPE_CHECKING:
     from nf_metro.parser.route_topology import RouteResolutionTrace, RouteTopology
@@ -460,11 +461,9 @@ class MetroGraph:
     )
     groups: list[StationGroup] = field(default_factory=list)
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
-    # Section IDs that received an explicit %%metro grid: directive (i.e.
-    # the user laid out the grid manually, as opposed to auto_layout
-    # filling in the placement).  Used to gate alignment polish passes
-    # that would distort auto-layout pipelines.
-    _explicit_grid: set[str] = field(default_factory=set)
+    layout_provenance: LayoutProvenance = field(
+        default_factory=LayoutProvenance, repr=False
+    )
     # Multi-section grid cells: a ``%%metro grid:`` directive may name several
     # comma-separated sections that share one cell.  Keyed by (col, row); each
     # value is the listed-order member ids, which pack side-by-side along the
@@ -566,19 +565,6 @@ class MetroGraph:
     marker_legend: list[MarkerLegendEntry] = field(default_factory=list)
     # Section dependency graph (populated by auto_layout)
     section_dag: SectionDAG | None = None
-    # Section IDs that had explicit %%metro direction: directives
-    _explicit_directions: set[str] = field(default_factory=set)
-    # Section IDs whose flow direction was flipped at resolve time to keep a
-    # flow-axis port on its consumer/producer's end (see resolve.py
-    # _reanchor_flow_axis_ports).  Their exit-port offsets anchor on the
-    # feeder bundle frame rather than re-centring on zero.
-    _fold_reoriented_sections: set[str] = field(default_factory=set, repr=False)
-    # Section IDs whose entry/exit port sides were author-specified via
-    # %%metro entry:/exit: directives (tracked separately because auto_layout
-    # fills entry_hints/exit_hints for sections that have none, so the hint
-    # list alone cannot tell an author side from an inferred one).
-    _explicit_entry: set[str] = field(default_factory=set)
-    _explicit_exit: set[str] = field(default_factory=set)
     # Section IDs whose perpendicular (TOP/BOTTOM) connection had to be bridged
     # across grid columns because its feeding source sits outside the section's
     # own column.  The run/trunk is held on the section's column (in-bbox) and
@@ -587,12 +573,9 @@ class MetroGraph:
     # render-curve invariants, so their presence relaxes that check to a
     # warning instead of a hard render abort.
     _cross_column_perp_bridges: set[str] = field(default_factory=set, repr=False)
-    # Effective row-wrap width when the author set one (--fold-threshold or
-    # %%metro fold_threshold), plus the auto-laid sections whose grid cell that
-    # width shifted versus the unbounded layout.  A non-empty set means the
-    # user-chosen threshold compressed the section grid; the render chokepoint
-    # uses it to reframe a fold-induced routing abort as FoldThresholdError.
-    _fold_threshold_effective: int | None = None
+    # Auto-laid sections whose grid cell a caller- or directive-supplied fold
+    # threshold shifted versus the unbounded layout. A non-empty set lets the
+    # render chokepoint reframe a fold-induced routing abort.
     _fold_compressed_sections: set[str] = field(default_factory=set, repr=False)
     # Pending terminus designations: station_id ->
     # list of (label, icon_type, name, banner)

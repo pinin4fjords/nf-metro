@@ -453,5 +453,4 @@ class TestInterSectionPortSnap:
     def test_auto_layout_unaffected(self):
         """The snap stays off for purely auto-layout pipelines."""
         g = _load("variant_calling_tuned")
-        # Without any %%metro grid: directive, no explicit_grid entries.
-        assert not g._explicit_grid
+        assert not g.layout_provenance.has_authored_grids()

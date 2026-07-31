@@ -58,6 +58,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.provenance import DecisionReason
 from nf_metro.parser.route_topology import (
     RouteTopologyQuery,
     build_route_topology_query,
@@ -1485,7 +1486,9 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
         # on zero would desync the port from those feeders and leave the bundle
         # on non-adjacent slots after reconciliation.  Anchor on the feeder's
         # own offset instead so the whole bundle keeps one frame.
-        if port_obj.section_id in graph._fold_reoriented_sections:
+        if graph.layout_provenance.direction_has_reason(
+            port_obj.section_id, DecisionReason.FLOW_REORIENTED_DIRECTION
+        ):
             anchor_feeders = line_feeders.get(anchor_line)
             if anchor_feeders:
                 anchor_feeder_id = anchor_feeders[0][0]

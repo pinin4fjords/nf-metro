@@ -27,6 +27,7 @@ from nf_metro.parser.model import (
     Section,
     SectionDAG,
 )
+from nf_metro.parser.provenance import DecisionReason
 from nf_metro.parser.validate import CyclicGraphError
 
 
@@ -230,6 +231,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
     """
     if len(graph.sections) <= 1:
         graph.section_dag = SectionDAG(successors={}, predecessors={}, edge_lines={})
+        graph.layout_provenance.complete_section_inference(graph, set())
         return
 
     successors, predecessors, edge_lines = _build_section_dag(graph)
@@ -239,6 +241,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
 
     # Only run grid/direction/port inference if there are inter-section edges
     if not successors and not predecessors:
+        graph.layout_provenance.complete_section_inference(graph, set())
         return
 
     fold_sections, below_fold_sections, convergence_sections = _assign_grid_positions(
@@ -261,6 +264,7 @@ def infer_section_layout(graph: MetroGraph, max_station_columns: int = 15) -> No
         fold_sections,
         convergence_sections,
     )
+    graph.layout_provenance.complete_section_inference(graph, fold_sections)
 
 
 def _build_section_dag(
@@ -371,7 +375,7 @@ def _detect_tall_anchor_chain(graph: MetroGraph) -> str | None:
     # A single explicit pin is manual layout intent for the whole map; the
     # vertical-stack packer owns every section's cell, so it must not run
     # alongside hand-placed grids.
-    if graph._explicit_grid:
+    if graph.layout_provenance.has_authored_grids():
         return None
     successors, predecessors = dag.successors, dag.predecessors
     section_ids = list(graph.sections)
@@ -448,6 +452,11 @@ def _place_with_tall_anchor(
 
     for sid, (col, row, rspan, cspan) in folded.items():
         graph.grid_overrides[sid] = (col, row, rspan, cspan)
+        graph.layout_provenance.record_inferred_grid(
+            sid,
+            (col, row, rspan, cspan),
+            DecisionReason.TALL_ANCHOR_GRID,
+        )
         section = graph.sections[sid]
         section.grid_col = col
         section.grid_row = row
@@ -461,7 +470,12 @@ def _place_with_tall_anchor(
     # directions makes _infer_directions leave them LR.
     for sid in [anchor, *tail]:
         graph.sections[sid].direction = "LR"
-        graph._explicit_directions.add(sid)
+        graph.layout_provenance.record_inferred_direction(
+            sid,
+            "LR",
+            DecisionReason.TALL_ANCHOR_DIRECTION,
+            locked=True,
+        )
 
     return set(), set(), set()
 
@@ -1204,7 +1218,7 @@ def _infer_directions(
 ) -> None:
     """Infer section flow direction (LR/RL/TB/BT) from grid positions.
 
-    Only modifies sections NOT in graph._explicit_directions.
+    Only modifies sections whose effective direction is not locked.
     Fold sections are forced to TB (they bridge between row bands).
     Every other auto-gridded section is classified by
     :func:`_classify_inferred_direction`.
@@ -1216,10 +1230,10 @@ def _infer_directions(
     neighbours in mixed grids.
     """
     for sec_id, section in graph.sections.items():
-        if sec_id in graph._explicit_directions:
+        if graph.layout_provenance.direction_is_locked(sec_id):
             continue
 
-        if sec_id in graph._explicit_grid:
+        if graph.layout_provenance.author_owns_grid(sec_id):
             continue
 
         # Fold sections are always TB (vertical bridge between rows)

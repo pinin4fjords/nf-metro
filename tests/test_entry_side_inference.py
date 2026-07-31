@@ -77,8 +77,8 @@ def test_build_mapping_shares_one_side_across_a_sections_lines() -> None:
     _, inter_section_edges = resolve._classify_edges(graph)
     mapping = resolve._build_entry_side_mapping(graph, inter_section_edges)
     by_section: dict[str, set[PortSide]] = {}
-    for (sec_id, _line), side in mapping.items():
-        by_section.setdefault(sec_id, set()).add(side)
+    for (sec_id, _line), selection in mapping.items():
+        by_section.setdefault(sec_id, set()).add(selection.side)
     for sec_id, sides in by_section.items():
         assert len(sides) == 1, f"{sec_id} resolved to multiple entry sides: {sides}"
 
@@ -100,7 +100,9 @@ def test_conflicting_side_hints_collapse_to_one_fed_hinted_side_and_warn() -> No
         )
         _, inter_section_edges = resolve._classify_edges(graph)
         mapping = resolve._build_entry_side_mapping(graph, inter_section_edges)
-    sec_g_sides = {side for (sec, _line), side in mapping.items() if sec == "sec_g"}
+    sec_g_sides = {
+        selection.side for (sec, _line), selection in mapping.items() if sec == "sec_g"
+    }
     assert sec_g_sides == {PortSide.LEFT}, f"sec_g resolved to {sec_g_sides}"
     assert any("sec_g" in str(w.message) and "TOP" in str(w.message) for w in caught), (
         "no warning naming the dropped sec_g TOP hint"

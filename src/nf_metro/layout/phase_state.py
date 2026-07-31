@@ -230,18 +230,6 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
             "tolerate its empty default when no fold compression occurred"
         ),
     ),
-    "_fold_reoriented_sections": PhaseFieldSpec(
-        name="_fold_reoriented_sections",
-        writer_stage=PRE_LAYOUT,
-        reader_stages=(POST_LAYOUT,),
-        enforcement=FieldEnforcement.FALLBACK,
-        why=(
-            "sections whose flow direction resolve.py flipped to keep a flow-axis "
-            "port on its consumer/producer end; routing's exit-port offset reads "
-            "the set to anchor on the feeder-bundle frame, tolerating the empty "
-            "default"
-        ),
-    ),
     "_rail_y": PhaseFieldSpec(
         name="_rail_y",
         writer_stage=RAIL_LAYOUT,

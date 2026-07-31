@@ -169,16 +169,19 @@ def transformable_reason(graph: MetroGraph) -> str | None:
     from the rotated source, and inference answering differently is not the
     engine laying one geometry out two ways.
 
-    ``resolve`` adds a fold-reoriented section to ``_explicit_directions``, so
-    those are subtracted to leave author-declared flows only.
+    Effective directions carry independent author-ownership and lock state, so
+    a resolve-time pin never makes an inferred direction transformable.
     """
     sections = set(graph.sections)
     if len(sections) < 2:
         return "single section: every transform is the identity"
-    authored = graph._explicit_directions - graph._fold_reoriented_sections
+    authored = {
+        sid for sid in sections if graph.layout_provenance.author_owns_direction(sid)
+    }
     if inferred := sections - authored:
         return f"inferred flow direction: {sorted(inferred)}"
-    if ungridded := sections - graph._explicit_grid:
+    gridded = {sid for sid in sections if graph.layout_provenance.author_owns_grid(sid)}
+    if ungridded := sections - gridded:
         return f"inferred grid cell: {sorted(ungridded)}"
     return None
 

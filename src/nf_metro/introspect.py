@@ -23,7 +23,11 @@ resolution internally; no full layout pass is required.
 from __future__ import annotations
 
 import json
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
+
+from nf_metro.parser.provenance import ConnectorEndpointRole, EffectiveDecision
+from nf_metro.parser.route_topology import build_route_topology_query
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
@@ -31,6 +35,71 @@ if TYPE_CHECKING:
 __all__ = ["build_info", "format_info_json", "format_info_text", "station_kind"]
 
 StationKind = Literal["station", "junction", "port", "bypass", "hidden", "unknown"]
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    return value
+
+
+def _decision_info(decision: EffectiveDecision[Any] | None) -> dict[str, Any] | None:
+    if decision is None:
+        return None
+    return {
+        "value": _json_value(decision.value),
+        "origin": decision.origin.value,
+        "state": decision.state.value,
+        "locked": decision.is_reinference_locked,
+        "reason": decision.reason.value,
+        "authored_values": [_json_value(value) for value in decision.authored_values],
+    }
+
+
+def _connector_side_info(
+    graph: MetroGraph,
+    section_id: str,
+    role: ConnectorEndpointRole,
+) -> list[dict[str, Any]]:
+    topology = graph.route_topology
+    if topology is None:
+        return []
+    records: list[dict[str, Any]] = []
+    for connector in topology.connectors:
+        endpoint_section = (
+            connector.source_section
+            if role is ConnectorEndpointRole.EXIT
+            else connector.target_section
+        )
+        if endpoint_section != section_id:
+            continue
+        endpoint = graph.layout_provenance.endpoint_key(connector.id, role)
+        decision = graph.layout_provenance.endpoint_decision(endpoint)
+        records.append(
+            {
+                "connector_id": str(connector.id),
+                "line_id": connector.line_id,
+                "source": connector.source,
+                "target": connector.target,
+                "provenance": _decision_info(decision),
+            }
+        )
+    return records
+
+
+def _inferred_summary(records: list[dict[str, Any]]) -> bool | None:
+    ownership = {
+        record["provenance"]["origin"] == "authored"
+        for record in records
+        if record["provenance"] is not None
+    }
+    if not ownership:
+        return True
+    if len(ownership) > 1:
+        return None
+    return not next(iter(ownership))
 
 
 def station_kind(graph: MetroGraph, station_id: str) -> StationKind:
@@ -83,6 +152,10 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
 
     sections = []
     for sid, sec in graph.sections.items():
+        direction = graph.layout_provenance.direction_decision(sid)
+        grid = graph.layout_provenance.grid_decision(sid)
+        entry_sides = _connector_side_info(graph, sid, ConnectorEndpointRole.ENTRY)
+        exit_sides = _connector_side_info(graph, sid, ConnectorEndpointRole.EXIT)
         sections.append(
             {
                 "id": sid,
@@ -90,22 +163,28 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
                 "number": sec.number,
                 "n_stations": len(sec.station_ids),
                 "direction": sec.direction,
-                "direction_inferred": sid not in graph._explicit_directions,
+                "direction_inferred": (
+                    direction is None or not direction.is_author_owned
+                ),
+                "direction_provenance": _decision_info(direction),
                 "grid": {
                     "col": sec.grid_col,
                     "row": sec.grid_row,
                     "row_span": sec.grid_row_span,
                     "col_span": sec.grid_col_span,
                 },
-                "grid_inferred": sid not in graph._explicit_grid,
+                "grid_inferred": grid is None or not grid.is_author_owned,
+                "grid_provenance": _decision_info(grid),
                 "is_implicit": sec.is_implicit,
                 "stations": [
                     st for st in sec.station_ids if station_kind(graph, st) == "station"
                 ],
                 "entry_ports": list(sec.entry_ports),
                 "exit_ports": list(sec.exit_ports),
-                "entry_sides_inferred": sid not in graph._explicit_entry,
-                "exit_sides_inferred": sid not in graph._explicit_exit,
+                "entry_sides_inferred": _inferred_summary(entry_sides),
+                "exit_sides_inferred": _inferred_summary(exit_sides),
+                "entry_side_provenance": entry_sides,
+                "exit_side_provenance": exit_sides,
             }
         )
 
@@ -124,15 +203,31 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
         )
 
     ports = []
+    topology_query = build_route_topology_query(graph)
     for pid, port in graph.ports.items():
-        explicit_set = graph._explicit_entry if port.is_entry else graph._explicit_exit
+        role = (
+            ConnectorEndpointRole.ENTRY if port.is_entry else ConnectorEndpointRole.EXIT
+        )
+        side_provenance: list[dict[str, Any]] = []
+        if topology_query is not None:
+            for connector_id in topology_query.connector_ids_for_port(pid):
+                endpoint = graph.layout_provenance.endpoint_key(connector_id, role)
+                side_provenance.append(
+                    {
+                        "connector_id": str(connector_id),
+                        "provenance": _decision_info(
+                            graph.layout_provenance.endpoint_decision(endpoint)
+                        ),
+                    }
+                )
         ports.append(
             {
                 "id": pid,
                 "section_id": port.section_id,
                 "side": port.side.value,
                 "is_entry": port.is_entry,
-                "side_inferred": port.section_id not in explicit_set,
+                "side_inferred": _inferred_summary(side_provenance),
+                "side_provenance": side_provenance,
             }
         )
 
@@ -172,6 +267,9 @@ def build_info(graph: MetroGraph, warnings: list[str] | None = None) -> dict[str
         "junctions": sorted(graph.junctions),
         "section_dag": {"edges": dag_edges},
         "layout": {
+            "fold_threshold_provenance": _decision_info(
+                graph.layout_provenance.fold_threshold_decision
+            ),
             "rows": len(rows),
             "folded": len(rows) > 1,
             "sections_by_row": {
@@ -186,8 +284,10 @@ def format_info_json(info: dict[str, Any]) -> str:
     return json.dumps(info, indent=2)
 
 
-def _format_inferred(inferred: bool) -> str:
-    return "inferred" if inferred else "explicit"
+def _format_inferred(inferred: bool | None) -> str:
+    if inferred is None:
+        return "mixed"
+    return "inferred" if inferred else "authored"
 
 
 def format_info_text(info: dict[str, Any], *, verbose: bool = False) -> str:
@@ -251,11 +351,14 @@ def format_info_text(info: dict[str, Any], *, verbose: bool = False) -> str:
     out.append("")
     out.append("Sections (detail):")
     for sec in info["sections"]:
+        direction_state = sec["direction_provenance"]
+        grid_state = sec["grid_provenance"]
         tags = [
             "implicit" if sec["is_implicit"] else "explicit-box",
-            f"{sec['direction']} ({_format_inferred(sec['direction_inferred'])})",
+            f"{sec['direction']} "
+            f"({direction_state['state'] if direction_state else 'unrecorded'})",
             f"grid {sec['grid']['col']},{sec['grid']['row']} "
-            f"({_format_inferred(sec['grid_inferred'])})",
+            f"({grid_state['state'] if grid_state else 'unrecorded'})",
         ]
         out.append(f"  [{sec['number']}] {sec['name']}: {', '.join(tags)}")
         if sec["stations"]:

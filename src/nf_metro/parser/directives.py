@@ -183,10 +183,8 @@ def _parse_port_hint(
     if section:
         if is_entry:
             section.entry_hints.append((side, line_ids))
-            graph._explicit_entry.add(section_id)
         else:
             section.exit_hints.append((side, line_ids))
-            graph._explicit_exit.add(section_id)
 
 
 def _parse_grid_directive(value: str, graph: MetroGraph) -> None:
@@ -214,8 +212,9 @@ def _parse_grid_directive(value: str, graph: MetroGraph) -> None:
         _warn_malformed("grid", value, "integer col,row[,rowspan[,colspan]]")
         return
     for section_id in member_ids:
-        graph.grid_overrides[section_id] = (col, row, rowspan, colspan)
-        graph._explicit_grid.add(section_id)
+        cell = (col, row, rowspan, colspan)
+        graph.grid_overrides[section_id] = cell
+        graph.layout_provenance.record_authored_grid(section_id, cell)
     if len(member_ids) > 1:
         graph.cell_packs[col, row] = member_ids
 
@@ -541,7 +540,7 @@ def _apply_scoped_directive(
         direction = value.upper()
         if direction in FLOW_DIRECTIONS:
             graph.sections[section_id].direction = direction
-            graph._explicit_directions.add(section_id)
+            graph.layout_provenance.record_authored_direction(section_id, direction)
         else:
             _warn_malformed("direction", value, "LR/RL/TB/BT")
     else:

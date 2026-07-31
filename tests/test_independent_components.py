@@ -202,7 +202,7 @@ def test_explicit_grid_keeps_shared_grid() -> None:
     """
     text = (EXAMPLES_DIR / "topologies" / "self_crossing_bridge.mmd").read_text()
     g = parse_metro_mermaid(text)
-    assert g._explicit_grid  # author pinned positions
+    assert g.layout_provenance.has_authored_grids()
     comps = _weakly_connected_components(g, g.section_dag.section_edges)
     assert len(comps) == 2
     # Layout still succeeds and respects the explicit interleaving: the

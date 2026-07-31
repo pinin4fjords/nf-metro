@@ -248,6 +248,11 @@ def _finalize_graph(
 ) -> None:
     """Validate, run the post-parse resolution, and apply buffered metadata."""
     _validate_edge_annotations(graph)
+    graph.layout_provenance.capture_authored_intent(
+        graph,
+        capture_authored_routes(graph),
+        max_station_columns,
+    )
 
     if graph.sections:
         _remove_empty_sections(graph)
@@ -326,7 +331,6 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
                 if (s.grid_col, s.grid_row) != unbounded_grid.get(sid)
             }
             if relocated:
-                graph._fold_threshold_effective = eff_cols
                 graph._fold_compressed_sections = relocated
         _insert_terminus_convergence_stations(graph, authored_lineage)
         endpoint_resolution = resolve_section_endpoints(graph, authored_lineage)

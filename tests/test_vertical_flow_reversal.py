@@ -20,6 +20,7 @@ import warnings
 import pytest
 
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section, Station
+from nf_metro.parser.provenance import DecisionOrigin, DecisionReason, DecisionState
 from nf_metro.parser.resolve import (
     _LEADING_SIDE,
     _TRAILING_SIDE,
@@ -88,9 +89,14 @@ def test_horizontal_fold_reverses_the_section(direction: str) -> None:
     """A horizontal section's flow is reversed, leaving its port hints alone."""
     graph, messages = _resolve(direction)
     mid = graph.sections["mid"]
+    decision = graph.layout_provenance.direction_decision("mid")
 
     assert mid.direction == _REVERSED[direction]
-    assert "mid" in graph._fold_reoriented_sections
+    assert decision is not None
+    assert decision.value == _REVERSED[direction]
+    assert decision.origin is DecisionOrigin.INFERRED
+    assert decision.state is DecisionState.INFERRED_THEN_PINNED
+    assert decision.reason is DecisionReason.FLOW_REORIENTED_DIRECTION
     assert mid.entry_hints == [(_TRAILING_SIDE[direction], ["a"])]
     assert mid.exit_hints == [(_LEADING_SIDE[direction], ["a"])]
     assert any("flow re-oriented" in m for m in messages), messages
@@ -108,7 +114,9 @@ def test_vertical_fold_reanchors_the_port(direction: str) -> None:
     mid = graph.sections["mid"]
 
     assert mid.direction == direction
-    assert "mid" not in graph._fold_reoriented_sections
+    assert not graph.layout_provenance.direction_has_reason(
+        "mid", DecisionReason.FLOW_REORIENTED_DIRECTION
+    )
     assert mid.exit_hints == [(_TRAILING_SIDE[direction], ["a"])]
     assert any("re-anchored" in m for m in messages), messages
 

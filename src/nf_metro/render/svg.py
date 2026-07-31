@@ -564,7 +564,8 @@ def _fold_threshold_error(graph: MetroGraph) -> FoldThresholdError | None:
         return None
     sections = ", ".join(sorted(relocated))
     return FoldThresholdError(
-        f"fold_threshold={graph._fold_threshold_effective} is too small for "
+        f"fold_threshold={graph.layout_provenance.effective_fold_threshold} "
+        "is too small for "
         f"this map: it folds section(s) {sections} into a tighter grid than "
         f"their natural layout, leaving the router no room to separate the "
         f"bundle curves. Raise --fold-threshold (or the %%metro fold_threshold "

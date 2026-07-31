@@ -277,10 +277,11 @@ so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,
   bridged across grid columns, accumulated by the Stage 3.2 / 3.4 port
   alignment; routing's render-curve invariant reads it to relax its abort to a
   warning for those bundles.
-- `graph._fold_compressed_sections` / `graph._fold_reoriented_sections` -
-  recorded at parse/resolve time for sections a lowered fold threshold
-  relocated or whose flow direction was flipped; read by the fold-exit-side
-  guard, the render fold-abort chokepoint, and routing's exit-port offset.
+- `graph._fold_compressed_sections` - recorded at parse time for sections a
+  lowered fold threshold relocated; read by the fold-exit-side guard and the
+  render fold-abort chokepoint. A resolve-time flow reversal is recorded as a
+  `FLOW_REORIENTED_DIRECTION` decision in `graph.layout_provenance`; routing's
+  exit-port offset reads that typed reason instead of a second section set.
 - `graph._rail_y` - the per-section `{line_id: rail_y}` map produced by the
   opt-in rail-mode layout; read by the rail router, label placement, and rail
   guards, empty when rail mode is off.
@@ -1039,9 +1040,10 @@ in pipeline order.
   still has an empty band above the trunk while more siblings sit
   below than above, lift bottommost movable siblings into the empty
   top band. U-turn-safe and bbox-bounded.
-- **Gating**: Early-returns unless **both** `graph._explicit_grid` and
-  `graph.center_ports` are set (scoped to explicit-`%%metro grid:` +
-  centre-ports pipelines), so it is a no-op on auto-laid graphs.
+- **Gating**: Early-returns unless `graph.layout_provenance` contains at least
+  one author-owned grid decision and `graph.center_ports` is set (scoped to
+  explicit-`%%metro grid:` + centre-ports pipelines), so it is a no-op on
+  auto-laid graphs.
 - **Helper**: `_balance_section_content_around_trunk` (`phases/balancing.py`).
 - **Precondition**: All earlier 13-phase reshuffles done.
 - **Postcondition**: Sibling count above trunk >= sibling count below

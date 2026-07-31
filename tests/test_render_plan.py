@@ -10,6 +10,7 @@ import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.parser.model import MetroGraph
+from nf_metro.parser.provenance import LayoutProvenance
 from nf_metro.render.html import emit_render_plan_html
 from nf_metro.render.manifest import read_manifest
 from nf_metro.render.plan import (
@@ -125,9 +126,11 @@ def test_route_metadata_is_excluded_from_render_artifacts(path: str) -> None:
     graph, observed = _plan(path)
     graph.route_topology = None
     graph.route_resolution = None
+    graph.layout_provenance = LayoutProvenance()
     baseline = build_render_plan(graph, resolve_theme(None, graph))
 
     assert observed == baseline
+    assert not hasattr(observed.graph, "layout_provenance")
     assert not hasattr(observed.graph, "route_topology")
     assert not hasattr(observed.graph, "route_resolution")
     assert emit_render_plan(observed) == emit_render_plan(baseline)

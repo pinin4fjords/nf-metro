@@ -105,6 +105,7 @@ from nf_metro.parser.model import (
     Station,
     is_converge_junction,
 )
+from nf_metro.parser.provenance import DecisionReason
 from nf_metro.parser.resolve import _expected_flow_side
 from nf_metro.parser.route_topology import build_route_topology_query
 
@@ -996,7 +997,11 @@ def _guard_independent_components_disjoint(graph: MetroGraph, phase: str) -> Non
         _weakly_connected_components,
     )
 
-    if not graph.sections or graph.section_dag is None or graph._explicit_grid:
+    if (
+        not graph.sections
+        or graph.section_dag is None
+        or graph.layout_provenance.has_authored_grids()
+    ):
         return
 
     components = _weakly_connected_components(graph, graph.section_dag.section_edges)
@@ -1079,19 +1084,23 @@ def _guard_no_section_overlap(graph: MetroGraph, phase: str) -> None:
 
 
 def _guard_explicit_grid_directions(graph: MetroGraph, phase: str) -> None:
-    """Explicit-grid sections keep the LR default unless they carry an
-    explicit %%metro direction.
+    """Explicit-grid sections skip auto direction inference.
 
     A section's grid position is the author's manual layout intent, not a
     flow-direction signal. Direction inference therefore skips explicit-grid
-    sections; this guard fails loudly if a future change ever lets inference
-    reorient one (e.g. by reading override-aware positions), which would
-    silently elongate serpentine-stacked maps vertically.
+    sections. Connector resolution may later reverse horizontal flow when an
+    authored port faces the section's producer; that distinct transition is
+    accepted only when its typed reason is present.
     """
     offenders = {
-        sid: graph.sections[sid].direction
-        for sid in graph._explicit_grid - graph._explicit_directions
-        if sid in graph.sections and graph.sections[sid].direction != "LR"
+        sid: section.direction
+        for sid, section in graph.sections.items()
+        if graph.layout_provenance.author_owns_grid(sid)
+        and not graph.layout_provenance.author_owns_direction(sid)
+        and section.direction != "LR"
+        and not graph.layout_provenance.direction_has_reason(
+            sid, DecisionReason.FLOW_REORIENTED_DIRECTION
+        )
     }
     if offenders:
         raise PhaseInvariantError(
