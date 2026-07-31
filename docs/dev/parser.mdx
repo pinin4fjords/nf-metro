@@ -350,9 +350,11 @@ several when one exit leg needs parallel bypass helpers. The records use scalar
 ids and tuples, so duplicate authored connectors can safely share paths. Bypass
 insertion updates the affected paths when it splits an exit leg.
 
-`RouteTopology` and `RouteResolutionTrace` are parser metadata and are excluded
-from `RenderPlan`. Clearing them cannot change plan, SVG, HTML, manifest, or
-layout output.
+`RouteTopology` and `RouteResolutionTrace` stay on `MetroGraph` while layout and
+routing run. They identify the authored fan, merge, and endpoint group behind
+each resolver-created port or junction. They are excluded from `RenderPlan`
+because that plan is created only after geometry has settled and needs no parser
+provenance to render SVG, HTML, or a manifest.
 
 ## Adding things
 

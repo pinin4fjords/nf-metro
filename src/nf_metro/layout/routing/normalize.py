@@ -2754,12 +2754,10 @@ def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> N
     routing, which intentionally lands branches on a shared bypass Y, is
     never perturbed.
     """
-    from nf_metro.layout.routing.invariants import (
-        _fanout_route_maps,
-        fanout_junctions,
-    )
+    from nf_metro.layout.route_topology import divergence_junction_sources
+    from nf_metro.layout.routing.invariants import _fanout_route_maps
 
-    fanouts = fanout_junctions(ctx.graph)
+    fanouts = divergence_junction_sources(ctx.graph, ctx.topology)
     if not fanouts:
         return
 
@@ -2797,9 +2795,9 @@ def _round_junction_perp_peeloff(routes: list[RoutedPath], ctx: _RoutingCtx) -> 
     Runs after :func:`_coincide_same_line_tracks` because the drop's column is
     the port X that convergence fusion settles, not a routing-time coordinate.
     """
-    from nf_metro.layout.routing.invariants import fanout_junctions
+    from nf_metro.layout.route_topology import divergence_junction_sources
 
-    fanouts = fanout_junctions(ctx.graph)
+    fanouts = divergence_junction_sources(ctx.graph, ctx.topology)
     if not fanouts:
         return
     graph = ctx.graph

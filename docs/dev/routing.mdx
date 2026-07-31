@@ -84,6 +84,48 @@ that adjust the assembled polylines as a set (for example
 `_spread_diagonal_bundles`, `_materialize_gap_slots`,
 `_materialize_trunk_slots`, `_coincide_same_line_tracks`).
 
+## Authored identity and final geometry
+
+Routing answers two different kinds of question. Keeping them separate avoids
+trying to recover authored intent from helper nodes that the resolver inserted.
+
+| Question                                                                                      | Source                                     |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Which authored connector, endpoint group, fan, or merge is this?                              | `RouteTopology` and `RouteResolutionTrace` |
+| Which port or junction represents that group?                                                 | `RouteResolutionTrace`                     |
+| Which corridor is clear, which feeder is the merge trunk, or where did a route actually turn? | The laid-out graph and routed polylines    |
+
+`RouteTopologyQuery` is the read-only bridge between the first two rows. It is
+built once for each routing or offset context. Its results follow authored
+topology order, and its reverse edge lookup returns every owning connector.
+That reverse lookup is deliberately one-to-many: exact duplicate connectors
+and shared resolver legs can occupy the same final edge.
+
+The query selects the semantic candidates for fan and merge handling. Geometry
+then makes the routing decision. For example, topology identifies a convergence
+junction and its entry port, while `_classify_merge_edges` still reads final
+coordinates to choose the farthest bypass feeder as the trunk. The same rule
+applies to offsets, normalization, and invariants: topology scopes the group;
+the final graph or polyline supplies the measurements.
+
+Several broad edge scans therefore remain by design:
+
+- `compute_bundle_info` groups final edges that share a routing corridor. An
+  authored `BundleRun` only means that connectors share exact authored
+  endpoints.
+- bypass-gap and fan-corridor passes inspect section positions and obstructions;
+- merge trunk and branch selection compares final spans and bypass channels;
+- exit-port alignment follows immediate resolved successors because a branch
+  feeding a merge can have a different geometric anchor from its authored
+  destination;
+- normalization groups settled vertical channels, trunks, and route endpoints;
+- runtime invariants inspect the geometry that will actually be drawn.
+
+Graphs parsed from Mermaid always carry both topology records. Hand-built
+`MetroGraph` objects may carry neither and use the compatibility classifier for
+their explicit junctions. Supplying only one record is invalid because it would
+mix authored identity with an incomplete resolver mapping.
+
 ## Bundles and offsets
 
 When several lines travel between the same pair of endpoints they form a

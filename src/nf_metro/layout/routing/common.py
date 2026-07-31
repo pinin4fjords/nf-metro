@@ -25,6 +25,10 @@ from nf_metro.layout.constants import (
     SECTION_ROUTE_CLEARANCE,
 )
 from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.route_topology import (
+    convergence_junction_ids,
+    merge_fanout_junction_ids,
+)
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 
@@ -2019,52 +2023,15 @@ def fan_corridor_band(
 
 
 def merge_junction_ids(graph: MetroGraph) -> set[str]:
-    """Hidden convergence junctions, matching the routing merge classifier.
-
-    A merge junction has two or more predecessors converging on a single
-    successor that is an entry port (the same test :func:`_classify_merge_edges`
-    applies), so a two-in / two-out crossing junction is not counted.
-    """
-    preds: dict[str, set[str]] = defaultdict(set)
-    succs: dict[str, set[str]] = defaultdict(set)
-    for e in graph.edges:
-        preds[e.target].add(e.source)
-        succs[e.source].add(e.target)
-    merges: set[str] = set()
-    for jid in graph.junction_ids:
-        if len(preds[jid]) <= 1 or len(succs[jid]) != 1:
-            continue
-        succ_port = graph.ports.get(next(iter(succs[jid])))
-        if succ_port is not None and succ_port.is_entry:
-            merges.add(jid)
-    return merges
+    """Resolved convergence junctions selected by semantic route identity."""
+    return set(convergence_junction_ids(graph))
 
 
 def merge_fanout_junctions(
     graph: MetroGraph, merges: set[str] | None = None
 ) -> set[str]:
-    """Sources that fan ONE line to two or more distinct merge junctions.
-
-    A *merge fan-out* is a source whose same-line outgoing edges reach two or
-    more merge junctions (``merges``, defaulting to :func:`merge_junction_ids`;
-    a caller that already holds the set passes it to avoid recomputing).  Its
-    merge branches leave the source together and should pivot through one shared
-    first corner before each turns off to its own merge, rather than opening
-    their descents on columns a few pixels apart.  A co-travelling branch to
-    some other target (e.g. an entry port) is out of scope here -- only the
-    branches into merge junctions define the shared corner.
-    """
-    if merges is None:
-        merges = merge_junction_ids(graph)
-    fanouts: set[str] = set()
-    for src in {e.source for e in graph.edges}:
-        by_line: dict[str, set[str]] = defaultdict(set)
-        for e in graph.edges_from(src):
-            if e.target in merges:
-                by_line[e.line_id].add(e.target)
-        if any(len(tgts) >= 2 for tgts in by_line.values()):
-            fanouts.add(src)
-    return fanouts
+    """Resolved divergences feeding two or more same-line convergences."""
+    return set(merge_fanout_junction_ids(graph, convergence_ids=merges))
 
 
 def merge_fanout_pivot_reference(

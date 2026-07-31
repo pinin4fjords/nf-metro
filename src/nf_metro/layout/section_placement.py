@@ -40,6 +40,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_y,
     shift_section,
 )
+from nf_metro.layout.route_topology import divergence_junction_sources
 from nf_metro.layout.routing.common import (
     inter_row_wrap_band,
     max_grid_row_with_content,
@@ -727,6 +728,7 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
     per_gap: dict[tuple[int, int], dict[str, set[str]]] = defaultdict(
         lambda: defaultdict(set)
     )
+    divergence_ids = set(divergence_junction_sources(graph))
     # LEFT/RIGHT entries wrap; TOP entries drop in via a horizontal lead-in.
     # Both place a horizontal run in the inter-row gap (``inter_row_channel_y``)
     # that must clear the next-row header.
@@ -769,9 +771,7 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
             # just below the source row across to a clear column
             # (``_route_left_entry_via_band_hop``); reserve that band too, sized
             # for the whole fan whose stagger the lone descender rides.
-            if graph.is_fanout_junction(edge.source) and graph.is_packed_section(
-                src_sec.id
-            ):
+            if edge.source in divergence_ids and graph.is_packed_section(src_sec.id):
                 fan_lines = {e.line_id for e in graph.edges_from(edge.source)}
                 per_gap[(src_row, src_row + 1)][edge.target].update(fan_lines)
         else:
@@ -783,7 +783,7 @@ def _wrap_bundle_row_minimums(graph: MetroGraph) -> dict[tuple[int, int], float]
         # together (keyed by the junction) rather than counted per-port -- a
         # per-port count reserves a single-line band and squeezes the fan
         # bundle flush against the box edges.
-        key = edge.source if graph.is_fanout_junction(edge.source) else edge.target
+        key = edge.source if edge.source in divergence_ids else edge.target
         per_gap[gap][key].add(edge.line_id)
 
     offset_step = graph_offset_step(graph)

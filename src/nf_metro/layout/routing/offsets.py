@@ -23,6 +23,7 @@ from nf_metro.layout.phases._common import (
     iter_flat_seam_solo_entries,
     line_forks_within_section,
 )
+from nf_metro.layout.route_topology import divergence_junction_exit_ports
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
     needs_perp_approach_fan,
@@ -57,6 +58,10 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.route_topology import (
+    RouteTopologyQuery,
+    build_route_topology_query,
+)
 
 # Tolerances used across offset phases
 _SAME_Y_TOLERANCE: float = SAME_Y_TOLERANCE
@@ -68,6 +73,8 @@ class _OffsetCtx:
     """Shared state threaded through offset computation phases."""
 
     graph: MetroGraph
+    topology: RouteTopologyQuery | None = None
+    divergence_exit_ports: dict[str, str] = field(default_factory=dict)
     offsets: dict[tuple[str, str], float] = field(default_factory=dict)
     line_priority: dict[str, int] = field(default_factory=dict)
     max_priority: int = 0
@@ -85,6 +92,7 @@ class _OffsetCtx:
 
 def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
     """Build shared context for offset computation phases."""
+    topology = build_route_topology_query(graph)
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
     max_priority = len(line_order) - 1 if line_order else 0
@@ -106,6 +114,8 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
 
     return _OffsetCtx(
         graph=graph,
+        topology=topology,
+        divergence_exit_ports=divergence_junction_exit_ports(graph, topology),
         line_priority=line_priority,
         max_priority=max_priority,
         offset_step=offset_step,
@@ -790,14 +800,12 @@ def _reorder_reconvergence(
 
 def _section_exit_fanout_junction(ctx: _OffsetCtx, section: Section) -> str | None:
     """The single fan-out junction *section* exits into, if exactly one."""
-    junction_ids = ctx.graph.junction_ids
-    junctions = {
-        e.target
-        for pid in section.exit_ports
-        for e in ctx.graph.edges_from(pid)
-        if e.target in junction_ids
-    }
-    return next(iter(junctions)) if len(junctions) == 1 else None
+    junction_ids = tuple(
+        junction_id
+        for junction_id, exit_port_id in ctx.divergence_exit_ports.items()
+        if ctx.graph.ports[exit_port_id].section_id == section.id
+    )
+    return junction_ids[0] if len(junction_ids) == 1 else None
 
 
 def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
@@ -823,7 +831,9 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         jid = _section_exit_fanout_junction(ctx, section)
         if jid is None:
             continue
-        peel_order = fanout_divergence_peel_order(graph, jid, ctx.line_priority)
+        peel_order = fanout_divergence_peel_order(
+            graph, jid, ctx.line_priority, ctx.topology
+        )
         if peel_order is None:
             continue
 
@@ -1491,16 +1501,11 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
     ordering, which may not match the exit port feeding them.
     """
     graph = ctx.graph
-    for jid in graph.junctions:
-        for edge in graph.edges_to(jid):
-            src = graph.station_for_edge_source(edge)
-            port_obj = graph.ports.get(edge.source)
-            if src.is_port and port_obj and not port_obj.is_entry:
-                for lid in graph.station_lines(jid):
-                    port_off = ctx.offsets.get((edge.source, lid))
-                    if port_off is not None:
-                        ctx.offsets[(jid, lid)] = port_off
-                break
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        for line_id in graph.station_lines(junction_id):
+            port_off = ctx.offsets.get((exit_port_id, line_id))
+            if port_off is not None:
+                ctx.offsets[(junction_id, line_id)] = port_off
 
 
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:

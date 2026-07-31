@@ -106,6 +106,7 @@ from nf_metro.parser.model import (
     is_converge_junction,
 )
 from nf_metro.parser.resolve import _expected_flow_side
+from nf_metro.parser.route_topology import build_route_topology_query
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -4832,23 +4833,36 @@ def _guard_fanout_junction_shares_exit_port_y(graph: MetroGraph, phase: str) -> 
     junction Y and back (#386).  BOTTOM/TOP exit ports are intentionally offset
     from their junction, so only LEFT/RIGHT exits are checked.
     """
-    for jid in graph.junction_ids:
+    topology = build_route_topology_query(graph)
+    divergence_ports = (
+        {
+            divergence.junction_id: divergence.exit_port_id
+            for divergence in topology.divergences
+        }
+        if topology is not None
+        else {}
+    )
+    junction_ids = divergence_ports if topology is not None else graph.junction_ids
+    for jid in junction_ids:
         junction = graph.stations.get(jid)
         if junction is None:
             continue
-        port_preds = {
-            e.source
-            for e in graph.edges_to(jid)
-            if graph.station_for_edge_source(e).is_port
-        }
-        entry_succs = {
-            e.target
-            for e in graph.edges_from(jid)
-            if graph.station_for_edge_target(e).is_port
-        }
-        if len(port_preds) != 1 or len(entry_succs) <= 1:
-            continue
-        exit_port = graph.stations[next(iter(port_preds))]
+        if topology is not None:
+            exit_port = graph.stations[divergence_ports[jid]]
+        else:
+            port_preds = {
+                edge.source
+                for edge in graph.edges_to(jid)
+                if graph.station_for_edge_source(edge).is_port
+            }
+            entry_succs = {
+                edge.target
+                for edge in graph.edges_from(jid)
+                if graph.station_for_edge_target(edge).is_port
+            }
+            if len(port_preds) != 1 or len(entry_succs) <= 1:
+                continue
+            exit_port = graph.stations[next(iter(port_preds))]
         port_obj = graph.ports.get(exit_port.id)
         if port_obj is None or port_obj.side not in (PortSide.LEFT, PortSide.RIGHT):
             continue
@@ -4871,7 +4885,13 @@ def _guard_fanout_junction_resolves_upstream(graph: MetroGraph, phase: str) -> N
     """
     from nf_metro.layout.routing.common import resolve_section
 
-    for jid in graph.junction_ids:
+    topology = build_route_topology_query(graph)
+    junction_ids = (
+        tuple(divergence.junction_id for divergence in topology.divergences)
+        if topology is not None
+        else graph.junction_ids
+    )
+    for jid in junction_ids:
         junction = graph.stations.get(jid)
         if junction is None or junction.section_id:
             continue

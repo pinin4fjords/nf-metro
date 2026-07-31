@@ -4959,7 +4959,8 @@ def _source_is_boxed_fanout_junction(f: _InterFacts) -> bool:
     gap-above path or the around-below dive.
     """
     graph = f.graph
-    if not graph.is_fanout_junction(f.edge.source):
+    is_divergence = f.edge.source in f.ctx.fanout_junctions
+    if not is_divergence:
         return False
     src_section = resolve_section(graph, f.src)
     return src_section is not None and graph.is_packed_section(src_section.id)

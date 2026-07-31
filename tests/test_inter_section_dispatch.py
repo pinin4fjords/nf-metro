@@ -46,6 +46,7 @@ def _facts(**overrides: object) -> H._InterFacts:
     """
     ctx = SimpleNamespace(
         junction_ids=set(),
+        fanout_junctions=set(),
         bottom_exit_junctions=set(),
         tb_sections=set(),
         station_offsets={},
@@ -98,6 +99,7 @@ _CASES = [
             src_port=_port(PortSide.BOTTOM, is_entry=False),
             ctx=SimpleNamespace(
                 junction_ids=set(),
+                fanout_junctions=set(),
                 bottom_exit_junctions=set(),
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
@@ -121,6 +123,7 @@ _CASES = [
             ty=100.0,
             ctx=SimpleNamespace(
                 junction_ids=set(),
+                fanout_junctions=set(),
                 bottom_exit_junctions=set(),
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
@@ -149,6 +152,7 @@ _CASES = [
             src_port=_port(PortSide.TOP, is_entry=False),
             ctx=SimpleNamespace(
                 junction_ids=set(),
+                fanout_junctions=set(),
                 bottom_exit_junctions=set(),
                 tb_sections={"src_sec"},
                 station_offsets={"x": 1.0},
@@ -186,6 +190,7 @@ _CASES = [
             edge=SimpleNamespace(source="j", target="b", line_id="L"),
             ctx=SimpleNamespace(
                 junction_ids=set(),
+                fanout_junctions=set(),
                 bottom_exit_junctions={"j"},
                 tb_sections=set(),
                 station_offsets={},
@@ -203,6 +208,7 @@ _CASES = [
             needs_bypass=True,
             ctx=SimpleNamespace(
                 junction_ids=set(),
+                fanout_junctions=set(),
                 bottom_exit_junctions=set(),
                 tb_sections=set(),
                 station_offsets={},
@@ -221,6 +227,7 @@ _CASES = [
             merge_ep=SimpleNamespace(id="ep", x=0.0, y=0.0, section_id="m"),
             ctx=SimpleNamespace(
                 junction_ids=set(),
+                fanout_junctions=set(),
                 bottom_exit_junctions=set(),
                 tb_sections=set(),
                 station_offsets={},
@@ -240,6 +247,7 @@ _CASES = [
             tx=5.0,
             ctx=SimpleNamespace(
                 junction_ids={"j"},
+                fanout_junctions=set(),
                 bottom_exit_junctions=set(),
                 tb_sections=set(),
                 station_offsets={},

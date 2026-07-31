@@ -50,6 +50,12 @@ from nf_metro.layout.geometry import (
     point_to_polyline_distance,
 )
 from nf_metro.layout.phases.guards import GuardSpec
+from nf_metro.layout.route_topology import (
+    convergence_entry_port_id,
+    convergence_junction_ids,
+    divergence_junction_sources,
+    merge_fanout_junction_ids,
+)
 from nf_metro.layout.routing.common import (
     Direction,
     OffsetRegime,
@@ -65,9 +71,7 @@ from nf_metro.layout.routing.common import (
     iter_horizontal_trunks,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
-    merge_fanout_junctions,
     merge_fanout_pivot_reference,
-    merge_junction_ids,
     opening_horizontal_vertical,
     peeloff_target_slots,
     perp_entry_consumer,
@@ -87,6 +91,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.route_topology import build_route_topology_query
 
 # Segments shorter than this are sub-pixel artefacts of per-line
 # offsets and carry no meaningful direction of travel.
@@ -782,25 +787,8 @@ class FanoutTailGap:
 
 
 def fanout_junctions(graph) -> dict[str, str]:  # noqa: ANN001 - MetroGraph (avoid cycle)
-    """Map each *fan-out* junction id to its single upstream source id.
-
-    A fan-out junction is a junction station fed by edges from exactly
-    ONE distinct upstream source (a single exit port or upstream
-    junction) and fanning out to one or more inter-section targets.
-    Merge junctions (>1 distinct upstream source) are excluded: their
-    trunk routing intentionally lands branches on a shared bypass Y and
-    must not be snapped together at the junction.
-    """
-    junction_ids = graph.junction_ids
-    result: dict[str, str] = {}
-    for jid in junction_ids:
-        sources = {e.source for e in graph.edges_to(jid)}
-        if len(sources) != 1:
-            continue
-        if not any(True for _ in graph.edges_from(jid)):
-            continue
-        result[jid] = next(iter(sources))
-    return result
+    """Map resolved divergence junction ids to their upstream exit ports."""
+    return divergence_junction_sources(graph)
 
 
 def _fanout_route_maps(
@@ -2293,17 +2281,18 @@ def check_merge_fanout_pivots_shared(
     """Return merge fan-out branches whose first corner is off the shared pivot.
 
     A merge fan-out's branches should pivot through one shared first corner (see
-    :func:`merge_fanout_junctions`).  Branches are grouped by source and turn
+    :func:`merge_fanout_junction_ids`). Branches are grouped by source and turn
     DIRECTION: an up-turning arm and a down-turning arm of one fork leave on the
     same lead but never share a column (sharing one would fold the line back
     over itself), so only same-direction arms are held to a common corner.  For
     each group this derives the shared pivot with
     :func:`merge_fanout_pivot_reference` and flags any branch off it.
     """
-    fanouts = merge_fanout_junctions(graph)
+    topology = build_route_topology_query(graph)
+    fanouts = set(merge_fanout_junction_ids(graph, topology))
     if not fanouts:
         return []
-    merges = merge_junction_ids(graph)
+    merges = set(convergence_junction_ids(graph, topology))
     by_key: dict[tuple[str, bool], list[tuple[str, str, float]]] = defaultdict(list)
     for rp in routes:
         if not rp.is_inter_section or rp.edge.source not in fanouts:
@@ -3947,15 +3936,6 @@ def check_diamond_fan_in_diverges_together(
     return violations
 
 
-def _merge_entry_port(graph: MetroGraph, merge_id: str) -> Station | None:
-    """The entry-port successor of a merge junction, if any."""
-    for e in graph.edges_from(merge_id):
-        port = graph.ports.get(e.target)
-        if port and port.is_entry:
-            return graph.station_for_edge_target(e)
-    return None
-
-
 @dataclass(frozen=True)
 class MergeFeederOffTrunk:
     """A merge feeder that stops beside the trunk instead of on it.
@@ -4004,9 +3984,23 @@ def _iter_merge_convergences(
     reconvergence, or whose markers are missing, are skipped.
     """
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
-    for merge_id in graph.junctions:
+    topology = build_route_topology_query(graph)
+    merge_ports = (
+        tuple(
+            (convergence.junction_id, convergence.entry_port_id)
+            for convergence in topology.convergences
+        )
+        if topology is not None
+        else tuple(
+            (merge_id, convergence_entry_port_id(graph, merge_id))
+            for merge_id in convergence_junction_ids(graph)
+        )
+    )
+    for merge_id, entry_port_id in merge_ports:
         feeders = list(graph.edges_to(merge_id))
-        entry_port = _merge_entry_port(graph, merge_id)
+        entry_port = (
+            graph.stations.get(entry_port_id) if entry_port_id is not None else None
+        )
         merge_st = graph.stations.get(merge_id)
         if len(feeders) < 2 or entry_port is None or merge_st is None:
             continue

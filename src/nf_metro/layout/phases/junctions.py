@@ -6,6 +6,7 @@ from nf_metro.layout.constants import (
     JUNCTION_MARGIN,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Station
+from nf_metro.parser.route_topology import build_route_topology_query
 
 
 def _required_junction_margin(n: int) -> float:
@@ -48,10 +49,18 @@ def _position_junctions(graph: MetroGraph) -> None:
     at ``max(pred.x) + _required_junction_margin(n)``, y = entry_port.y to
     create a visible single-line segment from merge point to entry.
     """
+    topology = build_route_topology_query(graph)
     for jid in graph.junctions:
         junction = graph.stations.get(jid)
         if not junction:
             continue
+
+        convergence = (
+            topology.convergence_for_junction(jid) if topology is not None else None
+        )
+        divergence = (
+            topology.divergence_for_junction(jid) if topology is not None else None
+        )
 
         # Collect predecessors and successors
         predecessors: list[Station] = []
@@ -69,8 +78,15 @@ def _position_junctions(graph: MetroGraph) -> None:
                 successor_ports.append(tgt)
 
         # Merge junction: N>1 predecessors, 1 entry port successor
-        if len(predecessors) > 1 and len(successor_ports) == 1:
-            entry_port = successor_ports[0]
+        is_legacy_merge = (
+            topology is None and len(predecessors) > 1 and len(successor_ports) == 1
+        )
+        if convergence is not None or is_legacy_merge:
+            entry_port = (
+                graph.stations[convergence.entry_port_id]
+                if convergence is not None
+                else successor_ports[0]
+            )
             entry_port_obj = graph.ports.get(entry_port.id)
             if entry_port_obj and entry_port_obj.is_entry:
                 _position_merge_junction(
@@ -82,17 +98,26 @@ def _position_junctions(graph: MetroGraph) -> None:
                 continue
 
         # Fan-out junction: 1 exit port predecessor, N>1 entry port successors
-        exit_port_x: float | None = None
-        exit_port_y: float | None = None
-        entry_port_xs: list[float] = []
-
-        for pred in predecessors:
-            if pred.is_port:
-                exit_port_x = pred.x
-                exit_port_y = pred.y
-
-        for succ in successor_ports:
-            entry_port_xs.append(succ.x)
+        if topology is not None and divergence is None:
+            continue
+        if divergence is not None:
+            exit_port_id = divergence.exit_port_id
+            exit_port = graph.stations[exit_port_id]
+            exit_port_x = exit_port.x
+            exit_port_y = exit_port.y
+            entry_port_xs = [
+                graph.stations[port_id].x for port_id in divergence.entry_port_ids
+            ]
+        else:
+            exit_port_x = None
+            exit_port_y = None
+            entry_port_xs = []
+            for pred in predecessors:
+                if pred.is_port:
+                    exit_port_x = pred.x
+                    exit_port_y = pred.y
+            for successor in successor_ports:
+                entry_port_xs.append(successor.x)
 
         if exit_port_x is not None and exit_port_y is not None and entry_port_xs:
             margin = _required_junction_margin(

@@ -115,10 +115,6 @@
     "note": "None-station guard: every production caller passes a concrete Station (grep-verified); the None arm only guards the typed Station|None parameter.",
     "status": "defensive"
   },
-  "common.py::if succ_port is not None and succ_port.is_entry:::#1": {
-    "note": "merge_junction_ids mirrors _classify_merge_edges: a merge junction is one whose single successor is the section entry port it was inserted before, so succ_port is always a present entry port; the reject arm (successor absent or non-entry) never fires.",
-    "status": "defensive"
-  },
   "common.py::if t < -0.01 or t > 1.01:::#1": {
     "note": "point_on_polyline parameter-range branch, reached only via the --animate renderer; the render-path coverage sweep doesn't animate. Exercised by test_animation.py / test_routing.py.",
     "status": "defensive"
@@ -131,14 +127,6 @@
     "note": "Degenerate single-Y trunk band in iter_port_peeloff_bundles: a peel-off bundle is yielded only when its members ride trunks at distinct depths, so the equal-depth arm guards a same-Y bundle the trunk-slot materialization never leaves; render-diff confirms no visual change.",
     "status": "needs-review"
   },
-  "context.py::for e in graph.edges:::#3": {
-    "note": "In the public compute_junction_fan_info, called only from _guard_fan_bundles_coincide_or_separate (a validate=True guard). The coverage sweep renders with validate=False, so this function never runs on the render path; it is exercised by the layout-invariant test surface instead.",
-    "status": "defensive"
-  },
-  "context.py::for e in graph.edges_from(mjid):::#1": {
-    "note": "The entry-port search finds the merge junction's sole entry-port successor on the first edge and breaks (real exit arc 139->147), so the loop never runs to exhaustion and the for-completion arm never fires.",
-    "status": "defensive"
-  },
   "context.py::if ctx.station_offsets:::#1": {
     "note": "compute_station_offsets returns a 0.0 entry for every (station, line) of any graph with edges, so the render path always passes a non-empty dict; the falsy-return arm guards only the route_edges(station_offsets=None) call path used by tests, which the sweep never exercises.",
     "status": "defensive"
@@ -148,11 +136,7 @@
     "status": "defensive"
   },
   "context.py::if ep and ep.is_entry:::#1": {
-    "note": "The merge junction's only outgoing edge targets its entry port, so the first iteration matches and breaks; the loop-back arm (a non-entry edge before the entry port) never fires.",
-    "status": "defensive"
-  },
-  "context.py::if ep and ep.is_entry:::#2": {
-    "note": "Same merge-junction invariant in the skip-edge pass: the junction's lone successor is its entry port, so the loop-back over a non-entry edge never fires.",
+    "note": "Every outgoing edge of a classified convergence junction targets its sole entry port, so the non-entry arm never fires in the skip-edge pass.",
     "status": "defensive"
   },
   "context.py::if jst is None:::#2": {
@@ -217,10 +201,6 @@
   },
   "context.py::if src_row is None or col is None:::#1": {
     "note": "In _compute_fan_corridors, a fanning junction always resolves to a section column and row; the unresolved continue guards a malformed graph the render path never produces.",
-    "status": "defensive"
-  },
-  "context.py::if succ_port and succ_port.is_entry:::#1": {
-    "note": "A merge junction is defined as one whose single successor is the section entry port it was inserted before, so succ_port is always a present entry port; the reject arm (successor absent or non-entry) never fires.",
     "status": "defensive"
   },
   "context.py::if tgt_col is None:::#1": {
@@ -703,7 +683,7 @@
     "note": "_reconcile_horizontal_offsets iterates at most 10 times and breaks early when no change occurs. The arc L1338->(-1310) represents loop exhaustion without early-break (all 10 iterations consumed). On any valid parsed graph, the reconciliation converges in at most a handful of iterations because each iteration resolves at least one edge conflict or reaches a fixed point. The 10-iteration ceiling is a backstop against hypothetical oscillating graphs; normal topologies stabilize in 1-3 passes.",
     "status": "defensive"
   },
-  "offsets.py::for edge in graph.edges_to(jid):::#2": {
+  "offsets.py::for edge in graph.edges_to(jid):::#1": {
     "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive.",
     "status": "defensive"
   },
@@ -828,7 +808,7 @@
     "status": "defensive"
   },
   "offsets.py::if port_off is not None:::#1": {
-    "note": "_compute_base_offsets runs before _propagate_to_junctions and sets ctx.offsets[(sid, lid)] for every station-line pair in the graph; exit ports are stations, so ctx.offsets.get((exit_port_id, lid)) is never None for any lid in graph.station_lines(jid). The loop-back arm (714->712) requires a junction line with no exit-port offset, which base-offset initialization makes structurally impossible.",
+    "note": "_compute_base_offsets runs before junction propagation and creates an offset for every station-line pair. A divergence exit port and its junction carry the same connector lines, so this lookup always succeeds; the missing-offset arm protects an incomplete synthetic context.",
     "status": "defensive"
   },
   "offsets.py::if reverse:::#3": {

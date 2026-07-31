@@ -177,8 +177,8 @@ def test_vertical_fan_crosses_without_peel_order(monkeypatch):
     and the corner crossing returns, proving the order is what fixes it."""
     real = routing_context.fanout_divergence_peel_order
 
-    def no_vertical_fan(graph, jid, line_priority):
-        order = real(graph, jid, line_priority)
+    def no_vertical_fan(graph, jid, line_priority, topology=None):
+        order = real(graph, jid, line_priority, topology)
         if order is None:
             return None
         # Drop the order only for the same-column (vertical) fan so the
