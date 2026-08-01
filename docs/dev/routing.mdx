@@ -17,11 +17,12 @@ Lines are drawn as horizontal runs joined by 45-degree diagonal
 transitions; inter-section edges use L-shaped (horizontal + vertical)
 routing.
 
-`observe_route_edges` can accompany that production run with an immutable
-[route plan observation](/nf-metro/dev/route_plan/). The plan records semantic
-route systems, the handler family that actually emitted each inter-section
-member, explicit merge coverage, and settled layout provenance. It is an
-observer only: normal routing does not build it, and routing never reads it.
+The normal dispatcher path builds the semantic scaffold and complete exit-turn
+decisions described in [route planning and observation](/nf-metro/dev/route_plan/).
+Inter-section handlers consume those decisions during routing.
+`observe_route_edges` returns the same decisions together with final emission
+bindings, corridor reservations, and settled layout provenance. Whole-graph
+rail mode takes the short circuit below.
 
 ## Rail mode short-circuit
 
@@ -45,12 +46,13 @@ as interchange pills bridging the rails.
 
 ## Dispatch order
 
-`route_edges` first builds a `_RoutingCtx` (a dataclass of shared
-pre-computed state: merge-junction classification, fold X, bundle info,
-per-station offsets, fork stations, etc.), then routes each edge by
-trying a fixed sequence of handler functions in priority order. **The
-first handler that returns a `RoutedPath` wins**; handlers that do not
-apply return `None`.
+`route_edges` first builds a `_RoutingCtx` containing merge classification,
+fold X, bundle information, station offsets, fork stations, and other shared
+facts. Before dispatch, the exit-turn planner classifies every member in each
+complete exit group and either commits the whole group or leaves the whole
+group on legacy routing. The dispatcher then tries a fixed sequence of handler
+functions. **The first handler that returns a `RoutedPath` wins**; handlers that
+do not apply return `None`.
 
 The order in `route_edges` is:
 
@@ -85,10 +87,12 @@ station-to-station edges within each horizontal section.
 
 <Metro src="examples/guide/04_directions.mmd" purpose="reference" />
 
-After all edges are routed, `route_edges` runs a series of post-passes
-that adjust the assembled polylines as a set (for example
-`_spread_diagonal_bundles`, `_materialize_gap_slots`,
-`_materialize_trunk_slots`, `_coincide_same_line_tracks`).
+After all edges are routed, `route_edges` runs a series of post-passes that
+adjust the assembled polylines as a set, including diagonal spreading, gap and
+trunk slot materialization, and same-line coincidence. Source-turn segments
+owned by the planner are immutable during these passes. A snapshot ratchet
+checks them after every relevant pass, and the final invariant checks each
+assignment, lane offset, route family, turn direction, and turn axis.
 
 ## Authored identity and final geometry
 
@@ -144,12 +148,24 @@ offset propagation at each corner (the corner-radius helpers live in
 `check_bundle_order_preserved` (in `routing/invariants.py`) catches any
 regression where a line crosses over its bundle-mates.
 
+Immediately before dispatch, the exit-turn planner removes slots for lines that
+do not leave a supported exit group. It owns the exit port, any divergence, and
+compatible continuation stations across the source seam. A mismatched incoming
+feeder keeps its original lane and receives an explicit transition into the
+compacted seam. Every transition preserves pairwise lane order at both ends;
+otherwise the complete group keeps its base offsets and uses legacy routing.
+
 The debug overlay below makes the offset geometry visible: each line's
 parallel track and the station markers it must pass through.
 
 <Metro src="examples/guide/03_fan_out.mmd" debug mmd={false} />
 
 ## Render-time guards
+
+`validate_exit_turn_plans` runs before the generic render guards. It checks
+every planned lane, transition, family, turn axis, and exactly-once assignment
+against the emitted routes, and attributes a failure to the route system and
+authored connectors.
 
 `assert_render_curve_invariants` (in `routing/invariants.py`) runs a set of
 correctness checks on the final `route_edges` output every render -- the exact
@@ -225,6 +241,7 @@ dispatcher handles those degenerate cases directly.
 | `intra_handlers.py`         | `_route_entry_runway` and `_route_intra_section` (the general intra-section fallback)                                                                                                                                                     |
 | `bundle.py`                 | constructive bundle-curve builders (`build_concentric_bundle`, `build_tapered_bundle`, `build_offset_bundle`); fans a centreline into per-line offset paths with concentric corners                                                       |
 | `centrelines.py`            | centreline templates and bundle-gathering helpers (`gather_member_edges`, `route_along`, `route_tapered`, …) layered over `bundle.py`                                                                                                     |
+| `exit_turns.py`             | complete pre-routing exit-group plans, active-lane compaction, handler consumption, and planner-owned geometry invariants                                                                                                                 |
 | `postprocess.py`            | post-routing passes: diagonal bundle spread and bubble-station centring                                                                                                                                                                   |
 | `normalize.py`              | channel and trunk normalization passes (`_materialize_gap_slots`, htrunk restacking, riser/port-approach alignment, …)                                                                                                                    |
 | `common.py`                 | `RoutedPath`, `Direction`, bundle/channel helpers                                                                                                                                                                                         |

@@ -127,10 +127,6 @@
     "note": "Degenerate single-Y trunk band in iter_port_peeloff_bundles: a peel-off bundle is yielded only when its members ride trunks at distinct depths, so the equal-depth arm guards a same-Y bundle the trunk-slot materialization never leaves; render-diff confirms no visual change.",
     "status": "needs-review"
   },
-  "context.py::if ctx.station_offsets:::#1": {
-    "note": "compute_station_offsets returns a 0.0 entry for every (station, line) of any graph with edges, so the render path always passes a non-empty dict; the falsy-return arm guards only the route_edges(station_offsets=None) call path used by tests, which the sweep never exercises.",
-    "status": "defensive"
-  },
   "context.py::if edge.line_id in line_pos:::#1": {
     "note": "line_pos is built from the line IDs of the very all_outgoing list this loop iterates, so the membership test is always true: the reject/loop-back arm (L684) is an unreachable tautology and the enter-body static arc (L686) is a phantom of the real 685->687. Vestigial tautological guard. The deliberate gap is pinned by test_genuine_dead_arm_not_masked_as_covered (arc normalization must not merge the never-taken branch onto the live one). Reclassified defensive (#762).",
     "status": "defensive"
@@ -535,10 +531,6 @@
     "note": "A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
-  "normalize.py::if abs(x3 - x2) > COORD_TOLERANCE or abs(y3 - y2) <= COORD_TOLERANCE:::#1": {
-    "note": "Every non-exempt inter-section route ends with a vertical descent into the target Y then a short horizontal port lead (V->H tail); routes with non-V tails are normalize_exempt. The second-to-last-not-vertical reject in _final_port_approach is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-    "status": "defensive"
-  },
   "normalize.py::if anchor_section_id is not None and anchor_side is not None:::#1": {
     "note": "_gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint.",
     "status": "defensive"
@@ -901,10 +893,6 @@
   },
   "postprocess.py::if any(_is_internal_station(graph, r.edge.target) for r in flat_out):::#1": {
     "note": "Inside the multi_diag block of _flat_connects_to_internal_chain, never entered because multi_diag is structurally unsatisfiable. Both arms unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-    "status": "defensive"
-  },
-  "postprocess.py::if ctx.station_offsets is None:::#1": {
-    "note": "Null guard in _spread_diagonal_bundles. compute_station_offsets returns a non-Optional dict and every render-path route_edges call passes it; the only caller leaving station_offsets at its None default is the validate-only _ensure_routes (guards.py), which the render sweep does not run. The early return never fires on a rendered topology, mirroring the matching assert in _apply_diagonal_spread.",
     "status": "defensive"
   },
   "postprocess.py::if in_rp and len(ctx.diag_out_targets.get(in_rp.edge.source, set())) > 1:::#1": {

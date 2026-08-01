@@ -771,7 +771,10 @@ def test_final_route_plan_diagnostics_are_structured_rejections(
         observed = real_build(*args, **kwargs)
         route_plan = replace(
             observed.route_plan,
-            diagnostics=(RoutePlanDiagnostic(None, "injected", "route rejected"),),
+            diagnostics=(
+                *observed.route_plan.diagnostics,
+                RoutePlanDiagnostic(None, "injected", "route rejected"),
+            ),
         )
         return ObservedRenderPlan(observed.plan, route_plan)
 
@@ -782,6 +785,34 @@ def test_final_route_plan_diagnostics_are_structured_rejections(
     assert result.stage is CandidateStage.ROUTE_VALIDATION
     assert result.evidence.route_findings[0].code == "injected"
     assert result.evidence.render_plan is not None
+
+
+def test_non_blocking_route_plan_diagnostics_do_not_reject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_build = candidate_executor.build_observed_render_plan
+
+    def diagnosed(*args: Any, **kwargs: Any) -> ObservedRenderPlan:
+        observed = real_build(*args, **kwargs)
+        route_plan = replace(
+            observed.route_plan,
+            diagnostics=(
+                *observed.route_plan.diagnostics,
+                RoutePlanDiagnostic(
+                    None,
+                    "injected",
+                    "legacy route retained",
+                    blocking=False,
+                ),
+            ),
+        )
+        return ObservedRenderPlan(observed.plan, route_plan)
+
+    monkeypatch.setattr(candidate_executor, "build_observed_render_plan", diagnosed)
+    result = _direct_result(_request())
+
+    assert result.status is CandidateStatus.ACCEPTED
+    assert not result.evidence.route_findings
 
 
 def test_general_mapping_keys_are_canonical_but_sequences_remain_ordered() -> None:

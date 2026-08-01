@@ -14,6 +14,7 @@ from layout_metrics import compute_metrics
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.route_plan import (
     BindingKind,
+    ExitTurnDisposition,
     GridSpan,
     ReservationDecisionKind,
     SharedReferenceId,
@@ -281,6 +282,16 @@ def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> 
     assert {
         connector_by_id[item].target_section for item in reservation.connector_ids
     } == {"report"}
+
+
+def test_reportho_rejects_overlapping_opposed_source_turn_axes() -> None:
+    _graph, _routes, plan = _observe(REPORT_HO)
+    exit_turn_plan = next(
+        item for item in plan.exit_turn_plans if item.source_id == "__junction_15"
+    )
+
+    assert exit_turn_plan.disposition is ExitTurnDisposition.LEGACY
+    assert exit_turn_plan.legacy_reason == "overlapping-planned-turn-axes"
 
 
 def test_reportho_ownership_does_not_depend_on_resolved_section_pairs() -> None:
@@ -581,8 +592,15 @@ def test_reservation_corpus_has_one_linked_record_per_observed_claim() -> None:
         routes = observed.plan.routes
         plan = observed.route_plan
         query = build_route_plan_query(plan)
-        assert (
-            len(plan.shared_references) == len(plan.demands) == len(plan.reservations)
+        reservation_reference_ids = {item.reference_id for item in plan.reservations}
+        reservation_demand_ids = {
+            demand_id for item in plan.reservations for demand_id in item.demand_ids
+        }
+        assert sum(
+            item.id in reservation_reference_ids for item in plan.shared_references
+        ) == len(plan.reservations), path
+        assert sum(item.id in reservation_demand_ids for item in plan.demands) == len(
+            plan.reservations
         ), path
         assert plan.reservations, path
         assert tuple(plan.reservations) == tuple(

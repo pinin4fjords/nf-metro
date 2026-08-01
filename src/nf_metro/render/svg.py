@@ -757,9 +757,18 @@ def _settle_render_geometry(
         station_offsets: dict[tuple[str, str], float],
     ) -> tuple[list[RoutedPath], RoutePlan | None]:
         if not observe_routes:
-            return route_edges_centred(graph, station_offsets=station_offsets), None
+            return (
+                route_edges_centred(
+                    graph,
+                    station_offsets=station_offsets,
+                    offset_step=offset_step,
+                ),
+                None,
+            )
         observation = observe_route_edges_centred(
-            graph, station_offsets=station_offsets
+            graph,
+            station_offsets=station_offsets,
+            offset_step=offset_step,
         )
         return observation.routes, observation.plan
 

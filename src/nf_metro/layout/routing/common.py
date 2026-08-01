@@ -770,6 +770,18 @@ class RoutedPath:
     ``None`` until a handler that emits a U-shaped bypass declares which gap its
     trunk runs in; :func:`_materialize_trunk_slots` resolves it to a concrete Y.
     A route owns at most one trunk, so this is a single slot, not a list."""
+    exit_turn_plan_id: str | None = None
+    """Pre-routing plan that owns this route's source turn, when applicable."""
+    exit_turn_member_id: str | None = None
+    """Semantic emission member bound to the planned source turn."""
+    exit_turn_family_id: str | None = None
+    """Production family that consumed the planned assignment."""
+    exit_turn_axis_id: str | None = None
+    """Shared planned axis used by the source turn, when the route turns."""
+    exit_turn_segment_rank: int | None = None
+    """Index of the owned vertical segment's first waypoint."""
+    exit_lane_transition_plan_id: str | None = None
+    """Plan that owns this explicit compact-lane hand-off."""
 
     def declare_gap_slot(
         self,

@@ -1,0 +1,42 @@
+%%metro title: Leftward Upward Exit Turns
+%%metro line: feed_a | Feed A | #3779b1
+%%metro line: feed_b | Feed B | #6ef362
+%%metro line: shared | Shared | #a66d13
+%%metro line: terminator | Terminator | #dde6c4
+%%metro line: branch | Branch | #8453d7
+%%metro grid: feeder_a | 0,0
+%%metro grid: feeder_b | 2,0
+%%metro grid: target | 0,1
+%%metro grid: source | 1,1
+%%metro grid: auxiliary | 2,1
+
+graph LR
+    subgraph feeder_a [Feeder A]
+        fa[Feed A]
+    end
+    subgraph feeder_b [Feeder B]
+        fb[Feed B]
+    end
+    subgraph target [Target]
+        %%metro direction: RL
+        target_step[Target]
+    end
+    subgraph source [Source]
+        %%metro direction: RL
+        source_a[Source A]
+        source_b[Source B]
+        shared_step[Shared]
+        split[Split]
+        source_a -->|feed_a,feed_b| source_b
+        source_b -->|shared| shared_step
+        shared_step -->|terminator| split
+    end
+    subgraph auxiliary [Auxiliary]
+        %%metro direction: RL
+        auxiliary_step[Auxiliary]
+    end
+    fa -->|feed_a| source_a
+    fb -->|feed_b| source_a
+    auxiliary_step -->|shared| target_step
+    split -->|shared| target_step
+    split -->|branch| target_step

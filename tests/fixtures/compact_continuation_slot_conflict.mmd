@@ -1,0 +1,17 @@
+%%metro compact_offsets: true
+%%metro line: l0 | L0 | #ff0000
+%%metro line: l1 | L1 | #0000ff
+%%metro line: out | Out | #00aa00
+%%metro grid: src | 0,0
+%%metro grid: dst | 1,0
+
+graph LR
+    subgraph src [Source]
+        s[Source]
+    end
+    subgraph dst [Target]
+        t[Hub]
+        u[Output]
+        t -->|out| u
+    end
+    s -->|l0,l1| t

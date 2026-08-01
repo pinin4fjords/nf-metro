@@ -557,6 +557,20 @@ gallery:
       row below. The fan pivots through a single corner column and orders its lanes by each
       branch's destination row, so the two that ride the inter-row band nest without crossing
       on the way out (issue #1594).
+  - id: leftward_up_exit_turn_order
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Two lines leave a reversing section on one leftward run and turn upward into
+      a shared target. Their turn columns preserve the source-lane order even when one line
+      also arrives from another section.
+  - id: terminated_exit_lane_compaction
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Four lines travel through a section, but one terminates before its shared exit.
+      The three active lines close the empty slot before the straight and turning branches
+      leave the section.
 
   # ── TB / BT Sections ───────────────────────────────────────────────────────
   - id: bt_chain

@@ -117,7 +117,10 @@ def test_query_rejects_inconsistent_symbolic_demands(field, mutate) -> None:
 )
 def test_query_rejects_inconsistent_shared_references(field, value) -> None:
     plan = _plan()
-    reference = plan.shared_references[0]
+    reservation = plan.reservations[0]
+    reference = next(
+        item for item in plan.shared_references if item.id == reservation.reference_id
+    )
     malformed = replace(reference, **{field: value})
 
     with pytest.raises(ValueError, match="shared reference is inconsistent"):

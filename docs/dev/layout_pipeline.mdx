@@ -287,6 +287,26 @@ The Stage and Pass labels line up cleanly:
 | Pass B         | 4      |
 | Pass C         | 5, 6   |
 
+## Post-layout routing boundary
+
+The numbered stages settle station, port, junction, and section coordinates.
+On the normal dispatcher path, routing then computes per-line station offsets
+and builds complete exit-turn plans before emitting the first inter-section
+path. Whole-graph rail mode takes its documented short circuit instead.
+
+`compute_station_offsets` first produces the ordinary offset map. Immediately
+before dispatch, `_route_edges` builds the exit-turn plan once. The planner
+compacts each supported group onto its active lanes, commits the offsets it
+owns across the source seam, and assigns source-side turn axes from that same
+order. Ordinary and observed routing share this boundary. An always-on
+invariant rejects any downstream route-mutating pass that changes a committed
+lane or axis.
+
+This is a routing-boundary contract, not a numbered layout stage. It does not
+move stations, ports, junctions, or section boxes. See
+[route planning and observation](/nf-metro/dev/route_plan/) for the plan
+records and fallback rules.
+
 ## When something breaks
 
 Common scenarios and where to start looking:
@@ -309,7 +329,7 @@ Common scenarios and where to start looking:
 
 ## Why so many sub-stages
 
-The Pass C tail (Stages 6.1 to 6.16) looks excessive at first glance.
+The Pass C tail (Stages 6.1 to 6.18) looks excessive at first glance.
 Each sub-stage exists because:
 
 1. A bug was found in some real-world fixture.

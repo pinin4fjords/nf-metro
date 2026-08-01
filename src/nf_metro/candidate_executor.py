@@ -628,7 +628,9 @@ def _evaluate_attempt(
             observation = observe_route_edges(graph, station_offsets=offsets)
             build_route_plan_query(observation.plan)
             route_evidence = _route_evidence(observation.plan)
-            route_findings = observation.plan.diagnostics
+            route_findings = tuple(
+                item for item in observation.plan.diagnostics if item.blocking
+            )
         except Exception as exc:  # noqa: BLE001
             collect(CandidateStage.ROUTE_PLAN)
             return _failure_result(
@@ -665,7 +667,9 @@ def _evaluate_attempt(
             )
             build_route_plan_query(observed.route_plan)
             route_evidence = _route_evidence(observed.route_plan)
-            route_findings = observed.route_plan.diagnostics
+            route_findings = tuple(
+                item for item in observed.route_plan.diagnostics if item.blocking
+            )
             render_evidence = _canonical_evidence(observed.plan)
         except Exception as exc:  # noqa: BLE001
             collect(CandidateStage.RENDER_PLAN)

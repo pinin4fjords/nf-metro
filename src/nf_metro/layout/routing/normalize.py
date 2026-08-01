@@ -63,6 +63,7 @@ from nf_metro.layout.routing.corners import (
     l_shape_radii,
     widest_coincident_radius,
 )
+from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
@@ -499,6 +500,14 @@ def _locate_slot_channel(
     return None
 
 
+def _planner_owns_channel(channel: _VChannel) -> bool:
+    """Whether an immutable exit-turn assignment owns this exact segment."""
+    return (
+        channel.route.exit_turn_axis_id is not None
+        and channel.route.exit_turn_segment_rank == channel.idx
+    )
+
+
 def _fused_sibling_spans(
     routes: list[RoutedPath], chans: list[_VChannel]
 ) -> list[tuple[float, float]]:
@@ -562,7 +571,7 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
             ch = _locate_slot_channel(rp, slot, graph)
             if ch is None:
                 continue
-            if rp.normalize_exempt:
+            if rp.normalize_exempt or _planner_owns_channel(ch):
                 owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
             else:
                 by_gap[(slot.gap_lo_col, slot.row)].append(ch)
@@ -613,7 +622,9 @@ def _separate_declared_opposing_gap_bundles(
             if ch is None or (key, id(rp), ch.idx) in seen:
                 continue
             seen.add((key, id(rp), ch.idx))
-            (fixed if rp.normalize_exempt else movable)[key].append(ch)
+            (fixed if rp.normalize_exempt or _planner_owns_channel(ch) else movable)[
+                key
+            ].append(ch)
 
     bands = _grid_row_bands(graph)
     for (lo, row), chans in movable.items():
@@ -875,10 +886,16 @@ def _reconcile_moved_gap_slot(ch: _VChannel, new_x: float, graph: MetroGraph) ->
 
 def _snap_group(group: _Coincidence, graph: MetroGraph) -> None:
     """Snap every channel in a coincidence group onto its shared reference X."""
+    planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
+    ref_x = planned[0].x if planned else group.ref_x
+    if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
+        raise ValueError("one coincidence group contains conflicting planned axes")
     for ch in group.channels:
-        if abs(ch.x - group.ref_x) > COORD_TOLERANCE:
-            _reconcile_moved_gap_slot(ch, group.ref_x, graph)
-            _set_vchannel_x(ch, group.ref_x)
+        if _planner_owns_channel(ch):
+            continue
+        if abs(ch.x - ref_x) > COORD_TOLERANCE:
+            _reconcile_moved_gap_slot(ch, ref_x, graph)
+            _set_vchannel_x(ch, ref_x)
 
 
 def _snap_merge_feeder_group(group: _Coincidence, graph: MetroGraph) -> None:
@@ -893,13 +910,14 @@ def _snap_merge_feeder_group(group: _Coincidence, graph: MetroGraph) -> None:
     the descent took, preserving its intended short overlap so it terminates on
     the trunk rather than overshooting it.
     """
+    ref_x = group.ref_x
     for ch in group.channels:
-        delta = group.ref_x - ch.x
+        delta = ref_x - ch.x
         if abs(delta) <= COORD_TOLERANCE:
             continue
         tail_start = ch.idx + 2
-        _reconcile_moved_gap_slot(ch, group.ref_x, graph)
-        _set_vchannel_x(ch, group.ref_x)
+        _reconcile_moved_gap_slot(ch, ref_x, graph)
+        _set_vchannel_x(ch, ref_x)
         ch.route.points = [
             (x + delta, y) if i >= tail_start else (x, y)
             for i, (x, y) in enumerate(ch.route.points)
@@ -1323,15 +1341,16 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 y_hi=max(tail.trunk_y, tail.port_y),
                 down=tail.port_y > tail.trunk_y,
             )
-            _restack_channel(
-                ch,
-                slot.peel_x,
-                slot.rank,
-                n,
-                step,
-                ctx.curve_radius,
-                ch.down,
-            )
+            if not _planner_owns_channel(ch):
+                _restack_channel(
+                    ch,
+                    slot.peel_x,
+                    slot.rank,
+                    n,
+                    step,
+                    ctx.curve_radius,
+                    ch.down,
+                )
             seat_peeloff_port_y(rp, slot.port_y)
 
 
@@ -1398,6 +1417,8 @@ def _stack_distinct_port_descents(
     convergent lanes stay parallel rather than crossing (#1326).  A cluster of
     a single line, or already-separate descents, is left alone.
     """
+    if any(_planner_owns_channel(channel) for _route, channel in cluster):
+        return
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
     for rp, ch in cluster:
         by_line[rp.line_id].append(ch)
@@ -1680,7 +1701,8 @@ def _initial_fanout_descent(rp: RoutedPath) -> _VChannel | None:
     if span is None:
         return None
     x, y_lo, y_hi, down = span
-    return _VChannel(route=rp, idx=1, x=x, y_lo=y_lo, y_hi=y_hi, down=down)
+    channel = _VChannel(route=rp, idx=1, x=x, y_lo=y_lo, y_hi=y_hi, down=down)
+    return None if _planner_owns_channel(channel) else channel
 
 
 def _divergent_source_spans(
@@ -2786,6 +2808,15 @@ def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> N
     for (jid, line_id), up in upstream.items():
         down = downstream.get((jid, line_id))
         if down is None or len(up.points) < 2:
+            continue
+        if (
+            down.exit_turn_family_id
+            in {
+                RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
+                RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
+            }
+            and down.exit_turn_axis_id is not None
+        ):
             continue
         p_prev, p_last = up.points[-2], up.points[-1]
         # Only a genuinely-horizontal final segment is extended; extend

@@ -152,6 +152,7 @@ def _route_edges(
     station_offsets: dict[tuple[str, str], float] | None,
     *,
     observe_plan: bool,
+    offset_step: float | None = None,
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -204,12 +205,29 @@ def _route_edges(
                 rail_internal.add((edge.source, edge.target, edge.line_id))
         rail_routes = route_rail_edges(graph, rail_edges, station_offsets)
 
-    ctx = _build_routing_context(graph, diagonal_run, curve_radius, station_offsets)
+    ctx = _build_routing_context(
+        graph,
+        diagonal_run,
+        curve_radius,
+        station_offsets,
+        offset_step=offset_step,
+    )
+    from nf_metro.layout.route_plan import build_route_plan_observer
+    from nf_metro.layout.routing.exit_turns import build_exit_turn_execution
+
+    execution = build_exit_turn_execution(graph, ctx)
+    ctx.exit_turns = execution.query
     observer = None
     if observe_plan:
-        from nf_metro.layout.route_plan import build_route_plan_observer
-
-        observer = build_route_plan_observer(graph, ctx)
+        observer = build_route_plan_observer(
+            graph,
+            ctx,
+            scaffold=execution.scaffold,
+            exit_turn_plans=execution.plans,
+            exit_turn_references=execution.references,
+            exit_turn_demands=execution.demands,
+            exit_turn_diagnostics=execution.diagnostics,
+        )
     # Route into the context's own list so handlers can read the routes settled
     # so far (a wrap clearing an already-placed sibling channel); it grows as
     # edges route and is what every post-loop pass consumes.
@@ -254,74 +272,109 @@ def _route_edges(
         if result is not None:
             routes.append(result)
 
+    from nf_metro.layout.routing.exit_turns import (
+        assert_exit_turn_snapshot,
+        snapshot_exit_turn_segments,
+        validate_exit_turn_plans,
+    )
+
+    planned_segments = snapshot_exit_turn_segments(routes, execution.plans)
     moves = _center_bubble_stations(routes, graph)
+    assert_exit_turn_snapshot(routes, planned_segments, "bubble centring")
     _spread_diagonal_bundles(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "diagonal spreading")
     _materialize_gap_slots(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "gap-slot materialization")
     _materialize_trunk_slots(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "trunk-slot materialization")
     # Counter-running flows that entered one inter-row gap from opposite rows
     # sit in different dip groups the trunk-slot pass never compares, so they
     # both centre on the gap and fold over each other; split them onto their
     # own direction-specific bands before the downstream coincidence passes read
     # the settled channels.
     _separate_opposing_inter_row_trunks(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "opposing-trunk separation")
     # Re-stack peel-off risers against the settled trunk depths, so each rises
     # on the concentric slot its post-repack depth earns.
     _reconcile_port_peeloff_risers(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "port-peeloff reconciliation")
     # Peel-off reconciliation can transpose riser order, so symmetric
     # divergences must be joined against those final columns.
     _separate_declared_opposing_gap_bundles(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "opposing-gap separation")
     # A merge fan-out's branches leave one fork and turn off its lead-out
     # through a first corner each; fuse those corners onto one shared pivot
     # column so the fork opens as one stroke, before the same-line coincidence
     # pass reads the settled channels.
     _coincide_merge_fanout_pivots(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "merge-fanout pivoting")
     # Coincidence runs after the trunk/gap channels are finalised: it snaps
     # same-line tracks onto a reference read from that final geometry (the
     # port-side track, the source-side track, the merge trunk's descent, and
     # the fan-out junction handoff tail), so a single line reads as one stroke.
     _coincide_same_line_tracks(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "same-line coincidence")
     # Settle every fan-out's opening-descent column in one pass: fuse each line's
     # same-source descents onto the source-nearest track and nest the distinct
     # lines one step apart until each turns off.  Runs after the coincidence pass
     # so a perpendicular drop already resolved onto the junction column stays
     # clear of an L-shaped sibling diverging to another column.
     _coincide_fanout_opening_descents(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "fanout opening coincidence")
     # Distinct lines fanning out share the corridor they turn onto; nest their
     # traverses one step apart so the bundle holds a constant width until each
     # line peels off, rather than running on independently-sized bands.
     _bundle_divergent_distinct_traverses(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "fanout traverse bundling")
     # A perpendicular branch dropped directly off a horizontal fan-out junction
     # trunk peels off at a hard 90; give its departure a lead-in so the corner
     # curves. Runs after coincidence settles the drop's port column.
     _round_junction_perp_peeloff(routes, ctx)
+    assert_exit_turn_snapshot(
+        routes, planned_segments, "perpendicular peeloff rounding"
+    )
     # Distinct-line counterpart: spread any two different lines whose final port
     # descents were forced onto one channel (a shared gap left of a wide target).
     _stagger_convergent_distinct_lines(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "convergence staggering")
     # A same-row over-top wrap to a RIGHT entry is pinned deep in the inter-row
     # gap by the target's header clearance; lift any longer-haul cross-row bypass
     # sharing that gap above the wrap's peak so the local wrap nests beneath it.
     _nest_bypass_above_over_top_wrap(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "bypass nesting")
     _clear_bypass_v_label_strikes(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "bypass label clearance")
     # A merge fan-out's down-trunk and an opposite up-arm to a second merge can
     # settle onto one column over a shared Y span, folding the line back over
     # itself.  Slide the down-trunk's descent column a curve radius past the
     # up-arm through the concentric channel machinery so the two clear.  Reads
     # the settled columns, so it runs after the channel-settling passes.
     _clear_merge_trunk_opposite_arm(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "merge-arm clearance")
     # Settle where each merge feeder meets its trunk -- on the trunk's own
     # centreline, at or before the corner it turns away on. Runs downstream of
     # every pass that moves a trunk channel or a feeder's descent column, since
     # it reads both from the settled geometry.
     _land_merge_feeders_on_trunk(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "merge-feeder landing")
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
     _unify_coincident_corner_radii(routes)
+    assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
     covered_merge_hops = _drop_covered_merge_entry_hops(
         routes, ctx, report_coverage=observer is not None
     )
+    assert_exit_turn_snapshot(routes, planned_segments, "covered merge-hop removal")
     if observer is not None:
         observer.record_covered_merge_hops(covered_merge_hops)
+
+    validate_exit_turn_plans(
+        graph,
+        routes,
+        execution.plans,
+        ctx.station_offsets or {},
+    )
 
     return routes, moves, observer.finish(routes) if observer is not None else None
 
@@ -331,6 +384,8 @@ def route_edges(
     diagonal_run: float = DIAGONAL_RUN,
     curve_radius: float = CURVE_RADIUS,
     station_offsets: dict[tuple[str, str], float] | None = None,
+    *,
+    offset_step: float | None = None,
 ) -> list[RoutedPath]:
     """Route all edges with smooth direction changes.
 
@@ -349,6 +404,7 @@ def route_edges(
         curve_radius,
         station_offsets,
         observe_plan=False,
+        offset_step=offset_step,
     )
     return routes
 
@@ -358,6 +414,8 @@ def observe_route_edges(
     diagonal_run: float = DIAGONAL_RUN,
     curve_radius: float = CURVE_RADIUS,
     station_offsets: dict[tuple[str, str], float] | None = None,
+    *,
+    offset_step: float | None = None,
 ) -> RouteObservation:
     """Route once and return the context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -368,6 +426,7 @@ def observe_route_edges(
         curve_radius,
         station_offsets,
         observe_plan=True,
+        offset_step=offset_step,
     )
     assert plan is not None
     return RouteObservation(routes, plan)
@@ -383,6 +442,8 @@ def route_edges_centred(
     diagonal_run: float = DIAGONAL_RUN,
     curve_radius: float = CURVE_RADIUS,
     station_offsets: dict[tuple[str, str], float] | None = None,
+    *,
+    offset_step: float | None = None,
 ) -> list[RoutedPath]:
     """Route, then settle the bubble-centred markers onto ``graph.stations``.
 
@@ -403,6 +464,7 @@ def route_edges_centred(
         curve_radius,
         station_offsets,
         observe_plan=False,
+        offset_step=offset_step,
     )
     _settle_station_moves(graph, moves)
     return routes
@@ -413,6 +475,8 @@ def observe_route_edges_centred(
     diagonal_run: float = DIAGONAL_RUN,
     curve_radius: float = CURVE_RADIUS,
     station_offsets: dict[tuple[str, str], float] | None = None,
+    *,
+    offset_step: float | None = None,
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -423,6 +487,7 @@ def observe_route_edges_centred(
         curve_radius,
         station_offsets,
         observe_plan=True,
+        offset_step=offset_step,
     )
     _settle_station_moves(graph, moves)
     assert plan is not None

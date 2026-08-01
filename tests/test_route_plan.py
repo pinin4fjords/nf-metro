@@ -27,6 +27,7 @@ from nf_metro.layout.route_plan import (
     DemandKind,
     EmissionBinding,
     EmissionRole,
+    ExitTurnDisposition,
     RouteFamilyId,
     SharedReferenceKind,
     build_route_plan_query,
@@ -255,7 +256,7 @@ def test_every_member_has_one_emitted_or_explicit_covered_binding(
         and binding.coverage_reason is CoverageReason.MERGE_TRUNK_COVERS_ENTRY_HOP
         for binding in plan.bindings
     )
-    assert not plan.diagnostics
+    assert not [item for item in plan.diagnostics if item.blocking]
     assert graph.route_topology is not None
     assert {connector.id for connector in graph.route_topology.connectors} == {
         connector_id for system in plan.systems for connector_id in system.connector_ids
@@ -599,7 +600,14 @@ def test_every_routable_corpus_connector_and_leg_has_exact_plan_coverage() -> No
             graph, routes, plan = _observe(path)
         assert graph.route_topology is not None, path
         topology = graph.route_topology
-        assert not plan.diagnostics, path
+        assert not [item for item in plan.diagnostics if item.blocking], path
+        legacy_diagnostics = [
+            item for item in plan.diagnostics if item.code == "exit-turn-legacy"
+        ]
+        assert len(legacy_diagnostics) == sum(
+            item.disposition is ExitTurnDisposition.LEGACY
+            for item in plan.exit_turn_plans
+        ), path
         connector_ids = tuple(connector.id for connector in topology.connectors)
         observed_connectors = Counter(
             connector_id

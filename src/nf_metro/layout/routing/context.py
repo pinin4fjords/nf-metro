@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
@@ -53,6 +53,9 @@ from nf_metro.parser.route_topology import (
     RouteTopologyQuery,
     build_route_topology_query,
 )
+
+if TYPE_CHECKING:
+    from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
 
 _EdgeKey = tuple[str, str, str]
 
@@ -216,6 +219,7 @@ class _RoutingCtx:
     station_offsets: dict[tuple[str, str], float] | None
     diagonal_run: float
     curve_radius: float
+    exit_turns: ExitTurnPlanQuery | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
     built_routes: list[RoutedPath] = field(default_factory=list)
     junction_fan_info: dict[_EdgeKey, tuple[int, int]] = field(default_factory=dict)
@@ -361,6 +365,8 @@ def _build_routing_context(
     diagonal_run: float,
     curve_radius: float,
     station_offsets: dict[tuple[str, str], float] | None,
+    *,
+    offset_step: float | None = None,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
     topology = build_route_topology_query(graph)
@@ -417,9 +423,11 @@ def _build_routing_context(
         skip_edges=all_exclude,
         topology=topology,
     )
-    offset_step = graph_offset_step(graph)
+    resolved_offset_step = (
+        offset_step if offset_step is not None else graph_offset_step(graph)
+    )
     fan_corridors = _compute_fan_corridors(
-        graph, junction_fan_info, offset_step, merge.junctions
+        graph, junction_fan_info, resolved_offset_step, merge.junctions
     )
 
     return _RoutingCtx(
@@ -430,7 +438,7 @@ def _build_routing_context(
         fanout_junctions=fanout_junction_ids(graph, topology),
         bottom_exit_junctions=bottom_exit_junctions,
         bottom_exit_junction_ports=bottom_exit_junction_ports,
-        offset_step=offset_step,
+        offset_step=resolved_offset_step,
         fork_stations=fork_stations,
         join_stations=join_stations,
         fork_targets=dict(fork_targets),

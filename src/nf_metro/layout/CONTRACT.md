@@ -1305,6 +1305,33 @@ in pipeline order.
   the final boundary (no later Y mutation). The cleared marker reaches the
   next `_layout_once` pass, which re-derives the marks from scratch.
 
+## Post-layout routing boundary: exit-turn planning
+
+- **Purpose**: Decide source-lane order and turn axes for every complete
+  inter-section exit group before route emission.
+- **Helpers**: `compute_station_offsets` produces the base offset map.
+  `_route_edges` calls `build_exit_turn_execution` once, immediately before
+  dispatch. That call plans complete groups and commits their owned compact
+  offsets to the routing context.
+- **Precondition**: Layout coordinates and topology resolution are settled and
+  remain immutable. The mutable per-line offset map has completed all local,
+  port, junction, and rail-boundary phases.
+- **Postcondition**: Each supported exit group has compact active lanes, one
+  assignment per outbound member, and any needed ordered turn axes, lane
+  transitions, references, and runway demands. Any unsupported member places
+  the whole group on the legacy path.
+- **Invariants preserved**: Station, port, junction, and section coordinates.
+  The planner may commit per-line station offsets at its owned seam. Downstream
+  passes may change unowned route geometry but cannot move, remove, or replace
+  a planner-owned source-turn segment or lane transition.
+- **Related tests**: `tests/test_exit_turn_planner.py`,
+  `tests/test_route_plan.py`, and the topology fixtures
+  `leftward_up_exit_turn_order.mmd` and
+  `terminated_exit_lane_compaction.mmd`.
+- **Lifecycle:** invariant - every planned lane, lane transition, route family,
+  and turn axis matches the final routed paths, and every assignment is
+  consumed exactly once at the render boundary.
+
 ## Unclear / structural-debt signals
 
 No open signals at this time. Add new entries here when phase

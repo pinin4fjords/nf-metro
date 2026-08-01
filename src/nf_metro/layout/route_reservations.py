@@ -29,9 +29,10 @@ from nf_metro.layout.route_plan import (
     EmissionMemberId,
     EmissionRole,
     EmittedPathId,
+    ExitTurnDisposition,
+    ExitTurnPlanId,
     GridSpan,
     KeepOutClass,
-    ReservationDecisionKind,
     ReservationDecisionRef,
     RoutePlan,
     RouteSystem,
@@ -40,6 +41,7 @@ from nf_metro.layout.route_plan import (
     SharedReferenceId,
     SharedReferenceKind,
     SymbolicDemand,
+    reservation_decision_refs,
 )
 from nf_metro.layout.routing.common import Direction, RoutedPath, apply_route_offsets
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -1160,66 +1162,7 @@ def _provenance(
     connector_ids: tuple[ConnectorId, ...],
     span: GridSpan,
 ) -> tuple[ReservationDecisionRef, ...]:
-    records: list[ReservationDecisionRef] = []
-    for section_fact in plan.provenance.sections:
-        grid = section_fact.grid
-        if grid is None:
-            continue
-        column, row, row_span, column_span = grid.value
-        if not (
-            span.min_column <= column + column_span - 1
-            and column <= span.max_column
-            and span.min_row <= row + row_span - 1
-            and row <= span.max_row
-        ):
-            continue
-        for kind, decision in (
-            (ReservationDecisionKind.SECTION_GRID, section_fact.grid),
-            (ReservationDecisionKind.SECTION_DIRECTION, section_fact.direction),
-        ):
-            if decision is not None:
-                records.append(
-                    ReservationDecisionRef(
-                        kind,
-                        section_fact.section_id,
-                        decision,
-                    )
-                )
-    connector_set = set(connector_ids)
-    for connector_fact in plan.provenance.connectors:
-        if connector_fact.connector_id not in connector_set:
-            continue
-        for role, side_decision in (
-            (ConnectorEndpointRole.EXIT, connector_fact.exit_side),
-            (ConnectorEndpointRole.ENTRY, connector_fact.entry_side),
-        ):
-            if side_decision is not None:
-                records.append(
-                    ReservationDecisionRef(
-                        ReservationDecisionKind.CONNECTOR_SIDE,
-                        str(connector_fact.connector_id),
-                        side_decision,
-                        role,
-                    )
-                )
-    fold = plan.provenance.fold_threshold
-    if fold is not None:
-        records.append(
-            ReservationDecisionRef(
-                ReservationDecisionKind.FOLD_THRESHOLD,
-                "layout",
-                fold,
-            )
-        )
-    lane = plan.provenance.lane_order.policy
-    records.append(
-        ReservationDecisionRef(
-            ReservationDecisionKind.LANE_ORDER,
-            "line-order",
-            lane,
-        )
-    )
-    return tuple(records)
+    return reservation_decision_refs(plan.provenance, connector_ids, span)
 
 
 def _connector_endpoint_cells(
@@ -2305,10 +2248,20 @@ def build_reservation_query_indexes(
     if plan.reservations != expected_reservation_order:
         raise ValueError("route reservations are not in canonical order")
 
-    expected_reference_ids = tuple(item.reference_id for item in plan.reservations)
+    planned_reference_ids = tuple(
+        item.reference_id
+        for item in plan.exit_turn_plans
+        if item.reference_id is not None
+    )
+    expected_reference_ids = planned_reference_ids + tuple(
+        item.reference_id for item in plan.reservations
+    )
     if tuple(references) != expected_reference_ids:
         raise ValueError("route plan contains unlinked shared references")
-    expected_demand_ids = tuple(
+    planned_demand_ids = tuple(
+        demand_id for item in plan.exit_turn_plans for demand_id in item.demand_ids
+    )
+    expected_demand_ids = planned_demand_ids + tuple(
         demand_id for item in plan.reservations for demand_id in item.demand_ids
     )
     if tuple(demands) != expected_demand_ids:
@@ -2337,6 +2290,71 @@ def build_reservation_query_indexes(
     )
 
 
+def _spans_overlap(first: GridSpan, second: GridSpan) -> bool:
+    return not (
+        first.max_column < second.min_column
+        or second.max_column < first.min_column
+        or first.max_row < second.min_row
+        or second.max_row < first.min_row
+    )
+
+
+def expected_exit_turn_foreign_references(
+    plan: RoutePlan,
+) -> dict[ExitTurnPlanId, tuple[SharedReferenceId, ...]]:
+    """Return canonical cross-system axis and corridor-band conflicts."""
+    planned = tuple(
+        item
+        for item in plan.exit_turn_plans
+        if item.disposition is ExitTurnDisposition.PLANNED
+        and item.axes
+        and item.reference_id is not None
+        and item.demand_ids
+    )
+    demands = {item.id: item for item in plan.demands}
+    spans = {item.id: demands[item.demand_ids[0]].span for item in planned}
+    foreign: defaultdict[ExitTurnPlanId, list[SharedReferenceId]] = defaultdict(list)
+    for rank, first in enumerate(planned):
+        assert first.reference_id is not None
+        for second in planned[rank + 1 :]:
+            assert second.reference_id is not None
+            if (
+                first.system_id != second.system_id
+                and first.source_axis is second.source_axis
+                and _spans_overlap(spans[first.id], spans[second.id])
+                and any(
+                    abs(left.coordinate - right.coordinate)
+                    < max(first.spacing, second.spacing)
+                    for left in first.axes
+                    for right in second.axes
+                )
+            ):
+                foreign[first.id].append(second.reference_id)
+                foreign[second.id].append(first.reference_id)
+    for exit_turn_plan in planned:
+        expected_orientation = (
+            CorridorOrientation.VERTICAL
+            if exit_turn_plan.source_axis is DemandAxis.X
+            else CorridorOrientation.HORIZONTAL
+        )
+        for reservation in plan.reservations:
+            if (
+                reservation.system_id == exit_turn_plan.system_id
+                or reservation.orientation is not expected_orientation
+                or not _spans_overlap(spans[exit_turn_plan.id], reservation.span)
+                or not any(
+                    abs(axis.coordinate - claim.allocation_coordinate)
+                    < max(exit_turn_plan.spacing, reservation.peer_clearance)
+                    for axis in exit_turn_plan.axes
+                    for claim in reservation.claims
+                )
+            ):
+                continue
+            if reservation.reference_id not in foreign[exit_turn_plan.id]:
+                foreign[exit_turn_plan.id].append(reservation.reference_id)
+    return {item.id: tuple(foreign[item.id]) for item in plan.exit_turn_plans}
+
+
 def attach_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
@@ -2356,8 +2374,27 @@ def attach_route_reservations(
         {system.id: rank for rank, system in enumerate(plan.systems)},
         {member.id: rank for rank, member in enumerate(plan.members)},
     )
-    references, demands, reservations = _build_symbolic_records(graph, plan, groups)
+    observed_references, observed_demands, reservations = _build_symbolic_records(
+        graph, plan, groups
+    )
+    references = plan.shared_references + observed_references
+    demands = plan.demands + observed_demands
     realised = _realise_all(graph, reservations, canvas_width, canvas_height)
+    plan_with_corridors = replace(
+        plan,
+        shared_references=references,
+        demands=demands,
+        reservations=reservations,
+        realised_reservations=realised,
+    )
+    foreign_references = expected_exit_turn_foreign_references(plan_with_corridors)
+    exit_turn_plans = tuple(
+        replace(
+            item,
+            foreign_reference_ids=foreign_references[item.id],
+        )
+        for item in plan.exit_turn_plans
+    )
     reference_ids_by_system: defaultdict[RouteSystemId, list[SharedReferenceId]] = (
         defaultdict(list)
     )
@@ -2383,6 +2420,7 @@ def attach_route_reservations(
     return replace(
         plan,
         systems=systems,
+        exit_turn_plans=exit_turn_plans,
         shared_references=references,
         demands=demands,
         reservations=reservations,

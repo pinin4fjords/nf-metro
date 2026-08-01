@@ -18,18 +18,88 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    axis_point,
+    axis_split,
+    diagonal_centreline,
+)
 from nf_metro.layout.routing.bundle import (
     build_concentric_bundle,
     build_offset_bundle,
     build_tapered_bundle,
 )
-from nf_metro.layout.routing.common import RoutedPath
+from nf_metro.layout.routing.common import Direction, OffsetRegime, RoutedPath
 from nf_metro.layout.routing.context import _get_offset, _RoutingCtx
 from nf_metro.parser.model import Edge, MetroGraph, Station
 
 _Vec = tuple[float, float]
 _Member = tuple[Edge, str, float]
 _TaperedMember = tuple[Edge, str, float, float]
+
+
+def route_lane_transition(
+    edge: Edge,
+    p_src: _Vec,
+    p_tgt: _Vec,
+    *,
+    source_offset: float,
+    target_offset: float,
+    run_direction: Direction,
+    source_runway: float,
+    target_runway: float,
+    diagonal_run: float,
+    place_at_source: bool,
+    is_inter_section: bool,
+) -> RoutedPath:
+    """Realise a planned lane hand-off along either cardinal flow axis."""
+    flow_direction = {
+        Direction.R: "LR",
+        Direction.L: "RL",
+        Direction.D: "TB",
+        Direction.U: "BT",
+    }[run_direction]
+    primary_axis, _secondary_axis = AxisFrame.axes_for_direction(flow_direction)
+    source_primary, source_secondary = axis_split(primary_axis, p_src)
+    target_primary, target_secondary = axis_split(primary_axis, p_tgt)
+    source_point = axis_point(
+        primary_axis, source_primary, source_secondary + source_offset
+    )
+    target_point = axis_point(
+        primary_axis, target_primary, target_secondary + target_offset
+    )
+    sign = run_direction.sign
+    lateral_delta = target_secondary + target_offset - source_secondary - source_offset
+    available_run = (target_primary - source_primary) * sign
+    if (
+        source_runway <= 0
+        or target_runway <= 0
+        or diagonal_run <= 0
+        or abs(abs(lateral_delta) - diagonal_run) > COORD_TOLERANCE
+        or available_run
+        < source_runway + diagonal_run + target_runway - COORD_TOLERANCE
+    ):
+        raise ValueError("lane-transition template inputs are inconsistent")
+    if place_at_source:
+        diagonal_start = source_primary + sign * source_runway
+        diagonal_end = diagonal_start + sign * diagonal_run
+    else:
+        diagonal_end = target_primary - sign * target_runway
+        diagonal_start = diagonal_end - sign * diagonal_run
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=diagonal_centreline(
+            flow_direction,
+            source_point,
+            target_point,
+            diagonal_start,
+            diagonal_end,
+        ),
+        is_inter_section=is_inter_section,
+        offset_regime=OffsetRegime.BAKED,
+        normalize_exempt=True,
+    )
 
 
 def gather_member_edges(

@@ -1,0 +1,24 @@
+%%metro line: a | A | #ff0000
+%%metro line: b | B | #0000ff
+%%metro grid: s1 | 0,0
+%%metro grid: s2 | 0,1
+%%metro grid: common | 1,0
+%%metro grid: side | 1,1
+
+graph LR
+    subgraph s1 [S1]
+        p[P]
+    end
+    subgraph s2 [S2]
+        q[Q]
+    end
+    subgraph common [Common]
+        c[C]
+    end
+    subgraph side [Side]
+        x[X]
+    end
+    p -->|a,b| c
+    p -->|a| x
+    q -->|a| c
+    q -->|a| x
