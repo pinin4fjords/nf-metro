@@ -8,6 +8,8 @@ backward-compatible ``routing.core`` imports.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
@@ -33,6 +35,7 @@ from nf_metro.layout.routing.context import (  # noqa: F401
     _tb_x_offset,
     compute_junction_fan_info,
 )
+from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (  # noqa: F401
     _build_right_entry_wrap_route,
     _corridor_descent_x,
@@ -134,13 +137,22 @@ from nf_metro.parser.model import (
     MetroGraph,
 )
 
+if TYPE_CHECKING:
+    from nf_metro.layout.route_plan import (
+        RouteObservation,
+        RoutePlan,
+        RoutePlanObserver,
+    )
+
 
 def _route_edges(
     graph: MetroGraph,
     diagonal_run: float,
     curve_radius: float,
     station_offsets: dict[tuple[str, str], float] | None,
-) -> tuple[list[RoutedPath], dict[str, float]]:
+    *,
+    observe_plan: bool,
+) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
     Shared body behind :func:`route_edges` (pure) and
@@ -148,10 +160,23 @@ def _route_edges(
     per-station X-targets the bubble-centring pass produced as ``{station_id:
     x}`` requests; the route points are adjusted in place either way.
     """
+    observer: RoutePlanObserver | None
     if graph.line_spread is LineSpread.RAILS:
         from nf_metro.layout.routing.rail import route_rail_edges
 
-        return route_rail_edges(graph), {}
+        rail_graph_routes = route_rail_edges(graph)
+        observer = None
+        if observe_plan:
+            from nf_metro.layout.route_plan import build_route_plan_observer
+
+            observer = build_route_plan_observer(graph, None)
+        if observer is not None:
+            observer.record_rail_routes(rail_graph_routes)
+        return (
+            rail_graph_routes,
+            {},
+            observer.finish(rail_graph_routes) if observer is not None else None,
+        )
 
     # Per-section rail mode: route each rail section's own edges with the
     # dedicated rail router (straight rails, no bundling) and let the normal
@@ -180,6 +205,11 @@ def _route_edges(
         rail_routes = route_rail_edges(graph, rail_edges, station_offsets)
 
     ctx = _build_routing_context(graph, diagonal_run, curve_radius, station_offsets)
+    observer = None
+    if observe_plan:
+        from nf_metro.layout.route_plan import build_route_plan_observer
+
+        observer = build_route_plan_observer(graph, ctx)
     # Route into the context's own list so handlers can read the routes settled
     # so far (a wrap clearing an already-placed sibling channel); it grows as
     # edges route and is what every post-loop pass consumes.
@@ -188,21 +218,38 @@ def _route_edges(
 
     for edge in graph.edges:
         if (edge.source, edge.target, edge.line_id) in ctx.skip_edges:
+            if observer is not None:
+                observer.record_merge_skip(
+                    (edge.source, edge.target, edge.line_id),
+                    observer.covering_edge((edge.source, edge.target, edge.line_id)),
+                )
             continue
         if (edge.source, edge.target, edge.line_id) in rail_internal:
             continue
 
         src, tgt = graph.edge_endpoints(edge)
+        edge_key = (edge.source, edge.target, edge.line_id)
+        observe_fallback = (
+            observer is not None
+            and (src.is_port or edge.source in ctx.junction_ids)
+            and (tgt.is_port or edge.target in ctx.junction_ids)
+        )
 
         # Try each routing handler in priority order.
         # The first handler that returns a RoutedPath wins.
-        result = _route_inter_section(edge, src, tgt, ctx)
+        result = _route_inter_section(edge, src, tgt, ctx, observer=observer)
         if result is None:
             result = _route_tb_section(edge, src, tgt, ctx)
+            if result is not None and observer is not None and observe_fallback:
+                observer.record_dispatch(edge_key, RouteFamilyId.TB_SECTION_FALLBACK)
         if result is None:
             result = _route_entry_runway(edge, src, tgt, ctx)
+            if result is not None and observer is not None and observe_fallback:
+                observer.record_dispatch(edge_key, RouteFamilyId.ENTRY_RUNWAY_FALLBACK)
         if result is None:
             result = _route_intra_section(edge, src, tgt, ctx)
+            if result is not None and observer is not None and observe_fallback:
+                observer.record_dispatch(edge_key, RouteFamilyId.INTRA_SECTION_FALLBACK)
 
         if result is not None:
             routes.append(result)
@@ -270,9 +317,13 @@ def _route_edges(
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
     _unify_coincident_corner_radii(routes)
-    _drop_covered_merge_entry_hops(routes, ctx)
+    covered_merge_hops = _drop_covered_merge_entry_hops(
+        routes, ctx, report_coverage=observer is not None
+    )
+    if observer is not None:
+        observer.record_covered_merge_hops(covered_merge_hops)
 
-    return routes, moves
+    return routes, moves, observer.finish(routes) if observer is not None else None
 
 
 def route_edges(
@@ -292,8 +343,34 @@ def route_edges(
     that applies them.  Callers get a route they can inspect without perturbing
     ``graph.stations``.
     """
-    routes, _moves = _route_edges(graph, diagonal_run, curve_radius, station_offsets)
+    routes, _moves, _plan = _route_edges(
+        graph,
+        diagonal_run,
+        curve_radius,
+        station_offsets,
+        observe_plan=False,
+    )
     return routes
+
+
+def observe_route_edges(
+    graph: MetroGraph,
+    diagonal_run: float = DIAGONAL_RUN,
+    curve_radius: float = CURVE_RADIUS,
+    station_offsets: dict[tuple[str, str], float] | None = None,
+) -> RouteObservation:
+    """Route once and return the context-local semantic observation."""
+    from nf_metro.layout.route_plan import RouteObservation
+
+    routes, _moves, plan = _route_edges(
+        graph,
+        diagonal_run,
+        curve_radius,
+        station_offsets,
+        observe_plan=True,
+    )
+    assert plan is not None
+    return RouteObservation(routes, plan)
 
 
 def route_edges_centred(
@@ -315,7 +392,13 @@ def route_edges_centred(
     layout.  Bisection / placement guards that must read the *un-centred*
     placement geometry call :func:`route_edges` directly instead.
     """
-    routes, moves = _route_edges(graph, diagonal_run, curve_radius, station_offsets)
+    routes, moves, _plan = _route_edges(
+        graph,
+        diagonal_run,
+        curve_radius,
+        station_offsets,
+        observe_plan=False,
+    )
     for sid, x in moves.items():
         graph.stations[sid].x = x
     return routes

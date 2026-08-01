@@ -17,6 +17,12 @@ Lines are drawn as horizontal runs joined by 45-degree diagonal
 transitions; inter-section edges use L-shaped (horizontal + vertical)
 routing.
 
+`observe_route_edges` can accompany that production run with an immutable
+[route plan observation](/nf-metro/dev/route_plan/). The plan records semantic
+route systems, the handler family that actually emitted each inter-section
+member, explicit merge coverage, and settled layout provenance. It is an
+observer only: normal routing does not build it, and routing never reads it.
+
 ## Rail mode short-circuit
 
 Before the normal dispatch, `route_edges` checks the graph's

@@ -1,0 +1,145 @@
+---
+title: "Route plan observation"
+description: Immutable route-system identity, production emission coverage, and layout provenance.
+sidebar:
+  order: 4
+---
+
+The route plan is an immutable description of the semantic route systems that
+reached production routing. It answers three questions:
+
+1. Which authored connectors belong to the same route system?
+2. Which physical resolved legs represent that system?
+3. How did production routing emit, cover, or reject each leg?
+
+It does not choose geometry. Routing handlers and post-processing remain the
+only production geometry path.
+
+## Observation boundary
+
+Call `observe_route_edges` when a caller needs both routed paths and a
+`RoutePlan`. The observer is created after the settled routing context exists
+and immediately before the real handler dispatch. An emitted inter-section
+member records the stable family ID of the handler that actually won. Rail
+members record the rail family at the rail call. A member skipped before
+dispatch has no family ID. If a matched inter-section builder declines to emit,
+the later TB, entry-runway, or general fallback that actually emits the member
+owns its family ID. After all normalization passes, the observer binds every
+member to the final route list.
+
+Ordinary `route_edges` and `route_edges_centred` calls do not build a plan.
+The plan is not stored on `MetroGraph`, no global observation state exists, and
+no layout or routing consumer reads it. Observing a route therefore cannot
+change graph state, routed paths, render plans, SVG, manifests, or metrics.
+
+## Identity and coverage
+
+A route system is a maximal component of connectors coupled by semantic
+topology: a shared bundle, endpoint group, divergence, convergence, or resolved
+physical leg. The plan copies identifiers and scalar facts from
+`RouteTopology` and `RouteResolutionTrace`; it does not retain mutable graph,
+station, section, port, or NetworkX objects.
+
+The plan also has an explicit resolved record for every endpoint group,
+divergence, and convergence. These records connect the topology ID and its
+owning system to the resolved port or junction ID. A consumer can find every
+system-owned boundary object without reopening the mutable graph or decoding a
+synthetic name.
+
+An `EmissionMember` is keyed by `(source, target, line_id)`. Its ordered
+`ConnectorLegRef` values preserve every connector, resolved path, and leg
+occurrence, including duplicates and shared physical legs. Every member has
+exactly one final binding:
+
+| Binding             | Meaning                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `EMITTED`           | One final `RoutedPath` carries the member.                                         |
+| `MERGE_SKIP`        | The production edge loop skipped the member because a named merge trunk covers it. |
+| `COVERED_MERGE_HOP` | A post-pass removed the emitted entry hop and records the exact carrying member.   |
+| `UNROUTED`          | No route or valid coverage was found. This also produces a diagnostic.             |
+
+`MERGE_SKIP` and `COVERED_MERGE_HOP` are recorded at their actual production
+suppression sites. They are not inferred by comparing input and output sets.
+Whole-graph rail routing binds matching inter-section members against the same
+final route list. Per-section rail-internal station-to-port and port-to-station
+legs do not enter the inter-section dispatcher, so they are outside this
+schema.
+
+Family identity and binding disposition are separate. `MERGE_SKIP` and
+`UNROUTED` are not route families because no production family emitted them.
+
+`CONTINUATION` and `PEEL_OFF` are part of the schema but remain absent in this
+observation layer. The first entry group is not enough to identify a mainline.
+Only structurally observable `BYPASS` and `TERMINAL` roles are recorded here.
+
+## Provenance and coordinates
+
+The plan uses the parser's immutable `EffectiveDecision` records for grid,
+direction, connector side, fold threshold, and line order. Each decision keeps
+its value, typed origin, lock state, reason, and accepted authored values. Fold
+threshold and line order also keep their typed caller/directive/default source.
+Line ordering keeps both the selected policy and the realised line IDs. Caller
+line-order precedence is recorded before inference, while the override is
+applied at its established API stage, so observation does not alter current
+renders.
+
+Port endpoints carry their owning section's settled grid cell. Synthetic fan
+and merge junctions have no section owner, so their section, row, and column
+facts are absent rather than borrowed from an adjacent section.
+
+Every coordinate-bearing record names its regime:
+
+- `SETTLED_GRID` is for section columns, rows, and complete grid spans.
+- `LAYOUT_CANVAS` is for absolute sizes or geometry produced after layout.
+
+`SymbolicDemand.minimum_size_regime` is required whenever `minimum_size` is
+present. Counts, IDs, roles, and ordering fields are dimensionless.
+
+## Reserved child-planner vocabulary
+
+The reference and demand records are complete immutable schemas, but this
+observer deliberately emits none. A later child planner must create them from
+route-system semantics. Existing wrap tables, gap or trunk slots, fan
+corridors, bundle-info helpers, merge classification, and normalization output
+are routing implementation details, not promoted semantic facts.
+
+Shared-reference ownership and intended consumers are:
+
+| Kind               | Owning child planner        | Later consumer               |
+| ------------------ | --------------------------- | ---------------------------- |
+| `CENTRELINE`       | A route-family planner      | Member geometry construction |
+| `TRUNK`            | A merge or fan planner      | Branch and feeder landing    |
+| `BAND`             | A system spacing planner    | Coordinate allocation        |
+| `RUNWAY`           | An entry-runway planner     | Ordered member emission      |
+| `ORDERED_TURNS`    | A multi-turn family planner | Turn geometry construction   |
+| `LANDING_SEQUENCE` | A merge planner             | Feeder emission order        |
+
+Each `SharedReference` has an ID, owning system, kind, ordered claimant member
+IDs, coordinate regime, and provenance origin. Its child planner owns all of
+those values.
+
+Demand ownership and intended consumers are:
+
+| Kind            | Owning child planner                      | Later consumer              |
+| --------------- | ----------------------------------------- | --------------------------- |
+| `SPAN`          | Any family needing a complete grid extent | Space reservation           |
+| `LANES`         | A multi-member family planner             | Lane-capacity allocation    |
+| `RUNWAY`        | An entry-runway planner                   | Runway clearance allocation |
+| `ORDERED_TURNS` | A multi-turn family planner               | Turn-space allocation       |
+| `KEEP_OUT`      | A family with an exclusion constraint     | Collision-free allocation   |
+
+Each `SymbolicDemand` has an ID, owning system, ordered claimants, kind, axis,
+complete `GridSpan`, lane count, optional minimum size with its regime, ordered
+reference dependencies, keep-out classes, and provenance origin. The later
+allocator consumes the whole claim rather than reconstructing missing bounds
+or ordering.
+
+## Canonical order
+
+Systems follow first connector appearance. Resolved endpoint groups follow exit
+group order and then entry group order. Divergences and convergences follow
+topology order. Members follow first physical-leg appearance in connector,
+resolved-path, and leg order. Branches and feeders follow topology order.
+Bindings follow member order. Future references and demands must follow their
+owner order. Content-derived IDs and canonical tuple ordering make
+`serialize_route_plan` stable across Python hash seeds.

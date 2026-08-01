@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Generic, TypeVar
+
+from nf_metro.options import LineOrder
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph, PortSide
@@ -35,6 +37,8 @@ class DecisionReason(str, Enum):
     AUTHOR_DIRECTIVE = "author-directive"
     CALLER_FOLD_THRESHOLD = "caller-fold-threshold"
     DEFAULT_FOLD_THRESHOLD = "default-fold-threshold"
+    CALLER_LINE_ORDER = "caller-line-order"
+    DEFAULT_LINE_ORDER = "default-line-order"
     AUTO_GRID = "auto-grid"
     AUTO_DIRECTION = "auto-direction"
     EXPLICIT_GRID_DEFAULT_DIRECTION = "explicit-grid-default-direction"
@@ -52,6 +56,14 @@ class DecisionReason(str, Enum):
 
 class FoldThresholdSource(str, Enum):
     """Precedence source that supplied the effective fold threshold."""
+
+    CALLER = "caller"
+    DIRECTIVE = "directive"
+    DEFAULT = "default"
+
+
+class LineOrderSource(str, Enum):
+    """Precedence source that supplied the effective line-order policy."""
 
     CALLER = "caller"
     DIRECTIVE = "directive"
@@ -140,6 +152,17 @@ class FoldThresholdIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class LineOrderIntent:
+    """Line-order inputs and definition-order line ids before inference."""
+
+    directive_value: LineOrder | None
+    caller_value: LineOrder | None
+    selected_value: LineOrder
+    selected_source: LineOrderSource
+    authored_line_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class AuthoredLayoutIntent:
     """Immutable pre-inference snapshot of accepted author layout input."""
 
@@ -148,6 +171,7 @@ class AuthoredLayoutIntent:
     port_hints: tuple[PortHintIntent, ...]
     connector_sides: tuple[ConnectorSideIntent, ...]
     fold_threshold: FoldThresholdIntent
+    line_order: LineOrderIntent
 
     def endpoint_values(self, endpoint: ConnectorEndpointKey) -> tuple[PortSide, ...]:
         """Return authored side options for *endpoint* in source order."""
@@ -216,6 +240,39 @@ class LayoutProvenance:
         default_factory=dict
     )
     fold_threshold_decision: EffectiveDecision[int] | None = None
+    line_order_decision: EffectiveDecision[LineOrder] | None = None
+
+    def record_authored_line_order(self, value: LineOrder) -> None:
+        """Record an accepted ``line_order:`` directive."""
+        self.line_order_decision = EffectiveDecision(
+            value,
+            DecisionOrigin.AUTHORED,
+            True,
+            DecisionReason.AUTHOR_DIRECTIVE,
+            (value,),
+        )
+
+    def record_caller_line_order(self, value: LineOrder) -> None:
+        """Record an explicit caller override without losing author intent."""
+        self.line_order_decision = EffectiveDecision(
+            value,
+            DecisionOrigin.AUTHORED,
+            True,
+            DecisionReason.CALLER_LINE_ORDER,
+            (value,),
+        )
+        if self.authored is not None:
+            current = self.authored.line_order
+            self.authored = replace(
+                self.authored,
+                line_order=LineOrderIntent(
+                    directive_value=current.directive_value,
+                    caller_value=value,
+                    selected_value=value,
+                    selected_source=LineOrderSource.CALLER,
+                    authored_line_ids=current.authored_line_ids,
+                ),
+            )
 
     def record_authored_grid(self, section_id: str, value: GridCell) -> None:
         """Record an accepted ``grid:`` directive."""
@@ -242,6 +299,7 @@ class LayoutProvenance:
         graph: MetroGraph,
         routes: AuthoredRouteCapture,
         caller_fold_threshold: int | None,
+        caller_line_order: LineOrder | None = None,
     ) -> None:
         """Freeze accepted layout input before any graph rewrite or inference."""
         if self.authored is not None:
@@ -321,6 +379,37 @@ class LayoutProvenance:
                 DecisionReason.DEFAULT_FOLD_THRESHOLD,
             )
 
+        line_decision = self.line_order_decision
+        directive_line_order = (
+            line_decision.value
+            if line_decision is not None
+            and line_decision.reason is DecisionReason.AUTHOR_DIRECTIVE
+            else None
+        )
+        line_value: LineOrder
+        if caller_line_order is not None:
+            line_value = caller_line_order
+            line_source = LineOrderSource.CALLER
+            line_decision = EffectiveDecision(
+                line_value,
+                DecisionOrigin.AUTHORED,
+                True,
+                DecisionReason.CALLER_LINE_ORDER,
+                (line_value,),
+            )
+        elif directive_line_order is not None:
+            line_value = directive_line_order
+            line_source = LineOrderSource.DIRECTIVE
+        else:
+            line_value = "definition"
+            line_source = LineOrderSource.DEFAULT
+            line_decision = EffectiveDecision(
+                line_value,
+                DecisionOrigin.INFERRED,
+                False,
+                DecisionReason.DEFAULT_LINE_ORDER,
+            )
+
         self.authored = AuthoredLayoutIntent(
             grids=grids,
             directions=directions,
@@ -332,8 +421,16 @@ class LayoutProvenance:
                 selected_value=selected_value,
                 selected_source=source,
             ),
+            line_order=LineOrderIntent(
+                directive_value=directive_line_order,
+                caller_value=caller_line_order,
+                selected_value=line_value,
+                selected_source=line_source,
+                authored_line_ids=routes.line_ids,
+            ),
         )
         self.fold_threshold_decision = fold_decision
+        self.line_order_decision = line_decision
 
     @staticmethod
     def endpoint_key(
@@ -490,7 +587,11 @@ class LayoutProvenance:
 
     def validate_complete(self, graph: MetroGraph) -> None:
         """Raise when an effective layout commitment lacks typed provenance."""
-        if self.authored is None or self.fold_threshold_decision is None:
+        if (
+            self.authored is None
+            or self.fold_threshold_decision is None
+            or self.line_order_decision is None
+        ):
             raise ValueError("layout provenance was not captured before inference")
         missing_directions = [
             sid for sid in graph.sections if sid not in self.directions

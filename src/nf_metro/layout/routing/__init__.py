@@ -16,7 +16,11 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     apply_route_offsets,
 )
-from nf_metro.layout.routing.core import route_edges, route_edges_centred
+from nf_metro.layout.routing.core import (
+    observe_route_edges,
+    route_edges,
+    route_edges_centred,
+)
 from nf_metro.layout.routing.offsets import compute_station_offsets
 
 __all__ = [
@@ -27,4 +31,5 @@ __all__ = [
     "compute_station_offsets",
     "route_edges",
     "route_edges_centred",
+    "observe_route_edges",
 ]

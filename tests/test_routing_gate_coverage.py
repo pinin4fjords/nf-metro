@@ -121,6 +121,41 @@ def test_triage_sidecar_references_open_gaps(rgc, gates):
     )
 
 
+OBSERVER_GATES = [
+    "core.py::if observe_plan:::#1",
+    "core.py::if observe_plan:::#2",
+    "core.py::if observer is not None:::#1",
+    "core.py::if observer is not None:::#2",
+    "core.py::if observer is not None:::#3",
+    "inter_section_handlers.py::if observer is not None and route is not None:::#1",
+    "normalize.py::if coverage_records is not None:::#1",
+]
+
+
+@pytest.mark.parametrize("key", OBSERVER_GATES)
+def test_public_route_observation_gate_is_fully_covered(gates, key):
+    """The sweep must exercise both normal rendering and route observation."""
+    gate = _gate(gates, key)
+    assert gate is not None, f"no gate keyed {key!r}"
+    assert gate.fully_covered, f"public route-observation gate has an open arm: {key}"
+
+
+def test_static_type_checking_guards_are_not_topology_gates(gates):
+    """Static typing branches do not enter the topology coverage matrix."""
+    assert all(gate.code != "if TYPE_CHECKING:" for gate in gates)
+
+
+def test_generated_markdown_has_one_terminal_newline(rgc):
+    """The generated matrix is a text file without a blank trailing line."""
+    gate = rgc.Gate("example.py", 1, "if condition:", 1)
+    gate.arms = [rgc.GateArm(2, ["example.mmd"]), rgc.GateArm(3, ["example.mmd"])]
+
+    markdown = rgc._render_markdown([gate], {})
+
+    assert markdown.endswith("\n")
+    assert not markdown.endswith("\n\n")
+
+
 def _gate(gates, key):
     """The gate with the given line-stable ``Gate.key`` (or ``None``)."""
     return next((g for g in gates if g.key == key), None)

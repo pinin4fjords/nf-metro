@@ -49,6 +49,13 @@ placement, route dispatch, lane offsets, normalization, validation, and bridge
 placement. Bridge crossing graphs use ordered route indices and explicitly sort
 component members before choosing bridge geometry.
 
+Route-plan observations use the same rule. Systems follow connector order;
+resolved endpoint groups, divergences, and convergences follow topology order;
+physical members follow connector, resolved-path, and leg order; branches and
+feeders follow topology order; bindings follow member order. IDs derive from
+that semantic content rather than hash iteration. The plan serializer preserves
+canonical tuple order and sorts object keys only for representation.
+
 ## Cross-process oracle
 
 `tests/hash_seed_oracle.py` launches a fresh interpreter for each hash seed. It
