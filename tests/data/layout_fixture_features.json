@@ -109,6 +109,7 @@
     "topologies/tb_fork_lane_transpose.mmd",
     "topologies/tb_left_exit_step.mmd",
     "topologies/tb_perp_exit_side_neighbour.mmd",
+    "topologies/terminated_exit_lane_compaction.mmd",
     "topologies/variant_calling.mmd",
     "topologies/wide_fan_out.mmd",
     "guide/02_sections.mmd",
@@ -125,6 +126,7 @@
     "topologies/tb_off_track_inputs.mmd"
   ],
   "merge_fanout": [
+    "ambiguous_exit_continuation.mmd",
     "genomeassembly_organellar.mmd",
     "genomeassembly.mmd",
     "genomeassembly_staggered.mmd",
@@ -144,6 +146,7 @@
     "topologies/exit_corner_offset_dogleg.mmd",
     "topologies/fold_fan_across.mmd",
     "topologies/fold_stacked_branch.mmd",
+    "topologies/leftward_up_exit_turn_order.mmd",
     "topologies/merge_offrow_continuation.mmd",
     "topologies/merge_port_above_approach.mmd",
     "topologies/mixed_bundle_column.mmd",
@@ -157,6 +160,7 @@
     "guide/04_directions.mmd"
   ],
   "sole_continuation": [
+    "compact_continuation_slot_conflict.mmd",
     "font_scale.mmd",
     "variantbenchmarking.mmd",
     "variantbenchmarking_auto.mmd",
