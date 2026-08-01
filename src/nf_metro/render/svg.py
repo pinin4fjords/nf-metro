@@ -949,6 +949,16 @@ def _build_render_plan_scaled(
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
 
+    if route_plan is not None:
+        from nf_metro.layout.route_reservations import realise_route_reservations
+
+        route_plan = realise_route_reservations(
+            route_plan,
+            graph,
+            canvas_width=svg_width,
+            canvas_height=svg_height,
+        )
+
     positive_fan = tb_positive_fan_sections(graph)
 
     manifest = None

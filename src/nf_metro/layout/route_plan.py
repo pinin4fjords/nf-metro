@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NewType, TypeVar
+from typing import TYPE_CHECKING, NewType, TypeAlias, TypeVar
 
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.options import LineOrder
@@ -24,6 +24,7 @@ from nf_metro.parser.model import MetroGraph, PortSide, is_bypass_v
 from nf_metro.parser.provenance import (
     ConnectorEndpointRole,
     DecisionOrigin,
+    DecisionReason,
     EffectiveDecision,
     FoldThresholdSource,
     GridCell,
@@ -44,6 +45,12 @@ from nf_metro.parser.route_topology import (
 )
 
 if TYPE_CHECKING:
+    from nf_metro.layout.route_reservations import (
+        RealisedRouteReservation,
+        RouteReservation,
+        RouteReservationDiagnostic,
+        RouteReservationId,
+    )
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.layout.routing.context import _EdgeKey, _RoutingCtx
 
@@ -114,6 +121,87 @@ class DemandAxis(str, Enum):
     X = "x"
     Y = "y"
     BOTH = "both"
+
+
+class KeepOutClass(str, Enum):
+    """Obstacle classes a symbolic allocation must clear."""
+
+    SECTION = "section"
+    HEADER = "header"
+    LABEL = "label"
+    MARKER = "marker"
+    CANVAS = "canvas"
+
+
+class ReservationDecisionKind(str, Enum):
+    """Layout decision referenced by a reservation or symbolic demand."""
+
+    SECTION_GRID = "section-grid"
+    SECTION_DIRECTION = "section-direction"
+    CONNECTOR_SIDE = "connector-side"
+    FOLD_THRESHOLD = "fold-threshold"
+    LANE_ORDER = "lane-order"
+
+
+class ReservationDecisionSource(str, Enum):
+    """Who supplied a reservation-affecting layout decision."""
+
+    AUTHOR = "author"
+    CALLER = "caller"
+    INFERENCE = "inference"
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationDecisionRef:
+    """Typed reference to one existing effective layout decision."""
+
+    kind: ReservationDecisionKind
+    subject_id: str
+    decision: ReservationEffectiveDecision
+    role: ConnectorEndpointRole | None = None
+
+    def __post_init__(self) -> None:
+        endpoint = self.kind is ReservationDecisionKind.CONNECTOR_SIDE
+        if endpoint != (self.role is not None):
+            raise ValueError("only connector-side decisions have an endpoint role")
+        value = self.decision.value
+        if self.kind is ReservationDecisionKind.SECTION_GRID:
+            valid_grid = (
+                isinstance(value, tuple)
+                and len(value) == 4
+                and all(isinstance(item, int) for item in value)
+            )
+            if not valid_grid:
+                raise ValueError("section-grid decision requires a four-integer value")
+        elif self.kind is ReservationDecisionKind.FOLD_THRESHOLD:
+            if not isinstance(value, int):
+                raise ValueError("fold-threshold decision requires an integer value")
+        elif self.kind is ReservationDecisionKind.CONNECTOR_SIDE:
+            if not isinstance(value, PortSide):
+                raise ValueError("connector-side decision requires a PortSide value")
+        elif not isinstance(value, str):
+            raise ValueError(f"{self.kind.value} decision requires a string value")
+
+    @property
+    def source(self) -> ReservationDecisionSource:
+        if self.decision.reason in {
+            DecisionReason.CALLER_FOLD_THRESHOLD,
+            DecisionReason.CALLER_LINE_ORDER,
+            DecisionReason.CALLER_COMMITMENT,
+        }:
+            return ReservationDecisionSource.CALLER
+        if self.decision.origin is DecisionOrigin.AUTHORED:
+            return ReservationDecisionSource.AUTHOR
+        return ReservationDecisionSource.INFERENCE
+
+
+ReservationEffectiveDecision: TypeAlias = (
+    EffectiveDecision[GridCell]
+    | EffectiveDecision[str]
+    | EffectiveDecision[int]
+    | EffectiveDecision[PortSide]
+    | EffectiveDecision[LineOrder]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,7 +363,7 @@ class SharedReference:
     kind: SharedReferenceKind
     claimant_member_ids: tuple[EmissionMemberId, ...]
     coordinate_regime: CoordinateRegime
-    provenance: DecisionOrigin
+    provenance: tuple[ReservationDecisionRef, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,8 +380,8 @@ class SymbolicDemand:
     minimum_size: float | None
     minimum_size_regime: CoordinateRegime | None
     ordered_reference_ids: tuple[SharedReferenceId, ...]
-    keep_out_classes: tuple[str, ...]
-    provenance: DecisionOrigin
+    keep_out_classes: tuple[KeepOutClass, ...]
+    provenance: tuple[ReservationDecisionRef, ...]
 
     def __post_init__(self) -> None:
         if (self.minimum_size is None) is not (self.minimum_size_regime is None):
@@ -319,6 +407,7 @@ class RouteSystem:
     feeder_ids: tuple[RouteFeederId, ...]
     shared_reference_ids: tuple[SharedReferenceId, ...]
     demand_ids: tuple[DemandId, ...]
+    reservation_ids: tuple[RouteReservationId, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +471,9 @@ class RoutePlan:
     feeders: tuple[RouteFeeder, ...]
     shared_references: tuple[SharedReference, ...]
     demands: tuple[SymbolicDemand, ...]
+    reservations: tuple[RouteReservation, ...]
+    realised_reservations: tuple[RealisedRouteReservation, ...]
+    reservation_diagnostics: tuple[RouteReservationDiagnostic, ...]
     bindings: tuple[EmissionBinding, ...]
     provenance: RoutePlanProvenance
     diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
@@ -833,6 +925,9 @@ def _build_route_plan(
             feeders=(),
             shared_references=(),
             demands=(),
+            reservations=(),
+            realised_reservations=(),
+            reservation_diagnostics=(),
             bindings=(),
             provenance=_plan_provenance(graph, ()),
         )
@@ -1026,10 +1121,11 @@ def _build_route_plan(
                 tuple(feeder_ids_by_system[system_id]),
                 (),
                 (),
+                (),
             )
         )
 
-    return RoutePlan(
+    plan = RoutePlan(
         systems=tuple(systems),
         endpoint_groups=tuple(resolution.endpoint_groups),
         divergences=tuple(resolution.divergences),
@@ -1039,9 +1135,20 @@ def _build_route_plan(
         feeders=tuple(feeders),
         shared_references=(),
         demands=(),
+        reservations=(),
+        realised_reservations=(),
+        reservation_diagnostics=(),
         bindings=tuple(bindings),
         provenance=_plan_provenance(graph, topology.connectors),
         diagnostics=tuple(diagnostics),
+    )
+    from nf_metro.layout.route_reservations import attach_route_reservations
+
+    return attach_route_reservations(
+        plan,
+        graph,
+        routes,
+        observer.context.station_offsets if observer.context is not None else None,
     )
 
 
@@ -1055,6 +1162,12 @@ class RoutePlanQuery:
     _convergences: Mapping[ConvergenceId, RouteConvergence]
     _members: Mapping[EmissionMemberId, EmissionMember]
     _bindings: Mapping[EmissionMemberId, tuple[EmissionBinding, ...]]
+    _shared_references: Mapping[SharedReferenceId, SharedReference]
+    _demands: Mapping[DemandId, SymbolicDemand]
+    _reservations: Mapping[RouteReservationId, RouteReservation]
+    _realisations: Mapping[RouteReservationId, RealisedRouteReservation]
+    _reservations_by_system: Mapping[RouteSystemId, tuple[RouteReservation, ...]]
+    _reservations_by_member: Mapping[EmissionMemberId, tuple[RouteReservation, ...]]
 
     def endpoint_group(self, group_id: EndpointGroupId) -> ResolvedEndpointGroup:
         return self._endpoint_groups[group_id]
@@ -1070,6 +1183,30 @@ class RoutePlanQuery:
 
     def bindings_for(self, member_id: EmissionMemberId) -> tuple[EmissionBinding, ...]:
         return self._bindings.get(member_id, ())
+
+    def shared_reference(self, reference_id: SharedReferenceId) -> SharedReference:
+        return self._shared_references[reference_id]
+
+    def demand(self, demand_id: DemandId) -> SymbolicDemand:
+        return self._demands[demand_id]
+
+    def reservation(self, reservation_id: RouteReservationId) -> RouteReservation:
+        return self._reservations[reservation_id]
+
+    def realised_reservation(
+        self, reservation_id: RouteReservationId
+    ) -> RealisedRouteReservation | None:
+        return self._realisations.get(reservation_id)
+
+    def reservations_for_system(
+        self, system_id: RouteSystemId
+    ) -> tuple[RouteReservation, ...]:
+        return self._reservations_by_system.get(system_id, ())
+
+    def reservations_for_member(
+        self, member_id: EmissionMemberId
+    ) -> tuple[RouteReservation, ...]:
+        return self._reservations_by_member.get(member_id, ())
 
 
 def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
@@ -1121,6 +1258,10 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         (carrier_binding,) = bindings[carrier.id]
         if carrier_binding.kind is not BindingKind.EMITTED:
             raise ValueError("covered members require an emitted carrier")
+
+    from nf_metro.layout.route_reservations import build_reservation_query_indexes
+
+    reservation_indexes = build_reservation_query_indexes(plan, members, bindings)
     return RoutePlanQuery(
         plan,
         MappingProxyType(endpoint_groups),
@@ -1128,6 +1269,16 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         MappingProxyType(convergences),
         MappingProxyType(members),
         MappingProxyType({key: tuple(value) for key, value in bindings.items()}),
+        MappingProxyType(reservation_indexes.references),
+        MappingProxyType(reservation_indexes.demands),
+        MappingProxyType(reservation_indexes.reservations),
+        MappingProxyType(reservation_indexes.realisations),
+        MappingProxyType(
+            {key: tuple(value) for key, value in reservation_indexes.by_system.items()}
+        ),
+        MappingProxyType(
+            {key: tuple(value) for key, value in reservation_indexes.by_member.items()}
+        ),
     )
 
 

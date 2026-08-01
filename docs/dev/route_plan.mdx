@@ -74,7 +74,7 @@ Only structurally observable `BYPASS` and `TERMINAL` roles are recorded here.
 
 ## Provenance and coordinates
 
-The plan uses the parser's immutable `EffectiveDecision` records for grid,
+The plan references the parser's immutable `EffectiveDecision` records for grid,
 direction, connector side, fold threshold, and line order. Each decision keeps
 its value, typed origin, lock state, reason, and accepted authored values. Fold
 threshold and line order also keep their typed caller/directive/default source.
@@ -95,44 +95,71 @@ Every coordinate-bearing record names its regime:
 `SymbolicDemand.minimum_size_regime` is required whenever `minimum_size` is
 present. Counts, IDs, roles, and ordering fields are dimensionless.
 
-## Reserved child-planner vocabulary
+## Corridor reservations
 
-The reference and demand records are complete immutable schemas, but this
-observer deliberately emits none. A later child planner must create them from
-route-system semantics. Existing wrap tables, gap or trunk slots, fan
-corridors, bundle-info helpers, merge classification, and normalization output
-are routing implementation details, not promoted semantic facts.
+The observer also records shared row and column space that the current route
+facts can prove. It builds ownership from the route-system member and its final
+emission binding. Every claim freezes the exact final segment, travel interval,
+and allocation coordinate that supplied the evidence. The routed path identifies
+what to measure, but overlapping polylines do not establish ownership.
 
-Shared-reference ownership and intended consumers are:
+One observed corridor has three linked records:
 
-| Kind               | Owning child planner        | Later consumer               |
-| ------------------ | --------------------------- | ---------------------------- |
-| `CENTRELINE`       | A route-family planner      | Member geometry construction |
-| `TRUNK`            | A merge or fan planner      | Branch and feeder landing    |
-| `BAND`             | A system spacing planner    | Coordinate allocation        |
-| `RUNWAY`           | An entry-runway planner     | Ordered member emission      |
-| `ORDERED_TURNS`    | A multi-turn family planner | Turn geometry construction   |
-| `LANDING_SEQUENCE` | A merge planner             | Feeder emission order        |
+1. `RouteReservation` is the allocation contract. It names the route system,
+   authored connectors, claiming members, complete grid span, physical lanes,
+   bundle width, side clearances, keep-outs, and production route families.
+2. `SharedReference` and `SymbolicDemand` expose that contract to later
+   planners. They use the same owner, claimants, span, and typed provenance.
+3. `RealisedRouteReservation` measures the final section or canvas boundaries,
+   occupied coordinate, exact travel interval, available width, and signed
+   slack.
 
-Each `SharedReference` has an ID, owning system, kind, ordered claimant member
-IDs, coordinate regime, and provenance origin. Its child planner owns all of
-those values.
+Claims and lanes are deliberately separate. Claims preserve full attribution.
+Coincident claims share one lane, non-overlapping claims can reuse a lane, and
+only different coordinates occupied at the same longitudinal position increase
+the lane count and bundle width.
 
-Demand ownership and intended consumers are:
+Blocker selection has an explicit evidence scope. `TOPOLOGY_SPAN` applies to a
+row or column gap proved by authored connector topology. It measures the worst
+blockers across the complete connector span, even when a fallback path has
+escaped that gap. `OBSERVED_RUN` applies to a geometrically observed gap or
+canvas detour. It considers only sections intersecting that exact final run.
+This distinction prevents an unrelated section elsewhere in the route system
+from creating a false deficit without erasing a collapsed topology corridor.
 
-| Kind            | Owning child planner                      | Later consumer              |
-| --------------- | ----------------------------------------- | --------------------------- |
-| `SPAN`          | Any family needing a complete grid extent | Space reservation           |
-| `LANES`         | A multi-member family planner             | Lane-capacity allocation    |
-| `RUNWAY`        | An entry-runway planner                   | Runway clearance allocation |
-| `ORDERED_TURNS` | A multi-turn family planner               | Turn-space allocation       |
-| `KEEP_OUT`      | A family with an exclusion constraint     | Collision-free allocation   |
+Negative available width is valid evidence. It means the final blocker
+envelopes overlap. A negative side slack means the route lies too close to, or
+past, one boundary. Observation retains both values and emits an attributed
+diagnostic; it does not move any geometry or approve a fallback route.
 
-Each `SymbolicDemand` has an ID, owning system, ordered claimants, kind, axis,
-complete `GridSpan`, lane count, optional minimum size with its regime, ordered
-reference dependencies, keep-out classes, and provenance origin. The later
-allocator consumes the whole claim rather than reconstructing missing bounds
-or ordering.
+The symbolic record gets its complete span from authored connector endpoints,
+including connectors rewritten through synthetic fan and merge nodes. Final
+section and header envelopes supply only the realised measurements. This keeps
+the resource attached to the route system when late layout stages collapse the
+space where its path was intended to run.
+
+Gap slots, trunk slots, fan-corridor caches, bundle indexes, and row-minimum
+helpers remain routing implementation details. They are not reservation truth.
+The query layer rejects records whose claims disagree with final emission
+bindings or whose reference, demand, realisation, or diagnostic contradicts
+its reservation.
+
+## Planner hand-off
+
+The observational adapter publishes the corridors that current production
+facts prove. Later planners add their specialised demands to the same records:
+
+| Planner                                                     | Additional demand it owns                                                                 |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [#1655](https://github.com/seqeralabs/nf-metro/issues/1655) | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes                 |
+| [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Fan and diamond centrelines, branch transition runways, and hand-off space                |
+| [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Convergence trunk extent, feeder landing sequence, and approach space                     |
+| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Final row and column allocation; it realises every demand by monotone envelope settlement |
+
+Each planner migrates a complete semantic group. If one member is unsupported,
+the group remains on the explicit legacy path with a deterministic diagnostic.
+No planner may publish a partial demand and ask a later normalization pass to
+recover the missing ownership.
 
 ## Canonical order
 
@@ -140,6 +167,7 @@ Systems follow first connector appearance. Resolved endpoint groups follow exit
 group order and then entry group order. Divergences and convergences follow
 topology order. Members follow first physical-leg appearance in connector,
 resolved-path, and leg order. Branches and feeders follow topology order.
-Bindings follow member order. Future references and demands must follow their
-owner order. Content-derived IDs and canonical tuple ordering make
-`serialize_route_plan` stable across Python hash seeds.
+Bindings follow member order. Reservations, references, demands, realisations,
+and diagnostics are ordered by orientation, grid gap, complete span, route
+system, claimant, and content-derived ID. `serialize_route_plan` is therefore
+stable across Python hash seeds.
