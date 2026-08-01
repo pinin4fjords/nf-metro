@@ -6,7 +6,6 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import TypeVar
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -31,22 +30,29 @@ from nf_metro.layout.route_plan import (
     ExitTurnPlanId,
     GridSpan,
     KeepOutClass,
+    ResolvedEndpointGroup,
     RoutePlan,
     RoutePlanDiagnostic,
     RoutePlanProvenance,
     RouteSemanticScaffold,
+    RouteSystemId,
     SharedReference,
     SharedReferenceId,
     SharedReferenceKind,
     SymbolicDemand,
     TurnHandedness,
     _member_roles,
+    _ordered_unique,
     _plan_provenance,
     build_route_semantic_scaffold,
+    grid_span_for_sections,
     reservation_decision_refs,
     turn_handedness,
 )
-from nf_metro.layout.routing.centrelines import gather_tapered_bundle
+from nf_metro.layout.routing.centrelines import (
+    gather_tapered_bundle,
+    route_lane_transition,
+)
 from nf_metro.layout.routing.common import (
     Direction,
     OffsetRegime,
@@ -98,7 +104,6 @@ PLANNED_EXIT_FAMILIES = frozenset(
 )
 
 _EdgeKey = tuple[str, str, str]
-_T = TypeVar("_T")
 
 
 class ExitTurnInvariantError(RuntimeError):
@@ -155,6 +160,36 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> _TransitionMembership | None:
         return self._transition_by_edge.get((edge.source, edge.target, edge.line_id))
+
+
+def route_planned_lane_transition(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    *,
+    is_inter_section: bool,
+) -> RoutedPath | None:
+    """Realise a lane hand-off committed by the exit-turn planner."""
+    membership = (
+        ctx.exit_turns.transition_for_edge(edge) if ctx.exit_turns is not None else None
+    )
+    if membership is None:
+        return None
+    transition = membership.transition
+    route = route_lane_transition(
+        edge,
+        transition.source_point,
+        transition.target_point,
+        source_offset=transition.source_offset,
+        target_offset=transition.target_offset,
+        run_direction=transition.run_direction,
+        source_runway=transition.source_runway,
+        target_runway=transition.target_runway,
+        diagonal_run=transition.diagonal_run,
+        place_at_source=(transition.placement is ExitLaneTransitionPlacement.SOURCE),
+        is_inter_section=is_inter_section,
+    )
+    route.exit_lane_transition_plan_id = str(membership.plan.id)
+    return route
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,26 +269,28 @@ class _LaneOwnership:
     legacy_reason: str | None
 
 
-def _ordered_unique(values: Iterable[_T]) -> tuple[_T, ...]:
-    seen: set[_T] = set()
-    result: list[_T] = []
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
-    return tuple(result)
+@dataclass(frozen=True, slots=True)
+class _PlannerIndexes:
+    member_edges_by_exit_group: Mapping[EndpointGroupId, tuple[ResolvedEdge, ...]]
+    member_ids_by_system: Mapping[RouteSystemId, tuple[EmissionMemberId, ...]]
+    endpoint_by_id: Mapping[EndpointGroupId, ResolvedEndpointGroup]
+
+
+@dataclass(frozen=True, slots=True)
+class _BuiltGroupPlan:
+    plan: ExitTurnPlan
+    reference: SharedReference | None
+    demands: tuple[SymbolicDemand, ...]
+    diagnostic: RoutePlanDiagnostic | None
+    assignments_by_edge: Mapping[ResolvedEdge, ExitTurnAssignment]
 
 
 def _edge_key(edge: ResolvedEdge) -> _EdgeKey:
     return edge.source, edge.target, edge.line_id
 
 
-def _graph_edge(graph: MetroGraph, edge: ResolvedEdge) -> Edge:
-    return next(
-        item
-        for item in graph.edges
-        if (item.source, item.target, item.line_id) == _edge_key(edge)
-    )
+def _graph_edge(edge_by_key: Mapping[_EdgeKey, Edge], edge: ResolvedEdge) -> Edge:
+    return edge_by_key[_edge_key(edge)]
 
 
 def _connector_span(
@@ -261,24 +298,49 @@ def _connector_span(
     scaffold: RouteSemanticScaffold,
     connector_ids: tuple[ConnectorId, ...],
 ) -> GridSpan:
-    cells = []
-    for connector_id in connector_ids:
-        connector = scaffold.query.connector(connector_id)
-        for section_id in (connector.source_section, connector.target_section):
-            section = graph.sections[section_id]
-            cells.append(
-                (
-                    section.grid_col,
-                    section.grid_row,
-                    section.grid_row_span,
-                    section.grid_col_span,
-                )
-            )
-    return GridSpan(
-        min(column for column, _row, _row_span, _column_span in cells),
-        max(column + column_span - 1 for column, _row, _row_span, column_span in cells),
-        min(row for _column, row, _row_span, _column_span in cells),
-        max(row + row_span - 1 for _column, row, row_span, _column_span in cells),
+    return grid_span_for_sections(
+        graph,
+        (
+            section_id
+            for connector_id in connector_ids
+            for connector in (scaffold.query.connector(connector_id),)
+            for section_id in (connector.source_section, connector.target_section)
+        ),
+    )
+
+
+def _build_planner_indexes(scaffold: RouteSemanticScaffold) -> _PlannerIndexes:
+    edges_by_exit_group: defaultdict[EndpointGroupId, list[ResolvedEdge]] = defaultdict(
+        list
+    )
+    member_ids_by_system: defaultdict[RouteSystemId, list[EmissionMemberId]] = (
+        defaultdict(list)
+    )
+    for edge in scaffold.edge_order:
+        connector_ids = _ordered_unique(
+            ref.connector_id for ref in scaffold.refs_by_edge[edge]
+        )
+        member_ids_by_system[scaffold.system_for(connector_ids)].append(
+            scaffold.member_id_by_edge[edge]
+        )
+        for exit_group_id in _ordered_unique(
+            scaffold.query.connector(connector_id).exit_group_id
+            for connector_id in connector_ids
+        ):
+            edges_by_exit_group[exit_group_id].append(edge)
+    return _PlannerIndexes(
+        MappingProxyType(
+            {group_id: tuple(edges) for group_id, edges in edges_by_exit_group.items()}
+        ),
+        MappingProxyType(
+            {
+                system_id: tuple(member_ids)
+                for system_id, member_ids in member_ids_by_system.items()
+            }
+        ),
+        MappingProxyType(
+            {item.id: item for item in scaffold.resolution.endpoint_groups}
+        ),
     )
 
 
@@ -902,7 +964,7 @@ def _classify_assignment_seeds(
             reason = reason or "multiple-destinations"
             unclassified.append(scaffold.member_id_by_edge[edge])
             continue
-        graph_edge = _graph_edge(graph, edge)
+        graph_edge = _graph_edge(ctx.edge_by_key, edge)
         src, tgt = graph.edge_endpoints(graph_edge)
         family_id = classify_inter_section_family(graph_edge, src, tgt, ctx)
         if family_id is None:
@@ -1222,15 +1284,10 @@ def _build_group_plan(
     graph: MetroGraph,
     ctx: _RoutingCtx,
     scaffold: RouteSemanticScaffold,
+    indexes: _PlannerIndexes,
     exit_group: EndpointGroup,
     provenance: RoutePlanProvenance,
-) -> tuple[
-    ExitTurnPlan,
-    SharedReference | None,
-    tuple[SymbolicDemand, ...],
-    RoutePlanDiagnostic | None,
-    dict[ResolvedEdge, ExitTurnAssignment],
-]:
+) -> _BuiltGroupPlan:
     query = scaffold.query
     exit_port_id = query.exit_port(exit_group.id)
     divergence = next(
@@ -1248,12 +1305,8 @@ def _build_group_plan(
     )
     member_edges = tuple(
         edge
-        for edge in scaffold.edge_order
-        if any(
-            ref.connector_id in exit_group.connector_ids
-            for ref in scaffold.refs_by_edge[edge]
-        )
-        and (
+        for edge in indexes.member_edges_by_exit_group.get(exit_group.id, ())
+        if (
             edge.source == source_id
             or (
                 divergence is not None
@@ -1263,14 +1316,7 @@ def _build_group_plan(
         )
     )
     member_ids = tuple(scaffold.member_id_by_edge[edge] for edge in member_edges)
-    system_member_ids = tuple(
-        scaffold.member_id_by_edge[edge]
-        for edge in scaffold.edge_order
-        if scaffold.system_for(
-            _ordered_unique(ref.connector_id for ref in scaffold.refs_by_edge[edge])
-        )
-        == system_id
-    )
+    system_member_ids = indexes.member_ids_by_system.get(system_id, ())
     outbound_edges = tuple(edge for edge in member_edges if edge.source == source_id)
     reason: str | None = None
     represented_connectors = {
@@ -1419,15 +1465,18 @@ def _build_group_plan(
         )
         for rank, (line_id, input_offset) in enumerate(ordered_lanes)
     )
-    endpoint_by_id = {item.id: item for item in scaffold.resolution.endpoint_groups}
     assignments = tuple(
         ExitTurnAssignment(
             seed.member_id,
             seed.entry_group_id,
-            endpoint_by_id[seed.entry_group_id].section_id,
-            graph.sections[endpoint_by_id[seed.entry_group_id].section_id].grid_col,
-            graph.sections[endpoint_by_id[seed.entry_group_id].section_id].grid_row,
-            endpoint_by_id[seed.entry_group_id].side,
+            indexes.endpoint_by_id[seed.entry_group_id].section_id,
+            graph.sections[
+                indexes.endpoint_by_id[seed.entry_group_id].section_id
+            ].grid_col,
+            graph.sections[
+                indexes.endpoint_by_id[seed.entry_group_id].section_id
+            ].grid_row,
+            indexes.endpoint_by_id[seed.entry_group_id].side,
             seed.lane_rank,
             seed.family_id,
             seed.roles,
@@ -1591,15 +1640,12 @@ def _build_group_plan(
         seed.edge: assignment
         for seed, assignment in zip(seeds, assignments, strict=True)
     }
-    return plan, reference, demands, diagnostic, assignment_by_edge
-
-
-def _spans_overlap(first: GridSpan, second: GridSpan) -> bool:
-    return not (
-        first.max_column < second.min_column
-        or second.max_column < first.min_column
-        or first.max_row < second.min_row
-        or second.max_row < first.min_row
+    return _BuiltGroupPlan(
+        plan,
+        reference,
+        demands,
+        diagnostic,
+        MappingProxyType(assignment_by_edge),
     )
 
 
@@ -1814,7 +1860,7 @@ def _planned_axis_cross_range(
                     _failure(plan, "vertical turn axis has no production geometry")
                 )
             geometry = _tb_bottom_exit_geometry(
-                _graph_edge(graph, edge),
+                _graph_edge(ctx.edge_by_key, edge),
                 source,
                 target,
                 tentative_ctx,
@@ -1883,39 +1929,6 @@ def _apply_cross_plan_fallbacks(
     return plans, references, demands
 
 
-def _attach_foreign_references(
-    plans: Iterable[ExitTurnPlan],
-    spans: Mapping[ExitTurnPlanId, GridSpan],
-) -> list[ExitTurnPlan]:
-    plans = tuple(plans)
-    foreign_by_plan: defaultdict[ExitTurnPlanId, list[SharedReferenceId]] = defaultdict(
-        list
-    )
-    for rank, first in enumerate(plans):
-        if first.reference_id is None:
-            continue
-        for second in plans[rank + 1 :]:
-            if (
-                second.reference_id is None
-                or first.system_id == second.system_id
-                or first.source_axis is not second.source_axis
-                or not _spans_overlap(spans[first.id], spans[second.id])
-                or not any(
-                    abs(a.coordinate - b.coordinate)
-                    < max(first.spacing, second.spacing)
-                    for a in first.axes
-                    for b in second.axes
-                )
-            ):
-                continue
-            foreign_by_plan[first.id].append(second.reference_id)
-            foreign_by_plan[second.id].append(first.reference_id)
-    return [
-        replace(plan, foreign_reference_ids=tuple(foreign_by_plan[plan.id]))
-        for plan in plans
-    ]
-
-
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
     scaffold = build_route_semantic_scaffold(graph, ctx.topology)
@@ -1923,6 +1936,7 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
         query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
         return ExitTurnExecution(None, (), (), (), (), query)
     provenance = _plan_provenance(graph, scaffold.topology.connectors)
+    indexes = _build_planner_indexes(scaffold)
     plans: list[ExitTurnPlan] = []
     references: list[SharedReference] = []
     demands: list[SymbolicDemand] = []
@@ -1930,19 +1944,22 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     assignments_by_plan: dict[
         ExitTurnPlanId, dict[ResolvedEdge, ExitTurnAssignment]
     ] = {}
-    spans: dict[ExitTurnPlanId, GridSpan] = {}
     for exit_group in scaffold.topology.exit_groups:
-        plan, reference, group_demands, diagnostic, assignments = _build_group_plan(
-            graph, ctx, scaffold, exit_group, provenance
+        built = _build_group_plan(
+            graph,
+            ctx,
+            scaffold,
+            indexes,
+            exit_group,
+            provenance,
         )
-        plans.append(plan)
-        assignments_by_plan[plan.id] = assignments
-        spans[plan.id] = _connector_span(graph, scaffold, exit_group.connector_ids)
-        if reference is not None:
-            references.append(reference)
-        demands.extend(group_demands)
-        if diagnostic is not None:
-            diagnostics.append(diagnostic)
+        plans.append(built.plan)
+        assignments_by_plan[built.plan.id] = dict(built.assignments_by_edge)
+        if built.reference is not None:
+            references.append(built.reference)
+        demands.extend(built.demands)
+        if built.diagnostic is not None:
+            diagnostics.append(built.diagnostic)
 
     plans, references, demands = _apply_cross_plan_fallbacks(
         plans,
@@ -1957,7 +1974,6 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
             assignments_by_plan,
         ),
     )
-    plans = _attach_foreign_references(plans, spans)
 
     if ctx.station_offsets is not None:
         for plan in plans:
@@ -2314,6 +2330,9 @@ def validate_exit_turn_plans(
         )
         if route.exit_turn_member_id is not None:
             routes_by_member[route.exit_turn_member_id].append(route)
+    edge_by_key = {
+        (edge.source, edge.target, edge.line_id): edge for edge in graph.edges
+    }
     exit_turn_plans = plan.exit_turn_plans if isinstance(plan, RoutePlan) else plan
     for exit_turn_plan in exit_turn_plans:
         if exit_turn_plan.disposition is not ExitTurnDisposition.PLANNED:
@@ -2354,65 +2373,34 @@ def validate_exit_turn_plans(
                 )
             route = transition_routes[0]
             try:
-                graph_edge = _graph_edge(graph, transition.edge)
-            except StopIteration as error:
+                graph_edge = _graph_edge(edge_by_key, transition.edge)
+            except KeyError as error:
                 raise ExitTurnInvariantError(
                     _failure(exit_turn_plan, "lane transition edge is unknown")
                 ) from error
-            from nf_metro.layout.routing.centrelines import route_lane_transition
-
-            source_point = transition.source_point
-            target_point = transition.target_point
-            source_primary = (
-                source_point[0]
-                if direction_axis(transition.run_direction) is DemandAxis.X
-                else source_point[1]
-            )
-            target_primary = (
-                target_point[0]
-                if direction_axis(transition.run_direction) is DemandAxis.X
-                else target_point[1]
-            )
-            source_lateral = (
-                source_point[1] + transition.source_offset
-                if direction_axis(transition.run_direction) is DemandAxis.X
-                else source_point[0] + transition.source_offset
-            )
-            target_lateral = (
-                target_point[1] + transition.target_offset
-                if direction_axis(transition.run_direction) is DemandAxis.X
-                else target_point[0] + transition.target_offset
-            )
-            if (
-                (target_primary - source_primary) * transition.run_direction.sign
-                < transition.source_runway
-                + transition.diagonal_run
-                + transition.target_runway
-                - COORD_TOLERANCE
-                or abs(abs(target_lateral - source_lateral) - transition.diagonal_run)
-                > COORD_TOLERANCE
-            ):
+            try:
+                expected_route = route_lane_transition(
+                    graph_edge,
+                    transition.source_point,
+                    transition.target_point,
+                    source_offset=transition.source_offset,
+                    target_offset=transition.target_offset,
+                    run_direction=transition.run_direction,
+                    source_runway=transition.source_runway,
+                    target_runway=transition.target_runway,
+                    diagonal_run=transition.diagonal_run,
+                    place_at_source=(
+                        transition.placement is ExitLaneTransitionPlacement.SOURCE
+                    ),
+                    is_inter_section=route.is_inter_section,
+                )
+            except ValueError as error:
                 raise ExitTurnInvariantError(
                     _failure(
                         exit_turn_plan,
                         "lane transition cannot satisfy its geometry requirements",
                     )
-                )
-            expected_route = route_lane_transition(
-                graph_edge,
-                transition.source_point,
-                transition.target_point,
-                source_offset=transition.source_offset,
-                target_offset=transition.target_offset,
-                run_direction=transition.run_direction,
-                source_runway=transition.source_runway,
-                target_runway=transition.target_runway,
-                diagonal_run=transition.diagonal_run,
-                place_at_source=(
-                    transition.placement is ExitLaneTransitionPlacement.SOURCE
-                ),
-                is_inter_section=route.is_inter_section,
-            )
+                ) from error
             if (
                 route.exit_lane_transition_plan_id != str(exit_turn_plan.id)
                 or route.offset_regime is not OffsetRegime.BAKED

@@ -37,7 +37,6 @@ from nf_metro.layout.routing.bundle import (
 )
 from nf_metro.layout.routing.centrelines import (
     gather_member_edges,
-    route_lane_transition,
 )
 from nf_metro.layout.routing.common import (
     RoutedPath,
@@ -461,29 +460,13 @@ def _route_planned_lane_transition(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath | None:
     """Realise the exit planner's hand-off on an otherwise straight edge."""
-    if ctx.exit_turns is None:
-        return None
-    membership = ctx.exit_turns.transition_for_edge(edge)
-    if membership is None:
-        return None
-    from nf_metro.layout.route_plan import ExitLaneTransitionPlacement
+    from nf_metro.layout.routing.exit_turns import route_planned_lane_transition
 
-    transition = membership.transition
-    route = route_lane_transition(
+    return route_planned_lane_transition(
         edge,
-        transition.source_point,
-        transition.target_point,
-        source_offset=transition.source_offset,
-        target_offset=transition.target_offset,
-        run_direction=transition.run_direction,
-        source_runway=transition.source_runway,
-        target_runway=transition.target_runway,
-        diagonal_run=transition.diagonal_run,
-        place_at_source=(transition.placement is ExitLaneTransitionPlacement.SOURCE),
+        ctx,
         is_inter_section=False,
     )
-    route.exit_lane_transition_plan_id = str(membership.plan.id)
-    return route
 
 
 def _route_near_zero_gap_straight(

@@ -779,7 +779,7 @@ class RoutedPath:
     exit_turn_axis_id: str | None = None
     """Shared planned axis used by the source turn, when the route turns."""
     exit_turn_segment_rank: int | None = None
-    """Index of the owned vertical segment's first waypoint."""
+    """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None
     """Plan that owns this explicit compact-lane hand-off."""
 

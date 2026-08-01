@@ -268,6 +268,31 @@ class GridSpan:
     max_row: int
     coordinate_regime: CoordinateRegime = CoordinateRegime.SETTLED_GRID
 
+    def overlaps(self, other: GridSpan) -> bool:
+        """Whether two inclusive grid extents intersect."""
+        return not (
+            self.max_column < other.min_column
+            or other.max_column < self.min_column
+            or self.max_row < other.min_row
+            or other.max_row < self.min_row
+        )
+
+
+def grid_span_for_sections(
+    graph: MetroGraph,
+    section_ids: Iterable[str],
+) -> GridSpan:
+    """Return the inclusive grid extent of the named sections."""
+    sections = tuple(graph.sections[section_id] for section_id in section_ids)
+    if not sections:
+        raise ValueError("grid span has no sections")
+    return GridSpan(
+        min(section.grid_col for section in sections),
+        max(section.grid_col + section.grid_col_span - 1 for section in sections),
+        min(section.grid_row for section in sections),
+        max(section.grid_row + section.grid_row_span - 1 for section in sections),
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class EndpointFact:

@@ -41,6 +41,7 @@ from nf_metro.layout.route_plan import (
     SharedReferenceId,
     SharedReferenceKind,
     SymbolicDemand,
+    grid_span_for_sections,
     reservation_decision_refs,
 )
 from nf_metro.layout.routing.common import Direction, RoutedPath, apply_route_offsets
@@ -968,20 +969,15 @@ def _connector_span(
 ) -> GridSpan:
     assert graph.route_topology is not None
     connector_set = set(connector_ids)
-    sections = tuple(
-        graph.sections[section_id]
+    section_ids = tuple(
+        section_id
         for connector in graph.route_topology.connectors
         if connector.id in connector_set
         for section_id in (connector.source_section, connector.target_section)
     )
-    if not sections:
+    if not section_ids:
         raise ValueError("corridor claim has no authored section span")
-    return GridSpan(
-        min(section.grid_col for section in sections),
-        max(_column_end(section) for section in sections),
-        min(section.grid_row for section in sections),
-        max(_row_end(section) for section in sections),
-    )
+    return grid_span_for_sections(graph, section_ids)
 
 
 def _covered_members(
@@ -2290,15 +2286,6 @@ def build_reservation_query_indexes(
     )
 
 
-def _spans_overlap(first: GridSpan, second: GridSpan) -> bool:
-    return not (
-        first.max_column < second.min_column
-        or second.max_column < first.min_column
-        or first.max_row < second.min_row
-        or second.max_row < first.min_row
-    )
-
-
 def expected_exit_turn_foreign_references(
     plan: RoutePlan,
 ) -> dict[ExitTurnPlanId, tuple[SharedReferenceId, ...]]:
@@ -2321,7 +2308,7 @@ def expected_exit_turn_foreign_references(
             if (
                 first.system_id != second.system_id
                 and first.source_axis is second.source_axis
-                and _spans_overlap(spans[first.id], spans[second.id])
+                and spans[first.id].overlaps(spans[second.id])
                 and any(
                     abs(left.coordinate - right.coordinate)
                     < max(first.spacing, second.spacing)
@@ -2341,7 +2328,7 @@ def expected_exit_turn_foreign_references(
             if (
                 reservation.system_id == exit_turn_plan.system_id
                 or reservation.orientation is not expected_orientation
-                or not _spans_overlap(spans[exit_turn_plan.id], reservation.span)
+                or not spans[exit_turn_plan.id].overlaps(reservation.span)
                 or not any(
                     abs(axis.coordinate - claim.allocation_coordinate)
                     < max(exit_turn_plan.spacing, reservation.peer_clearance)

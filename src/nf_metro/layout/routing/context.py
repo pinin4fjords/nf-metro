@@ -200,6 +200,7 @@ class _RoutingCtx:
     """Pre-computed state shared by edge routing handlers."""
 
     graph: MetroGraph
+    edge_by_key: dict[_EdgeKey, Edge]
     topology: RouteTopologyQuery | None
     fold_x: float
     junction_ids: set[str]
@@ -432,6 +433,9 @@ def _build_routing_context(
 
     return _RoutingCtx(
         graph=graph,
+        edge_by_key={
+            (edge.source, edge.target, edge.line_id): edge for edge in graph.edges
+        },
         topology=topology,
         fold_x=fold_x,
         junction_ids=junction_ids,

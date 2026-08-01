@@ -40,7 +40,6 @@ from nf_metro.layout.routing.centrelines import (
     gather_tapered_bundle,
     route_along,
     route_hvh_tapered,
-    route_lane_transition,
     route_offset,
     route_straight,
     route_tapered,
@@ -462,29 +461,13 @@ def _route_planned_lane_transition(
     *,
     is_inter_section: bool,
 ) -> RoutedPath | None:
-    transition_membership = (
-        ctx.exit_turns.transition_for_edge(edge) if ctx.exit_turns is not None else None
-    )
-    if transition_membership is None:
-        return None
-    from nf_metro.layout.route_plan import ExitLaneTransitionPlacement
+    from nf_metro.layout.routing.exit_turns import route_planned_lane_transition
 
-    transition = transition_membership.transition
-    route = route_lane_transition(
+    return route_planned_lane_transition(
         edge,
-        transition.source_point,
-        transition.target_point,
-        source_offset=transition.source_offset,
-        target_offset=transition.target_offset,
-        run_direction=transition.run_direction,
-        source_runway=transition.source_runway,
-        target_runway=transition.target_runway,
-        diagonal_run=transition.diagonal_run,
-        place_at_source=(transition.placement is ExitLaneTransitionPlacement.SOURCE),
+        ctx,
         is_inter_section=is_inter_section,
     )
-    route.exit_lane_transition_plan_id = str(transition_membership.plan.id)
-    return route
 
 
 def _route_straight_connector(f: _InterFacts) -> RoutedPath | None:
