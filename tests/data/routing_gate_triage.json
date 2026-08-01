@@ -215,6 +215,18 @@
     "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
     "status": "needs-review"
   },
+  "core.py::if result is not None and observer is not None and observe_fallback:::#1": {
+    "note": "TB-section fallback reporting applies only to route-plan members, whose endpoints are both ports or junctions. The TB handler families that can claim an edge require an internal section endpoint, so no valid route-plan member can reach the reporting arm.",
+    "status": "candidate-dead"
+  },
+  "core.py::if result is not None and observer is not None and observe_fallback:::#2": {
+    "note": "Entry-runway fallback reporting applies only to route-plan members, whose endpoints are both ports or junctions. The runway handler requires an entry-port source and an internal-station target, so no valid route-plan member can reach the reporting arm.",
+    "status": "candidate-dead"
+  },
+  "core.py::if result is not None and observer is not None and observe_fallback:::#3": {
+    "note": "The general intra-section handler is the total fallback after the inter-section dispatcher. Reaching this reporting arm requires an inter-section handler to claim and then decline a route. test_declined_dispatch_records_the_actual_fallback_emitter forces that fault path and verifies the recorded family.",
+    "status": "defensive"
+  },
   "core.py::if result is not None:::#1": {
     "note": "Append-guard after the priority-ordered handler chain. The final handler _route_intra_section is total: its three early returns and its _route_diagonal fallback (annotated -> RoutedPath, single return statement) always yield a RoutedPath, so result is never None and every edge appends. The None arm is unreachable.",
     "status": "defensive"
@@ -541,6 +553,10 @@
   },
   "normalize.py::if band is not None:::#2": {
     "note": "Distinct-line dogleg: the band-found arm (->1327) is exercised by dogleg_exempt_distinct (#702). The remaining band-is-None arm (->1331) is defensive: a trunk reaching this second loop collides with an exempt bypass obstacle that lives in an inter-row gap, so _inter_row_gap_band(ctx, t.y) always resolves to a band - the same mechanism already accepted for the sibling 'if band is not None:::#1'.",
+    "status": "defensive"
+  },
+  "normalize.py::if carrier is None:::#1": {
+    "note": "A removable merge-entry hop has feeders, none ending at the hop start, and one ending at the hop destination after feeder normalization. A missing carrier therefore signals broken settled geometry; the guard keeps the hop instead of discarding a visible route.",
     "status": "defensive"
   },
   "normalize.py::if below_ok and above_ok and (cross_below is None) != (cross_above is None):::#1": {

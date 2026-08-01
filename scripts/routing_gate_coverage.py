@@ -68,6 +68,18 @@ PINNED_HASH_SEED = "0"
 # is re-exports; neither holds a topology gate.
 EXCLUDED_MODULES = {"__init__.py", "invariants.py"}
 
+# These fixtures naturally exercise the distinct public route-observation paths.
+# Keeping the lane explicit avoids a second routing pass over the full corpus,
+# while the gate ratchet exposes any future observer hook that needs another
+# topology here.
+OBSERVATION_PROBES = frozenset(
+    {
+        "examples/genomeassembly_staggered.mmd",
+        "examples/guide/03b_fan_in_merge.mmd",
+        "examples/topologies/rail_inter_section.mmd",
+    }
+)
+
 
 def ensure_pinned_hash_seed() -> None:
     """Re-exec under :data:`PINNED_HASH_SEED` unless it is already in effect.
@@ -177,7 +189,7 @@ def _collect_corpus() -> list[tuple[Path, bool]]:
 
 
 def _render_under_coverage(corpus: list[tuple[Path, bool]]):
-    """Render every fixture under its own coverage context; return the data."""
+    """Exercise production rendering and public route observation under coverage."""
     import coverage
 
     # ``data_file=None`` keeps the arc data in memory: the script writes no
@@ -191,10 +203,12 @@ def _render_under_coverage(corpus: list[tuple[Path, bool]]):
     # then render each fixture on the production path (validate=False).
     from nf_metro.convert import convert_nextflow_dag
     from nf_metro.layout.engine import compute_layout
+    from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
     from nf_metro.parser.mermaid import parse_metro_mermaid
     from nf_metro.render.svg import render_svg
     from nf_metro.themes import THEMES
 
+    observed: set[str] = set()
     for path, is_nextflow in corpus:
         ctx = str(path.relative_to(PROJECT_ROOT))
         cov.switch_context(ctx)
@@ -206,11 +220,31 @@ def _render_under_coverage(corpus: list[tuple[Path, bool]]):
             compute_layout(graph)
             theme = THEMES[graph.style if graph.style in THEMES else "nfcore"]
             render_svg(graph, theme)
+            if ctx in OBSERVATION_PROBES:
+                observe_route_edges(
+                    graph, station_offsets=compute_station_offsets(graph)
+                )
+                observed.add(ctx)
         except Exception as exc:  # noqa: BLE001 - a broken fixture must not abort the sweep
             print(f"  WARN: {ctx} failed to render: {exc}", file=sys.stderr)
 
     cov.stop()
+    missing_probes = OBSERVATION_PROBES - observed
+    if missing_probes:
+        missing = ", ".join(sorted(missing_probes))
+        raise RuntimeError(f"route-observation probe(s) did not complete: {missing}")
     return cov
+
+
+def _static_only_branch_lines(source: str) -> set[int]:
+    """Return branches that exist only for static type analysis."""
+    return {
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Name)
+        and node.test.id == "TYPE_CHECKING"
+    }
 
 
 def _expandable_boolean_conditions(
@@ -373,6 +407,7 @@ def compute_gate_coverage() -> list[Gate]:
         source = Path(f).read_text()
         source_lines = source.splitlines()
         boolean_conditions = _expandable_boolean_conditions(source)
+        static_only_lines = _static_only_branch_lines(source)
         phys_src_lines = {arc[0] for arc in phys_hitters[f]}
 
         # Group possible arcs by source line; a gate is a line with >=2 arms.
@@ -384,6 +419,8 @@ def compute_gate_coverage() -> list[Gate]:
 
         code_seen: dict[str, int] = {}
         for src_line in sorted(arcs_by_src):
+            if src_line in static_only_lines:
+                continue
             dsts = arcs_by_src[src_line]
             if len(dsts) < 2:
                 continue  # not a branch point
@@ -561,7 +598,7 @@ def _render_markdown(gates: list[Gate], triage: dict[str, dict[str, str]]) -> st
             out.append(f"| {g.src_line} | `{code}` | {dead} | {verdict} |")
         out.append("")
 
-    return "\n".join(out) + "\n"
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def main() -> int:
