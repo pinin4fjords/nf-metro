@@ -52,6 +52,8 @@ class DecisionReason(str, Enum):
     RESOLUTION_SIDE_SELECTION = "resolution-side-selection"
     FOLD_RELOCATED_SIDE = "fold-relocated-side"
     FLOW_REANCHORED_SIDE = "flow-reanchored-side"
+    CALLER_COMMITMENT = "caller-commitment"
+    CANDIDATE_COMMITMENT = "candidate-commitment"
 
 
 class FoldThresholdSource(str, Enum):
@@ -491,6 +493,58 @@ class LayoutProvenance:
             value, DecisionOrigin.INFERRED, locked, reason, authored_values
         )
 
+    def record_committed_grid(
+        self,
+        section_id: str,
+        value: GridCell,
+        origin: DecisionOrigin,
+        reason: DecisionReason,
+    ) -> None:
+        """Record a caller or candidate grid pin before inference."""
+        current = self.grids.get(section_id)
+        authored_values = current.authored_values if current is not None else ()
+        self.grids[section_id] = EffectiveDecision(
+            value, origin, True, reason, authored_values
+        )
+
+    def record_committed_direction(
+        self,
+        section_id: str,
+        value: str,
+        origin: DecisionOrigin,
+        reason: DecisionReason,
+    ) -> None:
+        """Record a caller or candidate direction pin before inference."""
+        current = self.directions.get(section_id)
+        authored_values = current.authored_values if current is not None else ()
+        self.directions[section_id] = EffectiveDecision(
+            value, origin, True, reason, authored_values
+        )
+
+    def record_candidate_fold_threshold(self, value: int) -> None:
+        """Record a candidate fold pin when no author or caller owns it."""
+        current = self.fold_threshold_decision
+        authored_values = current.authored_values if current is not None else ()
+        self.fold_threshold_decision = EffectiveDecision(
+            value,
+            DecisionOrigin.INFERRED,
+            True,
+            DecisionReason.CANDIDATE_COMMITMENT,
+            authored_values,
+        )
+
+    def record_candidate_line_order(self, value: LineOrder) -> None:
+        """Record a candidate line-order pin when no author or caller owns it."""
+        current = self.line_order_decision
+        authored_values = current.authored_values if current is not None else ()
+        self.line_order_decision = EffectiveDecision(
+            value,
+            DecisionOrigin.INFERRED,
+            True,
+            DecisionReason.CANDIDATE_COMMITMENT,
+            authored_values,
+        )
+
     def record_endpoint_selection(
         self,
         endpoint: ConnectorEndpointKey,
@@ -504,7 +558,12 @@ class LayoutProvenance:
         authored_matches = bool(authored_values) and all(
             value is selection.side for value in authored_values
         )
-        if origin is DecisionOrigin.AUTHORED and not authored_matches:
+        caller_owned = reason is DecisionReason.CALLER_COMMITMENT
+        if (
+            origin is DecisionOrigin.AUTHORED
+            and not authored_matches
+            and not caller_owned
+        ):
             origin = DecisionOrigin.INFERRED
             locked = False
             reason = DecisionReason.RESOLUTION_SIDE_SELECTION

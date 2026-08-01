@@ -18,6 +18,7 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.core import (
     observe_route_edges,
+    observe_route_edges_centred,
     route_edges,
     route_edges_centred,
 )
@@ -32,4 +33,5 @@ __all__ = [
     "route_edges",
     "route_edges_centred",
     "observe_route_edges",
+    "observe_route_edges_centred",
 ]

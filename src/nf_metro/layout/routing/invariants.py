@@ -85,6 +85,7 @@ from nf_metro.layout.routing.common import (
 from nf_metro.layout.routing.context import partial_flat_continuation_lines
 from nf_metro.parser.model import (
     Edge,
+    LayoutGeometryWarning,
     MetroGraph,
     PermissiveGuardWarning,
     PortSide,
@@ -5409,6 +5410,7 @@ def assert_render_curve_invariants(
             f"bridged across grid columns; routing draws a best-effort lead-in "
             f"and the bundle geometry through the drop may be imperfect. "
             f"{FLOW_ALIGNED_PORT_ADVICE}\n  {detail}",
+            category=LayoutGeometryWarning,
             stacklevel=2,
         )
         return

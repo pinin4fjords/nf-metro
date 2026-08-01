@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-__all__ = ["build_render_plan", "emit_render_plan", "render_svg"]
+__all__ = [
+    "ObservedRenderPlan",
+    "build_observed_render_plan",
+    "build_render_plan",
+    "emit_render_plan",
+    "render_svg",
+]
 
 import copy
 import html
@@ -39,10 +45,12 @@ from nf_metro.layout.phases.guards import (
     render_header_collision,
 )
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
+from nf_metro.layout.route_plan import RoutePlan
 from nf_metro.layout.routing import (
     RoutedPath,
     apply_route_offsets,
     compute_station_offsets,
+    observe_route_edges_centred,
     route_edges_centred,
 )
 from nf_metro.layout.routing.corners import (
@@ -63,6 +71,7 @@ from nf_metro.parser.model import (
     MARKER_FILL_SOLID,
     MARKER_SHAPE_PILL,
     Interchange,
+    LayoutGeometryWarning,
     MarkerStyle,
     MetroGraph,
     Section,
@@ -255,6 +264,7 @@ def _position_legend(
         ):
             warnings.warn(
                 f"legend placed at {graph.legend_at} overlaps a section or route.",
+                category=LayoutGeometryWarning,
                 stacklevel=2,
             )
         return legend_x, legend_y, legend_w, legend_h, show_legend
@@ -313,6 +323,7 @@ def _position_legend(
         ):
             warnings.warn(
                 f"legend pinned at '{pos}' overlaps a section or route.",
+                category=LayoutGeometryWarning,
                 stacklevel=2,
             )
     elif pos not in ("bottom", "right") and _legend_overlaps_content(
@@ -505,6 +516,60 @@ def render_svg(
     return apply_font_portability(svg, font_portability)
 
 
+class ObservedRenderPlan(NamedTuple):
+    """A RenderPlan paired with the final production routing observation."""
+
+    plan: RenderPlan
+    route_plan: RoutePlan
+
+
+def _build_render_plan_result(
+    graph: MetroGraph,
+    theme: Theme,
+    width: int | None = None,
+    height: int | None = None,
+    padding: float = CANVAS_PADDING,
+    *,
+    debug: bool = False,
+    legend_position: str | None = None,
+    chrome_css: bool = True,
+    bare: bool = False,
+    observe_routes: bool = False,
+) -> tuple[RenderPlan, RoutePlan | None]:
+    """Build a render plan and optionally observe its final routing pass."""
+    scaled_theme = _scale_theme_strokes(
+        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+    )
+    with (
+        font_scale_context(graph.font_scale),
+        stroke_scale_context(graph.stroke_scale),
+    ):
+        try:
+            plan, route_plan = _build_render_plan_scaled(
+                graph,
+                scaled_theme,
+                width=width if width is not None else graph.width,
+                height=height if height is not None else graph.height,
+                padding=padding,
+                debug=debug,
+                legend_position=legend_position,
+                chrome_css=chrome_css,
+                bare=bare,
+                observe_routes=observe_routes,
+            )
+        except (CurveInvariantError, SectionHeaderClashError) as exc:
+            reframed = _fold_threshold_error(graph)
+            if reframed is not None:
+                raise reframed from exc
+            raise
+
+    if _fold_back_under_compression(graph):
+        reframed = _fold_threshold_error(graph)
+        if reframed is not None:
+            raise reframed
+    return plan, route_plan
+
+
 def build_render_plan(
     graph: MetroGraph,
     theme: Theme,
@@ -518,36 +583,47 @@ def build_render_plan(
     bare: bool = False,
 ) -> RenderPlan:
     """Build an immutable render plan without changing the caller's graph."""
-    scaled_theme = _scale_theme_strokes(
-        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+    plan, _route_plan = _build_render_plan_result(
+        graph,
+        theme,
+        width,
+        height,
+        padding,
+        debug=debug,
+        legend_position=legend_position,
+        chrome_css=chrome_css,
+        bare=bare,
     )
-    with (
-        font_scale_context(graph.font_scale),
-        stroke_scale_context(graph.stroke_scale),
-    ):
-        try:
-            plan = _build_render_plan_scaled(
-                graph,
-                scaled_theme,
-                width=width if width is not None else graph.width,
-                height=height if height is not None else graph.height,
-                padding=padding,
-                debug=debug,
-                legend_position=legend_position,
-                chrome_css=chrome_css,
-                bare=bare,
-            )
-        except (CurveInvariantError, SectionHeaderClashError) as exc:
-            reframed = _fold_threshold_error(graph)
-            if reframed is not None:
-                raise reframed from exc
-            raise
-
-    if _fold_back_under_compression(graph):
-        reframed = _fold_threshold_error(graph)
-        if reframed is not None:
-            raise reframed
     return plan
+
+
+def build_observed_render_plan(
+    graph: MetroGraph,
+    theme: Theme,
+    width: int | None = None,
+    height: int | None = None,
+    padding: float = CANVAS_PADDING,
+    *,
+    debug: bool = False,
+    legend_position: str | None = None,
+    chrome_css: bool = True,
+    bare: bool = False,
+) -> ObservedRenderPlan:
+    """Build a plan and observe the final centred route invocation it used."""
+    plan, route_plan = _build_render_plan_result(
+        graph,
+        theme,
+        width,
+        height,
+        padding,
+        debug=debug,
+        legend_position=legend_position,
+        chrome_css=chrome_css,
+        bare=bare,
+        observe_routes=True,
+    )
+    assert route_plan is not None
+    return ObservedRenderPlan(plan, route_plan)
 
 
 def _fold_threshold_error(graph: MetroGraph) -> FoldThresholdError | None:
@@ -630,11 +706,22 @@ def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
 
 
 def _settle_render_geometry(
-    graph: MetroGraph, theme: Theme, offset_step: float, section_y_gap: float
-) -> tuple[dict[tuple[str, str], float], list[RoutedPath], list[LabelPlacement]]:
+    graph: MetroGraph,
+    theme: Theme,
+    offset_step: float,
+    section_y_gap: float,
+    *,
+    observe_routes: bool = False,
+) -> tuple[
+    dict[tuple[str, str], float],
+    list[RoutedPath],
+    list[LabelPlacement],
+    RoutePlan | None,
+]:
     """Route, place labels, and reconcile a header collision for the render.
 
-    Returns the settled ``(station_offsets, routes, labels)``.  Label wrapping
+    Returns settled station offsets, routes, labels, and optional route plan.
+    Label wrapping
     needs the theme's font/icon metrics, so it runs here rather than in
     ``compute_layout``; when it grows a section's bbox downward it can push the
     lower section's header badge up into the box above.  Only that genuine
@@ -666,8 +753,18 @@ def _settle_render_geometry(
             label_angle=graph.label_angle or 0.0,
         )
 
+    def _route(
+        station_offsets: dict[tuple[str, str], float],
+    ) -> tuple[list[RoutedPath], RoutePlan | None]:
+        if not observe_routes:
+            return route_edges_centred(graph, station_offsets=station_offsets), None
+        observation = observe_route_edges_centred(
+            graph, station_offsets=station_offsets
+        )
+        return observation.routes, observation.plan
+
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-    routes = route_edges_centred(graph, station_offsets=station_offsets)
+    routes, route_plan = _route(station_offsets)
     effective_strict = graph.strict and not graph.permissive
     assert_render_curve_invariants(graph, routes, station_offsets)
     assert_render_layout_invariants(
@@ -682,11 +779,11 @@ def _settle_render_geometry(
         # re-route does not seat a bypass corner against a stale box.
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
         station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-        routes = route_edges_centred(graph, station_offsets=station_offsets)
+        routes, route_plan = _route(station_offsets)
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
     assert_render_header_clearance(graph, strict=effective_strict)
-    return station_offsets, routes, labels
+    return station_offsets, routes, labels, route_plan
 
 
 def _copy_graph_for_render(source_graph: MetroGraph) -> MetroGraph:
@@ -712,7 +809,8 @@ def _build_render_plan_scaled(
     legend_position: str | None,
     chrome_css: bool = True,
     bare: bool = False,
-) -> RenderPlan:
+    observe_routes: bool = False,
+) -> tuple[RenderPlan, RoutePlan | None]:
     """Finish render geometry on a private graph copy and freeze the result."""
     graph = _copy_graph_for_render(source_graph)
     effective_legend_position = (
@@ -723,8 +821,12 @@ def _build_render_plan_scaled(
     section_y_gap = (
         graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
     )
-    station_offsets, routes, labels = _settle_render_geometry(
-        graph, theme, offset_step, section_y_gap
+    station_offsets, routes, labels, route_plan = _settle_render_geometry(
+        graph,
+        theme,
+        offset_step,
+        section_y_gap,
+        observe_routes=observe_routes,
     )
     line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
     edge_routes = sorted(
@@ -905,7 +1007,7 @@ def _build_render_plan_scaled(
         debug=debug,
         chrome_css=chrome_css,
         bare=bare,
-    )
+    ), route_plan
 
 
 def emit_render_plan(

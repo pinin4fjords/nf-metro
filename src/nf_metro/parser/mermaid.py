@@ -21,6 +21,11 @@ from collections import defaultdict
 from collections.abc import Callable
 
 from nf_metro.options import LineOrder, is_line_order
+from nf_metro.parser.commitments import (
+    AppliedLayoutCommitments,
+    LayoutCommitmentOverlay,
+    apply_layout_commitment_overlay,
+)
 from nf_metro.parser.directives import _apply_directive
 from nf_metro.parser.grammar import (
     _Comment,
@@ -195,6 +200,8 @@ def parse_metro_mermaid(
     auto_process: bool | None = None,
     process_scope: str | None = None,
     caller_line_order: LineOrder | None = None,
+    *,
+    _layout_commitments: LayoutCommitmentOverlay | None = None,
 ) -> MetroGraph:
     """Parse a Mermaid graph definition with %%metro directives.
 
@@ -225,6 +232,7 @@ def parse_metro_mermaid(
         auto_process,
         process_scope,
         caller_line_order,
+        layout_commitments=_layout_commitments,
     )
     return graph
 
@@ -259,12 +267,15 @@ def _finalize_graph(
     auto_process: bool | None = None,
     process_scope: str | None = None,
     caller_line_order: LineOrder | None = None,
+    *,
+    layout_commitments: LayoutCommitmentOverlay | None = None,
 ) -> None:
     """Validate, run the post-parse resolution, and apply buffered metadata."""
     _validate_edge_annotations(graph)
+    authored_routes = capture_authored_routes(graph)
     graph.layout_provenance.capture_authored_intent(
         graph,
-        capture_authored_routes(graph),
+        authored_routes,
         max_station_columns,
         caller_line_order,
     )
@@ -276,13 +287,19 @@ def _finalize_graph(
     if graph.sections:
         _create_implicit_section(graph)
 
+    applied_commitments = (
+        apply_layout_commitment_overlay(graph, authored_routes, layout_commitments)
+        if layout_commitments is not None
+        else AppliedLayoutCommitments()
+    )
+
     # Layout inference (interchange expansion, section grids, port/junction
     # resolution) assumes the graph is a DAG. A cyclic graph is rejected at the
     # render boundary (compute_layout) and reported by validate_graph, so leave
     # it un-inferred here rather than feed a distorted size estimate into
     # strategy selection.
     if find_cycle(graph) is None and find_section_cycle(graph) is None:
-        _infer_layout(graph, max_station_columns)
+        _infer_layout(graph, max_station_columns, applied_commitments)
 
     # A caller value (the --auto-process / --process-scope CLI flags) wins over
     # the matching %%metro directive set during statement application.
@@ -294,7 +311,11 @@ def _finalize_graph(
     _apply_pending_metadata(graph)
 
 
-def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
+def _infer_layout(
+    graph: MetroGraph,
+    max_station_columns: int | None,
+    commitments: AppliedLayoutCommitments = AppliedLayoutCommitments(),
+) -> None:
     """Run interchange expansion, section-grid inference, and section resolution.
 
     The graph must be acyclic: the section-grid size estimator and the
@@ -348,7 +369,9 @@ def _infer_layout(graph: MetroGraph, max_station_columns: int | None) -> None:
             if relocated:
                 graph._fold_compressed_sections = relocated
         _insert_terminus_convergence_stations(graph, authored_lineage)
-        endpoint_resolution = resolve_section_endpoints(graph, authored_lineage)
+        endpoint_resolution = resolve_section_endpoints(
+            graph, authored_lineage, commitments
+        )
         graph.route_topology = build_route_topology(
             authored_capture, authored_lineage, endpoint_resolution
         )

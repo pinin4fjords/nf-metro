@@ -23,7 +23,11 @@ class RowGridInfo(TypedDict):
     max_y_pad: float
 
 
-class PermissiveGuardWarning(UserWarning):
+class LayoutGeometryWarning(UserWarning):
+    """A rendered layout is usable but carries a known geometry defect."""
+
+
+class PermissiveGuardWarning(LayoutGeometryWarning):
     """A layout/render guard failure downgraded to a warning under ``graph.permissive``.
 
     Distinct from an ordinary :class:`UserWarning` so a caller collecting
