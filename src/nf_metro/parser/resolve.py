@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 import networkx as nx
 
 from nf_metro.graph_views import directed_graph, longest_path_layers
+from nf_metro.parser.commitments import AppliedLayoutCommitments
 from nf_metro.parser.model import (
     BYPASS_V_PREFIX,
     CONVERGE_PREFIX,
@@ -699,7 +700,9 @@ class SectionEndpointResolution:
 
 
 def resolve_section_endpoints(
-    graph: MetroGraph, lineage: AuthoredEdgeLineage
+    graph: MetroGraph,
+    lineage: AuthoredEdgeLineage,
+    commitments: AppliedLayoutCommitments = AppliedLayoutCommitments(),
 ) -> SectionEndpointResolution:
     """Resolve inter-section endpoint sides once, before creating synthetic ports."""
     internal_edges, inter_section_edges = _classify_edges(graph)
@@ -719,6 +722,7 @@ def resolve_section_endpoints(
         exit_sides,
         lineage,
         provenance,
+        commitments,
     )
     return SectionEndpointResolution(
         internal_edges=internal_edges,
@@ -1408,6 +1412,7 @@ def _exit_side_for_edge(
     exit_sides: dict[tuple[str, str], set[PortSide]],
     entry_side_for_line: dict[tuple[str, str], EndpointSideSelection],
     provenance: _EndpointProvenanceContext,
+    entry_override: EndpointSideSelection | None = None,
 ) -> EndpointSideSelection:
     """Choose the exit side an inter-section edge leaves its source by.
 
@@ -1431,7 +1436,7 @@ def _exit_side_for_edge(
             PortSide.RIGHT,
         )
 
-    entry_selection = entry_side_for_line.get((tgt_sec, edge.line_id))
+    entry_selection = entry_override or entry_side_for_line.get((tgt_sec, edge.line_id))
     entry_side = entry_selection.side if entry_selection is not None else PortSide.LEFT
 
     preferred: PortSide | None
@@ -1474,9 +1479,11 @@ def _group_inter_section_edges(
     exit_sides: dict[tuple[str, str], set[PortSide]],
     lineage: AuthoredEdgeLineage,
     provenance: _EndpointProvenanceContext,
+    commitments: AppliedLayoutCommitments,
 ) -> tuple[ResolvedConnectorEndpoint, ...]:
     """Resolve current inter-section endpoints and their authored identities."""
     connectors: list[ResolvedConnectorEndpoint] = []
+    commitment_index = {item.endpoint: item.selection for item in commitments.endpoints}
 
     for edge in inter_section_edges:
         src_sec = graph.section_for_station(edge.source)
@@ -1484,6 +1491,7 @@ def _group_inter_section_edges(
         # _classify_edges only files an edge as inter-section when both
         # endpoints resolve to a section, so neither lookup is None here.
         assert src_sec is not None and tgt_sec is not None
+        connector_ids = tuple(key.id for key in lineage.origins(edge))
         entry_selection = entry_side_for_line.get((tgt_sec, edge.line_id))
         if entry_selection is None:
             entry_selection = _endpoint_selection(
@@ -1493,6 +1501,18 @@ def _group_inter_section_edges(
                 edge.line_id,
                 PortSide.LEFT,
             )
+        committed_entry = commitments.selection_for(
+            connector_ids,
+            ConnectorEndpointRole.ENTRY,
+            commitment_index,
+        )
+        if committed_entry is not None:
+            entry_selection = committed_entry
+        committed_exit = commitments.selection_for(
+            connector_ids,
+            ConnectorEndpointRole.EXIT,
+            commitment_index,
+        )
         exit_selection = _exit_side_for_edge(
             graph,
             edge,
@@ -1501,9 +1521,11 @@ def _group_inter_section_edges(
             exit_sides,
             entry_side_for_line,
             provenance,
+            committed_entry,
         )
+        if committed_exit is not None:
+            exit_selection = committed_exit
 
-        connector_ids = tuple(key.id for key in lineage.origins(edge))
         for connector_id in connector_ids:
             exit_endpoint = graph.layout_provenance.endpoint_key(
                 connector_id, ConnectorEndpointRole.EXIT

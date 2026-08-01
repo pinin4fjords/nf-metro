@@ -76,3 +76,8 @@ also available for broader investigations:
 ```bash
 PYTHONPATH=src:tests python tests/hash_seed_oracle.py --check-example-corpus
 ```
+
+Candidate execution has a separate cross-process oracle described in the
+[candidate executor guide](/nf-metro/dev/candidate_execution/). It hashes the
+complete accepted result at several hash seeds, without freezing any
+intermediate layout stage as the expected answer.

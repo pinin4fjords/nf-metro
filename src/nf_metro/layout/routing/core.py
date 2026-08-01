@@ -402,3 +402,25 @@ def route_edges_centred(
     for sid, x in moves.items():
         graph.stations[sid].x = x
     return routes
+
+
+def observe_route_edges_centred(
+    graph: MetroGraph,
+    diagonal_run: float = DIAGONAL_RUN,
+    curve_radius: float = CURVE_RADIUS,
+    station_offsets: dict[tuple[str, str], float] | None = None,
+) -> RouteObservation:
+    """Route drawn geometry and return its context-local semantic observation."""
+    from nf_metro.layout.route_plan import RouteObservation
+
+    routes, moves, plan = _route_edges(
+        graph,
+        diagonal_run,
+        curve_radius,
+        station_offsets,
+        observe_plan=True,
+    )
+    for sid, x in moves.items():
+        graph.stations[sid].x = x
+    assert plan is not None
+    return RouteObservation(routes, plan)

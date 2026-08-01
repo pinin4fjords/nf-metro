@@ -1,0 +1,19 @@
+%%metro title: Candidate executor control
+%%metro style: nfcore
+%%metro mode: dark
+%%metro logo: examples/placeholder_logo.png
+%%metro line: main | Main | #1f78b4
+%%metro line: qc | Quality | #33a02c
+
+graph LR
+    subgraph intake [Intake]
+        reads[Reads]
+        trim[Trim]
+        reads -->|main,qc| trim
+    end
+    subgraph analysis [Analysis]
+        align[Align]
+        report[Report]
+        align -->|main| report
+    end
+    trim -->|main| align

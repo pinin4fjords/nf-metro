@@ -20,6 +20,12 @@ which performs both steps and returns an SVG string. Callers that need to reuse
 a plan can call `build_render_plan`, `emit_render_plan`, or
 `emit_render_plan_html` directly.
 
+The internal
+[candidate executor](/nf-metro/dev/candidate_execution/) observes the route
+plan used by the final `RenderPlan`. This matters when render-time geometry
+settling causes a reroute: acceptance evidence must describe the SVG that was
+actually emitted, not an earlier routing pass.
+
 `build_render_plan` makes one deep copy of the graph. Render-specific routing,
 label placement, and section adjustments run on this private copy. This is
 safer than changing the caller's graph and trying to restore it after an error.

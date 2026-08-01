@@ -321,7 +321,13 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _struck_stations_and_collinear,
 )
 from nf_metro.layout.routing.context import is_far_side_around_below_left_entry
-from nf_metro.parser.model import LineSpread, MetroGraph, Section, is_bypass_v
+from nf_metro.parser.model import (
+    LayoutGeometryWarning,
+    LineSpread,
+    MetroGraph,
+    Section,
+    is_bypass_v,
+)
 from nf_metro.parser.validate import (
     CyclicGraphError,
     find_cycle,
@@ -638,7 +644,7 @@ def _compute_layout_scaled(
                 f"({min_required:.1f}) this graph's content requires; "
                 f"labels and captioned file-icons may collide. "
                 f"Omit --y-spacing to let the engine pick a safe value.",
-                UserWarning,
+                LayoutGeometryWarning,
                 stacklevel=2,
             )
     if x_spacing is None:

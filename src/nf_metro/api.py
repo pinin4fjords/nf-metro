@@ -22,6 +22,10 @@ from typing import Literal
 from nf_metro.layout import PhaseInvariantError, compute_layout
 from nf_metro.options import LAYOUT_OPTIONS, is_line_order
 from nf_metro.parser import parse_metro_mermaid
+from nf_metro.parser.commitments import (
+    CommitmentConflictError,
+    LayoutCommitmentOverlay,
+)
 from nf_metro.parser.directives import apply_legend_directive
 from nf_metro.parser.model import LineSpread, MetroGraph, PermissiveGuardWarning
 from nf_metro.render.font_embed import apply_font_portability
@@ -113,6 +117,23 @@ class RenderResult:
     plan: RenderPlan
 
 
+def _emit_svg_plan(graph: MetroGraph, plan: RenderPlan, cfg: RenderConfig) -> str:
+    """Emit one production SVG plan with the complete render configuration."""
+    font_portability: Literal["embed", "paths"] | None = (
+        "paths" if cfg.text_to_paths else "embed" if cfg.embed_font else None
+    )
+    with class_prefix_context(cfg.svg_class_prefix):
+        content = emit_render_plan(
+            plan,
+            animate=graph.animate,
+            responsive=cfg.responsive,
+            inject_dark_mode_css=cfg.inject_dark_mode_css,
+            self_color_scheme=cfg.self_color_scheme,
+            baked_mode=cfg.baked_mode,
+        )
+    return apply_font_portability(content, font_portability)
+
+
 def render_graph_result(
     graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig
 ) -> RenderResult:
@@ -144,16 +165,7 @@ def render_graph_result(
         chrome_css=cfg.chrome_css,
         bare=cfg.bare,
     )
-    with class_prefix_context(cfg.svg_class_prefix):
-        content = emit_render_plan(
-            plan,
-            animate=graph.animate,
-            responsive=cfg.responsive,
-            inject_dark_mode_css=cfg.inject_dark_mode_css,
-            self_color_scheme=cfg.self_color_scheme,
-            baked_mode=cfg.baked_mode,
-        )
-    return RenderResult(apply_font_portability(content, font_portability), plan)
+    return RenderResult(_emit_svg_plan(graph, plan, cfg), plan)
 
 
 def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
@@ -164,6 +176,86 @@ def render_graph(graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig) -> str:
     without re-parsing.
     """
     return render_graph_result(graph, theme_obj, cfg).content
+
+
+def _prepare_graph_state(
+    text: str,
+    *,
+    from_nextflow: bool = False,
+    title: str | None = None,
+    line_spread: str | None = None,
+    logo: str | None = None,
+    legend: str | None = None,
+    layout_options: Mapping[str, object] | None = None,
+    source_dir: str = "",
+    bare: bool = False,
+    output_format: Literal["svg", "html"] = "svg",
+    layout_commitments: LayoutCommitmentOverlay | None = None,
+) -> MetroGraph:
+    """Run the production preparation cascade up to the layout boundary."""
+    opts = dict(layout_options or {})
+    if layout_commitments is not None:
+        for name, committed in (
+            ("fold_threshold", layout_commitments.caller.fold_threshold),
+            ("line_order", layout_commitments.caller.line_order),
+        ):
+            if committed is None:
+                continue
+            supplied = opts.get(name)
+            if supplied is not None and supplied != committed:
+                raise CommitmentConflictError(
+                    f"caller {name!r} values disagree: {supplied!r} and {committed!r}"
+                )
+            opts[name] = committed
+
+    if from_nextflow:
+        from nf_metro.convert import convert_nextflow_dag
+
+        text = convert_nextflow_dag(text, title=title or "")
+
+    fold = opts.get("fold_threshold")
+    auto_process = opts.get("auto_process")
+    process_scope = opts.get("process_scope")
+    caller_line_order = opts.get("line_order")
+    graph = parse_metro_mermaid(
+        text,
+        max_station_columns=fold if isinstance(fold, int) else None,
+        auto_process=auto_process if isinstance(auto_process, bool) else None,
+        process_scope=process_scope if isinstance(process_scope, str) else None,
+        caller_line_order=(
+            caller_line_order if is_line_order(caller_line_order) else None
+        ),
+        _layout_commitments=layout_commitments,
+    )
+
+    apply_layout_overrides(graph, opts)
+
+    if source_dir:
+        graph.source_dir = source_dir
+        for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
+            raw: str = getattr(graph, attr)
+            resolved = resolve_logo_file(raw, source_dir) if raw else ""
+            if resolved:
+                setattr(graph, attr, resolved)
+    if line_spread is not None:
+        graph.line_spread = LineSpread(line_spread)
+    if logo is not None:
+        graph.logo_path = str(logo)
+    if legend is not None:
+        apply_legend_directive(legend, graph)
+    if title is not None:
+        graph.title = title
+
+    for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
+        raw = getattr(graph, attr)
+        if raw and not logo_is_resolvable(raw):
+            raise ValueError(f"%%metro logo: path {raw!r} not found")
+
+    logo_in_legend = logo_certainly_shows(graph) and graph.legend_position != "none"
+    graph.reserve_title_band = output_format == "html" or (
+        not bare and not logo_in_legend
+    )
+    return graph
 
 
 def prepare_graph(
@@ -230,53 +322,17 @@ def prepare_graph(
     cycle, backward flow, or mixed entry directions raise unconditionally:
     those leave no geometry to fall back to.
     """
-    opts = layout_options or {}
-
-    if from_nextflow:
-        from nf_metro.convert import convert_nextflow_dag
-
-        text = convert_nextflow_dag(text, title=title or "")
-
-    fold = opts.get("fold_threshold")
-    auto_process = opts.get("auto_process")
-    process_scope = opts.get("process_scope")
-    caller_line_order = opts.get("line_order")
-    graph = parse_metro_mermaid(
+    graph = _prepare_graph_state(
         text,
-        max_station_columns=fold if isinstance(fold, int) else None,
-        auto_process=auto_process if isinstance(auto_process, bool) else None,
-        process_scope=process_scope if isinstance(process_scope, str) else None,
-        caller_line_order=(
-            caller_line_order if is_line_order(caller_line_order) else None
-        ),
-    )
-
-    apply_layout_overrides(graph, opts)
-
-    if source_dir:
-        graph.source_dir = source_dir
-        for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
-            raw: str = getattr(graph, attr)
-            resolved = resolve_logo_file(raw, source_dir) if raw else ""
-            if resolved:
-                setattr(graph, attr, resolved)
-    if line_spread is not None:
-        graph.line_spread = LineSpread(line_spread)
-    if logo is not None:
-        graph.logo_path = str(logo)
-    if legend is not None:
-        apply_legend_directive(legend, graph)
-    if title is not None:
-        graph.title = title
-
-    for _attr in ("logo_path", "logo_path_light", "logo_path_dark"):
-        _raw: str = getattr(graph, _attr)
-        if _raw and not logo_is_resolvable(_raw):
-            raise ValueError(f"%%metro logo: path {_raw!r} not found")
-
-    logo_in_legend = logo_certainly_shows(graph) and graph.legend_position != "none"
-    graph.reserve_title_band = output_format == "html" or (
-        not bare and not logo_in_legend
+        from_nextflow=from_nextflow,
+        title=title,
+        line_spread=line_spread,
+        logo=logo,
+        legend=legend,
+        layout_options=layout_options,
+        source_dir=source_dir,
+        bare=bare,
+        output_format=output_format,
     )
 
     if graph.permissive:

@@ -147,6 +147,12 @@ applied at the established API override stage, preserving current layout
 behaviour. The snapshot is immutable, so later inference cannot make an
 authored value look inferred or make an inferred value look authored.
 
+The internal
+[candidate executor](/nf-metro/dev/candidate_execution/) applies prospective
+layout commitments through one typed overlay at this boundary. It rejects
+malformed, duplicate, unknown, or conflicting commitments before inference,
+then verifies the settled graph against the same commitments.
+
 Because the appliers receive structured fields, the driver stays a thin
 dispatch: a `_Node` registers a station, an `_Edge` registers one edge
 per line id (declaring any inline-shaped endpoints), a `_Directive` is
