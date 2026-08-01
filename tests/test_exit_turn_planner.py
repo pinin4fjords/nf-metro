@@ -11,6 +11,7 @@ import pytest
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 from nf_metro.api import prepare_graph, render_string
+from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
@@ -36,6 +37,7 @@ from nf_metro.layout.routing.common import (
     OffsetRegime,
     apply_route_offsets,
 )
+from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.exit_turns import (
     ExitTurnInvariantError,
     assert_exit_turn_snapshot,
@@ -681,6 +683,97 @@ def test_unclassifiable_member_has_an_explicit_whole_group_fallback(
     assert plan.legacy_reason == "missing-production-family"
     assert len(plan.unclassified_member_ids) == 1
     build_route_plan_query(observation.plan)
+
+
+def test_planned_turn_falls_back_before_a_compatibility_channel_collision() -> None:
+    source = (
+        (TOPOLOGIES / "shared_sink_parallel.mmd")
+        .read_text()
+        .replace(
+            "graph LR",
+            "%%metro fold_threshold: 1\ngraph LR",
+            1,
+        )
+    )
+    graph = prepare_graph(source, source_dir=str(TOPOLOGIES))
+    offsets = compute_station_offsets(graph)
+    observation = observe_route_edges(graph, station_offsets=offsets)
+    plan = _plan_for_source(observation, "__junction_8")
+
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "planned-axis-overlaps-compatibility-channel"
+    assert plan.axes == ()
+    assert not any(
+        route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
+        for route in observation.routes
+    )
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
+@pytest.mark.parametrize("fold", [1, 2, 3])
+def test_compatibility_claim_matches_the_emitted_channel_span(fold: int) -> None:
+    source = (
+        (TOPOLOGIES / "shared_sink_parallel.mmd")
+        .read_text()
+        .replace(
+            "graph LR",
+            f"%%metro fold_threshold: {fold}\ngraph LR",
+            1,
+        )
+    )
+    graph = prepare_graph(source, source_dir=str(TOPOLOGIES))
+    offsets = compute_station_offsets(graph)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+    checked = 0
+    for edge in graph.edges:
+        source_station, target_station = graph.edge_endpoints(edge)
+        family = inter_handlers.classify_inter_section_family(
+            edge, source_station, target_station, ctx
+        )
+        if family is not RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK:
+            continue
+        facts = inter_handlers._build_inter_facts(
+            edge, source_station, target_station, ctx
+        )
+        geometry = inter_handlers._tb_bottom_exit_around_stack_geometry(facts)
+        route = inter_handlers._route_tb_bottom_exit_around_stack(facts)
+        assert route is not None
+        channel_start, channel_end = route.points[2:4]
+        assert channel_start[0] == pytest.approx(geometry.channel_x)
+        assert channel_end[0] == pytest.approx(geometry.channel_x)
+        assert min(channel_start[1], channel_end[1]) == pytest.approx(
+            geometry.channel_y_lo
+        )
+        assert max(channel_start[1], channel_end[1]) == pytest.approx(
+            geometry.channel_y_hi
+        )
+        checked += 1
+    assert checked
+
+
+def test_disjoint_compatibility_channel_does_not_force_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph, offsets, baseline = _observe(TOPOLOGIES / "exit_run_three_drop_columns.mmd")
+    baseline_plan = _plan_for_source(baseline, "__junction_9")
+    axis = baseline_plan.axes[0]
+    claim = exit_turns._CompatibilityChannelClaim(
+        "unrelated-line",
+        baseline_plan.source_axis,
+        axis.coordinate,
+        1_000_000.0,
+        1_000_100.0,
+    )
+    monkeypatch.setattr(
+        exit_turns,
+        "_compatibility_channel_claims",
+        lambda *_args, **_kwargs: (claim,),
+    )
+
+    observation = observe_route_edges(graph, station_offsets=offsets)
+    plan = _plan_for_source(observation, "__junction_9")
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
 
 
 def test_missing_outbound_members_have_a_valid_legacy_lane_record(

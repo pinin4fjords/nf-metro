@@ -69,6 +69,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _merge_branch_lead_x,
     _merge_entry_route_kind,
     _MergeEntryRoute,
+    _tb_bottom_exit_around_stack_geometry,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
     classify_inter_section_family,
@@ -283,6 +284,15 @@ class _BuiltGroupPlan:
     demands: tuple[SymbolicDemand, ...]
     diagnostic: RoutePlanDiagnostic | None
     assignments_by_edge: Mapping[ResolvedEdge, ExitTurnAssignment]
+
+
+@dataclass(frozen=True, slots=True)
+class _CompatibilityChannelClaim:
+    line_id: str
+    axis: DemandAxis
+    coordinate: float
+    cross_lo: float
+    cross_hi: float
 
 
 def _edge_key(edge: ResolvedEdge) -> _EdgeKey:
@@ -1732,6 +1742,12 @@ def _cross_plan_fallback_reasons(
 ) -> dict[ExitTurnPlanId, str]:
     plans = tuple(plans)
     reasons: dict[ExitTurnPlanId, str] = {}
+    compatibility_channels = _compatibility_channel_claims(
+        graph,
+        ctx,
+        plans,
+        assignments_by_plan,
+    )
     station_owner: dict[tuple[str, str], ExitTurnPlanId] = {}
     planned_station_offsets: dict[tuple[str, str], float] = {}
     for plan in plans:
@@ -1783,6 +1799,20 @@ def _cross_plan_fallback_reasons(
             for axis in plan.axes
         }
         if any(
+            plan.source_axis is channel.axis
+            and axis.line_id != channel.line_id
+            and abs(axis.coordinate - channel.coordinate) <= COORD_TOLERANCE
+            and _ranges_overlap(
+                *axis_ranges[axis.id],
+                channel.cross_lo,
+                channel.cross_hi,
+            )
+            for axis in plan.axes
+            for channel in compatibility_channels
+        ):
+            reasons[plan.id] = "planned-axis-overlaps-compatibility-channel"
+            continue
+        if any(
             first.line_id != second.line_id
             and abs(first.coordinate - second.coordinate) <= COORD_TOLERANCE
             and _ranges_overlap(
@@ -1795,6 +1825,41 @@ def _cross_plan_fallback_reasons(
             reasons[plan.id] = "overlapping-planned-turn-axes"
     _add_station_lane_collision_fallbacks(graph, ctx, plans, reasons)
     return reasons
+
+
+def _compatibility_channel_claims(
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    plans: Iterable[ExitTurnPlan],
+    assignments_by_plan: Mapping[
+        ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]
+    ],
+) -> tuple[_CompatibilityChannelClaim, ...]:
+    claims: list[_CompatibilityChannelClaim] = []
+    for plan in plans:
+        if plan.disposition is not ExitTurnDisposition.LEGACY:
+            continue
+        for edge, assignment in assignments_by_plan[plan.id].items():
+            if (
+                assignment.planned_family_id
+                is not RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK
+            ):
+                continue
+            graph_edge = _graph_edge(ctx.edge_by_key, edge)
+            source, target = graph.edge_endpoints(graph_edge)
+            geometry = _tb_bottom_exit_around_stack_geometry(
+                _build_inter_facts(graph_edge, source, target, ctx)
+            )
+            claims.append(
+                _CompatibilityChannelClaim(
+                    edge.line_id,
+                    DemandAxis.X,
+                    geometry.channel_x,
+                    geometry.channel_y_lo,
+                    geometry.channel_y_hi,
+                )
+            )
+    return tuple(claims)
 
 
 def _add_station_lane_collision_fallbacks(

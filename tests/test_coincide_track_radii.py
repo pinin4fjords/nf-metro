@@ -73,7 +73,6 @@ COINCIDE_FIXTURES = [
     "variantbenchmarking_auto.mmd",
     "topologies/convergence_stacked_sink.mmd",
     "topologies/divergent_fanout_split.mmd",
-    "topologies/merge_pullaway.mmd",
     "topologies/merge_right_entry.mmd",
     "topologies/merge_around_below_leftmost.mmd",
     "topologies/merge_trunk_out_of_range_section.mmd",

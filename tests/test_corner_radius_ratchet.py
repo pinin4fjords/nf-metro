@@ -399,12 +399,19 @@ _BASE_RADIUS_POS = {"build_concentric_bundle": 2, "build_tapered_bundle": 3}
 
 
 def _is_curve_radius(node: ast.expr) -> bool:
-    """True for the ``ctx.curve_radius`` attribute access."""
+    """True for curve radius read directly from a routing context."""
     return (
         isinstance(node, ast.Attribute)
         and node.attr == "curve_radius"
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "ctx"
+        and (
+            (isinstance(node.value, ast.Name) and node.value.id == "ctx")
+            or (
+                isinstance(node.value, ast.Attribute)
+                and node.value.attr == "ctx"
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id == "f"
+            )
+        )
     )
 
 
@@ -420,7 +427,7 @@ def _base_radius_arg(call: ast.Call) -> ast.expr | None:
 
 
 def test_handler_bundle_base_radius_is_curve_radius_only() -> None:
-    """Every builder call in the routing handlers passes ``ctx.curve_radius``.
+    """Every builder call gets its base radius directly from the route context.
 
     The builder anchors each corner on the bundle's innermost-of-turn line, so a
     handler need only supply the floor; a hand-computed base (half-width bump,

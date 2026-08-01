@@ -1819,8 +1819,20 @@ def _around_stack_channel_x(f: _InterFacts) -> float:
     return left_edge - f.ctx.curve_radius - f.ctx.offset_step
 
 
-def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
-    """Route a TB bottom-exit feeder around sections stacked below it.
+@dataclass(frozen=True, slots=True)
+class _TbBottomExitAroundStackGeometry:
+    points: tuple[tuple[float, float], ...]
+    lane_offset: float
+    bundle_offsets: tuple[float, ...]
+    channel_x: float
+    channel_y_lo: float
+    channel_y_hi: float
+
+
+def _tb_bottom_exit_around_stack_geometry(
+    f: _InterFacts,
+) -> _TbBottomExitAroundStackGeometry:
+    """Resolve the stack-bypass channel shared by planning and emission.
 
     The flow-direction drop would plough the branch boxes stacked between this
     feeder and a convergence sink folded onto a lower row of the same column.
@@ -1881,21 +1893,39 @@ def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
     )
     vx = _around_stack_channel_x(f)
 
-    route = route_along(
-        edge,
-        [(edge, edge.line_id, lane_offset(edge.line_id))],
-        [
+    own_offset = lane_offset(edge.line_id)
+    channel_y_start = cy_down - own_offset
+    channel_y_end = cy_entry + own_offset
+    return _TbBottomExitAroundStackGeometry(
+        (
             (sx, sy),
             (sx, cy_down),
             (vx, cy_down),
             (vx, cy_entry),
             (tx, cy_entry),
             (tx, ty),
-        ],
-        base_radius=ctx.curve_radius,
-        bundle_offsets=[lane_offset(lid) for lid in line_ids],
+        ),
+        own_offset,
+        tuple(lane_offset(line_id) for line_id in line_ids),
+        vx - own_offset,
+        min(channel_y_start, channel_y_end),
+        max(channel_y_start, channel_y_end),
     )
-    _declare_channel(route, ctx, vx, Direction.D)
+
+
+def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
+    """Route a TB bottom-exit feeder around sections stacked below it."""
+    geometry = _tb_bottom_exit_around_stack_geometry(f)
+    edge, ctx = f.edge, f.ctx
+
+    route = route_along(
+        edge,
+        [(edge, edge.line_id, geometry.lane_offset)],
+        list(geometry.points),
+        base_radius=ctx.curve_radius,
+        bundle_offsets=list(geometry.bundle_offsets),
+    )
+    _declare_channel(route, ctx, geometry.points[2][0], Direction.D)
     return route
 
 
