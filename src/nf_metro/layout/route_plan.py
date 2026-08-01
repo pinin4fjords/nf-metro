@@ -132,6 +132,7 @@ class ExitLaneOrderSource(str, Enum):
     """Evidence used to order one exit group's active source lanes."""
 
     STATION_OFFSETS = "station-offsets"
+    FRAME_CONSTRAINTS = "frame-constraints"
     GRAPH_LINE_ORDER_FALLBACK = "graph-line-order-fallback"
 
 
@@ -2086,7 +2087,8 @@ def _validate_exit_source_lanes(
         raise ValueError("exit-turn source lanes are not compactly ranked")
     if (
         exit_turn_plan.disposition is ExitTurnDisposition.PLANNED
-        and exit_turn_plan.lane_order_source is not ExitLaneOrderSource.STATION_OFFSETS
+        and exit_turn_plan.lane_order_source
+        is ExitLaneOrderSource.GRAPH_LINE_ORDER_FALLBACK
     ):
         raise ValueError("planned exit-turn source order has fallback provenance")
     if len({lane.line_id for lane in exit_turn_plan.source_lanes}) != len(
