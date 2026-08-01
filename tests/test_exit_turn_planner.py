@@ -686,18 +686,9 @@ def test_unclassifiable_member_has_an_explicit_whole_group_fallback(
 
 
 def test_planned_turn_falls_back_before_a_compatibility_channel_collision() -> None:
-    source = (
-        (TOPOLOGIES / "shared_sink_parallel.mmd")
-        .read_text()
-        .replace(
-            "graph LR",
-            "%%metro fold_threshold: 1\ngraph LR",
-            1,
-        )
+    graph, offsets, observation = _observe(
+        FIXTURES / "planned_compatibility_channel_collision.mmd"
     )
-    graph = prepare_graph(source, source_dir=str(TOPOLOGIES))
-    offsets = compute_station_offsets(graph)
-    observation = observe_route_edges(graph, station_offsets=offsets)
     plan = _plan_for_source(observation, "__junction_8")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
