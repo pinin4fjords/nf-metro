@@ -19,18 +19,22 @@ from collections.abc import Sequence
 
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.geometry import (
-    AxisFrame,
     axis_point,
     axis_split,
-    diagonal_centreline,
 )
 from nf_metro.layout.routing.bundle import (
     build_concentric_bundle,
     build_offset_bundle,
     build_tapered_bundle,
 )
-from nf_metro.layout.routing.common import Direction, OffsetRegime, RoutedPath
+from nf_metro.layout.routing.common import (
+    Direction,
+    OffsetRegime,
+    RoutedPath,
+    horizontal_direction,
+)
 from nf_metro.layout.routing.context import _get_offset, _RoutingCtx
+from nf_metro.layout.routing.orientation import direction_axis
 from nf_metro.parser.model import Edge, MetroGraph, Station
 
 _Vec = tuple[float, float]
@@ -53,13 +57,7 @@ def route_lane_transition(
     is_inter_section: bool,
 ) -> RoutedPath:
     """Realise a planned lane hand-off along either cardinal flow axis."""
-    flow_direction = {
-        Direction.R: "LR",
-        Direction.L: "RL",
-        Direction.D: "TB",
-        Direction.U: "BT",
-    }[run_direction]
-    primary_axis, _secondary_axis = AxisFrame.axes_for_direction(flow_direction)
+    primary_axis = direction_axis(run_direction).value
     source_primary, source_secondary = axis_split(primary_axis, p_src)
     target_primary, target_secondary = axis_split(primary_axis, p_tgt)
     source_point = axis_point(
@@ -89,13 +87,20 @@ def route_lane_transition(
     return RoutedPath(
         edge=edge,
         line_id=edge.line_id,
-        points=diagonal_centreline(
-            flow_direction,
+        points=[
             source_point,
+            axis_point(
+                primary_axis,
+                diagonal_start,
+                source_secondary + source_offset,
+            ),
+            axis_point(
+                primary_axis,
+                diagonal_end,
+                target_secondary + target_offset,
+            ),
             target_point,
-            diagonal_start,
-            diagonal_end,
-        ),
+        ],
         is_inter_section=is_inter_section,
         offset_regime=OffsetRegime.BAKED,
         normalize_exempt=True,
@@ -350,14 +355,34 @@ def route_hvh_tapered(
         seg = abs(ty_c - sy_c)
         if seg > 0 and 2 * base_radius > seg:
             base_radius = seg / 2
-    return route_tapered(
+    centerline = [
+        (src.x, sy_c),
+        (channel_x, sy_c),
+        (channel_x, ty_c),
+        (tgt.x, ty_c),
+    ]
+    reversed_route = horizontal_direction(tgt.x - src.x) is Direction.L
+    transition_leg = 1
+    if reversed_route:
+        centerline.reverse()
+        members = [
+            (member_edge, line_id, target_offset, source_offset)
+            for member_edge, line_id, source_offset, target_offset in members
+        ]
+        transition_leg = 2
+    route = route_tapered(
         edge,
         members,
-        [(src.x, sy_c), (channel_x, sy_c), (channel_x, ty_c), (tgt.x, ty_c)],
-        transition_leg=1,
+        centerline,
+        transition_leg=transition_leg,
         base_radius=base_radius,
         min_radius=min_radius,
     )
+    if route is not None and reversed_route:
+        route.points.reverse()
+        if route.curve_radii is not None:
+            route.curve_radii.reverse()
+    return route
 
 
 def route_straight(

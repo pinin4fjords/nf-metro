@@ -181,19 +181,20 @@ def test_three_family_exit_bundle_has_one_complete_turn_plan() -> None:
 
 
 def test_leftward_upturn_preserves_source_lane_order() -> None:
-    _graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
+    graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
     plan = _plan_for_source(observation, "s7__exit_left_5")
 
     assert plan.disposition is ExitTurnDisposition.PLANNED
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("l6", "l2")
     axes = {axis.line_id: axis.coordinate for axis in plan.axes}
-    assert axes["l6"] > axes["l2"]
+    assert axes["l6"] < axes["l2"]
     routes = {
         route.line_id: route
         for route in observation.routes
         if route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
     }
-    assert _turn_x(routes["l6"], offsets) > _turn_x(routes["l2"], offsets)
+    assert _turn_x(routes["l6"], offsets) < _turn_x(routes["l2"], offsets)
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
 def test_terminated_source_lane_does_not_leave_a_phantom_slot() -> None:
@@ -473,26 +474,34 @@ def test_vertical_axis_overlap_range_matches_the_emitted_turn(
         ) == pytest.approx(expected)
 
 
-def test_vertical_lane_transition_keeps_raw_lane_and_effective_offsets() -> None:
-    graph, _offsets, observation = _observe(ROOT / "examples" / "rnaseq_sections.mmd")
-    plan = _plan_for_source(observation, "postprocessing__exit_bottom_2")
-    transition = next(
-        item for item in plan.lane_transitions if item.edge.line_id == "hisat2"
-    )
-    lane = next(item for item in plan.source_lanes if item.line_id == "hisat2")
+@pytest.mark.parametrize(
+    "path",
+    (
+        ROOT / "examples" / "rnaseq_sections.mmd",
+        ROOT / "examples" / "rnaseq_auto.mmd",
+        TOPOLOGIES / "fold_fan_across.mmd",
+    ),
+    ids=lambda path: path.name,
+)
+def test_lane_transitions_stay_within_one_section_frame(path: Path) -> None:
+    graph, _offsets, observation = _observe(path)
 
-    assert transition.source_lane_offset == lane.planned_offset
-    assert transition.source_offset == pytest.approx(-lane.planned_offset)
-    protected = _build_bubble_ctx(
-        observation.routes,
-        graph,
-    ).planned_geometry_stations
-    assert {transition.edge.source, transition.edge.target} <= protected
+    transitions = tuple(
+        transition
+        for plan in observation.plan.exit_turn_plans
+        if plan.disposition is ExitTurnDisposition.PLANNED
+        for transition in plan.lane_transitions
+    )
+    assert all(
+        graph.stations[transition.edge.source].section_id
+        == graph.stations[transition.edge.target].section_id
+        for transition in transitions
+    )
     build_route_plan_query(observation.plan)
 
 
-def test_noncontiguous_turn_ranks_claim_the_full_span() -> None:
-    _graph, _offsets, observation = _observe(TOPOLOGIES / "complex_multipath.mmd")
+def test_noncontiguous_source_lanes_compact_the_turning_cohort() -> None:
+    _graph, offsets, observation = _observe(TOPOLOGIES / "complex_multipath.mmd")
     plan = _plan_for_source(observation, "__junction_11")
     ordered_turns = next(
         item
@@ -504,7 +513,38 @@ def test_noncontiguous_turn_ranks_claim_the_full_span() -> None:
         0,
         2,
     }
-    assert ordered_turns.minimum_size == pytest.approx(2 * plan.spacing)
+    assert ordered_turns.minimum_size == pytest.approx(plan.spacing)
+    routes = {
+        route.line_id: route
+        for route in observation.routes
+        if route.exit_turn_plan_id == str(plan.id)
+        and route.exit_turn_axis_id is not None
+    }
+    turn_gap = abs(
+        _turn_x(routes["standard"], offsets) - _turn_x(routes["legacy"], offsets)
+    )
+    assert turn_gap == pytest.approx(plan.spacing)
+
+
+def test_planned_bundle_pins_consistent_same_line_attachments() -> None:
+    _graph, offsets, observation = _observe(
+        ROOT / "examples" / "variantbenchmarking.mmd"
+    )
+    target_id = "normalization__entry_left_7"
+    routes = [route for route in observation.routes if route.edge.target == target_id]
+
+    def target_axis(route) -> float:
+        points = apply_route_offsets(route, offsets)
+        return next(
+            start[0]
+            for start, end in reversed(tuple(zip(points, points[1:])))
+            if start[0] == pytest.approx(end[0]) and abs(start[1] - end[1]) > 1e-6
+        )
+
+    for line_id in ("test", "truth"):
+        line_routes = [route for route in routes if route.line_id == line_id]
+        assert len(line_routes) == 2
+        assert target_axis(line_routes[0]) == pytest.approx(target_axis(line_routes[1]))
 
 
 def test_free_vertical_turn_axes_choose_origin_in_the_run_direction(
@@ -1524,6 +1564,23 @@ def test_merge_families_use_their_source_side_geometry_direction() -> None:
         assert all(
             assignment.turn_direction is Direction.D for assignment in merge_assignments
         )
+
+
+def test_opposed_merge_branch_keeps_whole_exit_group_on_legacy_geometry() -> None:
+    graph, _offsets, observation = _observe(
+        TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd"
+    )
+    plan = _plan_for_source(observation, "__junction_4")
+
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "opposed-source-run"
+    assert plan.axes == ()
+    source_x = graph.stations[plan.source_id].x
+    routes = [
+        route for route in observation.routes if route.edge.source == plan.source_id
+    ]
+    assert routes
+    assert all(route.points[1][0] > source_x for route in routes)
 
 
 def test_aligned_top_entry_peeloff_keeps_its_structural_axis() -> None:

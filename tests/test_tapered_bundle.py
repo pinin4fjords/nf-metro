@@ -137,8 +137,9 @@ def test_bundle_rejects_degenerate_centreline(call) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _final_polylines(graph) -> list[tuple[Edge, list[tuple[float, float]]]]:
-    offsets = compute_station_offsets(graph)
+def _final_polylines(
+    graph, offsets: dict[tuple[str, str], float]
+) -> list[tuple[Edge, list[tuple[float, float]]]]:
     routes = route_edges(graph, station_offsets=offsets)
     return [(r.edge, apply_route_offsets(r, offsets)) for r in routes]
 
@@ -162,7 +163,7 @@ def _lr_lshape_tapers(graph):
     families (vertical end legs, X-axis fan) are a different regime and excluded.
     """
     offsets = compute_station_offsets(graph)
-    polys = _final_polylines(graph)
+    polys = _final_polylines(graph, offsets)
     groups: dict[tuple[str, str], list[tuple[Edge, list[tuple[float, float]]]]] = {}
     for e, pts in polys:
         if _is_inter(graph, e.source) and _is_inter(graph, e.target):

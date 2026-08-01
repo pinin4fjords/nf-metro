@@ -186,8 +186,9 @@ def _anchored_bundle_midpoint(
     Centring the bundle on the gap instead leaves the fused leg crossing the
     siblings it was nested against, so seat the bundle on the pin.
 
-    ``None`` when there is no single pin to honour, or when honouring it would
-    push a slot outside the gap -- the caller then centres as usual.
+    Multiple pins can anchor one bundle when they imply the same midpoint.
+    ``None`` means the pins conflict, no line is pinned, or the anchored bundle
+    would fall outside the gap; the caller then centres it as usual.
     """
     slots = fan_offsets(len(order), step)
     anchored = [
@@ -195,10 +196,14 @@ def _anchored_bundle_midpoint(
         for i, lid in enumerate(order)
         if (down, lid) in pins
     ]
-    if len(anchored) != 1:
+    if not anchored:
         return None
-    offset, column = anchored[0]
-    mid = column - offset
+    candidates = tuple(column - offset for offset, column in anchored)
+    if any(
+        abs(candidate - candidates[0]) > COORD_TOLERANCE for candidate in candidates[1:]
+    ):
+        return None
+    mid = candidates[0]
     half = slots[-1]
     if mid - half < gap_left - COORD_TOLERANCE:
         return None

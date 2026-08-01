@@ -67,6 +67,11 @@ class Direction(Enum):
         return 1.0 if self in (Direction.R, Direction.D) else -1.0
 
 
+def right_normal_axis_sign(direction: Direction) -> int:
+    """Return the screen-axis sign of the right-hand normal to *direction*."""
+    return 1 if direction in (Direction.R, Direction.U) else -1
+
+
 def horizontal_direction(dx: float) -> Direction:
     """``Direction.R`` if ``dx > 0`` else ``Direction.L`` (ties resolve to L)."""
     return Direction.R if dx > 0 else Direction.L

@@ -40,7 +40,6 @@ from nf_metro.layout.route_plan import (
     SharedReferenceId,
     SharedReferenceKind,
     SymbolicDemand,
-    TurnHandedness,
     _member_roles,
     _ordered_unique,
     _plan_provenance,
@@ -81,6 +80,7 @@ from nf_metro.layout.routing.orientation import (
     lateral_axis,
     lateral_order_sign,
 )
+from nf_metro.layout.routing.perp import _perp_entry_crossing_x
 from nf_metro.parser.model import Edge, MetroGraph, PortSide
 from nf_metro.parser.route_topology import (
     ConnectorId,
@@ -832,8 +832,35 @@ def _continuation_lane_ownership(
     claimant_member_id: EmissionMemberId,
     desired: float,
     run_direction: Direction,
+    family_id: RouteFamilyId,
     ctx: _RoutingCtx,
 ) -> tuple[tuple[str, ...], tuple[ExitLaneTransition, ...], str | None]:
+    if family_id is RouteFamilyId.TB_BOTTOM_EXIT:
+        source_offsets = dict(offsets)
+        source_offsets[source_id, line_id] = desired
+        seam_ctx = replace(ctx, station_offsets=source_offsets, built_routes=[])
+        resolved_edge = ResolvedEdge(source_id, entry_id, line_id)
+        edge = _graph_edge(ctx.edge_by_key, resolved_edge)
+        source, target = graph.edge_endpoints(edge)
+        source_crossing = _tb_bottom_exit_geometry(
+            edge,
+            source,
+            target,
+            seam_ctx,
+        ).points[-1][0]
+        target_crossing = _perp_entry_crossing_x(
+            seam_ctx,
+            entry_id,
+            line_id,
+            target.x,
+        )
+        if (
+            target_crossing is None
+            or abs(source_crossing - target_crossing) > COORD_TOLERANCE
+        ):
+            return (), (), "unresolved-perpendicular-entry-seam"
+        return (), (), None
+
     stations = []
     transitions = []
     if not _slot_is_available(graph, offsets, entry_id, line_id, desired):
@@ -989,6 +1016,15 @@ def _classify_assignment_seeds(
                 ctx,
                 exit_port_id,
             )
+        if (
+            family_id is RouteFamilyId.MERGE_BRANCH
+            and requirement.turn_direction is not None
+            and requirement.run_direction is not source_run_direction
+        ):
+            requirement = replace(
+                requirement,
+                legacy_reason="opposed-source-run",
+            )
         reason = reason or requirement.legacy_reason
         if requirement.turn_direction is None and requirement.legacy_reason is None:
             straight_edges.append(edge)
@@ -1088,16 +1124,11 @@ def _plan_turn_axes(
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
     for (run_direction, turn_direction), cohort in cohorts.items():
         ranks = tuple(sorted({seed.lane_rank for seed in cohort}))
-        anchor_rank = min(ranks)
-        progression = (
-            -1.0
-            if turn_handedness(run_direction, turn_direction)
-            is TurnHandedness.CLOCKWISE
-            else 1.0
-        )
+        cohort_rank = {rank: index for index, rank in enumerate(ranks)}
+        progression = lateral_order_sign(turn_direction)
         fixed_origins = tuple(
             seed.fixed_axis
-            - progression * (seed.lane_rank - anchor_rank) * ctx.offset_step
+            - progression * cohort_rank[seed.lane_rank] * ctx.offset_step
             for seed in cohort
             if seed.fixed_axis is not None
         )
@@ -1113,7 +1144,7 @@ def _plan_turn_axes(
             required_origins = tuple(
                 seed.launch_coordinate
                 + run_direction.sign * seed.minimum_runway
-                - progression * (seed.lane_rank - anchor_rank) * ctx.offset_step
+                - progression * cohort_rank[seed.lane_rank] * ctx.offset_step
                 for seed in cohort
                 if seed.launch_coordinate is not None
                 and seed.minimum_runway is not None
@@ -1124,7 +1155,7 @@ def _plan_turn_axes(
                 else min(required_origins)
             )
         coordinates = {
-            rank: origin + progression * (rank - anchor_rank) * ctx.offset_step
+            rank: origin + progression * cohort_rank[rank] * ctx.offset_step
             for rank in ranks
         }
         insufficient_runway = tuple(
@@ -1256,6 +1287,7 @@ def _plan_lane_ownership(
             seed.member_id,
             planned_offsets[seed.edge.line_id],
             seed.run_direction or source_run_direction,
+            seed.family_id,
             ctx,
         )
         if reason is not None:
@@ -1517,10 +1549,7 @@ def _build_group_plan(
                     seed.lane_rank
                 )
         ordered_turn_span = max(
-            (
-                (max(ranks) - min(ranks)) * ctx.offset_step
-                for ranks in cohort_sizes.values()
-            ),
+            ((len(ranks) - 1) * ctx.offset_step for ranks in cohort_sizes.values()),
             default=0.0,
         )
         reference = SharedReference(
@@ -2226,18 +2255,12 @@ def snapshot_exit_turn_segments(
             rank = route.exit_turn_segment_rank
             if rank is None:
                 continue
-            landing_settled_later = (
+            landing_point_settled_later = (
                 route.exit_turn_family_id == RouteFamilyId.MERGE_BRANCH.value
             )
             radii = None
-            if route.curve_radii is not None:
-                radii = tuple(
-                    (index, route.curve_radii[index])
-                    for index in (
-                        (rank - 1,) if landing_settled_later else (rank - 1, rank)
-                    )
-                    if 0 <= index < len(route.curve_radii)
-                )
+            if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):
+                radii = ((rank - 1, route.curve_radii[rank - 1]),)
             values[
                 (
                     "axis",
@@ -2250,7 +2273,7 @@ def snapshot_exit_turn_segments(
                 rank,
                 route.points[rank - 1],
                 route.points[rank],
-                None if landing_settled_later else route.points[rank + 1],
+                None if landing_point_settled_later else route.points[rank + 1],
                 radii,
                 None,
                 None,

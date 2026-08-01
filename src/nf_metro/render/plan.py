@@ -215,6 +215,14 @@ _RENDER_GRAPH_EXCLUDED_FIELDS = {
     "_edges_to_cache",
     "_junction_ids_cache",
 }
+_RENDER_ROUTE_EXCLUDED_FIELDS = {
+    "exit_turn_plan_id",
+    "exit_turn_member_id",
+    "exit_turn_family_id",
+    "exit_turn_axis_id",
+    "exit_turn_segment_rank",
+    "exit_lane_transition_plan_id",
+}
 
 
 def freeze_render_value(value: Any) -> Any:
@@ -243,10 +251,15 @@ def freeze_render_value(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         return frozenset(freeze_render_value(item) for item in value)
     if is_dataclass(value):
+        from nf_metro.layout.routing.common import RoutedPath
+
         record_type = FrozenGraph if isinstance(value, MetroGraph) else FrozenRecord
-        excluded = (
-            _RENDER_GRAPH_EXCLUDED_FIELDS if isinstance(value, MetroGraph) else set()
-        )
+        if isinstance(value, MetroGraph):
+            excluded = _RENDER_GRAPH_EXCLUDED_FIELDS
+        elif isinstance(value, RoutedPath):
+            excluded = _RENDER_ROUTE_EXCLUDED_FIELDS
+        else:
+            excluded = set()
         return record_type(
             type(value).__name__,
             FrozenMap(

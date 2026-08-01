@@ -21,7 +21,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, NewType, TypeAlias, TypeVar
 
 from nf_metro.layout.constants import COORD_TOLERANCE
-from nf_metro.layout.routing.common import Direction
+from nf_metro.layout.routing.common import Direction, right_normal_axis_sign
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.options import LineOrder
 from nf_metro.parser.model import MetroGraph, PortSide, is_bypass_v
@@ -1884,10 +1884,7 @@ def _validate_planned_exit_turn_resources(
             assignment.source_lane_rank
         )
     ordered_turn_span = max(
-        (
-            (max(ranks) - min(ranks)) * exit_turn_plan.spacing
-            for ranks in cohort_ranks.values()
-        ),
+        ((len(ranks) - 1) * exit_turn_plan.spacing for ranks in cohort_ranks.values()),
         default=0.0,
     )
     if any(
@@ -1952,17 +1949,12 @@ def _validate_planned_exit_turn_resources(
         )
         unique_axes = tuple(dict.fromkeys(cohort_axes))
         unique_axes = tuple(sorted(unique_axes, key=lambda axis: axis.rank))
-        progression = (
-            -1.0
-            if turn_handedness(run_direction, turn_direction)
-            is TurnHandedness.CLOCKWISE
-            else 1.0
-        )
+        progression = right_normal_axis_sign(turn_direction)
         if any(
             abs(
                 right.coordinate
                 - left.coordinate
-                - progression * (right.rank - left.rank) * exit_turn_plan.spacing
+                - progression * exit_turn_plan.spacing
             )
             > 1e-6
             for left, right in zip(unique_axes, unique_axes[1:])
