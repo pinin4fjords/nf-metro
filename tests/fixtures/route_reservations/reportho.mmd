@@ -1,0 +1,129 @@
+%%metro title: nf-core/reportho
+%%metro style: dark
+%%metro diamond_style: symmetric
+%%metro line: main | Main flow | #24b064
+%%metro line: report | Report flow | #0dcaf0
+%%metro line: samplesheets | Samplesheet flow | #f59e0b
+%%metro legend: bl
+
+%%metro file: id_in | ID | Uniprot ID
+%%metro file: fasta_in | FASTA | Protein sequence
+%%metro file: query_reports | HTML | Per-query reports
+%%metro file: summary_report | HTML | MultiQC summary report
+%%metro file: msa_samplesheet | CSV | MSA samplesheet
+
+graph LR
+    subgraph input [Input]
+        id_in [ ]
+        fasta_in [ ]
+        id_seq [Identify sequence]
+        id_tax [Identify taxon]
+
+        fasta_in -->|main| id_seq
+        id_seq -->|main| id_tax
+        id_in -->|main| id_tax
+    end
+
+    subgraph fetch_ortho [Fetch orthologs]
+        _ortho_entry [ ]
+        oma_online [OMA online]
+        oma_local [OMA local]
+        panther_online [PANTHER online]
+        panther_local [PANTHER local]
+        inspector_online [OrthoInspector online]
+        eggnog_local [EggNOG local]
+        _ortho_exit [ ]
+
+        _ortho_entry -->|main| oma_online
+        _ortho_entry -->|main| oma_local
+        _ortho_entry -->|main| panther_online
+        _ortho_entry -->|main| panther_local
+        _ortho_entry -->|main| inspector_online
+        _ortho_entry -->|main| eggnog_local
+        oma_online -->|main| _ortho_exit
+        oma_local -->|main| _ortho_exit
+        panther_online -->|main| _ortho_exit
+        panther_local -->|main| _ortho_exit
+        inspector_online -->|main| _ortho_exit
+        eggnog_local -->|main| _ortho_exit
+    end
+
+    subgraph fetch_seqs [Fetch sequences]
+        source_split [Split by format]
+        fetch_oma [OMA]
+        fetch_uniprot [Uniprot]
+        fetch_refseq [RefSeq]
+        fetch_ensembl [Ensembl]
+        source_merge [Merge sequences]
+
+        source_split -->|main| fetch_oma
+        source_split -->|main| fetch_uniprot
+        source_split -->|main| fetch_refseq
+        source_split -->|main| fetch_ensembl
+        fetch_oma -->|main| source_merge
+        fetch_uniprot -->|main| source_merge
+        fetch_refseq -->|main| source_merge
+        fetch_ensembl -->|main| source_merge
+    end
+
+    subgraph merge_ids [Merge IDs]
+        split_tax [Split by taxon]
+        diamond_cluster [Diamond cluster]
+        create_idmap [Create ID map]
+
+        split_tax -->|main| diamond_cluster
+        diamond_cluster -->|main| create_idmap
+    end
+
+    subgraph create_samplesheets [Create samplesheets]
+        create_msa [Create MSA samplesheet]
+        msa_samplesheet [ ]
+
+        create_msa -->|samplesheets| msa_samplesheet
+    end
+
+    subgraph report [Report]
+        dump_params [Dump parameters]
+        generate_reports [Generate reports]
+        multiqc [MultiQC]
+        query_reports [ ]
+        summary_report [ ]
+
+        dump_params -->|main| generate_reports
+        generate_reports -->|main| multiqc
+        generate_reports -->|main| query_reports
+        multiqc -->|main| summary_report
+    end
+
+    subgraph score_orthologs [Score orthologs]
+        make_score_table [Make score table]
+        make_plots [Make plots]
+        calculate_stats [Calculate statistics]
+        filter_hits [Filter hits]
+
+        make_score_table -->|main| filter_hits
+        make_score_table -->|main| make_plots
+        make_score_table -->|main| calculate_stats
+    end
+
+    id_tax -->|main| _ortho_entry
+    _ortho_exit -->|main| source_split
+    source_merge -->|main| split_tax
+    create_idmap -->|main| make_score_table
+    make_plots -->|main| dump_params
+
+    source_merge -->|samplesheets| create_msa
+    filter_hits -->|samplesheets| create_msa
+
+    id_tax -->|report| generate_reports
+    oma_online -->|report| generate_reports
+    oma_local -->|report| generate_reports
+    panther_online -->|report| generate_reports
+    panther_local -->|report| generate_reports
+    inspector_online -->|report| generate_reports
+    eggnog_local -->|report| generate_reports
+    create_idmap -->|report| generate_reports
+    make_score_table -->|report| generate_reports
+    filter_hits -->|report| generate_reports
+    make_plots -->|report| generate_reports
+    calculate_stats -->|report| generate_reports
