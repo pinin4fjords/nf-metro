@@ -1390,7 +1390,11 @@ def _build_group_plan(
             reason = "missing-or-ambiguous-source-order"
         graph_rank = {line_id: rank for rank, line_id in enumerate(graph.lines)}
         ordered_lanes = tuple(
-            (line_id, 0.0) for line_id in sorted(line_ids, key=graph_rank.__getitem__)
+            (line_id, 0.0)
+            for line_id in sorted(
+                line_ids,
+                key=lambda line_id: graph_rank.get(line_id, len(graph_rank)),
+            )
         )
     lane_rank = {line_id: rank for rank, (line_id, _offset) in enumerate(ordered_lanes)}
     base_offset = min((offset for _line, offset in ordered_lanes), default=0.0)

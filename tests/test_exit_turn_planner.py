@@ -1210,6 +1210,20 @@ def test_route_plan_query_rejects_fallback_lane_order_for_planned_group() -> Non
         )
 
 
+def test_implicit_line_id_uses_stable_fallback_order() -> None:
+    path = TOPOLOGIES / "internal_source_equal_sibling_2fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+
+    observation = observe_route_edges(graph)
+
+    assert observation.routes
+    assert any(
+        plan.lane_order_source is ExitLaneOrderSource.GRAPH_LINE_ORDER_FALLBACK
+        and tuple(lane.line_id for lane in plan.source_lanes) == ("run_folder",)
+        for plan in observation.plan.exit_turn_plans
+    )
+
+
 def test_runtime_invariant_rejects_a_shifted_fixed_axis_anchor() -> None:
     graph, offsets, observation = _observe(
         TOPOLOGIES / "peeloff_straight_drop_near_wall.mmd"
