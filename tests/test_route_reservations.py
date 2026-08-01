@@ -45,7 +45,7 @@ from nf_metro.render.svg import (
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
-REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.mmd"
+REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 RESERVATION_CORPUS = tuple(
     TOPOLOGIES / name
     for name in (

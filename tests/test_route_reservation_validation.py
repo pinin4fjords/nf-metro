@@ -32,7 +32,7 @@ from nf_metro.layout.routing.common import Direction
 from nf_metro.layout.routing.families import RouteFamilyId
 
 ROOT = Path(__file__).parents[1]
-REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.mmd"
+REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 TOPOLOGIES = ROOT / "examples" / "topologies"
 
 
