@@ -25,6 +25,7 @@ from nf_metro.layout.routing.corners import (
     l_shape_stagger,
     reference_anchored_radius,
     resolve_curve_radii,
+    resolve_curve_radius_at,
     reversed_offset,
 )
 
@@ -425,6 +426,29 @@ class TestResolveCurveRadii:
         # All should be achievable given 50+ px segments
         for r_eff, r_des in zip(result, radii):
             assert r_eff == pytest.approx(r_des)
+
+    @pytest.mark.parametrize(
+        ("points", "radii", "default_radius"),
+        [
+            ([(0, 0), (5, 0), (5, 100)], [15.0], CURVE_RADIUS),
+            ([(0, 0), (100, 0), (106, 0), (106, 100)], [10.0, 10.0], 8.0),
+            ([(0, 0), (100, 0), (120, 0), (120, 100)], [5.0], 15.0),
+            (
+                [(0, 0), (50, 0), (50, 40), (80, 40), (80, 0), (100, 0)],
+                None,
+                12.0,
+            ),
+        ],
+    )
+    def test_single_corner_resolution_matches_vector(
+        self, points, radii, default_radius
+    ):
+        """Scalar and vector resolution share one segment-budget rule."""
+        resolved = resolve_curve_radii(points, radii, default_radius)
+        assert [
+            resolve_curve_radius_at(points, radii, i, default_radius)
+            for i in range(len(points) - 2)
+        ] == resolved
 
 
 # ---------------------------------------------------------------------------

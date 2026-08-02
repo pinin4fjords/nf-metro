@@ -148,3 +148,40 @@ def test_unify_uses_widest_radius_all_shared_legs_can_resolve() -> None:
         resolve_curve_radii(route.points, route.curve_radii)[0] for route in routes
     ] == pytest.approx([20.0, 20.0])
     assert not check_coincident_corner_radii(graph, routes, {})
+
+
+def test_unify_refreshes_a_shared_route_after_changing_one_corner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second coincident bucket sees an earlier radius correction."""
+    import nf_metro.layout.routing.normalize as normalize
+
+    shared = _make_route("shared", "x", 22.0)
+    shared.points = [
+        (0.0, 100.0),
+        (100.0, 100.0),
+        (100.0, 200.0),
+        (200.0, 200.0),
+    ]
+    shared.curve_radii = [22.0, 22.0]
+
+    short = _make_route("short", "x", 22.0)
+    short.points = [(80.0, 100.0), (100.0, 100.0), (100.0, 300.0)]
+
+    peer = _make_route("peer", "x", 22.0)
+    peer.points = [(100.0, 100.0), (100.0, 200.0), (200.0, 200.0)]
+
+    real_resolve = normalize.resolve_curve_radii
+    shared_resolutions = 0
+
+    def counting_resolve(points, radii, *args, **kwargs):
+        nonlocal shared_resolutions
+        if points is shared.points:
+            shared_resolutions += 1
+        return real_resolve(points, radii, *args, **kwargs)
+
+    monkeypatch.setattr(normalize, "resolve_curve_radii", counting_resolve)
+    _unify_coincident_corner_radii([shared, short, peer])
+
+    assert shared.curve_radii == pytest.approx([20.0, 22.0])
+    assert shared_resolutions == 3

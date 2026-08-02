@@ -64,6 +64,7 @@ from nf_metro.layout.routing.corners import (
     corner_radius,
     l_shape_radii,
     resolve_curve_radii,
+    resolve_curve_radius_at,
     widest_coincident_radius,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -1336,13 +1337,20 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
     # correction can no longer alter a neighbouring coincident bucket.
     for _ in range(max(1, len(buckets))):
         changed = False
+        resolved_by_route: dict[int, list[float]] = {}
+
+        def resolved_vector(route: RoutedPath) -> list[float]:
+            key = id(route)
+            resolved = resolved_by_route.get(key)
+            if resolved is None:
+                resolved = resolve_curve_radii(route.points, route.curve_radii)
+                resolved_by_route[key] = resolved
+            return resolved
+
         for members in buckets.values():
             if len(members) < 2:
                 continue
-            effective = [
-                resolve_curve_radii(route.points, route.curve_radii)[i]
-                for route, i in members
-            ]
+            effective = [resolved_vector(route)[i] for route, i in members]
             common = min(effective)
             for (route, i), actual in zip(members, effective, strict=True):
                 if actual - common <= COORD_TOLERANCE_FINE:
@@ -1353,12 +1361,13 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
                 for _step in range(64):
                     candidate = (low + high) / 2
                     radii[i] = candidate
-                    resolved = resolve_curve_radii(route.points, radii)[i]
+                    resolved = resolve_curve_radius_at(route.points, radii, i)
                     if resolved < common:
                         low = candidate
                     else:
                         high = candidate
                 radii[i] = high
+                resolved_by_route.pop(id(route), None)
                 changed = True
         if not changed:
             break
