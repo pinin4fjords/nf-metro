@@ -80,6 +80,8 @@ from nf_metro.layout.phases.bbox import (
     _column_neighbour_anchor_limit,
     _min_drawn_section_bbox_top,
     _predict_section_content_bottom,
+    _section_band_is_empty,
+    _section_content_hug_top,
     _section_fit_top,
     _shared_anchor_runway_runs,
 )
@@ -1790,7 +1792,10 @@ def _guard_section_top_padding(
     bbox top below that target means a later pass crowded the topmost
     marker against the box edge (issue #406).
     """
+    from nf_metro.layout.phases.planned_fans import planned_fan_layout_section_ids
+
     tol = 1.0
+    planned_sections = planned_fan_layout_section_ids(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
@@ -1804,6 +1809,17 @@ def _guard_section_top_padding(
                 f"{phase}: section {section.id!r} bbox top {section.bbox_y:.1f} "
                 f"sits below its content-anchored target {target:.1f} "
                 f"(highest marker crowds the bbox top edge)"
+            )
+        if section.id not in planned_sections or not _section_band_is_empty(
+            graph, section
+        ):
+            continue
+        hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
+        if hug is not None and section.bbox_y < hug - tol:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan section {section.id!r} bbox top "
+                f"{section.bbox_y:.1f} leaves an empty band above its "
+                f"content-hug target {hug:.1f}"
             )
 
 

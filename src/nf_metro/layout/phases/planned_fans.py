@@ -31,6 +31,16 @@ def planned_fan_layout_station_ids(graph: MetroGraph) -> set[str]:
     }
 
 
+def planned_fan_layout_section_ids(graph: MetroGraph) -> set[str]:
+    """Return sections containing coordinates owned by a semantic fan plan."""
+    return {
+        station.section_id
+        for station_id in planned_fan_layout_station_ids(graph)
+        if (station := graph.stations.get(station_id)) is not None
+        and station.section_id is not None
+    }
+
+
 def planned_fan_port_ids(graph: MetroGraph) -> set[str]:
     """Return ports participating in a planned fan's complete membership."""
     return {

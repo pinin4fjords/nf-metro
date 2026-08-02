@@ -96,6 +96,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     _tighten_lower_rows_after_shrink,
     _top_align_side_entered_vertical_to_feeder,
     push_lower_rows_after_bbox_grow,
+    refit_empty_section_tops_to_content,
     refit_tops_after_entry_resnap,
 )
 from nf_metro.layout.phases.canvas import (  # noqa: F401
@@ -256,6 +257,7 @@ from nf_metro.layout.phases.planned_fans import (  # noqa: F401
     _apply_planned_fan_geometry,
     _apply_planned_fan_port_geometry,
     _fit_planned_fan_bboxes,
+    planned_fan_layout_section_ids,
 )
 from nf_metro.layout.phases.ports import (  # noqa: F401
     _align_entry_ports,
@@ -2060,6 +2062,18 @@ def _finalize_layout(
     # half-grid marks are final.
     _expand_orphaned_half_grid_stations(graph, y_spacing, section_y_padding)
     _snap(graph, "6.18")
+
+    # Stage 6.17 is a late semantic placement, downstream of the corpus-wide
+    # content-top fit.  Refit only the sections whose plan-owned coordinates it
+    # materialised, and only when their top band carries no routing approach.
+    planned_fan_sections = planned_fan_layout_section_ids(graph)
+    if planned_fan_sections:
+        refit_empty_section_tops_to_content(
+            graph,
+            planned_fan_sections,
+            section_y_padding,
+        )
+    _snap(graph, "6.18a")
 
     if validate:
         if graph._defer_final_guards:
