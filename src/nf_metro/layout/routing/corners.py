@@ -306,6 +306,26 @@ def concentric_corner_radius_at(
     )
 
 
+def concentric_reference_radius_at(
+    prev: tuple[float, float],
+    corner: tuple[float, float],
+    nxt: tuple[float, float],
+    dx: float,
+    lane_radius: float = CURVE_RADIUS,
+) -> float:
+    """Reference radius that gives one displaced lane *lane_radius*.
+
+    This is the inverse of :func:`concentric_corner_radius_at` for a single
+    lane.  A caller choosing one reference for a corner family takes the
+    maximum result across its lanes, then derives every lane radius through
+    :func:`concentric_corner_radius_at`.  Keeping both directions here gives
+    routing code one source of truth for the turn-dependent offset sign.
+    """
+    turn_in, turn_out = _corner_travel_units(prev, corner, nxt)
+    lane_adjustment = concentric_corner_radius(turn_in, turn_out, dx, base_radius=0.0)
+    return reference_anchored_radius(-lane_adjustment, lane_radius)
+
+
 def widest_coincident_radius(radii: Iterable[float]) -> float:
     """The outermost of several corner radii meeting at one shared vertex.
 

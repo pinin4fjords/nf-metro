@@ -60,6 +60,7 @@ from nf_metro.layout.routing.context import (
 )
 from nf_metro.layout.routing.corners import (
     concentric_corner_radius_at,
+    concentric_reference_radius_at,
     corner_radius,
     l_shape_radii,
     resolve_curve_radii,
@@ -1885,15 +1886,14 @@ def _fan_opening_reference_radii(
         for side, radius_index in enumerate((channel.idx - 1, channel.idx)):
             if not 0 <= radius_index < len(route.curve_radii):
                 continue
-            radius_at_floor = concentric_corner_radius_at(
+            required_reference = concentric_reference_radius_at(
                 points[radius_index],
                 points[radius_index + 1],
                 points[radius_index + 2],
                 rank_offset,
                 curve_radius,
             )
-            floor_deficit = curve_radius - radius_at_floor
-            references[side] = max(references[side], curve_radius + floor_deficit)
+            references[side] = max(references[side], required_reference)
     return references[0], references[1]
 
 

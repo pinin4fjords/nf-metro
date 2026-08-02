@@ -18,6 +18,8 @@ from nf_metro.layout.routing.common import Direction
 from nf_metro.layout.routing.corners import (
     bypass_stagger,
     concentric_corner_radius,
+    concentric_corner_radius_at,
+    concentric_reference_radius_at,
     corner_radius,
     l_shape_radii,
     l_shape_stagger,
@@ -524,3 +526,24 @@ class TestConcentricCornerRadius:
         # DOWN->RIGHT: ux = +1, so positive dx subtracts -> can go negative.
         r = concentric_corner_radius(DOWN, RIGHT, 100.0, base, min_radius=0.1)
         assert r == 0.1
+
+
+class TestConcentricReferenceRadius:
+    @pytest.mark.parametrize("turn_in,turn_out", ALL_TURNS)
+    @pytest.mark.parametrize("dx", [-2 * OFFSET_STEP, 0.0, 2 * OFFSET_STEP])
+    def test_resolves_displaced_lane_to_requested_radius(
+        self,
+        turn_in: tuple[float, float],
+        turn_out: tuple[float, float],
+        dx: float,
+    ) -> None:
+        corner = (100.0, 100.0)
+        prev = (corner[0] - 50.0 * turn_in[0], corner[1] - 50.0 * turn_in[1])
+        nxt = (corner[0] + 50.0 * turn_out[0], corner[1] + 50.0 * turn_out[1])
+        lane_radius = CURVE_RADIUS + 3.0
+
+        reference = concentric_reference_radius_at(prev, corner, nxt, dx, lane_radius)
+
+        assert concentric_corner_radius_at(
+            prev, corner, nxt, dx, reference
+        ) == pytest.approx(lane_radius)
