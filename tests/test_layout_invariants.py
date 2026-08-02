@@ -75,6 +75,7 @@ from nf_metro.layout.phases._common import (
     iter_corridor_fed_solo_entries,
     iter_fold_lr_exit_straight_runs,
     iter_fold_lr_exits_short_of_target,
+    iter_sole_trunk_continuations,
     line_forks_within_section,
     section_axes,
     section_cross_axis,
@@ -819,46 +820,8 @@ def test_station_bundle_lanes_contiguous(fixture, station_id):
 
 
 def _sole_continuation_pairs(graph: MetroGraph) -> list[tuple[str, str, str]]:
-    """Return ``(section_id, pred, node)`` for in-section linear continuations.
-
-    A *node* is a sole continuation when, inside an LR/RL section, it has a
-    single real in-section predecessor whose *only* forward path in the whole
-    graph is this node, and that predecessor carries a strict superset of the
-    node's lines.  The predecessor carries more lines only because some of
-    them ended there (a line terminated, or a merge stopped) -- there is no
-    sibling branch to fan toward, so the chain is linear and must run flat.
-
-    A predecessor that also feeds a section-exit edge or a bypass V routes
-    that line *around* the node and so genuinely forks; requiring the
-    predecessor's only out-target to be the node excludes those.  Off-track
-    stations are excluded at both ends; their Y comes from later phases.
-    """
-    pairs: list[tuple[str, str, str]] = []
-    for section in graph.sections.values():
-        if section.direction not in ("LR", "RL"):
-            continue
-        sids = set(section.station_ids)
-        for sid in section.station_ids:
-            st = graph.stations.get(sid)
-            if st is None or st.is_port or st.is_hidden or st.off_track:
-                continue
-            preds = {
-                e.source
-                for e in graph.edges_to(sid)
-                if e.source in sids
-                and not graph.stations[e.source].is_port
-                and not graph.stations[e.source].is_hidden
-            }
-            if len(preds) != 1:
-                continue
-            pred = next(iter(preds))
-            if graph.stations[pred].off_track:
-                continue
-            if {e.target for e in graph.edges_from(pred)} != {sid}:
-                continue
-            if set(graph.station_lines(pred)) > set(graph.station_lines(sid)):
-                pairs.append((section.id, pred, sid))
-    return pairs
+    """Return the runtime guard's in-section linear continuations."""
+    return list(iter_sole_trunk_continuations(graph))
 
 
 _FIXTURES_WITH_SOLE_CONTINUATION = _FEATURE_MANIFEST["sole_continuation"]
@@ -866,7 +829,7 @@ _FIXTURES_WITH_SOLE_CONTINUATION = _FEATURE_MANIFEST["sole_continuation"]
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_SOLE_CONTINUATION)
 def test_bundle_terminator_successor_stays_on_trunk(fixture):
-    """A bundle terminator's sole successor shares the predecessor's row.
+    """A bundle terminator's sole successor shares its secondary track.
 
     When a bundled line ends at a station while another continues to a single
     successor, that successor is the linear trunk continuation -- there is no
@@ -876,12 +839,13 @@ def test_bundle_terminator_successor_stays_on_trunk(fixture):
     """
     graph = _layout(fixture)
     for section_id, pred, node in _sole_continuation_pairs(graph):
-        py = graph.stations[pred].y
-        ny = graph.stations[node].y
-        assert abs(ny - py) <= _Y_TOL, (
+        frame = AxisFrame.for_direction(graph.sections[section_id].direction, 1.0, 1.0)
+        pred_secondary = frame.secondary.get(graph.stations[pred])
+        node_secondary = frame.secondary.get(graph.stations[node])
+        assert abs(node_secondary - pred_secondary) <= _Y_TOL, (
             f"{fixture}: section {section_id} continuation {pred}->{node} drops "
-            f"{abs(ny - py):.0f}px (pred y={py}, succ y={ny}); the sole successor "
-            "should stay on the trunk row"
+            f"{abs(node_secondary - pred_secondary):.0f}px; the sole successor "
+            "should stay on the trunk track"
         )
 
 

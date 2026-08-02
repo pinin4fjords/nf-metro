@@ -1643,30 +1643,17 @@ def _guard_entry_port_not_opposite_targets(graph: MetroGraph, phase: str) -> Non
 
 
 def _guard_post_convergence_trunk_continues(graph: MetroGraph, phase: str) -> None:
-    """The sole continuation of a line-shedding station continues on its row.
-
-    When a horizontal-section station carries strictly more lines than its only
-    in-section successor -- because some of its lines ended there, whether a
-    merged branch that stopped (#946) or a bundled line that terminated (#977)
-    -- and that successor is its only forward path, the chain is linear with no
-    sibling branch to fan toward. The successor must share the predecessor's Y;
-    otherwise the trunk dives onto a line base row, painting a needless diagonal
-    (or an in-section V-kink) right after the junction.
-
-    A predecessor whose flow also leaves elsewhere -- a section-exit edge or a
-    bypass V routing a line *around* the successor -- genuinely forks, so its
-    successor would legitimately drop off the trunk; the predecessor's *only*
-    forward path in the whole graph must be this successor. Vertical (TB/BT)
-    sections, ports, hidden, and off-track stations are out of scope.
-    """
-    for _section_id, pred, node in iter_sole_trunk_continuations(graph):
-        pred_y = graph.stations[pred].y
-        node_y = graph.stations[node].y
-        if abs(node_y - pred_y) > GUARD_TOLERANCE:
+    """An in-section linear continuation stays on one secondary track."""
+    for section_id, pred, node in iter_sole_trunk_continuations(graph):
+        section = graph.sections[section_id]
+        frame = AxisFrame.for_direction(section.direction, 1.0, 1.0)
+        pred_secondary = frame.secondary.get(graph.stations[pred])
+        node_secondary = frame.secondary.get(graph.stations[node])
+        if abs(node_secondary - pred_secondary) > GUARD_TOLERANCE:
             raise PhaseInvariantError(
-                f"{phase}: continuation station {node!r} at y={node_y:.1f} "
-                f"is off its predecessor {pred!r} y={pred_y:.1f}; the trunk "
-                f"dives onto a branch row right after the junction"
+                f"{phase}: continuation station {node!r} at secondary "
+                f"coordinate {node_secondary:.1f} is off its predecessor "
+                f"{pred!r} at {pred_secondary:.1f}"
             )
 
 
@@ -5683,11 +5670,9 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "B",
         issue_pin=("#946", "#977"),
         narrow_reason=(
-            "Scoped to the sole in-section forward successor of a line-shedding "
-            "predecessor: a predecessor with multiple successors (including a "
-            "bypass V) fans out by design, a successor carrying as many lines is "
-            "trunk-aligned already, and a cross-section convergence anchors its "
-            "successor via port alignment."
+            "Scoped to a membership-changing in-section chain whose predecessor "
+            "has one complete forward target. Sibling paths and lines that bypass "
+            "an intermediate carrier retain separate tracks."
         ),
     ),
     GuardSpec(_guard_perp_entry_feed_not_collinear, "B"),

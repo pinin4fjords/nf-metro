@@ -155,7 +155,6 @@
     "topologies/exit_corner_offset_dogleg.mmd",
     "topologies/fold_fan_across.mmd",
     "topologies/fold_stacked_branch.mmd",
-    "topologies/leftward_up_exit_turn_order.mmd",
     "topologies/merge_offrow_continuation.mmd",
     "topologies/merge_port_above_approach.mmd",
     "topologies/mixed_bundle_column.mmd",
@@ -178,10 +177,13 @@
     "topologies/bundle_terminator_continuation.mmd",
     "topologies/dogleg_exempt_distinct.mmd",
     "topologies/entry_hint_shared_edge.mmd",
+    "topologies/leftward_up_exit_turn_order.mmd",
+    "topologies/merge_feeders_three_columns.mmd",
     "topologies/packed_cell_right_exit_left_entry_wrap.mmd",
     "topologies/peeloff_extra_line_consumer.mmd",
     "topologies/post_convergence_trunk.mmd",
     "topologies/rl_entry_runway.mmd",
-    "topologies/same_side_culdesac.mmd"
+    "topologies/same_side_culdesac.mmd",
+    "topologies/tb_passthrough_continuation.mmd"
   ]
 }

@@ -80,22 +80,23 @@ def iter_sole_trunk_continuations(
 ) -> Iterator[tuple[str, str, str]]:
     """Yield ``(section_id, pred, node)`` for in-section linear continuations.
 
-    A *node* is a sole trunk continuation when, inside a horizontal (LR/RL)
-    section, it has exactly one real (non-port, non-hidden) in-section
-    predecessor whose *only* forward path in the whole graph is this node, and
-    that predecessor carries a strict superset of the node's lines (some of the
-    predecessor's lines ended there).  The chain is then linear with no sibling
-    branch to fan toward, so the node must hold the predecessor's track rather
-    than drop to its own line base.
-
-    The full-graph successor test is the discriminator: a predecessor that also
-    feeds a section-exit edge (or a bypass V) routes that line *around* the
-    node, so the node legitimately drops off the trunk.  Off-track stations are
-    excluded at both ends; their Y comes from later phases.
+    A linear continuation has exactly one visible, on-track predecessor whose
+    complete forward target set contains only that node.  Line membership may
+    change at the boundary, but there is no sibling path that needs a separate
+    track.  The relation is axis-independent and excludes ports, hidden
+    stations, and off-track stations.
     """
     for section in graph.sections.values():
-        if not lanes_run_along_y(section.direction):
-            continue
+        visible = [
+            station_id
+            for station_id in section.station_ids
+            if (station := graph.stations.get(station_id)) is not None
+            and not station.is_port
+            and not station.is_hidden
+            and not station.off_track
+        ]
+        visible_rank = {station_id: rank for rank, station_id in enumerate(visible)}
+        visible_lines = [set(graph.station_lines(station_id)) for station_id in visible]
         sec_ids = set(section.station_ids)
         for sid in section.station_ids:
             st = graph.stations.get(sid)
@@ -115,8 +116,46 @@ def iter_sole_trunk_continuations(
                 continue
             if {e.target for e in graph.edges_from(pred)} != {sid}:
                 continue
-            if set(graph.station_lines(pred)) > set(graph.station_lines(sid)):
-                yield (section.id, pred, sid)
+            pred_lines = set(graph.station_lines(pred))
+            node_lines = set(graph.station_lines(sid))
+            if pred_lines == node_lines:
+                continue
+            if not pred_lines > node_lines and graph.stations[pred].is_blank_terminus:
+                continue
+            if (
+                not pred_lines > node_lines
+                and len({edge.target for edge in graph.edges_from(sid)}) > 1
+            ):
+                continue
+            pred_rank = visible_rank[pred]
+            node_rank = visible_rank[sid]
+            before = set().union(*visible_lines[: pred_rank + 1])
+            after = set().union(*visible_lines[node_rank:])
+            if any(
+                line_id not in pred_lines or line_id not in node_lines
+                for line_id in before & after
+            ):
+                continue
+            if not pred_lines > node_lines:
+                added = node_lines - pred_lines
+                earlier = set().union(*visible_lines[:pred_rank])
+                edge_lines = {
+                    edge.line_id
+                    for edge in graph.edges_from(pred)
+                    if edge.target == sid
+                }
+                added_continues = any(
+                    edge.line_id in added
+                    and edge.target in sec_ids
+                    and not graph.stations[edge.target].is_port
+                    and not graph.stations[edge.target].is_hidden
+                    and not graph.stations[edge.target].off_track
+                    for edge in graph.edges_from(sid)
+                )
+                rejoined = (pred_lines & node_lines) - edge_lines
+                if not added_continues and not added & earlier and not rejoined:
+                    continue
+            yield (section.id, pred, sid)
 
 
 def line_forks_within_section(

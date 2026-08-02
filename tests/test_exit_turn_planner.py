@@ -10,16 +10,17 @@ import pytest
 
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
+import nf_metro.layout.routing.offsets as routing_offsets
 from nf_metro.api import prepare_graph, render_string
 from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     DemandKind,
     ExitLaneOrderSource,
     ExitTurnDisposition,
-    ExitTurnPlanId,
     RouteFamilyId,
     SharedReferenceKind,
     build_route_plan_query,
@@ -47,7 +48,7 @@ from nf_metro.layout.routing.exit_turns import (
 )
 from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import PortSide
+from nf_metro.parser.model import Edge, PortSide
 from nf_metro.render.plan import freeze_render_value
 
 ROOT = Path(__file__).parents[1]
@@ -225,7 +226,7 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
-def test_leftward_upturn_stays_planned_when_convergences_share_its_endpoints() -> None:
+def test_compacted_leftward_source_stays_planned_as_a_straight_group() -> None:
     graph, offsets, observation = _observe(
         TOPOLOGIES / "leftward_up_exit_turn_order.mmd"
     )
@@ -235,10 +236,234 @@ def test_leftward_upturn_stays_planned_when_convergences_share_its_endpoints() -
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("branch", "shared")
     assert all(
         assignment.run_direction is Direction.L
-        and assignment.turn_direction is Direction.U
+        and assignment.turn_direction is None
+        and assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
         for assignment in plan.assignments
     )
+    assert not plan.axes
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
+def test_linear_leftward_source_uses_one_secondary_track() -> None:
+    graph = prepare_graph(
+        (TOPOLOGIES / "leftward_up_exit_turn_order.mmd").read_text(),
+        source_dir=str(TOPOLOGIES),
+    )
+    section = graph.sections["source"]
+    frame = AxisFrame.for_direction(section.direction, 1.0, 1.0)
+
+    secondary = {
+        frame.secondary.get(graph.stations[station_id])
+        for station_id in ("source_a", "source_b", "shared_step", "split")
+    }
+
+    assert len(secondary) == 1
+
+
+def test_linear_entry_frame_requires_one_upstream_carrier() -> None:
+    text = """
+%%metro line: first | First | #3779b1
+%%metro line: second | Second | #6ef362
+%%metro grid: upstream | 0,0
+%%metro grid: target | 1,0
+graph LR
+    subgraph upstream [Upstream]
+        first_source[First]
+        second_source[Second]
+    end
+    subgraph target [Target]
+        %%metro entry: left | first, second
+        %%metro exit: right | first, second
+        target_step[Target]
+    end
+    first_source -->|first| target_step
+    second_source -->|second| target_step
+"""
+    graph = prepare_graph(text)
+    offsets = compute_station_offsets(graph)
+    target_entry = graph.sections["target"].entry_ports[0]
+    upstream_exit = graph.sections["upstream"].exit_ports[0]
+    graph.replace_edges(
+        [
+            Edge("second_source", target_entry, edge.line_id, edge.source_line)
+            if edge.source == upstream_exit
+            and edge.target == target_entry
+            and edge.line_id == "second"
+            else edge
+            for edge in graph.edges
+        ]
+    )
+
+    ownership = routing_offsets.capture_linear_entry_frame_ownership(graph, offsets)
+
+    assert not any(
+        section_id == "target"
+        for section_id, _station_id, _line_id, _offset in ownership.offsets
+    )
+
+
+def test_exit_plan_falls_back_before_changing_a_linear_entry_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_build = exit_turns._build_group_plans
+
+    def conflict(*args, **kwargs):
+        built = list(real_build(*args, **kwargs))
+        for rank, item in enumerate(built):
+            if item.plan.source_id != "__junction_7":
+                continue
+            lanes = tuple(
+                replace(lane, planned_offset=lane.planned_offset + 4.0)
+                if lane.line_id == "third"
+                else lane
+                for lane in item.plan.source_lanes
+            )
+            built[rank] = replace(item, plan=replace(item.plan, source_lanes=lanes))
+        return tuple(built)
+
+    monkeypatch.setattr(exit_turns, "_build_group_plans", conflict)
+    _graph, offsets, observation = _observe(TOPOLOGIES / "target_lane_transition.mmd")
+    plan = _plan_for_source(observation, "__junction_7")
+    affected = [
+        item
+        for item in observation.plan.exit_turn_plans
+        if item.system_id == plan.system_id
+    ]
+
+    assert all(item.disposition is ExitTurnDisposition.LEGACY for item in affected)
+    assert all(
+        item.legacy_reason == "linear-entry-frame-ownership-conflict"
+        for item in affected
+    )
+    assert offsets[("source__exit_right_1", "third")] == pytest.approx(8.0)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "section_id", "line_ids"),
+    (
+        ("exit_lane_settlement_without_crossings.mmd", "source", ("wrap",)),
+        ("exit_turn_frame_filters.mmd", "seam_target", ("seam_a", "seam_b")),
+        ("external_owner_exit_lane_frame.mmd", "feeder", ("straight", "wrap")),
+        (
+            "external_owner_exit_lane_frame.mmd",
+            "source",
+            ("lower", "straight", "wrap"),
+        ),
+        ("multi_frame_exit_lane_settlement.mmd", "source", ("wrap",)),
+        ("target_lane_transition.mmd", "source", ("first", "second", "third")),
+    ),
+)
+def test_linear_entry_cohort_keeps_one_lane_frame(
+    fixture: str,
+    section_id: str,
+    line_ids: tuple[str, ...],
+) -> None:
+    graph, offsets, observation = _observe(TOPOLOGIES / fixture)
+    section = graph.sections[section_id]
+
+    for line_id in line_ids:
+        carriers = [
+            station_id
+            for station_id in section.station_ids
+            if line_id in graph.station_lines(station_id)
+        ]
+        assert len(carriers) >= 3
+        assert {offsets[(station_id, line_id)] for station_id in carriers} == {
+            offsets[(carriers[0], line_id)]
+        }
+        assert all(
+            transition.edge.line_id != line_id
+            or graph.stations[transition.edge.source].section_id != section_id
+            or graph.stations[transition.edge.target].section_id != section_id
+            for plan in observation.plan.exit_turn_plans
+            for transition in plan.lane_transitions
+        )
+
+    for station_id in section.station_ids:
+        active = [
+            offsets[(station_id, line_id)]
+            for line_id in graph.station_lines(station_id)
+            if (station_id, line_id) in offsets
+        ]
+        levels = sorted(set(active))
+        if len(levels) < 2:
+            continue
+        assert levels == pytest.approx(
+            [levels[0] + rank * 4.0 for rank in range(len(levels))]
+        )
+
+
+@pytest.mark.parametrize(
+    ("direction", "entry_side", "exit_side", "grid"),
+    (
+        ("LR", "left", "right", ((0, 0), (1, 0), (2, 0))),
+        ("RL", "right", "left", ((2, 0), (1, 0), (0, 0))),
+        ("TB", "top", "bottom", ((0, 0), (0, 1), (0, 2))),
+        ("BT", "bottom", "top", ((0, 2), (0, 1), (0, 0))),
+    ),
+)
+def test_linear_entry_frames_are_axis_generic(
+    direction: str,
+    entry_side: str,
+    exit_side: str,
+    grid: tuple[tuple[int, int], tuple[int, int], tuple[int, int]],
+) -> None:
+    feeder_grid, target_grid, sink_grid = grid
+    text = f"""
+%%metro line: first | First | #3779b1
+%%metro line: local | Local | #dde6c4
+%%metro line: second | Second | #6ef362
+%%metro grid: feeder | {feeder_grid[0]},{feeder_grid[1]}
+%%metro grid: target | {target_grid[0]},{target_grid[1]}
+%%metro grid: sink | {sink_grid[0]},{sink_grid[1]}
+
+graph LR
+    subgraph feeder [Feeder]
+        %%metro direction: {direction}
+        %%metro exit: {exit_side} | first, second
+        feed[Feed]
+    end
+    subgraph target [Target]
+        %%metro direction: {direction}
+        %%metro entry: {entry_side} | first, second
+        %%metro exit: {exit_side} | first, second
+        enter[Enter]
+        leave[Leave]
+        enter -->|local| leave
+    end
+    subgraph sink [Sink]
+        %%metro direction: {direction}
+        %%metro entry: {entry_side} | first, second
+        done[Done]
+    end
+    feed -->|first,second| enter
+    leave -->|first,second| done
+"""
+    graph = prepare_graph(text)
+    offsets = compute_station_offsets(graph)
+    section = graph.sections["target"]
+
+    for line_id in ("first", "second"):
+        carriers = [
+            station_id
+            for station_id in section.station_ids
+            if line_id in graph.station_lines(station_id)
+        ]
+        assert len({offsets[station_id, line_id] for station_id in carriers}) == 1
+
+
+def test_linear_entry_frame_runtime_guard_rejects_owner_drift() -> None:
+    path = TOPOLOGIES / "target_lane_transition.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    ctx = routing_offsets._build_offset_ctx(graph, 4.0)
+    ctx.offsets = dict(offsets)
+    frame = routing_offsets._linear_entry_frame(ctx, graph.sections["source"])
+    assert frame is not None
+    ctx.offsets[("enter", "third")] += 4.0
+
+    with pytest.raises(routing_offsets.LaneFrameInvariantError):
+        routing_offsets._validate_linear_entry_frames(ctx, (frame,))
 
 
 def test_terminated_source_lane_does_not_leave_a_phantom_slot() -> None:
@@ -251,27 +476,11 @@ def test_terminated_source_lane_does_not_leave_a_phantom_slot() -> None:
     assert tuple(lane.planned_offset for lane in plan.source_lanes) == (0.0, 4.0, 8.0)
     assert offsets[("s2__exit_right_2", "l4")] == pytest.approx(8.0)
     assert offsets[("__junction_37", "l4")] == pytest.approx(8.0)
-    assert offsets[("n2_1", "l4")] == pytest.approx(12.0)
-    transition = next(
-        item
-        for item in plan.lane_transitions
-        if item.edge.target == "s2__exit_right_2" and item.edge.line_id == "l4"
+    assert offsets[("n2_1", "l4")] == pytest.approx(8.0)
+    assert all(
+        transition.edge.target != "s2__exit_right_2" or transition.edge.line_id != "l4"
+        for transition in plan.lane_transitions
     )
-    assert transition.edge.source == "n2_1"
-    assert transition.edge.target == "s2__exit_right_2"
-    transition_route = next(
-        item
-        for item in observation.routes
-        if item.edge.source == transition.edge.source
-        and item.edge.target == transition.edge.target
-        and item.line_id == transition.edge.line_id
-    )
-    assert transition_route.offset_regime is OffsetRegime.BAKED
-    assert transition_route.exit_lane_transition_plan_id == str(plan.id)
-    assert len(transition_route.points) == 4
-    diagonal = transition_route.points[2][0] - transition_route.points[1][0]
-    rise = transition_route.points[2][1] - transition_route.points[1][1]
-    assert abs(diagonal) == pytest.approx(abs(rise))
     assert all(lane.line_id != "l3" for lane in plan.source_lanes)
     route = next(
         item
@@ -310,12 +519,12 @@ def test_compacted_straight_continuation_keeps_its_lane_across_the_seam() -> Non
         plan.disposition is ExitTurnDisposition.PLANNED for plan in plans.values()
     )
     assert all(
-        plan.lane_order_source is ExitLaneOrderSource.FRAME_CONSTRAINTS
+        plan.lane_order_source is ExitLaneOrderSource.STATION_OFFSETS
         for plan in plans.values()
     )
     assert all(
         tuple(lane.line_id for lane in plan.source_lanes)
-        == ("straight", "lower", "wrap")
+        == ("lower", "wrap", "straight")
         for plan in plans.values()
     )
     assert all(
@@ -328,8 +537,8 @@ def test_compacted_straight_continuation_keeps_its_lane_across_the_seam() -> Non
         for plan in plans.values()
         for transition in plan.lane_transitions
     )
-    assert offsets[("before", "straight")] == pytest.approx(0.0)
-    assert offsets[("split", "straight")] == pytest.approx(0.0)
+    assert offsets[("before", "straight")] == pytest.approx(8.0)
+    assert offsets[("split", "straight")] == pytest.approx(8.0)
     assert offsets[("before", "ends")] == pytest.approx(12.0)
     assert offsets[("split", "ends")] == pytest.approx(12.0)
     assert offsets[("prelude_b", "wrap")] == pytest.approx(offsets[("feed", "wrap")])
@@ -346,490 +555,6 @@ def test_compacted_straight_continuation_keeps_its_lane_across_the_seam() -> Non
             6,
         )
     }
-
-
-def test_frame_lane_constraint_cycle_falls_back_atomically(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-
-    def cycle_constraints(graph, _ctx, plan, _assignments):
-        section_id = graph.ports[plan.exit_port_id].section_id
-        if section_id == "feeder":
-            return (("straight", "lower"),)
-        if section_id == "source":
-            return (("lower", "straight"),)
-        return ()
-
-    monkeypatch.setattr(
-        exit_turns, "_complete_group_lane_constraints", cycle_constraints
-    )
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert offsets == original_offsets
-    assert set(affected) == {"__junction_8", "__junction_9"}
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-order-conflict"
-        and not plan.axes
-        and not plan.lane_transitions
-        for plan in affected.values()
-    )
-    assert not execution.references
-    assert not execution.demands
-
-
-def test_residual_frame_constraint_discards_the_trial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-
-    def oscillating_constraint(graph, ctx, plan, _assignments):
-        if graph.ports[plan.exit_port_id].section_id != "source":
-            return ()
-        offsets = ctx.station_offsets or {}
-        straight = offsets[("before", "straight")]
-        lower = offsets[("before", "lower")]
-        return ((("straight", "lower") if straight > lower else ("lower", "straight")),)
-
-    monkeypatch.setattr(
-        exit_turns, "_complete_group_lane_constraints", oscillating_constraint
-    )
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-not-stable"
-        and all(
-            lane.planned_offset == pytest.approx(lane.input_offset)
-            and not lane.station_ids
-            for lane in plan.source_lanes
-        )
-        for plan in affected.values()
-    )
-
-
-def test_rebuilt_frame_membership_change_discards_the_trial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
-    original_offsets = dict(offsets)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
-    original = exit_turns._source_lane_frames
-    calls = 0
-
-    def change_rebuilt_membership(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        roots, frames = original(*args, **kwargs)
-        if calls != 2:
-            return roots, frames
-        changed = dict(frames)
-        root = roots["source"]
-        changed[root] = replace(
-            frames[root],
-            node_ids=frames[root].node_ids - {"prelude_a"},
-        )
-        return roots, changed
-
-    monkeypatch.setattr(exit_turns, "_source_lane_frames", change_rebuilt_membership)
-    execution = exit_turns.build_exit_turn_execution(graph, ctx)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert calls == 2
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-not-stable"
-        for plan in affected.values()
-    )
-
-
-def test_connected_inverse_transitions_can_share_one_plan_owner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
-    original = exit_turns._settle_complete_group_source_lanes
-    captured = []
-
-    def capture(*args, **kwargs):
-        captured.extend(args[-1])
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(exit_turns, "_settle_complete_group_source_lanes", capture)
-    exit_turns.build_exit_turn_execution(graph, ctx)
-    by_source = {built.plan.source_id: built for built in captured}
-    feeder = by_source["__junction_8"]
-    source = by_source["__junction_9"]
-    combined = replace(
-        feeder,
-        plan=replace(
-            feeder.plan,
-            lane_transitions=(
-                *feeder.plan.lane_transitions,
-                *source.plan.lane_transitions,
-            ),
-        ),
-    )
-
-    assert exit_turns._opposed_transition_sections(graph, (combined,)) == {
-        "source": {feeder.plan.id}
-    }
-
-    graph.stations["isolated"] = replace(graph.stations["before"], id="isolated")
-    inverse = combined.plan.lane_transitions[-1]
-    disconnected = replace(
-        combined,
-        plan=replace(
-            combined.plan,
-            lane_transitions=(
-                combined.plan.lane_transitions[0],
-                replace(
-                    inverse,
-                    edge=type(inverse.edge)(
-                        "isolated", inverse.edge.target, inverse.edge.line_id
-                    ),
-                ),
-            ),
-        ),
-    )
-    assert not exit_turns._opposed_transition_sections(graph, (disconnected,))
-
-
-def test_affected_plan_closure_expands_to_an_overlapping_plan() -> None:
-    _graph, _offsets, groups = _provisional_groups(
-        TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    )
-    planned = {
-        built.plan.source_id: built
-        for built in groups
-        if built.plan.disposition is ExitTurnDisposition.PLANNED
-    }
-    feeder = planned["__junction_8"]
-    source = planned["__junction_9"]
-    source_only_keys = exit_turns._plan_lane_keys(
-        source.plan
-    ) - exit_turns._plan_lane_keys(feeder.plan)
-    assert source_only_keys
-
-    affected = exit_turns._affected_plan_closure(
-        groups,
-        {feeder.plan.id},
-        {next(iter(source_only_keys))},
-    )
-
-    assert affected == {feeder.plan.id, source.plan.id}
-
-
-@pytest.mark.parametrize("section_id", ("missing-section", "side"))
-def test_opposed_transition_outside_a_flat_frame_falls_back(
-    monkeypatch: pytest.MonkeyPatch,
-    section_id: str,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    owner_ids = []
-
-    def outside_frame(_graph, built_groups):
-        owner = next(
-            built.plan
-            for built in built_groups
-            if built.plan.disposition is ExitTurnDisposition.PLANNED
-        )
-        owner_ids.append(owner.id)
-        return {section_id: {owner.id}}
-
-    monkeypatch.setattr(exit_turns, "_opposed_transition_sections", outside_frame)
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    owner = next(plan for plan in execution.plans if plan.id == owner_ids[0])
-
-    assert owner.disposition is ExitTurnDisposition.LEGACY
-    assert owner.legacy_reason == "flat-frame-source-lane-outside-frame"
-    assert all(
-        lane.planned_offset == pytest.approx(lane.input_offset) and not lane.station_ids
-        for lane in owner.source_lanes
-    )
-
-
-def test_cycle_abort_skips_an_empty_constraint_root(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    original_constraints = exit_turns._frame_lane_constraints
-
-    def cycle_constraints(graph, _ctx, plan, _assignments):
-        section_id = graph.ports[plan.exit_port_id].section_id
-        if section_id == "feeder":
-            return (("straight", "lower"),)
-        if section_id == "source":
-            return (("lower", "straight"),)
-        return ()
-
-    def include_empty_root(*args, **kwargs):
-        constraints, reasons = original_constraints(*args, **kwargs)
-        return {**constraints, "empty-root": set()}, reasons
-
-    monkeypatch.setattr(
-        exit_turns, "_complete_group_lane_constraints", cycle_constraints
-    )
-    monkeypatch.setattr(exit_turns, "_frame_lane_constraints", include_empty_root)
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-order-conflict"
-        for plan in affected.values()
-    )
-
-
-def test_initial_frame_baseline_conflict_aborts_before_trial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-
-    def baseline_conflict(_graph, _ctx, plans, _assignments):
-        plans = tuple(plans)
-        target = next(plan for plan in plans if plan.source_id == "__junction_8")
-        return {target.id: "synthetic-baseline-conflict"}
-
-    monkeypatch.setattr(exit_turns, "_cross_plan_fallback_reasons", baseline_conflict)
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert offsets == original_offsets
-    assert affected["__junction_8"].legacy_reason == "synthetic-baseline-conflict"
-    assert (
-        affected["__junction_9"].legacy_reason
-        == "flat-frame-source-lane-transaction-aborted"
-    )
-
-
-def test_expanded_frame_baseline_conflict_aborts_before_rebuild(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    original_closure = exit_turns._affected_plan_closure
-    outside_plan_id = ExitTurnPlanId("synthetic-outside-plan")
-
-    def baseline_conflict(_graph, _ctx, _plans, _assignments):
-        return {outside_plan_id: "synthetic-baseline-conflict"}
-
-    def include_outside_plan(*args, **kwargs):
-        return original_closure(*args, **kwargs) | {outside_plan_id}
-
-    monkeypatch.setattr(exit_turns, "_cross_plan_fallback_reasons", baseline_conflict)
-    monkeypatch.setattr(exit_turns, "_affected_plan_closure", include_outside_plan)
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-transaction-aborted"
-        for plan in affected.values()
-    )
-
-
-def test_unchanged_frame_trial_falls_back_without_publishing_offsets(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    monkeypatch.setattr(exit_turns, "_apply_frame_orders", lambda *_args: set())
-
-    _graph, offsets, original_offsets, execution = _build_execution(path)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-not-stable"
-        for plan in affected.values()
-    )
-
-
-def test_second_rebuild_offset_change_discards_the_trial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
-    original_offsets = dict(offsets)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
-    calls = 0
-
-    def always_changes(*_args, **_kwargs):
-        nonlocal calls
-        calls += 1
-        return True
-
-    monkeypatch.setattr(exit_turns, "_apply_built_lane_offsets", always_changes)
-    execution = exit_turns.build_exit_turn_execution(graph, ctx)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert calls == 2
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-not-stable"
-        for plan in affected.values()
-    )
-
-
-def test_rebuilt_affected_closure_change_discards_the_trial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
-    original_offsets = dict(offsets)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
-    original_closure = exit_turns._affected_plan_closure
-    extra_plan_id = ExitTurnPlanId("synthetic-rebuilt-plan")
-    calls = 0
-
-    def change_second_closure(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        result = original_closure(*args, **kwargs)
-        return result | {extra_plan_id} if calls == 2 else result
-
-    monkeypatch.setattr(exit_turns, "_affected_plan_closure", change_second_closure)
-    execution = exit_turns.build_exit_turn_execution(graph, ctx)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert calls == 2
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-not-stable"
-        for plan in affected.values()
-    )
-
-
-def test_rebuilt_affected_plan_fallback_discards_the_trial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
-    original_offsets = dict(offsets)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
-    original_build = exit_turns._build_group_plans
-    calls = 0
-
-    def fallback_during_rebuild(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        groups = original_build(*args, **kwargs)
-        if calls != 2:
-            return groups
-        return tuple(
-            replace(
-                built,
-                plan=exit_turns._legacy_plan(built.plan, "synthetic-rebuild-fallback"),
-            )
-            if built.plan.source_id == "__junction_8"
-            else built
-            for built in groups
-        )
-
-    monkeypatch.setattr(exit_turns, "_build_group_plans", fallback_during_rebuild)
-    execution = exit_turns.build_exit_turn_execution(graph, ctx)
-    affected = {
-        plan.source_id: plan
-        for plan in execution.plans
-        if plan.source_id in {"__junction_8", "__junction_9"}
-    }
-
-    assert calls == 2
-    assert offsets == original_offsets
-    assert all(
-        plan.disposition is ExitTurnDisposition.LEGACY
-        and plan.legacy_reason == "flat-frame-source-lane-not-stable"
-        for plan in affected.values()
-    )
-
-
-def test_excluded_plan_does_not_publish_lane_offsets() -> None:
-    _graph, offsets, groups = _provisional_groups(
-        TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
-    )
-    built = next(
-        built
-        for built in groups
-        if built.plan.disposition is ExitTurnDisposition.PLANNED
-    )
-    lane = built.plan.source_lanes[0]
-    key = lane.station_ids[0], lane.line_id
-    trial_offsets = dict(offsets)
-    trial_offsets[key] = lane.planned_offset + 100.0
-    original = dict(trial_offsets)
-
-    changed = exit_turns._apply_built_lane_offsets(
-        trial_offsets, (built,), {built.plan.id}
-    )
-
-    assert not changed
-    assert trial_offsets == original
-
-
-def test_stable_frame_order_rejects_cycles_and_preserves_compatible_adjacency() -> None:
-    assert exit_turns._stable_frame_order(
-        ("lower", "wrap", "ends", "straight"),
-        {("straight", "lower"), ("straight", "wrap")},
-    ) == ("straight", "lower", "wrap", "ends")
-    assert (
-        exit_turns._stable_frame_order(
-            ("first", "second", "third"),
-            {("first", "second"), ("second", "third"), ("third", "first")},
-        )
-        is None
-    )
 
 
 def test_normal_planning_builds_each_exit_group_once(

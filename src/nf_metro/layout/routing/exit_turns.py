@@ -11,7 +11,6 @@ from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     MIN_STRAIGHT_EDGE,
 )
-from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
@@ -41,7 +40,6 @@ from nf_metro.layout.route_plan import (
     SharedReferenceId,
     SharedReferenceKind,
     SymbolicDemand,
-    TurnHandedness,
     _member_roles,
     _ordered_unique,
     _plan_provenance,
@@ -77,6 +75,12 @@ from nf_metro.layout.routing.inter_section_handlers import (
     classify_inter_section_family,
 )
 from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
+from nf_metro.layout.routing.offsets import (
+    LinearEntryFrameOwnership,
+    capture_linear_entry_frame_ownership,
+    conflicting_linear_entry_frame_assignments,
+    validate_linear_entry_frame_ownership,
+)
 from nf_metro.layout.routing.orientation import (
     direction_axis,
     get_point_coordinate,
@@ -286,20 +290,6 @@ class _BuiltGroupPlan:
     demands: tuple[SymbolicDemand, ...]
     diagnostic: RoutePlanDiagnostic | None
     assignments_by_edge: Mapping[ResolvedEdge, ExitTurnAssignment]
-
-
-@dataclass(frozen=True, slots=True)
-class _SourceLaneFrame:
-    section_ids: frozenset[str]
-    line_ids: frozenset[str]
-    node_ids: frozenset[str]
-    planned_plan_ids: frozenset[ExitTurnPlanId]
-
-
-@dataclass(frozen=True, slots=True)
-class _LaneSettlement:
-    built_groups: tuple[_BuiltGroupPlan, ...]
-    fallback_reasons: Mapping[ExitTurnPlanId, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1994,411 +1984,6 @@ def _planned_axis_cross_range(
     return min(values), max(values)
 
 
-def _complete_group_lane_constraints(
-    graph: MetroGraph,
-    ctx: _RoutingCtx,
-    plan: ExitTurnPlan,
-    assignments_by_edge: Mapping[ResolvedEdge, ExitTurnAssignment],
-) -> tuple[tuple[str, str], ...]:
-    """Order only the peel-offs that would pierce a continuing source run."""
-    line_by_member = {
-        member_id: lane.line_id
-        for lane in plan.source_lanes
-        for member_id in lane.member_ids
-    }
-    edge_by_member = {
-        assignment.member_id: edge for edge, assignment in assignments_by_edge.items()
-    }
-    lane_by_line = {lane.line_id: lane for lane in plan.source_lanes}
-    axis_by_id = {axis.id: axis for axis in plan.axes}
-    continuations = tuple(
-        assignment
-        for assignment in plan.assignments
-        if assignment.turn_direction is None
-        and assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
-    )
-    turns = tuple(
-        (turn, axis_by_id[turn.axis_id])
-        for turn in plan.assignments
-        if turn.axis_id is not None and turn.handedness is not None
-    )
-    cross_range_by_axis = {
-        axis.id: _planned_axis_cross_range(graph, ctx, plan, axis, assignments_by_edge)
-        for _turn, axis in turns
-    }
-    constraints: set[tuple[str, str]] = set()
-    for turn, axis in turns:
-        turn_range = cross_range_by_axis[axis.id]
-        for continuation in continuations:
-            turn_line = line_by_member[turn.member_id]
-            continuation_line = line_by_member[continuation.member_id]
-            if turn_line == continuation_line:
-                continue
-            edge = edge_by_member[continuation.member_id]
-            source = graph.stations[edge.source]
-            target = graph.stations[edge.target]
-            if not (
-                min(source.x, target.x) + COORD_TOLERANCE
-                < axis.coordinate
-                < max(source.x, target.x) - COORD_TOLERANCE
-            ):
-                continue
-            continuation_coordinate = (
-                source.y + lane_by_line[continuation_line].planned_offset
-            )
-            if not (
-                turn_range[0] + COORD_TOLERANCE
-                < continuation_coordinate
-                < turn_range[1] - COORD_TOLERANCE
-            ):
-                continue
-            constraints.add(
-                (continuation_line, turn_line)
-                if turn.handedness is TurnHandedness.CLOCKWISE
-                else (turn_line, continuation_line)
-            )
-    return tuple(sorted(constraints))
-
-
-def _stable_frame_order(
-    baseline: tuple[str, ...], constraints: set[tuple[str, str]]
-) -> tuple[str, ...] | None:
-    """Satisfy hard constraints while retaining compatible baseline adjacency."""
-    priority = {line_id: rank for rank, line_id in enumerate(baseline)}
-    predecessors: dict[str, set[str]] = {line_id: set() for line_id in baseline}
-    successors: dict[str, set[str]] = {line_id: set() for line_id in baseline}
-    for before, after in constraints:
-        predecessors[after].add(before)
-        successors[before].add(after)
-
-    def reaches(source: str, target: str) -> bool:
-        stack = [source]
-        seen = {source}
-        while stack:
-            line_id = stack.pop()
-            if line_id == target:
-                return True
-            additions = successors[line_id] - seen
-            seen.update(additions)
-            stack.extend(additions)
-        return False
-
-    for before, after in zip(baseline, baseline[1:]):
-        if not reaches(after, before):
-            predecessors[after].add(before)
-            successors[before].add(after)
-
-    remaining = set(baseline)
-    ordered: list[str] = []
-    while remaining:
-        available = min(
-            (
-                line_id
-                for line_id in remaining
-                if not (predecessors[line_id] & remaining)
-            ),
-            key=priority.__getitem__,
-            default=None,
-        )
-        if available is None:
-            return None
-        remaining.remove(available)
-        ordered.append(available)
-    return tuple(ordered)
-
-
-def _source_lane_frames(
-    graph: MetroGraph,
-    built_groups: tuple[_BuiltGroupPlan, ...],
-) -> tuple[Mapping[str, str], Mapping[str, _SourceLaneFrame]]:
-    """Build semantic horizontal frames from classified straight continuations."""
-    horizontal_sections = {
-        section_id
-        for section_id, section in graph.sections.items()
-        if lanes_run_along_y(section.direction)
-    }
-    parent = {section_id: section_id for section_id in horizontal_sections}
-    section_rank = {section_id: rank for rank, section_id in enumerate(graph.sections)}
-
-    def find(section_id: str) -> str:
-        while parent[section_id] != section_id:
-            parent[section_id] = parent[parent[section_id]]
-            section_id = parent[section_id]
-        return section_id
-
-    def union(first: str, second: str) -> None:
-        first_root = find(first)
-        second_root = find(second)
-        if first_root == second_root:
-            return
-        if section_rank[first_root] < section_rank[second_root]:
-            parent[second_root] = first_root
-        else:
-            parent[first_root] = second_root
-
-    linked_sections: set[str] = set()
-    for built in built_groups:
-        plan = built.plan
-        source_section_id = graph.ports[plan.exit_port_id].section_id
-        if (
-            plan.source_axis is not DemandAxis.X
-            or source_section_id not in horizontal_sections
-        ):
-            continue
-        for assignment in plan.assignments:
-            target_section_id = assignment.destination_section_id
-            if (
-                assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
-                and target_section_id in horizontal_sections
-            ):
-                union(source_section_id, target_section_id)
-                linked_sections.update((source_section_id, target_section_id))
-
-    root_by_section = {
-        section_id: find(section_id) for section_id in horizontal_sections
-    }
-    frame_sections: defaultdict[str, set[str]] = defaultdict(set)
-    for section_id in linked_sections:
-        frame_sections[root_by_section[section_id]].add(section_id)
-
-    frames: dict[str, _SourceLaneFrame] = {}
-    for root, section_ids in frame_sections.items():
-        node_ids = {
-            station_id
-            for station_id, station in graph.stations.items()
-            if station.section_id in section_ids
-        }
-        planned_plan_ids: set[ExitTurnPlanId] = set()
-        for built in built_groups:
-            plan = built.plan
-            source_section_id = graph.ports[plan.exit_port_id].section_id
-            if source_section_id not in section_ids:
-                continue
-            if plan.disposition is ExitTurnDisposition.PLANNED:
-                planned_plan_ids.add(plan.id)
-            node_ids.update((plan.exit_port_id, plan.source_id))
-            for lane in plan.source_lanes:
-                for station_id in lane.station_ids:
-                    station_section_id = graph.stations[station_id].section_id
-                    if station_section_id is None or station_section_id in section_ids:
-                        node_ids.add(station_id)
-        line_ids = {
-            line_id
-            for station_id in node_ids
-            for line_id in graph.station_lines(station_id)
-        }
-        frames[root] = _SourceLaneFrame(
-            frozenset(section_ids),
-            frozenset(line_ids),
-            frozenset(node_ids),
-            frozenset(planned_plan_ids),
-        )
-    return MappingProxyType(root_by_section), MappingProxyType(frames)
-
-
-def _median(values: Iterable[float]) -> float:
-    ordered = sorted(values)
-    return ordered[len(ordered) // 2]
-
-
-def _frame_baseline(
-    graph: MetroGraph,
-    offsets: Mapping[tuple[str, str], float],
-    frame: _SourceLaneFrame,
-) -> tuple[str, ...]:
-    graph_rank = {line_id: rank for rank, line_id in enumerate(graph.lines)}
-    representatives: dict[str, list[float]] = {
-        line_id: [] for line_id in frame.line_ids
-    }
-    for section_id in frame.section_ids:
-        for line_id in frame.line_ids:
-            values = [
-                offsets[station_id, line_id]
-                for station_id in graph.sections[section_id].station_ids
-                if (station_id, line_id) in offsets
-            ]
-            if values:
-                representatives[line_id].append(_median(values))
-    for line_id in frame.line_ids:
-        sectionless = [
-            offsets[station_id, line_id]
-            for station_id in frame.node_ids
-            if graph.stations[station_id].section_id is None
-            and (station_id, line_id) in offsets
-        ]
-        if sectionless:
-            representatives[line_id].append(_median(sectionless))
-    return tuple(
-        sorted(
-            frame.line_ids,
-            key=lambda line_id: (
-                _median(representatives[line_id]) if representatives[line_id] else 0.0,
-                graph_rank.get(line_id, len(graph_rank)),
-            ),
-        )
-    )
-
-
-def _frame_lane_constraints(
-    graph: MetroGraph,
-    ctx: _RoutingCtx,
-    built_groups: tuple[_BuiltGroupPlan, ...],
-    root_by_section: Mapping[str, str],
-    frames: Mapping[str, _SourceLaneFrame],
-    eligible_roots: set[str],
-) -> tuple[
-    Mapping[str, set[tuple[str, str]]],
-    Mapping[ExitTurnPlanId, str],
-]:
-    constraints_by_root: defaultdict[str, set[tuple[str, str]]] = defaultdict(set)
-    invalid_roots: set[str] = set()
-    for built in built_groups:
-        plan = built.plan
-        if (
-            plan.disposition is not ExitTurnDisposition.PLANNED
-            or plan.source_axis is not DemandAxis.X
-        ):
-            continue
-        section_id = graph.ports[plan.exit_port_id].section_id
-        root = root_by_section.get(section_id)
-        if root not in frames or root not in eligible_roots:
-            continue
-        source_run_direction = plan.source_run_direction
-        assert source_run_direction is not None
-        logical_constraints = _complete_group_lane_constraints(
-            graph, ctx, plan, built.assignments_by_edge
-        )
-        physical_constraints = {
-            (before, after)
-            if lateral_order_sign(source_run_direction) > 0
-            else (after, before)
-            for before, after in logical_constraints
-        }
-        constraints_leave_frame = any(
-            before not in frames[root].line_ids or after not in frames[root].line_ids
-            for before, after in physical_constraints
-        )
-        if constraints_leave_frame:
-            invalid_roots.add(root)
-            continue
-        constraints_by_root[root].update(physical_constraints)
-    reasons = {
-        plan_id: "flat-frame-source-lane-outside-frame"
-        for root in invalid_roots
-        for plan_id in frames[root].planned_plan_ids
-    }
-    return MappingProxyType(constraints_by_root), MappingProxyType(reasons)
-
-
-def _opposed_transition_sections(
-    graph: MetroGraph, built_groups: tuple[_BuiltGroupPlan, ...]
-) -> Mapping[str, set[ExitTurnPlanId]]:
-    transitions: defaultdict[tuple[str, str], list[tuple[ExitTurnPlanId, int, str]]] = (
-        defaultdict(list)
-    )
-    for built in built_groups:
-        plan = built.plan
-        if plan.disposition is not ExitTurnDisposition.PLANNED:
-            continue
-        for transition in plan.lane_transitions:
-            section_id = graph.stations[transition.edge.source].section_id
-            delta = transition.target_lane_offset - transition.source_lane_offset
-            if section_id is None or abs(delta) <= COORD_TOLERANCE:
-                continue
-            transitions[section_id, transition.edge.line_id].append(
-                (plan.id, 1 if delta > 0 else -1, transition.edge.source)
-            )
-
-    opposed: defaultdict[str, set[ExitTurnPlanId]] = defaultdict(set)
-    for (section_id, line_id), records in transitions.items():
-        if {sign for _plan_id, sign, _station_id in records} != {-1, 1}:
-            continue
-        adjacency: defaultdict[str, set[str]] = defaultdict(set)
-        for edge in graph.edges:
-            if edge.line_id != line_id:
-                continue
-            source, target = graph.edge_endpoints(edge)
-            if source.section_id == target.section_id == section_id:
-                adjacency[edge.source].add(edge.target)
-                adjacency[edge.target].add(edge.source)
-        component_by_station: dict[str, str] = {}
-        for station_id in adjacency:
-            if station_id in component_by_station:
-                continue
-            stack = [station_id]
-            while stack:
-                member_id = stack.pop()
-                if member_id in component_by_station:
-                    continue
-                component_by_station[member_id] = station_id
-                stack.extend(adjacency[member_id])
-        owners_by_component: defaultdict[str, dict[int, set[ExitTurnPlanId]]] = (
-            defaultdict(lambda: defaultdict(set))
-        )
-        for plan_id, sign, station_id in records:
-            component = component_by_station.get(station_id)
-            if component is not None:
-                owners_by_component[component][sign].add(plan_id)
-        for owners_by_sign in owners_by_component.values():
-            if owners_by_sign[1] and owners_by_sign[-1]:
-                opposed[section_id].update(owners_by_sign[1] | owners_by_sign[-1])
-    return MappingProxyType(opposed)
-
-
-def _apply_frame_orders(
-    graph: MetroGraph,
-    offsets: dict[tuple[str, str], float],
-    frames: Mapping[str, _SourceLaneFrame],
-    orders: Mapping[str, tuple[str, ...]],
-    offset_step: float,
-) -> set[tuple[str, str]]:
-    changed: set[tuple[str, str]] = set()
-    for root, order in orders.items():
-        frame = frames[root]
-        existing = [
-            offsets[station_id, line_id]
-            for station_id in frame.node_ids
-            for line_id in graph.station_lines(station_id)
-            if (station_id, line_id) in offsets
-        ]
-        base = min(existing, default=0.0)
-        rank = {line_id: lane_rank for lane_rank, line_id in enumerate(order)}
-        for station_id in frame.node_ids:
-            for line_id in graph.station_lines(station_id):
-                key = station_id, line_id
-                value = base + rank[line_id] * offset_step
-                if abs(offsets.get(key, value) - value) > COORD_TOLERANCE:
-                    changed.add(key)
-                offsets[key] = value
-    return changed
-
-
-def _apply_built_lane_offsets(
-    offsets: dict[tuple[str, str], float],
-    built_groups: tuple[_BuiltGroupPlan, ...],
-    excluded_plan_ids: set[ExitTurnPlanId] | None = None,
-) -> bool:
-    changed: set[tuple[str, str]] = set()
-    excluded_plan_ids = excluded_plan_ids or set()
-    for built in built_groups:
-        plan = built.plan
-        if (
-            plan.disposition is not ExitTurnDisposition.PLANNED
-            or plan.id in excluded_plan_ids
-        ):
-            continue
-        for lane in plan.source_lanes:
-            for station_id in lane.station_ids:
-                key = station_id, lane.line_id
-                if (
-                    abs(offsets.get(key, lane.planned_offset) - lane.planned_offset)
-                    > COORD_TOLERANCE
-                ):
-                    changed.add(key)
-                offsets[key] = lane.planned_offset
-    return bool(changed)
-
-
 def _build_group_plans(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -2417,226 +2002,6 @@ def _build_group_plans(
         )
         for exit_group in scaffold.topology.exit_groups
     )
-
-
-def _assignments_by_plan(
-    built_groups: tuple[_BuiltGroupPlan, ...],
-) -> dict[ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]]:
-    return {built.plan.id: built.assignments_by_edge for built in built_groups}
-
-
-def _plan_lane_keys(plan: ExitTurnPlan) -> set[tuple[str, str]]:
-    keys = {
-        (station_id, lane.line_id)
-        for lane in plan.source_lanes
-        for station_id in lane.station_ids
-    }
-    keys.update(
-        (station_id, transition.edge.line_id)
-        for transition in plan.lane_transitions
-        for station_id in (transition.edge.source, transition.edge.target)
-    )
-    return keys
-
-
-def _affected_plan_closure(
-    built_groups: tuple[_BuiltGroupPlan, ...],
-    initial_plan_ids: set[ExitTurnPlanId],
-    changed_keys: set[tuple[str, str]],
-) -> set[ExitTurnPlanId]:
-    keys_by_plan = {
-        built.plan.id: _plan_lane_keys(built.plan)
-        for built in built_groups
-        if built.plan.disposition is ExitTurnDisposition.PLANNED
-    }
-    affected = set(initial_plan_ids)
-    owned_keys = set(changed_keys)
-    for plan_id in affected:
-        owned_keys.update(keys_by_plan.get(plan_id, ()))
-    while True:
-        additions = {
-            plan_id
-            for plan_id, keys in keys_by_plan.items()
-            if plan_id not in affected and keys & owned_keys
-        }
-        if not additions:
-            return affected
-        affected.update(additions)
-        for plan_id in additions:
-            owned_keys.update(keys_by_plan[plan_id])
-
-
-def _settle_complete_group_source_lanes(
-    graph: MetroGraph,
-    ctx: _RoutingCtx,
-    scaffold: RouteSemanticScaffold,
-    indexes: _PlannerIndexes,
-    provenance: RoutePlanProvenance,
-    provisional: tuple[_BuiltGroupPlan, ...],
-) -> _LaneSettlement:
-    """Publish a frame settlement only when plans and offsets reach one fixed point."""
-    if ctx.station_offsets is None:
-        return _LaneSettlement(provisional, MappingProxyType({}))
-    opposed_sections = _opposed_transition_sections(graph, provisional)
-    if not opposed_sections:
-        return _LaneSettlement(provisional, MappingProxyType({}))
-    root_by_section, frames = _source_lane_frames(graph, provisional)
-    eligible_roots = {
-        root_by_section[section_id]
-        for section_id in opposed_sections
-        if section_id in root_by_section and root_by_section[section_id] in frames
-    }
-    constraints_by_root, reasons = _frame_lane_constraints(
-        graph, ctx, provisional, root_by_section, frames, eligible_roots
-    )
-    reasons = dict(reasons)
-    for section_id, plan_ids in opposed_sections.items():
-        if (
-            section_id not in root_by_section
-            or root_by_section[section_id] not in frames
-        ):
-            for plan_id in plan_ids:
-                reasons[plan_id] = "flat-frame-source-lane-outside-frame"
-
-    orders: dict[str, tuple[str, ...]] = {}
-    cycle_roots: set[str] = set()
-    for root, constraints in constraints_by_root.items():
-        if not constraints:
-            continue
-        baseline = _frame_baseline(graph, ctx.station_offsets, frames[root])
-        order = _stable_frame_order(baseline, constraints)
-        if order is None:
-            cycle_roots.add(root)
-            continue
-        orders[root] = order
-    if reasons or cycle_roots:
-        fallback = dict(reasons)
-        for root, constraints in constraints_by_root.items():
-            if not constraints:
-                continue
-            reason = (
-                "flat-frame-source-lane-order-conflict"
-                if root in cycle_roots
-                else "flat-frame-source-lane-transaction-aborted"
-            )
-            for plan_id in frames[root].planned_plan_ids:
-                fallback.setdefault(plan_id, reason)
-        return _LaneSettlement(provisional, MappingProxyType(fallback))
-    if not orders:
-        return _LaneSettlement(provisional, MappingProxyType({}))
-
-    original_offsets = ctx.station_offsets
-    initial_plan_ids = {
-        plan_id for root in orders for plan_id in frames[root].planned_plan_ids
-    }
-    baseline_cross_reasons = _cross_plan_fallback_reasons(
-        graph,
-        ctx,
-        (built.plan for built in provisional),
-        _assignments_by_plan(provisional),
-    )
-    if initial_plan_ids & baseline_cross_reasons.keys():
-        fallback = {
-            plan_id: baseline_cross_reasons.get(
-                plan_id, "flat-frame-source-lane-transaction-aborted"
-            )
-            for plan_id in initial_plan_ids
-        }
-        return _LaneSettlement(provisional, MappingProxyType(fallback))
-
-    trial_offsets = dict(original_offsets)
-    changed_keys = _apply_frame_orders(
-        graph, trial_offsets, frames, orders, ctx.offset_step
-    )
-    affected_plan_ids = _affected_plan_closure(
-        provisional, initial_plan_ids, changed_keys
-    )
-    if affected_plan_ids & baseline_cross_reasons.keys():
-        fallback = {
-            plan_id: baseline_cross_reasons.get(
-                plan_id, "flat-frame-source-lane-transaction-aborted"
-            )
-            for plan_id in affected_plan_ids
-        }
-        return _LaneSettlement(provisional, MappingProxyType(fallback))
-
-    def reject(reason: str) -> _LaneSettlement:
-        return _LaneSettlement(
-            provisional,
-            MappingProxyType({plan_id: reason for plan_id in affected_plan_ids}),
-        )
-
-    if not changed_keys:
-        return reject("flat-frame-source-lane-not-stable")
-
-    trial_ctx = replace(ctx, station_offsets=trial_offsets)
-    candidate = _build_group_plans(graph, trial_ctx, scaffold, indexes, provenance)
-    excluded_plan_ids = set(baseline_cross_reasons)
-    if _apply_built_lane_offsets(trial_offsets, candidate, excluded_plan_ids):
-        verified = _build_group_plans(graph, trial_ctx, scaffold, indexes, provenance)
-        if _apply_built_lane_offsets(trial_offsets, verified, excluded_plan_ids):
-            return reject("flat-frame-source-lane-not-stable")
-    else:
-        verified = candidate
-
-    verified_by_id = {built.plan.id: built.plan for built in verified}
-    if (
-        _affected_plan_closure(verified, initial_plan_ids, changed_keys)
-        != affected_plan_ids
-    ):
-        return reject("flat-frame-source-lane-not-stable")
-    has_unplanned_affected_plan = any(
-        verified_by_id[plan_id].disposition is not ExitTurnDisposition.PLANNED
-        for plan_id in affected_plan_ids
-    )
-    if has_unplanned_affected_plan:
-        return reject("flat-frame-source-lane-not-stable")
-
-    verified_roots, verified_frames = _source_lane_frames(graph, verified)
-    frame_membership_changed = any(
-        root not in verified_frames or frames[root] != verified_frames[root]
-        for root in orders
-    )
-    if frame_membership_changed:
-        return reject("flat-frame-source-lane-not-stable")
-    residual, residual_reasons = _frame_lane_constraints(
-        graph,
-        trial_ctx,
-        verified,
-        verified_roots,
-        verified_frames,
-        set(orders),
-    )
-    has_residual = bool(residual_reasons) or any(residual.get(root) for root in orders)
-    cross_reasons = _cross_plan_fallback_reasons(
-        graph,
-        trial_ctx,
-        (built.plan for built in verified),
-        _assignments_by_plan(verified),
-    )
-    new_cross_reasons = {
-        plan_id: reason
-        for plan_id, reason in cross_reasons.items()
-        if baseline_cross_reasons.get(plan_id) != reason
-    }
-    if has_residual or new_cross_reasons:
-        return reject("flat-frame-source-lane-not-stable")
-
-    verified = tuple(
-        replace(
-            built,
-            plan=replace(
-                built.plan,
-                lane_order_source=ExitLaneOrderSource.FRAME_CONSTRAINTS,
-            ),
-        )
-        if built.plan.id in affected_plan_ids
-        and built.plan.disposition is ExitTurnDisposition.PLANNED
-        else built
-        for built in verified
-    )
-    original_offsets.update(trial_offsets)
-    return _LaneSettlement(verified, MappingProxyType({}))
 
 
 def _apply_cross_plan_fallbacks(
@@ -2690,16 +2055,18 @@ def _apply_cross_plan_fallbacks(
 
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
+    frame_ownership = (
+        capture_linear_entry_frame_ownership(graph, ctx.station_offsets)
+        if ctx.station_offsets is not None
+        else LinearEntryFrameOwnership(())
+    )
     scaffold = build_route_semantic_scaffold(graph, ctx.topology)
     if scaffold is None:
         query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
         return ExitTurnExecution(None, (), (), (), (), query)
     provenance = _plan_provenance(graph, scaffold.topology.connectors)
     indexes = _build_planner_indexes(scaffold)
-    provisional = _build_group_plans(graph, ctx, scaffold, indexes, provenance)
-    settlement = _settle_complete_group_source_lanes(
-        graph, ctx, scaffold, indexes, provenance, provisional
-    )
+    built_groups = _build_group_plans(graph, ctx, scaffold, indexes, provenance)
     plans: list[ExitTurnPlan] = []
     references: list[SharedReference] = []
     demands: list[SymbolicDemand] = []
@@ -2707,7 +2074,7 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     assignments_by_plan: dict[
         ExitTurnPlanId, dict[ResolvedEdge, ExitTurnAssignment]
     ] = {}
-    for built in settlement.built_groups:
+    for built in built_groups:
         plans.append(built.plan)
         assignments_by_plan[built.plan.id] = dict(built.assignments_by_edge)
         if built.reference is not None:
@@ -2722,7 +2089,30 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
         plans,
         assignments_by_plan,
     )
-    cross_plan_reasons.update(settlement.fallback_reasons)
+    proposed_by_plan = {
+        plan.id: {
+            (station_id, lane.line_id): lane.planned_offset
+            for lane in plan.source_lanes
+            for station_id in lane.station_ids
+        }
+        for plan in plans
+        if plan.disposition is ExitTurnDisposition.PLANNED
+    }
+    conflicting_systems = {
+        plan.system_id
+        for plan in plans
+        if conflicting_linear_entry_frame_assignments(
+            proposed_by_plan.get(plan.id, {}), frame_ownership
+        )
+    }
+    for plan in plans:
+        if (
+            plan.disposition is ExitTurnDisposition.PLANNED
+            and plan.system_id in conflicting_systems
+        ):
+            cross_plan_reasons.setdefault(
+                plan.id, "linear-entry-frame-ownership-conflict"
+            )
     plans, references, demands = _apply_cross_plan_fallbacks(
         plans,
         references,
@@ -2741,6 +2131,7 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
                     ctx.station_offsets[(station_id, lane.line_id)] = (
                         lane.planned_offset
                     )
+        validate_linear_entry_frame_ownership(ctx.station_offsets, frame_ownership)
 
     plan_by_id = {plan.id: plan for plan in plans}
     owner_by_member = _index_unique_member_owners(plans)
