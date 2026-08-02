@@ -15,7 +15,7 @@ out the centreline from the handler's named geometry, and returns the single
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.geometry import (
@@ -238,6 +238,54 @@ def route_offset(
         normalize_exempt=normalize_exempt,
     )
     return next((r for r in routes if r.line_id == edge.line_id), None)
+
+
+def route_vhvh_offset(
+    edge: Edge,
+    members: Sequence[_TaperedMember],
+    *,
+    source: _Vec,
+    launch_y: float,
+    corridor_x: float,
+    target: _Vec,
+    source_offsets: Mapping[str, float],
+    target_offsets: Mapping[str, float],
+    line_order: Sequence[str],
+    base_radius: float,
+) -> RoutedPath | None:
+    """Route a vertical-horizontal-vertical-horizontal offset bundle.
+
+    This is the standard entry-wrap shape for a vertically-fed source whose
+    targets use RIGHT ports.  The first leg continues each source lane to
+    ``launch_y``; the middle vertical leg follows ``corridor_x``; the final leg
+    lands each target lane.  Per-leg offsets let both endpoint fans retain
+    their own ordering while :func:`route_offset` owns all corner radii.
+    """
+    sx, sy = source
+    tx, ty = target
+    centerline = [
+        (sx, sy),
+        (sx, launch_y),
+        (corridor_x, launch_y),
+        (corridor_x, ty),
+        (tx, ty),
+    ]
+
+    def leg_offsets(line_id: str) -> list[float]:
+        source_offset = source_offsets[line_id]
+        target_offset = target_offsets.get(line_id, 0.0)
+        return [source_offset, source_offset, source_offset, -target_offset]
+
+    return route_offset(
+        edge,
+        [
+            (member_edge, line_id, leg_offsets(line_id))
+            for member_edge, line_id, _source_offset, _target_offset in members
+        ],
+        centerline,
+        base_radius=base_radius,
+        bundle_offsets=[leg_offsets(line_id) for line_id in line_order],
+    )
 
 
 def route_tapered(

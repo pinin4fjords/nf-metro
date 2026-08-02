@@ -718,6 +718,10 @@ def _apply_screen_offset_assignments(
     )
     if len(set(ordered_lines)) != len(ordered_lines):
         return tuple(carriers)
+    screen_slots = {
+        line_id: len(ordered_lines) - rank - 1
+        for rank, line_id in enumerate(ordered_lines)
+    }
 
     assignments: dict[str, dict[str, int]] = {
         carrier.station_id: {
@@ -737,9 +741,9 @@ def _apply_screen_offset_assignments(
             continue
         present_lines = set(graph.station_lines(station_id))
         station_assignments = assignments.setdefault(station_id, {})
-        for slot, line_id in enumerate(ordered_lines):
+        for line_id in ordered_lines:
             if line_id in present_lines:
-                station_assignments[line_id] = slot
+                station_assignments[line_id] = screen_slots[line_id]
 
     return tuple(
         FanOffsetCarrier(

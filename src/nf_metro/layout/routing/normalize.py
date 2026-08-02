@@ -1807,18 +1807,18 @@ def _bundle_divergent_distinct_descents(
     route each branch independently, so distinct lines open on their own
     channels several px apart -- reading as separate strokes from the junction.
 
-    Re-seat each such group one ``OFFSET_STEP`` apart on the corridor nearest
-    the source, one slot per LINE (a line's several same-colour branches share
-    the fused track the coincidence pass gave them), ordered so a line sits on
-    the side it later turns toward (a left-turning line to the left, ordered
-    outermost by its earliest turn), so a branch peeling off never crosses a
-    sibling that has not yet turned off.  Only groups already spread wider than a
-    tight one-slot-per-line bundle move.
+    Give every such group concentric opening corners, with one ``OFFSET_STEP``
+    slot per LINE (a line's several same-colour branches share the fused track
+    the coincidence pass gave them).  Lines are ordered on the side they later
+    turn toward, outermost by earliest turn, so a branch peeling off never
+    crosses a sibling that has not yet turned off.  A wide group moves onto a
+    tight adjacent set of tracks; a group already occupying those tracks keeps
+    its coordinates while its corner radii are derived from the same ranks.
     """
     by_source = _group_channels_by(routes, _distinct_descent_spans)
 
     step = ctx.offset_step
-    for chans in by_source.values():
+    for (source_id, down), chans in by_source.items():
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
         # it carries.  Seat per line, not per channel: keying each channel
@@ -1841,22 +1841,29 @@ def _bundle_divergent_distinct_descents(
             port = ctx.graph.ports.get(next(iter(targets)))
             if port is not None and port.is_entry:
                 continue
-        xs = [c.x for c in chans]
-        # A tight bundle is one slot per LINE, not one per channel.
-        if max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE:
+        target_sets = {
+            frozenset(ch.route.edge.target for ch in line_channels)
+            for line_channels in by_line.values()
+        }
+        if len(target_sets) == 1:
             continue
-
+        xs = [c.x for c in chans]
         base = min(xs)
         line_key = {
             lid: min(_fanout_descent_order_key(c) for c in cs)
             for lid, cs in by_line.items()
         }
         ordered = sorted(by_line, key=line_key.__getitem__)
-        moves = [
-            (ch, base + rank * step, rank * step)
-            for rank, lid in enumerate(ordered)
-            for ch in by_line[lid]
-        ]
+        tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+        moves = (
+            [(ch, ch.x, ch.x - base) for ch in chans]
+            if tight
+            else [
+                (ch, base + rank * step, rank * step)
+                for rank, lid in enumerate(ordered)
+                for ch in by_line[lid]
+            ]
+        )
         # Never re-seat a descent into a section it does not belong to; leave the
         # whole group on its handler channels if any target column is obstructed.
         if any(
@@ -1864,12 +1871,14 @@ def _bundle_divergent_distinct_descents(
             for ch, target_x, _rank_off in moves
         ):
             continue
-        # Each line's descent nests one step per rank off the innermost, so the
-        # shared descent-foot corner sizes concentrically rather than every line
-        # taking the base radius and delaminating through the turn.
+        # Rank owns both track position and arc size.  Applying it to an already
+        # tight group is necessary because its independent route families can
+        # carry base radii that do not share an arc centre.
+        group_id = f"{source_id}:{'down' if down else 'up'}"
         for ch, target_x, rank_off in moves:
-            if abs(ch.x - target_x) > COORD_TOLERANCE:
-                _set_vchannel_x(ch, target_x, rank_off)
+            _set_vchannel_x(ch, target_x, rank_off)
+            ch.route.fan_opening_group_id = group_id
+            ch.route.fan_opening_rank = round(rank_off / step)
 
 
 def _descent_crosses_section(graph: MetroGraph, ch: _VChannel, x: float) -> bool:

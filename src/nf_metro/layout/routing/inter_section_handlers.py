@@ -45,6 +45,7 @@ from nf_metro.layout.routing.centrelines import (
     route_straight,
     route_tapered,
     route_tapered_anchored,
+    route_vhvh_offset,
 )
 from nf_metro.layout.routing.common import (
     Direction,
@@ -2004,7 +2005,7 @@ def _route_planned_bottom_exit_right_landings(
     binding = query.route_emission_for_resolved_edge(resolved)
     if binding is None:
         return None
-    plan, branch, emission = binding
+    plan, _branch, emission = binding
     target_port = ctx.graph.ports.get(edge.target)
     if (
         emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
@@ -2030,39 +2031,32 @@ def _route_planned_bottom_exit_right_landings(
     if len(landing_sections) != len(plan.branches):
         raise RuntimeError(f"planned fan {plan.id!s} landing ownership drifted")
 
-    if branch.diagonal_runway is None or plan.entry_runway is None:
+    if plan.entry_runway is None:
         raise RuntimeError(f"planned fan {plan.id!s} lost its routing runway")
     right_edge = max(section.bbox_x + section.bbox_w for section in landing_sections)
-    corridor_x = (
-        right_edge
-        + SECTION_ROUTE_CLEARANCE
-        + ctx.curve_radius
-        + max(0.0, branch.diagonal_runway - plan.entry_runway)
+    source_lines = plan.offset_line_order
+    if not source_lines or edge.line_id not in source_lines:
+        raise RuntimeError(f"planned fan {plan.id!s} lost its source lane order")
+    corridor_x = _right_entry_descent_x(ctx, right_edge, len(source_lines))
+    launch_y = src.y + plan.entry_runway
+    source_offsets = {line_id: -exit_x_offset(line_id) for line_id in source_lines}
+    target_offsets = {
+        line_id: target_offset
+        for _member_edge, line_id, _source_offset, target_offset in members
+    }
+
+    route = route_vhvh_offset(
+        edge,
+        members,
+        source=(src.x, src.y),
+        launch_y=launch_y,
+        corridor_x=corridor_x,
+        target=(tgt.x, target_y),
+        source_offsets=source_offsets,
+        target_offsets=target_offsets,
+        line_order=source_lines,
+        base_radius=ctx.curve_radius,
     )
-    centerline = [
-        (src.x, src.y),
-        (corridor_x, src.y),
-        (corridor_x, target_y),
-        (tgt.x, target_y),
-    ]
-    source_offsets = [
-        exit_x_offset(line_id)
-        for planned_branch in sorted(plan.branches, key=lambda item: item.landing_rank)
-        for line_id in planned_branch.line_ids
-    ]
-    target_offsets = [target_offset for _e, _line, _source, target_offset in members]
-    routes = [
-        route_tapered_anchored(
-            (member_edge, line_id, exit_x_offset(line_id), target_offset),
-            centerline,
-            transition_leg=2,
-            base_radius=ctx.curve_radius,
-            src_bundle_offsets=source_offsets,
-            tgt_bundle_offsets=target_offsets,
-        )
-        for member_edge, line_id, _source_offset, target_offset in members
-    ]
-    route = next((item for item in routes if item.line_id == edge.line_id), None)
     if route is None:
         raise RuntimeError(f"planned fan {plan.id!s} emitter omitted {resolved!r}")
     route.fan_plan_id = plan.id

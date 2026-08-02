@@ -930,10 +930,10 @@ def test_stacked_right_landing_route_emission_ownership_is_exact() -> None:
         for carrier in plan.offset_carriers
     }
     assert assignments == {
-        "split": {"upper": 0, "lower": 1},
-        "source__exit_bottom_0": {"upper": 0, "lower": 1},
-        "__junction_3": {"upper": 0, "lower": 1},
-        "prepare": {"upper": 0, "lower": 1},
+        "split": {"upper": 1, "lower": 0},
+        "source__exit_bottom_0": {"upper": 1, "lower": 0},
+        "__junction_3": {"upper": 1, "lower": 0},
+        "prepare": {"upper": 1, "lower": 0},
     }
 
     routes = route_edges(graph, station_offsets=compute_station_offsets(graph))

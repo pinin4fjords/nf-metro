@@ -28,30 +28,6 @@ def _required_junction_margin(n: int) -> float:
     return JUNCTION_MARGIN
 
 
-def _fan_junction_margin(graph: MetroGraph, junction_id: str, n: int) -> float:
-    margin = _required_junction_margin(n)
-    query = graph.fan_plan_query
-    plan = query.planned_for_fork(junction_id) if query is not None else None
-    fork_exit_port_ids = (
-        {
-            edge.source
-            for path in plan.entry_seam_paths
-            for edge in path
-            if edge.target == junction_id
-        }
-        if plan is not None
-        else set()
-    )
-    has_vertical_exit = any(
-        (port := graph.ports.get(port_id)) is not None
-        and port.side in {PortSide.TOP, PortSide.BOTTOM}
-        for port_id in fork_exit_port_ids
-    )
-    if has_vertical_exit and plan is not None and plan.entry_runway is not None:
-        margin = max(margin, plan.entry_runway)
-    return margin
-
-
 def _junction_outgoing_line_count(graph: MetroGraph, jid: str) -> int:
     """Return the number of distinct line_ids fanning out of *jid*."""
     return len({e.line_id for e in graph.edges_from(jid)}) or 1
@@ -144,8 +120,8 @@ def _position_junctions(graph: MetroGraph) -> None:
                 entry_port_xs.append(successor.x)
 
         if exit_port_x is not None and exit_port_y is not None and entry_port_xs:
-            margin = _fan_junction_margin(
-                graph, jid, _junction_outgoing_line_count(graph, jid)
+            margin = _required_junction_margin(
+                _junction_outgoing_line_count(graph, jid)
             )
             exit_port_obj = graph.ports.get(exit_port_id) if exit_port_id else None
             if exit_port_obj and exit_port_obj.side == PortSide.BOTTOM:
@@ -256,10 +232,8 @@ def _resolve_source_xy(
         # Mirror _position_junctions: the resolved junction X must match
         # what _position_junctions would write so that downstream
         # alignment passes consuming this helper see the same coordinate.
-        margin = _fan_junction_margin(
-            graph,
-            edge_source,
-            _junction_outgoing_line_count(graph, edge_source),
+        margin = _required_junction_margin(
+            _junction_outgoing_line_count(graph, edge_source)
         )
         if exit_port_obj.side == PortSide.BOTTOM:
             return exit_st.x, exit_st.y + margin

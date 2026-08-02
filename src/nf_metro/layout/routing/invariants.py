@@ -50,6 +50,7 @@ from nf_metro.layout.geometry import (
     point_to_polyline_distance,
 )
 from nf_metro.layout.phases.guards import GuardSpec
+from nf_metro.layout.route_plan import FanPlanId, FanRouteEmitter
 from nf_metro.layout.route_topology import (
     convergence_entry_port_id,
     convergence_junction_ids,
@@ -3506,6 +3507,182 @@ def check_concentric_bundle_corners(
     return violations
 
 
+@dataclass(frozen=True)
+class NonConcentricFanOpeningViolation:
+    """Distinct lines leaving one fan with opening arcs on different centres."""
+
+    junction_id: str
+    line_a: str
+    line_b: str
+    corner_index: int
+    centre_a: tuple[float, float]
+    centre_b: tuple[float, float]
+
+    def message(self) -> str:
+        return (
+            f"fan-out junction {self.junction_id!r}: lines {self.line_a!r} and "
+            f"{self.line_b!r} share opening corner #{self.corner_index}, but "
+            f"their arc centres are ({self.centre_a[0]:.1f},"
+            f"{self.centre_a[1]:.1f}) and ({self.centre_b[0]:.1f},"
+            f"{self.centre_b[1]:.1f}). Derive both radii from the fan's "
+            f"descent rank."
+        )
+
+
+def _opening_hvh(
+    points: list[tuple[float, float]],
+) -> (
+    tuple[
+        tuple[float, float],
+        tuple[float, float],
+        tuple[float, float],
+        tuple[float, float],
+    ]
+    | None
+):
+    """The first four points of a horizontal-vertical-horizontal opening."""
+    if len(points) < 4:
+        return None
+    p0, p1, p2, p3 = points[:4]
+    directions = (
+        _segment_unit(p0, p1),
+        _segment_unit(p1, p2),
+        _segment_unit(p2, p3),
+    )
+    if (
+        directions[0] is None
+        or directions[1] is None
+        or directions[2] is None
+        or directions[0][1] != 0
+        or directions[1][0] != 0
+        or directions[2][1] != 0
+    ):
+        return None
+    return p0, p1, p2, p3
+
+
+def check_distinct_fan_opening_corners_concentric(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[NonConcentricFanOpeningViolation]:
+    """Return non-concentric corners in shared distinct-line fan openings.
+
+    The exact-edge bundle check cannot compare branches with different targets.
+    A narrower structural family can: independently shaped routes leaving one
+    fan-out junction on adjacent, rank-normalised
+    horizontal-vertical-horizontal openings share the first descent and its two
+    turns until they peel toward different targets.  A normal route and a
+    normalization-exempt route cross a handler-family boundary, but their
+    translated corners must use one arc centre at each end of that shared
+    descent.
+    """
+    step = graph_offset_step(graph)
+    by_group: dict[str, list[tuple[RoutedPath, list[tuple[float, float]]]]] = (
+        defaultdict(list)
+    )
+    for route in routes:
+        if route.fan_opening_group_id is None:
+            continue
+        points = apply_route_offsets(route, offsets)
+        if _opening_hvh(points) is not None:
+            by_group[route.fan_opening_group_id].append((route, points))
+
+    violations: list[NonConcentricFanOpeningViolation] = []
+    for members in by_group.values():
+        junction_id = members[0][0].edge.source
+        for ai in range(len(members)):
+            route_a, points_a = members[ai]
+            dirs_a = [_segment_unit(points_a[k], points_a[k + 1]) for k in range(3)]
+            radii_a = _resolved_corner_radii(route_a, points_a)
+            for bi in range(ai + 1, len(members)):
+                route_b, points_b = members[bi]
+                if (
+                    route_a.line_id == route_b.line_id
+                    or route_a.edge.target == route_b.edge.target
+                    or route_a.normalize_exempt == route_b.normalize_exempt
+                ):
+                    continue
+                if route_a.fan_opening_rank is None or route_b.fan_opening_rank is None:
+                    continue
+                rank_gap = abs(route_a.fan_opening_rank - route_b.fan_opening_rank)
+                source_dx = points_b[0][0] - points_a[0][0]
+                source_dy = points_b[0][1] - points_a[0][1]
+                if (
+                    rank_gap == 0
+                    or abs(source_dx) > COORD_TOLERANCE
+                    or abs(abs(source_dy) - rank_gap * step) > COORD_TOLERANCE
+                ):
+                    continue
+                dirs_b = [_segment_unit(points_b[k], points_b[k + 1]) for k in range(3)]
+                if dirs_a != dirs_b:
+                    continue
+                vertical_overlap = min(points_a[2][1], points_b[2][1]) - max(
+                    points_a[1][1], points_b[1][1]
+                )
+                if dirs_a[1] == (0.0, -1.0):
+                    vertical_overlap = min(points_a[1][1], points_b[1][1]) - max(
+                        points_a[2][1], points_b[2][1]
+                    )
+                if vertical_overlap <= COORD_TOLERANCE:
+                    continue
+                radii_b = _resolved_corner_radii(route_b, points_b)
+                for corner_index in (1, 2):
+                    incoming = dirs_a[corner_index - 1]
+                    outgoing = dirs_a[corner_index]
+                    if incoming is None or outgoing is None:
+                        continue
+                    delta_x = points_b[corner_index][0] - points_a[corner_index][0]
+                    delta_y = points_b[corner_index][1] - points_a[corner_index][1]
+                    tangent_shift = abs(
+                        delta_x * (incoming[0] + outgoing[0])
+                        + delta_y * (incoming[1] + outgoing[1])
+                    )
+                    if tangent_shift > _WHOLESALE_LEG_TOLERANCE:
+                        continue
+                    incoming_leg_offset = abs(
+                        delta_x * outgoing[0] + delta_y * outgoing[1]
+                    )
+                    outgoing_leg_offset = abs(
+                        delta_x * incoming[0] + delta_y * incoming[1]
+                    )
+                    if (
+                        max(incoming_leg_offset, outgoing_leg_offset)
+                        <= _WHOLESALE_LEG_TOLERANCE
+                        or abs(incoming_leg_offset - outgoing_leg_offset)
+                        > _WHOLESALE_LEG_TOLERANCE
+                    ):
+                        continue
+                    centre_a = _arc_centre(
+                        points_a[corner_index],
+                        radii_a[corner_index - 1],
+                        incoming,
+                        outgoing,
+                    )
+                    centre_b = _arc_centre(
+                        points_b[corner_index],
+                        radii_b[corner_index - 1],
+                        incoming,
+                        outgoing,
+                    )
+                    spread = math.hypot(
+                        centre_a[0] - centre_b[0], centre_a[1] - centre_b[1]
+                    )
+                    if spread > _CONCENTRIC_CENTRE_TOLERANCE:
+                        violations.append(
+                            NonConcentricFanOpeningViolation(
+                                junction_id,
+                                route_a.line_id,
+                                route_b.line_id,
+                                corner_index,
+                                centre_a,
+                                centre_b,
+                            )
+                        )
+                        break
+    return violations
+
+
 def _pair_corner_violation(
     src_id: str,
     tgt_id: str,
@@ -4507,6 +4684,229 @@ class RightEntryCorridorJog:
         )
 
 
+@dataclass(frozen=True)
+class PlannedFanOpeningViolation:
+    """A planned vertical fan opening breaks its seam or first-turn runway."""
+
+    source: str
+    target: str
+    line_id: str
+    detail: str
+
+    def message(self) -> str:
+        return (
+            f"planned fan route {self.source!r}->{self.target!r} line "
+            f"{self.line_id!r}: {self.detail}"
+        )
+
+
+def _initial_run(
+    points: list[tuple[float, float]],
+) -> tuple[tuple[float, float] | None, float]:
+    """Direction and length of the first non-degenerate cardinal run."""
+    direction: tuple[float, float] | None = None
+    length = 0.0
+    for start, end in zip(points, points[1:]):
+        segment_direction = _segment_unit(start, end)
+        if segment_direction is None:
+            continue
+        if direction is None:
+            direction = segment_direction
+        elif segment_direction != direction:
+            break
+        length += math.hypot(end[0] - start[0], end[1] - start[1])
+    return direction, length
+
+
+def _terminal_direction(
+    points: list[tuple[float, float]],
+) -> tuple[float, float] | None:
+    """Direction of the final non-degenerate cardinal segment."""
+    for start, end in reversed(list(zip(points, points[1:]))):
+        direction = _segment_unit(start, end)
+        if direction is not None:
+            return direction
+    return None
+
+
+def check_planned_vertical_fan_opening(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[PlannedFanOpeningViolation]:
+    """Require planned bottom-exit RIGHT fans to continue their source lanes.
+
+    This planned family intentionally reaches its final RIGHT-entry corridor
+    after a vertical opening run.  That shape is valid only when every outgoing
+    line starts at the exact endpoint of its incoming line, continues in the
+    same direction, and owns the plan's complete first-turn runway.  The
+    contract is always-on because a collapsed opening draws a disconnected seam
+    or a hard right-angle fork even when placement validation is disabled.
+    """
+    family = FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS.value
+    query = graph.fan_plan_query
+    violations: list[PlannedFanOpeningViolation] = []
+    for route in routes:
+        if route.fan_route_emitter != family:
+            continue
+        problem: str | None = None
+        plan = None
+        if query is None or route.fan_plan_id is None:
+            problem = "route has no published fan-plan binding"
+        else:
+            try:
+                plan = query.plan(FanPlanId(route.fan_plan_id))
+            except KeyError:
+                problem = f"route names unknown fan plan {route.fan_plan_id!r}"
+
+        outgoing = apply_route_offsets(route, offsets)
+        incoming_routes = [
+            candidate
+            for candidate in routes
+            if candidate.edge.target == route.edge.source
+            and candidate.line_id == route.line_id
+        ]
+        if problem is None and len(incoming_routes) != 1:
+            problem = (
+                f"expected one incoming lane at the fork; found {len(incoming_routes)}"
+            )
+        if problem is None and plan is not None:
+            incoming = apply_route_offsets(incoming_routes[0], offsets)
+            if not incoming or not outgoing:
+                problem = "incoming or outgoing route has no geometry"
+            elif (
+                math.hypot(
+                    incoming[-1][0] - outgoing[0][0],
+                    incoming[-1][1] - outgoing[0][1],
+                )
+                > COORD_TOLERANCE
+            ):
+                problem = (
+                    f"incoming lane ends at {incoming[-1]!r}, but the opening "
+                    f"starts at {outgoing[0]!r}"
+                )
+            else:
+                incoming_direction = _terminal_direction(incoming)
+                outgoing_direction, runway = _initial_run(outgoing)
+                required_runway = max(CURVE_RADIUS, plan.entry_runway or 0.0)
+                if (
+                    incoming_direction is None
+                    or outgoing_direction != incoming_direction
+                    or outgoing_direction[0] != 0.0
+                ):
+                    problem = (
+                        "opening does not continue the incoming vertical lane "
+                        "before its first turn"
+                    )
+                elif runway < required_runway - COORD_TOLERANCE:
+                    problem = (
+                        f"first-turn runway is {runway:.1f}px; planned minimum "
+                        f"is {required_runway:.1f}px"
+                    )
+        if problem is not None:
+            violations.append(
+                PlannedFanOpeningViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    problem,
+                )
+            )
+    return violations
+
+
+@dataclass(frozen=True)
+class FanOpeningRunwayViolation:
+    """A fan branch turns away before continuing its incoming lane far enough."""
+
+    junction_id: str
+    target: str
+    line_id: str
+    runway: float
+    required: float
+
+    def message(self) -> str:
+        return (
+            f"fan-out junction {self.junction_id!r} line {self.line_id!r} to "
+            f"{self.target!r}: opening runway is {self.runway:.1f}px before the "
+            f"route leaves its incoming axis; {self.required:.1f}px is required "
+            f"to form the fork curve"
+        )
+
+
+def check_fan_opening_turn_runway(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[FanOpeningRunwayViolation]:
+    """Require a full-radius run before a fan branch turns off its trunk.
+
+    A bottom-exit junction with a same-line straight continuation and peel-off
+    branch forms one vertical trunk.  Its turn spans two routed edges: the
+    incoming route establishes the trunk axis and the outgoing route owns the
+    curve runway.  Per-route corner checks cannot see a zero-length opening
+    segment because it has no tangent.  Comparing both sides of the junction
+    rejects that collapsed segment before the renderer silently drops its
+    curve.  Other fan families have their own seam contracts.
+    """
+    fanouts = fanout_junctions(graph)
+    violations: list[FanOpeningRunwayViolation] = []
+    for route in routes:
+        if route.edge.source not in fanouts or not route.is_inter_section:
+            continue
+        incoming = [
+            candidate
+            for candidate in routes
+            if candidate.edge.target == route.edge.source
+            and candidate.line_id == route.line_id
+        ]
+        if len(incoming) != 1:
+            continue
+        source_port = graph.ports.get(incoming[0].edge.source)
+        if source_port is None or source_port.side is not PortSide.BOTTOM:
+            continue
+        incoming_direction = _terminal_direction(
+            apply_route_offsets(incoming[0], offsets)
+        )
+        siblings = [
+            candidate
+            for candidate in routes
+            if candidate.edge.source == route.edge.source
+            and candidate.line_id == route.line_id
+        ]
+        has_straight_continuation = any(
+            _initial_run(apply_route_offsets(sibling, offsets))[0] == incoming_direction
+            for sibling in siblings
+            if sibling is not route
+        )
+        if not has_straight_continuation:
+            continue
+        outgoing = apply_route_offsets(route, offsets)
+        outgoing_direction, runway = _initial_run(outgoing)
+        if outgoing_direction is None:
+            continue
+        if incoming_direction is None or outgoing_direction == incoming_direction:
+            effective_runway = runway
+        else:
+            effective_runway = 0.0
+        if outgoing_direction == incoming_direction and len(outgoing) < 3:
+            continue
+        requested = CURVE_RADIUS
+        if route.curve_radii:
+            requested = max(requested, route.curve_radii[0])
+        if effective_runway < requested - COORD_TOLERANCE:
+            violations.append(
+                FanOpeningRunwayViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    effective_runway,
+                    requested,
+                )
+            )
+    return violations
+
+
 def check_right_entry_corridor_descent_no_jog(
     graph: MetroGraph, routes: list[RoutedPath]
 ) -> list[RightEntryCorridorJog]:
@@ -4527,6 +4927,12 @@ def check_right_entry_corridor_descent_no_jog(
     tol = COORD_TOLERANCE
     violations: list[RightEntryCorridorJog] = []
     for r in routes:
+        if r.fan_route_emitter == FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS.value:
+            # This planned family deliberately continues its vertical source
+            # lanes before traversing to the shared RIGHT-entry corridor.  The
+            # stronger always-on planned-opening contract checks that seam and
+            # the complete first-turn runway.
+            continue
         tgt_port = graph.ports.get(r.edge.target)
         if (
             tgt_port is None
@@ -5302,6 +5708,10 @@ def assert_render_curve_invariants(
             check_concentric_bundle_corners(graph, routes, offsets),
         ),
         (
+            "non-concentric distinct-line fan opening",
+            check_distinct_fan_opening_corners_concentric(graph, routes, offsets),
+        ),
+        (
             "doubled coincident corner (same-line legs disagree on radius)",
             check_coincident_corner_radii(graph, routes, offsets),
         ),
@@ -5368,6 +5778,14 @@ def assert_render_curve_invariants(
         (
             "junction peel-off leaves horizontal trunk at a hard 90",
             check_junction_peeloff_rounded(graph, routes),
+        ),
+        (
+            "planned vertical fan opening breaks its seam or runway",
+            check_planned_vertical_fan_opening(graph, routes, offsets),
+        ),
+        (
+            "fan opening turns before a full curve runway",
+            check_fan_opening_turn_runway(graph, routes, offsets),
         ),
         (
             "inter-section orthogonal turn starved below a formed curve",
@@ -5457,6 +5875,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     # --- Tier A: the always-on render chokepoint set (in chokepoint order) ---
     _check_spec(check_bundle_order_preserved, "A"),
     _check_spec(check_concentric_bundle_corners, "A"),
+    _check_spec(check_distinct_fan_opening_corners_concentric, "A"),
     _check_spec(check_coincident_corner_radii, "A"),
     _check_spec(check_collinear_distinct_lines, "A"),
     _check_spec(check_no_same_line_parallel_descents, "A"),
@@ -5474,6 +5893,8 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
     _check_spec(check_junction_peeloff_rounded, "A"),
+    _check_spec(check_planned_vertical_fan_opening, "A"),
+    _check_spec(check_fan_opening_turn_runway, "A"),
     _check_spec(check_orthogonal_turns_form_curves, "A"),
     _check_spec(check_merge_fanout_pivots_shared, "A"),
     _check_spec(check_port_corner_within_bbox, "A"),
@@ -5580,12 +6001,14 @@ __all__ = [
     "DiagonalOverlapViolation",
     "CurveInvariantError",
     "FanoutTailGap",
+    "FanOpeningRunwayViolation",
     "HangingRoute",
     "JunctionPeeloffCorner",
     "MergeBranchHang",
     "MergeFeederOffTrunk",
     "MergePortApproachViolation",
     "NonConcentricCornerViolation",
+    "NonConcentricFanOpeningViolation",
     "LooseDestinationTail",
     "OpposingGapChannelCrowding",
     "PackedCellHandoffDivergence",
@@ -5596,6 +6019,7 @@ __all__ = [
     "PerpExitLeadInOverdip",
     "RegimeOffsetMisapplied",
     "RightEntryNeedlessDive",
+    "PlannedFanOpeningViolation",
     "SameLineParallelRun",
     "SeamApproachDepartureMismatch",
     "SharedRunTurnFlip",
@@ -5611,10 +6035,12 @@ __all__ = [
     "check_opposing_gap_channel_clearance",
     "check_trunks_declared",
     "check_concentric_bundle_corners",
+    "check_distinct_fan_opening_corners_concentric",
     "check_coincident_corner_radii",
     "check_deferred_offsets_apply_laterally",
     "check_diamond_fan_in_diverges_together",
     "check_fanout_tail_join",
+    "check_fan_opening_turn_runway",
     "check_no_distinct_line_fanout_crossing",
     "check_merge_branches_meet_trunk",
     "check_merge_feeders_land_on_trunk",
@@ -5626,6 +6052,7 @@ __all__ = [
     "check_no_riser_hugs_section_edge",
     "check_stacked_right_ports_bow_out",
     "check_junction_peeloff_rounded",
+    "check_planned_vertical_fan_opening",
     "check_orthogonal_turns_form_curves",
     "check_peeloff_concentric",
     "check_port_corner_within_bbox",
