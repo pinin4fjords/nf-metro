@@ -1478,13 +1478,18 @@ def _pull_continuation_onto(
 
 
 def _section_occupants(graph: MetroGraph, section: Section) -> list[Station]:
-    """The section's visible stations -- the ones that can occupy a row slot."""
+    """Stations or routed bypass lanes that can occupy a row slot.
+
+    A hidden bypass helper has no marker, but its line is drawn through the
+    helper coordinate.  That routed lane is a real mirror for a half-pitch
+    station and prevents the visible branch from being expanded as an orphan.
+    """
     return [
         st
         for sid in section.station_ids
         if (st := graph.stations.get(sid)) is not None
         and not st.is_port
-        and not st.is_hidden
+        and (not st.is_hidden or st.bypasses_station_id is not None)
     ]
 
 
