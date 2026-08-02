@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,6 +25,7 @@ from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     DemandKind,
+    FanAppearancePolicy,
     FanPlanDisposition,
     KeepOutClass,
     SharedReferenceKind,
@@ -273,6 +274,21 @@ def test_foreign_merge_frame_keeps_the_complete_fan_on_legacy_layout() -> None:
     )
 
 
+def test_straight_diamond_keeps_established_layout_ownership() -> None:
+    path = ROOT / "examples" / "topologies" / "shared_cell_fork_trunk_align.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "p_hub")
+
+    assert graph.diamond_style == "straight"
+    assert plan.authored_join_station_id == "p_merge"
+    assert plan.join_station_id == "p_merge"
+    assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND
+    assert plan.disposition is FanPlanDisposition.LEGACY
+    assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
+    assert plan.layout_station_ids == ()
+
+
 def test_branches_keep_line_identity_after_partial_convergence() -> None:
     facts = [
         _fact("fork", "via", "b", 0),
@@ -284,8 +300,10 @@ def test_branches_keep_line_identity_after_partial_convergence() -> None:
         _fact("other", "join", "c", 6),
     ]
 
+    graph = _graph()
+    graph.diamond_style = "symmetric"
     execution = build_fan_plan_execution(
-        _graph(),
+        graph,
         _Topology.direct(facts),
         x_spacing=30.0,
         y_spacing=10.0,
@@ -523,6 +541,7 @@ def test_diamond_keeps_ports_handoffs_and_extra_output_in_one_plan() -> None:
         ),
     )
     graph = _graph()
+    graph.diamond_style = "symmetric"
     graph.ports["entry_port"] = Port(
         id="entry_port",
         section_id="section",
@@ -710,6 +729,39 @@ def test_runtime_guard_rejects_planned_branch_coordinate_drift() -> None:
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
 
 
+def test_planned_straight_diamond_is_invalid_at_construction() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.join_station_id is not None)
+
+    with pytest.raises(
+        ValueError,
+        match="straight-diamond geometry requires established layout",
+    ):
+        replace(plan, appearance_policy=FanAppearancePolicy.STRAIGHT_DIAMOND)
+
+
+def test_runtime_guard_rejects_corrupted_straight_diamond_policy() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    offsets = compute_station_offsets(graph)
+    plan = next(item for item in graph.fan_plans if item.join_station_id is not None)
+
+    object.__setattr__(
+        plan,
+        "appearance_policy",
+        FanAppearancePolicy.STRAIGHT_DIAMOND,
+    )
+
+    with pytest.raises(
+        PhaseInvariantError,
+        match="claims geometry for frozen appearance policy 'straight-diamond'",
+    ):
+        _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
 def test_runtime_guard_rejects_planned_handoff_offset_drift() -> None:
     path = ROOT / "examples" / "topologies" / "dogleg_twoline_fanout.mmd"
     graph = parse_metro_mermaid(path.read_text())
@@ -756,6 +808,7 @@ def test_runtime_guard_rejects_unowned_carrier_line() -> None:
 def test_port_only_fan_freezes_only_structurally_shared_offset_carriers() -> None:
     path = ROOT / "examples" / "topologies" / "disjoint_sameline_trunks.mmd"
     graph = parse_metro_mermaid(path.read_text())
+    graph.diamond_style = "symmetric"
     compute_layout(graph, validate=True)
     offsets = compute_station_offsets(graph)
     plan = next(
@@ -903,7 +956,7 @@ def test_planned_handoff_does_not_reslot_unrelated_same_line_stations() -> None:
 
 
 def test_planned_fan_resources_resolve_through_final_route_plan() -> None:
-    path = ROOT / "examples" / "guide" / "03_fan_out.mmd"
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observation = observe_route_edges(
         graph, station_offsets=compute_station_offsets(graph)

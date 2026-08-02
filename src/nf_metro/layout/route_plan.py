@@ -106,6 +106,14 @@ class FanPlanDisposition(str, Enum):
     LEGACY = "legacy"
 
 
+class FanAppearancePolicy(str, Enum):
+    """Authored branch-shape policy frozen before fan layout."""
+
+    OPEN_FAN = "open-fan"
+    STRAIGHT_DIAMOND = "straight-diamond"
+    SYMMETRIC_DIAMOND = "symmetric-diamond"
+
+
 class FanRouteEmitter(str, Enum):
     """Routing template that exclusively emits one planned fan edge."""
 
@@ -768,9 +776,11 @@ class FanPlan:
 
     id: FanPlanId
     authored_source_id: str
+    authored_join_station_id: str | None
     fork_station_id: str
     direction: FlowDirection | None
     join_station_id: str | None
+    appearance_policy: FanAppearancePolicy
     branches: tuple[FanBranchPlan, ...]
     offset_line_order: tuple[str, ...]
     authored_edge_ids: tuple[ConnectorId, ...]
@@ -834,6 +844,11 @@ class FanPlan:
             raise ValueError("fan offset order names a line outside its branches")
 
     def _validate_membership(self) -> None:
+        if self.authored_join_station_id is None:
+            if self.appearance_policy is not FanAppearancePolicy.OPEN_FAN:
+                raise ValueError("open fan has a diamond appearance policy")
+        elif self.appearance_policy is FanAppearancePolicy.OPEN_FAN:
+            raise ValueError("reconverging fan has an open-fan appearance policy")
         if len(set(self.authored_edge_ids)) != len(self.authored_edge_ids):
             raise ValueError("fan plan repeats an authored member")
         expected_authored_edge_ids = tuple(
@@ -885,6 +900,8 @@ class FanPlan:
     def _validate_disposition(self, planned: bool) -> None:
         if planned and self.direction is None:
             raise ValueError("fan plan has an unsupported direction")
+        if planned and self.appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND:
+            raise ValueError("straight-diamond geometry requires established layout")
         if planned != (self.frame is not None and self.legacy_reason is None):
             raise ValueError("fan disposition and geometry ownership disagree")
         if planned and any(branch.lane_offset is None for branch in self.branches):

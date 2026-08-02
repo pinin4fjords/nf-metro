@@ -19,6 +19,7 @@ from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
 from nf_metro.layout.geometry import AxisFrame, flow_port_sides, lanes_run_along_x
 from nf_metro.layout.route_plan import (
     DemandId,
+    FanAppearancePolicy,
     FanBranchPlan,
     FanBranchPlanId,
     FanOffsetAssignment,
@@ -1079,6 +1080,14 @@ def _build_candidate(
     suffix = recognised.suffix
     join_id = recognised.join_id
 
+    appearance_policy = (
+        FanAppearancePolicy.OPEN_FAN
+        if authored_join is None
+        else FanAppearancePolicy.SYMMETRIC_DIAMOND
+        if graph.diamond_style == "symmetric"
+        else FanAppearancePolicy.STRAIGHT_DIAMOND
+    )
+
     direction = _direction_for_fork(graph, fork_id, source_id, lead_fact_groups[0])
     if direction is None:
         reason = reason or "unsupported-fan-direction"
@@ -1489,6 +1498,8 @@ def _build_candidate(
         for carrier in offset_carriers
     ):
         reason = reason or "offset-carrier-has-unowned-line"
+    if reason is None and appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND:
+        reason = "straight-diamond-layout-owns-geometry"
     planned = reason is None
     if not planned:
         route_emissions = ()
@@ -1529,9 +1540,11 @@ def _build_candidate(
     plan = FanPlan(
         id=plan_id,
         authored_source_id=source_id,
+        authored_join_station_id=authored_join,
         fork_station_id=fork_id,
         direction=direction,
         join_station_id=join_id,
+        appearance_policy=appearance_policy,
         branches=(
             tuple(branch_plans)
             if planned

@@ -5193,7 +5193,24 @@ def _guard_planned_fan_frame_realised(
     *,
     offsets: dict[tuple[str, str], float],
 ) -> None:
-    """Raise when settled fan coordinates or bundle offsets disagree with its plan."""
+    """Raise when a fan's settled frame disagrees with its semantic contract."""
+    from nf_metro.layout.route_plan import FanAppearancePolicy
+
+    unsupported = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND
+        ),
+        None,
+    )
+    if unsupported is not None:
+        raise PhaseInvariantError(
+            f"{phase}: planned fan {unsupported.id!s} claims geometry for frozen "
+            f"appearance policy {unsupported.appearance_policy.value!r}"
+        )
+
     offset_step = graph_offset_step(graph)
     for plan in graph.fan_plans:
         frame = plan.frame
