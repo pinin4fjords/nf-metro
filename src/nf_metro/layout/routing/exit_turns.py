@@ -2304,13 +2304,14 @@ def consume_exit_turn_route(
         )
         > COORD_TOLERANCE
     ):
-        cohort_axis_ids = {
-            item.axis_id
+        turn_cohort = tuple(
+            item
             for item in membership.plan.assignments
             if item.run_direction is run
             and item.turn_direction is turn
             and item.axis_id is not None
-        }
+        )
+        cohort_axis_ids = {item.axis_id for item in turn_cohort}
         cohort_axes = tuple(
             axis for axis in membership.plan.axes if axis.id in cohort_axis_ids
         )
@@ -2319,13 +2320,18 @@ def consume_exit_turn_route(
             key=lambda item: item.coordinate * run.sign,
         )
         offset = membership.axis.coordinate - reference_axis.coordinate
+        shares_destination_entry = any(
+            item.member_id != assignment.member_id
+            and item.entry_group_id == assignment.entry_group_id
+            for item in turn_cohort
+        )
         _reseat_concentric_flanking(
             route,
             segment_rank,
             membership.axis.coordinate,
             axis=0 if source_axis is DemandAxis.X else 1,
             offset_in=offset,
-            offset_out=0.0,
+            offset_out=offset if shares_destination_entry else 0.0,
         )
     lead, start, end = route.points[segment_rank - 1 : segment_rank + 2]
     if (

@@ -290,6 +290,43 @@ def test_planned_fan_landing_radius_rejects_a_compressed_request() -> None:
     assert {violation.line_id for violation in violations} == {route.line_id}
 
 
+def test_shared_destination_entry_keeps_target_bundle_concentric() -> None:
+    graph, offsets, observation = _observe(
+        TOPOLOGIES / "multi_frame_exit_lane_settlement.mmd"
+    )
+    routes = [
+        route
+        for route in observation.routes
+        if route.edge.source == "side_work__exit_left_5"
+        and route.edge.target == "side_report__entry_right_14"
+    ]
+    assignments = {
+        str(assignment.member_id): assignment
+        for plan in observation.plan.exit_turn_plans
+        for assignment in plan.assignments
+    }
+
+    assert {route.line_id for route in routes} == {"side_a", "side_b"}
+    assert (
+        len({assignments[route.exit_turn_member_id].entry_group_id for route in routes})
+        == 1
+    )
+
+    target_arc_centres = []
+    for route in routes:
+        rank = route.exit_turn_segment_rank
+        assert rank is not None
+        points = apply_route_offsets(route, offsets)
+        radii = resolve_curve_radii(points, route.curve_radii)
+        before, corner, after = points[rank : rank + 3]
+        assert before[0] == pytest.approx(corner[0])
+        assert after[1] == pytest.approx(corner[1])
+        radius = radii[rank]
+        target_arc_centres.append((corner[0] - radius, corner[1] + radius))
+
+    assert target_arc_centres[0] == pytest.approx(target_arc_centres[1])
+
+
 def test_leftward_upturn_preserves_source_lane_order() -> None:
     graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
     plan = _plan_for_source(observation, "s7__exit_left_5")
