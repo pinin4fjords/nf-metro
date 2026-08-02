@@ -819,11 +819,6 @@ def test_station_bundle_lanes_contiguous(fixture, station_id):
 # ---------------------------------------------------------------------------
 
 
-def _sole_continuation_pairs(graph: MetroGraph) -> list[tuple[str, str, str]]:
-    """Return the runtime guard's in-section linear continuations."""
-    return list(iter_sole_trunk_continuations(graph))
-
-
 _FIXTURES_WITH_SOLE_CONTINUATION = _FEATURE_MANIFEST["sole_continuation"]
 
 
@@ -838,7 +833,7 @@ def test_bundle_terminator_successor_stays_on_trunk(fixture):
     climb back to the exit) on what is a simple chain (#977).
     """
     graph = _layout(fixture)
-    for section_id, pred, node in _sole_continuation_pairs(graph):
+    for section_id, pred, node in iter_sole_trunk_continuations(graph):
         frame = AxisFrame.for_direction(graph.sections[section_id].direction, 1.0, 1.0)
         pred_secondary = frame.secondary.get(graph.stations[pred])
         node_secondary = frame.secondary.get(graph.stations[node])
@@ -847,6 +842,50 @@ def test_bundle_terminator_successor_stays_on_trunk(fixture):
             f"{abs(node_secondary - pred_secondary):.0f}px; the sole successor "
             "should stay on the trunk track"
         )
+
+
+@pytest.mark.parametrize("direction", ("RL", "BT"))
+def test_sole_continuation_is_independent_of_station_declaration_order(
+    direction: str,
+) -> None:
+    axis = "2,0" if direction == "RL" else "0,2"
+    target = "1,0" if direction == "RL" else "0,1"
+    sink = "0,0"
+
+    def continuations(declarations: str) -> set[tuple[str, str, str]]:
+        graph = prepare_graph(
+            f"""
+%%metro line: first | First | #3779b1
+%%metro line: second | Second | #6ef362
+%%metro grid: feeder | {axis}
+%%metro grid: target | {target}
+%%metro grid: sink | {sink}
+graph LR
+    subgraph feeder [Feeder]
+        %%metro direction: {direction}
+        feed[Feed]
+    end
+    subgraph target [Target]
+        %%metro direction: {direction}
+        {declarations}
+        pred -->|second| node
+    end
+    subgraph sink [Sink]
+        %%metro direction: {direction}
+        done[Done]
+    end
+    feed -->|first,second| pred
+    node -->|second| done
+"""
+        )
+        assert graph.sections["target"].direction == direction
+        return set(iter_sole_trunk_continuations(graph))
+
+    declared_in_flow_order = continuations("pred[Pred]\n        node[Node]")
+    declared_in_reverse_order = continuations("node[Node]\n        pred[Pred]")
+
+    assert ("target", "pred", "node") in declared_in_flow_order
+    assert declared_in_reverse_order == declared_in_flow_order
 
 
 # ---------------------------------------------------------------------------
@@ -9240,7 +9279,7 @@ def _layout_feature_names(graph: MetroGraph, fixture: str) -> set[str]:
             for consumer in consumers
         ):
             features.add("linear_off_track_consumer")
-    if _sole_continuation_pairs(graph):
+    if next(iter_sole_trunk_continuations(graph), None) is not None:
         features.add("sole_continuation")
     if next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None) is not None:
         features.add("corridor_solo")

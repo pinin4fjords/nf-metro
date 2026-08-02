@@ -95,8 +95,28 @@ def iter_sole_trunk_continuations(
             and not station.is_hidden
             and not station.off_track
         ]
-        visible_rank = {station_id: rank for rank, station_id in enumerate(visible)}
-        visible_lines = [set(graph.station_lines(station_id)) for station_id in visible]
+        visible_set = set(visible)
+        predecessors: dict[str, set[str]] = {
+            station_id: set() for station_id in visible
+        }
+        successors: dict[str, set[str]] = {station_id: set() for station_id in visible}
+        for edge in graph.edges:
+            if edge.source not in visible_set or edge.target not in visible_set:
+                continue
+            successors[edge.source].add(edge.target)
+            predecessors[edge.target].add(edge.source)
+
+        def reachable(start: str, adjacency: Mapping[str, set[str]]) -> set[str]:
+            found: set[str] = set()
+            frontier = list(adjacency[start])
+            while frontier:
+                station_id = frontier.pop()
+                if station_id in found:
+                    continue
+                found.add(station_id)
+                frontier.extend(adjacency[station_id] - found)
+            return found
+
         sec_ids = set(section.station_ids)
         for sid in section.station_ids:
             st = graph.stations.get(sid)
@@ -127,10 +147,20 @@ def iter_sole_trunk_continuations(
                 and len({edge.target for edge in graph.edges_from(sid)}) > 1
             ):
                 continue
-            pred_rank = visible_rank[pred]
-            node_rank = visible_rank[sid]
-            before = set().union(*visible_lines[: pred_rank + 1])
-            after = set().union(*visible_lines[node_rank:])
+            upstream = reachable(pred, predecessors)
+            downstream = reachable(sid, successors)
+            before = set().union(
+                *(
+                    set(graph.station_lines(station_id))
+                    for station_id in upstream | {pred}
+                )
+            )
+            after = set().union(
+                *(
+                    set(graph.station_lines(station_id))
+                    for station_id in downstream | {sid}
+                )
+            )
             if any(
                 line_id not in pred_lines or line_id not in node_lines
                 for line_id in before & after
@@ -138,7 +168,9 @@ def iter_sole_trunk_continuations(
                 continue
             if not pred_lines > node_lines:
                 added = node_lines - pred_lines
-                earlier = set().union(*visible_lines[:pred_rank])
+                earlier = set().union(
+                    *(set(graph.station_lines(station_id)) for station_id in upstream)
+                )
                 edge_lines = {
                     edge.line_id
                     for edge in graph.edges_from(pred)

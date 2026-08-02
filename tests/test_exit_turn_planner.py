@@ -48,7 +48,8 @@ from nf_metro.layout.routing.exit_turns import (
 )
 from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import Edge, PortSide
+from nf_metro.parser.model import PortSide
+from nf_metro.parser.route_topology import build_route_topology_query
 from nf_metro.render.plan import freeze_render_value
 
 ROOT = Path(__file__).parents[1]
@@ -264,11 +265,14 @@ def test_linear_entry_frame_requires_one_upstream_carrier() -> None:
     text = """
 %%metro line: first | First | #3779b1
 %%metro line: second | Second | #6ef362
-%%metro grid: upstream | 0,0
+%%metro grid: upstream_a | 0,0
+%%metro grid: upstream_b | 0,1
 %%metro grid: target | 1,0
 graph LR
-    subgraph upstream [Upstream]
+    subgraph upstream_a [Upstream A]
         first_source[First]
+    end
+    subgraph upstream_b [Upstream B]
         second_source[Second]
     end
     subgraph target [Target]
@@ -281,24 +285,32 @@ graph LR
 """
     graph = prepare_graph(text)
     offsets = compute_station_offsets(graph)
-    target_entry = graph.sections["target"].entry_ports[0]
-    upstream_exit = graph.sections["upstream"].exit_ports[0]
-    graph.replace_edges(
-        [
-            Edge("second_source", target_entry, edge.line_id, edge.source_line)
-            if edge.source == upstream_exit
-            and edge.target == target_entry
-            and edge.line_id == "second"
-            else edge
-            for edge in graph.edges
-        ]
-    )
 
     ownership = routing_offsets.capture_linear_entry_frame_ownership(graph, offsets)
 
     assert not any(
-        section_id == "target"
-        for section_id, _station_id, _line_id, _offset in ownership.offsets
+        assignment.section_id == "target" for assignment in ownership.assignments
+    )
+
+
+def test_linear_entry_frame_requires_a_materialized_upstream_slot() -> None:
+    path = TOPOLOGIES / "target_lane_transition.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    entry_port = graph.sections["source"].entry_ports[0]
+    topology = build_route_topology_query(graph)
+    connector_id = next(
+        connector_id
+        for connector_id in topology.connector_ids_for_port(entry_port)
+        if topology.connector(connector_id).line_id == "third"
+    )
+    exit_port = topology.exit_port(topology.connector(connector_id).exit_group_id)
+    offsets.pop((exit_port, "third"))
+
+    ownership = routing_offsets.capture_linear_entry_frame_ownership(graph, offsets)
+
+    assert not any(
+        assignment.section_id == "source" for assignment in ownership.assignments
     )
 
 
@@ -336,6 +348,36 @@ def test_exit_plan_falls_back_before_changing_a_linear_entry_frame(
         for item in affected
     )
     assert offsets[("source__exit_right_1", "third")] == pytest.approx(8.0)
+
+
+def test_exit_plan_publication_is_transactional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = TOPOLOGIES / "target_lane_transition.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    original = dict(offsets)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+
+    def reject_publication(
+        trial: dict[tuple[str, str], float],
+        ownership: routing_offsets.LinearEntryFrameOwnership,
+    ) -> None:
+        del ownership
+        assert trial is not offsets
+        assert trial != offsets
+        raise routing_offsets.LaneFrameInvariantError("rejected trial publication")
+
+    monkeypatch.setattr(
+        exit_turns, "validate_linear_entry_frame_ownership", reject_publication
+    )
+
+    with pytest.raises(
+        routing_offsets.LaneFrameInvariantError, match="rejected trial publication"
+    ):
+        exit_turns.build_exit_turn_execution(graph, ctx)
+
+    assert offsets == original
 
 
 @pytest.mark.parametrize(
@@ -456,14 +498,12 @@ def test_linear_entry_frame_runtime_guard_rejects_owner_drift() -> None:
     path = TOPOLOGIES / "target_lane_transition.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph)
-    ctx = routing_offsets._build_offset_ctx(graph, 4.0)
-    ctx.offsets = dict(offsets)
-    frame = routing_offsets._linear_entry_frame(ctx, graph.sections["source"])
-    assert frame is not None
-    ctx.offsets[("enter", "third")] += 4.0
+    ownership = routing_offsets.capture_linear_entry_frame_ownership(graph, offsets)
+    assert ownership.assignments
+    offsets[("enter", "third")] += 4.0
 
     with pytest.raises(routing_offsets.LaneFrameInvariantError):
-        routing_offsets._validate_linear_entry_frames(ctx, (frame,))
+        routing_offsets.validate_linear_entry_frame_ownership(offsets, ownership)
 
 
 def test_terminated_source_lane_does_not_leave_a_phantom_slot() -> None:

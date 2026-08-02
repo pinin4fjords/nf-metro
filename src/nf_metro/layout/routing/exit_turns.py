@@ -1745,6 +1745,7 @@ def _cross_plan_fallback_reasons(
     assignments_by_plan: Mapping[
         ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]
     ],
+    frame_ownership: LinearEntryFrameOwnership,
 ) -> dict[ExitTurnPlanId, str]:
     plans = tuple(plans)
     reasons: dict[ExitTurnPlanId, str] = {}
@@ -1754,7 +1755,7 @@ def _cross_plan_fallback_reasons(
         plans,
         assignments_by_plan,
     )
-    station_owner: dict[tuple[str, str], ExitTurnPlanId] = {}
+    station_owners: defaultdict[tuple[str, str], set[ExitTurnPlanId]] = defaultdict(set)
     planned_station_offsets: dict[tuple[str, str], float] = {}
     for plan in plans:
         if plan.disposition is not ExitTurnDisposition.PLANNED:
@@ -1762,11 +1763,27 @@ def _cross_plan_fallback_reasons(
         for lane in plan.source_lanes:
             for station_id in lane.station_ids:
                 key = station_id, lane.line_id
-                owner = station_owner.setdefault(key, plan.id)
-                if owner != plan.id:
-                    reasons[owner] = "shared-source-ownership-conflict"
+                owners = station_owners[key]
+                if owners and plan.id not in owners:
+                    for owner in owners:
+                        reasons[owner] = "shared-source-ownership-conflict"
                     reasons[plan.id] = "shared-source-ownership-conflict"
+                owners.add(plan.id)
                 planned_station_offsets[key] = lane.planned_offset
+    system_by_plan_id = {plan.id: plan.system_id for plan in plans}
+    conflicting_systems = {
+        system_by_plan_id[plan_id]
+        for key in conflicting_linear_entry_frame_assignments(
+            planned_station_offsets, frame_ownership
+        )
+        for plan_id in station_owners[key]
+    }
+    for plan in plans:
+        if (
+            plan.disposition is ExitTurnDisposition.PLANNED
+            and plan.system_id in conflicting_systems
+        ):
+            reasons.setdefault(plan.id, "linear-entry-frame-ownership-conflict")
     for plan in plans:
         if plan.disposition is not ExitTurnDisposition.PLANNED or plan.id in reasons:
             continue
@@ -2055,15 +2072,15 @@ def _apply_cross_plan_fallbacks(
 
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
+    scaffold = build_route_semantic_scaffold(graph, ctx.topology)
+    if scaffold is None:
+        query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
+        return ExitTurnExecution(None, (), (), (), (), query)
     frame_ownership = (
         capture_linear_entry_frame_ownership(graph, ctx.station_offsets)
         if ctx.station_offsets is not None
         else LinearEntryFrameOwnership(())
     )
-    scaffold = build_route_semantic_scaffold(graph, ctx.topology)
-    if scaffold is None:
-        query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
-        return ExitTurnExecution(None, (), (), (), (), query)
     provenance = _plan_provenance(graph, scaffold.topology.connectors)
     indexes = _build_planner_indexes(scaffold)
     built_groups = _build_group_plans(graph, ctx, scaffold, indexes, provenance)
@@ -2088,31 +2105,8 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
         ctx,
         plans,
         assignments_by_plan,
+        frame_ownership,
     )
-    proposed_by_plan = {
-        plan.id: {
-            (station_id, lane.line_id): lane.planned_offset
-            for lane in plan.source_lanes
-            for station_id in lane.station_ids
-        }
-        for plan in plans
-        if plan.disposition is ExitTurnDisposition.PLANNED
-    }
-    conflicting_systems = {
-        plan.system_id
-        for plan in plans
-        if conflicting_linear_entry_frame_assignments(
-            proposed_by_plan.get(plan.id, {}), frame_ownership
-        )
-    }
-    for plan in plans:
-        if (
-            plan.disposition is ExitTurnDisposition.PLANNED
-            and plan.system_id in conflicting_systems
-        ):
-            cross_plan_reasons.setdefault(
-                plan.id, "linear-entry-frame-ownership-conflict"
-            )
     plans, references, demands = _apply_cross_plan_fallbacks(
         plans,
         references,
@@ -2123,15 +2117,16 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     )
 
     if ctx.station_offsets is not None:
+        trial_offsets = dict(ctx.station_offsets)
         for plan in plans:
             if plan.disposition is not ExitTurnDisposition.PLANNED:
                 continue
             for lane in plan.source_lanes:
                 for station_id in lane.station_ids:
-                    ctx.station_offsets[(station_id, lane.line_id)] = (
-                        lane.planned_offset
-                    )
-        validate_linear_entry_frame_ownership(ctx.station_offsets, frame_ownership)
+                    trial_offsets[(station_id, lane.line_id)] = lane.planned_offset
+        validate_linear_entry_frame_ownership(trial_offsets, frame_ownership)
+        ctx.station_offsets.clear()
+        ctx.station_offsets.update(trial_offsets)
 
     plan_by_id = {plan.id: plan for plan in plans}
     owner_by_member = _index_unique_member_owners(plans)
