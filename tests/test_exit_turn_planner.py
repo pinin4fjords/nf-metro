@@ -53,6 +53,8 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
 from nf_metro.parser.route_topology import build_route_topology_query
 from nf_metro.render.plan import freeze_render_value
+from nf_metro.render.svg import station_marker_box
+from nf_metro.themes import NFCORE_THEME
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -532,6 +534,22 @@ def test_linear_entry_cohort_keeps_one_lane_frame(
         assert levels == pytest.approx(
             [levels[0] + rank * 4.0 for rank in range(len(levels))]
         )
+
+
+def test_adjacent_local_terminator_does_not_inflate_entry_frame_pills() -> None:
+    graph, offsets, _observation = _observe(
+        TOPOLOGIES / "external_owner_exit_lane_frame.mmd"
+    )
+    inherited = ("lower", "straight", "wrap")
+    inherited_span = max(offsets["before", line_id] for line_id in inherited) - min(
+        offsets["before", line_id] for line_id in inherited
+    )
+
+    for station_id in ("before", "split"):
+        _cx, _cy, _width, height, _radius = station_marker_box(
+            graph, NFCORE_THEME, graph.stations[station_id], offsets
+        )
+        assert height == pytest.approx(inherited_span + 2 * NFCORE_THEME.station_radius)
 
 
 @pytest.mark.parametrize(
