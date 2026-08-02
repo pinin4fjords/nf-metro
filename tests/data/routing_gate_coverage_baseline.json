@@ -85,7 +85,7 @@
   "exit_turns.py::and _segment_direction(start, end) is turn_direction::#1",
   "exit_turns.py::and abs(proposed - axis.fixed_anchor_offset) > COORD_TOLERANCE::#1",
   "exit_turns.py::and axis.fixed_anchor_offset is not None::#1",
-  "exit_turns.py::and plan.system_id in conflicting_systems::#1",
+  "exit_turns.py::and plan.id in conflicting_plan_ids::#1",
   "exit_turns.py::and requirement.turn_direction is not None::#1",
   "exit_turns.py::elif tuple(seed.family_id for seed in final_classification.seeds) != tuple(::#1",
   "exit_turns.py::for owner in (first_owner, second_owner):::#1",

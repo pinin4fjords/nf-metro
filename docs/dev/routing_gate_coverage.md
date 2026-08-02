@@ -198,50 +198,50 @@ Gates with an un-exercised arm:
 | 1732 | `if incumbent.id == plan.id:` | `->L1734` |  |
 | 1767 | `if owners and plan.id not in owners:` | `->L1768` |  |
 | 1768 | `for owner in owners:` | `->L1769`, `->L1770` |  |
-| 1784 | `and plan.system_id in conflicting_systems` | `->L1786` |  |
-| 1802 | `and axis.fixed_anchor_offset is not None` | `->L1791` |  |
-| 1803 | `and abs(proposed - axis.fixed_anchor_offset) > COORD_TOLERANCE` | `->L1805` |  |
-| 1929 | `if abs(first_offset - second_offset) > COORD_TOLERANCE:` | `->L1931` |  |
-| 1931 | `for owner in (first_owner, second_owner):` | `->L1928`, `->L1932` |  |
-| 1932 | `if owner is not None:` | `->L1931`, `->L1933` |  |
-| 1939 | `if not additions:` | `->L1941` |  |
-| 1979 | `if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:` | `->L1980` |  |
-| 1989 | `if geometry.bundle_offsets is None:` | `->L1990` |  |
-| 2076 | `if scaffold is None:` | `->L2077` |  |
-| 2155 | `if transition_key in transition_by_edge:` | `->L2156` |  |
-| 2182 | `if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:` | `->L2184` |  |
-| 2191 | `if len(points) >= 3:` | `->L2198` |  |
-| 2194 | `_segment_direction(before, start) is run_direction` | `->L2198` |  |
-| 2195 | `and _segment_direction(start, end) is turn_direction` | `->L2198` |  |
-| 2239 | `if ctx.exit_turns is None:` | `->L2240` |  |
-| 2250 | `if family_id is not assignment.planned_family_id:` | `->L2251` |  |
-| 2263 | `if (` | `->L2272` |  |
-| 2281 | `run is None` | `->L2286` |  |
-| 2282 | `or turn is None` | `->L2286` |  |
-| 2283 | `or assignment.launch_coordinate is None` | `->L2286` |  |
-| 2284 | `or assignment.minimum_runway is None` | `->L2286` |  |
-| 2290 | `if segment_rank is None:` | `->L2291` |  |
-| 2331 | `if (` | `->L2343` |  |
-| 2370 | `if rank is None:` | `->L2371` |  |
-| 2432 | `if current.keys() != snapshot.geometry.keys():` | `->L2433` |  |
-| 2447 | `if current[key] != state:` | `->L2448` |  |
-| 2480 | `station_id not in graph.stations` | `->L2483` |  |
-| 2481 | `or lane.line_id not in graph.station_lines(station_id)` | `->L2483` |  |
-| 2489 | `if (station_id, lane.line_id) not in station_offsets or (` | `->L2496` |  |
-| 2504 | `if len(transition_routes) != 1:` | `->L2505` |  |
-| 2542 | `route.exit_lane_transition_plan_id != str(exit_turn_plan.id)` | `->L2547` |  |
-| 2543 | `or route.offset_regime is not OffsetRegime.BAKED` | `->L2547` |  |
-| 2544 | `or route.points != expected_route.points` | `->L2547` |  |
-| 2545 | `or route.curve_radii != expected_route.curve_radii` | `->L2547` |  |
-| 2563 | `if not _fixed_axis_matches_plan(` | `->L2568` |  |
-| 2574 | `if any(` | `->L2583` |  |
-| 2591 | `if len(member_routes) != 1:` | `->L2592` |  |
-| 2599 | `if route.exit_turn_family_id != assignment.planned_family_id.value:` | `->L2600` |  |
-| 2607 | `if route.exit_turn_axis_id is not None:` | `->L2608` |  |
-| 2616 | `if (` | `->L2630` |  |
-| 2638 | `route.exit_turn_axis_id != str(assignment.axis_id)` | `->L2641` |  |
-| 2639 | `or route.exit_turn_segment_rank is None` | `->L2641` |  |
-| 2652 | `if (` | `->L2674` |  |
+| 1783 | `and plan.id in conflicting_plan_ids` | `->L1785` |  |
+| 1801 | `and axis.fixed_anchor_offset is not None` | `->L1790` |  |
+| 1802 | `and abs(proposed - axis.fixed_anchor_offset) > COORD_TOLERANCE` | `->L1804` |  |
+| 1928 | `if abs(first_offset - second_offset) > COORD_TOLERANCE:` | `->L1930` |  |
+| 1930 | `for owner in (first_owner, second_owner):` | `->L1927`, `->L1931` |  |
+| 1931 | `if owner is not None:` | `->L1930`, `->L1932` |  |
+| 1938 | `if not additions:` | `->L1940` |  |
+| 1978 | `if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:` | `->L1979` |  |
+| 1988 | `if geometry.bundle_offsets is None:` | `->L1989` |  |
+| 2081 | `if scaffold is None:` | `->L2082` |  |
+| 2159 | `if transition_key in transition_by_edge:` | `->L2160` |  |
+| 2186 | `if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:` | `->L2188` |  |
+| 2195 | `if len(points) >= 3:` | `->L2202` |  |
+| 2198 | `_segment_direction(before, start) is run_direction` | `->L2202` |  |
+| 2199 | `and _segment_direction(start, end) is turn_direction` | `->L2202` |  |
+| 2243 | `if ctx.exit_turns is None:` | `->L2244` |  |
+| 2254 | `if family_id is not assignment.planned_family_id:` | `->L2255` |  |
+| 2267 | `if (` | `->L2276` |  |
+| 2285 | `run is None` | `->L2290` |  |
+| 2286 | `or turn is None` | `->L2290` |  |
+| 2287 | `or assignment.launch_coordinate is None` | `->L2290` |  |
+| 2288 | `or assignment.minimum_runway is None` | `->L2290` |  |
+| 2294 | `if segment_rank is None:` | `->L2295` |  |
+| 2341 | `if (` | `->L2353` |  |
+| 2380 | `if rank is None:` | `->L2381` |  |
+| 2442 | `if current.keys() != snapshot.geometry.keys():` | `->L2443` |  |
+| 2457 | `if current[key] != state:` | `->L2458` |  |
+| 2490 | `station_id not in graph.stations` | `->L2493` |  |
+| 2491 | `or lane.line_id not in graph.station_lines(station_id)` | `->L2493` |  |
+| 2499 | `if (station_id, lane.line_id) not in station_offsets or (` | `->L2506` |  |
+| 2514 | `if len(transition_routes) != 1:` | `->L2515` |  |
+| 2552 | `route.exit_lane_transition_plan_id != str(exit_turn_plan.id)` | `->L2557` |  |
+| 2553 | `or route.offset_regime is not OffsetRegime.BAKED` | `->L2557` |  |
+| 2554 | `or route.points != expected_route.points` | `->L2557` |  |
+| 2555 | `or route.curve_radii != expected_route.curve_radii` | `->L2557` |  |
+| 2573 | `if not _fixed_axis_matches_plan(` | `->L2578` |  |
+| 2584 | `if any(` | `->L2593` |  |
+| 2601 | `if len(member_routes) != 1:` | `->L2602` |  |
+| 2609 | `if route.exit_turn_family_id != assignment.planned_family_id.value:` | `->L2610` |  |
+| 2617 | `if route.exit_turn_axis_id is not None:` | `->L2618` |  |
+| 2626 | `if (` | `->L2640` |  |
+| 2648 | `route.exit_turn_axis_id != str(assignment.axis_id)` | `->L2651` |  |
+| 2649 | `or route.exit_turn_segment_rank is None` | `->L2651` |  |
+| 2662 | `if (` | `->L2684` |  |
 
 ## `inter_section.py`
 
