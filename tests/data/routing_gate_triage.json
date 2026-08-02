@@ -63,12 +63,24 @@
     "note": "Non-cross_row bypass guard: the endpoints list always includes the source and target sections (both in src_row), so it is never empty; the default-clearance arm only guards a degenerate empty endpoint set.",
     "status": "defensive"
   },
+  "common.py::if len({round(value, 6) for value in port_ys}) != n:::#1": {
+    "note": "A complete entry port assigns every distinct line a unique station-offset slot. Duplicate port-Y values therefore require a malformed route set that bypassed station offset allocation; test_invalid_opposing_candidate_is_rejected[duplicate-port-slot] exercises the rejection directly.",
+    "status": "defensive"
+  },
+  "common.py::if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:::#1": {
+    "note": "A complete destination bundle receives one contiguous n-slot channel band from gap materialization, so its peel-X extent cannot exceed (n-1)*step. The wider-band arm protects hand-built or corrupted route geometry and is exercised by test_invalid_opposing_candidate_is_rejected[noncontiguous-channel-band].",
+    "status": "defensive"
+  },
   "common.py::if n == 0:::#1": {
     "note": "Empty-bundle guard: all callers (normalize.py 291/1648, inter_section_handlers.py 783/796/2132) derive bundle_widths from a non-empty bundle line count, so n is always >=1; the empty-list arm is never taken.",
     "status": "defensive"
   },
   "common.py::if other.section_id:::#1": {
     "note": "The prefer_upstream=False scan reads a junction's incident neighbour on either side, always a sectioned station or port; the section-less (False) arm only guards a junction-to-junction edge valid construction never produces.",
+    "status": "defensive"
+  },
+  "common.py::if port_ys[-1] - port_ys[0] > (n - 1) * step + COORD_TOLERANCE:::#1": {
+    "note": "Station offset allocation gives a complete n-line entry port one contiguous n-slot band, so its port-Y extent is exactly bounded by (n-1)*step. The wider-band reject is exercised by test_invalid_opposing_candidate_is_rejected[noncontiguous-port-band].",
     "status": "defensive"
   },
   "common.py::if s.bbox_h <= 0:::#1": {
@@ -101,6 +113,10 @@
   },
   "common.py::if section is None:::#1": {
     "note": "resolve_section_colrow accepts a station whose owning section may not resolve. Production routing passes resolved ports or junctions with an incident sectioned port, so the None return only protects a malformed or incomplete graph.",
+    "status": "defensive"
+  },
+  "common.py::if shared_hi - shared_lo < min_common_approach - COORD_TOLERANCE:::#1": {
+    "note": "Inter-row placement reserves at least the two-corner runway used by side-port peel-off handlers, so complete opposing entry tails share at least min_common_approach vertically. A shorter overlap is malformed settled geometry; test_invalid_opposing_candidate_is_rejected[insufficient-common-approach] exercises the guard.",
     "status": "defensive"
   },
   "common.py::if seg_len2 == 0:::#1": {
@@ -583,6 +599,10 @@
     "note": "_gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint.",
     "status": "defensive"
   },
+  "normalize.py::if any(::#8": {
+    "note": "Compatibility convergence may not move a planner-owned final channel or reseat a channel through a foreign section. Complete direct-port opposing tails are unplanned and placement reserves their target band; the true arm therefore defends broken ownership or obstruction state. test_planner_owned_opposing_group_is_left_atomic and test_obstructed_opposing_group_is_left_atomic exercise both rejection reasons.",
+    "status": "defensive"
+  },
   "normalize.py::if actual - common <= COORD_TOLERANCE_FINE:::#1": {
     "note": "Production coincident turns have enough shared runway after planning and already resolve to the same radius. The correction arm is a defensive repair for directly supplied or future route geometry and is exercised by the coincident-corner unit tests.",
     "status": "defensive"
@@ -673,6 +693,10 @@
   },
   "normalize.py::if not (riser_spans_lane and riser_ahead):::#1": {
     "note": "Reachability guard in _land_lane_changing_feeder_on_trunk_riser: the trunk's riser has to cross the feeder's lane and stand in the feeder's direction of travel before the feeder can terminate on it. Only one corpus fixture reaches the guard at all (exit_run_three_drop_columns, the sole adjacent merge feeder whose direct run changes lane), and there the riser both spans the lane and stands ahead, so the reject arm needs a trunk that turns before the feeder junction or lands short of its lane.",
+    "status": "defensive"
+  },
+  "normalize.py::if opposing_bundle is not None and {::#1": {
+    "note": "iter_opposing_entry_confluences requires the complete direct-port line set, while by_port can only add a member through convergence-junction aliasing. Resolved convergence junctions replace the direct approach rather than coexist with a complete direct-port bundle, so unequal ownership sets require an inconsistent route/context pair. test_opposing_group_with_an_extra_mapped_approach_uses_generic_ownership exercises the defensive fallback.",
     "status": "defensive"
   },
   "normalize.py::if not trunks:::#1": {

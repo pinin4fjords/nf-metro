@@ -1,0 +1,28 @@
+%%metro line: feed_a | Feed A | #3779b1
+%%metro line: feed_b | Feed B | #6ef362
+%%metro line: direct | Direct | #a66d13
+%%metro grid: feeder_a | 0,0
+%%metro grid: feeder_b | 2,0
+%%metro grid: target | 1,1
+%%metro grid: direct_feeder | 2,1
+
+graph LR
+    subgraph feeder_a [Feeder A]
+        feed_a_step[Feed A]
+    end
+    subgraph feeder_b [Feeder B]
+        feed_b_step[Feed B]
+    end
+    subgraph target [Target]
+        %%metro direction: RL
+        target_entry[Target]
+        target_tail[Tail]
+        target_entry -->|feed_a,feed_b,direct| target_tail
+    end
+    subgraph direct_feeder [Direct Feeder]
+        %%metro direction: RL
+        direct_step[Direct]
+    end
+    feed_a_step -->|feed_a| target_entry
+    feed_b_step -->|feed_b| target_entry
+    direct_step -->|direct| target_entry

@@ -147,6 +147,7 @@
     "guide/03b_fan_in_merge.mmd"
   ],
   "merge_port": [
+    "opposing_entry_partial_port_line.mmd",
     "topologies/bottom_row_climb_clear_corridor.mmd",
     "topologies/bypass_fan_in_outer_slot.mmd",
     "topologies/complex_multipath.mmd",
