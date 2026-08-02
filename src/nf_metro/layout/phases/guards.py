@@ -5210,6 +5210,7 @@ def _guard_planned_fan_frame_realised(
     offsets: dict[tuple[str, str], float],
 ) -> None:
     """Raise when a fan's settled frame disagrees with its semantic contract."""
+    from nf_metro.layout.fan_plans import fan_lane_offsets
     from nf_metro.layout.route_plan import FanAppearancePolicy
 
     invalid_policy = next(
@@ -5262,15 +5263,14 @@ def _guard_planned_fan_frame_realised(
         frame = plan.frame
         if not plan.owns_geometry or frame is None:
             continue
-        if (
-            plan.appearance_policy is FanAppearancePolicy.SYMMETRIC
-            and len(plan.branches) == 2
-        ):
-            lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
-            expected_lane_offsets = (
-                -frame.secondary.step / 2,
-                frame.secondary.step / 2,
-            )
+        lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
+        expected_lane_offsets = fan_lane_offsets(
+            plan.branches,
+            plan.appearance_policy,
+            frame.secondary.step,
+            plan.appearance_centreline_branch_id,
+        )
+        if plan.appearance_policy is FanAppearancePolicy.SYMMETRIC:
             if any(
                 actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
                 for actual, target in zip(
@@ -5282,6 +5282,22 @@ def _guard_planned_fan_frame_realised(
                     f"lane offsets {lane_offsets!r}; expected "
                     f"{expected_lane_offsets!r} around one centreline"
                 )
+        elif plan.layout_station_ids and (
+            plan.appearance_centreline_branch_id is None
+            or sum(offset == 0.0 for offset in lane_offsets) != 1
+            or any(offset is None or offset < 0.0 for offset in lane_offsets)
+            or any(
+                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+                for actual, target in zip(
+                    lane_offsets, expected_lane_offsets, strict=True
+                )
+            )
+        ):
+            raise PhaseInvariantError(
+                f"{phase}: straight planned fan {plan.id!s} does not keep its "
+                f"top branch on the centreline; lane offsets {lane_offsets!r}, "
+                f"expected {expected_lane_offsets!r}"
+            )
 
         anchor_id = plan.local_frame_anchor_station_id
         anchor = graph.stations.get(anchor_id or "")

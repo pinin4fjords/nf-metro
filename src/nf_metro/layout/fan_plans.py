@@ -81,6 +81,64 @@ def symmetric_lane_offsets(branch_count: int, lane_pitch: float) -> tuple[float,
     return tuple((rank - midpoint) * lane_pitch for rank in range(branch_count))
 
 
+def fan_lane_offsets(
+    branches: Sequence[FanBranchPlan],
+    appearance_policy: FanAppearancePolicy,
+    lane_pitch: float,
+    appearance_centreline_branch_id: FanBranchPlanId | None = None,
+) -> tuple[float, ...]:
+    """Return canonical lane offsets for an authored fan appearance."""
+    if not isinstance(appearance_policy, FanAppearancePolicy):
+        raise ValueError("fan appearance policy is not canonical")
+    if (
+        appearance_policy is FanAppearancePolicy.SYMMETRIC
+        or appearance_centreline_branch_id is None
+    ):
+        return symmetric_lane_offsets(len(branches), lane_pitch)
+    if not branches:
+        raise ValueError("fan requires at least one branch")
+    if appearance_centreline_branch_id not in {branch.id for branch in branches}:
+        raise ValueError("fan appearance centreline names an unknown branch")
+    offsets = {appearance_centreline_branch_id: 0.0}
+    offsets.update(
+        (branch.id, slot * lane_pitch)
+        for slot, branch in enumerate(
+            (
+                branch
+                for branch in branches
+                if branch.id != appearance_centreline_branch_id
+            ),
+            start=1,
+        )
+    )
+    return tuple(offsets[branch.id] for branch in branches)
+
+
+def _appearance_centreline_branch_id(
+    branches: Sequence[FanBranchPlan],
+    appearance_policy: FanAppearancePolicy,
+    structural_trunk_rank: int | None,
+) -> FanBranchPlanId | None:
+    """Choose the branch that a straight local fan keeps on its main track."""
+    if appearance_policy is not FanAppearancePolicy.STRAIGHT or not any(
+        branch.lane_station_ids for branch in branches
+    ):
+        return None
+    trunk_branches = tuple(
+        branch for branch in branches if branch.is_trunk_continuation
+    )
+    if len(trunk_branches) == 1:
+        return trunk_branches[0].id
+    if structural_trunk_rank is not None:
+        structural_trunk = next(
+            (branch for branch in branches if branch.rank == structural_trunk_rank),
+            None,
+        )
+        if structural_trunk is not None:
+            return structural_trunk.id
+    return min(branches, key=lambda branch: (branch.opening_rank, branch.rank)).id
+
+
 def fan_branch_solo_station_ids(
     graph: MetroGraph, branch: FanBranchPlan
 ) -> frozenset[str]:
@@ -953,6 +1011,7 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         centreline_station_ids=(),
         local_frame_anchor_station_id=None,
         local_frame_anchor_offset=None,
+        appearance_centreline_branch_id=None,
         disposition=FanPlanDisposition.LEGACY,
         legacy_reason=reason,
     )
@@ -1275,33 +1334,29 @@ def _build_candidate(
             )
             for branch in branch_plans
         ]
-    trunk_branches = [branch for branch in branch_plans if branch.is_trunk_continuation]
-    preserve_symmetric_frame = (
-        appearance_policy is FanAppearancePolicy.SYMMETRIC and len(branch_plans) == 2
+    appearance_centreline_branch_id = _appearance_centreline_branch_id(
+        branch_plans,
+        appearance_policy,
+        structural_trunk_rank,
     )
-    if len(trunk_branches) == 1 and not preserve_symmetric_frame:
-        trunk_id = trunk_branches[0].id
-        side_rank = {
-            branch.id: rank
-            for rank, branch in enumerate(
-                (branch for branch in branch_plans if branch.id != trunk_id),
-                start=1,
-            )
-        }
-        branch_plans = [
-            replace(
-                branch,
-                lane_offset=(
-                    0.0 if branch.id == trunk_id else side_rank[branch.id] * lane_pitch
-                ),
-                diagonal_runway=max(
-                    minimum_runway,
-                    branch.diagonal_runway or 0.0,
-                    0.0 if branch.id == trunk_id else side_rank[branch.id] * lane_pitch,
-                ),
-            )
-            for branch in branch_plans
-        ]
+    lane_offsets = fan_lane_offsets(
+        branch_plans,
+        appearance_policy,
+        lane_pitch,
+        appearance_centreline_branch_id,
+    )
+    branch_plans = [
+        replace(
+            branch,
+            lane_offset=lane_offset,
+            diagonal_runway=max(
+                minimum_runway,
+                branch.diagonal_runway or 0.0,
+                abs(lane_offset),
+            ),
+        )
+        for branch, lane_offset in zip(branch_plans, lane_offsets, strict=True)
+    ]
 
     branch_line_sets = [set(branch.line_ids) for branch in branch_plans]
     all_shared_lines = set.intersection(*branch_line_sets)
@@ -1596,6 +1651,9 @@ def _build_candidate(
         direction=direction,
         join_station_id=join_id,
         appearance_policy=appearance_policy,
+        appearance_centreline_branch_id=(
+            appearance_centreline_branch_id if planned else None
+        ),
         branches=(
             tuple(branch_plans)
             if planned

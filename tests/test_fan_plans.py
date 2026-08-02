@@ -170,6 +170,7 @@ def test_branch_rank_comes_from_authored_order() -> None:
     plan = execution.plans[0]
     assert plan.disposition is FanPlanDisposition.PLANNED
     assert tuple(branch.root_station_id for branch in plan.branches) == targets
+    assert plan.appearance_centreline_branch_id is None
     assert tuple(branch.lane_offset for branch in plan.branches) == (
         -15.0,
         -5.0,
@@ -232,6 +233,7 @@ def test_unique_exit_branch_keeps_trunk_on_centreline() -> None:
         False,
         True,
     )
+    assert plan.appearance_centreline_branch_id == plan.branches[1].id
     assert tuple(branch.lane_offset for branch in plan.branches) == (10.0, 0.0)
     assert plan.local_frame_anchor_station_id == "trunk"
     assert plan.local_frame_anchor_offset == 0.0
@@ -295,6 +297,103 @@ def test_straight_diamond_keeps_established_layout_ownership() -> None:
     assert plan.disposition is FanPlanDisposition.LEGACY
     assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
     assert plan.layout_station_ids == ()
+
+
+@pytest.mark.parametrize(
+    "fixture,source_id",
+    [
+        ("wide_label_fan.mmd", "hub"),
+        ("bypass_v_tight.mmd", "m1"),
+        ("junction_entry_collision.mmd", "pre2"),
+    ],
+)
+def test_straight_open_fan_keeps_top_branch_on_centreline(
+    fixture: str, source_id: str
+) -> None:
+    """Straight fans keep their first authored branch on the main track."""
+    path = ROOT / "examples" / "topologies" / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(
+        item for item in graph.fan_plans if item.authored_source_id == source_id
+    )
+
+    assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+    assert plan.disposition is FanPlanDisposition.PLANNED
+    assert plan.frame is not None
+    assert plan.appearance_centreline_branch_id == plan.branches[0].id
+    assert tuple(branch.lane_offset for branch in plan.branches) == pytest.approx(
+        tuple(rank * plan.frame.secondary.step for rank in range(len(plan.branches)))
+    )
+    fork = graph.stations[plan.fork_station_id]
+    first_branch = graph.stations[plan.branches[0].lane_station_ids[0]]
+    assert plan.frame.secondary.get(first_branch) == pytest.approx(
+        plan.frame.secondary.get(fork)
+    )
+
+
+@pytest.mark.parametrize(
+    "fixture,source_id",
+    [
+        ("wide_label_fan.mmd", "hub"),
+        ("bypass_v_tight.mmd", "m1"),
+        ("junction_entry_collision.mmd", "pre2"),
+    ],
+)
+def test_symmetric_open_fan_straddles_centreline_only_when_requested(
+    fixture: str, source_id: str
+) -> None:
+    """The symmetric directive gives the same fan an evenly centred frame."""
+    path = ROOT / "examples" / "topologies" / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    graph.diamond_style = "symmetric"
+    compute_layout(graph, validate=True)
+    plan = next(
+        item for item in graph.fan_plans if item.authored_source_id == source_id
+    )
+
+    assert plan.appearance_policy is FanAppearancePolicy.SYMMETRIC
+    assert plan.appearance_centreline_branch_id is None
+    assert plan.frame is not None
+    assert tuple(branch.lane_offset for branch in plan.branches) == pytest.approx(
+        symmetric_lane_offsets(len(plan.branches), plan.frame.secondary.step)
+    )
+
+
+def test_runtime_guard_rejects_symmetric_straight_open_fan_plan() -> None:
+    """A straight plan cannot silently realise symmetric lane geometry."""
+    path = ROOT / "examples" / "topologies" / "wide_label_fan.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=False)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+    assert plan.frame is not None
+    symmetric_offsets = symmetric_lane_offsets(
+        len(plan.branches), plan.frame.secondary.step
+    )
+    bad_branches = tuple(
+        replace(branch, lane_offset=offset)
+        for branch, offset in zip(plan.branches, symmetric_offsets, strict=True)
+    )
+    with pytest.raises(
+        ValueError,
+        match="straight local fan must have one non-negative centreline lane",
+    ):
+        replace(plan, branches=bad_branches)
+    object.__setattr__(
+        plan,
+        "branches",
+        bad_branches,
+    )
+
+    with pytest.raises(
+        PhaseInvariantError,
+        match="straight planned fan .* does not keep its top branch on the centreline",
+    ):
+        _guard_planned_fan_frame_realised(
+            graph,
+            "test",
+            offsets=compute_station_offsets(graph),
+        )
 
 
 def test_same_line_open_boundary_fan_keeps_established_layout_ownership() -> None:
@@ -480,9 +579,10 @@ def test_resolved_port_fork_uses_its_section_direction() -> None:
     assert plan.direction == "TB"
     assert plan.frame.primary.name == DemandAxis.Y.value
     assert plan.frame.secondary.step == 30.0
-    assert tuple(branch.lane_offset for branch in plan.branches) == (-15.0, 15.0)
+    assert tuple(branch.lane_offset for branch in plan.branches) == (0.0, 30.0)
+    assert plan.appearance_centreline_branch_id == plan.branches[0].id
     assert plan.local_frame_anchor_station_id == "a"
-    assert plan.local_frame_anchor_offset == -15.0
+    assert plan.local_frame_anchor_offset == 0.0
 
 
 def test_common_resolved_approach_is_owned_as_one_fan_seam() -> None:

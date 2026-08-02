@@ -780,6 +780,7 @@ class FanPlan:
     direction: FlowDirection | None
     join_station_id: str | None
     appearance_policy: FanAppearancePolicy
+    appearance_centreline_branch_id: FanBranchPlanId | None
     branches: tuple[FanBranchPlan, ...]
     offset_line_order: tuple[str, ...]
     authored_edge_ids: tuple[ConnectorId, ...]
@@ -845,6 +846,11 @@ class FanPlan:
     def _validate_membership(self) -> None:
         if not isinstance(self.appearance_policy, FanAppearancePolicy):
             raise ValueError("fan appearance policy is not canonical")
+        if self.appearance_centreline_branch_id is not None and (
+            self.appearance_centreline_branch_id
+            not in {branch.id for branch in self.branches}
+        ):
+            raise ValueError("fan appearance centreline names an unknown branch")
         if len(set(self.authored_edge_ids)) != len(self.authored_edge_ids):
             raise ValueError("fan plan repeats an authored member")
         expected_authored_edge_ids = tuple(
@@ -908,6 +914,38 @@ class FanPlan:
             and self.appearance_policy is FanAppearancePolicy.STRAIGHT
         ):
             raise ValueError("straight-diamond geometry requires established layout")
+        local_frame_owned = bool(self.layout_station_ids)
+        has_appearance_centreline = self.appearance_centreline_branch_id is not None
+        if (
+            planned
+            and self.appearance_policy is FanAppearancePolicy.STRAIGHT
+            and local_frame_owned != has_appearance_centreline
+        ):
+            raise ValueError(
+                "straight local fan requires one appearance centreline branch"
+            )
+        if (
+            self.appearance_policy is FanAppearancePolicy.SYMMETRIC
+            and has_appearance_centreline
+        ):
+            raise ValueError("symmetric fan cannot name a straight centreline branch")
+        if not planned and has_appearance_centreline:
+            raise ValueError("legacy fan cannot own an appearance centreline")
+        if has_appearance_centreline:
+            lane_offsets = tuple(branch.lane_offset for branch in self.branches)
+            if (
+                sum(offset == 0.0 for offset in lane_offsets) != 1
+                or any(offset is None or offset < 0.0 for offset in lane_offsets)
+                or next(
+                    branch.lane_offset
+                    for branch in self.branches
+                    if branch.id == self.appearance_centreline_branch_id
+                )
+                != 0.0
+            ):
+                raise ValueError(
+                    "straight local fan must have one non-negative centreline lane"
+                )
         if planned != (self.frame is not None and self.legacy_reason is None):
             raise ValueError("fan disposition and geometry ownership disagree")
         if planned and any(branch.lane_offset is None for branch in self.branches):
