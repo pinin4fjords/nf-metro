@@ -378,6 +378,61 @@ def test_symmetric_open_fan_straddles_centreline_only_when_requested(
     )
 
 
+@pytest.mark.parametrize(
+    ("fixture", "hub_id", "branch_ids", "axis"),
+    [
+        ("file_icons.mmd", "align", ("ref_in", "reads_in"), "y"),
+        (
+            "file_icons.mmd",
+            "collect",
+            ("aln_out", "report_out", "results_out"),
+            "y",
+        ),
+        (
+            "tb_file_termini.mmd",
+            "report",
+            ("multiqc", "bundle", "report_html"),
+            "x",
+        ),
+    ],
+)
+def test_balanced_file_examples_explicitly_request_symmetric_fans(
+    fixture: str,
+    hub_id: str,
+    branch_ids: tuple[str, ...],
+    axis: str,
+) -> None:
+    path = ROOT / "examples" / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+
+    assert graph.diamond_style == "symmetric"
+    centreline = getattr(graph.stations[hub_id], axis)
+    offsets = sorted(
+        getattr(graph.stations[station_id], axis) - centreline
+        for station_id in branch_ids
+    )
+    assert offsets == pytest.approx(tuple(-offset for offset in reversed(offsets)))
+
+
+def test_tb_file_termini_symmetric_plan_preserves_complete_branch_bundles() -> None:
+    path = ROOT / "examples" / "tb_file_termini.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "report")
+
+    assert plan.disposition is FanPlanDisposition.PLANNED
+    assert plan.appearance_policy is FanAppearancePolicy.SYMMETRIC
+    assert all(branch.line_ids == ("rna", "dna") for branch in plan.branches)
+    assert tuple(branch.lane_offset for branch in plan.branches) == pytest.approx(
+        symmetric_lane_offsets(len(plan.branches), plan.appearance_lane_pitch)
+    )
+    assert graph.stations["bundle"].x == pytest.approx(graph.stations["bundle_zip"].x)
+    assert graph.stations["multiqc"].x == pytest.approx(
+        graph.stations["multiqc_html"].x
+    )
+
+
 def test_runtime_guard_rejects_symmetric_straight_open_fan_plan() -> None:
     """A straight plan cannot silently realise symmetric lane geometry."""
     path = ROOT / "examples" / "topologies" / "wide_label_fan.mmd"
