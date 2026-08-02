@@ -224,8 +224,11 @@ test("layout controls write %%metro directives and sync from source", async () =
   await expect.poll(getValue).not.toContain("center_ports");
 
   // number -> writes the value and re-renders
-  await page.locator("#opt-font-scale").fill("1.5");
-  await page.locator("#opt-font-scale").blur();
+  const fontScale = page.locator("#opt-font-scale");
+  await fontScale.fill("1.5");
+  await page.evaluate(() => window.syncDirectiveControls());
+  await expect(fontScale).toHaveValue("1.5");
+  await fontScale.blur();
   await expect.poll(getValue).toContain("%%metro font_scale: 1.5");
 
   // controls sync FROM a source directive
