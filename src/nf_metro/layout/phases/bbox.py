@@ -1098,6 +1098,36 @@ def _fit_bboxes_to_content_top(
             move_section_bbox_min_edge(graph, section, "y", hug)
 
 
+def refit_empty_section_tops_to_content(
+    graph: MetroGraph,
+    section_ids: set[str],
+    section_y_padding: float,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """Remove empty top slack after a scoped late content placement.
+
+    A late semantic owner may move section content after the corpus-wide bbox
+    fit.  Only sections named by that owner are eligible here, and only when the
+    band above their highest content carries no port or bypass approach.
+    """
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+
+    for section_id in section_ids:
+        section = graph.sections.get(section_id)
+        if (
+            section is None
+            or section.bbox_h <= 0
+            or not _section_band_is_empty(graph, section)
+        ):
+            continue
+        hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
+        if hug is not None and hug > section.bbox_y + SAME_COORD_TOLERANCE:
+            move_section_bbox_min_edge(graph, section, "y", hug)
+
+
 def refit_tops_after_entry_resnap(
     graph: MetroGraph,
     section_ids: set[str],

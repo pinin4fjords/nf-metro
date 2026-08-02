@@ -49,7 +49,11 @@ from nf_metro.layout.routing import (
 )
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
-from nf_metro.layout.routing.normalize import _set_vchannel_x, _VChannel
+from nf_metro.layout.routing.normalize import (
+    _fan_opening_reference_radii,
+    _set_vchannel_x,
+    _VChannel,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge
 
@@ -109,14 +113,28 @@ def _touched_corner_mismatches(
     Returns any disagreement between the stored radius and the central derivation
     as ``(line_id, radius_index, stored, expected)``.
     """
-    # (id(route), radius_index) -> (route, offset); the last reseat wins, so the
-    # recorded offset is the one the final radius was derived at.
-    touched: dict[tuple[int, int], tuple[RoutedPath, float]] = {}
+    # (id(route), radius_index) -> (route, offset, reference radius); the last
+    # reseat wins, so these are the inputs that produced the final radius.
+    touched: dict[tuple[int, int], tuple[RoutedPath, float, float]] = {}
 
-    def vspy(ch: _VChannel, new_x: float, offset: float = 0.0) -> None:
-        impl(ch, new_x, offset)
-        for radius_idx in (ch.idx - 1, ch.idx):
-            touched[(id(ch.route), radius_idx)] = (ch.route, offset)
+    def vspy(
+        ch: _VChannel,
+        new_x: float,
+        offset: float = 0.0,
+        *,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
+    ) -> None:
+        impl(
+            ch,
+            new_x,
+            offset,
+            base_radius=base_radius,
+            base_radius_out=base_radius_out,
+        )
+        radius_out = base_radius if base_radius_out is None else base_radius_out
+        touched[(id(ch.route), ch.idx - 1)] = (ch.route, offset, base_radius)
+        touched[(id(ch.route), ch.idx)] = (ch.route, offset, radius_out)
 
     def hspy(
         rp: RoutedPath,
@@ -126,8 +144,8 @@ def _touched_corner_mismatches(
         offset_out: float = 0.0,
     ) -> None:
         _PROD_SET_HTRUNK_Y(rp, k, new_y, offset_in, offset_out)
-        touched[(id(rp), k - 1)] = (rp, offset_in)
-        touched[(id(rp), k)] = (rp, offset_out)
+        touched[(id(rp), k - 1)] = (rp, offset_in, CURVE_RADIUS)
+        touched[(id(rp), k)] = (rp, offset_out, CURVE_RADIUS)
 
     monkeypatch.setattr(normalize, "_set_vchannel_x", vspy)
     monkeypatch.setattr(normalize, "_set_htrunk_y", hspy)
@@ -139,7 +157,7 @@ def _touched_corner_mismatches(
     route_ids = {id(r) for r in routes}
 
     mismatches: list[tuple[str, int, float, float]] = []
-    for (rid, radius_idx), (rp, offset) in touched.items():
+    for (rid, radius_idx), (rp, offset, reference) in touched.items():
         if rid not in route_ids:
             continue
         radii = rp.curve_radii
@@ -150,7 +168,11 @@ def _touched_corner_mismatches(
         if (rp.line_id, round(vertex[0]), round(vertex[1])) in shared:
             continue  # owned by the coincident-corner unification pass
         expected = concentric_corner_radius_at(
-            pts[radius_idx], pts[radius_idx + 1], pts[radius_idx + 2], offset
+            pts[radius_idx],
+            pts[radius_idx + 1],
+            pts[radius_idx + 2],
+            offset,
+            reference,
         )
         if abs(radii[radius_idx] - expected) > _RADIUS_TOLERANCE:
             mismatches.append((rp.line_id, radius_idx, radii[radius_idx], expected))
@@ -186,6 +208,31 @@ def test_set_vchannel_x_rederives_flanking_corners_from_waypoints() -> None:
     ]
     assert route.curve_radii == expected
     assert route.curve_radii == [CURVE_RADIUS, CURVE_RADIUS]
+
+
+def test_terminal_fan_descent_derives_only_its_opening_corner() -> None:
+    """A route ending after its opening descent has no outgoing corner."""
+    route = RoutedPath(
+        edge=Edge(source="s", target="t", line_id="l"),
+        line_id="l",
+        points=[(0.0, 0.0), (20.0, 0.0), (20.0, 100.0)],
+        is_inter_section=True,
+        offset_regime=OffsetRegime.BAKED,
+        curve_radii=[CURVE_RADIUS],
+    )
+    channel = _VChannel(
+        route=route,
+        idx=1,
+        x=20.0,
+        y_lo=0.0,
+        y_hi=100.0,
+        down=True,
+    )
+
+    assert _fan_opening_reference_radii([(channel, 16.0, -4.0)], CURVE_RADIUS) == (
+        14.0,
+        CURVE_RADIUS,
+    )
 
 
 _XFAIL_COINCIDE_CENTRAL_DERIVATION: dict[str, str] = {}
@@ -224,8 +271,21 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
     """
     touched: list[object] = []
 
-    def spy(ch: _VChannel, new_x: float, offset: float = 0.0) -> None:
-        _PROD_SET_VCHANNEL_X(ch, new_x, offset)
+    def spy(
+        ch: _VChannel,
+        new_x: float,
+        offset: float = 0.0,
+        *,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
+    ) -> None:
+        _PROD_SET_VCHANNEL_X(
+            ch,
+            new_x,
+            offset,
+            base_radius=base_radius,
+            base_radius_out=base_radius_out,
+        )
         touched.append(ch)
 
     monkeypatch.setattr(normalize, "_set_vchannel_x", spy)
@@ -249,7 +309,14 @@ def test_reintroduced_hand_clobber_is_detected(
     with the central derivation.
     """
 
-    def clobber(ch: _VChannel, new_x: float, offset: float = 0.0) -> None:
+    def clobber(
+        ch: _VChannel,
+        new_x: float,
+        offset: float = 0.0,
+        *,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
+    ) -> None:
         rp = ch.route
         pts = rp.points
         k = ch.idx

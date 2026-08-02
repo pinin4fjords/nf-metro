@@ -12,18 +12,17 @@ Covers:
 * Happy-path: every gallery example and topology fixture (including
   ``dogleg_twoline_fanout``, the reported defect, and the upward variant)
   routes its clean-divergence fan-outs without a crossing.
-* Meaningfulness: with the source-section divergence reorder disabled the
-  checker fires on the reported fixture, so the invariant genuinely encodes the
-  bug.
+* Meaningfulness: a crossing planted at the routed-geometry boundary fires the
+  checker, independent of the production phase that prevents it.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-import nf_metro.layout.routing.offsets as routing_offsets
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.invariants import (
@@ -64,13 +63,30 @@ def test_no_distinct_line_fanout_crossing_in_gallery(path: Path) -> None:
     assert not violations, "\n".join(v.message() for v in violations)
 
 
-def test_checker_fires_without_divergence_reorder(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Disabling the source-section divergence reorder puts the lead-in Y order
-    out of phase with the descent X order, reproducing the crossing the
-    invariant is meant to catch -- proving the check is not vacuous."""
-    monkeypatch.setattr(routing_offsets, "_reorder_fanout_divergence", lambda ctx: None)
+def test_checker_fires_when_clean_divergence_routes_cross() -> None:
+    """A crossing planted at the routed-geometry boundary is rejected."""
     graph, routes, offsets = _route(EXAMPLE_TOPOLOGIES / "dogleg_twoline_fanout.mmd")
-    violations = check_no_distinct_line_fanout_crossing(graph, routes, offsets)
-    assert violations, "expected a distinct fan-out crossing with the reorder off"
+    assert not check_no_distinct_line_fanout_crossing(graph, routes, offsets)
+
+    corrupted = [replace(route, points=list(route.points)) for route in routes]
+    near = next(
+        route
+        for route in corrupted
+        if route.line_id == "to_src" and route.edge.source in graph.junction_ids
+    )
+    far = next(
+        route
+        for route in corrupted
+        if route.line_id == "to_new" and route.edge.source in graph.junction_ids
+    )
+    crossing_x = near.points[1][0]
+    turn_x = (far.points[0][0] + crossing_x) / 2
+    far.points[1] = (turn_x, far.points[1][1])
+    far.points[2] = (turn_x, far.points[2][1])
+
+    violations = check_no_distinct_line_fanout_crossing(graph, corrupted, offsets)
+    assert violations, "expected the planted distinct fan-out crossing"
+    assert any(
+        {violation.line_a, violation.line_b} == {"to_src", "to_new"}
+        for violation in violations
+    )

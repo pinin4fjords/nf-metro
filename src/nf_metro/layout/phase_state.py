@@ -55,7 +55,7 @@ NON_STAGE_PHASES: tuple[str, ...] = (PRE_LAYOUT, POST_LAYOUT, RAIL_LAYOUT)
 # Section-layout stage ids in execution order.  Mirrors the ``_snap(graph, ...)``
 # checkpoints in ``engine._compute_section_layout`` and its Pass C helpers;
 # ``test_phase_state_registry`` asserts the two stay identical.  Note ``6.15a``
-# runs before ``6.15``.
+# runs before ``6.15``, and ``6.18a`` follows ``6.18``.
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "1.1", "1.2", "1.3", "1.4", "1.5",
     "2.1",
@@ -63,7 +63,7 @@ CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "4.8", "4.9", "4.10",
     "5.1", "5.2", "5.3", "5.4", "5.5",
     "6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7", "6.8", "6.9", "6.10",
-    "6.11", "6.12", "6.13", "6.14", "6.15a", "6.15", "6.16", "6.17", "6.18",
+    "6.11", "6.12", "6.13", "6.14", "6.15a", "6.15", "6.16", "6.17", "6.18", "6.18a",
 )  # fmt: skip
 
 

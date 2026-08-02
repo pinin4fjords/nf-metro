@@ -1516,6 +1516,18 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
                 ctx.offsets[(junction_id, line_id)] = port_off
 
 
+def _apply_planned_fan_offsets(ctx: _OffsetCtx) -> None:
+    """Apply the complete immutable offset assignment of every planned fan."""
+    for plan in ctx.graph.fan_plans:
+        if not plan.owns_geometry:
+            continue
+        for carrier in plan.offset_carriers:
+            for assignment in carrier.assignments:
+                ctx.offsets[(carrier.station_id, assignment.line_id)] = (
+                    assignment.slot * ctx.offset_step
+                )
+
+
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     """Whether the run leaving a TOP/BOTTOM entry port heads to larger X.
 
@@ -2875,68 +2887,58 @@ def _convergence_feeders(
     """Classify a LEFT entry port's bypass-convergence feeders.
 
     Returns ``[(line_id, source_col, is_bypass), ...]`` when several lines
-    riding one shared bypass trunk converge into *port_id* and want
-    approach-depth slotting; ``None`` otherwise.
+    converge into *port_id* and need approach-depth slotting; ``None`` otherwise.
 
-    A feeder is a *bypass* when it hops two or more columns past intervening
-    sections, so it must route around their boxes and climb a riser into the
-    port.  Two shapes qualify:
-
-    * **All-bypass** - every feeder is a bypass spanning two or more source
-      columns: one shared bypass trunk into a common port.
-    * **Climb-with-shallow-feeder** - a climbing bundle of two or more bypass
-      feeders from distinct columns, joined by shallow feeders from adjacent
-      columns.  Left in declaration order a shallow feeder is slotted port-far
-      and weaves across the climbing risers at the turn; admitting it lets
-      approach-depth slot it port-near so the bundle turns concentrically.
-      Requires one feeder edge per line and one line per source column, so a
-      fan-in (a line or column feeding the port more than once) does not match.
-
-    A single bypass joined by a shallow feeder is one riser plus a flat line,
-    not a bundle to weave through, so two distinct bypass columns are required.
+    All-bypass bundles qualify. Mixed bundles require one line per source
+    column, then qualify when either at least two feeders bypass intervening
+    sections or a single bypass and its nearer feeders descend from one
+    off-target row. A single bypass joined by a flat same-row feeder does not
+    form a climbing bundle and remains in its ordinary lane order.
     """
-    tgt_col = _resolve_section_col(graph, graph.stations[port_id])
-    if tgt_col is None:
+    target_col = _resolve_section_col(graph, graph.stations[port_id])
+    if target_col is None:
         return None
+    target_row = _resolve_section_colrow(graph, graph.stations[port_id])[1]
 
     feeders: list[tuple[str, int, bool]] = []
+    source_rows: set[int | None] = set()
     for edge in graph.edges_to(port_id):
-        src = graph.station_for_edge_source(edge)
-        col, row = _resolve_section_colrow(graph, src)
-        if col is None:
+        source = graph.station_for_edge_source(edge)
+        source_col, source_row = _resolve_section_colrow(graph, source)
+        if source_col is None:
             return None
-        is_bypass = abs(tgt_col - col) > 1 and _has_intervening_sections(
-            graph, col, tgt_col, row
+        bypass = abs(target_col - source_col) > 1 and _has_intervening_sections(
+            graph, source_col, target_col, source_row
         )
-        feeders.append((edge.line_id, col, is_bypass))
+        feeders.append((edge.line_id, source_col, bypass))
+        source_rows.add(source_row)
 
-    if len({col for _, col, _ in feeders}) < 2:
+    source_cols = {source_col for _line_id, source_col, _bypass in feeders}
+    if len(source_cols) < 2:
+        return None
+    if all(bypass for _line_id, _source_col, bypass in feeders):
+        return feeders
+    if len(source_cols) != len(feeders) or len({f[0] for f in feeders}) != len(feeders):
         return None
 
-    if all(is_bypass for _, _, is_bypass in feeders):
+    bypass_count = sum(bypass for _line_id, _source_col, bypass in feeders)
+    if bypass_count >= 2:
         return feeders
-
-    bypass_cols = {col for _, col, is_bypass in feeders if is_bypass}
-    if (
-        len({col for _, col, _ in feeders}) == len(feeders)
-        and len({lid for lid, _, _ in feeders}) == len(feeders)
-        and len(bypass_cols) >= 2
-    ):
+    if bypass_count == 1 and len(source_rows) == 1 and target_row not in source_rows:
         return feeders
     return None
 
 
-def _bypass_convergence_feeders(
+def cross_row_convergence_channel_order(
     graph: MetroGraph, port_id: str
-) -> dict[str, int] | None:
-    """Source columns ``{line_id: source_grid_col}`` of a qualifying convergence.
-
-    Thin view over :func:`_convergence_feeders` for callers ordering by column.
-    """
+) -> list[str] | None:
+    """Outer-to-inner channels for a single-bypass off-row convergence."""
     feeders = _convergence_feeders(graph, port_id)
     if feeders is None:
         return None
-    return {lid: col for lid, col, _ in feeders}
+    if sum(bypass for _, _, bypass in feeders) != 1:
+        return None
+    return [line_id for line_id, _col, _bypass in sorted(feeders, key=lambda f: f[1])]
 
 
 def _left_entry_lr_ports(ctx: _OffsetCtx) -> Iterator[tuple[str, Port]]:
@@ -3378,6 +3380,8 @@ def compute_station_offsets(
     _recompact_fan_port_bordering_stations(ctx, same_y_adj, sec_layer_stations)
     _reconcile_horizontal_offsets(ctx)
     _center_rail_boundary_port_bundles(ctx)
+    _recenter_single_line_corridor_entry(ctx)
+    _apply_planned_fan_offsets(ctx)
     return ctx.offsets
 
 

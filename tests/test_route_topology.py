@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import os
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,7 @@ from nf_metro.parser.route_topology import (
     build_route_topology,
     build_route_topology_query,
     capture_authored_routes,
+    snapshot_resolved_authored_edges,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -58,6 +60,14 @@ def _parse(text: str) -> MetroGraph:
     return graph
 
 
+def _resolved_paths_by_id(graph: MetroGraph):
+    resolution = graph.route_resolution
+    assert resolution is not None
+    return {
+        item.authored_edge_id: item.edge_paths for item in resolution.authored_edges
+    }
+
+
 def test_direct_connector_records_its_resolved_synthetic_chain() -> None:
     graph = _parse(_two_section_text("    a -->|red| b\n"))
     topology = graph.route_topology
@@ -65,11 +75,15 @@ def test_direct_connector_records_its_resolved_synthetic_chain() -> None:
     assert topology is not None and resolution is not None
 
     connector = topology.connectors[0]
-    connector_resolution = resolution.connectors[0]
+    connector_resolution = next(
+        item
+        for item in resolution.authored_edges
+        if item.authored_edge_id == connector.id
+    )
     exit_port = resolution.exit_ports[0]
     entry_port = resolution.entry_ports[0]
 
-    assert connector_resolution.connector_id == connector.id
+    assert connector_resolution.authored_edge_id == connector.id
     assert exit_port.group_id == connector.exit_group_id
     assert entry_port.group_id == connector.entry_group_id
     assert connector_resolution.edge_paths == (
@@ -116,11 +130,10 @@ def test_connector_identity_preserves_multiline_order_and_exact_duplicates() -> 
         connector.id for connector in topology.connectors
     )
     assert topology.bundles[0].line_ids == ("red", "blue")
-    assert [item.connector_id for item in resolution.connectors] == [
-        connector.id for connector in topology.connectors
-    ]
-    assert resolution.connectors[0].edge_paths == resolution.connectors[2].edge_paths
-    assert resolution.connectors[0].edge_paths is resolution.connectors[2].edge_paths
+    traces = _resolved_paths_by_id(graph)
+    connector_paths = [traces[connector.id] for connector in topology.connectors]
+    assert connector_paths[0] == connector_paths[2]
+    assert connector_paths[0] is connector_paths[2]
 
 
 def test_one_to_many_fanout_maps_to_one_topology_divergence() -> None:
@@ -156,16 +169,13 @@ graph LR
     )
     assert fan.group_id == divergence.id
     assert fan.junction_id in graph.junctions
-    for connector in resolution.connectors:
+    traces = _resolved_paths_by_id(graph)
+    for connector in topology.connectors:
         assert (
             exit_port.port_id,
             fan.junction_id,
-            next(
-                item.line_id
-                for item in topology.connectors
-                if item.id == connector.connector_id
-            ),
-        ) in connector.edge_paths[0]
+            connector.line_id,
+        ) in traces[connector.id][0]
 
 
 def test_fanout_and_merge_groups_map_to_their_junctions() -> None:
@@ -179,9 +189,7 @@ def test_fanout_and_merge_groups_map_to_their_junctions() -> None:
     merge_by_group = {
         item.group_id: item.junction_id for item in resolution.convergences
     }
-    connector_traces = {
-        item.connector_id: item.edge_paths for item in resolution.connectors
-    }
+    connector_traces = _resolved_paths_by_id(graph)
     entry_ports = {item.group_id: item.port_id for item in resolution.entry_ports}
 
     for convergence in topology.convergences:
@@ -255,6 +263,59 @@ graph LR
     assert tuple(original_red) == (("a", "b"), ("c", "d"))
 
 
+def test_topology_and_trace_preserve_every_authored_edge() -> None:
+    graph = _parse((ROOT / "examples" / "guide" / "03_fan_out.mmd").read_text())
+    topology = graph.route_topology
+    resolution = graph.route_resolution
+    assert topology is not None and resolution is not None
+
+    assert len(topology.authored_edges) == 15
+    assert len(topology.connectors) == 6
+    assert tuple(item.authored_edge_id for item in resolution.authored_edges) == tuple(
+        item.id for item in topology.authored_edges
+    )
+    assert Counter(
+        edge_id for network in topology.line_networks for edge_id in network.edge_ids
+    ) == Counter(item.id for item in topology.authored_edges)
+
+    internal = next(
+        item
+        for item in topology.authored_edges
+        if (item.key.source, item.key.target, item.key.line_id)
+        == ("fastqc", "trim", "wgs")
+    )
+    query = build_route_topology_query(graph)
+    assert query is not None
+    assert query.authored_edge(internal.id) is internal
+    assert query.resolved_paths(internal.id) == (
+        (ResolvedEdge("fastqc", "trim", "wgs"),),
+    )
+    assert query.authored_edge_ids_for_edge(ResolvedEdge("fastqc", "trim", "wgs")) == (
+        internal.id,
+    )
+    assert not query.connector_ids_for_edge(ResolvedEdge("fastqc", "trim", "wgs"))
+
+
+def test_sectionless_graph_preserves_its_authored_edge_path() -> None:
+    graph = _parse(
+        """\
+%%metro line: red | Red | #f00
+graph LR
+    a[A]
+    b[B]
+    a -->|red| b
+"""
+    )
+    topology = graph.route_topology
+    resolution = graph.route_resolution
+    assert topology is not None and resolution is not None
+    assert not topology.connectors
+    assert len(topology.authored_edges) == len(resolution.authored_edges) == 1
+    assert resolution.authored_edges[0].edge_paths == (
+        (ResolvedEdge("a", "b", "red"),),
+    )
+
+
 def test_programmatic_duplicate_edges_get_stable_unique_identities() -> None:
     graph = MetroGraph(
         stations={
@@ -275,6 +336,9 @@ def test_programmatic_duplicate_edges_get_stable_unique_identities() -> None:
     resolution = resolve_section_endpoints(graph, lineage)
 
     topology = build_route_topology(capture, lineage, resolution)
+    resolved_authored_edges = snapshot_resolved_authored_edges(
+        capture, lineage, graph.edges
+    )
 
     assert [connector.duplicate_ordinal for connector in topology.connectors] == [
         0,
@@ -293,7 +357,9 @@ def test_programmatic_duplicate_edges_get_stable_unique_identities() -> None:
         connectors=(corrupted_endpoint,),
     )
     with pytest.raises(ValueError, match="absent from RouteTopology"):
-        _resolve_sections(graph, corrupted_resolution, topology)
+        _resolve_sections(
+            graph, corrupted_resolution, topology, resolved_authored_edges
+        )
 
 
 def test_terminus_topology_uses_the_resolvers_reanchored_entry_side() -> None:
@@ -361,8 +427,21 @@ graph LR
     assert [connector.duplicate_ordinal for connector in connectors] == [0, 1]
     assert len({connector.id for connector in connectors}) == 2
     assert connectors[0].entry_group_id == connectors[1].entry_group_id
-    traces = {item.connector_id: item.edge_paths for item in resolution.connectors}
+    traces = _resolved_paths_by_id(graph)
     assert traces[connectors[0].id] == traces[connectors[1].id]
+    assert traces[connectors[0].id][0][0].source == "a"
+    assert traces[connectors[0].id][0][-1].target == "output"
+
+    internal = next(
+        item
+        for item in topology.authored_edges
+        if (item.key.source, item.key.target, item.key.line_id)
+        == ("b", "output", "red")
+    )
+    internal_path = traces[internal.id][0]
+    assert internal_path[0].source == "b"
+    assert internal_path[-1].target == "output"
+    assert any(is_converge_junction(edge.target) for edge in internal_path)
 
 
 def test_repeated_bypasses_record_every_parallel_resolved_path() -> None:
@@ -388,7 +467,10 @@ graph LR
     )
     resolution = graph.route_resolution
     assert resolution is not None
-    paths = resolution.connectors[0].edge_paths
+    topology = graph.route_topology
+    assert topology is not None
+    connector_id = topology.connectors[0].id
+    paths = _resolved_paths_by_id(graph)[connector_id]
 
     assert len(paths) == 3
     assert {path[0].target for path in paths} == {
@@ -505,6 +587,59 @@ def test_route_topology_query_metadata_contract_is_explicit() -> None:
         RouteTopologyQueryError, match="both route_topology and route_resolution"
     ):
         build_route_topology_query(resolution_only)
+
+
+def test_route_topology_query_cache_tracks_metadata_identity() -> None:
+    graph = _parse(_two_section_text("    a -->|red| b\n"))
+    first = build_route_topology_query(graph)
+    assert first is not None
+    assert build_route_topology_query(graph) is first
+
+    topology = graph.route_topology
+    resolution = graph.route_resolution
+    assert topology is not None and resolution is not None
+    graph.route_topology = dataclasses.replace(topology)
+    second = build_route_topology_query(graph)
+    assert second is not None and second is not first
+    assert build_route_topology_query(graph) is second
+
+    graph.route_resolution = dataclasses.replace(resolution)
+    third = build_route_topology_query(graph)
+    assert third is not None and third is not second
+    assert build_route_topology_query(graph) is third
+
+
+def test_route_topology_query_cache_preserves_deepcopy_isolation() -> None:
+    graph = _parse(_two_section_text("    a -->|red| b\n"))
+    query = build_route_topology_query(graph)
+    topology = graph.route_topology
+    resolution = graph.route_resolution
+    assert query is not None and topology is not None and resolution is not None
+
+    copied = copy.deepcopy(graph)
+    copied_query = build_route_topology_query(copied)
+    assert copied.route_topology is not topology
+    assert copied.route_resolution is not resolution
+    assert copied_query is not query
+    assert build_route_topology_query(copied) is copied_query
+
+    shared = copy.deepcopy(
+        graph,
+        {id(topology): topology, id(resolution): resolution},
+    )
+    assert build_route_topology_query(shared) is query
+
+
+def test_route_topology_query_rejects_an_incomplete_authored_edge_trace() -> None:
+    graph = _parse(_two_section_text("    a -->|red| b\n"))
+    resolution = graph.route_resolution
+    assert resolution is not None
+    graph.route_resolution = dataclasses.replace(resolution, authored_edges=())
+
+    with pytest.raises(
+        RouteTopologyQueryError, match="resolved authored edge ids do not match"
+    ):
+        build_route_topology_query(graph)
 
 
 def test_metadata_free_topology_adapters_preserve_source_contracts() -> None:
@@ -648,7 +783,7 @@ def test_topology_records_are_deeply_immutable_and_detached() -> None:
     resolution = graph.route_resolution
     assert resolution is not None
     with pytest.raises(dataclasses.FrozenInstanceError):
-        resolution.connectors = ()  # type: ignore[misc]
+        resolution.authored_edges = ()  # type: ignore[misc]
 
     visit(topology)
     visit(resolution)
@@ -915,9 +1050,9 @@ def test_corpus_topology_shapes_match_byte_identical_resolved_graphs() -> None:
         resolution = graph.route_resolution
         assert topology is not None and resolution is not None
         assert _predicted_shapes(topology) == _actual_shapes(graph), path
-        assert tuple(item.connector_id for item in resolution.connectors) == tuple(
-            item.id for item in topology.connectors
-        ), path
+        assert tuple(
+            item.authored_edge_id for item in resolution.authored_edges
+        ) == tuple(item.id for item in topology.authored_edges), path
         assert tuple(item.group_id for item in resolution.exit_ports) == tuple(
             item.id for item in topology.exit_groups
         ), path
@@ -932,18 +1067,18 @@ def test_corpus_topology_shapes_match_byte_identical_resolved_graphs() -> None:
         }, path
 
         final_edges = {(edge.source, edge.target, edge.line_id) for edge in graph.edges}
-        connector_by_id = {item.id: item for item in topology.connectors}
-        for connector in resolution.connectors:
-            authored = connector_by_id[connector.connector_id]
-            assert connector.edge_paths, (path, connector)
-            for edge_path in connector.edge_paths:
-                assert edge_path, (path, connector)
-                assert all(edge.line_id == authored.line_id for edge in edge_path)
+        authored_by_id = {item.id: item for item in topology.authored_edges}
+        for resolved in resolution.authored_edges:
+            authored = authored_by_id[resolved.authored_edge_id]
+            assert resolved.edge_paths, (path, resolved)
+            for edge_path in resolved.edge_paths:
+                assert edge_path, (path, resolved)
+                assert all(edge.line_id == authored.key.line_id for edge in edge_path)
                 assert all(
                     left.target == right.source
                     for left, right in zip(edge_path, edge_path[1:])
-                ), (path, connector)
-                assert set(edge_path) <= final_edges, (path, connector)
+                ), (path, resolved)
+                assert set(edge_path) <= final_edges, (path, resolved)
                 saw_bypass_path |= any(
                     is_bypass_v(edge.source) or is_bypass_v(edge.target)
                     for edge in edge_path
@@ -962,7 +1097,7 @@ def test_corpus_topology_shapes_match_byte_identical_resolved_graphs() -> None:
         )
 
     assert digest.hexdigest() == (
-        "a3dcf0536bbbf13044454c14f77a655c72b1cf18c93585d1d08b9e868557b55b"
+        "a325d2113e826b31883a1d6b477a7e68f4fc5783d9c4772644d9595c0f3ba4c1"
     )
     assert saw_bypass_path
 

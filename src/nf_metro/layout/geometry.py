@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -182,13 +182,17 @@ class AxisFrame:
     ``primary_sign`` is ``-1`` for RL, which runs the primary axis in reverse
     (mirrored by ``single_section._mirror_primary``), else ``+1``.
 
-    ``secondary_sign`` is the lane fan direction.  A 90-degree-CW rotation maps
-    LR's screen-down lane (+Y) to screen-left (-X), so TB fans lanes to -X
-    (``-1``).  LR/RL keep ``+1`` (RL reverses only the primary); BT is TB
-    reflected on its flow axis, so it fans lanes to +X (``+1``) -- the rotation
-    image of TB's lane.  The sign is applied at the draw accessor
-    (:func:`station_lane_coord`, :func:`lane_delta`), never to a stored offset,
-    which stays positive.
+    ``secondary_sign`` maps the offsets of lines inside a station or bundle. A
+    90-degree-CW rotation maps LR's screen-down lane (+Y) to screen-left (-X),
+    so TB line offsets use -X (``-1``). LR/RL keep ``+1`` (RL reverses only the
+    primary); BT is TB reflected on its flow axis, so it uses +X (``+1``). The
+    sign is applied at the draw accessor (:func:`station_lane_coord`,
+    :func:`lane_delta`), never to a stored offset, which stays positive.
+
+    Fan station tracks are a separate appearance frame. They progress along the
+    positive secondary axis unless a feeder on that axis makes the opposite
+    handedness shorter; :class:`~nf_metro.layout.route_plan.FanPlan` freezes
+    that decision as ``appearance_lane_sign``.
     """
 
     primary: Axis
@@ -313,6 +317,51 @@ def perpendicular_port_sides(direction: str) -> tuple[PortSide, PortSide]:
     if lanes_run_along_x(direction):
         return (PortSide.LEFT, PortSide.RIGHT)
     return (PortSide.TOP, PortSide.BOTTOM)
+
+
+def section_lane_sign(
+    section: Section, positive_fan_section_ids: Collection[str]
+) -> float:
+    """Return the screen sign used for line offsets across a section's lanes."""
+    if section.id in positive_fan_section_ids:
+        return 1.0
+    return AxisFrame.secondary_sign_for(section.direction)
+
+
+def flow_port_sides(direction: str) -> tuple[PortSide, PortSide]:
+    """Return the flow-start and flow-end boundary sides for a direction."""
+    from nf_metro.parser.model import PortSide
+
+    primary_on_x = AxisFrame.axes_for_direction(direction)[0] == "x"
+    low, high = (
+        (PortSide.LEFT, PortSide.RIGHT)
+        if primary_on_x
+        else (PortSide.TOP, PortSide.BOTTOM)
+    )
+    return (low, high) if AxisFrame.flow_sign(direction) > 0 else (high, low)
+
+
+def packed_section_visual_order(
+    sections: Mapping[str, Section], member_ids: Iterable[str]
+) -> tuple[str, ...]:
+    """Return a cell pack's section ids in left-to-right visual order."""
+    present_ids = tuple(item for item in member_ids if item in sections)
+    if not present_ids:
+        return ()
+    lead = sections[present_ids[0]].direction
+    if lanes_run_along_y(lead) and AxisFrame.flow_sign(lead) < 0:
+        return tuple(reversed(present_ids))
+    return present_ids
+
+
+def packed_section_visual_rank(
+    graph: MetroGraph, section: Section, col: int, row: int
+) -> int:
+    """Return a section's left-to-right rank inside an authored cell pack."""
+    visual_ids = packed_section_visual_order(
+        graph.sections, graph.cell_packs.get((col, row), ())
+    )
+    return visual_ids.index(section.id) if section.id in visual_ids else 0
 
 
 def port_free_axis(side: PortSide) -> str:

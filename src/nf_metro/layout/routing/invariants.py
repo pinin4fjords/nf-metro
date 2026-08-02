@@ -50,6 +50,7 @@ from nf_metro.layout.geometry import (
     point_to_polyline_distance,
 )
 from nf_metro.layout.phases.guards import GuardSpec
+from nf_metro.layout.route_plan import FanRouteEmitter
 from nf_metro.layout.route_topology import (
     convergence_entry_port_id,
     convergence_junction_ids,
@@ -3506,6 +3507,63 @@ def check_concentric_bundle_corners(
     return violations
 
 
+class FanOpeningFailure(str, Enum):
+    """Why a structurally expected fan opening has no usable first turn."""
+
+    DEGENERATE = "degenerate"
+    NON_CARDINAL = "non-cardinal"
+    WRONG_AXIS = "wrong-axis"
+    MALFORMED = "malformed"
+
+
+@dataclass(frozen=True)
+class FanOpeningGeometryViolation:
+    """A semantic fan member cannot form the expected orthogonal opening."""
+
+    junction_id: str
+    target_id: str
+    line_id: str
+    failure: FanOpeningFailure
+
+    def message(self) -> str:
+        return (
+            f"fan-out junction {self.junction_id!r}: line {self.line_id!r} to "
+            f"{self.target_id!r} has a {self.failure.value} opening"
+        )
+
+
+def _translated_corner(
+    point_a: tuple[float, float],
+    radius_a: float,
+    point_b: tuple[float, float],
+    radius_b: float,
+    incoming: tuple[float, float],
+    outgoing: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float], float] | None:
+    """Resolve corresponding arc centres when both flanking legs translate."""
+    delta_x = point_b[0] - point_a[0]
+    delta_y = point_b[1] - point_a[1]
+    tangent_shift = abs(
+        delta_x * (incoming[0] + outgoing[0]) + delta_y * (incoming[1] + outgoing[1])
+    )
+    if tangent_shift > _WHOLESALE_LEG_TOLERANCE:
+        return None
+    incoming_leg_offset = abs(delta_x * outgoing[0] + delta_y * outgoing[1])
+    outgoing_leg_offset = abs(delta_x * incoming[0] + delta_y * incoming[1])
+    if (
+        max(incoming_leg_offset, outgoing_leg_offset) <= _WHOLESALE_LEG_TOLERANCE
+        or abs(incoming_leg_offset - outgoing_leg_offset) > _WHOLESALE_LEG_TOLERANCE
+    ):
+        return None
+    centre_a = _arc_centre(point_a, radius_a, incoming, outgoing)
+    centre_b = _arc_centre(point_b, radius_b, incoming, outgoing)
+    return (
+        centre_a,
+        centre_b,
+        math.hypot(centre_a[0] - centre_b[0], centre_a[1] - centre_b[1]),
+    )
+
+
 def _pair_corner_violation(
     src_id: str,
     tgt_id: str,
@@ -3529,23 +3587,12 @@ def _pair_corner_violation(
             > COORD_TOLERANCE_FINE
         ):
             continue
-        # Corner displacement of B from A, split into the offset of the
-        # incoming leg (component along turn_out) and the outgoing leg
-        # (component along turn_in).
-        vx = pb[k][0] - pa[k][0]
-        vy = pb[k][1] - pa[k][1]
-        d_in_leg = abs(vx * turn_out[0] + vy * turn_out[1])
-        d_out_leg = abs(vx * turn_in[0] + vy * turn_in[1])
-        if max(d_in_leg, d_out_leg) <= _WHOLESALE_LEG_TOLERANCE:
-            continue  # coincident corner: no bundle offset to nest
-        if abs(d_in_leg - d_out_leg) > _WHOLESALE_LEG_TOLERANCE:
-            continue  # transition corner: one leg pinned, non-concentric by design
         if k - 1 >= len(radii_a) or k - 1 >= len(radii_b):
             continue
-        ca = _arc_centre(pa[k], radii_a[k - 1], turn_in, turn_out)
-        cb = _arc_centre(pb[k], radii_b[k - 1], turn_in, turn_out)
-        spread = ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5
-        if spread > _CONCENTRIC_CENTRE_TOLERANCE:
+        translated = _translated_corner(
+            pa[k], radii_a[k - 1], pb[k], radii_b[k - 1], turn_in, turn_out
+        )
+        if translated is not None and translated[2] > _CONCENTRIC_CENTRE_TOLERANCE:
             return NonConcentricCornerViolation(
                 edge_source=src_id,
                 edge_target=tgt_id,
@@ -3553,7 +3600,7 @@ def _pair_corner_violation(
                 line_b=rb.line_id,
                 corner_index=k,
                 corner_xy=pa[k],
-                centre_spread=spread,
+                centre_spread=translated[2],
             )
     return None
 
@@ -4507,6 +4554,442 @@ class RightEntryCorridorJog:
         )
 
 
+def _initial_run(
+    points: list[tuple[float, float]],
+) -> tuple[tuple[float, float] | None, float]:
+    """Direction and length of the first non-degenerate cardinal run."""
+    direction: tuple[float, float] | None = None
+    length = 0.0
+    for start, end in zip(points, points[1:]):
+        segment_direction = _segment_unit(start, end)
+        if segment_direction is None:
+            continue
+        if direction is None:
+            direction = segment_direction
+        elif segment_direction != direction:
+            break
+        length += math.hypot(end[0] - start[0], end[1] - start[1])
+    return direction, length
+
+
+def _terminal_direction(
+    points: list[tuple[float, float]],
+) -> tuple[float, float] | None:
+    """Direction of the final non-degenerate cardinal segment."""
+    for start, end in reversed(list(zip(points, points[1:]))):
+        direction = _segment_unit(start, end)
+        if direction is not None:
+            return direction
+    return None
+
+
+@dataclass(frozen=True)
+class _FanOpeningShape:
+    """First three routed legs of one semantic fan member."""
+
+    route: RoutedPath
+    points: list[tuple[float, float]]
+    directions: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    lengths: tuple[float, float, float]
+    radii: list[float]
+
+
+def _axis_segment(
+    start: tuple[float, float], end: tuple[float, float]
+) -> tuple[FanOpeningFailure | None, tuple[float, float] | None, float]:
+    """Classify one routed leg without conflating collapse and diagonal travel."""
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length < _MIN_SEGMENT_LENGTH:
+        return FanOpeningFailure.DEGENERATE, None, length
+    if min(abs(dx), abs(dy)) > COORD_TOLERANCE:
+        return FanOpeningFailure.NON_CARDINAL, None, length
+    return None, _segment_unit(start, end), length
+
+
+def _fan_opening_shape(
+    route: RoutedPath, points: list[tuple[float, float]]
+) -> tuple[_FanOpeningShape | None, FanOpeningFailure | None]:
+    """Classify an exact cardinal A-B-C opening or its failed first leg."""
+    if len(points) < 4:
+        return None, FanOpeningFailure.MALFORMED
+    segments = [_axis_segment(points[index], points[index + 1]) for index in range(3)]
+    failures = tuple(segment[0] for segment in segments)
+    directions = tuple(segment[1] for segment in segments)
+    if failures[0] is not None:
+        if (
+            failures[1:] == (None, None)
+            and directions[1] is not None
+            and directions[2] is not None
+            and abs(
+                directions[1][0] * directions[2][0]
+                + directions[1][1] * directions[2][1]
+            )
+            <= COORD_TOLERANCE_FINE
+        ):
+            return None, failures[0]
+        return None, FanOpeningFailure.MALFORMED
+    if any(failure is not None for failure in failures[1:]):
+        return None, next(failure for failure in failures[1:] if failure is not None)
+    first, middle, last = directions
+    if first is None or middle is None or last is None:
+        return None, FanOpeningFailure.MALFORMED
+    if (
+        abs(first[0] * middle[0] + first[1] * middle[1]) > COORD_TOLERANCE_FINE
+        or abs(middle[0] * last[0] + middle[1] * last[1]) > COORD_TOLERANCE_FINE
+    ):
+        return None, FanOpeningFailure.MALFORMED
+    if first[1] == 0.0 and middle[0] == 0.0:
+        # Reuse the routing primitive's exact H-V definition.  It deliberately
+        # rejects a collapsed or diagonal leg instead of silently skipping it.
+        if opening_horizontal_vertical(points) is None:
+            return None, FanOpeningFailure.MALFORMED
+    return (
+        _FanOpeningShape(
+            route,
+            points,
+            (first, middle, last),
+            (segments[0][2], segments[1][2], segments[2][2]),
+            _resolved_corner_radii(route, points),
+        ),
+        None,
+    )
+
+
+def _middle_runs_overlap(a: _FanOpeningShape, b: _FanOpeningShape) -> bool:
+    """Whether two corresponding opening channels share meaningful travel."""
+    direction = a.directions[1]
+    axis = 1 if direction[1] else 0
+    a_lo, a_hi = sorted((a.points[1][axis], a.points[2][axis]))
+    b_lo, b_hi = sorted((b.points[1][axis], b.points[2][axis]))
+    return min(a_hi, b_hi) - max(a_lo, b_lo) > COORD_TOLERANCE
+
+
+def _planned_fork_edges(graph: MetroGraph) -> dict[str, set[tuple[str, str, str]]]:
+    """Resolved first-branch edges frozen by each complete fan plan."""
+    return {
+        plan.fork_station_id: {
+            (edge.source, edge.target, edge.line_id)
+            for edge in plan.resolved_member_edges
+            if edge.source == plan.fork_station_id
+        }
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+    }
+
+
+@dataclass(frozen=True)
+class _FanOpeningContext:
+    upstream: dict[tuple[str, str], RoutedPath]
+    points: dict[int, list[tuple[float, float]]]
+    shapes: dict[int, _FanOpeningShape]
+    failures: dict[int, FanOpeningFailure]
+    families: tuple[tuple[RoutedPath, ...], ...]
+    expected_ids: frozenset[int]
+    curve_ids: frozenset[int]
+    entry_runways: dict[str, float]
+
+
+def _opening_tails_compatible(
+    points_a: list[tuple[float, float]], points_b: list[tuple[float, float]]
+) -> bool:
+    """Whether planned routes declare the same two cardinal opening legs."""
+    if len(points_a) < 4 or len(points_b) < 4:
+        return False
+    segments_a = [
+        _axis_segment(points_a[index], points_a[index + 1]) for index in (1, 2)
+    ]
+    segments_b = [
+        _axis_segment(points_b[index], points_b[index + 1]) for index in (1, 2)
+    ]
+    directions_a = tuple(segment[1] for segment in segments_a)
+    directions_b = tuple(segment[1] for segment in segments_b)
+    if (
+        any(segment[0] is not None for segment in (*segments_a, *segments_b))
+        or directions_a != directions_b
+        or directions_a[0] is None
+        or directions_a[1] is None
+        or abs(
+            directions_a[0][0] * directions_a[1][0]
+            + directions_a[0][1] * directions_a[1][1]
+        )
+        > COORD_TOLERANCE_FINE
+    ):
+        return False
+    return True
+
+
+def _opening_tails_correspond(
+    points_a: list[tuple[float, float]], points_b: list[tuple[float, float]]
+) -> bool:
+    """Whether compatible tails occupy one translated opening channel."""
+    if not _opening_tails_compatible(points_a, points_b):
+        return False
+    corner_delta = (
+        points_b[1][0] - points_a[1][0],
+        points_b[1][1] - points_a[1][1],
+    )
+    channel_delta = (
+        points_b[2][0] - points_a[2][0],
+        points_b[2][1] - points_a[2][1],
+    )
+    return (
+        math.hypot(
+            corner_delta[0] - channel_delta[0],
+            corner_delta[1] - channel_delta[1],
+        )
+        <= COORD_TOLERANCE
+    )
+
+
+def _fan_opening_context(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> _FanOpeningContext:
+    """Resolve semantic opening families and cache their rendered geometry."""
+    fanouts = fanout_junctions(graph)
+    upstream, _downstream = _fanout_route_maps(routes, fanouts, graph)
+    points = {id(route): apply_route_offsets(route, offsets) for route in routes}
+    planned_edges = _planned_fork_edges(graph)
+    planned: dict[str, list[RoutedPath]] = defaultdict(list)
+    outgoing: dict[tuple[str, str], list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        outgoing[(route.edge.source, route.line_id)].append(route)
+        edge = (route.edge.source, route.edge.target, route.line_id)
+        if edge in planned_edges.get(route.edge.source, set()):
+            planned[route.edge.source].append(route)
+
+    families = tuple(
+        (route_a, route_b)
+        for members in planned.values()
+        for index, route_a in enumerate(members)
+        for route_b in members[index + 1 :]
+        if route_a.line_id != route_b.line_id
+        and _opening_tails_compatible(points[id(route_a)], points[id(route_b)])
+    )
+    family_ids = frozenset(id(route) for members in families for route in members)
+    expected = set(family_ids)
+    emitter_ids = {id(route) for route in routes if route.fan_route_emitter is not None}
+    expected.update(emitter_ids)
+    curve_ids = {
+        id(route)
+        for route_a, route_b in families
+        if _opening_tails_correspond(points[id(route_a)], points[id(route_b)])
+        for route in (route_a, route_b)
+    }
+    curve_ids.update(emitter_ids)
+    for route in routes:
+        incoming = upstream.get((route.edge.source, route.line_id))
+        if (
+            route.edge.source not in fanouts
+            or not route.is_inter_section
+            or incoming is None
+            or graph.ports.get(incoming.edge.source) is None
+            or graph.ports[incoming.edge.source].side is not PortSide.BOTTOM
+            or len(points[id(route)]) < 3
+        ):
+            continue
+        incoming_direction = _terminal_direction(points[id(incoming)])
+        if any(
+            sibling is not route
+            and _initial_run(points[id(sibling)])[0] == incoming_direction
+            for sibling in outgoing[(route.edge.source, route.line_id)]
+        ):
+            expected.add(id(route))
+            curve_ids.add(id(route))
+    shapes: dict[int, _FanOpeningShape] = {}
+    failures: dict[int, FanOpeningFailure] = {}
+    for route in routes:
+        if id(route) not in expected:
+            continue
+        shape, failure = _fan_opening_shape(route, points[id(route)])
+        if shape is not None:
+            shapes[id(route)] = shape
+        elif failure is not None:
+            failures[id(route)] = failure
+    return _FanOpeningContext(
+        upstream,
+        points,
+        shapes,
+        failures,
+        families,
+        frozenset(expected),
+        frozenset(curve_ids),
+        {
+            plan.fork_station_id: plan.entry_runway or 0.0
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+        },
+    )
+
+
+def check_fan_opening_geometry(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[
+    FanOpeningGeometryViolation | StarvedTurnViolation | NonConcentricCornerViolation
+]:
+    """Validate semantic fan openings independently of normalizer metadata.
+
+    Fan-plan membership and final route incidence determine the candidate
+    family.  The route does not self-certify through a rank or exemption flag:
+    every corresponding distinct-line member is classified, malformed first
+    legs remain visible as typed violations, and all formed arcs are compared.
+    """
+    context = _fan_opening_context(graph, routes, offsets)
+
+    violations: list[
+        FanOpeningGeometryViolation
+        | StarvedTurnViolation
+        | NonConcentricCornerViolation
+    ] = []
+    for route in routes:
+        if id(route) not in context.expected_ids:
+            continue
+        outgoing = context.points[id(route)]
+        incoming = context.upstream.get((route.edge.source, route.line_id))
+        if incoming is None:
+            violations.append(
+                FanOpeningGeometryViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    FanOpeningFailure.MALFORMED,
+                )
+            )
+            continue
+        incoming_points = context.points[id(incoming)]
+        incoming_direction = _terminal_direction(incoming_points)
+        if route.fan_route_emitter is not None and (
+            not outgoing
+            or not incoming_points
+            or math.hypot(
+                incoming_points[-1][0] - outgoing[0][0],
+                incoming_points[-1][1] - outgoing[0][1],
+            )
+            > COORD_TOLERANCE
+        ):
+            violations.append(
+                FanOpeningGeometryViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    FanOpeningFailure.MALFORMED,
+                )
+            )
+        failure = context.failures.get(id(route))
+        if failure is not None:
+            violations.append(
+                FanOpeningGeometryViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    failure,
+                )
+            )
+            continue
+        if id(route) not in context.curve_ids:
+            continue
+        shape = context.shapes.get(id(route))
+        if shape is None:
+            outgoing_direction, runway = _initial_run(outgoing)
+            if outgoing_direction is None or len(outgoing) < 3:
+                continue
+        else:
+            outgoing_direction = shape.directions[0]
+            runway = shape.lengths[0]
+        if incoming_direction is None or outgoing_direction != incoming_direction:
+            violations.append(
+                FanOpeningGeometryViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    FanOpeningFailure.WRONG_AXIS,
+                )
+            )
+            continue
+        requested = CURVE_RADIUS
+        if route.fan_route_emitter is not None:
+            requested = max(
+                requested, context.entry_runways.get(route.edge.source, 0.0)
+            )
+        if runway < requested - COORD_TOLERANCE:
+            corner = outgoing[1] if len(outgoing) > 1 else outgoing[0]
+            violations.append(
+                StarvedTurnViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    corner,
+                    runway,
+                    requested,
+                )
+            )
+
+    checked_floor: set[int] = set()
+    for members in context.families:
+        formed = [
+            context.shapes[id(route)]
+            for route in members
+            if id(route) in context.shapes
+        ]
+        for ai, a in enumerate(formed):
+            for b in formed[ai + 1 :]:
+                if (
+                    a.route.line_id == b.route.line_id
+                    or a.route.edge.target == b.route.edge.target
+                    or not _middle_runs_overlap(a, b)
+                    or not _opening_tails_correspond(a.points, b.points)
+                ):
+                    continue
+                corresponding = tuple(
+                    _translated_corner(
+                        a.points[index],
+                        a.radii[index - 1],
+                        b.points[index],
+                        b.radii[index - 1],
+                        a.directions[index - 1],
+                        a.directions[index],
+                    )
+                    for index in (1, 2)
+                )
+                if any(corner is None for corner in corresponding):
+                    continue
+                checked_floor.update((id(a.route), id(b.route)))
+                violation = _pair_corner_violation(
+                    a.route.edge.source,
+                    "fan opening",
+                    a.route,
+                    a.points[:4],
+                    a.radii[:2],
+                    b.route,
+                    b.points[:4],
+                    b.radii[:2],
+                )
+                if violation is not None:
+                    violations.append(violation)
+        for shape in formed:
+            if id(shape.route) not in checked_floor:
+                continue
+            for corner_index in (1, 2):
+                radius = shape.radii[corner_index - 1]
+                if radius < CURVE_RADIUS - COORD_TOLERANCE_FINE:
+                    violations.append(
+                        StarvedTurnViolation(
+                            shape.route.edge.source,
+                            shape.route.edge.target,
+                            shape.route.line_id,
+                            shape.points[corner_index],
+                            radius,
+                            CURVE_RADIUS,
+                        )
+                    )
+    return violations
+
+
 def check_right_entry_corridor_descent_no_jog(
     graph: MetroGraph, routes: list[RoutedPath]
 ) -> list[RightEntryCorridorJog]:
@@ -4527,6 +5010,12 @@ def check_right_entry_corridor_descent_no_jog(
     tol = COORD_TOLERANCE
     violations: list[RightEntryCorridorJog] = []
     for r in routes:
+        if r.fan_route_emitter == FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS.value:
+            # This planned family deliberately continues its vertical source
+            # lanes before traversing to the shared RIGHT-entry corridor.  The
+            # stronger always-on planned-opening contract checks that seam and
+            # the complete first-turn runway.
+            continue
         tgt_port = graph.ports.get(r.edge.target)
         if (
             tgt_port is None
@@ -5369,6 +5858,7 @@ def assert_render_curve_invariants(
             "junction peel-off leaves horizontal trunk at a hard 90",
             check_junction_peeloff_rounded(graph, routes),
         ),
+        ("fan opening geometry", check_fan_opening_geometry(graph, routes, offsets)),
         (
             "inter-section orthogonal turn starved below a formed curve",
             check_orthogonal_turns_form_curves(graph, routes),
@@ -5474,6 +5964,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
     _check_spec(check_junction_peeloff_rounded, "A"),
+    _check_spec(check_fan_opening_geometry, "A"),
     _check_spec(check_orthogonal_turns_form_curves, "A"),
     _check_spec(check_merge_fanout_pivots_shared, "A"),
     _check_spec(check_port_corner_within_bbox, "A"),
@@ -5579,6 +6070,8 @@ __all__ = [
     "CollinearOverlapViolation",
     "DiagonalOverlapViolation",
     "CurveInvariantError",
+    "FanOpeningFailure",
+    "FanOpeningGeometryViolation",
     "FanoutTailGap",
     "HangingRoute",
     "JunctionPeeloffCorner",
@@ -5615,6 +6108,7 @@ __all__ = [
     "check_deferred_offsets_apply_laterally",
     "check_diamond_fan_in_diverges_together",
     "check_fanout_tail_join",
+    "check_fan_opening_geometry",
     "check_no_distinct_line_fanout_crossing",
     "check_merge_branches_meet_trunk",
     "check_merge_feeders_land_on_trunk",

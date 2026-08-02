@@ -26,6 +26,7 @@ from nf_metro.layout.constants import (
     ICON_CAPTION_GAP,
     ICON_HALF_HEIGHT,
     ICON_STACK_LABEL_CLEARANCE,
+    INTER_ROW_EDGE_CLEARANCE,
     LABEL_OFFSET,
     MIN_Y_SPACING_FLOOR,
     ROW_GAP,
@@ -95,6 +96,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     _tighten_lower_rows_after_shrink,
     _top_align_side_entered_vertical_to_feeder,
     push_lower_rows_after_bbox_grow,
+    refit_empty_section_tops_to_content,
     refit_tops_after_entry_resnap,
 )
 from nf_metro.layout.phases.canvas import (  # noqa: F401
@@ -250,6 +252,13 @@ from nf_metro.layout.phases.off_track import (  # noqa: F401
     _off_track_output_below,
     _place_off_track_relative_to_anchors,
     _reanchor_off_track_to_consumer,
+)
+from nf_metro.layout.phases.planned_fans import (  # noqa: F401
+    _apply_planned_fan_geometry,
+    _apply_planned_fan_port_geometry,
+    _fit_planned_fan_bboxes,
+    _snapshot_planned_fan_centrelines,
+    planned_fan_layout_section_ids,
 )
 from nf_metro.layout.phases.ports import (  # noqa: F401
     _align_entry_ports,
@@ -1158,6 +1167,26 @@ def _layout_once(
     validate: bool,
 ) -> None:
     """Run one full positioning pass at the given spacing (idempotent)."""
+    from nf_metro.layout.fan_plans import (
+        build_fan_plan_execution,
+        install_fan_plan_execution,
+    )
+    from nf_metro.parser.route_topology import build_route_topology_query
+
+    topology = build_route_topology_query(graph)
+    if topology is not None:
+        install_fan_plan_execution(
+            graph,
+            build_fan_plan_execution(
+                graph,
+                topology,
+                x_spacing=x_spacing,
+                y_spacing=y_spacing,
+                minimum_runway=INTER_ROW_EDGE_CLEARANCE,
+            ),
+        )
+    else:
+        graph.fan_plan_execution = None
     if not graph.sections:
         _compute_flat_layout(
             graph,
@@ -1560,6 +1589,7 @@ def _compute_section_layout(
     # content downward in shallower sections so the inter-section bundle
     # passes through at a single Y per row.  Bbox tops are preserved.
     _align_row_trunk_ys(graph)
+    _apply_planned_fan_port_geometry(graph)
     # Carrier eligibility needs final boundary X coordinates for its corridor
     # check and final carrier Ys after row-trunk alignment.
     _reconcile_flow_exit_carrier_anchors(graph)
@@ -1570,11 +1600,18 @@ def _compute_section_layout(
     # runs each so that, under ``validate``, a guard asserts the anchors stayed
     # frozen.  See CONTRACT.md (anchor invariant).
 
-    # Stage 4.9: When --center-ports is on, redistribute fan-out siblings
-    # of a section's trunk junction symmetrically around the trunk Y.
-    # Scoped to fan-out side branches only: linear chains, fan-in
-    # structures, and file inputs are left in place.
+    # Stage 4.9: Materialise each complete semantic fan in its relative frame,
+    # then leave unsupported groups to the legacy placement path.
+    _run_placement(
+        graph,
+        validate,
+        "4.9",
+        _apply_planned_fan_geometry,
+        _snapshot_planned_fan_centrelines(graph),
+    )
     _run_placement(graph, validate, "4.9", _redistribute_fanout_siblings, y_spacing)
+    if _fit_planned_fan_bboxes(graph, section_x_padding, section_y_padding):
+        reenforce_column_gaps(graph)
     _snap(graph, "4.9")
 
     # Stage 4.10: Symmetrically fan a column of full-bundle stations
@@ -2013,18 +2050,24 @@ def _finalize_layout(
     }
     if resnapped:
         refit_tops_after_entry_resnap(graph, resnapped, section_y_padding)
+    _apply_planned_fan_port_geometry(graph)
     _position_junctions(graph)
     _snap(graph, "6.16")
     if validate:
         _run_pass_c_guards(graph, "after Stage 6.16")
 
-    # Stage 6.17: Compact symmetric 2-way fork-join diamonds onto
-    # half-pitch offsets (see _apply_half_grid_symmetric_diamonds and
-    # CONTRACT.md Stage 6.17).  Run last so the branches straddle the
-    # section trunk's settled Y exactly.
+    # Stage 6.17: Re-materialise semantic fan frames against their settled
+    # centreline, then compact unsupported legacy diamonds where requested.
+    _run_placement(
+        graph,
+        validate,
+        "6.17",
+        _apply_planned_fan_geometry,
+        _snapshot_planned_fan_centrelines(graph),
+    )
     if graph.diamond_style == "symmetric":
         _apply_half_grid_symmetric_diamonds(graph, y_spacing)
-        _snap(graph, "6.17")
+    _snap(graph, "6.17")
 
     # Stage 6.18: Seat orphaned half-pitch stations on a full grid row (see
     # _expand_orphaned_half_grid_stations and CONTRACT.md Stage 6.18).  Must
@@ -2032,6 +2075,18 @@ def _finalize_layout(
     # half-grid marks are final.
     _expand_orphaned_half_grid_stations(graph, y_spacing, section_y_padding)
     _snap(graph, "6.18")
+
+    # Stage 6.17 is a late semantic placement, downstream of the corpus-wide
+    # content-top fit.  Refit only the sections whose plan-owned coordinates it
+    # materialised, and only when their top band carries no routing approach.
+    planned_fan_sections = planned_fan_layout_section_ids(graph)
+    if planned_fan_sections:
+        refit_empty_section_tops_to_content(
+            graph,
+            planned_fan_sections,
+            section_y_padding,
+        )
+    _snap(graph, "6.18a")
 
     if validate:
         if graph._defer_final_guards:

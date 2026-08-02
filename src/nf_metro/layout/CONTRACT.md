@@ -110,6 +110,13 @@ this sign at the *draw accessor*, never to a stored offset, which stays positive
   builder itself fans purely geometrically along `_right_normal` of travel and is
   not per-axis; rotation lives *above* it, in this offset->coordinate mapping.
 
+`secondary_sign` governs the offsets of lines inside a station or bundle. Fan
+station tracks use a separate plan-owned appearance sign: tracks progress along
+the positive secondary axis for LR, RL, TB, and BT, then mirror when a feeder
+arrives from the positive end of that axis. This keeps the hub on the nearest
+track without changing bundle chirality. Symmetric fans remain centred; the sign
+only determines their branch order on screen.
+
 **Policy:** no new one-off TB branches. A heuristic that needs TB awareness is
 the trigger to convert it to the axis vocabulary, not to add another branch.
 This is machine-enforced by `tests/test_tb_branch_ratchet.py`, which counts
@@ -225,8 +232,12 @@ in 6.1 / 6.2, the balance arrangement in 6.11 - read it from a frozen *placement
 reference* (`_snapshot_placement_refs` populates `graph._placement_ref_y` /
 `_placement_ref_bbox_top`; phases read it via `_ref_y` / `_ref_bbox_top`)
 captured once right before the consumer, rather than from live geometry. The
-reference equals the live geometry at capture time, so the property was added
-with no change to any render.
+reference equals the live geometry at capture time. Planned fan materialisation
+uses the same boundary pattern without a graph-state channel:
+`_snapshot_planned_fan_centrelines` captures a read-only centreline mapping
+after structural settlement and passes it into `_apply_planned_fan_geometry`.
+These frozen inputs preserve the established render while keeping placement
+independent of mutable station and bbox geometry.
 
 ## Inter-phase state protocol
 
@@ -691,15 +702,19 @@ in pipeline order.
   redistribute side stations symmetrically around the trunk Y. No-op
   unless `graph.center_ports` (guard inside the helper, not at the call
   site).
-- **Helper**: `_redistribute_fanout_siblings` (`phases/fan_bundles.py`).
+- **Helpers**: `_snapshot_planned_fan_centrelines` and
+  `_apply_planned_fan_geometry` (`phases/planned_fans.py`) materialise complete
+  semantic plans first; `_redistribute_fanout_siblings`
+  (`phases/fan_bundles.py`) handles unsupported fans.
 - **Precondition**: Trunk Ys aligned (Stage 4.8).
 - **Postcondition**: In qualifying columns, fan-out siblings sit
   symmetrically around the section's LR/RL port trunk anchor (the trunk
   station's own Y only when the section has no such port). Linear chains,
   fan-in structures, and file inputs are left in place.
 - **Invariants preserved**: Trunk station Y. Off-track stations.
-- **Purity**: centres on the frozen port anchor, so the fan does not
-  depend on the trunk station's live Y (#491).
+- **Purity**: semantic plans read a centreline frozen immediately after
+  structural settlement; legacy fans centre on the frozen port anchor. Neither
+  path depends on a governed station's live Y (#491).
 - **Lifecycle:** transient - superseded by Stage 6.7 / 6.11, which
   re-fan the siblings against the final trunk Y (this fan uses the early
   trunk Y).
@@ -1243,9 +1258,12 @@ in pipeline order.
   re-anchors stale junctions (any direction) after the settling phases (17
   across the corpus, some by hundreds of px).
 
-### Stage 6.17: symmetric diamond half-pitch compaction (engine.py)
-- **Purpose**: Under `diamond_style='symmetric'`, compact each clean
-  2-way fork-join diamond (`_iter_symmetric_diamonds`) onto half-pitch
+### Stage 6.17: semantic fan settlement and symmetric compaction (engine.py)
+- **Purpose**: Re-materialise every planned semantic fan against its settled
+  centreline. Under `diamond_style='symmetric'`, a planned two-way fan keeps
+  mirrored half-pitch lanes around that centreline even when topology identifies
+  one branch as the unique continuation. For unsupported legacy fans, compact
+  each clean 2-way fork-join diamond (`_iter_symmetric_diamonds`) onto half-pitch
   offsets `trunk_y +/- 0.5 * y_spacing`, so the diamond reads as a tight
   one-grid-unit bubble rather than straddling the trunk at full pitch
   (as tall as a 3-way fan with an empty trunk row between its branches).
@@ -1254,19 +1272,23 @@ in pipeline order.
   `center_ports`. Records the branches on
   `MetroGraph.half_grid_station_ids`. Runs after every trunk-settling
   pass, so the branches straddle the section trunk's final Y exactly; the
-  compaction only moves them inward toward the trunk, so it never breaks
-  bbox containment.
-- **Helper**: `_apply_half_grid_symmetric_diamonds`.
-- **Precondition**: Trunk Ys settled (post-6.16); `diamond_style`
-  is `symmetric`.
-- **Postcondition**: Each symmetric diamond's branches sit at
-  `trunk_y +/- 0.5 * y_spacing`; their IDs are in
-  `graph.half_grid_station_ids`.
-- **Invariants preserved**: Trunk station Y, ports, bbox containment,
-  the wider fan's full-pitch slots.
+  compaction only moves them inward toward the trunk, so it never breaks bbox
+  containment.
+- **Helpers**: `_snapshot_planned_fan_centrelines` captures the settled frame,
+  `_apply_planned_fan_geometry` materialises it, then
+  `_apply_half_grid_symmetric_diamonds` for symmetric legacy geometry.
+- **Precondition**: Trunk Ys and section bboxes settled (post-6.16).
+- **Postcondition**: Each planned station realises its immutable relative frame.
+  Each symmetric two-way fan straddles one centreline at half pitch; legacy
+  diamond branch IDs are recorded in `graph.half_grid_station_ids`.
+- **Invariants preserved**: Trunk station Y, ports, section bboxes, unrelated
+  row-mate bbox tops, and wider fan full-pitch slots.
 - **Related tests**: `test_symmetric_diamond_compacts_to_half_pitch`,
   `test_symmetric_diamond_both_branches_deviate`,
-  `_guard_symmetric_diamond_branches_straddle_trunk`.
+  `test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline`,
+  `test_planned_fan_does_not_level_unrelated_row_bbox_tops`,
+  `_guard_symmetric_diamond_branches_straddle_trunk`, and
+  `_guard_planned_fan_frame_realised`.
 - **Lifecycle:** invariant - symmetric diamond branches keep their
   half-pitch offsets at the final boundary; only Stage 6.18 may move one,
   and only when its straddling partner is gone.
@@ -1305,6 +1327,22 @@ in pipeline order.
   the final boundary (no later Y mutation). The cleared marker reaches the
   next `_layout_once` pass, which re-derives the marks from scratch.
 
+### Stage 6.18a: refit planned fan bbox tops (engine.py)
+- **Purpose**: Stage 6.17 can move planned fan content after the general bbox
+  fit in Stage 6.15a. Remove top slack left by that final placement without
+  forcing the section to share a top edge with its row mates.
+- **Helper**: `refit_empty_section_tops_to_content` (`phases/bbox.py`), scoped
+  by `planned_fan_layout_section_ids` (`phases/planned_fans.py`).
+- **Precondition**: Planned fan geometry and half-pitch expansion are settled
+  (post-6.18).
+- **Postcondition**: A planned fan section with an unused top band has exactly
+  `section_y_padding` above its highest visible content.
+- **Invariants preserved**: Station and route geometry, unrelated section
+  bboxes, and top bands used by ports or bypass helpers.
+- **Related tests**: `test_section_bbox_top_hugs_content` and
+  `_guard_section_top_padding`.
+- **Lifecycle:** invariant - no geometry or bbox phase follows this refit.
+
 ## Post-layout routing boundary: exit-turn planning
 
 - **Purpose**: Decide source-lane order and turn axes for every complete
@@ -1331,6 +1369,38 @@ in pipeline order.
 - **Lifecycle:** invariant - every planned lane, lane transition, route family,
   and turn axis matches the final routed paths, and every assignment is
   consumed exactly once at the render boundary.
+
+## Cross-stage contract: semantic fan planning
+
+- **Purpose**: Give one immutable owner to a complete authored fan or diamond,
+  including its branches, opening and landing order, relative lanes, runway
+  demands, exact offset slots, centreline members, and dedicated route
+  emissions.
+- **Helpers**: `build_fan_plan_execution` runs before Stage 1.
+  `_apply_planned_fan_port_geometry` seats owned boundary anchors.
+  `_snapshot_planned_fan_centrelines` freezes each settled structural
+  centreline before `_apply_planned_fan_geometry` materialises the relative
+  frame at Stages 4.9 and 6.17. Routing applies `FanOffsetCarrier` assignments
+  before dispatch.
+- **Precondition**: Authored connector identity and resolver lineage are
+  complete. Effective grid decisions are available even though section canvas
+  coordinates are not.
+- **Postcondition**: A fan is wholly `PLANNED` or wholly `LEGACY`. A planned
+  fan has exact structural ownership and complete relative geometry. A
+  symmetric two-way fan uses mirrored lanes around one centreline; structural
+  continuation identity does not convert that appearance into a trunk-plus-peel
+  frame. Its absolute centreline source is fixed by the planner, so later grid,
+  port, or topology mutations cannot select another anchor. A legacy fan claims
+  no layout geometry, offsets, anchor, or route emissions and records one
+  deterministic reason.
+- **Invariants preserved**: Planned materialisation reads frozen anchors and
+  cannot move an unowned port or station. Structural membership is independent
+  of route-emission ownership. Each claimed route emission is produced exactly
+  once and carries its plan and emitter identity.
+- **Related tests**: `tests/test_fan_plans.py` and the fan-plan topology
+  fixtures listed in `examples/topologies/README.md`.
+- **Lifecycle:** invariant - the same fan decision is consumed by layout,
+  offset assignment, routing, validation, and diagnostics for one layout pass.
 
 ## Unclear / structural-debt signals
 

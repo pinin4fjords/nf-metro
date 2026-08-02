@@ -783,6 +783,10 @@ class RoutedPath:
     """Production family that consumed the planned assignment."""
     exit_turn_axis_id: str | None = None
     """Shared planned axis used by the source turn, when the route turns."""
+    fan_plan_id: str | None = None
+    """Immutable fan plan that exclusively owns this route, when applicable."""
+    fan_route_emitter: str | None = None
+    """Planned fan emitter that produced this route."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None
@@ -1926,6 +1930,31 @@ def resolve_section(
                 if sec:
                     return sec
     return None
+
+
+def resolve_section_colrow(
+    graph: MetroGraph, station: Station | None
+) -> tuple[int | None, int | None]:
+    """Resolve a port or junction to its effective grid column and row."""
+    section = resolve_section(graph, station, prefer_upstream=False)
+    if section is None:
+        return None, None
+    override = graph.grid_overrides.get(section.id)
+    col = (
+        section.grid_col
+        if section.grid_col >= 0
+        else override[0]
+        if override is not None
+        else None
+    )
+    row = (
+        section.grid_row
+        if section.grid_row >= 0
+        else override[1]
+        if override is not None
+        else None
+    )
+    return col, row
 
 
 def inter_row_wrap_band(n_lines: int, offset_step: float = OFFSET_STEP) -> float:

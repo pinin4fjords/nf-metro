@@ -1,0 +1,38 @@
+%%metro title: Cross-family Fan from Frozen Seed 72
+%%metro style: dark
+%%metro line: through | Through blocker | #4cda26
+%%metro line: normal | Normal dogleg | #8453d7
+%%metro line: exempt | Exempt continuation | #3779b1
+%%metro grid: source | 0,0
+%%metro grid: blocker | 1,0
+%%metro grid: normal_target | 2,0
+%%metro grid: exempt_target | 1,2
+
+graph LR
+    subgraph source [Source]
+        prepare[Prepare]
+        split[Split]
+        prepare -->|through,normal,exempt| split
+    end
+
+    subgraph blocker [Intervening work]
+        blocked_in[Blocked in]
+        blocked_out[Blocked out]
+        blocked_in -->|through| blocked_out
+    end
+
+    subgraph normal_target [Normal target]
+        normal_in[Normal in]
+    end
+
+    subgraph exempt_target [Reverse-flow target]
+        %%metro direction: RL
+        %%metro entry: right | exempt
+        exempt_in[Exempt in]
+        exempt_done[Exempt done]
+        exempt_in -->|exempt| exempt_done
+    end
+
+    split -->|through| blocked_in
+    split -->|normal| normal_in
+    split -->|exempt| exempt_in

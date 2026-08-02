@@ -11,7 +11,13 @@ from nf_metro.errors import NfMetroError
 from nf_metro.parser.provenance import LayoutProvenance
 
 if TYPE_CHECKING:
-    from nf_metro.parser.route_topology import RouteResolutionTrace, RouteTopology
+    from nf_metro.layout.fan_plans import FanPlanExecution, FanPlanQuery
+    from nf_metro.layout.route_plan import FanPlan
+    from nf_metro.parser.route_topology import (
+        RouteResolutionTrace,
+        RouteTopology,
+        RouteTopologyQuery,
+    )
 
 
 class RowGridInfo(TypedDict):
@@ -463,6 +469,12 @@ class MetroGraph:
     route_resolution: RouteResolutionTrace | None = field(
         default=None, compare=False, repr=False
     )
+    _route_topology_query: RouteTopologyQuery | None = field(
+        default=None, compare=False, repr=False
+    )
+    fan_plan_execution: FanPlanExecution | None = field(
+        default=None, compare=False, repr=False
+    )
     groups: list[StationGroup] = field(default_factory=list)
     grid_overrides: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
     layout_provenance: LayoutProvenance = field(
@@ -909,3 +921,15 @@ class MetroGraph:
     def real_sections(self) -> dict[str, Section]:
         """Sections that draw a visible box (excludes implicit holders)."""
         return {sid: sec for sid, sec in self.sections.items() if not sec.is_implicit}
+
+    @property
+    def fan_plans(self) -> tuple[FanPlan, ...]:
+        """Plans and indexes published by the same immutable build."""
+        execution = self.fan_plan_execution
+        return execution.plans if execution is not None else ()
+
+    @property
+    def fan_plan_query(self) -> FanPlanQuery | None:
+        """Read-only fan ownership index from the published build."""
+        execution = self.fan_plan_execution
+        return execution.query if execution is not None else None

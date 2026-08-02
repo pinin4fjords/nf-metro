@@ -98,6 +98,32 @@ purity - is in CONTRACT.md's
 [`## Anchor invariant`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md)
 and `### Content-placement purity` sections.
 
+## Semantic fan plans
+
+Before Stage 1, the engine recognises complete authored fans and diamonds from
+connector identity and resolver lineage. Each supported fan gets one immutable
+relative plan: its branches, opening and landing order, centreline, lanes,
+runways, offset carriers, and any dedicated route emissions. The authored
+straight or symmetric appearance is frozen separately from the structural
+question of whether the branches reconverge.
+
+The plan also names the station or port that supplies its absolute centreline.
+Stages 4.9 and 6.17 read that fixed source after structural anchors settle. They
+do not search the live grid or port topology for a different source, and the
+placement phase never derives its frame from a station it is about to move.
+
+The plan freezes station-track handedness separately from line-offset chirality.
+All four flow directions use the same positive secondary-axis track progression;
+a feeder on that axis mirrors the frame so the hub occupies the nearest track.
+This keeps LR/RL and TB/BT geometry axis-consistent without making a short entry
+take a detour across the section.
+
+Ownership is all-or-nothing. If a fan overlaps a local merge frame owned by
+another topology, or its membership is ambiguous, the complete fan uses the
+ordinary layout and routing path. The planner does not mix planned branches
+with fallback branches. The legacy disposition carries a deterministic
+diagnostic so unsupported cases remain visible.
+
 ## The six stages
 
 The pipeline groups into six stages. Stage boundaries align with
@@ -193,7 +219,9 @@ fan-out and full-bundle columns around the trunk.
   their internal row while leaving downstream entries on their consumer
   row. Any level change therefore happens in the inter-section corridor.
 - **Stages 4.9 to 4.10**: Redistribute fan-out siblings and full-bundle
-  columns symmetrically around the trunk. Both gated on `center_ports`.
+  columns around the trunk. Stage 4.9 first materialises complete semantic fan
+  plans, then applies the ordinary redistribution to legacy fans. Stage 4.10
+  handles full-bundle columns. These placements are gated on `center_ports`.
 
 By the end of Pass B, all port Ys are final.
 
@@ -258,6 +286,16 @@ broken by each cleanup pass, then handle the final geometric details
   Stage 3.2, re-introducing an inter-section S-kink; re-run the
   alignment (TB / BT only) and re-anchor junctions to the settled
   port Ys.
+- **Stage 6.17**: Re-materialise complete semantic fan frames on their settled
+  centrelines without resizing their sections or row mates. Two-way plans under
+  `diamond_style='symmetric'` keep mirrored half-pitch lanes even when one
+  branch is the topology's unique continuation. Unsupported symmetric diamonds
+  then receive the legacy half-pitch compaction.
+- **Stage 6.18**: Expand a half-pitch branch to a full row when its mirrored
+  partner has gone, so an isolated branch does not remain between grid rows.
+- **Stage 6.18a**: Refit the top of each planned fan section after its final
+  content placement. The refit only removes empty space; it leaves any top band
+  used by a port or bypass route intact and never aligns unrelated sections.
 
 Stage 6 is where most of the historical organic-suffix sprawl (the old
 13d / 13d2 / 13h.1 / 13k2 names) lived. The flat Stage.N scheme makes
@@ -290,17 +328,18 @@ The Stage and Pass labels line up cleanly:
 ## Post-layout routing boundary
 
 The numbered stages settle station, port, junction, and section coordinates.
-On the normal dispatcher path, routing then computes per-line station offsets
-and builds complete exit-turn plans before emitting the first inter-section
-path. Whole-graph rail mode takes its documented short circuit instead.
+On the normal dispatcher path, routing then computes per-line station offsets,
+applies the exact slots owned by semantic fan plans, and builds complete
+exit-turn plans before emitting the first inter-section path. Whole-graph rail
+mode takes its documented short circuit instead.
 
 `compute_station_offsets` first produces the ordinary offset map. Immediately
-before dispatch, `_route_edges` builds the exit-turn plan once. The planner
-compacts each supported group onto its active lanes, commits the offsets it
-owns across the source seam, and assigns source-side turn axes from that same
-order. Ordinary and observed routing share this boundary. An always-on
-invariant rejects any downstream route-mutating pass that changes a committed
-lane or axis.
+before dispatch, `_route_edges` applies planned fan carriers and builds the
+exit-turn plan once. The exit-turn planner compacts each supported group onto
+its active lanes, commits the offsets it owns across the source seam, and
+assigns source-side turn axes from that same order. Ordinary and observed
+routing share this boundary. Always-on checks reject changes to a committed
+lane or axis and ensure every dedicated fan emission is consumed exactly once.
 
 This is a routing-boundary contract, not a numbered layout stage. It does not
 move stations, ports, junctions, or section boxes. See

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, NewType, TypeVar
 
@@ -71,6 +71,11 @@ class AuthoredEdgeFact:
     source_line: int | None
     source_section: str | None
     target_section: str | None
+
+    @property
+    def id(self) -> ConnectorId:
+        """Return the stable identity shared by topology and resolution records."""
+        return self.key.id
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +247,7 @@ class ConvergenceGroup:
 class RouteTopology:
     """Canonical authored route topology, independent of mutable graph models."""
 
+    authored_edges: tuple[AuthoredEdgeFact, ...]
     line_networks: tuple[LineNetwork, ...]
     connectors: tuple[RouteConnector, ...]
     bundles: tuple[BundleRun, ...]
@@ -276,10 +282,10 @@ class ResolvedConvergence:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedConnector:
-    """Final ordered graph-edge paths for one authored connector."""
+class ResolvedAuthoredEdge:
+    """Final ordered graph-edge paths for one authored edge."""
 
-    connector_id: ConnectorId
+    authored_edge_id: ConnectorId
     edge_paths: tuple[tuple[ResolvedEdge, ...], ...]
 
 
@@ -287,11 +293,96 @@ class ResolvedConnector:
 class RouteResolutionTrace:
     """Immutable mapping from authored topology to resolved synthetic ids."""
 
-    connectors: tuple[ResolvedConnector, ...] = ()
+    authored_edges: tuple[ResolvedAuthoredEdge, ...] = ()
     exit_ports: tuple[ResolvedEndpointPort, ...] = ()
     entry_ports: tuple[ResolvedEndpointPort, ...] = ()
     divergences: tuple[ResolvedDivergence, ...] = ()
     convergences: tuple[ResolvedConvergence, ...] = ()
+
+
+def snapshot_resolved_authored_edges(
+    capture: AuthoredRouteCapture,
+    lineage: AuthoredEdgeLineage,
+    edges: list[Edge],
+) -> tuple[ResolvedAuthoredEdge, ...]:
+    """Freeze one complete current path for every authored edge.
+
+    Interchange and terminus rewrites preserve a single path for each authored
+    edge. Boundary and bypass rewrites expand these paths later using explicit
+    replacement records.
+    """
+    owned_by_key: dict[AuthoredEdgeKey, list[ResolvedEdge]] = {
+        fact.key: [] for fact in capture.edges
+    }
+    for current_edge in edges:
+        resolved = ResolvedEdge(
+            current_edge.source, current_edge.target, current_edge.line_id
+        )
+        for origin in lineage.origins(current_edge):
+            try:
+                owned_by_key[origin].append(resolved)
+            except KeyError as error:
+                raise RouteTopologyLineageError(
+                    f"current edge carries unknown authored origin {origin.id!r}"
+                ) from error
+
+    shared_paths: dict[
+        tuple[tuple[ResolvedEdge, ...], ...],
+        tuple[tuple[ResolvedEdge, ...], ...],
+    ] = {}
+    records: list[ResolvedAuthoredEdge] = []
+    for fact in capture.edges:
+        owned = owned_by_key[fact.key]
+        if not owned:
+            raise RouteTopologyLineageError(
+                f"authored edge {fact.id!r} has no current resolved edge"
+            )
+        if any(edge.line_id != fact.key.line_id for edge in owned):
+            raise RouteTopologyLineageError(
+                f"authored edge {fact.id!r} resolves across multiple line ids"
+            )
+
+        outgoing: dict[str, list[tuple[int, ResolvedEdge]]] = defaultdict(list)
+        incoming: dict[str, list[tuple[int, ResolvedEdge]]] = defaultdict(list)
+        for index, resolved_edge in enumerate(owned):
+            outgoing[resolved_edge.source].append((index, resolved_edge))
+            incoming[resolved_edge.target].append((index, resolved_edge))
+        if any(len(items) > 1 for items in (*outgoing.values(), *incoming.values())):
+            raise RouteTopologyLineageError(
+                f"authored edge {fact.id!r} has branching current lineage"
+            )
+
+        starts = [
+            (index, resolved_edge)
+            for index, resolved_edge in enumerate(owned)
+            if resolved_edge.source not in incoming
+        ]
+        if len(starts) != 1:
+            raise RouteTopologyLineageError(
+                f"authored edge {fact.id!r} does not have one lineage start"
+            )
+
+        path: list[ResolvedEdge] = []
+        used: set[int] = set()
+        cursor = starts[0][1].source
+        while cursor in outgoing:
+            index, resolved_edge = outgoing[cursor][0]
+            if index in used:
+                raise RouteTopologyLineageError(
+                    f"authored edge {fact.id!r} has cyclic current lineage"
+                )
+            used.add(index)
+            path.append(resolved_edge)
+            cursor = resolved_edge.target
+        if len(used) != len(owned):
+            raise RouteTopologyLineageError(
+                f"authored edge {fact.id!r} has disconnected current lineage"
+            )
+
+        paths: tuple[tuple[ResolvedEdge, ...], ...] = (tuple(path),)
+        paths = shared_paths.setdefault(paths, paths)
+        records.append(ResolvedAuthoredEdge(fact.id, paths))
+    return tuple(records)
 
 
 class RouteTopologyQueryError(RuntimeError):
@@ -366,15 +457,18 @@ def _require_references(
 class RouteTopologyQuery:
     """Ordered read-only queries over authored topology and resolver mappings."""
 
+    authored_edges: tuple[AuthoredEdgeFact, ...]
     line_networks: tuple[LineNetwork, ...]
     connectors: tuple[RouteConnector, ...]
     bundles: tuple[BundleRun, ...]
     divergences: tuple[ResolvedDivergenceView, ...]
     convergences: tuple[ResolvedConvergenceView, ...]
+    _authored_edges_by_id: Mapping[ConnectorId, AuthoredEdgeFact]
     _networks_by_id: Mapping[NetworkId, LineNetwork]
     _connectors_by_id: Mapping[ConnectorId, RouteConnector]
     _bundles_by_id: Mapping[BundleId, BundleRun]
-    _resolved_connectors: Mapping[ConnectorId, ResolvedConnector]
+    _resolved_authored_edges: Mapping[ConnectorId, ResolvedAuthoredEdge]
+    _authored_edge_ids_by_resolved_edge: Mapping[ResolvedEdge, tuple[ConnectorId, ...]]
     _endpoint_groups_by_port: Mapping[str, EndpointGroup]
     _exit_ports_by_group: Mapping[EndpointGroupId, str]
     _entry_ports_by_group: Mapping[EndpointGroupId, str]
@@ -383,6 +477,8 @@ class RouteTopologyQuery:
     _convergences_by_id: Mapping[ConvergenceId, ResolvedConvergenceView]
     _convergences_by_junction: Mapping[str, ResolvedConvergenceView]
     _merge_fanout_junction_ids: tuple[str, ...]
+    _source_topology: RouteTopology = field(repr=False, compare=False)
+    _source_resolution: RouteResolutionTrace = field(repr=False, compare=False)
 
     @classmethod
     def build(
@@ -391,6 +487,12 @@ class RouteTopologyQuery:
         resolution: RouteResolutionTrace,
     ) -> RouteTopologyQuery:
         """Build and validate the complete topology-to-resolution query surface."""
+        authored_edges_by_id = _exact_index(
+            topology.authored_edges,
+            tuple(item.id for item in topology.authored_edges),
+            id_getter=lambda item: item.id,
+            label="authored edge",
+        )
         networks_by_id = _exact_index(
             topology.line_networks,
             tuple(item.id for item in topology.line_networks),
@@ -437,11 +539,46 @@ class RouteTopologyQuery:
         for network in topology.line_networks:
             _require_references(
                 f"line network {network.id!r}",
+                "authored edge",
+                network.edge_ids,
+                authored_edges_by_id,
+            )
+            _require_references(
+                f"line network {network.id!r}",
                 "connector",
                 network.connector_ids,
                 connectors_by_id,
             )
         for connector in topology.connectors:
+            _require_references(
+                f"connector {connector.id!r}",
+                "authored edge",
+                (connector.id,),
+                authored_edges_by_id,
+            )
+            fact = authored_edges_by_id[connector.id]
+            authored_values = (
+                fact.key.source,
+                fact.key.target,
+                fact.key.line_id,
+                fact.key.duplicate_ordinal,
+                fact.source_line,
+                fact.source_section,
+                fact.target_section,
+            )
+            connector_values = (
+                connector.source,
+                connector.target,
+                connector.line_id,
+                connector.duplicate_ordinal,
+                connector.source_line,
+                connector.source_section,
+                connector.target_section,
+            )
+            if connector_values != authored_values:
+                raise RouteTopologyQueryError(
+                    f"connector {connector.id!r} disagrees with its authored edge"
+                )
             _require_references(
                 f"connector {connector.id!r}",
                 "network",
@@ -518,12 +655,42 @@ class RouteTopologyQuery:
                 convergence_group.connector_ids,
                 connectors_by_id,
             )
-        resolved_connectors = _exact_index(
-            resolution.connectors,
-            tuple(item.id for item in topology.connectors),
-            id_getter=lambda item: item.connector_id,
-            label="resolved connector",
+        resolved_authored_edges = _exact_index(
+            resolution.authored_edges,
+            tuple(item.id for item in topology.authored_edges),
+            id_getter=lambda item: item.authored_edge_id,
+            label="resolved authored edge",
         )
+        authored_edge_ids_by_resolved_edge: dict[ResolvedEdge, list[ConnectorId]] = (
+            defaultdict(list)
+        )
+        for fact in topology.authored_edges:
+            record = resolved_authored_edges[fact.id]
+            if not record.edge_paths:
+                raise RouteTopologyQueryError(
+                    f"resolved authored edge {fact.id!r} has no paths"
+                )
+            for path_rank, path in enumerate(record.edge_paths):
+                if not path:
+                    raise RouteTopologyQueryError(
+                        f"resolved authored edge {fact.id!r} path {path_rank} is empty"
+                    )
+                if any(edge.line_id != fact.key.line_id for edge in path):
+                    raise RouteTopologyQueryError(
+                        f"resolved authored edge {fact.id!r} path {path_rank} "
+                        "changes line id"
+                    )
+                if any(
+                    left.target != right.source for left, right in zip(path, path[1:])
+                ):
+                    raise RouteTopologyQueryError(
+                        f"resolved authored edge {fact.id!r} path {path_rank} "
+                        "is not contiguous"
+                    )
+                for edge in path:
+                    owners = authored_edge_ids_by_resolved_edge[edge]
+                    if fact.id not in owners:
+                        owners.append(fact.id)
         exit_ports = _exact_index(
             resolution.exit_ports,
             tuple(item.id for item in topology.exit_groups),
@@ -627,15 +794,25 @@ class RouteTopologyQuery:
                 merge_fanout_junction_ids.append(divergence.junction_id)
 
         return cls(
+            authored_edges=topology.authored_edges,
             line_networks=topology.line_networks,
             connectors=topology.connectors,
             bundles=topology.bundles,
             divergences=divergence_views,
             convergences=convergence_views,
+            _authored_edges_by_id=authored_edges_by_id,
             _networks_by_id=networks_by_id,
             _connectors_by_id=connectors_by_id,
             _bundles_by_id=bundles_by_id,
-            _resolved_connectors=resolved_connectors,
+            _resolved_authored_edges=resolved_authored_edges,
+            _authored_edge_ids_by_resolved_edge=MappingProxyType(
+                {
+                    edge: tuple(authored_edge_ids)
+                    for edge, authored_edge_ids in (
+                        authored_edge_ids_by_resolved_edge.items()
+                    )
+                }
+            ),
             _endpoint_groups_by_port=MappingProxyType(endpoint_groups_by_port),
             _exit_ports_by_group=MappingProxyType(exit_port_ids),
             _entry_ports_by_group=MappingProxyType(entry_port_ids),
@@ -644,11 +821,31 @@ class RouteTopologyQuery:
             _convergences_by_id=MappingProxyType(convergences_by_id),
             _convergences_by_junction=MappingProxyType(convergences_by_junction),
             _merge_fanout_junction_ids=tuple(merge_fanout_junction_ids),
+            _source_topology=topology,
+            _source_resolution=resolution,
+        )
+
+    def __deepcopy__(self, memo: dict[int, object]) -> RouteTopologyQuery:
+        del memo
+        return self
+
+    def is_for(
+        self,
+        topology: RouteTopology,
+        resolution: RouteResolutionTrace,
+    ) -> bool:
+        """Return whether this query indexes the exact immutable metadata pair."""
+        return (
+            self._source_topology is topology and self._source_resolution is resolution
         )
 
     def line_network(self, network_id: NetworkId) -> LineNetwork:
         """Return one authored line network by stable id."""
         return self._networks_by_id[network_id]
+
+    def authored_edge(self, authored_edge_id: ConnectorId) -> AuthoredEdgeFact:
+        """Return one authored edge fact by stable id."""
+        return self._authored_edges_by_id[authored_edge_id]
 
     def connector(self, connector_id: ConnectorId) -> RouteConnector:
         """Return one authored connector by stable id."""
@@ -659,20 +856,21 @@ class RouteTopologyQuery:
         return self._bundles_by_id[bundle_id]
 
     def resolved_paths(
-        self, connector_id: ConnectorId
+        self, authored_edge_id: ConnectorId
     ) -> tuple[tuple[ResolvedEdge, ...], ...]:
-        """Return every final contiguous path for one authored connector."""
-        return self._resolved_connectors[connector_id].edge_paths
+        """Return every final contiguous path for one authored edge."""
+        return self._resolved_authored_edges[authored_edge_id].edge_paths
+
+    def authored_edge_ids_for_edge(self, edge: ResolvedEdge) -> tuple[ConnectorId, ...]:
+        """Return all authored edges owning a final edge, in authored order."""
+        return self._authored_edge_ids_by_resolved_edge.get(edge, ())
 
     def connector_ids_for_edge(self, edge: ResolvedEdge) -> tuple[ConnectorId, ...]:
         """Return every authored connector owning a final edge, in authored order."""
         return tuple(
-            connector.id
-            for connector in self.connectors
-            if any(
-                edge in path
-                for path in self._resolved_connectors[connector.id].edge_paths
-            )
+            authored_edge_id
+            for authored_edge_id in self.authored_edge_ids_for_edge(edge)
+            if authored_edge_id in self._connectors_by_id
         )
 
     def exit_port(self, group_id: EndpointGroupId) -> str:
@@ -747,12 +945,19 @@ def build_route_topology_query(graph: MetroGraph) -> RouteTopologyQuery | None:
     topology = graph.route_topology
     resolution = graph.route_resolution
     if topology is None and resolution is None:
+        graph._route_topology_query = None
         return None
     if topology is None or resolution is None:
+        graph._route_topology_query = None
         raise RouteTopologyQueryError(
             "routing requires both route_topology and route_resolution metadata"
         )
-    return RouteTopologyQuery.build(topology, resolution)
+    cached = graph._route_topology_query
+    if cached is not None and cached.is_for(topology, resolution):
+        return cached
+    query = RouteTopologyQuery.build(topology, resolution)
+    graph._route_topology_query = query
+    return query
 
 
 @dataclass(frozen=True, slots=True)
@@ -1038,6 +1243,7 @@ def build_route_topology(
     )
 
     return RouteTopology(
+        authored_edges=capture.edges,
         line_networks=networks,
         connectors=connectors,
         bundles=bundles,

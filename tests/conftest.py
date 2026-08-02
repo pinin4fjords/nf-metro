@@ -61,6 +61,7 @@ TWO_SECTION_TEXT = (
 # the anchor-frozen test and the idempotence test enumerate the same set and a new
 # phase can't be added to one without the other.
 CONTENT_PLACEMENT_PHASES = (
+    "_apply_planned_fan_geometry",  # Stages 4.9 and 6.17
     "_redistribute_fanout_siblings",  # Stage 4.9
     "_redistribute_full_bundle_columns",  # Stage 4.10
     "_fan_free_content_upward",  # Stage 6.1

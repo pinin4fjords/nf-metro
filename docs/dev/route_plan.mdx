@@ -84,6 +84,38 @@ entire group uses legacy routing. The final runtime check uses the geometry
 that the renderer will draw, verifies structural anchors and runway, and
 confirms that each assignment was consumed once.
 
+## Complete fan plans
+
+A fan plan is built before station placement from authored connectors and their
+resolved paths. It describes one fork, every branch through an optional join,
+and any extra outputs that leave those branches. The plan freezes:
+
+- the authored straight or symmetric appearance, independently of whether the
+  branches reconverge;
+- branch, opening, and landing order;
+- the local flow frame, centreline, and branch lane offsets;
+- entry and exit runway requirements;
+- the exact station-line offset slots owned by the fan;
+- the ports and stations that remain on the centreline; and
+- any resolved edges assigned to a dedicated fan route template.
+
+Structural membership and emission ownership are separate. The plan can own a
+complete branch while ordinary routing emits edges that need no fan-specific
+template. A route template may emit only the exact edges assigned to it, and an
+always-on check confirms that every such assignment is consumed once.
+
+Fan ownership is atomic. A supported fan is `PLANNED` and materialises its
+relative frame during layout. If the fan intersects an unsupported local merge
+frame or cannot establish complete ownership, it is `LEGACY`: none of its
+geometry, offsets, or route emissions are claimed. The normal layout and
+routing paths then handle the complete fan. A non-blocking diagnostic records
+the reason so remaining fallback cases can be measured and removed.
+
+Straight reconvergences are recorded as one semantic fan but remain `LEGACY`.
+Their shape comes from the section track allocator, including its phantom
+tracks and collision compaction. #1658 will bring that allocator behind the
+plan boundary before the planner owns these cases.
+
 ## Identity and coverage
 
 A route system is a maximal component of connectors coupled by semantic
@@ -204,7 +236,7 @@ same reference and demand ledger:
 | Owner                                                       | Status      | Demand it owns                                                                          |
 | ----------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------- |
 | Exit-turn planner                                           | Implemented | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes               |
-| [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Planned     | Fan and diamond centrelines, branch transition runways, and hand-off space              |
+| [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Implemented | Fan and diamond centrelines, branch transition runways, and hand-off space              |
 | [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Planned     | Convergence trunk extent, feeder landing sequence, and approach space                   |
 | [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Planned     | Final row and column allocation, realising demands through monotone envelope settlement |
 | [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) | Planned     | Consolidate plan-driven emission and retire displaced compatibility logic               |
