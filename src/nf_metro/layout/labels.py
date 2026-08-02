@@ -62,6 +62,7 @@ from nf_metro.layout.pass_metrics import (
     station_radius_approx,
     station_stroke_approx,
 )
+from nf_metro.layout.phases._common import _station_bundle_offset_span
 from nf_metro.parser.model import MetroGraph
 
 if TYPE_CHECKING:
@@ -795,13 +796,7 @@ def _pill_offsets(
     """
     if not station_offsets:
         return 0.0, 0.0
-    offs = [
-        station_offsets.get((station.id, lid), 0.0)
-        for lid in graph.station_lines(station.id)
-    ]
-    if not offs:
-        return 0.0, 0.0
-    return min(offs), max(offs)
+    return _station_bundle_offset_span(graph, station.id, station_offsets)
 
 
 def _lift_wrapped_labels_off_foreign_trunks(

@@ -18,9 +18,11 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
     STATION_RADIUS_APPROX,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
+    flow_port_sides,
     lanes_run_along_x,
     lanes_run_along_y,
     quantize_coord,
@@ -30,6 +32,7 @@ from nf_metro.layout.route_topology import divergence_junction_sources
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
     Edge,
+    LineSpread,
     MetroGraph,
     Port,
     PortSide,
@@ -620,6 +623,87 @@ def _trunk_symmetric_fan_ids(graph: MetroGraph, section: Section) -> set[str]:
     return result
 
 
+def _linear_entry_pill_lines(
+    graph: MetroGraph,
+    sid: str,
+    offsets: Mapping[tuple[str, str], float],
+) -> tuple[str, ...] | None:
+    """Return the inherited cohort defining a linear entry-frame pill.
+
+    A section-local line can occupy the slot immediately outside an inherited
+    entry cohort. The marker's round cap already reaches that adjacent lane, so
+    extending the pill's core span to the local lane leaves a redundant cap
+    beyond it. Structural and settled-offset checks keep this rule confined to
+    materialized linear entry frames with exactly one adjacent local lane.
+    """
+    if graph.compact_offsets or graph.line_spread is LineSpread.RAILS:
+        return None
+    station = graph.stations.get(sid)
+    if station is None or station.section_id is None or station.is_port:
+        return None
+    section = graph.sections[station.section_id]
+    flow_entry, flow_exit = flow_port_sides(section.direction)
+    entries = [
+        port_id
+        for port_id in section.entry_ports
+        if graph.ports[port_id].side is flow_entry
+        and len(graph.station_lines(port_id)) >= 2
+    ]
+    if len(entries) != 1:
+        return None
+    entry_id = entries[0]
+    inherited = tuple(graph.station_lines(entry_id))
+    inherited_set = set(inherited)
+    served = tuple(graph.station_lines(sid))
+    local = tuple(line_id for line_id in served if line_id not in inherited_set)
+    if len(local) != 1 or not inherited_set.issubset(served):
+        return None
+
+    real_station_ids = tuple(
+        station_id
+        for station_id in section.station_ids
+        if not graph.stations[station_id].is_port
+        and not graph.stations[station_id].is_hidden
+        and not graph.stations[station_id].off_track
+    )
+    if not real_station_ids or any(
+        not inherited_set.issubset(graph.station_lines(station_id))
+        for station_id in real_station_ids
+    ):
+        return None
+    flow_exit_lines = {
+        line_id
+        for port_id in section.exit_ports
+        if graph.ports[port_id].side is flow_exit
+        for line_id in graph.station_lines(port_id)
+    }
+    if flow_exit_lines and not inherited_set.issubset(flow_exit_lines):
+        return None
+
+    inherited_offsets: list[float] = []
+    for line_id in inherited:
+        expected = offsets.get((entry_id, line_id))
+        if expected is None or any(
+            abs(offsets.get((station_id, line_id), expected) - expected) > 0.001
+            for station_id in real_station_ids
+        ):
+            return None
+        inherited_offsets.append(expected)
+    ordered = sorted(inherited_offsets)
+    step = graph_offset_step(graph)
+    if any(
+        abs(right - left - step) > 0.001 for left, right in zip(ordered, ordered[1:])
+    ):
+        return None
+    local_offset = offsets.get((sid, local[0]))
+    if local_offset is None or not (
+        abs(local_offset - (ordered[0] - step)) <= 0.001
+        or abs(local_offset - (ordered[-1] + step)) <= 0.001
+    ):
+        return None
+    return inherited
+
+
 def _station_bundle_offset_span(
     graph: MetroGraph, sid: str, offsets: dict[tuple[str, str], float]
 ) -> tuple[float, float]:
@@ -634,7 +718,10 @@ def _station_bundle_offset_span(
     targets in :mod:`...bbox`, so the room a padding constant reserves
     matches what the marker pill actually spans.
     """
-    line_offs = [offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)]
+    line_ids = _linear_entry_pill_lines(graph, sid, offsets)
+    if line_ids is None:
+        line_ids = tuple(graph.station_lines(sid))
+    line_offs = [offsets.get((sid, lid), 0.0) for lid in line_ids]
     if not line_offs:
         return 0.0, 0.0
     return min(line_offs), max(line_offs)
