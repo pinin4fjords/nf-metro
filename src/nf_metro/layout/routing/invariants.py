@@ -3529,6 +3529,26 @@ class NonConcentricFanOpeningViolation:
         )
 
 
+@dataclass(frozen=True)
+class FanOpeningSubfloorRadiusViolation:
+    """A ranked fan opening uses a corner radius below the standard floor."""
+
+    junction_id: str
+    target_id: str
+    line_id: str
+    corner_index: int
+    radius: float
+    floor: float
+
+    def message(self) -> str:
+        return (
+            f"fan-out junction {self.junction_id!r}: line {self.line_id!r} to "
+            f"{self.target_id!r} uses radius {self.radius:.1f} at opening corner "
+            f"#{self.corner_index}, below the {self.floor:.1f}px curve floor. "
+            "Anchor the concentric family on its full channel span."
+        )
+
+
 def _opening_hvh(
     points: list[tuple[float, float]],
 ) -> (
@@ -3565,8 +3585,9 @@ def check_distinct_fan_opening_corners_concentric(
     graph: MetroGraph,
     routes: list[RoutedPath],
     offsets: dict[tuple[str, str], float],
-) -> list[NonConcentricFanOpeningViolation]:
-    """Return non-concentric corners in shared distinct-line fan openings.
+    curve_radius: float = CURVE_RADIUS,
+) -> list[NonConcentricFanOpeningViolation | FanOpeningSubfloorRadiusViolation]:
+    """Return malformed corners in shared distinct-line fan openings.
 
     The exact-edge bundle check cannot compare branches with different targets.
     A narrower structural family can: independently shaped routes leaving one
@@ -3575,7 +3596,8 @@ def check_distinct_fan_opening_corners_concentric(
     turns until they peel toward different targets.  A normal route and a
     normalization-exempt route cross a handler-family boundary, but their
     translated corners must use one arc centre at each end of that shared
-    descent.
+    descent.  Every resolved opening arc must also reach the requested curve
+    floor.
     """
     step = graph_offset_step(graph)
     by_group: dict[str, list[tuple[RoutedPath, list[tuple[float, float]]]]] = (
@@ -3588,9 +3610,26 @@ def check_distinct_fan_opening_corners_concentric(
         if _opening_hvh(points) is not None:
             by_group[route.fan_opening_group_id].append((route, points))
 
-    violations: list[NonConcentricFanOpeningViolation] = []
+    violations: list[
+        NonConcentricFanOpeningViolation | FanOpeningSubfloorRadiusViolation
+    ] = []
     for members in by_group.values():
         junction_id = members[0][0].edge.source
+        for route, points in members:
+            radii = _resolved_corner_radii(route, points)
+            for corner_index in (1, 2):
+                radius = radii[corner_index - 1]
+                if radius < curve_radius - COORD_TOLERANCE_FINE:
+                    violations.append(
+                        FanOpeningSubfloorRadiusViolation(
+                            junction_id,
+                            route.edge.target,
+                            route.line_id,
+                            corner_index,
+                            radius,
+                            curve_radius,
+                        )
+                    )
         for ai in range(len(members)):
             route_a, points_a = members[ai]
             dirs_a = [_segment_unit(points_a[k], points_a[k + 1]) for k in range(3)]
@@ -5709,7 +5748,9 @@ def assert_render_curve_invariants(
         ),
         (
             "non-concentric distinct-line fan opening",
-            check_distinct_fan_opening_corners_concentric(graph, routes, offsets),
+            check_distinct_fan_opening_corners_concentric(
+                graph, routes, offsets, curve_radius
+            ),
         ),
         (
             "doubled coincident corner (same-line legs disagree on radius)",
@@ -6000,6 +6041,7 @@ __all__ = [
     "CollinearOverlapViolation",
     "DiagonalOverlapViolation",
     "CurveInvariantError",
+    "FanOpeningSubfloorRadiusViolation",
     "FanoutTailGap",
     "FanOpeningRunwayViolation",
     "HangingRoute",

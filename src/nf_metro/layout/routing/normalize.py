@@ -13,6 +13,7 @@ from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
+    CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
@@ -1619,6 +1620,7 @@ def _reseat_concentric_flanking(
     axis: int,
     offset_in: float = 0.0,
     offset_out: float = 0.0,
+    base_radius: float = CURVE_RADIUS,
 ) -> None:
     """Move the ``points[k] -> points[k+1]`` segment onto *new_coord* and re-derive
     its two flanking corners concentrically.
@@ -1644,11 +1646,17 @@ def _reseat_concentric_flanking(
         if 0 <= radius_idx < len(rp.curve_radii):
             prev_pt, corner_pt, next_pt = pts[radius_idx : radius_idx + 3]
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
-                prev_pt, corner_pt, next_pt, offset
+                prev_pt, corner_pt, next_pt, offset, base_radius
             )
 
 
-def _set_vchannel_x(ch: _VChannel, new_x: float, offset: float = 0.0) -> None:
+def _set_vchannel_x(
+    ch: _VChannel,
+    new_x: float,
+    offset: float = 0.0,
+    *,
+    base_radius: float = CURVE_RADIUS,
+) -> None:
     """Move a vertical channel to *new_x*, re-deriving its flanking corners.
 
     Each flanking corner is re-derived from the route's *final* waypoints via
@@ -1664,7 +1672,13 @@ def _set_vchannel_x(ch: _VChannel, new_x: float, offset: float = 0.0) -> None:
     radius and the arcs hold a constant gap through the turn.
     """
     _reseat_concentric_flanking(
-        ch.route, ch.idx, new_x, axis=0, offset_in=offset, offset_out=offset
+        ch.route,
+        ch.idx,
+        new_x,
+        axis=0,
+        offset_in=offset,
+        offset_out=offset,
+        base_radius=base_radius,
     )
 
 
@@ -1875,8 +1889,9 @@ def _bundle_divergent_distinct_descents(
         # tight group is necessary because its independent route families can
         # carry base radii that do not share an arc centre.
         group_id = f"{source_id}:{'down' if down else 'up'}"
+        base_radius = ctx.curve_radius + max(rank_off for _ch, _x, rank_off in moves)
         for ch, target_x, rank_off in moves:
-            _set_vchannel_x(ch, target_x, rank_off)
+            _set_vchannel_x(ch, target_x, rank_off, base_radius=base_radius)
             ch.route.fan_opening_group_id = group_id
             ch.route.fan_opening_rank = round(rank_off / step)
 

@@ -7,12 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro.layout.constants import CURVE_RADIUS
+from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import is_orthogonal_turn
 from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.invariants import (
+    FanOpeningSubfloorRadiusViolation,
     check_distinct_fan_opening_corners_concentric,
     check_fan_opening_turn_runway,
     check_planned_vertical_fan_opening,
@@ -125,10 +126,19 @@ def test_cross_family_fan_opening_corners_are_concentric() -> None:
 
     normal = by_line["normal"]
     exempt = by_line["exempt"]
+    assert normal.curve_radii is not None
+    assert exempt.curve_radii is not None
+    assert min(normal.curve_radii[:2] + exempt.curve_radii[:2]) >= CURVE_RADIUS
     assert _arc_centre(normal, 1) == pytest.approx(_arc_centre(exempt, 1))
     assert _arc_centre(normal, 2) == pytest.approx(_arc_centre(exempt, 2))
     assert not check_distinct_fan_opening_corners_concentric(graph, routes, offsets)
 
-    assert normal.curve_radii is not None
-    normal.curve_radii[0] = CURVE_RADIUS
-    assert check_distinct_fan_opening_corners_concentric(graph, routes, offsets)
+    for route in (normal, exempt):
+        route.curve_radii[0] -= OFFSET_STEP
+        route.curve_radii[1] -= OFFSET_STEP
+    assert any(
+        isinstance(violation, FanOpeningSubfloorRadiusViolation)
+        for violation in check_distinct_fan_opening_corners_concentric(
+            graph, routes, offsets
+        )
+    )
