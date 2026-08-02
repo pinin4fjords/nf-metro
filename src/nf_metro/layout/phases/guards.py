@@ -5210,7 +5210,10 @@ def _guard_planned_fan_frame_realised(
     offsets: dict[tuple[str, str], float],
 ) -> None:
     """Raise when a fan's settled frame disagrees with its semantic contract."""
-    from nf_metro.layout.fan_plans import fan_lane_offsets
+    from nf_metro.layout.fan_plans import (
+        fan_lane_offsets,
+        vertical_fan_label_lane_pitch,
+    )
     from nf_metro.layout.route_plan import FanAppearancePolicy
 
     invalid_policy = next(
@@ -5266,6 +5269,13 @@ def _guard_planned_fan_frame_realised(
         if plan.appearance_lane_pitch is None:
             raise PhaseInvariantError(
                 f"{phase}: planned fan {plan.id!s} has no frozen appearance lane pitch"
+            )
+        required_pitch = vertical_fan_label_lane_pitch(graph, plan.branches, frame)
+        if plan.appearance_lane_pitch + COORD_TOLERANCE_FINE < required_pitch:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} lane pitch "
+                f"{plan.appearance_lane_pitch:.1f}px under-reserves vertical label and "
+                f"marker clearance {required_pitch:.1f}px"
             )
         lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
         expected_lane_offsets = fan_lane_offsets(

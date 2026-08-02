@@ -12,9 +12,12 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from itertools import pairwise
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
 
+from nf_metro.graph_views import directed_graph, longest_path_layers
+from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -22,6 +25,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_x,
     lanes_run_along_y,
 )
+from nf_metro.layout.labels import tb_left_label_marker_pitch
 from nf_metro.layout.route_plan import (
     DemandId,
     FanAppearancePolicy,
@@ -137,6 +141,77 @@ def _appearance_centreline_branch_id(
         if structural_trunk is not None:
             return structural_trunk.id
     return min(branches, key=lambda branch: (branch.opening_rank, branch.rank)).id
+
+
+def vertical_fan_label_lane_pitch(
+    graph: MetroGraph,
+    branches: Sequence[FanBranchPlan],
+    frame: AxisFrame,
+    floor: float = 0.0,
+) -> float:
+    """Return the uniform X pitch needed by same-layer vertical fan labels."""
+    if frame.secondary.name != "x":
+        return floor
+    section_ids = {
+        section_id
+        for branch in branches
+        for station_id in branch.lane_station_ids
+        if (section_id := graph.section_for_station(station_id)) is not None
+    }
+    if len(section_ids) != 1:
+        return floor
+    section_id = next(iter(section_ids))
+    section = graph.sections[section_id]
+    node_ids = tuple(
+        station_id
+        for station_id in section.station_ids
+        if station_id in graph.stations and station_id not in graph.ports
+    )
+    node_set = set(node_ids)
+    layers = longest_path_layers(
+        directed_graph(
+            node_ids,
+            (
+                (edge.source, edge.target)
+                for edge in graph.edges
+                if edge.source in node_set and edge.target in node_set
+            ),
+        ),
+        node_ids,
+    )
+    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
+
+    lane_sign = (
+        1.0 if section_id in tb_positive_fan_sections(graph) else frame.secondary_sign
+    )
+    screen_order = sorted(
+        (branch for branch in branches if branch.lane_offset is not None),
+        key=lambda branch: frame.secondary_sign * cast(float, branch.lane_offset),
+    )
+    pitch = floor
+    for left_branch, right_branch in pairwise(screen_order):
+        left_by_layer = {
+            layers[station_id]: station_id
+            for station_id in left_branch.lane_station_ids
+            if station_id in layers
+        }
+        for right_id in right_branch.lane_station_ids:
+            layer = layers.get(right_id)
+            left_id = left_by_layer.get(layer) if layer is not None else None
+            right = graph.stations.get(right_id)
+            if left_id is None or right is None or not right.label:
+                continue
+            pitch = max(
+                pitch,
+                tb_left_label_marker_pitch(
+                    right.label,
+                    left_line_count=len(graph.station_lines(left_id)),
+                    right_line_count=len(graph.station_lines(right_id)),
+                    lane_sign=lane_sign,
+                    offset_step=graph_offset_step(graph),
+                ),
+            )
+    return pitch
 
 
 def fan_branch_solo_station_ids(
@@ -1359,6 +1434,36 @@ def _build_candidate(
         for branch, lane_offset in zip(branch_plans, lane_offsets, strict=True)
     ]
 
+    frame = (
+        AxisFrame.for_direction(direction, ctx.x_spacing, ctx.y_spacing)
+        if direction is not None
+        else None
+    )
+    if frame is not None:
+        required_pitch = vertical_fan_label_lane_pitch(
+            graph, branch_plans, frame, lane_pitch
+        )
+        if required_pitch > lane_pitch:
+            scale = required_pitch / lane_pitch
+            lane_pitch = required_pitch
+            branch_plans = [
+                replace(
+                    branch,
+                    lane_offset=(
+                        branch.lane_offset * scale
+                        if branch.lane_offset is not None
+                        else None
+                    ),
+                    diagonal_runway=max(
+                        minimum_runway + branch.landing_rank * lane_pitch,
+                        abs(branch.lane_offset * scale)
+                        if branch.lane_offset is not None
+                        else 0.0,
+                    ),
+                )
+                for branch in branch_plans
+            ]
+
     branch_line_sets = [set(branch.line_ids) for branch in branch_plans]
     all_shared_lines = set.intersection(*branch_line_sets)
     has_line_divergence = bool(set.union(*branch_line_sets) - all_shared_lines)
@@ -1459,11 +1564,6 @@ def _build_candidate(
         owned_stations = (fork_id, *owned_stations)
     if join_id is not None and join_id not in owned_stations:
         owned_stations = (*owned_stations, join_id)
-    frame = (
-        AxisFrame.for_direction(direction, ctx.x_spacing, ctx.y_spacing)
-        if direction is not None
-        else None
-    )
     plan_id = FanPlanId(semantic_route_id("fan-plan", source_id, *member_ids))
     reference_id = SharedReferenceId(semantic_route_id("fan-centreline", plan_id))
     demand_ids = (

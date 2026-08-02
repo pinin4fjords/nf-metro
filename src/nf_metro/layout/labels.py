@@ -17,6 +17,7 @@ __all__ = [
     "label_text_width",
     "place_labels",
     "segment_strikes_label",
+    "tb_left_label_marker_pitch",
 ]
 
 import math
@@ -78,6 +79,36 @@ def label_text_width(label: str) -> float:
     if "\n" not in label:
         return len(label) * char_width
     return max(len(line) for line in label.split("\n")) * char_width
+
+
+def tb_left_label_marker_pitch(
+    label: str,
+    *,
+    left_line_count: int,
+    right_line_count: int,
+    lane_sign: float,
+    offset_step: float,
+) -> float:
+    """Minimum lane pitch for a right station's left-facing TB/BT label.
+
+    Vertical-flow labels prefer the left of their bundle-spanning pill.  This
+    returns the centre-to-centre distance that keeps that label clear of the
+    neighbouring pill on its left.  The bundle extents use the same fallback
+    offset span as :func:`_place_tb_label`.
+    """
+    left_span = max(left_line_count - 1, 0) * offset_step
+    right_span = max(right_line_count - 1, 0) * offset_step
+    left_max_offset = max(0.0, lane_sign * left_span)
+    right_min_offset = min(0.0, lane_sign * right_span)
+    return (
+        label_text_width(label)
+        + TB_LABEL_H_SPACING
+        + TB_PILL_EDGE_OFFSET
+        - right_min_offset
+        + TB_PILL_EDGE_OFFSET
+        + left_max_offset
+        + LABEL_BBOX_MARGIN
+    )
 
 
 def label_glyph_advance_width(label: str) -> float:

@@ -20,10 +20,12 @@ from nf_metro.layout.fan_plans import (
     FanPlanQuery,
     FanTopologyQuery,
     build_fan_plan_execution,
+    fan_lane_offsets,
     install_fan_plan_execution,
     symmetric_lane_offsets,
     validate_fan_route_emissions,
 )
+from nf_metro.layout.labels import place_labels
 from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
     _guard_planned_fan_frame_realised,
@@ -584,6 +586,74 @@ def test_fan_frame_rotates_without_changing_branch_order(
         -lane_pitch / 2,
         lane_pitch / 2,
     )
+
+
+def test_vertical_fan_pitch_keeps_same_layer_labels_clear_of_markers() -> None:
+    path = ROOT / "examples" / "topologies" / "tb_internal_diagonal.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    labels = {
+        placement.station_id: placement.text
+        for placement in place_labels(graph, station_offsets=offsets, routes=routes)
+    }
+
+    assert plan.frame is not None
+    assert plan.appearance_lane_pitch == pytest.approx(78.0)
+    assert labels["left"] == "Lane A"
+    assert labels["right"] == "Lane B"
+
+
+def test_vertical_fan_pitch_stays_canonical_when_labels_already_clear() -> None:
+    path = ROOT / "examples" / "topologies" / "tb_trunk_through_fan.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+
+    assert plan.frame is not None
+    assert plan.appearance_lane_pitch == X_SPACING
+
+
+def test_runtime_guard_rejects_vertical_fan_label_under_reservation() -> None:
+    path = ROOT / "examples" / "topologies" / "tb_internal_diagonal.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+    bad_offsets = fan_lane_offsets(
+        plan.branches,
+        plan.appearance_policy,
+        X_SPACING,
+        plan.appearance_centreline_branch_id,
+    )
+    bad_branches = tuple(
+        replace(
+            branch,
+            lane_offset=lane_offset,
+            diagonal_runway=max(branch.diagonal_runway or 0.0, abs(lane_offset)),
+        )
+        for branch, lane_offset in zip(plan.branches, bad_offsets, strict=True)
+    )
+    bad_plan = replace(
+        plan,
+        branches=bad_branches,
+        appearance_lane_pitch=X_SPACING,
+    )
+    install_fan_plan_execution(
+        graph,
+        FanPlanExecution(
+            plans=(bad_plan,),
+            query=FanPlanQuery.build((bad_plan,)),
+        ),
+    )
+
+    with pytest.raises(PhaseInvariantError, match="under-reserves vertical label"):
+        _guard_planned_fan_frame_realised(
+            graph,
+            "test",
+            offsets=compute_station_offsets(graph),
+        )
 
 
 def test_resolved_port_fork_uses_its_section_direction() -> None:
