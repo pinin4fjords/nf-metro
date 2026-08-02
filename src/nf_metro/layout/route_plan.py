@@ -1565,17 +1565,17 @@ def _member_roles(
     return tuple(role for role in EmissionRole if role in roles)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _ResolutionRecords:
-    endpoint_groups: list[ResolvedEndpointGroup]
-    divergences: list[RouteDivergence]
-    convergences: list[RouteConvergence]
-    exit_group_ids_by_system: dict[RouteSystemId, list[EndpointGroupId]]
-    entry_group_ids_by_system: dict[RouteSystemId, list[EndpointGroupId]]
-    divergence_ids_by_system: dict[RouteSystemId, list[DivergenceId]]
-    convergence_ids_by_system: dict[RouteSystemId, list[ConvergenceId]]
-    divergence_ids_by_connector: dict[ConnectorId, list[DivergenceId]]
-    convergence_ids_by_connector: dict[ConnectorId, list[ConvergenceId]]
+    endpoint_groups: tuple[ResolvedEndpointGroup, ...]
+    divergences: tuple[RouteDivergence, ...]
+    convergences: tuple[RouteConvergence, ...]
+    exit_group_ids_by_system: Mapping[RouteSystemId, tuple[EndpointGroupId, ...]]
+    entry_group_ids_by_system: Mapping[RouteSystemId, tuple[EndpointGroupId, ...]]
+    divergence_ids_by_system: Mapping[RouteSystemId, tuple[DivergenceId, ...]]
+    convergence_ids_by_system: Mapping[RouteSystemId, tuple[ConvergenceId, ...]]
+    divergence_ids_by_connector: Mapping[ConnectorId, tuple[DivergenceId, ...]]
+    convergence_ids_by_connector: Mapping[ConnectorId, tuple[ConvergenceId, ...]]
 
 
 def _build_resolution_records(
@@ -1669,16 +1669,43 @@ def _build_resolution_records(
         for connector_id in convergence_group.connector_ids:
             convergence_ids_by_connector[connector_id].append(convergence_group.id)
 
+    connector_ids = tuple(item.id for item in topology.connectors)
+    system_ids = _ordered_unique(system_for((item,)) for item in connector_ids)
+
     return _ResolutionRecords(
-        endpoint_groups,
-        divergences,
-        convergences,
-        exit_group_ids_by_system,
-        entry_group_ids_by_system,
-        divergence_ids_by_system,
-        convergence_ids_by_system,
-        divergence_ids_by_connector,
-        convergence_ids_by_connector,
+        tuple(endpoint_groups),
+        tuple(divergences),
+        tuple(convergences),
+        MappingProxyType(
+            {item: tuple(exit_group_ids_by_system.get(item, ())) for item in system_ids}
+        ),
+        MappingProxyType(
+            {
+                item: tuple(entry_group_ids_by_system.get(item, ()))
+                for item in system_ids
+            }
+        ),
+        MappingProxyType(
+            {item: tuple(divergence_ids_by_system.get(item, ())) for item in system_ids}
+        ),
+        MappingProxyType(
+            {
+                item: tuple(convergence_ids_by_system.get(item, ()))
+                for item in system_ids
+            }
+        ),
+        MappingProxyType(
+            {
+                item: tuple(divergence_ids_by_connector.get(item, ()))
+                for item in connector_ids
+            }
+        ),
+        MappingProxyType(
+            {
+                item: tuple(convergence_ids_by_connector.get(item, ()))
+                for item in connector_ids
+            }
+        ),
     )
 
 

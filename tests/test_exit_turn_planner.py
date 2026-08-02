@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
+from collections.abc import Mapping
 from dataclasses import replace
+from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -88,6 +92,33 @@ def _build_execution(path: Path):
     ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
     execution = exit_turns.build_exit_turn_execution(graph, ctx)
     return graph, offsets, original_offsets, execution
+
+
+def _assert_recursively_immutable(value: object) -> None:
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        params = type(value).__dataclass_params__
+        assert params.frozen
+        assert "__slots__" in vars(type(value))
+        for field in dataclasses.fields(value):
+            _assert_recursively_immutable(getattr(value, field.name))
+    elif isinstance(value, tuple):
+        for item in value:
+            _assert_recursively_immutable(item)
+    elif isinstance(value, Mapping):
+        assert isinstance(value, MappingProxyType)
+        for key, item in value.items():
+            _assert_recursively_immutable(key)
+            _assert_recursively_immutable(item)
+    elif not isinstance(value, (str, int, float, bool, Enum, type(None))):
+        pytest.fail(f"retained mutable or unsupported {type(value).__name__}")
+
+
+def test_exit_turn_execution_is_recursively_immutable() -> None:
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "exit_run_three_drop_columns.mmd"
+    )
+
+    _assert_recursively_immutable(execution)
 
 
 def _provisional_groups(path: Path):
