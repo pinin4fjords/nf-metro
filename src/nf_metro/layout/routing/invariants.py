@@ -4679,14 +4679,6 @@ def _planned_fork_edges(graph: MetroGraph) -> dict[str, set[tuple[str, str, str]
     }
 
 
-_OpeningSignature = tuple[
-    str,
-    tuple[float, float],
-    tuple[float, float],
-    tuple[float, float],
-]
-
-
 @dataclass(frozen=True)
 class _FanOpeningContext:
     upstream: dict[tuple[str, str], RoutedPath]
@@ -4694,9 +4686,61 @@ class _FanOpeningContext:
     shapes: dict[int, _FanOpeningShape]
     failures: dict[int, FanOpeningFailure]
     families: tuple[tuple[RoutedPath, ...], ...]
-    family_ids: frozenset[int]
     expected_ids: frozenset[int]
+    curve_ids: frozenset[int]
     entry_runways: dict[str, float]
+
+
+def _opening_tails_compatible(
+    points_a: list[tuple[float, float]], points_b: list[tuple[float, float]]
+) -> bool:
+    """Whether planned routes declare the same two cardinal opening legs."""
+    if len(points_a) < 4 or len(points_b) < 4:
+        return False
+    segments_a = [
+        _axis_segment(points_a[index], points_a[index + 1]) for index in (1, 2)
+    ]
+    segments_b = [
+        _axis_segment(points_b[index], points_b[index + 1]) for index in (1, 2)
+    ]
+    directions_a = tuple(segment[1] for segment in segments_a)
+    directions_b = tuple(segment[1] for segment in segments_b)
+    if (
+        any(segment[0] is not None for segment in (*segments_a, *segments_b))
+        or directions_a != directions_b
+        or directions_a[0] is None
+        or directions_a[1] is None
+        or abs(
+            directions_a[0][0] * directions_a[1][0]
+            + directions_a[0][1] * directions_a[1][1]
+        )
+        > COORD_TOLERANCE_FINE
+    ):
+        return False
+    return True
+
+
+def _opening_tails_correspond(
+    points_a: list[tuple[float, float]], points_b: list[tuple[float, float]]
+) -> bool:
+    """Whether compatible tails occupy one translated opening channel."""
+    if not _opening_tails_compatible(points_a, points_b):
+        return False
+    corner_delta = (
+        points_b[1][0] - points_a[1][0],
+        points_b[1][1] - points_a[1][1],
+    )
+    channel_delta = (
+        points_b[2][0] - points_a[2][0],
+        points_b[2][1] - points_a[2][1],
+    )
+    return (
+        math.hypot(
+            corner_delta[0] - channel_delta[0],
+            corner_delta[1] - channel_delta[1],
+        )
+        <= COORD_TOLERANCE
+    )
 
 
 def _fan_opening_context(
@@ -4717,49 +4761,25 @@ def _fan_opening_context(
         if edge in planned_edges.get(route.edge.source, set()):
             planned[route.edge.source].append(route)
 
-    shapes: dict[int, _FanOpeningShape] = {}
-    failures: dict[int, FanOpeningFailure] = {}
-    for route in (route for members in planned.values() for route in members):
-        shape, failure = _fan_opening_shape(route, points[id(route)])
-        if shape is not None:
-            shapes[id(route)] = shape
-        elif failure is not None:
-            failures[id(route)] = failure
-
-    families: dict[_OpeningSignature, list[RoutedPath]] = defaultdict(list)
-    for junction_id, members in planned.items():
-        for route in members:
-            shape = shapes.get(id(route))
-            if shape is not None:
-                families[(junction_id, *shape.directions)].append(route)
-        for route in members:
-            if id(route) not in failures or len(points[id(route)]) < 4:
-                continue
-            tail = tuple(
-                _axis_segment(points[id(route)][index], points[id(route)][index + 1])[1]
-                for index in (1, 2)
-            )
-            family = next(
-                (
-                    value
-                    for key, value in families.items()
-                    if key[0] == junction_id and key[2:] == tail
-                ),
-                None,
-            )
-            if family is not None:
-                family.append(route)
-
-    qualifying = tuple(
-        tuple(members)
-        for members in families.values()
-        if len({route.line_id for route in members}) >= 2
+    families = tuple(
+        (route_a, route_b)
+        for members in planned.values()
+        for index, route_a in enumerate(members)
+        for route_b in members[index + 1 :]
+        if route_a.line_id != route_b.line_id
+        and _opening_tails_compatible(points[id(route_a)], points[id(route_b)])
     )
-    family_ids = frozenset(id(route) for members in qualifying for route in members)
+    family_ids = frozenset(id(route) for members in families for route in members)
     expected = set(family_ids)
-    expected.update(
-        id(route) for route in routes if route.fan_route_emitter is not None
-    )
+    emitter_ids = {id(route) for route in routes if route.fan_route_emitter is not None}
+    expected.update(emitter_ids)
+    curve_ids = {
+        id(route)
+        for route_a, route_b in families
+        if _opening_tails_correspond(points[id(route_a)], points[id(route_b)])
+        for route in (route_a, route_b)
+    }
+    curve_ids.update(emitter_ids)
     for route in routes:
         incoming = upstream.get((route.edge.source, route.line_id))
         if (
@@ -4778,14 +4798,25 @@ def _fan_opening_context(
             for sibling in outgoing[(route.edge.source, route.line_id)]
         ):
             expected.add(id(route))
+            curve_ids.add(id(route))
+    shapes: dict[int, _FanOpeningShape] = {}
+    failures: dict[int, FanOpeningFailure] = {}
+    for route in routes:
+        if id(route) not in expected:
+            continue
+        shape, failure = _fan_opening_shape(route, points[id(route)])
+        if shape is not None:
+            shapes[id(route)] = shape
+        elif failure is not None:
+            failures[id(route)] = failure
     return _FanOpeningContext(
         upstream,
         points,
         shapes,
         failures,
-        qualifying,
-        family_ids,
+        families,
         frozenset(expected),
+        frozenset(curve_ids),
         {
             plan.fork_station_id: plan.entry_runway or 0.0
             for plan in graph.fan_plans
@@ -4849,9 +4880,7 @@ def check_fan_opening_geometry(
                     FanOpeningFailure.MALFORMED,
                 )
             )
-        failure = (
-            context.failures.get(id(route)) if id(route) in context.family_ids else None
-        )
+        failure = context.failures.get(id(route))
         if failure is not None:
             violations.append(
                 FanOpeningGeometryViolation(
@@ -4861,6 +4890,8 @@ def check_fan_opening_geometry(
                     failure,
                 )
             )
+            continue
+        if id(route) not in context.curve_ids:
             continue
         shape = context.shapes.get(id(route))
         if shape is None:
@@ -4911,7 +4942,21 @@ def check_fan_opening_geometry(
                     a.route.line_id == b.route.line_id
                     or a.route.edge.target == b.route.edge.target
                     or not _middle_runs_overlap(a, b)
+                    or not _opening_tails_correspond(a.points, b.points)
                 ):
+                    continue
+                corresponding = tuple(
+                    _translated_corner(
+                        a.points[index],
+                        a.radii[index - 1],
+                        b.points[index],
+                        b.radii[index - 1],
+                        a.directions[index - 1],
+                        a.directions[index],
+                    )
+                    for index in (1, 2)
+                )
+                if any(corner is None for corner in corresponding):
                     continue
                 checked_floor.update((id(a.route), id(b.route)))
                 violation = _pair_corner_violation(

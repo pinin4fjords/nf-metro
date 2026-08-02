@@ -222,6 +222,39 @@ def test_cross_family_fan_corruption_cannot_hide_from_semantic_invariant(
 
 
 @pytest.mark.parametrize(
+    ("corruption", "failure"),
+    [
+        ("collapsed", FanOpeningFailure.DEGENERATE),
+        ("diagonal", FanOpeningFailure.NON_CARDINAL),
+    ],
+)
+def test_cross_family_fan_family_survives_when_every_first_run_is_malformed(
+    corruption: str, failure: FanOpeningFailure
+) -> None:
+    graph, routes, offsets = _layout("seed72_cross_family_fan")
+    junction_id = next(iter(graph.junction_ids))
+    branches = [
+        route
+        for route in routes
+        if route.edge.source == junction_id and route.line_id in {"normal", "exempt"}
+    ]
+    for route in branches:
+        if corruption == "collapsed":
+            route.points[0] = route.points[1]
+        else:
+            route.points[0] = (route.points[0][0], route.points[0][1] + 3.0)
+
+    violations = check_fan_opening_geometry(graph, routes, offsets)
+    malformed = [
+        violation
+        for violation in violations
+        if isinstance(violation, FanOpeningGeometryViolation)
+        and violation.failure is failure
+    ]
+    assert {violation.line_id for violation in malformed} == {"normal", "exempt"}
+
+
+@pytest.mark.parametrize(
     "fixture",
     [
         "seed72_cross_family_fan",
@@ -229,6 +262,12 @@ def test_cross_family_fan_corruption_cannot_hide_from_semantic_invariant(
         "bottom_exit_stacked_right_entry_fan",
         "bypass_gap2_rightward_overflow",
         "fanout_bundle_plus_spurs",
+        "asymmetric_tree",
+        "dogleg_twoline_fanout",
+        "fan_bypass_nesting",
+        "fanout_intersection_shared_channel",
+        "same_line_fan_distinct_descent",
+        "wide_fan_out",
     ],
 )
 def test_semantic_fan_opening_invariant_accepts_clean_families(fixture: str) -> None:
