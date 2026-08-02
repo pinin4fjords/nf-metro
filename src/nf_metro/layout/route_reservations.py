@@ -2244,24 +2244,90 @@ def build_reservation_query_indexes(
     if plan.reservations != expected_reservation_order:
         raise ValueError("route reservations are not in canonical order")
 
-    planned_reference_ids = tuple(
+    exit_turn_reference_ids = tuple(
         item.reference_id
         for item in plan.exit_turn_plans
         if item.reference_id is not None
     )
-    expected_reference_ids = planned_reference_ids + tuple(
-        item.reference_id for item in plan.reservations
+    reservation_reference_ids = tuple(item.reference_id for item in plan.reservations)
+    reservation_reference_set = set(reservation_reference_ids)
+    planner_references = tuple(
+        item
+        for item in plan.shared_references
+        if item.id not in reservation_reference_set
+    )
+    expected_reference_ids = (
+        tuple(item.id for item in planner_references) + reservation_reference_ids
     )
     if tuple(references) != expected_reference_ids:
         raise ValueError("route plan contains unlinked shared references")
-    planned_demand_ids = tuple(
+    exit_turn_demand_ids = tuple(
         demand_id for item in plan.exit_turn_plans for demand_id in item.demand_ids
     )
-    expected_demand_ids = planned_demand_ids + tuple(
+    reservation_demand_ids = tuple(
         demand_id for item in plan.reservations for demand_id in item.demand_ids
+    )
+    reservation_demand_set = set(reservation_demand_ids)
+    planner_demands = tuple(
+        item for item in plan.demands if item.id not in reservation_demand_set
+    )
+    expected_demand_ids = (
+        tuple(item.id for item in planner_demands) + reservation_demand_ids
     )
     if tuple(demands) != expected_demand_ids:
         raise ValueError("route plan contains unlinked symbolic demands")
+
+    exit_turn_reference_set = set(exit_turn_reference_ids)
+    exit_turn_demand_set = set(exit_turn_demand_ids)
+    fan_references = tuple(
+        item for item in planner_references if item.id not in exit_turn_reference_set
+    )
+    fan_demands = tuple(
+        item for item in planner_demands if item.id not in exit_turn_demand_set
+    )
+    fan_reference_ids = {item.id for item in fan_references}
+    linked_fan_reference_ids: set[SharedReferenceId] = set()
+    for reference in fan_references:
+        if (
+            reference.system_id not in systems
+            or reference.kind is not SharedReferenceKind.CENTRELINE
+            or reference.coordinate_regime is not CoordinateRegime.RELATIVE_FRAME
+            or any(
+                member_id not in members
+                or members[member_id].system_id != reference.system_id
+                for member_id in reference.claimant_member_ids
+            )
+        ):
+            raise ValueError("fan shared reference is inconsistent")
+    for demand in fan_demands:
+        if len(demand.ordered_reference_ids) == 1:
+            linked_fan_reference_ids.add(demand.ordered_reference_ids[0])
+        demand_reference = (
+            references.get(demand.ordered_reference_ids[0])
+            if len(demand.ordered_reference_ids) == 1
+            else None
+        )
+        if (
+            demand_reference is None
+            or demand_reference.id not in fan_reference_ids
+            or demand.system_id != demand_reference.system_id
+            or demand.kind is not DemandKind.RUNWAY
+            or demand.axis not in {DemandAxis.X, DemandAxis.Y}
+            or demand.lane_count <= 0
+            or demand.minimum_size is None
+            or not math.isfinite(demand.minimum_size)
+            or demand.minimum_size <= 0
+            or demand.minimum_size_regime is not CoordinateRegime.RELATIVE_FRAME
+            or demand.keep_out_classes != (KeepOutClass.SECTION, KeepOutClass.MARKER)
+            or demand.provenance != demand_reference.provenance
+            or any(
+                member_id not in demand_reference.claimant_member_ids
+                for member_id in demand.claimant_member_ids
+            )
+        ):
+            raise ValueError("fan symbolic demand is inconsistent")
+    if linked_fan_reference_ids != fan_reference_ids:
+        raise ValueError("route plan contains unlinked fan shared references")
 
     _validate_system_reservation_indexes(plan)
     if set(realisations).difference(reservations):

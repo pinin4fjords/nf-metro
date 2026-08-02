@@ -55,6 +55,9 @@ from nf_metro.layout.phases.off_track import (
     _insert_phantom_pass_throughs,
     _space_off_track_outputs,
 )
+from nf_metro.layout.phases.planned_fans import (
+    apply_planned_fans_to_section_subgraph,
+)
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station, is_bypass_v
 
 
@@ -380,6 +383,8 @@ def _layout_single_section(
     # distinct line tracks at a layer with only one occupant per line.
     _resolve_station_collisions(sub, section, x_spacing, effective_y_spacing)
 
+    apply_planned_fans_to_section_subgraph(graph, sub, section)
+
     # Normalize Y so minimum is 0 (raw tracks can be negative)
     _normalize_min(sub, axis="y")
 
@@ -419,6 +424,30 @@ def _layout_single_section(
     section.bbox_w = (max(xs) - min(xs)) + section_x_padding * 2
     bbox_top = y_min - y_pad
     bbox_bot = y_max + y_pad
+    bbox_top = min(
+        bbox_top,
+        *(
+            station.y
+            - (
+                ICON_HALF_HEIGHT
+                if station.off_track or station.is_terminus
+                else station_radius_approx()
+            )
+            for station in real_for_bbox
+        ),
+    )
+    bbox_bot = max(
+        bbox_bot,
+        *(
+            station.y
+            + (
+                ICON_HALF_HEIGHT
+                if station.off_track or station.is_terminus
+                else station_radius_approx()
+            )
+            for station in real_for_bbox
+        ),
+    )
     # Angled labels (#527) hang below the lowest stations; reserve their
     # vertical reach so section/row placement keeps the row below clear.
     if section.direction in ("LR", "RL"):

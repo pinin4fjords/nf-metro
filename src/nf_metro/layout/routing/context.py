@@ -16,9 +16,9 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
     graph_offset_step,
 )
+from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
 from nf_metro.layout.geometry import AxisFrame, lane_delta, station_lane_coord
 from nf_metro.layout.route_topology import (
-    convergence_entry_port_id,
     convergence_junction_entry_ports,
     divergence_junction_exit_ports,
     divergence_junction_sources,
@@ -33,6 +33,7 @@ from nf_metro.layout.routing.common import (
     fan_corridor_band,
     merge_trunk_force_cross_row,
     resolve_section,
+    resolve_section_colrow,
     row_bottom_edge,
     row_top_edge,
     vertical_flow_sections,
@@ -415,7 +416,11 @@ def _build_routing_context(
     )
     all_exclude = merge.skip_edges | merge.index_exclude
     bypass_gap_idx = _compute_bypass_gap_indices(
-        graph, junction_ids, line_priority, skip_edges=all_exclude
+        graph,
+        junction_ids,
+        line_priority,
+        station_offsets,
+        skip_edges=all_exclude,
     )
     junction_fan_info = _compute_junction_fan_info(
         graph,
@@ -690,12 +695,7 @@ def _resolve_section_colrow(
     ``_resolve_section_col`` and ``_resolve_section_row`` each re-resolve the
     section (an adjacency walk); callers needing both should resolve once.
     """
-    sec = resolve_section(graph, station, prefer_upstream=False)
-    if sec is None:
-        return None, None
-    col = sec.grid_col if sec.grid_col >= 0 else None
-    row = sec.grid_row if sec.grid_row >= 0 else None
-    return col, row
+    return resolve_section_colrow(graph, station)
 
 
 def _has_intervening_sections(
@@ -935,161 +935,11 @@ def is_near_vertical_junction_right_entry(graph: MetroGraph, port: Port) -> bool
     return False
 
 
-def _fan_branch_entry_port(
-    graph: MetroGraph,
-    target_id: str,
-    topology: RouteTopologyQuery | None = None,
-) -> str | None:
-    """The entry port a fan branch out of a junction ultimately delivers into.
-
-    A branch aimed at a merge junction peels toward that merge's section entry,
-    but the merge station is virtual and sits at an interior X of the section it
-    belongs to, so only the entry port carries the branch's real column, row and
-    X.  ``None`` for anything that is not a branch into exactly one entry port.
-    """
-    port = graph.ports.get(target_id)
-    if port is not None:
-        return target_id if port.is_entry else None
-    return convergence_entry_port_id(graph, target_id, topology)
-
-
-def fanout_divergence_peel_order(
-    graph: MetroGraph,
-    jid: str,
-    line_priority: dict[str, int],
-    topology: RouteTopologyQuery | None = None,
-) -> list[str] | None:
-    """Peel order for distinct lines diverging from a shared fan-out junction.
-
-    Returns the outgoing line ids ordered outermost-to-innermost for the turn
-    out of *jid* -- the order that lets each line peel into its own target
-    without crossing a bundle mate -- or ``None`` when *jid* is not a clean
-    divergence and the bundle should keep its declaration order.
-
-    The order is crossing-free only when the farthest-reaching line rides the
-    outer side of the descent (dropping DOWN, the top slot; rising UP, the
-    bottom): then the nearer line peels off on the inside and clears the farther
-    line's onward run.  Both the fan-channel assignment and the source-section
-    bundle ordering read this single order so the descent X order and the
-    lead-in Y order stay in phase.
-
-    The caller supplies a divergence selected from semantic route topology. Its
-    geometric preconditions are at least two distinct lines, a separate target
-    section for each line, and a consistent drop direction. Three fan shapes
-    qualify: a horizontal fan spreading to at least two distinct columns with
-    every line off the source row (farthest column outermost); a vertical fan
-    whose lines share one column but peel to at least two distinct rows; and a
-    fan spreading to both distinct columns and distinct rows while keeping a
-    member on the source row. The latter two order by destination row, top to
-    bottom, so a member staying on the source row leads as the shallowest peel.
-    """
-    jst = graph.stations.get(jid)
-    if jst is None:
-        return None
-    src_col, src_row = _resolve_section_colrow(graph, jst)
-    if src_col is None or src_row is None:
-        return None
-
-    reach: dict[str, int] = {}
-    drow: dict[str, int] = {}
-    tx: dict[str, float] = {}
-    claimed: dict[str, str] = {}
-    converging = False
-    for edge in graph.edges_from(jid):
-        entry_id = _fan_branch_entry_port(graph, edge.target, topology)
-        if entry_id is None:
-            return None
-        converging |= entry_id != edge.target
-        entry = graph.stations[entry_id]
-        tcol, trow = _resolve_section_colrow(graph, entry)
-        if tcol is None or trow is None:
-            return None
-        if entry_id in claimed and claimed[entry_id] != edge.line_id:
-            return None  # two distinct lines share a target: co-travelling
-        if edge.line_id in reach:
-            return None  # a line splitting to several targets is not a per-line fan
-        claimed[entry_id] = edge.line_id
-        reach[edge.line_id] = tcol - src_col
-        drow[edge.line_id] = trow - src_row
-        tx[edge.line_id] = entry.x
-
-    if len(reach) < 2:
-        return None
-
-    if len(set(reach.values())) > 1 and 0 in drow.values():
-        # Column-spreading fan that keeps a member on the source row.  Its
-        # branches share the inter-row band they dip into, so the band's depth
-        # order governs, not reach: a branch whose destination sits further from
-        # the source row has to leave the band deeper, and a deeper channel is
-        # reached by turning off the exit run earlier, i.e. from a nearer lane.
-        # Within one destination row the tie-break sign flips with the exit
-        # direction -- a branch climbing back to the source row is boxed in by
-        # every shorter one, so reaching further means nesting deeper, while a
-        # branch leaving the band downward is crossed by every shorter one's
-        # descent, so reaching further means nesting shallower.
-        if len(set(drow.values())) < 2:
-            return None
-        if len({d > 0 for d in drow.values() if d != 0}) != 1:
-            return None
-        return sorted(
-            reach,
-            key=lambda lid: (
-                drow[lid],
-                abs(reach[lid]) if drow[lid] == 0 else -abs(reach[lid]),
-                line_priority.get(lid, 0),
-            ),
-        )
-
-    # The two reach-ordered shapes below assume each branch peels privately into
-    # its own target.  A branch aimed at a merge junction instead converges with
-    # the merge's other feeders onto one shared trunk before the entry, so its
-    # place in the fan is not its target's reach, and such a fan keeps
-    # declaration order.  The band-depth shape above reads only which row a
-    # branch leaves the band toward, which survives the convergence.
-    if converging:
-        return None
-
-    if len(set(reach.values())) == 1:
-        # Same-column vertical fan: a same-row continuation (drow 0) is a valid
-        # member that leads as the shallowest peel.
-        descenders = [d for d in drow.values() if d != 0]
-        if len({d > 0 for d in descenders}) != 1:
-            return None
-        if len(set(drow.values())) < 2:
-            # Grid rows coincide: the targets are distinct sections packed into
-            # one cell, so order by each entry port's actual X -- the descent
-            # spreads to distinct columns even though the grid does not. The
-            # farthest-reaching port rides the outer side of the shared drop, the
-            # same rule the all-off-row fan applies to ``reach``.
-            if len(set(tx.values())) < 2:
-                return None
-            drop_down = descenders[0] > 0
-            return sorted(
-                reach,
-                key=lambda lid: (
-                    abs(tx[lid] - jst.x) if drop_down else -abs(tx[lid] - jst.x),
-                    line_priority.get(lid, 0),
-                ),
-            )
-        return sorted(reach, key=lambda lid: (drow[lid], line_priority.get(lid, 0)))
-
-    if len({d > 0 for d in drow.values()}) != 1:
-        return None
-
-    drop_down = next(iter(drow.values())) > 0
-    return sorted(
-        reach,
-        key=lambda lid: (
-            -abs(reach[lid]) if drop_down else abs(reach[lid]),
-            line_priority.get(lid, 0),
-        ),
-    )
-
-
 def _compute_bypass_gap_indices(
     graph: MetroGraph,
     junction_ids: set[str],
     line_priority: dict[str, int] | None = None,
+    station_offsets: dict[tuple[str, str], float] | None = None,
     skip_edges: set[tuple[str, str, str]] | None = None,
 ) -> dict[tuple[str, str, str], tuple[int, int, int, int]]:
     """Assign per-gap indices for bypass routes sharing physical gaps.
@@ -1109,6 +959,7 @@ def _compute_bypass_gap_indices(
     (gap1_idx, gap1_count, gap2_idx, gap2_count).
     """
     _skip = skip_edges or set()
+    offsets = station_offsets or {}
     EdgeKey = tuple[str, str, str]
     bypass_edges: list[tuple[EdgeKey, int, int, float]] = []
 
@@ -1158,7 +1009,13 @@ def _compute_bypass_gap_indices(
     gap2_idx: dict[EdgeKey, tuple[int, int]] = {}
 
     for group in gap1_groups.values():
-        group.sort(key=lambda x: x[1])
+        group.sort(
+            key=lambda item: (
+                item[1],
+                offsets.get((item[0][0], item[0][2]), 0.0),
+                (line_priority or {}).get(item[0][2], 0),
+            )
+        )
         n = len(group)
         for j, (ek, _) in enumerate(group):
             gap1_idx[ek] = (j, n)
@@ -1169,7 +1026,12 @@ def _compute_bypass_gap_indices(
         # priority) gets the outermost vertical channel.  This
         # prevents crossings when lines converge at an entry port
         # from different source columns.
-        gap2_group.sort(key=lambda x: lp.get(x[2], 0))
+        gap2_group.sort(
+            key=lambda item: (
+                offsets.get((item[0][1], item[2]), 0.0),
+                lp.get(item[2], 0),
+            )
+        )
         n = len(gap2_group)
         for j, (ek, _sc, _lid) in enumerate(gap2_group):
             gap2_idx[ek] = (j, n)

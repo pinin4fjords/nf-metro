@@ -335,6 +335,21 @@ def _render_fixture(name: str, *, strict: bool = False) -> None:
     render_svg(graph, THEMES["nfcore"])
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "topologies/near_vertical_junction_hook.mmd",
+        "topologies/exit_turn_frame_filters.mmd",
+        "topologies/foldback_exit_peeloff.mmd",
+    ],
+)
+def test_planned_fan_local_offset_frames_render_strictly(name: str) -> None:
+    graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    graph.strict = True
+    compute_layout(graph)
+    render_svg(graph, THEMES["nfcore"])
+
+
 # An inter-section route whose exit side faces away from its consumer must leave
 # the box and route *around* it, never claw back through a section interior
 # (#1083).  The repros exercise both away-facing-exit mechanisms:

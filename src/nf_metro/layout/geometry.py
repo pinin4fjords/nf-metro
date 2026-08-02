@@ -315,6 +315,38 @@ def perpendicular_port_sides(direction: str) -> tuple[PortSide, PortSide]:
     return (PortSide.TOP, PortSide.BOTTOM)
 
 
+def flow_port_sides(direction: str) -> tuple[PortSide, PortSide]:
+    """Return the flow-start and flow-end boundary sides for a direction."""
+    from nf_metro.parser.model import PortSide
+
+    primary_on_x = AxisFrame.axes_for_direction(direction)[0] == "x"
+    low, high = (
+        (PortSide.LEFT, PortSide.RIGHT)
+        if primary_on_x
+        else (PortSide.TOP, PortSide.BOTTOM)
+    )
+    return (low, high) if AxisFrame.flow_sign(direction) > 0 else (high, low)
+
+
+def packed_section_visual_rank(
+    graph: MetroGraph, section: Section, col: int, row: int
+) -> int:
+    """Return a section's left-to-right rank inside an authored cell pack."""
+    member_ids = graph.cell_packs.get((col, row), ())
+    members = [graph.sections[item] for item in member_ids if item in graph.sections]
+    if not members or section.id not in member_ids:
+        return 0
+    visual = (
+        tuple(reversed(members))
+        if lanes_run_along_y(members[0].direction)
+        and AxisFrame.flow_sign(members[0].direction) < 0
+        else tuple(members)
+    )
+    return next(
+        rank for rank, candidate in enumerate(visual) if candidate.id == section.id
+    )
+
+
 def port_free_axis(side: PortSide) -> str:
     """The axis a port on *side* can slide along.
 

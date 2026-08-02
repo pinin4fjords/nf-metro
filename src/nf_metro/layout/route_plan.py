@@ -21,9 +21,11 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, NewType, TypeAlias, TypeVar
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.common import Direction, right_normal_axis_sign
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.options import LineOrder
+from nf_metro.parser.commitments import FlowDirection
 from nf_metro.parser.model import MetroGraph, PortSide, is_bypass_v
 from nf_metro.parser.provenance import (
     ConnectorEndpointRole,
@@ -68,6 +70,8 @@ SharedReferenceId = NewType("SharedReferenceId", str)
 DemandId = NewType("DemandId", str)
 ExitTurnPlanId = NewType("ExitTurnPlanId", str)
 ExitTurnAxisId = NewType("ExitTurnAxisId", str)
+FanPlanId = NewType("FanPlanId", str)
+FanBranchPlanId = NewType("FanBranchPlanId", str)
 _T = TypeVar("_T")
 
 
@@ -76,6 +80,7 @@ class CoordinateRegime(str, Enum):
 
     SETTLED_GRID = "settled-grid"
     LAYOUT_CANVAS = "layout-canvas"
+    RELATIVE_FRAME = "relative-frame"
 
 
 class EmissionRole(str, Enum):
@@ -92,6 +97,19 @@ class ExitTurnDisposition(str, Enum):
 
     PLANNED = "planned"
     LEGACY = "legacy"
+
+
+class FanPlanDisposition(str, Enum):
+    """Whether one complete structural fan owns its geometry."""
+
+    PLANNED = "planned"
+    LEGACY = "legacy"
+
+
+class FanRouteEmitter(str, Enum):
+    """Routing template that exclusively emits one planned fan edge."""
+
+    BOTTOM_EXIT_RIGHT_LANDINGS = "bottom-exit-right-landings"
 
 
 class TurnHandedness(str, Enum):
@@ -645,6 +663,340 @@ class ExitTurnPlan:
             raise ValueError("exit turn has no source axis")
         if planned and self.source_axis is not expected_axis:
             raise ValueError("planned exit turn has inconsistent source orientation")
+
+
+@dataclass(frozen=True, slots=True)
+class FanBranchPlan:
+    """One canonical branch of a structural fan."""
+
+    id: FanBranchPlanId
+    rank: int
+    landing_rank: int
+    opening_rank: int
+    root_station_id: str
+    tail_station_id: str
+    continuation_edge_ids: tuple[ConnectorId, ...]
+    continuation_resolved_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    line_ids: tuple[str, ...]
+    extra_output_edge_ids: tuple[ConnectorId, ...]
+    extra_output_resolved_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    landing_port_ids: tuple[str, ...]
+    lane_station_ids: tuple[str, ...]
+    is_trunk_continuation: bool
+    terminal: bool
+    lane_offset: float | None
+    diagonal_runway: float | None
+
+    def __post_init__(self) -> None:
+        if self.rank < 0:
+            raise ValueError("fan branch rank must be non-negative")
+        if self.landing_rank < 0:
+            raise ValueError("fan branch landing rank must be non-negative")
+        if self.opening_rank < 0:
+            raise ValueError("fan branch opening rank must be non-negative")
+        if not self.continuation_edge_ids:
+            raise ValueError("fan branch has no authored members")
+        if not self.line_ids:
+            raise ValueError("fan branch has no line membership")
+        if self.lane_offset is not None and not math.isfinite(self.lane_offset):
+            raise ValueError("fan branch lane offset must be finite")
+        if self.diagonal_runway is not None and (
+            not math.isfinite(self.diagonal_runway) or self.diagonal_runway <= 0
+        ):
+            raise ValueError("fan branch diagonal runway must be positive")
+
+    @property
+    def authored_edge_ids(self) -> tuple[ConnectorId, ...]:
+        """Complete branch membership, with the continuation first."""
+        return (*self.continuation_edge_ids, *self.extra_output_edge_ids)
+
+    @property
+    def resolved_paths(self) -> tuple[tuple[ResolvedEdge, ...], ...]:
+        """Complete resolved branch membership in authored order."""
+        return (*self.continuation_resolved_paths, *self.extra_output_resolved_paths)
+
+
+@dataclass(frozen=True, slots=True)
+class FanOffsetAssignment:
+    """One line's signed slot in an immutable fan offset frame."""
+
+    line_id: str
+    slot: int
+
+    def __post_init__(self) -> None:
+        if not self.line_id:
+            raise ValueError("fan offset assignment has no line")
+        if not isinstance(self.slot, int):
+            raise ValueError("fan offset assignment slot must be an integer")
+
+
+@dataclass(frozen=True, slots=True)
+class FanOffsetCarrier:
+    """Exact station and signed line slots carrying a planned permutation."""
+
+    station_id: str
+    assignments: tuple[FanOffsetAssignment, ...]
+
+    def __post_init__(self) -> None:
+        if not self.station_id or not self.assignments:
+            raise ValueError("fan offset carrier is incomplete")
+        if len(set(self.line_ids)) != len(self.line_ids):
+            raise ValueError("fan offset carrier repeats a line")
+
+    @property
+    def line_ids(self) -> tuple[str, ...]:
+        return tuple(assignment.line_id for assignment in self.assignments)
+
+
+@dataclass(frozen=True, slots=True)
+class FanRouteEmission:
+    """Exact resolved edge assigned to one planned routing template."""
+
+    edge: ResolvedEdge
+    branch_id: FanBranchPlanId
+    emitter: FanRouteEmitter
+
+
+@dataclass(frozen=True, slots=True)
+class FanPlan:
+    """Complete immutable decision for one authored fan or diamond.
+
+    A plan owns every branch member or owns no geometry.  ``LEGACY`` records
+    retain the structural evidence and deterministic reason so callers never
+    have to infer partial ownership from missing branch records.
+    """
+
+    id: FanPlanId
+    authored_source_id: str
+    fork_station_id: str
+    direction: FlowDirection | None
+    join_station_id: str | None
+    branches: tuple[FanBranchPlan, ...]
+    offset_line_order: tuple[str, ...]
+    authored_edge_ids: tuple[ConnectorId, ...]
+    resolved_member_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    resolved_member_edges: tuple[ResolvedEdge, ...]
+    entry_seam_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    exit_seam_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    resolved_seam_edges: tuple[ResolvedEdge, ...]
+    entry_handoff_edge_ids: tuple[ConnectorId, ...]
+    exit_handoff_edge_ids: tuple[ConnectorId, ...]
+    entry_handoff_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    exit_handoff_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    offset_carriers: tuple[FanOffsetCarrier, ...]
+    route_emissions: tuple[FanRouteEmission, ...]
+    centreline_port_ids: tuple[str, ...]
+    entry_port_ids: tuple[str, ...]
+    exit_port_ids: tuple[str, ...]
+    trunk_follower_ids: tuple[str, ...]
+    entry_runway: float | None
+    exit_runway: float | None
+    centreline_reference_id: SharedReferenceId | None
+    demand_ids: tuple[DemandId, ...]
+    bundle_handoff_ids: tuple[BundleId, ...]
+    convergence_handoff_ids: tuple[ConvergenceId, ...]
+    owned_station_ids: tuple[str, ...]
+    centreline_station_ids: tuple[str, ...]
+    local_frame_anchor_station_id: str | None
+    local_frame_anchor_offset: float | None
+    frame: AxisFrame | None
+    disposition: FanPlanDisposition
+    legacy_reason: str | None
+
+    def __post_init__(self) -> None:
+        planned = self.disposition is FanPlanDisposition.PLANNED
+        self._validate_branches()
+        self._validate_membership()
+        self._validate_disposition(planned)
+        self._validate_layout_ownership(planned)
+
+    def _validate_branches(self) -> None:
+        if len(self.branches) < 2:
+            raise ValueError("fan plan requires at least two branches")
+        if tuple(branch.rank for branch in self.branches) != tuple(
+            range(len(self.branches))
+        ):
+            raise ValueError("fan branch ranks are not canonical")
+        if tuple(sorted(branch.landing_rank for branch in self.branches)) != tuple(
+            range(len(self.branches))
+        ):
+            raise ValueError("fan branch landing ranks are not canonical")
+        if tuple(sorted(branch.opening_rank for branch in self.branches)) != tuple(
+            range(len(self.branches))
+        ):
+            raise ValueError("fan branch opening ranks are not canonical")
+        if len(set(self.offset_line_order)) != len(self.offset_line_order):
+            raise ValueError("fan offset order repeats a line")
+        branch_line_ids = {
+            line_id for branch in self.branches for line_id in branch.line_ids
+        }
+        if not set(self.offset_line_order).issubset(branch_line_ids):
+            raise ValueError("fan offset order names a line outside its branches")
+
+    def _validate_membership(self) -> None:
+        if len(set(self.authored_edge_ids)) != len(self.authored_edge_ids):
+            raise ValueError("fan plan repeats an authored member")
+        expected_authored_edge_ids = tuple(
+            dict.fromkeys(
+                edge_id
+                for branch in self.branches
+                for edge_id in branch.authored_edge_ids
+            )
+        )
+        if self.authored_edge_ids != expected_authored_edge_ids:
+            raise ValueError("fan authored membership is not canonical")
+        expected_member_paths = (
+            *self.entry_seam_paths,
+            *(path for branch in self.branches for path in branch.resolved_paths),
+            *self.exit_seam_paths,
+        )
+        if self.resolved_member_paths != expected_member_paths:
+            raise ValueError("fan resolved paths are not canonical")
+        expected_member_edges = tuple(
+            dict.fromkeys(edge for path in expected_member_paths for edge in path)
+        )
+        if self.resolved_member_edges != expected_member_edges:
+            raise ValueError("fan resolved edge membership is not canonical")
+        expected_seam_edges = tuple(
+            dict.fromkeys(
+                edge
+                for path in (*self.entry_seam_paths, *self.exit_seam_paths)
+                for edge in path
+            )
+        )
+        if self.resolved_seam_edges != expected_seam_edges:
+            raise ValueError("fan resolved seam membership is not canonical")
+        if len({item.edge for item in self.route_emissions}) != len(
+            self.route_emissions
+        ):
+            raise ValueError("fan plan repeats a route emission")
+        branch_ids = {branch.id for branch in self.branches}
+        if any(item.branch_id not in branch_ids for item in self.route_emissions):
+            raise ValueError("fan route emission names an unknown branch")
+        if any(
+            item.edge not in self.resolved_member_edges for item in self.route_emissions
+        ):
+            raise ValueError("fan route emission lies outside complete membership")
+        if any(
+            item.edge.source != self.fork_station_id for item in self.route_emissions
+        ):
+            raise ValueError("fan route emission does not leave its fork")
+
+    def _validate_disposition(self, planned: bool) -> None:
+        if planned and self.direction is None:
+            raise ValueError("fan plan has an unsupported direction")
+        if planned != (self.frame is not None and self.legacy_reason is None):
+            raise ValueError("fan disposition and geometry ownership disagree")
+        if planned and any(branch.lane_offset is None for branch in self.branches):
+            raise ValueError("planned fan branch has no lane offset")
+        if planned and any(branch.diagonal_runway is None for branch in self.branches):
+            raise ValueError("planned fan branch has no diagonal runway")
+        if not planned and any(
+            branch.lane_offset is not None or branch.diagonal_runway is not None
+            for branch in self.branches
+        ):
+            raise ValueError("legacy fan branch owns relative geometry")
+        if planned != (
+            self.entry_runway is not None
+            and self.exit_runway is not None
+            and self.centreline_reference_id is not None
+            and bool(self.demand_ids)
+        ):
+            raise ValueError("fan disposition and shared resources disagree")
+        for runway in (self.entry_runway, self.exit_runway):
+            if runway is not None and (not math.isfinite(runway) or runway <= 0):
+                raise ValueError("fan runway must be finite and positive")
+        if self.frame is not None:
+            assert self.direction is not None
+            expected_axes = AxisFrame.axes_for_direction(self.direction)
+            if (self.frame.primary.name, self.frame.secondary.name) != expected_axes:
+                raise ValueError("fan frame axes disagree with its direction")
+            if self.frame.primary_sign != AxisFrame.flow_sign(self.direction):
+                raise ValueError("fan frame flow sign disagrees with its direction")
+            if self.frame.secondary_sign != AxisFrame.secondary_sign_for(
+                self.direction
+            ):
+                raise ValueError("fan frame lane sign disagrees with its direction")
+
+    def _validate_layout_ownership(self, planned: bool) -> None:
+        layout_station_ids = self.layout_station_ids
+        if len(set(layout_station_ids)) != len(layout_station_ids):
+            raise ValueError("fan plan repeats a layout-owned station")
+        if any(
+            station_id not in self.owned_station_ids
+            for station_id in layout_station_ids
+        ):
+            raise ValueError("fan layout ownership lies outside complete membership")
+        if len({carrier.station_id for carrier in self.offset_carriers}) != len(
+            self.offset_carriers
+        ):
+            raise ValueError("fan plan repeats an offset carrier")
+        if any(
+            carrier.station_id not in self.owned_station_ids
+            for carrier in self.offset_carriers
+        ):
+            raise ValueError("fan offset carrier lies outside complete ownership")
+        branch_line_ids = {
+            line_id for branch in self.branches for line_id in branch.line_ids
+        }
+        if any(
+            not set(carrier.line_ids).issubset(branch_line_ids)
+            for carrier in self.offset_carriers
+        ):
+            raise ValueError("fan offset carrier names a line outside its branches")
+        if not planned and self.offset_carriers:
+            raise ValueError("legacy fan owns offset carriers")
+        if not planned and self.route_emissions:
+            raise ValueError("legacy fan owns route emissions")
+        if len(set(self.centreline_port_ids)) != len(self.centreline_port_ids):
+            raise ValueError("fan plan repeats a centreline port")
+        if any(
+            port_id not in {*self.entry_port_ids, *self.exit_port_ids}
+            for port_id in self.centreline_port_ids
+        ):
+            raise ValueError("fan centreline port lies outside port membership")
+        if any(
+            port_id not in self.owned_station_ids
+            for port_id in self.centreline_port_ids
+        ):
+            raise ValueError("fan centreline port lies outside complete ownership")
+        if not planned and self.centreline_port_ids:
+            raise ValueError("legacy fan owns centreline ports")
+        has_local_anchor = self.local_frame_anchor_station_id is not None
+        if has_local_anchor != (self.local_frame_anchor_offset is not None):
+            raise ValueError("fan local frame anchor is incomplete")
+        if (
+            has_local_anchor
+            and self.local_frame_anchor_station_id not in layout_station_ids
+        ):
+            raise ValueError("fan local frame anchor lies outside layout ownership")
+        if self.local_frame_anchor_offset is not None and not math.isfinite(
+            self.local_frame_anchor_offset
+        ):
+            raise ValueError("fan local frame anchor offset must be finite")
+        if planned and bool(layout_station_ids) != has_local_anchor:
+            raise ValueError(
+                "planned fan local frame anchor disagrees with layout ownership"
+            )
+        if not planned and has_local_anchor:
+            raise ValueError("legacy fan owns a local frame anchor")
+
+    @property
+    def layout_station_ids(self) -> tuple[str, ...]:
+        """Stations whose secondary coordinate is owned by this plan."""
+        return (
+            *self.centreline_station_ids,
+            *(
+                station_id
+                for branch in self.branches
+                for station_id in branch.lane_station_ids
+            ),
+        )
+
+    @property
+    def owns_geometry(self) -> bool:
+        """Whether this complete fan uses its immutable geometry plan."""
+        return self.disposition is FanPlanDisposition.PLANNED
 
 
 @dataclass(frozen=True, slots=True)
@@ -1327,10 +1679,166 @@ def _bind_member(
     )
 
 
+def _fan_plan_span(graph: MetroGraph, fan_plan: FanPlan) -> GridSpan:
+    section_ids = _ordered_unique(
+        station.section_id
+        for station_id in fan_plan.owned_station_ids
+        if (station := graph.stations.get(station_id)) is not None
+        and station.section_id is not None
+    )
+    if not section_ids:
+        raise ValueError(f"planned fan {fan_plan.id!r} has no settled section span")
+    return grid_span_for_sections(graph, section_ids)
+
+
+def _build_fan_plan_resources(
+    graph: MetroGraph,
+    scaffold: RouteSemanticScaffold,
+    provenance: RoutePlanProvenance,
+) -> tuple[tuple[SharedReference, ...], tuple[SymbolicDemand, ...]]:
+    """Publish each planned fan's relative centreline and runway claims."""
+    references: list[SharedReference] = []
+    demands: list[SymbolicDemand] = []
+    member_id_by_edge = scaffold.member_id_by_edge
+
+    for fan_plan in graph.fan_plans:
+        if fan_plan.disposition is not FanPlanDisposition.PLANNED:
+            continue
+        frame = fan_plan.frame
+        reference_id = fan_plan.centreline_reference_id
+        if frame is None or reference_id is None:
+            raise ValueError(f"planned fan {fan_plan.id!r} has incomplete resources")
+        if len(fan_plan.demand_ids) != len(fan_plan.branches) + 2:
+            raise ValueError(f"planned fan {fan_plan.id!r} has incomplete runway ids")
+
+        fork_connectors: list[ConnectorId] = []
+        for branch in fan_plan.branches:
+            connector_id = next(
+                (
+                    item
+                    for item in branch.continuation_edge_ids
+                    if item in scaffold.system_by_connector
+                ),
+                None,
+            )
+            if connector_id is not None:
+                fork_connectors.append(connector_id)
+        owner_connector_ids = _ordered_unique(fork_connectors)
+        if not owner_connector_ids:
+            continue
+        system_id = scaffold.system_for(owner_connector_ids)
+
+        def owned_member_id(edge: ResolvedEdge) -> EmissionMemberId | None:
+            member_id = member_id_by_edge.get(edge)
+            if member_id is None:
+                return None
+            connector_ids = _ordered_unique(
+                ref.connector_id for ref in scaffold.refs_by_edge[edge]
+            )
+            if scaffold.system_for(connector_ids) != system_id:
+                return None
+            return member_id
+
+        claimant_member_ids = _ordered_unique(
+            member_id
+            for edge in fan_plan.resolved_member_edges
+            if (member_id := owned_member_id(edge)) is not None
+        )
+        span = _fan_plan_span(graph, fan_plan)
+        claim_provenance = reservation_decision_refs(
+            provenance, owner_connector_ids, span
+        )
+        references.append(
+            SharedReference(
+                reference_id,
+                system_id,
+                SharedReferenceKind.CENTRELINE,
+                claimant_member_ids,
+                CoordinateRegime.RELATIVE_FRAME,
+                claim_provenance,
+            )
+        )
+
+        all_line_ids = _ordered_unique(
+            line_id for branch in fan_plan.branches for line_id in branch.line_ids
+        )
+        demand_specs: list[
+            tuple[DemandId, tuple[EmissionMemberId, ...], int, float | None]
+        ] = [
+            (
+                fan_plan.demand_ids[0],
+                claimant_member_ids,
+                len(all_line_ids),
+                fan_plan.entry_runway,
+            ),
+            (
+                fan_plan.demand_ids[1],
+                claimant_member_ids,
+                len(all_line_ids),
+                fan_plan.exit_runway,
+            ),
+        ]
+        for demand_id, branch in zip(
+            fan_plan.demand_ids[2:], fan_plan.branches, strict=True
+        ):
+            branch_member_ids = _ordered_unique(
+                member_id
+                for path in branch.resolved_paths
+                for edge in path
+                if (member_id := owned_member_id(edge)) is not None
+            )
+            demand_specs.append(
+                (
+                    demand_id,
+                    branch_member_ids,
+                    len(set(branch.line_ids)),
+                    branch.diagonal_runway,
+                )
+            )
+
+        for demand_id, claimants, lane_count, minimum_size in demand_specs:
+            if minimum_size is None:
+                raise ValueError(
+                    f"planned fan demand {demand_id!r} has no runway requirement"
+                )
+            demands.append(
+                SymbolicDemand(
+                    demand_id,
+                    system_id,
+                    claimants,
+                    DemandKind.RUNWAY,
+                    DemandAxis(frame.primary.name),
+                    span,
+                    lane_count,
+                    minimum_size,
+                    CoordinateRegime.RELATIVE_FRAME,
+                    (reference_id,),
+                    (KeepOutClass.SECTION, KeepOutClass.MARKER),
+                    claim_provenance,
+                )
+            )
+
+    return tuple(references), tuple(demands)
+
+
+def _fan_plan_diagnostics(graph: MetroGraph) -> tuple[RoutePlanDiagnostic, ...]:
+    return tuple(
+        RoutePlanDiagnostic(
+            None,
+            "fan-plan-legacy",
+            f"fan {fan_plan.id} uses legacy layout: {fan_plan.legacy_reason}",
+            blocking=False,
+        )
+        for fan_plan in graph.fan_plans
+        if fan_plan.disposition is FanPlanDisposition.LEGACY
+    )
+
+
 def _build_route_plan(
     observer: RoutePlanObserver, routes: list[RoutedPath]
 ) -> RoutePlan:
     graph = observer.graph
+    fan_diagnostics = _fan_plan_diagnostics(graph)
     context_query = observer.context.topology if observer.context is not None else None
     scaffold = observer.scaffold or build_route_semantic_scaffold(graph, context_query)
     if scaffold is None:
@@ -1350,6 +1858,7 @@ def _build_route_plan(
             reservation_diagnostics=(),
             bindings=(),
             provenance=_plan_provenance(graph, ()),
+            diagnostics=fan_diagnostics,
         )
 
     topology = scaffold.topology
@@ -1373,7 +1882,7 @@ def _build_route_plan(
             route_ranks[edge].append(path_rank)
 
     line_rank = {line_id: rank for rank, line_id in enumerate(graph.lines)}
-    diagnostics: list[RoutePlanDiagnostic] = []
+    diagnostics = list(fan_diagnostics)
     members: list[EmissionMember] = []
     member_ids_by_system: dict[RouteSystemId, list[EmissionMemberId]] = defaultdict(
         list
@@ -1508,6 +2017,19 @@ def _build_route_plan(
     for exit_turn_plan in observer.exit_turn_plans:
         exit_turn_ids_by_system[exit_turn_plan.system_id].append(exit_turn_plan.id)
 
+    provenance = _plan_provenance(graph, topology.connectors)
+    fan_references, fan_demands = _build_fan_plan_resources(graph, scaffold, provenance)
+    shared_references = (*observer.exit_turn_references, *fan_references)
+    demands = (*observer.exit_turn_demands, *fan_demands)
+    reference_ids_by_system: dict[RouteSystemId, list[SharedReferenceId]] = defaultdict(
+        list
+    )
+    demand_ids_by_system: dict[RouteSystemId, list[DemandId]] = defaultdict(list)
+    for reference in shared_references:
+        reference_ids_by_system[reference.system_id].append(reference.id)
+    for demand in demands:
+        demand_ids_by_system[demand.system_id].append(demand.id)
+
     systems: list[RouteSystem] = []
     for system_id, connector_ids in zip(ordered_system_ids, components, strict=True):
         systems.append(
@@ -1527,8 +2049,8 @@ def _build_route_plan(
                 tuple(branch_ids_by_system[system_id]),
                 tuple(feeder_ids_by_system[system_id]),
                 tuple(exit_turn_ids_by_system[system_id]),
-                (),
-                (),
+                tuple(reference_ids_by_system[system_id]),
+                tuple(demand_ids_by_system[system_id]),
                 (),
             )
         )
@@ -1542,13 +2064,13 @@ def _build_route_plan(
         branches=tuple(branches),
         feeders=tuple(feeders),
         exit_turn_plans=observer.exit_turn_plans,
-        shared_references=observer.exit_turn_references,
-        demands=observer.exit_turn_demands,
+        shared_references=shared_references,
+        demands=demands,
         reservations=(),
         realised_reservations=(),
         reservation_diagnostics=(),
         bindings=tuple(bindings),
-        provenance=_plan_provenance(graph, topology.connectors),
+        provenance=provenance,
         diagnostics=tuple(diagnostics) + observer.exit_turn_diagnostics,
     )
     from nf_metro.layout.route_reservations import attach_route_reservations

@@ -54,7 +54,9 @@ from nf_metro.parser.route_topology import (
     AuthoredEdgeLineage,
     RouteResolutionTrace,
     build_route_topology,
+    build_route_topology_query,
     capture_authored_routes,
+    snapshot_resolved_authored_edges,
 )
 from nf_metro.parser.validate import find_cycle, find_section_cycle
 
@@ -369,6 +371,9 @@ def _infer_layout(
             if relocated:
                 graph._fold_compressed_sections = relocated
         _insert_terminus_convergence_stations(graph, authored_lineage)
+        resolved_authored_edges = snapshot_resolved_authored_edges(
+            authored_capture, authored_lineage, graph.edges
+        )
         endpoint_resolution = resolve_section_endpoints(
             graph, authored_lineage, commitments
         )
@@ -376,12 +381,20 @@ def _infer_layout(
             authored_capture, authored_lineage, endpoint_resolution
         )
         graph.route_resolution = _resolve_sections(
-            graph, endpoint_resolution, graph.route_topology
+            graph,
+            endpoint_resolution,
+            graph.route_topology,
+            resolved_authored_edges,
         )
         graph.route_resolution = _insert_bypass_stations(graph, graph.route_resolution)
     else:
         graph.route_topology = build_route_topology(authored_capture, authored_lineage)
-        graph.route_resolution = RouteResolutionTrace()
+        graph.route_resolution = RouteResolutionTrace(
+            authored_edges=snapshot_resolved_authored_edges(
+                authored_capture, authored_lineage, graph.edges
+            )
+        )
+    build_route_topology_query(graph)
 
 
 def _apply_pending_metadata(graph: MetroGraph) -> None:

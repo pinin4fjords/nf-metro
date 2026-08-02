@@ -18,7 +18,7 @@ from collections.abc import Set as AbstractSet
 import networkx as nx
 
 from nf_metro.graph_views import directed_graph, longest_path_layers
-from nf_metro.layout.geometry import AxisFrame
+from nf_metro.layout.geometry import flow_port_sides
 from nf_metro.layout.layers import assign_layers
 from nf_metro.parser.model import (
     Interchange,
@@ -1432,7 +1432,7 @@ def _is_foldback_drop_corner(
     The caller gates this on the section being horizontal (LR/RL, non-fold).
     """
     section = graph.sections[sec_id]
-    entry_aligned, _exit_aligned = _flow_edge_sides(section.direction)
+    entry_aligned, _exit_aligned = flow_port_sides(section.direction)
     if not any(side == entry_aligned for side, _lines in section.exit_hints):
         return False
     return _has_predecessor_above(graph, sec_id, my_row, predecessors)
@@ -1471,7 +1471,7 @@ def _infer_port_sides(
         # whose above-feeder TOP entry already matches its flow-start edge.
         vertical_up = section.direction == "BT" and sec_id not in fold_sections
         flow_axis_aligned = horizontal or vertical_up
-        entry_aligned, exit_aligned = _flow_edge_sides(section.direction)
+        entry_aligned, exit_aligned = flow_port_sides(section.direction)
 
         # A flow-aligned section exits on its flow-end edge regardless of
         # neighbour position; the router carriage-returns or drops.
@@ -1559,20 +1559,6 @@ def _infer_port_sides(
                         section.entry_hints.append((side, sorted(lines)))
 
 
-def _flow_edge_sides(direction: str) -> tuple[PortSide, PortSide]:
-    """``(flow-start side, flow-end side)`` for a section direction.
-
-    Derived from the :class:`AxisFrame` primitive rather than a per-direction
-    branch: the flow axis (X for LR/RL, Y for TB/BT) fixes the edge pair
-    (LEFT/RIGHT or TOP/BOTTOM), and the flow sign fixes which is the start.
-    """
-    on_x = AxisFrame.axes_for_direction(direction)[0] == "x"
-    low, high = (
-        (PortSide.LEFT, PortSide.RIGHT) if on_x else (PortSide.TOP, PortSide.BOTTOM)
-    )
-    return (low, high) if AxisFrame.flow_sign(direction) > 0 else (high, low)
-
-
 def _same_cell_side(graph: MetroGraph, sec_id: str, other: str) -> PortSide:
     """Side of ``sec_id`` that a grid-cell co-tenant ``other`` faces.
 
@@ -1590,7 +1576,7 @@ def _same_cell_side(graph: MetroGraph, sec_id: str, other: str) -> PortSide:
     """
     dag = graph.section_dag
     if dag is not None and graph.sections[sec_id].internal_edges:
-        start, end = _flow_edge_sides(graph.sections[sec_id].direction)
+        start, end = flow_port_sides(graph.sections[sec_id].direction)
         if other in dag.predecessors.get(sec_id, set()):
             return start
         if other in dag.successors.get(sec_id, set()):

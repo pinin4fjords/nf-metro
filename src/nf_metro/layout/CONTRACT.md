@@ -1332,6 +1332,32 @@ in pipeline order.
   and turn axis matches the final routed paths, and every assignment is
   consumed exactly once at the render boundary.
 
+## Cross-stage contract: semantic fan planning
+
+- **Purpose**: Give one immutable owner to a complete authored fan or diamond,
+  including its branches, opening and landing order, relative lanes, runway
+  demands, exact offset slots, centreline members, and dedicated route
+  emissions.
+- **Helpers**: `build_fan_plan_execution` runs before Stage 1.
+  `_apply_planned_fan_port_geometry` seats owned boundary anchors.
+  `_apply_planned_fan_geometry` materialises the relative frame at Stages 4.9
+  and 6.17. Routing applies `FanOffsetCarrier` assignments before dispatch.
+- **Precondition**: Authored connector identity and resolver lineage are
+  complete. Effective grid decisions are available even though section canvas
+  coordinates are not.
+- **Postcondition**: A fan is wholly `PLANNED` or wholly `LEGACY`. A planned
+  fan has exact structural ownership and complete relative geometry. A legacy
+  fan claims no layout geometry, offsets, or route emissions and records one
+  deterministic reason.
+- **Invariants preserved**: Planned materialisation reads frozen anchors and
+  cannot move an unowned port or station. Structural membership is independent
+  of route-emission ownership. Each claimed route emission is produced exactly
+  once and carries its plan and emitter identity.
+- **Related tests**: `tests/test_fan_plans.py` and the fan-plan topology
+  fixtures listed in `examples/topologies/README.md`.
+- **Lifecycle:** invariant - the same fan decision is consumed by layout,
+  offset assignment, routing, validation, and diagnostics for one layout pass.
+
 ## Unclear / structural-debt signals
 
 No open signals at this time. Add new entries here when phase

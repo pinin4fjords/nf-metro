@@ -12,6 +12,7 @@ from nf_metro.layout.constants import (
     SAME_Y_TOLERANCE,
     graph_offset_step,
 )
+from nf_metro.layout.fan_plans import fan_branch_solo_station_ids
 from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_x,
@@ -1514,6 +1515,35 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
             port_off = ctx.offsets.get((exit_port_id, line_id))
             if port_off is not None:
                 ctx.offsets[(junction_id, line_id)] = port_off
+
+
+def _apply_planned_fan_offsets(ctx: _OffsetCtx) -> None:
+    """Align fan hubs and vertical exits with their planned branch order."""
+    graph = ctx.graph
+    for plan in graph.fan_plans:
+        if not plan.owns_geometry:
+            continue
+        for carrier in plan.offset_carriers:
+            for assignment in carrier.assignments:
+                ctx.offsets[(carrier.station_id, assignment.line_id)] = (
+                    assignment.slot * ctx.offset_step
+                )
+
+    _recenter_single_line_corridor_entry(ctx)
+    for plan in graph.fan_plans:
+        if not plan.owns_geometry:
+            continue
+        for branch in plan.branches:
+            if len(branch.line_ids) != 1:
+                continue
+            line_id = branch.line_ids[0]
+            if (
+                abs(ctx.offsets.get((plan.fork_station_id, line_id), 0.0))
+                > COORD_TOLERANCE_FINE
+            ):
+                continue
+            for station_id in fan_branch_solo_station_ids(graph, branch):
+                ctx.offsets[(station_id, line_id)] = 0.0
 
 
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
@@ -3378,6 +3408,7 @@ def compute_station_offsets(
     _recompact_fan_port_bordering_stations(ctx, same_y_adj, sec_layer_stations)
     _reconcile_horizontal_offsets(ctx)
     _center_rail_boundary_port_bundles(ctx)
+    _apply_planned_fan_offsets(ctx)
     return ctx.offsets
 
 

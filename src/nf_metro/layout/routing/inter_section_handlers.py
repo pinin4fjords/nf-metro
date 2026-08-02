@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple
 
+from nf_metro.layout.route_plan import FanRouteEmitter
 from nf_metro.layout.routing.families import RouteFamilyId
 
 if TYPE_CHECKING:
@@ -116,6 +117,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.route_topology import ResolvedEdge
 
 
 @dataclass(frozen=True)
@@ -1959,6 +1961,12 @@ def _route_bottom_exit_junction(
     # Each line keeps its source offset on both legs: the channel is anchored
     # on the exit fan, so a per-end taper would detach the descent from the
     # entry offsets it never carried.
+    planned = _route_planned_bottom_exit_right_landings(
+        edge, src, tgt, ctx, members, exit_x_offset, hy
+    )
+    if planned is not None:
+        return planned
+
     rigid = [(e, line_id, src_off, src_off) for e, line_id, src_off, _tgt in members]
 
     # The plain L runs its horizontal leg at the target's entry row.  When a
@@ -1978,6 +1986,89 @@ def _route_bottom_exit_junction(
         transition_leg=1,
         base_radius=ctx.curve_radius,
     )
+
+
+def _route_planned_bottom_exit_right_landings(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+    members: list[_TaperedMember],
+    exit_x_offset: Callable[[str], float],
+    target_y: float,
+) -> RoutedPath | None:
+    query = ctx.graph.fan_plan_query
+    if query is None:
+        return None
+    resolved = ResolvedEdge(edge.source, edge.target, edge.line_id)
+    binding = query.route_emission_for_resolved_edge(resolved)
+    if binding is None:
+        return None
+    plan, branch, emission = binding
+    target_port = ctx.graph.ports.get(edge.target)
+    if (
+        emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
+        or plan.fork_station_id != edge.source
+        or target_port is None
+        or target_port.side is not PortSide.RIGHT
+    ):
+        raise RuntimeError(f"planned fan {plan.id!s} route-emission contract drifted")
+
+    landing_sections = []
+    for planned_branch in plan.branches:
+        for port_id in planned_branch.landing_port_ids:
+            port = ctx.graph.ports.get(port_id)
+            section = (
+                ctx.graph.sections.get(port.section_id) if port is not None else None
+            )
+            if port is None or port.side is not PortSide.RIGHT or section is None:
+                raise RuntimeError(
+                    f"planned fan {plan.id!s} lost a RIGHT landing section"
+                )
+            if section not in landing_sections:
+                landing_sections.append(section)
+    if len(landing_sections) != len(plan.branches):
+        raise RuntimeError(f"planned fan {plan.id!s} landing ownership drifted")
+
+    if branch.diagonal_runway is None or plan.entry_runway is None:
+        raise RuntimeError(f"planned fan {plan.id!s} lost its routing runway")
+    right_edge = max(section.bbox_x + section.bbox_w for section in landing_sections)
+    corridor_x = (
+        right_edge
+        + SECTION_ROUTE_CLEARANCE
+        + ctx.curve_radius
+        + max(0.0, branch.diagonal_runway - plan.entry_runway)
+    )
+    centerline = [
+        (src.x, src.y),
+        (corridor_x, src.y),
+        (corridor_x, target_y),
+        (tgt.x, target_y),
+    ]
+    source_offsets = [
+        exit_x_offset(line_id)
+        for planned_branch in sorted(plan.branches, key=lambda item: item.landing_rank)
+        for line_id in planned_branch.line_ids
+    ]
+    target_offsets = [target_offset for _e, _line, _source, target_offset in members]
+    routes = [
+        route_tapered_anchored(
+            (member_edge, line_id, exit_x_offset(line_id), target_offset),
+            centerline,
+            transition_leg=2,
+            base_radius=ctx.curve_radius,
+            src_bundle_offsets=source_offsets,
+            tgt_bundle_offsets=target_offsets,
+        )
+        for member_edge, line_id, _source_offset, target_offset in members
+    ]
+    route = next((item for item in routes if item.line_id == edge.line_id), None)
+    if route is None:
+        raise RuntimeError(f"planned fan {plan.id!s} emitter omitted {resolved!r}")
+    route.fan_plan_id = plan.id
+    route.fan_route_emitter = emission.emitter.value
+    _declare_channel(route, ctx, corridor_x, Direction.D)
+    return route
 
 
 def _route_bottom_exit_junction_via_gap(

@@ -435,6 +435,35 @@ gallery:
       an odd number of grid slots apart, so the fork midpoint lands off-grid.  The LR
       entry port centres on that midpoint -- matching the join station the branches
       reconverge at -- so the entry fork reads as symmetric as the exit fork (#1459)."
+  - id: port_fed_three_branch_diamond
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A three-line diamond that forks directly from a section entry port. The
+      three distinct branches must straddle the shared entry and return to one
+      join frame instead of cascading in declaration order (#1272).
+  - id: fan_branch_additional_outputs
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A six-branch symmetric diamond whose branches also feed a second output
+      line. The extra outputs must not pull individual branches away from the
+      shared fork and join frame.
+  - id: seed72_cross_family_fan
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A reduction of frozen recovery seed 72. One divergence feeds a normal
+      dogleg around an intervening section and an exempt continuation into a
+      reverse-flow target; both routes must leave through one ordered fan frame
+      without crossing.
+  - id: bottom_exit_stacked_right_entry_fan
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A two-line BOTTOM-exit divergence feeding vertically stacked RIGHT-entry
+      targets. The outgoing routes need distinct continuation columns and a
+      clean shared junction hand-off, without overlapping or grazing elbows.
   - id: terminal_symmetric_fan
     source_dir: examples/topologies
     category: Fan-out and Fan-in

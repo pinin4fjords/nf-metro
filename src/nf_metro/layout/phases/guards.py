@@ -31,6 +31,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_PADDING,
     TITLE_BAND_OVERLAP_FLOOR,
     X_SPACING,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -5186,6 +5187,99 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         )
 
 
+def _guard_planned_fan_frame_realised(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float],
+) -> None:
+    """Raise when settled fan coordinates or bundle offsets disagree with its plan."""
+    offset_step = graph_offset_step(graph)
+    for plan in graph.fan_plans:
+        frame = plan.frame
+        if not plan.owns_geometry or frame is None:
+            continue
+
+        anchor_id = plan.local_frame_anchor_station_id
+        anchor = graph.stations.get(anchor_id or "")
+        centreline = None
+        if anchor is not None and plan.local_frame_anchor_offset is not None:
+            centreline = (
+                frame.secondary.get(anchor)
+                - frame.secondary_sign * plan.local_frame_anchor_offset
+            )
+        expected_coordinates: dict[str, float] = {}
+        if centreline is not None:
+            expected_coordinates.update(
+                (station_id, centreline) for station_id in plan.centreline_station_ids
+            )
+            expected_coordinates.update(
+                (
+                    station_id,
+                    centreline + frame.secondary_sign * branch.lane_offset,
+                )
+                for branch in plan.branches
+                if branch.lane_offset is not None
+                for station_id in branch.lane_station_ids
+            )
+            expected_coordinates.update(
+                (port_id, centreline) for port_id in plan.centreline_port_ids
+            )
+        elif plan.layout_station_ids or plan.centreline_port_ids:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} has local-frame ownership "
+                "but no realised anchor"
+            )
+
+        axis = frame.secondary.name
+        for station_id, expected in expected_coordinates.items():
+            station = graph.stations.get(station_id)
+            if station is None:
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} is missing station "
+                    f"{station_id!r} from its realised frame"
+                )
+            actual = getattr(station, axis)
+            if abs(actual - expected) > COORD_TOLERANCE_FINE:
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} station {station_id!r} "
+                    f"uses {axis}={actual:.1f}, expected {expected:.1f} from its frame"
+                )
+            port = graph.ports.get(station_id)
+            if port is not None:
+                port_actual = getattr(port, axis)
+                if abs(port_actual - expected) > COORD_TOLERANCE_FINE:
+                    raise PhaseInvariantError(
+                        f"{phase}: planned fan {plan.id!s} port {station_id!r} "
+                        f"uses {axis}={port_actual:.1f}, expected {expected:.1f} "
+                        "from its frame"
+                    )
+
+        for carrier in plan.offset_carriers:
+            station_lines = set(graph.station_lines(carrier.station_id))
+            if station_lines != set(carrier.line_ids):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} carries unowned lines"
+                )
+            for assignment in carrier.assignments:
+                expected = assignment.slot * offset_step
+                key = (carrier.station_id, assignment.line_id)
+                if key not in offsets:
+                    raise PhaseInvariantError(
+                        f"{phase}: planned fan {plan.id!s} hand-off "
+                        f"{carrier.station_id!r}/{assignment.line_id!r} "
+                        "has no offset"
+                    )
+                actual = offsets[key]
+                if abs(actual - expected) > COORD_TOLERANCE_FINE:
+                    raise PhaseInvariantError(
+                        f"{phase}: planned fan {plan.id!s} hand-off "
+                        f"{carrier.station_id!r}/{assignment.line_id!r} uses "
+                        f"offset {actual:.1f}, expected {expected:.1f} from its plan"
+                    )
+
+
 @dataclass(frozen=True)
 class GuardSpec:
     """One ``validate=True`` guard, with the dispatch + classification data
@@ -5274,6 +5368,11 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "span it carries are out of scope: none of those has a single shared "
             "centreline for the fork and join hub to agree on."
         ),
+    ),
+    GuardSpec(
+        _guard_planned_fan_frame_realised,
+        "A",
+        needs=frozenset({"offsets"}),
     ),
     # A sparse loop-side station (single line in/out, full-bundle row-mates)
     # sits on the trunk Y until Stage 6.14 shifts it to a half-grid offset;

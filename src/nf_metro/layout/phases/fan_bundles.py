@@ -25,6 +25,10 @@ from nf_metro.layout.phases._common import (
     grow_section_bbox_max_edge,
     grow_section_bbox_min_edge,
 )
+from nf_metro.layout.phases.planned_fans import (
+    planned_fan_layout_station_ids,
+    planned_fan_port_ids,
+)
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
 
@@ -361,6 +365,7 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
     grid_sec_ids = _grid_group_section_ids(graph)
     if not grid_sec_ids:
         return
+    planned_ids = planned_fan_layout_station_ids(graph)
 
     for section in graph.sections.values():
         if (
@@ -380,7 +385,7 @@ def _redistribute_fanout_siblings(graph: MetroGraph, y_spacing: float) -> None:
         # slot here.
         cols: dict[float, list[str]] = defaultdict(list)
         for sid in section.station_ids:
-            if sid in port_ids:
+            if sid in port_ids or sid in planned_ids:
                 continue
             st = graph.stations.get(sid)
             if st is None or st.off_track:
@@ -460,11 +465,12 @@ def _symfan_branches_hub(
     both equal-sibling branches, so callers can centre it between them.
     """
     port_ids = section.port_ids
+    planned_ids = planned_fan_layout_station_ids(graph)
     nonterm: list[Station] = []
     has_off_track = False
     by_col: dict[float, int] = defaultdict(int)
     for sid in section.station_ids:
-        if sid in port_ids:
+        if sid in port_ids or sid in planned_ids:
             continue
         st = graph.stations.get(sid)
         if st is None or st.is_port or st.is_hidden:
@@ -760,7 +766,10 @@ def _iter_symmetric_diamonds(
     test so both agree on which branches are legitimately half-pitch.
     """
     tol = SAME_COORD_TOLERANCE
+    planned_ids = planned_fan_layout_station_ids(graph)
     for fork_st, s1, s2, join_st in _iter_fork_join_diamonds(graph):
+        if {fork_st.id, s1.id, s2.id, join_st.id}.intersection(planned_ids):
+            continue
         if any(s.is_port or s.is_hidden or s.off_track for s in (s1, s2)):
             continue
         # Confine the diamond to one section so the trunk anchor (the fork
@@ -839,6 +848,7 @@ def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> No
     grid_sec_ids = _grid_group_section_ids(graph)
     if not grid_sec_ids:
         return
+    planned_ids = planned_fan_layout_station_ids(graph)
 
     for section in graph.sections.values():
         if (
@@ -854,7 +864,7 @@ def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> No
 
         cols: dict[float, list[str]] = defaultdict(list)
         for sid in section.station_ids:
-            if sid in port_ids:
+            if sid in port_ids or sid in planned_ids:
                 continue
             st = graph.stations.get(sid)
             if st is None or st.off_track:
@@ -989,6 +999,7 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
     grid_sec_ids = _grid_group_section_ids(graph)
     if not grid_sec_ids:
         return
+    planned_ids = planned_fan_layout_station_ids(graph)
 
     for section in graph.sections.values():
         if (
@@ -1014,7 +1025,7 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
 
         cols: dict[float, list[str]] = defaultdict(list)
         for sid in section.station_ids:
-            if sid in port_ids:
+            if sid in port_ids or sid in planned_ids:
                 continue
             st = graph.stations.get(sid)
             if st is None or st.off_track:
@@ -1121,12 +1132,13 @@ def _carry_symmetric_branch_continuations(
     """
     if graph.diamond_style != "symmetric":
         return
+    planned_ids = planned_fan_layout_station_ids(graph)
     for section in graph.sections.values():
         if section.direction not in ("LR", "RL"):
             continue
         carried: list[str] = []
         for sid in section.station_ids:
-            if sid not in graph.half_grid_station_ids:
+            if sid not in graph.half_grid_station_ids or sid in planned_ids:
                 continue
             branch = graph.stations.get(sid)
             if branch is None:
@@ -1351,11 +1363,14 @@ def _center_lr_entry_ports_on_fork(graph: MetroGraph, y_spacing: float) -> None:
     """
     if graph.diamond_style != "symmetric":
         return
+    planned_ports = planned_fan_port_ids(graph)
     for section in graph.sections.values():
         if section.direction not in ("LR", "RL"):
             continue
         pitch = _section_row_pitch(graph, section.id, y_spacing)
         for pid in section.entry_ports:
+            if pid in planned_ports:
+                continue
             port = graph.ports.get(pid)
             if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
                 continue
@@ -1407,12 +1422,15 @@ def _center_lr_exit_ports_on_join(graph: MetroGraph) -> None:
     """
     if graph.diamond_style != "symmetric":
         return
+    planned_ports = planned_fan_port_ids(graph)
     for section in graph.sections.values():
         direction = section.direction or "LR"
         if not lanes_run_along_y(direction):
             continue
         perpendicular = perpendicular_port_sides(direction)
         for pid in section.exit_ports:
+            if pid in planned_ports:
+                continue
             port = graph.ports.get(pid)
             if port is None or port.side in perpendicular:
                 continue
@@ -1553,6 +1571,7 @@ def _expand_orphaned_half_grid_stations(
     half_grid = graph.half_grid_station_ids
     if not half_grid:
         return
+    planned_ids = planned_fan_layout_station_ids(graph)
     convergence_sources = _convergence_source_ys(graph)
     divergence_targets = _divergence_midpoint_targets(graph, convergence_sources)
     centreline_ids = set(divergence_targets)
@@ -1564,7 +1583,7 @@ def _expand_orphaned_half_grid_stations(
         marked = [
             sid
             for sid in section.station_ids
-            if sid in half_grid and sid not in centreline_ids
+            if sid in half_grid and sid not in centreline_ids and sid not in planned_ids
         ]
         if not marked:
             continue
