@@ -634,11 +634,9 @@ def test_row_trunk_marker_cy_consistent(fixture):
 # Straight-through bundle line keeps a constant offset
 # ---------------------------------------------------------------------------
 
-# (fixture, line_id) where the named line's whole route lies on a single
-# base-Y trunk, so every station it touches must carry one per-line offset --
-# any variation paints the line as a kink or slant.  These fixtures exercise
-# the section-exit / junction-to-entry-port bundle-order paths in offsets.py
-# where a straight-through line is reordered off its incoming slot.
+# (fixture, line_id) where one line must retain its lateral slot across every
+# station and seam it traverses.  The centreline may descend inside a section;
+# the per-line offset remains constant relative to that local centreline.
 _STRAIGHT_THROUGH_LINES = [
     ("topologies/junction_entry_collision.mmd", "alpha"),
     ("topologies/junction_entry_align.mmd", "alpha"),
@@ -647,25 +645,21 @@ _STRAIGHT_THROUGH_LINES = [
 
 @pytest.mark.parametrize("fixture,line_id", _STRAIGHT_THROUGH_LINES)
 def test_straight_through_line_keeps_constant_offset(fixture, line_id):
-    """A line confined to one base-Y trunk must carry a single offset.
+    """A line crossing several routing boundaries must carry one offset.
 
-    The line is purely horizontal, so any per-station offset variation is
-    painted as a kink or slant.  Reordering the bundle at a section exit or
-    across a junction-to-entry-port boundary breaks this.
+    A station's centreline may move as the authored route descends through a
+    section.  Its line offset is the independent bundle-order coordinate: a
+    change there introduces an unrequested lane swap at a station or seam.
     """
     graph = _layout(fixture)
     offsets = compute_station_offsets(graph)
     stations = [sid for sid in graph.stations if line_id in graph.station_lines(sid)]
-    ys = [graph.stations[sid].y for sid in stations]
-    assert max(ys) - min(ys) <= _Y_TOL, (
-        f"{fixture}: {line_id} spans rows {min(ys)}..{max(ys)}; "
-        "test precondition (single trunk) does not hold"
-    )
+    assert len(stations) >= 2, f"{fixture}: {line_id} has no traversed boundary"
     offs = {sid: round(offsets.get((sid, line_id), 0.0), 1) for sid in stations}
     distinct = sorted(set(offs.values()))
     assert len(distinct) == 1, (
-        f"{fixture}: line {line_id} runs flat on one trunk but its offset "
-        f"varies {distinct}; per-station offsets {offs}"
+        f"{fixture}: line {line_id} changes lateral slot {distinct}; "
+        f"per-station offsets {offs}"
     )
 
 
@@ -2571,19 +2565,18 @@ def test_rl_return_row_convergence_renders_cleanly():
     ],
 )
 def test_peeloff_concentric_runtime_guard(fixture):
-    """The always-on peel-off guard passes the settled routes and fires when the
-    convergence bundle ordering is suppressed.
+    """The always-on peel-off guard rejects a final route-level braid.
 
     ``check_peeloff_concentric`` runs on every render: a bundle riding one shared
     bypass trunk into a common LEFT entry port must rise in trunk-depth order.
-    The gap-bundle orderer slots the risers by approach (``_convergence_line_order``)
-    so they turn in concentrically through the standard path.  The guard must find
-    no braid on the real routes, and (suppressing that approach ordering, so the
-    risers fall back to declaration order while the port slots stay in approach
-    order) must flag the braid - so it is a meaningful regression guard, not a
-    vacuous pass.
+    The negative case swaps two realised riser columns after routing, directly at
+    the invariant boundary, so intervening normalizers cannot repair the test
+    mutation or make the guard pass vacuously.
     """
-    from nf_metro.layout.routing import core, normalize
+    from nf_metro.layout.routing.common import (
+        iter_port_peeloff_bundles,
+        peeloff_target_slots,
+    )
     from nf_metro.layout.routing.invariants import check_peeloff_concentric
 
     graph = _layout(fixture, validate=True)
@@ -2591,19 +2584,33 @@ def test_peeloff_concentric_runtime_guard(fixture):
     routes = route_edges(graph, station_offsets=offsets)
     assert not check_peeloff_concentric(graph, routes)
 
-    suppressed = _layout(fixture)
-    suppressed_offsets = compute_station_offsets(suppressed)
-    original = normalize._convergence_line_order
-    original_reconcile = core._reconcile_port_peeloff_risers
-    normalize._convergence_line_order = lambda chans, graph: None
-    core._reconcile_port_peeloff_risers = lambda routes, ctx: None
-    try:
-        unordered = route_edges(suppressed, station_offsets=suppressed_offsets)
-    finally:
-        normalize._convergence_line_order = original
-        core._reconcile_port_peeloff_risers = original_reconcile
-    assert check_peeloff_concentric(suppressed, unordered), (
-        "guard must flag the braid the approach ordering removes"
+    braided = copy.deepcopy(routes)
+    bundle = next(
+        iter_port_peeloff_bundles(
+            braided,
+            graph,
+            graph_offset_step(graph),
+            require_contiguous=False,
+        )
+    )
+    slots = peeloff_target_slots(bundle)
+    ranked = sorted(bundle.per_line, key=lambda line_id: slots[line_id].rank)
+    first_line, last_line = ranked[0], ranked[-1]
+    representatives = {
+        route.line_id: route
+        for route, _tail in bundle.entries
+        if route.line_id in (first_line, last_line)
+    }
+    first = representatives[first_line]
+    last = representatives[last_line]
+    first_x = first.points[-3][0]
+    last_x = last.points[-3][0]
+    for route, peel_x in ((first, last_x), (last, first_x)):
+        route.points[-3] = (peel_x, route.points[-3][1])
+        route.points[-2] = (peel_x, route.points[-2][1])
+
+    assert check_peeloff_concentric(graph, braided), (
+        "guard must flag swapped riser columns in the final routed bundle"
     )
 
 
@@ -6915,6 +6922,24 @@ def test_all_stations_snap_to_grid(fixture):
         b.id for _f, lo, hi, _j in _iter_symmetric_diamonds(graph) for b in (lo, hi)
     }
 
+    # A semantic plan is the source of truth for half-pitch branch tracks even
+    # when legacy live-geometry classifiers cannot reconstruct the fan shape.
+    planned_half_grid_ids = {
+        station_id
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        and plan.frame is not None
+        and plan.frame.secondary.name == "y"
+        and len(plan.branches) == 2
+        and {round(branch.lane_offset or 0.0, 6) for branch in plan.branches}
+        == {
+            round(-plan.frame.secondary.step / 2, 6),
+            round(plan.frame.secondary.step / 2, 6),
+        }
+        for branch in plan.branches
+        for station_id in branch.lane_station_ids
+    }
+
     offenders: list[str] = []
     for sid, st in graph.stations.items():
         if (
@@ -6950,7 +6975,11 @@ def test_all_stations_snap_to_grid(fixture):
         if (
             is_half
             and sid in half_grid_ids
-            and (st.section_id in half_grid_sections or sid in diamond_branch_ids)
+            and (
+                st.section_id in half_grid_sections
+                or sid in diamond_branch_ids
+                or sid in planned_half_grid_ids
+            )
         ):
             continue
         offenders.append(
