@@ -34,6 +34,7 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import (
     _has_intervening_sections,
+    _resolve_section_col,
     _resolve_section_colrow,
     _section_lane_frame,
     fanout_divergence_peel_order,
@@ -2912,16 +2913,17 @@ def _convergence_feeders(
     off-target row. A single bypass joined by a flat same-row feeder does not
     form a climbing bundle and remains in its ordinary lane order.
     """
-    target_col, target_row = _resolve_section_colrow(graph, graph.stations[port_id])
-    if target_col is None or target_row is None:
+    target_col = _resolve_section_col(graph, graph.stations[port_id])
+    if target_col is None:
         return None
+    target_row = _resolve_section_colrow(graph, graph.stations[port_id])[1]
 
     feeders: list[tuple[str, int, bool]] = []
-    source_rows: set[int] = set()
+    source_rows: set[int | None] = set()
     for edge in graph.edges_to(port_id):
         source = graph.station_for_edge_source(edge)
         source_col, source_row = _resolve_section_colrow(graph, source)
-        if source_col is None or source_row is None:
+        if source_col is None:
             return None
         bypass = abs(target_col - source_col) > 1 and _has_intervening_sections(
             graph, source_col, target_col, source_row
@@ -2950,7 +2952,9 @@ def cross_row_convergence_channel_order(
 ) -> list[str] | None:
     """Outer-to-inner channels for a single-bypass off-row convergence."""
     feeders = _convergence_feeders(graph, port_id)
-    if feeders is None or sum(bypass for _, _, bypass in feeders) != 1:
+    if feeders is None:
+        return None
+    if sum(bypass for _, _, bypass in feeders) != 1:
         return None
     return [line_id for line_id, _col, _bypass in sorted(feeders, key=lambda f: f[1])]
 

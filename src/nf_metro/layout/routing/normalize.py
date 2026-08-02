@@ -1470,6 +1470,13 @@ def _cross_row_convergence_channel_order(
     port = ctx.graph.ports.get(port_id)
     if port is None or port.side is not PortSide.LEFT:
         return None
+    section = ctx.graph.section_for_port(port)
+    if (
+        ctx.graph.compact_offsets
+        or section.direction != "LR"
+        or port.section_id in ctx.reversed_sections
+    ):
+        return None
     line_ids = {rp.line_id for rp, _channel in entries}
     ordered = cross_row_convergence_channel_order(ctx.graph, port_id)
     if ordered is None or line_ids != set(ordered):
@@ -1484,7 +1491,7 @@ def _stack_distinct_port_descents(
     *,
     line_order: list[str] | None = None,
 ) -> None:
-    """Re-seat one coincident cluster of distinct-line port descents.
+    """Re-seat one cluster of distinct-line port descents.
 
     Lines are placed one ``OFFSET_STEP`` apart from the cluster's outer edge
     inward, ordered longest-descent-first so the feeder that turns down furthest
@@ -1492,8 +1499,9 @@ def _stack_distinct_port_descents(
     horizontal traverse at its turn-down Y before dropping in; seating the
     longest descent (whose turn spans the widest Y range) on the outer lane
     keeps every traverse clear of the other feeders' descents, so the
-    convergent lanes stay parallel rather than crossing (#1326).  A cluster of
-    a single line, or already-separate descents, is left alone.
+    convergent lanes stay parallel rather than crossing (#1326). Ordinary calls
+    leave already-separated descents alone; an explicit ``line_order`` reseats
+    a classified convergence onto that order.
     """
     if any(_planner_owns_channel(channel) for _route, channel in cluster):
         return

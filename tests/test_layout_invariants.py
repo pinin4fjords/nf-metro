@@ -2548,6 +2548,10 @@ def test_cross_row_convergence_turns_concentric():
     assert port_order == ["snvvcf", "other"], (
         f"nearer feeder must take the port-near slot, got order {port_order}"
     )
+    approach_xs = sorted(
+        {apply_route_offsets(route, offsets)[-3][0] for route in converging}
+    )
+    assert approach_xs[1] - approach_xs[0] == pytest.approx(graph_offset_step(graph))
 
 
 def test_rl_return_row_convergence_renders_cleanly():
