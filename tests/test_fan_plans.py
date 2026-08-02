@@ -955,6 +955,46 @@ def test_stacked_right_landing_route_emission_ownership_is_exact() -> None:
         validate_fan_route_emissions(graph, routes)
 
 
+def test_stacked_right_multiline_landing_freezes_reflected_screen_order() -> None:
+    path = (
+        ROOT
+        / "examples"
+        / "topologies"
+        / "bottom_exit_stacked_right_entry_multiline_branch.mmd"
+    )
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.route_emissions)
+
+    assert (
+        {item.edge.line_id for item in plan.route_emissions}
+        == set(plan.offset_line_order)
+        == {"upper_a", "upper_b", "lower"}
+    )
+    assert {
+        branch.id: {
+            item.edge.line_id
+            for item in plan.route_emissions
+            if item.branch_id == branch.id
+        }
+        for branch in plan.branches
+    } == {branch.id: set(branch.line_ids) for branch in plan.branches}
+
+    assignments = {
+        carrier.station_id: {
+            assignment.line_id: assignment.slot for assignment in carrier.assignments
+        }
+        for carrier in plan.offset_carriers
+    }
+    expected = {"upper_a": 1, "upper_b": 2, "lower": 0}
+    assert assignments == {
+        "split": expected,
+        "source__exit_bottom_0": expected,
+        "__junction_3": expected,
+        "prepare": expected,
+    }
+
+
 def test_centreline_port_membership_is_frozen_before_materialisation() -> None:
     path = (
         ROOT / "examples" / "topologies" / "ported_symmetric_fan_centreline_trunk.mmd"

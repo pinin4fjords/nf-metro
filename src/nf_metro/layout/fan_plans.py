@@ -16,7 +16,12 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
 
 from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
-from nf_metro.layout.geometry import AxisFrame, flow_port_sides, lanes_run_along_x
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    flow_port_sides,
+    lanes_run_along_x,
+    lanes_run_along_y,
+)
 from nf_metro.layout.route_plan import (
     DemandId,
     FanAppearancePolicy,
@@ -659,6 +664,7 @@ def _route_emissions(
     fork_id: str,
     branches: Sequence[FanBranchPlan],
     exit_port_ids: Sequence[str],
+    offset_line_order: Sequence[str],
 ) -> tuple[FanRouteEmission, ...]:
     """Freeze edges handled by the stacked RIGHT-landing fan emitter."""
     if (
@@ -668,14 +674,19 @@ def _route_emissions(
         return ()
     landing_section_ids: list[str] = []
     for branch in branches:
-        if not branch.landing_port_ids:
+        if len(branch.landing_port_ids) != 1:
             return ()
-        for port_id in branch.landing_port_ids:
-            port = graph.ports.get(port_id)
-            if port is None or port.side is not PortSide.RIGHT:
-                return ()
-            if port.section_id not in landing_section_ids:
-                landing_section_ids.append(port.section_id)
+        port = graph.ports.get(branch.landing_port_ids[0])
+        section = graph.sections.get(port.section_id) if port is not None else None
+        if (
+            port is None
+            or port.side is not PortSide.RIGHT
+            or section is None
+            or not lanes_run_along_y(section.direction)
+        ):
+            return ()
+        if port.section_id not in landing_section_ids:
+            landing_section_ids.append(port.section_id)
     if len(landing_section_ids) != len(branches):
         return ()
 
@@ -691,6 +702,19 @@ def _route_emissions(
         if edge.source == fork_id and edge.target in branch.landing_port_ids
     )
     if {item.branch_id for item in result} != {branch.id for branch in branches}:
+        return ()
+    emitted_by_branch: dict[FanBranchPlanId, set[str]] = defaultdict(set)
+    for item in result:
+        emitted_by_branch[item.branch_id].add(item.edge.line_id)
+    if any(
+        emitted_by_branch.get(branch.id, set()) != set(branch.line_ids)
+        for branch in branches
+    ):
+        return ()
+    emitted_lines = tuple(item.edge.line_id for item in result)
+    if len(emitted_lines) != len(set(emitted_lines)) or set(emitted_lines) != set(
+        offset_line_order
+    ):
         return ()
     return result
 
@@ -708,12 +732,16 @@ def _apply_screen_offset_assignments(
     exit_port_id = _bottom_exit_source_port_id(graph, exit_port_ids)
     if not route_emissions or exit_port_id is None:
         return tuple(carriers)
+    # A BOTTOM-exit fold into a RIGHT entry stores the receiving horizontal
+    # section's lanes reflected. Earlier landing branches take the leftmost
+    # descent block; lines within each block follow that reflected seam order.
     ordered_lines = tuple(
         line_id
         for branch in sorted(branches, key=lambda item: item.landing_rank)
         for line_id in sorted(
             branch.line_ids,
             key=lambda item: line_priority.get(item, len(line_priority)),
+            reverse=True,
         )
     )
     if len(set(ordered_lines)) != len(ordered_lines):
@@ -1481,7 +1509,13 @@ def _build_candidate(
     ):
         reason = reason or "off-track-layout-owns-fan-geometry"
     route_emissions = (
-        _route_emissions(graph, fork_id, branch_plans, exit_ports)
+        _route_emissions(
+            graph,
+            fork_id,
+            branch_plans,
+            exit_ports,
+            offset_line_order,
+        )
         if reason is None
         else ()
     )

@@ -14,9 +14,13 @@ from nf_metro.layout.routing.common import is_orthogonal_turn
 from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.invariants import (
     FanOpeningSubfloorRadiusViolation,
+    assert_render_curve_invariants,
+    check_bundle_order_preserved,
+    check_concentric_bundle_corners,
     check_distinct_fan_opening_corners_concentric,
     check_fan_opening_turn_runway,
     check_planned_vertical_fan_opening,
+    check_seam_segments_meet_at_port,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
@@ -112,6 +116,24 @@ def test_stacked_right_entry_fan_continues_the_incoming_lanes() -> None:
         outgoing["lower"].points[0][1],
     )
     assert check_planned_vertical_fan_opening(graph, routes, offsets)
+
+
+def test_stacked_right_multiline_branch_keeps_lane_order_through_landing() -> None:
+    graph, routes, offsets = _layout("bottom_exit_stacked_right_entry_multiline_branch")
+    upper = {
+        route.line_id: route
+        for route in routes
+        if route.fan_route_emitter is not None
+        and route.edge.target.startswith("upper_target__entry_right")
+    }
+
+    assert upper.keys() == {"upper_a", "upper_b"}
+    assert upper["upper_b"].points[2][0] < upper["upper_a"].points[2][0]
+    assert upper["upper_b"].points[-1][1] < upper["upper_a"].points[-1][1]
+    assert not check_seam_segments_meet_at_port(graph, routes, offsets)
+    assert not check_bundle_order_preserved(routes)
+    assert not check_concentric_bundle_corners(graph, routes, offsets)
+    assert_render_curve_invariants(graph, routes, offsets)
 
 
 def test_cross_family_fan_opening_corners_are_concentric() -> None:

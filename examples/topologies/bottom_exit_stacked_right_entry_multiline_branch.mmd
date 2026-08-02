@@ -1,0 +1,36 @@
+%%metro title: Bottom-exit Stacked Right Entry Multi-line Branch
+%%metro style: dark
+%%metro line: upper_a | Upper A | #e63946
+%%metro line: upper_b | Upper B | #f4a261
+%%metro line: lower | Lower | #0570b0
+%%metro grid: source | 1,0
+%%metro grid: upper_target | 1,1
+%%metro grid: lower_target | 1,2
+
+graph LR
+    subgraph source [Vertical source]
+        %%metro direction: TB
+        %%metro exit: bottom | upper_a, upper_b, lower
+        prepare[Prepare]
+        split[Split]
+        prepare -->|upper_a,upper_b,lower| split
+    end
+
+    subgraph upper_target [Upper target]
+        %%metro direction: RL
+        %%metro entry: right | upper_a, upper_b
+        upper_in[Upper in]
+        upper_done[Upper done]
+        upper_in -->|upper_a,upper_b| upper_done
+    end
+
+    subgraph lower_target [Lower target]
+        %%metro direction: RL
+        %%metro entry: right | lower
+        lower_in[Lower in]
+        lower_done[Lower done]
+        lower_in -->|lower| lower_done
+    end
+
+    split -->|upper_a,upper_b| upper_in
+    split -->|lower| lower_in
