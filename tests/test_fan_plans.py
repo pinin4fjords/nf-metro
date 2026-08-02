@@ -290,7 +290,7 @@ def test_straight_diamond_keeps_established_layout_ownership() -> None:
     assert graph.diamond_style == "straight"
     assert plan.authored_join_station_id == "p_merge"
     assert plan.join_station_id == "p_merge"
-    assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND
+    assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT
     assert plan.disposition is FanPlanDisposition.LEGACY
     assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
     assert plan.layout_station_ids == ()
@@ -746,7 +746,7 @@ def test_planned_straight_diamond_is_invalid_at_construction() -> None:
         ValueError,
         match="straight-diamond geometry requires established layout",
     ):
-        replace(plan, appearance_policy=FanAppearancePolicy.STRAIGHT_DIAMOND)
+        replace(plan, appearance_policy=FanAppearancePolicy.STRAIGHT)
 
 
 def test_runtime_guard_rejects_corrupted_straight_diamond_policy() -> None:
@@ -759,14 +759,50 @@ def test_runtime_guard_rejects_corrupted_straight_diamond_policy() -> None:
     object.__setattr__(
         plan,
         "appearance_policy",
-        FanAppearancePolicy.STRAIGHT_DIAMOND,
+        FanAppearancePolicy.STRAIGHT,
     )
 
     with pytest.raises(
         PhaseInvariantError,
-        match="claims geometry for frozen appearance policy 'straight-diamond'",
+        match="claims geometry for frozen appearance policy 'straight'",
     ):
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
+def test_fan_appearance_policy_rejects_string_equivalents() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.join_station_id is not None)
+
+    with pytest.raises(ValueError, match="appearance policy is not canonical"):
+        replace(plan, appearance_policy="symmetric")
+
+    object.__setattr__(plan, "appearance_policy", "symmetric")
+    with pytest.raises(PhaseInvariantError, match="non-canonical appearance policy"):
+        _guard_planned_fan_frame_realised(
+            graph,
+            "test",
+            offsets=compute_station_offsets(graph),
+        )
+
+
+def test_planned_reconvergence_requires_a_resolved_join() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.join_station_id is not None)
+
+    with pytest.raises(ValueError, match="reconvergence has no resolved join"):
+        replace(plan, join_station_id=None)
+
+    object.__setattr__(plan, "join_station_id", None)
+    with pytest.raises(PhaseInvariantError, match="has no resolved join"):
+        _guard_planned_fan_frame_realised(
+            graph,
+            "test",
+            offsets=compute_station_offsets(graph),
+        )
 
 
 def test_runtime_guard_rejects_planned_handoff_offset_drift() -> None:

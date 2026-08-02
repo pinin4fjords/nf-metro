@@ -1080,13 +1080,7 @@ def _build_candidate(
     suffix = recognised.suffix
     join_id = recognised.join_id
 
-    appearance_policy = (
-        FanAppearancePolicy.OPEN_FAN
-        if authored_join is None
-        else FanAppearancePolicy.SYMMETRIC_DIAMOND
-        if graph.diamond_style == "symmetric"
-        else FanAppearancePolicy.STRAIGHT_DIAMOND
-    )
+    appearance_policy = FanAppearancePolicy(graph.diamond_style)
 
     direction = _direction_for_fork(graph, fork_id, source_id, lead_fact_groups[0])
     if direction is None:
@@ -1251,7 +1245,7 @@ def _build_candidate(
         ]
     trunk_branches = [branch for branch in branch_plans if branch.is_trunk_continuation]
     preserve_symmetric_frame = (
-        graph.diamond_style == "symmetric" and len(branch_plans) == 2
+        appearance_policy is FanAppearancePolicy.SYMMETRIC and len(branch_plans) == 2
     )
     if len(trunk_branches) == 1 and not preserve_symmetric_frame:
         trunk_id = trunk_branches[0].id
@@ -1501,7 +1495,11 @@ def _build_candidate(
         for carrier in offset_carriers
     ):
         reason = reason or "offset-carrier-has-unowned-line"
-    if reason is None and appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND:
+    if (
+        reason is None
+        and authored_join is not None
+        and appearance_policy is FanAppearancePolicy.STRAIGHT
+    ):
         reason = "straight-diamond-layout-owns-geometry"
     planned = reason is None
     if not planned:

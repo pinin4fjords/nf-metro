@@ -5196,12 +5196,27 @@ def _guard_planned_fan_frame_realised(
     """Raise when a fan's settled frame disagrees with its semantic contract."""
     from nf_metro.layout.route_plan import FanAppearancePolicy
 
+    invalid_policy = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if not isinstance(plan.appearance_policy, FanAppearancePolicy)
+        ),
+        None,
+    )
+    if invalid_policy is not None:
+        raise PhaseInvariantError(
+            f"{phase}: fan {invalid_policy.id!s} has non-canonical appearance "
+            f"policy {invalid_policy.appearance_policy!r}"
+        )
+
     unsupported = next(
         (
             plan
             for plan in graph.fan_plans
             if plan.owns_geometry
-            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND
+            and plan.authored_join_station_id is not None
+            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT
         ),
         None,
     )
@@ -5211,12 +5226,30 @@ def _guard_planned_fan_frame_realised(
             f"appearance policy {unsupported.appearance_policy.value!r}"
         )
 
+    missing_join = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+            and plan.authored_join_station_id is not None
+            and plan.join_station_id is None
+        ),
+        None,
+    )
+    if missing_join is not None:
+        raise PhaseInvariantError(
+            f"{phase}: planned reconvergence {missing_join.id!s} has no resolved join"
+        )
+
     offset_step = graph_offset_step(graph)
     for plan in graph.fan_plans:
         frame = plan.frame
         if not plan.owns_geometry or frame is None:
             continue
-        if graph.diamond_style == "symmetric" and len(plan.branches) == 2:
+        if (
+            plan.appearance_policy is FanAppearancePolicy.SYMMETRIC
+            and len(plan.branches) == 2
+        ):
             lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
             expected_lane_offsets = (
                 -frame.secondary.step / 2,

@@ -109,9 +109,8 @@ class FanPlanDisposition(str, Enum):
 class FanAppearancePolicy(str, Enum):
     """Authored branch-shape policy frozen before fan layout."""
 
-    OPEN_FAN = "open-fan"
-    STRAIGHT_DIAMOND = "straight-diamond"
-    SYMMETRIC_DIAMOND = "symmetric-diamond"
+    STRAIGHT = "straight"
+    SYMMETRIC = "symmetric"
 
 
 class FanRouteEmitter(str, Enum):
@@ -844,11 +843,8 @@ class FanPlan:
             raise ValueError("fan offset order names a line outside its branches")
 
     def _validate_membership(self) -> None:
-        if self.authored_join_station_id is None:
-            if self.appearance_policy is not FanAppearancePolicy.OPEN_FAN:
-                raise ValueError("open fan has a diamond appearance policy")
-        elif self.appearance_policy is FanAppearancePolicy.OPEN_FAN:
-            raise ValueError("reconverging fan has an open-fan appearance policy")
+        if not isinstance(self.appearance_policy, FanAppearancePolicy):
+            raise ValueError("fan appearance policy is not canonical")
         if len(set(self.authored_edge_ids)) != len(self.authored_edge_ids):
             raise ValueError("fan plan repeats an authored member")
         expected_authored_edge_ids = tuple(
@@ -900,7 +896,17 @@ class FanPlan:
     def _validate_disposition(self, planned: bool) -> None:
         if planned and self.direction is None:
             raise ValueError("fan plan has an unsupported direction")
-        if planned and self.appearance_policy is FanAppearancePolicy.STRAIGHT_DIAMOND:
+        if (
+            planned
+            and self.authored_join_station_id is not None
+            and self.join_station_id is None
+        ):
+            raise ValueError("planned reconvergence has no resolved join")
+        if (
+            planned
+            and self.authored_join_station_id is not None
+            and self.appearance_policy is FanAppearancePolicy.STRAIGHT
+        ):
             raise ValueError("straight-diamond geometry requires established layout")
         if planned != (self.frame is not None and self.legacy_reason is None):
             raise ValueError("fan disposition and geometry ownership disagree")
