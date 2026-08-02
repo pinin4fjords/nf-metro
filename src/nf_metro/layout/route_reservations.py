@@ -2279,13 +2279,34 @@ def build_reservation_query_indexes(
 
     exit_turn_reference_set = set(exit_turn_reference_ids)
     exit_turn_demand_set = set(exit_turn_demand_ids)
-    fan_references = tuple(
-        item for item in planner_references if item.id not in exit_turn_reference_set
+    fan_reference_ids = tuple(
+        item.centreline_reference_id
+        for item in plan.fan_plans
+        if item.system_id is not None and item.centreline_reference_id is not None
     )
-    fan_demands = tuple(
-        item for item in planner_demands if item.id not in exit_turn_demand_set
+    fan_demand_ids = tuple(
+        demand_id
+        for item in plan.fan_plans
+        if item.system_id is not None
+        for demand_id in item.demand_ids
     )
-    fan_reference_ids = {item.id for item in fan_references}
+    if tuple(item.id for item in planner_references) != (
+        *exit_turn_reference_ids,
+        *fan_reference_ids,
+    ):
+        raise ValueError("planner shared-reference ownership is inconsistent")
+    if tuple(item.id for item in planner_demands) != (
+        *exit_turn_demand_ids,
+        *fan_demand_ids,
+    ):
+        raise ValueError("planner symbolic-demand ownership is inconsistent")
+    if exit_turn_reference_set.intersection(fan_reference_ids):
+        raise ValueError("exit-turn and fan plans share a reference id")
+    if exit_turn_demand_set.intersection(fan_demand_ids):
+        raise ValueError("exit-turn and fan plans share a demand id")
+    fan_references = tuple(references[item] for item in fan_reference_ids)
+    fan_demands = tuple(demands[item] for item in fan_demand_ids)
+    fan_reference_id_set = set(fan_reference_ids)
     linked_fan_reference_ids: set[SharedReferenceId] = set()
     for reference in fan_references:
         if (
@@ -2309,7 +2330,7 @@ def build_reservation_query_indexes(
         )
         if (
             demand_reference is None
-            or demand_reference.id not in fan_reference_ids
+            or demand_reference.id not in fan_reference_id_set
             or demand.system_id != demand_reference.system_id
             or demand.kind is not DemandKind.RUNWAY
             or demand.axis not in {DemandAxis.X, DemandAxis.Y}
@@ -2326,7 +2347,7 @@ def build_reservation_query_indexes(
             )
         ):
             raise ValueError("fan symbolic demand is inconsistent")
-    if linked_fan_reference_ids != fan_reference_ids:
+    if linked_fan_reference_ids != fan_reference_id_set:
         raise ValueError("route plan contains unlinked fan shared references")
 
     _validate_system_reservation_indexes(plan)

@@ -685,6 +685,8 @@ class FanBranchPlan:
     tail_station_id: str
     continuation_edge_ids: tuple[ConnectorId, ...]
     continuation_resolved_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    connector_ids: tuple[ConnectorId, ...]
+    member_ids: tuple[EmissionMemberId, ...]
     line_ids: tuple[str, ...]
     extra_output_edge_ids: tuple[ConnectorId, ...]
     extra_output_resolved_paths: tuple[tuple[ResolvedEdge, ...], ...]
@@ -704,6 +706,12 @@ class FanBranchPlan:
             raise ValueError("fan branch opening rank must be non-negative")
         if not self.continuation_edge_ids:
             raise ValueError("fan branch has no authored members")
+        if len(set(self.connector_ids)) != len(self.connector_ids):
+            raise ValueError("fan branch repeats a route connector")
+        if not set(self.connector_ids).issubset(self.authored_edge_ids):
+            raise ValueError("fan branch connector lies outside authored membership")
+        if len(set(self.member_ids)) != len(self.member_ids):
+            raise ValueError("fan branch repeats an emission member")
         if not self.line_ids:
             raise ValueError("fan branch has no line membership")
         if self.lane_offset is not None and not math.isfinite(self.lane_offset):
@@ -770,6 +778,15 @@ class FanRouteEmission:
 
 
 @dataclass(frozen=True, slots=True)
+class FanRouteExpectation:
+    """One final route that must remain bound to a planned fan."""
+
+    edge: ResolvedEdge
+    member_id: EmissionMemberId | None
+    branch_ids: tuple[FanBranchPlanId, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FanCentrelineAnchor:
     """Frozen station source and offset defining a fan centreline."""
 
@@ -799,6 +816,7 @@ class FanPlan:
     """
 
     id: FanPlanId
+    system_id: RouteSystemId | None
     authored_source_id: str
     authored_join_station_id: str | None
     fork_station_id: str
@@ -811,6 +829,8 @@ class FanPlan:
     branches: tuple[FanBranchPlan, ...]
     offset_line_order: tuple[str, ...]
     authored_edge_ids: tuple[ConnectorId, ...]
+    connector_ids: tuple[ConnectorId, ...]
+    member_ids: tuple[EmissionMemberId, ...]
     resolved_member_paths: tuple[tuple[ResolvedEdge, ...], ...]
     resolved_member_edges: tuple[ResolvedEdge, ...]
     entry_seam_paths: tuple[tuple[ResolvedEdge, ...], ...]
@@ -821,6 +841,7 @@ class FanPlan:
     entry_handoff_paths: tuple[tuple[ResolvedEdge, ...], ...]
     exit_handoff_paths: tuple[tuple[ResolvedEdge, ...], ...]
     offset_carriers: tuple[FanOffsetCarrier, ...]
+    route_expectations: tuple[FanRouteExpectation, ...]
     route_emissions: tuple[FanRouteEmission, ...]
     centreline_port_ids: tuple[str, ...]
     entry_port_ids: tuple[str, ...]
@@ -880,6 +901,16 @@ class FanPlan:
             raise ValueError("fan appearance centreline names an unknown branch")
         if len(set(self.authored_edge_ids)) != len(self.authored_edge_ids):
             raise ValueError("fan plan repeats an authored member")
+        if len(set(self.connector_ids)) != len(self.connector_ids):
+            raise ValueError("fan plan repeats a route connector")
+        if not set(self.connector_ids).issubset(self.authored_edge_ids):
+            raise ValueError("fan connector ownership lies outside authored membership")
+        if len(set(self.member_ids)) != len(self.member_ids):
+            raise ValueError("fan plan repeats an emission member")
+        if self.system_id is None and (self.connector_ids or self.member_ids):
+            raise ValueError("layout-only fan claims canonical route ownership")
+        if self.system_id is not None and not self.connector_ids:
+            raise ValueError("route-owned fan has no canonical connector")
         expected_authored_edge_ids = tuple(
             dict.fromkeys(
                 edge_id
@@ -901,6 +932,28 @@ class FanPlan:
         )
         if self.resolved_member_edges != expected_member_edges:
             raise ValueError("fan resolved edge membership is not canonical")
+        expectation_edges = tuple(item.edge for item in self.route_expectations)
+        if self.disposition is FanPlanDisposition.PLANNED:
+            if expectation_edges != self.resolved_member_edges:
+                raise ValueError("planned fan route expectations are incomplete")
+        elif self.route_expectations:
+            raise ValueError("legacy fan owns route expectations")
+        expectation_member_ids = tuple(
+            item.member_id
+            for item in self.route_expectations
+            if item.member_id is not None
+        )
+        if (
+            self.disposition is FanPlanDisposition.PLANNED
+            and expectation_member_ids != self.member_ids
+        ):
+            raise ValueError("fan route expectations disagree with emission members")
+        branch_ids = {branch.id for branch in self.branches}
+        if any(
+            not set(item.branch_ids).issubset(branch_ids)
+            for item in self.route_expectations
+        ):
+            raise ValueError("fan route expectation names an unknown branch")
         expected_seam_edges = tuple(
             dict.fromkeys(
                 edge
@@ -914,7 +967,6 @@ class FanPlan:
             self.route_emissions
         ):
             raise ValueError("fan plan repeats a route emission")
-        branch_ids = {branch.id for branch in self.branches}
         if any(item.branch_id not in branch_ids for item in self.route_emissions):
             raise ValueError("fan route emission names an unknown branch")
         if any(
@@ -1173,6 +1225,7 @@ class RouteSystem:
     branch_ids: tuple[RouteBranchId, ...]
     feeder_ids: tuple[RouteFeederId, ...]
     exit_turn_plan_ids: tuple[ExitTurnPlanId, ...]
+    fan_plan_ids: tuple[FanPlanId, ...]
     shared_reference_ids: tuple[SharedReferenceId, ...]
     demand_ids: tuple[DemandId, ...]
     reservation_ids: tuple[RouteReservationId, ...]
@@ -1239,6 +1292,7 @@ class RoutePlan:
     branches: tuple[RouteBranch, ...]
     feeders: tuple[RouteFeeder, ...]
     exit_turn_plans: tuple[ExitTurnPlan, ...]
+    fan_plans: tuple[FanPlan, ...]
     shared_references: tuple[SharedReference, ...]
     demands: tuple[SymbolicDemand, ...]
     reservations: tuple[RouteReservation, ...]
@@ -1304,6 +1358,7 @@ def _resolved_member_refs(
 def _semantic_components(
     topology: RouteTopology,
     refs_by_edge: Mapping[ResolvedEdge, list[ConnectorLegRef]],
+    coupled_connector_groups: tuple[tuple[ConnectorId, ...], ...] = (),
 ) -> tuple[tuple[ConnectorId, ...], ...]:
     ordered_ids = tuple(connector.id for connector in topology.connectors)
     parent = {connector_id: connector_id for connector_id in ordered_ids}
@@ -1334,6 +1389,11 @@ def _semantic_components(
 
     for refs in refs_by_edge.values():
         join(_ordered_unique(ref.connector_id for ref in refs))
+
+    for connector_ids in coupled_connector_groups:
+        if any(connector_id not in parent for connector_id in connector_ids):
+            raise ValueError("route-system coupling names an unknown connector")
+        join(connector_ids)
 
     members: dict[ConnectorId, list[ConnectorId]] = defaultdict(list)
     for connector_id in ordered_ids:
@@ -1737,6 +1797,8 @@ class RouteSemanticScaffold:
 def build_route_semantic_scaffold(
     graph: MetroGraph,
     query: RouteTopologyQuery | None = None,
+    *,
+    coupled_connector_groups: tuple[tuple[ConnectorId, ...], ...] = (),
 ) -> RouteSemanticScaffold | None:
     """Build stable route-system and member identities before route emission."""
     topology = graph.route_topology
@@ -1747,7 +1809,11 @@ def build_route_semantic_scaffold(
 
     mutable_refs, edge_order = _resolved_member_refs(graph, topology, query)
     refs_by_edge = {edge: tuple(refs) for edge, refs in mutable_refs.items()}
-    components = _semantic_components(topology, mutable_refs)
+    components = _semantic_components(
+        topology,
+        mutable_refs,
+        coupled_connector_groups,
+    )
     system_by_connector: dict[ConnectorId, RouteSystemId] = {}
     ordered_system_ids: list[RouteSystemId] = []
     for connector_ids in components:
@@ -1878,17 +1944,19 @@ def _fan_plan_span(graph: MetroGraph, fan_plan: FanPlan) -> GridSpan:
 
 def _build_fan_plan_resources(
     graph: MetroGraph,
-    scaffold: RouteSemanticScaffold,
     provenance: RoutePlanProvenance,
+    fan_plans: tuple[FanPlan, ...],
 ) -> tuple[tuple[SharedReference, ...], tuple[SymbolicDemand, ...]]:
     """Publish each planned fan's relative centreline and runway claims."""
     references: list[SharedReference] = []
     demands: list[SymbolicDemand] = []
-    member_id_by_edge = scaffold.member_id_by_edge
 
-    for fan_plan in graph.fan_plans:
+    for fan_plan in fan_plans:
         if fan_plan.disposition is not FanPlanDisposition.PLANNED:
             continue
+        system_id = fan_plan.system_id
+        if system_id is None:
+            raise ValueError(f"route fan {fan_plan.id!r} has no canonical system")
         frame = fan_plan.frame
         reference_id = fan_plan.centreline_reference_id
         if frame is None or reference_id is None:
@@ -1896,39 +1964,8 @@ def _build_fan_plan_resources(
         if len(fan_plan.demand_ids) != len(fan_plan.branches) + 2:
             raise ValueError(f"planned fan {fan_plan.id!r} has incomplete runway ids")
 
-        fork_connectors: list[ConnectorId] = []
-        for branch in fan_plan.branches:
-            connector_id = next(
-                (
-                    item
-                    for item in branch.continuation_edge_ids
-                    if item in scaffold.system_by_connector
-                ),
-                None,
-            )
-            if connector_id is not None:
-                fork_connectors.append(connector_id)
-        owner_connector_ids = _ordered_unique(fork_connectors)
-        if not owner_connector_ids:
-            continue
-        system_id = scaffold.system_for(owner_connector_ids)
-
-        def owned_member_id(edge: ResolvedEdge) -> EmissionMemberId | None:
-            member_id = member_id_by_edge.get(edge)
-            if member_id is None:
-                return None
-            connector_ids = _ordered_unique(
-                ref.connector_id for ref in scaffold.refs_by_edge[edge]
-            )
-            if scaffold.system_for(connector_ids) != system_id:
-                return None
-            return member_id
-
-        claimant_member_ids = _ordered_unique(
-            member_id
-            for edge in fan_plan.resolved_member_edges
-            if (member_id := owned_member_id(edge)) is not None
-        )
+        owner_connector_ids = fan_plan.connector_ids
+        claimant_member_ids = fan_plan.member_ids
         span = _fan_plan_span(graph, fan_plan)
         claim_provenance = reservation_decision_refs(
             provenance, owner_connector_ids, span
@@ -1966,16 +2003,10 @@ def _build_fan_plan_resources(
         for demand_id, branch in zip(
             fan_plan.demand_ids[2:], fan_plan.branches, strict=True
         ):
-            branch_member_ids = _ordered_unique(
-                member_id
-                for path in branch.resolved_paths
-                for edge in path
-                if (member_id := owned_member_id(edge)) is not None
-            )
             demand_specs.append(
                 (
                     demand_id,
-                    branch_member_ids,
+                    branch.member_ids,
                     len(set(branch.line_ids)),
                     branch.diagonal_runway,
                 )
@@ -2006,7 +2037,9 @@ def _build_fan_plan_resources(
     return tuple(references), tuple(demands)
 
 
-def _fan_plan_diagnostics(graph: MetroGraph) -> tuple[RoutePlanDiagnostic, ...]:
+def _fan_plan_diagnostics(
+    fan_plans: tuple[FanPlan, ...],
+) -> tuple[RoutePlanDiagnostic, ...]:
     return tuple(
         RoutePlanDiagnostic(
             None,
@@ -2014,7 +2047,7 @@ def _fan_plan_diagnostics(graph: MetroGraph) -> tuple[RoutePlanDiagnostic, ...]:
             f"fan {fan_plan.id} uses legacy layout: {fan_plan.legacy_reason}",
             blocking=False,
         )
-        for fan_plan in graph.fan_plans
+        for fan_plan in fan_plans
         if fan_plan.disposition is FanPlanDisposition.LEGACY
     )
 
@@ -2023,9 +2056,21 @@ def _build_route_plan(
     observer: RoutePlanObserver, routes: list[RoutedPath]
 ) -> RoutePlan:
     graph = observer.graph
-    fan_diagnostics = _fan_plan_diagnostics(graph)
+    fan_plans = graph.fan_plans
+    route_fan_plans = tuple(
+        fan_plan for fan_plan in graph.fan_plans if fan_plan.system_id is not None
+    )
+    fan_diagnostics = _fan_plan_diagnostics(fan_plans)
     context_query = observer.context.topology if observer.context is not None else None
-    scaffold = observer.scaffold or build_route_semantic_scaffold(graph, context_query)
+    scaffold = observer.scaffold or build_route_semantic_scaffold(
+        graph,
+        context_query,
+        coupled_connector_groups=tuple(
+            fan_plan.connector_ids
+            for fan_plan in graph.fan_plans
+            if fan_plan.connector_ids
+        ),
+    )
     if scaffold is None:
         return RoutePlan(
             systems=(),
@@ -2036,6 +2081,7 @@ def _build_route_plan(
             branches=(),
             feeders=(),
             exit_turn_plans=(),
+            fan_plans=fan_plans,
             shared_references=(),
             demands=(),
             reservations=(),
@@ -2201,9 +2247,19 @@ def _build_route_plan(
     )
     for exit_turn_plan in observer.exit_turn_plans:
         exit_turn_ids_by_system[exit_turn_plan.system_id].append(exit_turn_plan.id)
+    fan_ids_by_system: dict[RouteSystemId, list[FanPlanId]] = defaultdict(list)
+    for fan_plan in route_fan_plans:
+        fan_system_id = fan_plan.system_id
+        if fan_system_id is None:
+            raise ValueError(f"route fan {fan_plan.id!r} has no canonical system")
+        fan_ids_by_system[fan_system_id].append(fan_plan.id)
 
     provenance = _plan_provenance(graph, topology.connectors)
-    fan_references, fan_demands = _build_fan_plan_resources(graph, scaffold, provenance)
+    fan_references, fan_demands = _build_fan_plan_resources(
+        graph,
+        provenance,
+        route_fan_plans,
+    )
     shared_references = (*observer.exit_turn_references, *fan_references)
     demands = (*observer.exit_turn_demands, *fan_demands)
     reference_ids_by_system: dict[RouteSystemId, list[SharedReferenceId]] = defaultdict(
@@ -2234,6 +2290,7 @@ def _build_route_plan(
                 tuple(branch_ids_by_system[system_id]),
                 tuple(feeder_ids_by_system[system_id]),
                 tuple(exit_turn_ids_by_system[system_id]),
+                tuple(fan_ids_by_system[system_id]),
                 tuple(reference_ids_by_system[system_id]),
                 tuple(demand_ids_by_system[system_id]),
                 (),
@@ -2249,6 +2306,7 @@ def _build_route_plan(
         branches=tuple(branches),
         feeders=tuple(feeders),
         exit_turn_plans=observer.exit_turn_plans,
+        fan_plans=fan_plans,
         shared_references=shared_references,
         demands=demands,
         reservations=(),
@@ -2281,6 +2339,9 @@ class RoutePlanQuery:
     _exit_turn_plans: Mapping[ExitTurnPlanId, ExitTurnPlan]
     _exit_turns_by_source: Mapping[str, tuple[ExitTurnPlan, ...]]
     _exit_turns_by_member: Mapping[EmissionMemberId, tuple[ExitTurnPlan, ...]]
+    _fan_plans: Mapping[FanPlanId, FanPlan]
+    _fan_plans_by_system: Mapping[RouteSystemId, tuple[FanPlan, ...]]
+    _fan_plans_by_member: Mapping[EmissionMemberId, tuple[FanPlan, ...]]
     _shared_references: Mapping[SharedReferenceId, SharedReference]
     _demands: Mapping[DemandId, SymbolicDemand]
     _reservations: Mapping[RouteReservationId, RouteReservation]
@@ -2313,6 +2374,15 @@ class RoutePlanQuery:
         self, member_id: EmissionMemberId
     ) -> tuple[ExitTurnPlan, ...]:
         return self._exit_turns_by_member.get(member_id, ())
+
+    def fan_plan(self, plan_id: FanPlanId) -> FanPlan:
+        return self._fan_plans[plan_id]
+
+    def fan_plans_for_system(self, system_id: RouteSystemId) -> tuple[FanPlan, ...]:
+        return self._fan_plans_by_system.get(system_id, ())
+
+    def fan_plans_for_member(self, member_id: EmissionMemberId) -> tuple[FanPlan, ...]:
+        return self._fan_plans_by_member.get(member_id, ())
 
     def shared_reference(self, reference_id: SharedReferenceId) -> SharedReference:
         return self._shared_references[reference_id]
@@ -3038,6 +3108,119 @@ def _validate_exit_turn_records(
     return exit_turn_plans, by_source, by_member
 
 
+def _validate_fan_records(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+    bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
+) -> tuple[
+    dict[FanPlanId, FanPlan],
+    dict[RouteSystemId, list[FanPlan]],
+    dict[EmissionMemberId, list[FanPlan]],
+]:
+    systems = {system.id: system for system in plan.systems}
+    references = {item.id: item for item in plan.shared_references}
+    demands = {item.id: item for item in plan.demands}
+    fan_plans = {item.id: item for item in plan.fan_plans}
+    if len(fan_plans) != len(plan.fan_plans):
+        raise ValueError("route plan contains duplicate fan plan ids")
+    by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
+    by_member: dict[EmissionMemberId, list[FanPlan]] = defaultdict(list)
+    for fan_plan in plan.fan_plans:
+        system_id = fan_plan.system_id
+        if system_id is None:
+            if (
+                fan_plan.connector_ids
+                or fan_plan.member_ids
+                or any(
+                    item.member_id is not None for item in fan_plan.route_expectations
+                )
+            ):
+                raise ValueError("layout-only fan claims canonical route ownership")
+            continue
+        system = systems.get(system_id)
+        if system is None:
+            raise ValueError("fan plan names an unknown route system")
+        if not set(fan_plan.connector_ids).issubset(system.connector_ids):
+            raise ValueError("fan connectors disagree with route-system ownership")
+        if not set(fan_plan.member_ids).issubset(system.member_ids):
+            raise ValueError("fan members disagree with route-system ownership")
+        for branch in fan_plan.branches:
+            if not set(branch.connector_ids).issubset(fan_plan.connector_ids):
+                raise ValueError("fan branch connectors lie outside fan ownership")
+            if not set(branch.member_ids).issubset(fan_plan.member_ids):
+                raise ValueError("fan branch members lie outside fan ownership")
+        for expectation in fan_plan.route_expectations:
+            member_id = expectation.member_id
+            if member_id is None:
+                continue
+            member = members.get(member_id)
+            if (
+                member is None
+                or member.system_id != system_id
+                or (
+                    member.source.station_id,
+                    member.target.station_id,
+                    member.line_id,
+                )
+                != (
+                    expectation.edge.source,
+                    expectation.edge.target,
+                    expectation.edge.line_id,
+                )
+            ):
+                raise ValueError("fan route expectation has inconsistent membership")
+            member_bindings = bindings.get(member_id, [])
+            if (
+                len(member_bindings) != 1
+                or member_bindings[0].kind is BindingKind.UNROUTED
+            ):
+                raise ValueError("planned fan member has no final emission binding")
+        if fan_plan.disposition is FanPlanDisposition.PLANNED:
+            reference_id = fan_plan.centreline_reference_id
+            reference = (
+                references.get(reference_id) if reference_id is not None else None
+            )
+            fan_demands = tuple(demands.get(item) for item in fan_plan.demand_ids)
+            if (
+                reference is None
+                or reference.system_id != system_id
+                or reference.claimant_member_ids != fan_plan.member_ids
+                or any(item is None for item in fan_demands)
+                or any(
+                    item is not None and item.system_id != system_id
+                    for item in fan_demands
+                )
+            ):
+                raise ValueError("planned fan resources have inconsistent ownership")
+        by_system[system_id].append(fan_plan)
+        if fan_plan.disposition is FanPlanDisposition.PLANNED:
+            for member_id in fan_plan.member_ids:
+                by_member[member_id].append(fan_plan)
+
+    for system in plan.systems:
+        expected = tuple(item.id for item in by_system.get(system.id, ()))
+        if system.fan_plan_ids != expected:
+            raise ValueError("route system fan-plan index is inconsistent")
+    if any(len(owners) != 1 for owners in by_member.values()):
+        raise ValueError("fan member has more than one owning plan")
+    actual_diagnostics = Counter(
+        item for item in plan.diagnostics if item.code == "fan-plan-legacy"
+    )
+    expected_diagnostics = Counter(
+        RoutePlanDiagnostic(
+            None,
+            "fan-plan-legacy",
+            f"fan {item.id} uses legacy layout: {item.legacy_reason}",
+            blocking=False,
+        )
+        for item in plan.fan_plans
+        if item.disposition is FanPlanDisposition.LEGACY
+    )
+    if actual_diagnostics != expected_diagnostics:
+        raise ValueError("fan legacy diagnostics are inconsistent")
+    return fan_plans, by_system, by_member
+
+
 def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     endpoint_groups = {item.id: item for item in plan.endpoint_groups}
     divergences = {item.id: item for item in plan.divergences}
@@ -3091,6 +3274,12 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         if carrier_binding.kind is not BindingKind.EMITTED:
             raise ValueError("covered members require an emitted carrier")
 
+    fan_plans, fan_plans_by_system, fan_plans_by_member = _validate_fan_records(
+        plan,
+        members,
+        bindings,
+    )
+
     from nf_metro.layout.route_reservations import build_reservation_query_indexes
 
     reservation_indexes = build_reservation_query_indexes(plan, members, bindings)
@@ -3107,6 +3296,13 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         ),
         MappingProxyType(
             {key: tuple(value) for key, value in exit_turns_by_member.items()}
+        ),
+        MappingProxyType(fan_plans),
+        MappingProxyType(
+            {key: tuple(value) for key, value in fan_plans_by_system.items()}
+        ),
+        MappingProxyType(
+            {key: tuple(value) for key, value in fan_plans_by_member.items()}
         ),
         MappingProxyType(reservation_indexes.references),
         MappingProxyType(reservation_indexes.demands),

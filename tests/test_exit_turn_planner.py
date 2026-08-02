@@ -1303,8 +1303,13 @@ def test_missing_outbound_members_have_a_valid_legacy_lane_record(
 ) -> None:
     real_scaffold = exit_turns.build_route_semantic_scaffold
 
-    def omit_outbound(graph, query):
-        scaffold = real_scaffold(graph, query)
+    def omit_outbound(graph, query, *, coupled_connector_groups=()):
+        graph.fan_plan_execution = None
+        scaffold = real_scaffold(
+            graph,
+            query,
+            coupled_connector_groups=coupled_connector_groups,
+        )
         assert scaffold is not None
         return replace(
             scaffold,
@@ -2011,7 +2016,7 @@ def test_route_plan_query_rejects_a_noncanonical_foreign_conflict() -> None:
 
 def test_foreign_vertical_band_conflict_is_recorded() -> None:
     _graph, _offsets, observation = _observe(
-        ROOT / "examples" / "guide" / "03_fan_out.mmd"
+        TOPOLOGIES / "bt_perp_left_entry_right_exit.mmd"
     )
     plan = next(
         item

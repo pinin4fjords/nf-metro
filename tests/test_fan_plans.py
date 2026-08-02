@@ -1450,7 +1450,7 @@ def test_planned_fan_preserves_branch_local_reversal() -> None:
     assert offsets[("p1", "b")] == 0.0
 
 
-def test_planned_fan_preserves_target_local_frame_with_blocker() -> None:
+def test_planned_fan_preserves_inherited_entry_frame_with_local_blocker() -> None:
     path = ROOT / "examples" / "topologies" / "exit_turn_frame_filters.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
@@ -1461,10 +1461,13 @@ def test_planned_fan_preserves_target_local_frame_with_blocker() -> None:
 
     carrier_ids = {carrier.station_id for carrier in plan.offset_carriers}
     assert carrier_ids.isdisjoint({"seam_in", "seam_out"})
+    inherited = {
+        line_id: offsets[("seam_start", line_id)] for line_id in ("seam_a", "seam_b")
+    }
     assert {
-        line_id: offsets[("seam_in", line_id)]
-        for line_id in ("seam_blocker", "seam_a", "seam_b")
-    } == {"seam_blocker": 0.0, "seam_a": 4.0, "seam_b": 8.0}
+        line_id: offsets[("seam_in", line_id)] for line_id in ("seam_a", "seam_b")
+    } == inherited
+    assert offsets[("seam_in", "seam_blocker")] > max(inherited.values())
 
 
 def test_stacked_right_landing_route_emission_ownership_is_exact() -> None:
@@ -1524,6 +1527,32 @@ def test_stacked_right_landing_route_emission_ownership_is_exact() -> None:
     route.fan_route_emitter = None
     with pytest.raises(RuntimeError, match="route tag drifted"):
         validate_fan_route_emissions(graph, routes)
+
+
+def test_ordinary_fan_member_geometry_is_checked_after_emission() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(item for item in graph.fan_plans if item.owns_geometry)
+    assert not plan.route_emissions
+
+    expected_edge = next(
+        item.edge
+        for item in plan.route_expectations
+        if item.edge.source == plan.fork_station_id
+    )
+    route = next(
+        item
+        for item in routes
+        if ResolvedEdge(item.edge.source, item.edge.target, item.line_id)
+        == expected_edge
+    )
+    end_x, end_y = route.points[-1]
+    route.points[-1] = end_x + 100.0, end_y + 100.0
+
+    with pytest.raises(RuntimeError, match="planned fan member route drifted"):
+        validate_fan_route_emissions(graph, routes, offsets)
 
 
 def test_stacked_right_multiline_landing_freezes_reflected_screen_order() -> None:
@@ -1737,6 +1766,7 @@ def test_planned_fan_resources_resolve_through_final_route_plan() -> None:
     )
 
     assert planned
+    assert observation.plan.fan_plans == graph.fan_plans
     assert tuple(
         item.id
         for item in observation.plan.shared_references
@@ -1749,6 +1779,8 @@ def test_planned_fan_resources_resolve_through_final_route_plan() -> None:
         if item.minimum_size_regime is CoordinateRegime.RELATIVE_FRAME
     ) == tuple(demand_id for item in planned for demand_id in item.demand_ids)
     for fan_plan in planned:
+        assert fan_plan.system_id is not None
+        assert query.fan_plan(fan_plan.id) is fan_plan
         assert fan_plan.centreline_reference_id is not None
         reference = query.shared_reference(fan_plan.centreline_reference_id)
         demands = tuple(query.demand(item) for item in fan_plan.demand_ids)
@@ -1759,6 +1791,20 @@ def test_planned_fan_resources_resolve_through_final_route_plan() -> None:
         assert reference.kind is SharedReferenceKind.CENTRELINE
         assert reference.coordinate_regime is CoordinateRegime.RELATIVE_FRAME
         assert reference.id in system.shared_reference_ids
+        assert fan_plan.id in system.fan_plan_ids
+        assert query.fan_plans_for_system(system.id) == (fan_plan,)
+        assert (
+            tuple(
+                item.member_id
+                for item in fan_plan.route_expectations
+                if item.member_id is not None
+            )
+            == fan_plan.member_ids
+        )
+        assert all(
+            query.fan_plans_for_member(member_id) == (fan_plan,)
+            for member_id in fan_plan.member_ids
+        )
         assert all(
             branch.continuation_edge_ids[0] in system.connector_ids
             for branch in fan_plan.branches
@@ -1810,6 +1856,9 @@ def test_legacy_fan_disposition_is_visible_in_route_plan_diagnostics() -> None:
     diagnostics = tuple(
         item for item in observation.plan.diagnostics if item.code == "fan-plan-legacy"
     )
+    assert observation.plan.fan_plans == graph.fan_plans
+    assert all(item.system_id is None for item in graph.fan_plans)
+    assert all(not item.fan_plan_ids for item in observation.plan.systems)
     assert len(diagnostics) == 1
     assert diagnostics[0].blocking is False
     assert "local-layout-has-foreign-owner" in diagnostics[0].message

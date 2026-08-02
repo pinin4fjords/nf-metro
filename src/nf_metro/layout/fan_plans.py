@@ -31,6 +31,7 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.labels import tb_left_label_marker_pitch
 from nf_metro.layout.route_plan import (
     DemandId,
+    EmissionMemberId,
     FanAppearancePolicy,
     FanBranchPlan,
     FanBranchPlanId,
@@ -42,7 +43,11 @@ from nf_metro.layout.route_plan import (
     FanPlanId,
     FanRouteEmission,
     FanRouteEmitter,
+    FanRouteExpectation,
+    RouteSemanticScaffold,
+    RouteSystemId,
     SharedReferenceId,
+    build_route_semantic_scaffold,
 )
 from nf_metro.parser.commitments import FlowDirection, is_flow_direction
 from nf_metro.parser.model import MetroGraph, PortSide
@@ -54,6 +59,7 @@ from nf_metro.parser.route_topology import (
     ResolvedConvergenceView,
     ResolvedEdge,
     RouteConnector,
+    RouteTopologyQuery,
     semantic_route_id,
 )
 
@@ -274,6 +280,8 @@ class FanPlanQuery:
 
     plans: tuple[FanPlan, ...]
     _by_id: Mapping[FanPlanId, FanPlan]
+    _by_system: Mapping[RouteSystemId, tuple[FanPlan, ...]]
+    _by_member: Mapping[EmissionMemberId, FanPlan]
     _by_fork: Mapping[str, FanPlan]
     _by_authored_edge: Mapping[ConnectorId, FanPlan]
     _structural_by_resolved_edge: Mapping[ResolvedEdge, FanPlan]
@@ -286,6 +294,8 @@ class FanPlanQuery:
     @classmethod
     def build(cls, plans: tuple[FanPlan, ...]) -> FanPlanQuery:
         by_id: dict[FanPlanId, FanPlan] = {}
+        by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
+        by_member: dict[EmissionMemberId, FanPlan] = {}
         by_fork: dict[str, FanPlan] = {}
         by_authored_edge: dict[ConnectorId, FanPlan] = {}
         structural_by_resolved_edge: dict[ResolvedEdge, FanPlan] = {}
@@ -299,8 +309,14 @@ class FanPlanQuery:
             if plan.id in by_id:
                 raise ValueError(f"duplicate fan plan id {plan.id!r}")
             by_id[plan.id] = plan
+            if plan.system_id is not None:
+                by_system[plan.system_id].append(plan)
             if plan.disposition is not FanPlanDisposition.PLANNED:
                 continue
+            for member_id in plan.member_ids:
+                if member_id in by_member:
+                    raise ValueError("two planned fans own one emission member")
+                by_member[member_id] = plan
             if plan.fork_station_id in by_fork:
                 raise ValueError("two planned fans own one fork")
             by_fork[plan.fork_station_id] = plan
@@ -339,6 +355,10 @@ class FanPlanQuery:
         return cls(
             plans=plans,
             _by_id=MappingProxyType(by_id),
+            _by_system=MappingProxyType(
+                {key: tuple(value) for key, value in by_system.items()}
+            ),
+            _by_member=MappingProxyType(by_member),
             _by_fork=MappingProxyType(by_fork),
             _by_authored_edge=MappingProxyType(by_authored_edge),
             _structural_by_resolved_edge=MappingProxyType(structural_by_resolved_edge),
@@ -353,6 +373,12 @@ class FanPlanQuery:
 
     def plan(self, plan_id: FanPlanId) -> FanPlan:
         return self._by_id[plan_id]
+
+    def plans_for_system(self, system_id: RouteSystemId) -> tuple[FanPlan, ...]:
+        return self._by_system.get(system_id, ())
+
+    def owner_for_member(self, member_id: EmissionMemberId) -> FanPlan | None:
+        return self._by_member.get(member_id)
 
     def __deepcopy__(self, memo: dict[int, object]) -> FanPlanQuery:
         del memo
@@ -1241,6 +1267,7 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         centreline_reference_id=None,
         demand_ids=(),
         offset_carriers=(),
+        route_expectations=(),
         route_emissions=(),
         centreline_port_ids=(),
         centreline_station_ids=(),
@@ -1480,6 +1507,8 @@ def _build_candidate(
                 tail_station_id=tail_id,
                 continuation_edge_ids=tuple(fact.id for fact in facts),
                 continuation_resolved_paths=trimmed,
+                connector_ids=(),
+                member_ids=(),
                 line_ids=lines,
                 extra_output_edge_ids=tuple(fact.id for fact in outputs),
                 extra_output_resolved_paths=raw_outputs,
@@ -1963,6 +1992,7 @@ def _build_candidate(
     )
     plan = FanPlan(
         id=plan_id,
+        system_id=None,
         authored_source_id=source_id,
         authored_join_station_id=authored_join,
         fork_station_id=fork_id,
@@ -1989,6 +2019,8 @@ def _build_candidate(
         ),
         offset_line_order=offset_line_order,
         authored_edge_ids=member_ids,
+        connector_ids=(),
+        member_ids=(),
         resolved_member_paths=member_paths,
         resolved_member_edges=member_edges,
         entry_seam_paths=entry_seam_paths,
@@ -1999,6 +2031,22 @@ def _build_candidate(
         entry_handoff_paths=entry_handoff_paths,
         exit_handoff_paths=exit_handoff_paths,
         offset_carriers=offset_carriers if planned else (),
+        route_expectations=(
+            tuple(
+                FanRouteExpectation(
+                    edge=edge,
+                    member_id=None,
+                    branch_ids=tuple(
+                        branch.id
+                        for branch in branch_plans
+                        if any(edge in path for path in branch.resolved_paths)
+                    ),
+                )
+                for edge in member_edges
+            )
+            if planned
+            else ()
+        ),
         route_emissions=route_emissions,
         centreline_port_ids=centreline_port_ids,
         entry_port_ids=entry_ports,
@@ -2059,6 +2107,81 @@ def _reject_overlaps(
     )
 
 
+def _bind_semantic_ownership(
+    plan: FanPlan,
+    scaffold: RouteSemanticScaffold,
+) -> FanPlan:
+    """Bind one recognised fan to canonical systems and emission members."""
+    connector_ids = tuple(
+        edge_id
+        for edge_id in plan.authored_edge_ids
+        if edge_id in scaffold.system_by_connector
+    )
+    system_ids = {
+        scaffold.system_by_connector[connector_id] for connector_id in connector_ids
+    }
+    if len(system_ids) > 1:
+        raise ValueError(f"fan {plan.id!s} spans canonical route systems")
+    system_id = next(iter(system_ids), None)
+
+    def member_ids_for_edges(
+        edges: Iterable[ResolvedEdge],
+    ) -> tuple[EmissionMemberId, ...]:
+        return cast(
+            tuple[EmissionMemberId, ...],
+            _ordered_unique(
+                member_id
+                for edge in edges
+                if (member_id := scaffold.member_id_by_edge.get(edge)) is not None
+            ),
+        )
+
+    branches = tuple(
+        replace(
+            branch,
+            connector_ids=tuple(
+                edge_id
+                for edge_id in branch.authored_edge_ids
+                if edge_id in scaffold.system_by_connector
+            ),
+            member_ids=member_ids_for_edges(
+                edge for path in branch.resolved_paths for edge in path
+            ),
+        )
+        for branch in plan.branches
+    )
+    member_ids = member_ids_for_edges(plan.resolved_member_edges)
+    if connector_ids and not member_ids:
+        return _legacy(
+            replace(
+                plan,
+                system_id=system_id,
+                connector_ids=connector_ids,
+                branches=branches,
+            ),
+            "fan-route-system-has-no-emission-member",
+        )
+    expectations = (
+        tuple(
+            replace(
+                expectation,
+                member_id=scaffold.member_id_by_edge.get(expectation.edge),
+            )
+            for expectation in plan.route_expectations
+        )
+        if plan.owns_geometry
+        else ()
+    )
+    return replace(
+        plan,
+        system_id=system_id,
+        connector_ids=connector_ids,
+        member_ids=member_ids,
+        branches=branches,
+        route_expectations=expectations,
+    )
+
+
 def build_fan_plan_execution(
     graph: MetroGraph,
     topology: FanTopologyQuery,
@@ -2097,6 +2220,28 @@ def build_fan_plan_execution(
         if len(targets) >= 2
     )
     plans = _reject_overlaps(plans, {fact.id: fact for fact in facts})
+    semantic_scaffold = None
+    if graph.route_topology is not None:
+        connector_groups: list[tuple[ConnectorId, ...]] = []
+        for plan in plans:
+            connector_ids: list[ConnectorId] = []
+            for connector_id in plan.authored_edge_ids:
+                try:
+                    topology.connector(connector_id)
+                except KeyError:
+                    continue
+                connector_ids.append(connector_id)
+            if connector_ids:
+                connector_groups.append(tuple(connector_ids))
+        semantic_scaffold = build_route_semantic_scaffold(
+            graph,
+            cast(RouteTopologyQuery, topology),
+            coupled_connector_groups=tuple(connector_groups),
+        )
+    if semantic_scaffold is not None:
+        plans = tuple(
+            _bind_semantic_ownership(plan, semantic_scaffold) for plan in plans
+        )
     return FanPlanExecution(query=FanPlanQuery.build(plans))
 
 
@@ -2106,9 +2251,28 @@ def install_fan_plan_execution(graph: MetroGraph, execution: FanPlanExecution) -
 
 
 def validate_fan_route_emissions(
-    graph: MetroGraph, routes: Sequence[RoutedPath]
+    graph: MetroGraph,
+    routes: Sequence[RoutedPath],
+    station_offsets: Mapping[tuple[str, str], float] | None = None,
 ) -> None:
-    """Require every exclusive fan emission to tag exactly one final route."""
+    """Bind every planned fan member and exclusive emitter exactly once."""
+    routes_by_edge: dict[ResolvedEdge, list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        routes_by_edge[
+            ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        ].append(route)
+    for plan in graph.fan_plans:
+        if not plan.owns_geometry:
+            continue
+        for expectation in plan.route_expectations:
+            bound = routes_by_edge.get(expectation.edge, ())
+            if len(bound) != 1:
+                raise RuntimeError(
+                    f"planned fan {plan.id!s} in route system {plan.system_id!s} "
+                    f"expected one final route for {expectation.edge!r}; "
+                    f"found {len(bound)}"
+                )
+
     expected = tuple(
         (plan, emission)
         for plan in graph.fan_plans
@@ -2143,3 +2307,91 @@ def validate_fan_route_emissions(
                 f"planned fan {plan.id!s} expected one consumed route for {edge!r}; "
                 f"found {consumed.get(edge, 0)}"
             )
+
+    if station_offsets is None:
+        return
+    from nf_metro.layout.routing.invariants import (
+        check_fan_opening_geometry,
+        check_fanout_tail_join,
+        check_no_hanging_routes,
+        check_seam_segments_meet_at_port,
+    )
+
+    planned_forks = {
+        plan.fork_station_id: plan for plan in graph.fan_plans if plan.owns_geometry
+    }
+    planned_ports = {
+        port_id
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for port_id in (
+            *plan.entry_port_ids,
+            *plan.exit_port_ids,
+            *plan.centreline_port_ids,
+        )
+    }
+    planned_edges = {
+        expectation.edge
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for expectation in plan.route_expectations
+    }
+    route_list = list(routes)
+    offset_dict = dict(station_offsets)
+    opening_violations = check_fan_opening_geometry(
+        graph,
+        route_list,
+        offset_dict,
+    )
+    for violation in opening_violations:
+        station_id = next(
+            (
+                value
+                for attribute in ("junction_id", "source", "edge_source")
+                if isinstance((value := getattr(violation, attribute, None)), str)
+            ),
+            None,
+        )
+        owner = planned_forks.get(station_id or "")
+        if owner is not None:
+            raise RuntimeError(
+                f"planned fan {owner.id!s} route geometry drifted: "
+                f"{violation.message()}"
+            )
+    tail_gap = next(
+        (
+            item
+            for item in check_fanout_tail_join(route_list, graph)
+            if item.junction_id in planned_forks
+        ),
+        None,
+    )
+    if tail_gap is not None:
+        plan = planned_forks[tail_gap.junction_id]
+        raise RuntimeError(
+            f"planned fan {plan.id!s} route hand-off drifted: {tail_gap.message()}"
+        )
+    port_gap = next(
+        (
+            item
+            for item in check_seam_segments_meet_at_port(
+                graph,
+                route_list,
+                offset_dict,
+            )
+            if item.port_id in planned_ports
+        ),
+        None,
+    )
+    if port_gap is not None:
+        raise RuntimeError(f"planned fan port hand-off drifted: {port_gap.message()}")
+    hanging = next(
+        (
+            item
+            for item in check_no_hanging_routes(graph, route_list, offset_dict)
+            if ResolvedEdge(item.source, item.target, item.line_id) in planned_edges
+        ),
+        None,
+    )
+    if hanging is not None:
+        raise RuntimeError(f"planned fan member route drifted: {hanging.message()}")

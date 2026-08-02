@@ -1770,9 +1770,8 @@ def _cross_plan_fallback_reasons(
                     reasons[plan.id] = "shared-source-ownership-conflict"
                 owners.add(plan.id)
                 planned_station_offsets[key] = lane.planned_offset
-    system_by_plan_id = {plan.id: plan.system_id for plan in plans}
-    conflicting_systems = {
-        system_by_plan_id[plan_id]
+    conflicting_plan_ids = {
+        plan_id
         for key in conflicting_linear_entry_frame_assignments(
             planned_station_offsets, frame_ownership
         )
@@ -1781,7 +1780,7 @@ def _cross_plan_fallback_reasons(
     for plan in plans:
         if (
             plan.disposition is ExitTurnDisposition.PLANNED
-            and plan.system_id in conflicting_systems
+            and plan.id in conflicting_plan_ids
         ):
             reasons.setdefault(plan.id, "linear-entry-frame-ownership-conflict")
     for plan in plans:
@@ -2072,7 +2071,13 @@ def _apply_cross_plan_fallbacks(
 
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
-    scaffold = build_route_semantic_scaffold(graph, ctx.topology)
+    scaffold = build_route_semantic_scaffold(
+        graph,
+        ctx.topology,
+        coupled_connector_groups=tuple(
+            plan.connector_ids for plan in graph.fan_plans if plan.connector_ids
+        ),
+    )
     if scaffold is None:
         query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
         return ExitTurnExecution(None, (), (), (), (), query)
@@ -2115,7 +2120,6 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
         assignments_by_plan,
         cross_plan_reasons,
     )
-
     if ctx.station_offsets is not None:
         trial_offsets = dict(ctx.station_offsets)
         for plan in plans:

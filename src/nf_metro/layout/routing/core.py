@@ -377,7 +377,7 @@ def _route_edges(
     )
     from nf_metro.layout.fan_plans import validate_fan_route_emissions
 
-    validate_fan_route_emissions(graph, routes)
+    validate_fan_route_emissions(graph, routes, ctx.station_offsets or {})
 
     return routes, moves, observer.finish(routes) if observer is not None else None
 
