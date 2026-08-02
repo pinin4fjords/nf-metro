@@ -2523,6 +2523,33 @@ def test_junction_fanout_convergence_turns_concentric():
     )
 
 
+def test_cross_row_convergence_turns_concentric():
+    """A bypass and a nearer cross-row feeder keep their order into one port.
+
+    The farther feeder needs the outer approach channel and the port-far lane.
+    Giving it the opposite lane order forces one of the two strokes to cross:
+    either where the nearer feeder descends through the bypass trunk or where
+    both routes turn into the port.
+    """
+    graph = _layout("topologies/convergent_offrow_exit_climb.mmd", validate=True)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    port = "cnv_calling__entry_left_10"
+    converging = [rp for rp in routes if rp.edge.target == port]
+    assert {rp.edge.line_id for rp in converging} == {"other", "snvvcf"}, (
+        "fixture precondition: other and snvvcf converge into the CNV port"
+    )
+
+    crossings = check_route_segment_crossings(graph, (offsets, converging))
+    assert not crossings, "; ".join(v.message for v in crossings)
+
+    port_order = _routes_ordered_by_y(converging, offsets, at_target=True)
+    assert port_order == ["snvvcf", "other"], (
+        f"nearer feeder must take the port-near slot, got order {port_order}"
+    )
+
+
 def test_rl_return_row_convergence_renders_cleanly():
     """A compact 2-row serpentine with an RL return row converging into shared
     entry ports routes without tripping the render-curve invariants (#876).

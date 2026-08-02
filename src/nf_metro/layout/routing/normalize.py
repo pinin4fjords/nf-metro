@@ -67,6 +67,9 @@ from nf_metro.layout.routing.corners import (
     widest_coincident_radius,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.offsets import (
+    cross_row_convergence_channel_order,
+)
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
@@ -1444,6 +1447,10 @@ def _stagger_convergent_distinct_lines(
         port = ctx.graph.ports.get(port_id)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
             continue
+        forced_order = _cross_row_convergence_channel_order(port_id, entries, ctx)
+        if forced_order is not None:
+            _stack_distinct_port_descents(entries, port, ctx, line_order=forced_order)
+            continue
         entries.sort(key=lambda e: e[1].x)
         cluster: list[tuple[RoutedPath, _VChannel]] = []
         for rp, ch in entries:
@@ -1454,8 +1461,28 @@ def _stagger_convergent_distinct_lines(
         _stack_distinct_port_descents(cluster, port, ctx)
 
 
+def _cross_row_convergence_channel_order(
+    port_id: str,
+    entries: list[tuple[RoutedPath, _VChannel]],
+    ctx: _RoutingCtx,
+) -> list[str] | None:
+    """Outer-to-inner channel order for an off-row convergence bundle."""
+    port = ctx.graph.ports.get(port_id)
+    if port is None or port.side is not PortSide.LEFT:
+        return None
+    line_ids = {rp.line_id for rp, _channel in entries}
+    ordered = cross_row_convergence_channel_order(ctx.graph, port_id)
+    if ordered is None or line_ids != set(ordered):
+        return None
+    return ordered
+
+
 def _stack_distinct_port_descents(
-    cluster: list[tuple[RoutedPath, _VChannel]], port: Port, ctx: _RoutingCtx
+    cluster: list[tuple[RoutedPath, _VChannel]],
+    port: Port,
+    ctx: _RoutingCtx,
+    *,
+    line_order: list[str] | None = None,
 ) -> None:
     """Re-seat one coincident cluster of distinct-line port descents.
 
@@ -1477,14 +1504,18 @@ def _stack_distinct_port_descents(
         return
     offs = ctx.station_offsets or {}
     span = {lid: max(ch.y_hi - ch.y_lo for ch in chs) for lid, chs in by_line.items()}
-    ordered = sorted(
+    ordered = line_order or sorted(
         by_line, key=lambda lid: (-span[lid], offs.get((port.id, lid), 0.0))
     )
     xs = [ch.x for _rp, ch in cluster]
     step = ctx.offset_step
     left = port.side is PortSide.LEFT
-    base = min(xs) if left else max(xs)
     n = len(ordered)
+    if line_order is None:
+        base = min(xs) if left else max(xs)
+    else:
+        inner = by_line[ordered[-1]][0].x
+        base = inner - (n - 1) * step if left else inner + (n - 1) * step
     # The innermost lane (rank n-1) is the concentric reference, anchored at the
     # base radius; every other lane's corner is sized by its signed X offset from
     # it, so the outer lanes take the wider radius and the convergent arcs hold a
