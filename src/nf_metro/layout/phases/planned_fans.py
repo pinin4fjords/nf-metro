@@ -31,18 +31,6 @@ def planned_fan_layout_station_ids(graph: MetroGraph) -> set[str]:
     }
 
 
-def planned_fan_layout_rows(graph: MetroGraph) -> set[int]:
-    """Return grid rows whose section content is positioned by a fan plan."""
-    return {
-        section.grid_row
-        for station_id in planned_fan_layout_station_ids(graph)
-        if (station := graph.stations.get(station_id)) is not None
-        and station.section_id is not None
-        if (section := graph.sections.get(station.section_id)) is not None
-        and section.grid_row >= 0
-    }
-
-
 def planned_fan_port_ids(graph: MetroGraph) -> set[str]:
     """Return ports participating in a planned fan's complete membership."""
     return {

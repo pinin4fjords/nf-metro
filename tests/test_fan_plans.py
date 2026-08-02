@@ -9,8 +9,15 @@ from types import SimpleNamespace
 import pytest
 
 from nf_metro.api import prepare_graph
-from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.constants import (
+    INTER_ROW_EDGE_CLEARANCE,
+    SECTION_Y_PADDING,
+    X_SPACING,
+)
+from nf_metro.layout.engine import compute_layout, compute_min_y_spacing
 from nf_metro.layout.fan_plans import (
+    FanPlanExecution,
+    FanPlanQuery,
     FanTopologyQuery,
     build_fan_plan_execution,
     install_fan_plan_execution,
@@ -933,6 +940,73 @@ def test_centreline_port_membership_is_frozen_before_materialisation() -> None:
 
     with pytest.raises(PhaseInvariantError, match="expected .* from its frame"):
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
+def test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline() -> None:
+    path = ROOT / "examples" / "topologies" / "symmetric_deadend_fanout_exit.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    topology = build_route_topology_query(graph)
+    assert topology is not None
+    execution = build_fan_plan_execution(
+        graph,
+        topology,
+        x_spacing=X_SPACING,
+        y_spacing=compute_min_y_spacing(graph),
+        minimum_runway=INTER_ROW_EDGE_CLEARANCE,
+    )
+    plan = next(item for item in execution.plans if item.authored_source_id == "entry")
+
+    lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
+    assert lane_offsets == pytest.approx(
+        (-plan.frame.secondary.step / 2, plan.frame.secondary.step / 2)
+    )
+
+    laid_out = parse_metro_mermaid(path.read_text())
+    compute_layout(laid_out)
+    fork = laid_out.stations["s1__entry_left_2"]
+    branch_ys = [laid_out.stations[station_id].y for station_id in ("split", "salmon")]
+    assert fork.y == pytest.approx(sum(branch_ys) / 2)
+
+
+def test_runtime_guard_rejects_asymmetric_symmetric_fan_plan() -> None:
+    path = ROOT / "examples" / "topologies" / "symmetric_deadend_fanout.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "entry")
+    bad_plan = replace(
+        plan,
+        branches=(replace(plan.branches[0], lane_offset=0.0), plan.branches[1]),
+    )
+    install_fan_plan_execution(
+        graph,
+        FanPlanExecution(
+            plans=(bad_plan,),
+            query=FanPlanQuery.build((bad_plan,)),
+        ),
+    )
+
+    with pytest.raises(PhaseInvariantError, match="uses asymmetric lane offsets"):
+        _guard_planned_fan_frame_realised(
+            graph,
+            "test",
+            offsets=compute_station_offsets(graph),
+        )
+
+
+def test_planned_fan_does_not_level_unrelated_row_bbox_tops() -> None:
+    path = (
+        ROOT / "examples" / "topologies" / "ported_symmetric_fan_centreline_trunk.mmd"
+    )
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+
+    assert graph.sections["input"].bbox_y == pytest.approx(
+        graph.stations["identify"].y - SECTION_Y_PADDING
+    )
+    assert graph.sections["report"].bbox_y == pytest.approx(
+        graph.stations["generate"].y - SECTION_Y_PADDING
+    )
+    assert graph.sections["fetch"].bbox_y < graph.sections["input"].bbox_y
 
 
 def test_planned_handoff_does_not_reslot_unrelated_same_line_stations() -> None:

@@ -5216,6 +5216,23 @@ def _guard_planned_fan_frame_realised(
         frame = plan.frame
         if not plan.owns_geometry or frame is None:
             continue
+        if graph.diamond_style == "symmetric" and len(plan.branches) == 2:
+            lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
+            expected_lane_offsets = (
+                -frame.secondary.step / 2,
+                frame.secondary.step / 2,
+            )
+            if any(
+                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+                for actual, target in zip(
+                    lane_offsets, expected_lane_offsets, strict=True
+                )
+            ):
+                raise PhaseInvariantError(
+                    f"{phase}: symmetric planned fan {plan.id!s} uses asymmetric "
+                    f"lane offsets {lane_offsets!r}; expected "
+                    f"{expected_lane_offsets!r} around one centreline"
+                )
 
         anchor_id = plan.local_frame_anchor_station_id
         anchor = graph.stations.get(anchor_id or "")

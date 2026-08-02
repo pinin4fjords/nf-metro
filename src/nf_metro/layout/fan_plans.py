@@ -1250,7 +1250,10 @@ def _build_candidate(
             for branch in branch_plans
         ]
     trunk_branches = [branch for branch in branch_plans if branch.is_trunk_continuation]
-    if len(trunk_branches) == 1:
+    preserve_symmetric_frame = (
+        graph.diamond_style == "symmetric" and len(branch_plans) == 2
+    )
+    if len(trunk_branches) == 1 and not preserve_symmetric_frame:
         trunk_id = trunk_branches[0].id
         side_rank = {
             branch.id: rank

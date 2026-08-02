@@ -256,7 +256,6 @@ from nf_metro.layout.phases.planned_fans import (  # noqa: F401
     _apply_planned_fan_geometry,
     _apply_planned_fan_port_geometry,
     _fit_planned_fan_bboxes,
-    planned_fan_layout_rows,
 )
 from nf_metro.layout.phases.ports import (  # noqa: F401
     _align_entry_ports,
@@ -2051,7 +2050,6 @@ def _finalize_layout(
     # Stage 6.17: Re-materialise semantic fan frames against their settled
     # centreline, then compact unsupported legacy diamonds where requested.
     _run_placement(graph, validate, "6.17", _apply_planned_fan_geometry)
-    _top_align_row_bboxes_only(graph, planned_fan_layout_rows(graph))
     if graph.diamond_style == "symmetric":
         _apply_half_grid_symmetric_diamonds(graph, y_spacing)
     _snap(graph, "6.17")

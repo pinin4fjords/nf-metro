@@ -1243,9 +1243,12 @@ in pipeline order.
   re-anchors stale junctions (any direction) after the settling phases (17
   across the corpus, some by hundreds of px).
 
-### Stage 6.17: symmetric diamond half-pitch compaction (engine.py)
-- **Purpose**: Under `diamond_style='symmetric'`, compact each clean
-  2-way fork-join diamond (`_iter_symmetric_diamonds`) onto half-pitch
+### Stage 6.17: semantic fan settlement and symmetric compaction (engine.py)
+- **Purpose**: Re-materialise every planned semantic fan against its settled
+  centreline. Under `diamond_style='symmetric'`, a planned two-way fan keeps
+  mirrored half-pitch lanes around that centreline even when topology identifies
+  one branch as the unique continuation. For unsupported legacy fans, compact
+  each clean 2-way fork-join diamond (`_iter_symmetric_diamonds`) onto half-pitch
   offsets `trunk_y +/- 0.5 * y_spacing`, so the diamond reads as a tight
   one-grid-unit bubble rather than straddling the trunk at full pitch
   (as tall as a 3-way fan with an empty trunk row between its branches).
@@ -1254,19 +1257,22 @@ in pipeline order.
   `center_ports`. Records the branches on
   `MetroGraph.half_grid_station_ids`. Runs after every trunk-settling
   pass, so the branches straddle the section trunk's final Y exactly; the
-  compaction only moves them inward toward the trunk, so it never breaks
-  bbox containment.
-- **Helper**: `_apply_half_grid_symmetric_diamonds`.
-- **Precondition**: Trunk Ys settled (post-6.16); `diamond_style`
-  is `symmetric`.
-- **Postcondition**: Each symmetric diamond's branches sit at
-  `trunk_y +/- 0.5 * y_spacing`; their IDs are in
-  `graph.half_grid_station_ids`.
-- **Invariants preserved**: Trunk station Y, ports, bbox containment,
-  the wider fan's full-pitch slots.
+  compaction only moves them inward toward the trunk, so it never breaks bbox
+  containment.
+- **Helpers**: `_apply_planned_fan_geometry`, then
+  `_apply_half_grid_symmetric_diamonds` for symmetric legacy geometry.
+- **Precondition**: Trunk Ys and section bboxes settled (post-6.16).
+- **Postcondition**: Each planned station realises its immutable relative frame.
+  Each symmetric two-way fan straddles one centreline at half pitch; legacy
+  diamond branch IDs are recorded in `graph.half_grid_station_ids`.
+- **Invariants preserved**: Trunk station Y, ports, section bboxes, unrelated
+  row-mate bbox tops, and wider fan full-pitch slots.
 - **Related tests**: `test_symmetric_diamond_compacts_to_half_pitch`,
   `test_symmetric_diamond_both_branches_deviate`,
-  `_guard_symmetric_diamond_branches_straddle_trunk`.
+  `test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline`,
+  `test_planned_fan_does_not_level_unrelated_row_bbox_tops`,
+  `_guard_symmetric_diamond_branches_straddle_trunk`, and
+  `_guard_planned_fan_frame_realised`.
 - **Lifecycle:** invariant - symmetric diamond branches keep their
   half-pitch offsets at the final boundary; only Stage 6.18 may move one,
   and only when its straddling partner is gone.
@@ -1346,9 +1352,11 @@ in pipeline order.
   complete. Effective grid decisions are available even though section canvas
   coordinates are not.
 - **Postcondition**: A fan is wholly `PLANNED` or wholly `LEGACY`. A planned
-  fan has exact structural ownership and complete relative geometry. A legacy
-  fan claims no layout geometry, offsets, or route emissions and records one
-  deterministic reason.
+  fan has exact structural ownership and complete relative geometry. A
+  symmetric two-way fan uses mirrored lanes around one centreline; structural
+  continuation identity does not convert that appearance into a trunk-plus-peel
+  frame. A legacy fan claims no layout geometry, offsets, or route emissions
+  and records one deterministic reason.
 - **Invariants preserved**: Planned materialisation reads frozen anchors and
   cannot move an unowned port or station. Structural membership is independent
   of route-emission ownership. Each claimed route emission is produced exactly

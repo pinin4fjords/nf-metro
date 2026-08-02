@@ -274,6 +274,11 @@ broken by each cleanup pass, then handle the final geometric details
   Stage 3.2, re-introducing an inter-section S-kink; re-run the
   alignment (TB / BT only) and re-anchor junctions to the settled
   port Ys.
+- **Stage 6.17**: Re-materialise complete semantic fan frames on their settled
+  centrelines without resizing their sections or row mates. Two-way plans under
+  `diamond_style='symmetric'` keep mirrored half-pitch lanes even when one
+  branch is the topology's unique continuation. Unsupported symmetric diamonds
+  then receive the legacy half-pitch compaction.
 
 Stage 6 is where most of the historical organic-suffix sprawl (the old
 13d / 13d2 / 13h.1 / 13k2 names) lived. The flat Stage.N scheme makes
