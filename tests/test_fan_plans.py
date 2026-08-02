@@ -616,15 +616,25 @@ def test_vertical_fan_pitch_stays_canonical_when_labels_already_clear() -> None:
     assert plan.appearance_lane_pitch == X_SPACING
 
 
-def test_runtime_guard_rejects_vertical_fan_label_under_reservation() -> None:
-    path = ROOT / "examples" / "topologies" / "tb_internal_diagonal.mmd"
+@pytest.mark.parametrize(
+    ("fixture", "bad_pitch"),
+    [
+        ("tb_internal_diagonal.mmd", X_SPACING),
+        ("tb_trunk_through_fan.mmd", X_SPACING - 2.0),
+    ],
+)
+def test_runtime_guard_rejects_vertical_fan_pitch_under_reservation(
+    fixture: str,
+    bad_pitch: float,
+) -> None:
+    path = ROOT / "examples" / "topologies" / fixture
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
     bad_offsets = fan_lane_offsets(
         plan.branches,
         plan.appearance_policy,
-        X_SPACING,
+        bad_pitch,
         plan.appearance_centreline_branch_id,
     )
     bad_branches = tuple(
@@ -638,7 +648,7 @@ def test_runtime_guard_rejects_vertical_fan_label_under_reservation() -> None:
     bad_plan = replace(
         plan,
         branches=bad_branches,
-        appearance_lane_pitch=X_SPACING,
+        appearance_lane_pitch=bad_pitch,
     )
     install_fan_plan_execution(
         graph,

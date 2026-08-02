@@ -5270,7 +5270,12 @@ def _guard_planned_fan_frame_realised(
             raise PhaseInvariantError(
                 f"{phase}: planned fan {plan.id!s} has no frozen appearance lane pitch"
             )
-        required_pitch = vertical_fan_label_lane_pitch(graph, plan.branches, frame)
+        required_pitch = vertical_fan_label_lane_pitch(
+            graph,
+            plan.branches,
+            frame,
+            floor=frame.secondary.step,
+        )
         if plan.appearance_lane_pitch + COORD_TOLERANCE_FINE < required_pitch:
             raise PhaseInvariantError(
                 f"{phase}: planned fan {plan.id!s} lane pitch "
