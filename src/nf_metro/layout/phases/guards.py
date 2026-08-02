@@ -5452,11 +5452,6 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
             "centreline for the fork and join hub to agree on."
         ),
     ),
-    GuardSpec(
-        _guard_planned_fan_frame_realised,
-        "A",
-        needs=frozenset({"offsets"}),
-    ),
     # A sparse loop-side station (single line in/out, full-bundle row-mates)
     # sits on the trunk Y until Stage 6.14 shifts it to a half-grid offset;
     # before that the sibling bundle's route passes through its marker bbox.
@@ -5484,6 +5479,11 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(_guard_station_x_column_drift, "A", bisection_safe=True),
     # --- final-only set (run only at the closing ``after final`` boundary) ---
+    GuardSpec(
+        _guard_planned_fan_frame_realised,
+        "A",
+        needs=frozenset({"offsets"}),
+    ),
     # A desync feeds a stale port position to later phases, not the renderer
     # (routing reads the Station record), so this is a pipeline-consistency
     # check for validate runs rather than a render-output guard.
