@@ -107,9 +107,10 @@ runways, offset carriers, and any dedicated route emissions. The authored
 straight or symmetric appearance is frozen separately from the structural
 question of whether the branches reconverge.
 
-Stages 4.9 and 6.17 materialise the plan against a read-only centreline captured
-after the structural anchors settle at each boundary. The placement phase never
-derives its frame from a plan-owned station that it is about to move.
+The plan also names the station or port that supplies its absolute centreline.
+Stages 4.9 and 6.17 read that fixed source after structural anchors settle. They
+do not search the live grid or port topology for a different source, and the
+placement phase never derives its frame from a station it is about to move.
 
 Ownership is all-or-nothing. If a fan overlaps a local merge frame owned by
 another topology, or its membership is ambiguous, the complete fan uses the

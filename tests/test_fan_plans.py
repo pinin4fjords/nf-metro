@@ -30,12 +30,17 @@ from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
     _guard_planned_fan_frame_realised,
 )
-from nf_metro.layout.phases.planned_fans import _apply_planned_fan_geometry
+from nf_metro.layout.phases.planned_fans import (
+    _apply_planned_fan_geometry,
+    _apply_planned_fan_port_geometry,
+    _snapshot_planned_fan_centrelines,
+)
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     DemandKind,
     FanAppearancePolicy,
+    FanCentrelineAnchor,
     FanOffsetAssignment,
     FanOffsetCarrier,
     FanPlanDisposition,
@@ -855,6 +860,7 @@ def test_missing_resolved_member_falls_back_as_one_complete_group() -> None:
     assert plan.legacy_reason == "missing-resolved-member-path"
     assert plan.frame is None
     assert plan.centreline_reference_id is None
+    assert plan.centreline_anchor is None
     assert plan.demand_ids == ()
     assert all(branch.lane_offset is None for branch in plan.branches)
     assert execution.query.owner_for_authored_edge(facts[0].id) is None
@@ -1413,6 +1419,51 @@ def test_centreline_port_membership_is_frozen_before_materialisation() -> None:
 
     with pytest.raises(PhaseInvariantError, match="expected .* from its frame"):
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
+def test_absolute_centreline_anchor_is_frozen_before_materialisation() -> None:
+    path = ROOT / "examples" / "topologies" / "bypass_v_tight.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
+
+    assert plan.centreline_anchor == FanCentrelineAnchor("src__exit_right_0")
+    assert plan.local_frame_anchor_station_id == "m1"
+    anchor_y = 137.0
+    graph.stations[plan.centreline_anchor.station_id].y = anchor_y
+    graph.stations["mid__entry_left_2"].y = 263.0
+
+    graph.ports.pop(plan.centreline_anchor.station_id)
+    graph.edges.clear()
+    graph.sections["src"].grid_row += 3
+    graph.sections["mid"].grid_col += 2
+
+    _apply_planned_fan_port_geometry(graph)
+    centrelines = _snapshot_planned_fan_centrelines(graph)
+
+    assert centrelines[plan.id] == anchor_y
+    assert {
+        graph.stations[port_id].y
+        for port_id in plan.centreline_port_ids
+        if port_id in graph.ports
+    } == {anchor_y}
+
+
+def test_centreline_anchor_is_complete_and_inside_fan_membership() -> None:
+    path = ROOT / "examples" / "topologies" / "bypass_v_tight.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
+
+    with pytest.raises(ValueError, match="centreline anchor is incomplete"):
+        replace(plan, centreline_anchor=None)
+    with pytest.raises(ValueError, match="outside complete membership"):
+        replace(plan, centreline_anchor=FanCentrelineAnchor("unrelated"))
+
+    assert plan.centreline_anchor is not None
+    graph.stations.pop(plan.centreline_anchor.station_id)
+    with pytest.raises(PhaseInvariantError, match="centreline anchor .* is missing"):
+        _apply_planned_fan_port_geometry(graph)
 
 
 def test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline() -> None:

@@ -769,6 +769,20 @@ class FanRouteEmission:
 
 
 @dataclass(frozen=True, slots=True)
+class FanCentrelineAnchor:
+    """Frozen station source for a fan's absolute secondary-axis centreline."""
+
+    station_id: str
+    lane_offset: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not self.station_id:
+            raise ValueError("fan centreline anchor has no station")
+        if not math.isfinite(self.lane_offset):
+            raise ValueError("fan centreline anchor offset must be finite")
+
+
+@dataclass(frozen=True, slots=True)
 class FanPlan:
     """Complete immutable decision for one authored fan or diamond.
 
@@ -812,6 +826,7 @@ class FanPlan:
     convergence_handoff_ids: tuple[ConvergenceId, ...]
     owned_station_ids: tuple[str, ...]
     centreline_station_ids: tuple[str, ...]
+    centreline_anchor: FanCentrelineAnchor | None
     local_frame_anchor_station_id: str | None
     local_frame_anchor_offset: float | None
     frame: AxisFrame | None
@@ -1083,6 +1098,21 @@ class FanPlan:
             raise ValueError("fan centreline port lies outside complete ownership")
         if not planned and self.centreline_port_ids:
             raise ValueError("legacy fan owns centreline ports")
+        needs_centreline_anchor = bool(layout_station_ids or self.centreline_port_ids)
+        if planned and needs_centreline_anchor != (self.centreline_anchor is not None):
+            raise ValueError("planned fan centreline anchor is incomplete")
+        if not planned and self.centreline_anchor is not None:
+            raise ValueError("legacy fan owns a centreline anchor")
+        if (
+            self.centreline_anchor is not None
+            and self.centreline_anchor.station_id
+            not in {
+                *self.owned_station_ids,
+                *self.entry_port_ids,
+                *self.exit_port_ids,
+            }
+        ):
+            raise ValueError("fan centreline anchor lies outside complete membership")
         has_local_anchor = self.local_frame_anchor_station_id is not None
         if has_local_anchor != (self.local_frame_anchor_offset is not None):
             raise ValueError("fan local frame anchor is incomplete")

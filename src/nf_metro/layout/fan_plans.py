@@ -31,6 +31,7 @@ from nf_metro.layout.route_plan import (
     FanAppearancePolicy,
     FanBranchPlan,
     FanBranchPlanId,
+    FanCentrelineAnchor,
     FanOffsetAssignment,
     FanOffsetCarrier,
     FanPlan,
@@ -1018,6 +1019,83 @@ def _centreline_port_ids(
     return tuple(dict.fromkeys(result))
 
 
+def _centreline_anchor(
+    graph: MetroGraph,
+    *,
+    direction: FlowDirection | None,
+    frame: AxisFrame | None,
+    fork_id: str,
+    layout_section_id: str | None,
+    branches: Sequence[FanBranchPlan],
+    entry_port_ids: Sequence[str],
+    exit_port_ids: Sequence[str],
+    local_frame_anchor: tuple[str, float | None] | None,
+) -> FanCentrelineAnchor | None:
+    """Freeze the source of one fan's settled absolute centreline."""
+    layout_section = graph.sections.get(layout_section_id or "")
+    if frame is not None and direction is not None and layout_section is not None:
+        horizontal = not lanes_run_along_x(direction)
+        candidates: list[tuple[float, str]] = []
+        for port_id in (*entry_port_ids, *exit_port_ids):
+            port = graph.ports.get(port_id)
+            section = graph.sections.get(port.section_id) if port is not None else None
+            if (
+                port is None
+                or port.is_entry
+                or section is None
+                or section.id == layout_section.id
+                or (not lanes_run_along_x(section.direction)) != horizontal
+                or port.side not in flow_port_sides(section.direction)
+            ):
+                continue
+            if horizontal:
+                same_strip = section.grid_row == layout_section.grid_row
+                distance = (
+                    layout_section.grid_col - section.grid_col
+                ) * frame.primary_sign
+            else:
+                same_strip = section.grid_col == layout_section.grid_col
+                distance = (
+                    layout_section.grid_row - section.grid_row
+                ) * frame.primary_sign
+            if same_strip and distance > 0:
+                candidates.append((distance, port_id))
+        if candidates:
+            return FanCentrelineAnchor(min(candidates)[1])
+
+        local_trunks = tuple(
+            branch
+            for branch in branches
+            if branch.is_trunk_continuation
+            and branch.lane_station_ids
+            and not branch.landing_port_ids
+        )
+        if len(local_trunks) == 1 and fork_id in graph.stations:
+            return FanCentrelineAnchor(fork_id)
+
+        flow_sides = flow_port_sides(direction)
+        local_ports = [
+            port_id
+            for port_id in (*entry_port_ids, *exit_port_ids)
+            if (port := graph.ports.get(port_id)) is not None
+            and port.section_id == layout_section.id
+            and port.side in flow_sides
+        ]
+        local_ports = list(dict.fromkeys(local_ports))
+        local_ports.sort(key=lambda port_id: not graph.ports[port_id].is_entry)
+        if local_ports:
+            return FanCentrelineAnchor(local_ports[0])
+        if fork_id in graph.stations:
+            return FanCentrelineAnchor(fork_id)
+
+    if local_frame_anchor is None or local_frame_anchor[1] is None:
+        return None
+    return FanCentrelineAnchor(
+        station_id=local_frame_anchor[0],
+        lane_offset=local_frame_anchor[1],
+    )
+
+
 def _lane_station_ids(
     graph: MetroGraph,
     paths: Iterable[tuple[ResolvedEdge, ...]],
@@ -1123,6 +1201,7 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         route_emissions=(),
         centreline_port_ids=(),
         centreline_station_ids=(),
+        centreline_anchor=None,
         local_frame_anchor_station_id=None,
         local_frame_anchor_offset=None,
         appearance_centreline_branch_id=None,
@@ -1751,24 +1830,6 @@ def _build_candidate(
         and len({frozenset(branch.line_ids) for branch in branch_plans}) == 1
     ):
         reason = "same-line-open-fan-layout-owns-geometry"
-    candidate_centreline_port_ids = (
-        _centreline_port_ids(
-            graph,
-            direction,
-            layout_section_id,
-            (*entry_ports, *exit_ports),
-        )
-        if reason is None
-        else ()
-    )
-    planned = reason is None
-    if not planned:
-        route_emissions = ()
-    centreline_port_ids = candidate_centreline_port_ids if planned else ()
-    owned_stations = cast(
-        tuple[str, ...],
-        _ordered_unique((*owned_stations, *centreline_port_ids)),
-    )
     local_anchor = next(
         ((station_id, 0.0) for station_id in centreline_station_ids), None
     )
@@ -1789,6 +1850,46 @@ def _build_candidate(
             ),
             None,
         )
+    candidate_centreline_port_ids = (
+        _centreline_port_ids(
+            graph,
+            direction,
+            layout_section_id,
+            (*entry_ports, *exit_ports),
+        )
+        if reason is None
+        else ()
+    )
+    needs_centreline_anchor = bool(layout_station_ids or candidate_centreline_port_ids)
+    candidate_centreline_anchor = (
+        _centreline_anchor(
+            graph,
+            direction=direction,
+            frame=frame,
+            fork_id=fork_id,
+            layout_section_id=layout_section_id,
+            branches=branch_plans,
+            entry_port_ids=entry_ports,
+            exit_port_ids=exit_ports,
+            local_frame_anchor=local_anchor,
+        )
+        if reason is None and needs_centreline_anchor
+        else None
+    )
+    if (
+        reason is None
+        and needs_centreline_anchor
+        and candidate_centreline_anchor is None
+    ):
+        reason = "missing-centreline-anchor"
+    planned = reason is None
+    if not planned:
+        route_emissions = ()
+    centreline_port_ids = candidate_centreline_port_ids if planned else ()
+    owned_stations = cast(
+        tuple[str, ...],
+        _ordered_unique((*owned_stations, *centreline_port_ids)),
+    )
     plan = FanPlan(
         id=plan_id,
         authored_source_id=source_id,
@@ -1839,6 +1940,7 @@ def _build_candidate(
         convergence_handoff_ids=convergence_handoffs,
         owned_station_ids=owned_stations,
         centreline_station_ids=centreline_station_ids if planned else (),
+        centreline_anchor=candidate_centreline_anchor if planned else None,
         local_frame_anchor_station_id=(
             local_anchor[0] if planned and local_anchor is not None else None
         ),

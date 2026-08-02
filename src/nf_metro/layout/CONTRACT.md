@@ -1382,8 +1382,10 @@ in pipeline order.
   fan has exact structural ownership and complete relative geometry. A
   symmetric two-way fan uses mirrored lanes around one centreline; structural
   continuation identity does not convert that appearance into a trunk-plus-peel
-  frame. A legacy fan claims no layout geometry, offsets, or route emissions
-  and records one deterministic reason.
+  frame. Its absolute centreline source is fixed by the planner, so later grid,
+  port, or topology mutations cannot select another anchor. A legacy fan claims
+  no layout geometry, offsets, anchor, or route emissions and records one
+  deterministic reason.
 - **Invariants preserved**: Planned materialisation reads frozen anchors and
   cannot move an unowned port or station. Structural membership is independent
   of route-emission ownership. Each claimed route emission is produced exactly

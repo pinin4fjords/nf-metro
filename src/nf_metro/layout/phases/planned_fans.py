@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import ICON_HALF_HEIGHT
-from nf_metro.layout.geometry import flow_port_sides, lanes_run_along_x
 from nf_metro.layout.pass_metrics import station_radius_approx
 from nf_metro.layout.phases._common import (
     grow_section_bbox_max_edge,
@@ -51,107 +50,20 @@ def planned_fan_port_ids(graph: MetroGraph) -> set[str]:
     }
 
 
-def _layout_section_id(graph: MetroGraph, plan: FanPlan) -> str | None:
-    station = graph.stations.get(plan.fork_station_id)
-    if station is not None and station.section_id is not None:
-        return station.section_id
-    port = graph.ports.get(plan.fork_station_id)
-    return port.section_id if port is not None else None
-
-
-def _centreline_ports(
-    graph: MetroGraph, plan: FanPlan, section_id: str
-) -> Iterable[str]:
-    if plan.frame is None or plan.direction is None:
-        return ()
-    sides = flow_port_sides(plan.direction)
-    candidates = []
-    for port_id in (*plan.entry_port_ids, *plan.exit_port_ids):
-        port = graph.ports.get(port_id)
-        if (
-            port is not None
-            and port.section_id == section_id
-            and port.side in sides
-            and port_id not in candidates
-        ):
-            candidates.append(port_id)
-    candidates.sort(key=lambda port_id: not graph.ports[port_id].is_entry)
-    return candidates
-
-
 def _centreline_coordinate(graph: MetroGraph, plan: FanPlan) -> float | None:
     frame = plan.frame
-    if frame is None:
+    anchor = plan.centreline_anchor
+    if frame is None or anchor is None:
         return None
-    section_id = _layout_section_id(graph, plan)
-    if section_id is None:
-        return None
-    axis = frame.secondary.name
-    local_trunks = tuple(
-        branch
-        for branch in plan.branches
-        if branch.is_trunk_continuation
-        and branch.lane_station_ids
-        and not branch.landing_port_ids
-    )
-    if len(local_trunks) == 1:
-        origin = graph.stations.get(plan.fork_station_id)
-        if origin is not None:
-            return getattr(origin, axis)
-    for port_id in _centreline_ports(graph, plan, section_id):
-        station = graph.stations.get(port_id)
-        if station is not None:
-            return getattr(station, axis)
-    origin = graph.stations.get(plan.fork_station_id)
-    return getattr(origin, axis) if origin is not None else None
+    station = graph.stations.get(anchor.station_id)
+    if station is None:
+        from nf_metro.layout.phases.guards import PhaseInvariantError
 
-
-def _local_frame_centreline(graph: MetroGraph, plan: FanPlan) -> float | None:
-    frame = plan.frame
-    if frame is None or plan.local_frame_anchor_station_id is None:
-        return None
-    anchor = graph.stations.get(plan.local_frame_anchor_station_id)
-    if anchor is None or plan.local_frame_anchor_offset is None:
-        return None
-    return (
-        frame.secondary.get(anchor)
-        - frame.secondary_sign * plan.local_frame_anchor_offset
-    )
-
-
-def _upstream_port_centreline(graph: MetroGraph, plan: FanPlan) -> float | None:
-    frame = plan.frame
-    layout_section_id = _layout_section_id(graph, plan)
-    layout_section = graph.sections.get(layout_section_id or "")
-    if frame is None or plan.direction is None or layout_section is None:
-        return None
-    horizontal = not lanes_run_along_x(plan.direction)
-    candidates: list[tuple[float, str]] = []
-    for port_id in (*plan.entry_port_ids, *plan.exit_port_ids):
-        port = graph.ports.get(port_id)
-        section = graph.sections.get(port.section_id) if port is not None else None
-        if (
-            port is None
-            or port.is_entry
-            or section is None
-            or section.id == layout_section.id
-            or (not lanes_run_along_x(section.direction)) != horizontal
-            or port.side not in flow_port_sides(section.direction)
-        ):
-            continue
-        if horizontal:
-            same_strip = section.grid_row == layout_section.grid_row
-            distance = (layout_section.grid_col - section.grid_col) * frame.primary_sign
-        else:
-            same_strip = section.grid_col == layout_section.grid_col
-            distance = (layout_section.grid_row - section.grid_row) * frame.primary_sign
-        if same_strip and distance > 0:
-            candidates.append((distance, port_id))
-    if not candidates:
-        return None
-    _, port_id = min(candidates)
-    station = graph.stations.get(port_id)
-    return frame.secondary.get(station) if station is not None else None
+        raise PhaseInvariantError(
+            f"planned fan {plan.id!r} centreline anchor "
+            f"{anchor.station_id!r} is missing"
+        )
+    return frame.secondary.get(station) - frame.secondary_sign * anchor.lane_offset
 
 
 def planned_fan_centreline_port_ids(
@@ -166,16 +78,8 @@ def _apply_planned_fan_port_geometry(graph: MetroGraph) -> None:
     """Continue each settled local fan frame through same-axis boundary ports."""
     for plan in _planned_fans(graph):
         frame = plan.frame
-        centreline = _upstream_port_centreline(graph, plan)
-        if centreline is None:
-            centreline = _centreline_coordinate(graph, plan)
-        if centreline is None:
-            centreline = _local_frame_centreline(graph, plan)
+        centreline = _centreline_coordinate(graph, plan)
         if frame is None or centreline is None:
-            continue
-        layout_section_id = _layout_section_id(graph, plan)
-        layout_section = graph.sections.get(layout_section_id or "")
-        if layout_section is None:
             continue
         for port_id in planned_fan_centreline_port_ids(graph, plan):
             port = graph.ports.get(port_id)
