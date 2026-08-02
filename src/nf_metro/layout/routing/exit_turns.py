@@ -11,6 +11,7 @@ from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     MIN_STRAIGHT_EDGE,
 )
+from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
@@ -2016,16 +2017,17 @@ def _complete_group_lane_constraints(
         if assignment.turn_direction is None
         and assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
     )
+    turns = tuple(
+        (turn, axis_by_id[turn.axis_id])
+        for turn in plan.assignments
+        if turn.axis_id is not None and turn.handedness is not None
+    )
+    cross_range_by_axis = {
+        axis.id: _planned_axis_cross_range(graph, ctx, plan, axis, assignments_by_edge)
+        for _turn, axis in turns
+    }
     constraints: set[tuple[str, str]] = set()
-    cross_range_by_axis: dict[ExitTurnAxisId, tuple[float, float]] = {}
-    for turn in plan.assignments:
-        if turn.axis_id is None or turn.handedness is None:
-            continue
-        axis = axis_by_id[turn.axis_id]
-        if axis.id not in cross_range_by_axis:
-            cross_range_by_axis[axis.id] = _planned_axis_cross_range(
-                graph, ctx, plan, axis, assignments_by_edge
-            )
+    for turn, axis in turns:
         turn_range = cross_range_by_axis[axis.id]
         for continuation in continuations:
             turn_line = line_by_member[turn.member_id]
@@ -2071,15 +2073,14 @@ def _stable_frame_order(
 
     def reaches(source: str, target: str) -> bool:
         stack = [source]
-        seen: set[str] = set()
+        seen = {source}
         while stack:
             line_id = stack.pop()
             if line_id == target:
                 return True
-            if line_id in seen:
-                continue
-            seen.add(line_id)
-            stack.extend(successors[line_id] - seen)
+            additions = successors[line_id] - seen
+            seen.update(additions)
+            stack.extend(additions)
         return False
 
     for before, after in zip(baseline, baseline[1:]):
@@ -2114,7 +2115,7 @@ def _source_lane_frames(
     horizontal_sections = {
         section_id
         for section_id, section in graph.sections.items()
-        if section.direction in {"LR", "RL"}
+        if lanes_run_along_y(section.direction)
     }
     parent = {section_id: section_id for section_id in horizontal_sections}
     section_rank = {section_id: rank for rank, section_id in enumerate(graph.sections)}
@@ -2149,7 +2150,6 @@ def _source_lane_frames(
             if (
                 assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
                 and target_section_id in horizontal_sections
-                and target_section_id != source_section_id
             ):
                 union(source_section_id, target_section_id)
                 linked_sections.update((source_section_id, target_section_id))
@@ -2274,10 +2274,11 @@ def _frame_lane_constraints(
             else (after, before)
             for before, after in logical_constraints
         }
-        if any(
+        constraints_leave_frame = any(
             before not in frames[root].line_ids or after not in frames[root].line_ids
             for before, after in physical_constraints
-        ):
+        )
+        if constraints_leave_frame:
             invalid_roots.add(root)
             continue
         constraints_by_root[root].update(physical_constraints)
@@ -2364,8 +2365,6 @@ def _apply_frame_orders(
         rank = {line_id: lane_rank for lane_rank, line_id in enumerate(order)}
         for station_id in frame.node_ids:
             for line_id in graph.station_lines(station_id):
-                if line_id not in rank:
-                    continue
                 key = station_id, line_id
                 value = base + rank[line_id] * offset_step
                 if abs(offsets.get(key, value) - value) > COORD_TOLERANCE:
@@ -2586,17 +2585,19 @@ def _settle_complete_group_source_lanes(
         != affected_plan_ids
     ):
         return reject("flat-frame-source-lane-not-stable")
-    if any(
+    has_unplanned_affected_plan = any(
         verified_by_id[plan_id].disposition is not ExitTurnDisposition.PLANNED
         for plan_id in affected_plan_ids
-    ):
+    )
+    if has_unplanned_affected_plan:
         return reject("flat-frame-source-lane-not-stable")
 
     verified_roots, verified_frames = _source_lane_frames(graph, verified)
-    if any(
+    frame_membership_changed = any(
         root not in verified_frames or frames[root] != verified_frames[root]
         for root in orders
-    ):
+    )
+    if frame_membership_changed:
         return reject("flat-frame-source-lane-not-stable")
     residual, residual_reasons = _frame_lane_constraints(
         graph,

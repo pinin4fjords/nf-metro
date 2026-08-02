@@ -1,0 +1,43 @@
+%%metro title: External Owner In Exit Lane Frame
+%%metro line: lower | Lower branch | #3779b1
+%%metro line: straight | Straight branch | #156075
+%%metro line: ends | Terminates | #dde6c4
+%%metro line: wrap | Wrap branch | #6ef362
+%%metro grid: prelude | 0,0
+%%metro grid: feeder | 1,1
+%%metro grid: source | 2,1
+%%metro grid: side | 2,2
+%%metro grid: straight_target | 3,1
+%%metro grid: lower_target | 3,2
+
+graph LR
+    subgraph prelude [Vertical]
+        %%metro direction: TB
+        %%metro exit: right | straight, wrap
+        prelude_a[Prelude A]
+        prelude_b[Prelude B]
+        prelude_a -->|straight,wrap| prelude_b
+    end
+    subgraph feeder [Feeder]
+        feed[Feed]
+    end
+    subgraph source [Source]
+        before[Before]
+        split[Split]
+        before -->|lower,wrap,ends,straight| split
+    end
+    subgraph side [Side]
+        side_end[Side]
+    end
+    subgraph straight_target [Straight]
+        straight_in[Straight]
+    end
+    subgraph lower_target [Lower target]
+        lower_in[Lower]
+    end
+
+    prelude_b -->|straight,wrap| feed
+    feed -->|lower,wrap,straight| before
+    feed -->|wrap| side_end
+    split -->|straight| straight_in
+    split -->|lower,wrap| lower_in

@@ -1,0 +1,37 @@
+%%metro title: Exit Lane Settlement Without Crossings
+%%metro line: lower | Lower branch | #3779b1
+%%metro line: straight | Straight branch | #156075
+%%metro line: ends | Terminates locally | #dde6c4
+%%metro line: wrap | Wrap branch | #6ef362
+%%metro line: drop | Aligned drop | #e76f51
+%%metro grid: drop_target | 0,0
+%%metro grid: feeder | 0,1
+%%metro grid: source | 1,1
+%%metro grid: straight_target | 2,1
+%%metro grid: lower_target | 0,2
+
+graph LR
+    subgraph drop_target [Aligned target]
+        %%metro entry: bottom | drop
+        drop_in[Drop]
+    end
+    subgraph feeder [Feeder]
+        feed[Feed]
+    end
+    subgraph source [Settlement source]
+        before[Before]
+        split[Split]
+        before -->|lower,straight,ends,wrap| split
+    end
+    subgraph straight_target [Straight]
+        straight_in[Straight]
+    end
+    subgraph lower_target [Lower target]
+        %%metro entry: right | wrap
+        lower_in[Lower]
+    end
+
+    feed -->|lower,straight,wrap| before
+    feed -->|drop| drop_in
+    split -->|lower,straight| straight_in
+    split -->|wrap| lower_in

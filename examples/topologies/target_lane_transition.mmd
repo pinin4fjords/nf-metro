@@ -1,0 +1,33 @@
+%%metro title: Target-side lane transition
+%%metro line: first | First branch | #3779b1
+%%metro line: second | Second branch | #6ef362
+%%metro line: local | Local stage | #dde6c4
+%%metro line: third | Third branch | #156075
+%%metro grid: upstream | 0,1
+%%metro grid: upstream_branch | 0,2
+%%metro grid: source | 1,0
+%%metro grid: straight_target | 2,0
+%%metro grid: lower_target | 2,1
+
+graph LR
+    subgraph upstream [Upstream]
+        feed[Feed]
+    end
+    subgraph upstream_branch [Branch]
+        branch_end[Branch end]
+    end
+    subgraph source [Source]
+        enter[Enter]
+        leave[Leave]
+        enter -->|local| leave
+    end
+    subgraph straight_target [Straight target]
+        straight[Straight]
+    end
+    subgraph lower_target [Lower target]
+        lower[Lower]
+    end
+    feed -->|first,second,third| enter
+    feed -->|second| branch_end
+    leave -->|third| straight
+    leave -->|first,second| lower

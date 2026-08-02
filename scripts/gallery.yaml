@@ -571,6 +571,44 @@ gallery:
       Four lines travel through a section, but one terminates before its shared exit.
       The three active lines close the empty slot before the straight and turning branches
       leave the section.
+  - id: target_lane_transition
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Three lines share an exit after crossing a section with a local fourth line.
+      The continuing lines close the empty lane on the final approach to the exit, placing
+      the handoff at the target end of that edge.
+  - id: multi_frame_exit_lane_settlement
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Two independent horizontal frames share a render with isolated vertical and mixed-direction
+      routes. In the upper frame, a line shifts at the entry and returns at the exit after a sibling
+      terminates, so the paired handoffs settle together. A separate horizontal feeder reaches a
+      vertical target, while vertical bottom and side exits stay outside horizontal frame settlement.
+  - id: exit_turn_frame_filters
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      A fan enters a target that already carries a local lane. One branch shifts inside the
+      target, while the other changes lane at the section seam, keeping the seam handoff outside
+      the target section's opposed-lane settlement.
+
+  - id: exit_lane_settlement_without_crossings
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Three lines share a section with a fourth line that terminates locally. The active lines
+      close the empty lane at the exit, while an aligned branch leaves the feeder without imposing
+      a conflicting turn order on the straight bundle.
+
+  - id: external_owner_exit_lane_frame
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      A vertical prelude feeds two lines into a horizontal bundle whose lane order must settle.
+      The prelude remains part of the same atomic update even though its source section sits
+      outside the horizontal frame.
 
   # ── TB / BT Sections ───────────────────────────────────────────────────────
   - id: bt_chain

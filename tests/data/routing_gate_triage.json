@@ -227,6 +227,90 @@
     "note": "Append-guard after the priority-ordered handler chain. The final handler _route_intra_section is total: its three early returns and its _route_diagonal fallback (annotated -> RoutedPath, single return statement) always yield a RoutedPath, so result is never None and every edge appends. The None arm is unreachable.",
     "status": "defensive"
   },
+  "exit_turns.py::for plan_id in frames[root].planned_plan_ids:::#1": {
+    "note": "Aborting a frame-order transaction must mark every planned owner in the affected frame, including owners whose individual constraints were not cyclic. test_frame_lane_constraint_cycle_falls_back_atomically verifies that both frame owners fall back and that their offsets, references, and demands remain unpublished.",
+    "status": "defensive"
+  },
+  "exit_turns.py::for plan_id in plan_ids:::#1": {
+    "note": "An opposed-transition section outside the semantic frame map invalidates every plan that owns a transition in that section. test_opposed_transition_outside_a_flat_frame_falls_back injects a singleton owner set for both missing-section and missing-frame cases and verifies whole-plan fallback.",
+    "status": "defensive"
+  },
+  "exit_turns.py::for root, constraints in constraints_by_root.items():::#2": {
+    "note": "Once any frame constraint is invalid or cyclic, abort propagation must inspect every constraint root so the settlement remains atomic across frames. test_frame_lane_constraint_cycle_falls_back_atomically verifies the abort path, and test_cycle_abort_skips_an_empty_constraint_root verifies its empty-root boundary.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if (::#5": {
+    "note": "The affected-plan closure is the lane-settlement transaction boundary and must be identical before and after the candidate rebuild. test_rebuilt_affected_closure_change_discards_the_trial injects closure drift and verifies that the trial offsets are not published.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if _apply_built_lane_offsets(trial_offsets, verified, excluded_plan_ids):::#1": {
+    "note": "After the candidate rebuild and one lane-offset synchronization, verification must be idempotent. A second offset change means the settlement has not reached a fixed point; test_second_rebuild_offset_change_discards_the_trial forces this failure and verifies atomic rollback.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if affected_plan_ids & baseline_cross_reasons.keys():::#1": {
+    "note": "Closure expansion cannot admit a plan that already has a baseline cross-plan fallback reason, because rebuilding that plan would mix two incompatible transactions. test_expanded_frame_baseline_conflict_aborts_before_rebuild injects this overlap and verifies rejection before offsets are published.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if constraints_leave_frame:::#1": {
+    "note": "Frame constraints contain only lines from a plan's source_lanes. Every eligible plan contributes its exit port and source junction to the frame, and graph.station_lines over those nodes therefore contains every possible constraint endpoint. Constructor and corpus audits found no valid plan/frame pair that can take the outside-frame arm; the guard remains as a backstop against future invariant drift.",
+    "status": "candidate-dead"
+  },
+  "exit_turns.py::if has_unplanned_affected_plan:::#1": {
+    "note": "Every affected plan must remain PLANNED after the candidate rebuild or the lane-settlement transaction is invalid. test_rebuilt_affected_plan_fallback_discards_the_trial injects a rebuilt legacy disposition and verifies that no trial offsets are published.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if frame_membership_changed:::#1": {
+    "note": "The semantic source-lane frames participating in a settlement must retain the same membership across the candidate rebuild. test_rebuilt_frame_membership_change_discards_the_trial injects frame drift and verifies atomic rollback.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if available is None:::#1": {
+    "note": "A non-empty topological-sort remainder with no predecessor-free lane is exactly a constraint cycle. test_stable_frame_order_rejects_cycles_and_preserves_compatible_adjacency supplies a three-lane cycle and verifies that _stable_frame_order rejects it.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if component is not None:::#1": {
+    "note": "Only transitions whose source station belongs to the same-line adjacency graph may contribute an opposed owner; a section-disconnected source has no component and must be ignored. test_connected_inverse_transitions_can_share_one_plan_owner verifies both the connected owner and disconnected rejection cases.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if has_residual or new_cross_reasons:::#1": {
+    "note": "A verified lane-settlement candidate must have neither residual frame constraints nor cross-plan conflicts introduced by the trial offsets. test_residual_frame_constraint_discards_the_trial forces an oscillating residual constraint and verifies atomic rollback to legacy plans and original offsets.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if initial_plan_ids & baseline_cross_reasons.keys():::#1": {
+    "note": "A plan with a baseline cross-plan fallback reason cannot enter the frame-order transaction, because its offsets and ownership are already rejected. test_initial_frame_baseline_conflict_aborts_before_trial injects this overlap and verifies that the complete frame aborts before mutation.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if not changed_keys:::#1": {
+    "note": "A non-empty frame-order transaction must own at least one changed station-lane coordinate; an empty change set cannot establish or verify a new fixed point. test_unchanged_frame_trial_falls_back_without_publishing_offsets injects the empty set and verifies rollback.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if not constraints:::#2": {
+    "note": "This arm is transaction-unwind hygiene: an empty constraint root has no lane-order transaction or owner set to abort. test_cycle_abort_skips_an_empty_constraint_root injects an empty root alongside a cycle and verifies that only the constraint-bearing frame falls back.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if order is None:::#1": {
+    "note": "A None frame order means the hard lane constraints are cyclic, so no partial order may be published. test_stable_frame_order_rejects_cycles_and_preserves_compatible_adjacency proves the cycle result directly, and test_frame_lane_constraint_cycle_falls_back_atomically verifies whole-frame rollback.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if owners_by_sign[1] and owners_by_sign[-1]:::#1": {
+    "note": "A section is opposed only when one connected same-line component contains both positive and negative lane transitions; transitions in disconnected components must not be combined. test_connected_inverse_transitions_can_share_one_plan_owner verifies the connected inverse pair and its disconnected control.",
+    "status": "defensive"
+  },
+  "exit_turns.py::if reasons or cycle_roots:::#1": {
+    "note": "Any invalid frame reason or cyclic constraint invalidates the complete lane-settlement transaction before trial offsets are created. test_opposed_transition_outside_a_flat_frame_falls_back covers an invalid-frame reason, while test_frame_lane_constraint_cycle_falls_back_atomically covers a cycle and verifies atomic fallback.",
+    "status": "defensive"
+  },
+  "exit_turns.py::or plan.id in excluded_plan_ids::#1": {
+    "note": "A plan excluded by baseline cross-plan analysis must not publish its rebuilt lane offsets into another frame's settlement trial. test_excluded_plan_does_not_publish_lane_offsets passes an excluded planned group and verifies that both the offset map and changed flag remain untouched.",
+    "status": "defensive"
+  },
+  "exit_turns.py::or root_by_section[section_id] not in frames::#1": {
+    "note": "An opposed transition accepted for flat-frame settlement must resolve to a semantic source-lane frame. test_opposed_transition_outside_a_flat_frame_falls_back[side] injects a section root with no frame and verifies whole-plan fallback without publishing lane offsets.",
+    "status": "defensive"
+  },
+  "exit_turns.py::section_id not in root_by_section::#1": {
+    "note": "The opposed-section map is derived from planned lane-transition source stations, so a valid entry names a laid-out section. test_opposed_transition_outside_a_flat_frame_falls_back[missing-section] injects a missing section and verifies whole-plan fallback without publishing lane offsets.",
+    "status": "defensive"
+  },
   "inter_section.py::for prev, curr in zip(self.corners, self.corners[1:]):::#1": {
     "note": "TurnSequence.parity loop over consecutive corners. parity is descriptor-level documentation (runtime wrap handlers preserve bundle ordering via per-corner offset propagation regardless of this value); nothing on the render path reads it, and the module is never imported during the sweep. Exercised by test_inter_section_descriptor.py.",
     "status": "defensive"
