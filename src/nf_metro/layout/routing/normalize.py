@@ -1931,9 +1931,11 @@ def _fan_opening_reference_radii(
         for index in (channel.idx, channel.idx + 1):
             x, y = points[index]
             points[index] = (target_x, y)
-        for side, radius_index in enumerate((channel.idx - 1, channel.idx)):
-            if not 0 <= radius_index < len(route.curve_radii):
-                continue
+        radius_indices = range(
+            channel.idx - 1,
+            min(channel.idx + 1, len(route.curve_radii)),
+        )
+        for side, radius_index in enumerate(radius_indices):
             required_reference = concentric_reference_radius_at(
                 points[radius_index],
                 points[radius_index + 1],

@@ -43,6 +43,7 @@ from nf_metro.layout.geometry import (
     iter_stations_outside_bbox,
     lanes_run_along_x,
     lanes_run_along_y,
+    section_lane_sign,
     segment_intersects_bbox,
 )
 from nf_metro.layout.pass_metrics import station_radius_approx
@@ -5211,7 +5212,10 @@ def _guard_planned_fan_frame_realised(
 ) -> None:
     """Raise when a fan's settled frame disagrees with its semantic contract."""
     from nf_metro.layout.fan_geometry import fan_lane_offsets
-    from nf_metro.layout.fan_plans import vertical_fan_label_lane_pitch
+    from nf_metro.layout.fan_plans import (
+        fan_appearance_lane_sign,
+        vertical_fan_label_lane_pitch,
+    )
     from nf_metro.layout.route_plan import FanAppearancePolicy
     from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
@@ -5271,16 +5275,36 @@ def _guard_planned_fan_frame_realised(
         frame = plan.frame
         if not plan.owns_geometry or frame is None:
             continue
-        if plan.appearance_lane_pitch is None:
+        if plan.appearance_lane_pitch is None or plan.appearance_lane_sign is None:
             raise PhaseInvariantError(
-                f"{phase}: planned fan {plan.id!s} has no frozen appearance lane pitch"
+                f"{phase}: planned fan {plan.id!s} has no frozen appearance frame"
             )
+        section_id = graph.section_for_station(plan.fork_station_id)
+        expected_sign = fan_appearance_lane_sign(
+            graph,
+            frame,
+            section_id,
+            plan.authored_source_id,
+        )
+        if plan.appearance_lane_sign != expected_sign:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} appearance lane sign "
+                f"{plan.appearance_lane_sign:+.0f} disagrees with its feeder-aware "
+                f"axis sign {expected_sign:+.0f}"
+            )
+        section = graph.sections.get(section_id or "")
+        line_lane_sign = (
+            section_lane_sign(section, tb_positive_fan)
+            if section is not None
+            else frame.secondary_sign
+        )
         required_pitch = vertical_fan_label_lane_pitch(
             graph,
             plan.branches,
             frame,
             section_layers,
-            tb_positive_fan,
+            plan.appearance_lane_sign,
+            line_lane_sign,
             floor=frame.secondary.step,
         )
         if plan.appearance_lane_pitch + COORD_TOLERANCE_FINE < required_pitch:
@@ -5330,7 +5354,7 @@ def _guard_planned_fan_frame_realised(
         )
         centreline = None
         if anchor is not None and local_anchor is not None:
-            centreline = local_anchor.coordinate(frame, anchor)
+            centreline = plan.appearance_centreline_coordinate(local_anchor, anchor)
         expected_coordinates: dict[str, float] = {}
         if centreline is not None:
             expected_coordinates.update(
@@ -5339,7 +5363,7 @@ def _guard_planned_fan_frame_realised(
             expected_coordinates.update(
                 (
                     station_id,
-                    centreline + frame.secondary_sign * branch.lane_offset,
+                    plan.appearance_coordinate(centreline, branch.lane_offset),
                 )
                 for branch in plan.branches
                 if branch.lane_offset is not None

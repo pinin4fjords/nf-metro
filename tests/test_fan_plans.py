@@ -21,9 +21,11 @@ from nf_metro.layout.fan_plans import (
     FanPlanQuery,
     FanTopologyQuery,
     build_fan_plan_execution,
+    fan_appearance_lane_sign,
     install_fan_plan_execution,
     validate_fan_route_emissions,
 )
+from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.labels import place_labels
 from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
@@ -652,10 +654,88 @@ def test_fan_frame_rotates_without_changing_branch_order(
     assert plan.frame.primary_sign == primary_sign
     assert plan.frame.secondary_sign == secondary_sign
     assert plan.frame.secondary.step == lane_pitch
+    assert plan.appearance_lane_sign == 1.0
     assert tuple(branch.lane_offset for branch in plan.branches) == (
         -lane_pitch / 2,
         lane_pitch / 2,
     )
+
+
+@pytest.mark.parametrize(
+    ("direction", "entry_side", "expected"),
+    [
+        ("LR", PortSide.TOP, 1.0),
+        ("LR", PortSide.BOTTOM, -1.0),
+        ("RL", PortSide.TOP, 1.0),
+        ("RL", PortSide.BOTTOM, -1.0),
+        ("TB", PortSide.LEFT, 1.0),
+        ("TB", PortSide.RIGHT, -1.0),
+        ("BT", PortSide.LEFT, 1.0),
+        ("BT", PortSide.RIGHT, -1.0),
+    ],
+)
+def test_fan_appearance_opens_away_from_secondary_axis_entry(
+    direction: str, entry_side: PortSide, expected: float
+) -> None:
+    graph = _graph(direction)
+    graph.add_port(Port("entry", "section", entry_side))
+    graph.register_station(Station("fork", "Fork", section_id="section"))
+    graph.add_edge(Edge("entry", "fork", "line"))
+    frame = AxisFrame.for_direction(direction, 30.0, 14.0)
+
+    assert fan_appearance_lane_sign(graph, frame, "section", "fork") == expected
+
+
+def test_each_fan_uses_only_its_own_secondary_axis_entry() -> None:
+    graph = _graph("TB")
+    graph.add_port(Port("left_entry", "section", PortSide.LEFT))
+    graph.add_port(Port("right_entry", "section", PortSide.RIGHT))
+    graph.register_station(Station("left_fork", "Left", section_id="section"))
+    graph.register_station(Station("right_fork", "Right", section_id="section"))
+    graph.add_edge(Edge("left_entry", "left_fork", "left"))
+    graph.add_edge(Edge("right_entry", "right_fork", "right"))
+    frame = AxisFrame.for_direction("TB", 30.0, 14.0)
+
+    assert fan_appearance_lane_sign(graph, frame, "section", "left_fork") == 1.0
+    assert fan_appearance_lane_sign(graph, frame, "section", "right_fork") == -1.0
+
+
+@pytest.mark.parametrize(
+    ("direction", "feeder_col", "feeder_row", "expected"),
+    [
+        ("LR", 1, 0, 1.0),
+        ("LR", 1, 2, -1.0),
+        ("RL", 1, 0, 1.0),
+        ("RL", 1, 2, -1.0),
+        ("TB", 0, 1, 1.0),
+        ("TB", 2, 1, -1.0),
+        ("BT", 0, 1, 1.0),
+        ("BT", 2, 1, -1.0),
+    ],
+)
+def test_fan_appearance_opens_away_from_its_secondary_axis_feeder(
+    direction: str,
+    feeder_col: int,
+    feeder_row: int,
+    expected: float,
+) -> None:
+    graph = _graph(direction)
+    graph.sections["section"].grid_col = 1
+    graph.sections["section"].grid_row = 1
+    graph.add_section(
+        Section(
+            "feeder",
+            "Feeder",
+            grid_col=feeder_col,
+            grid_row=feeder_row,
+        )
+    )
+    graph.register_station(Station("feeder_station", "Feeder", section_id="feeder"))
+    graph.register_station(Station("fork", "Fork", section_id="section"))
+    graph.add_edge(Edge("feeder_station", "fork", "line"))
+    frame = AxisFrame.for_direction(direction, 30.0, 14.0)
+
+    assert fan_appearance_lane_sign(graph, frame, "section", "fork") == expected
 
 
 def test_vertical_fan_pitch_keeps_same_layer_labels_clear_of_markers() -> None:
@@ -676,14 +756,46 @@ def test_vertical_fan_pitch_keeps_same_layer_labels_clear_of_markers() -> None:
     assert labels["right"] == "Lane B"
 
 
-def test_vertical_fan_pitch_stays_canonical_when_labels_already_clear() -> None:
+def test_lr_fed_straight_tb_fan_opens_away_from_its_feeder() -> None:
+    path = ROOT / "examples" / "topologies" / "tb_internal_diagonal.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+
+    assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+    hub_x = graph.stations["hub"].x
+    assert graph.stations["left"].x == pytest.approx(hub_x)
+    assert graph.stations["right"].x > hub_x
+
+
+def test_runtime_guard_rejects_planned_fan_on_the_wrong_appearance_side() -> None:
+    path = ROOT / "examples" / "topologies" / "tb_internal_diagonal.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+    assert plan.appearance_lane_sign is not None
+    bad_plan = replace(plan, appearance_lane_sign=-plan.appearance_lane_sign)
+    install_fan_plan_execution(
+        graph,
+        FanPlanExecution(query=FanPlanQuery.build((bad_plan,))),
+    )
+
+    with pytest.raises(PhaseInvariantError, match="appearance lane sign"):
+        _guard_planned_fan_frame_realised(
+            graph,
+            "test",
+            offsets=compute_station_offsets(graph),
+        )
+
+
+def test_vertical_fan_pitch_clears_inward_facing_branch_label() -> None:
     path = ROOT / "examples" / "topologies" / "tb_trunk_through_fan.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
 
     assert plan.frame is not None
-    assert plan.appearance_lane_pitch == X_SPACING
+    assert plan.appearance_lane_pitch == pytest.approx(74.0)
 
 
 @pytest.mark.parametrize(

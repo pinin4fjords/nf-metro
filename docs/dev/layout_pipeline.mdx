@@ -112,6 +112,12 @@ Stages 4.9 and 6.17 read that fixed source after structural anchors settle. They
 do not search the live grid or port topology for a different source, and the
 placement phase never derives its frame from a station it is about to move.
 
+The plan freezes station-track handedness separately from line-offset chirality.
+All four flow directions use the same positive secondary-axis track progression;
+a feeder on that axis mirrors the frame so the hub occupies the nearest track.
+This keeps LR/RL and TB/BT geometry axis-consistent without making a short entry
+take a detour across the section.
+
 Ownership is all-or-nothing. If a fan overlaps a local merge frame owned by
 another topology, or its membership is ambiguous, the complete fan uses the
 ordinary layout and routing path. The planner does not mix planned branches

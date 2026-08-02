@@ -110,6 +110,13 @@ this sign at the *draw accessor*, never to a stored offset, which stays positive
   builder itself fans purely geometrically along `_right_normal` of travel and is
   not per-axis; rotation lives *above* it, in this offset->coordinate mapping.
 
+`secondary_sign` governs the offsets of lines inside a station or bundle. Fan
+station tracks use a separate plan-owned appearance sign: tracks progress along
+the positive secondary axis for LR, RL, TB, and BT, then mirror when a feeder
+arrives from the positive end of that axis. This keeps the hub on the nearest
+track without changing bundle chirality. Symmetric fans remain centred; the sign
+only determines their branch order on screen.
+
 **Policy:** no new one-off TB branches. A heuristic that needs TB awareness is
 the trigger to convert it to the axis vocabulary, not to add another branch.
 This is machine-enforced by `tests/test_tb_branch_ratchet.py`, which counts

@@ -63,7 +63,7 @@ def _centreline_coordinate(graph: MetroGraph, plan: FanPlan) -> float | None:
             f"planned fan {plan.id!r} centreline anchor "
             f"{anchor.station_id!r} is missing"
         )
-    return anchor.coordinate(frame, station)
+    return plan.appearance_centreline_coordinate(anchor, station)
 
 
 def _apply_planned_fan_port_geometry(graph: MetroGraph) -> None:
@@ -157,7 +157,7 @@ def _materialise_plan_stations(
     for branch in plan.branches:
         if branch.lane_offset is None:
             continue
-        coordinate = centreline + frame.secondary_sign * branch.lane_offset
+        coordinate = plan.appearance_coordinate(centreline, branch.lane_offset)
         for station_id in branch.lane_station_ids:
             station = stations.get(station_id)
             if station is not None and eligible(station):
@@ -256,7 +256,9 @@ def apply_planned_fans_to_section_subgraph(
             )
             if anchor_station is None or local_anchor is None:
                 continue
-            centreline = local_anchor.coordinate(frame, anchor_station)
+            centreline = plan.appearance_centreline_coordinate(
+                local_anchor, anchor_station
+            )
         _materialise_plan_stations(
             subgraph.stations, plan, centreline, section_id=section.id
         )

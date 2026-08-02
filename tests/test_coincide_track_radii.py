@@ -49,7 +49,11 @@ from nf_metro.layout.routing import (
 )
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
-from nf_metro.layout.routing.normalize import _set_vchannel_x, _VChannel
+from nf_metro.layout.routing.normalize import (
+    _fan_opening_reference_radii,
+    _set_vchannel_x,
+    _VChannel,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge
 
@@ -204,6 +208,31 @@ def test_set_vchannel_x_rederives_flanking_corners_from_waypoints() -> None:
     ]
     assert route.curve_radii == expected
     assert route.curve_radii == [CURVE_RADIUS, CURVE_RADIUS]
+
+
+def test_terminal_fan_descent_derives_only_its_opening_corner() -> None:
+    """A route ending after its opening descent has no outgoing corner."""
+    route = RoutedPath(
+        edge=Edge(source="s", target="t", line_id="l"),
+        line_id="l",
+        points=[(0.0, 0.0), (20.0, 0.0), (20.0, 100.0)],
+        is_inter_section=True,
+        offset_regime=OffsetRegime.BAKED,
+        curve_radii=[CURVE_RADIUS],
+    )
+    channel = _VChannel(
+        route=route,
+        idx=1,
+        x=20.0,
+        y_lo=0.0,
+        y_hi=100.0,
+        down=True,
+    )
+
+    assert _fan_opening_reference_radii([(channel, 16.0, -4.0)], CURVE_RADIUS) == (
+        14.0,
+        CURVE_RADIUS,
+    )
 
 
 _XFAIL_COINCIDE_CENTRAL_DERIVATION: dict[str, str] = {}

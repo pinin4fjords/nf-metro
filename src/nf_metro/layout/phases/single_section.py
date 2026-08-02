@@ -34,6 +34,7 @@ from nf_metro.layout.geometry import (
     AxisFrame,
     lanes_run_along_x,
     lanes_run_along_y,
+    section_lane_sign,
 )
 from nf_metro.layout.labels import (
     _label_text_height,
@@ -533,9 +534,7 @@ def _align_bypass_v_to_lane_side(
 
     from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
-    lane_sign = (
-        1.0 if section.id in tb_positive_fan_sections(graph) else frame.secondary_sign
-    )
+    lane_sign = section_lane_sign(section, tb_positive_fan_sections(graph))
     real_xs = [
         s.x
         for s in sub.stations.values()

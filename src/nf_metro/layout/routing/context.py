@@ -17,7 +17,12 @@ from nf_metro.layout.constants import (
     graph_offset_step,
 )
 from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
-from nf_metro.layout.geometry import AxisFrame, lane_delta, station_lane_coord
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    lane_delta,
+    section_lane_sign,
+    station_lane_coord,
+)
 from nf_metro.layout.route_topology import (
     convergence_junction_entry_ports,
     divergence_junction_exit_ports,
@@ -555,8 +560,9 @@ def _section_lane_frame(
         section.direction, graph.x_spacing or 1.0, graph.y_spacing or 1.0
     )
     fan = positive_fan if positive_fan is not None else tb_positive_fan_sections(graph)
-    if section.id in fan:
-        frame = replace(frame, secondary_sign=1.0)
+    lane_sign = section_lane_sign(section, fan)
+    if lane_sign != frame.secondary_sign:
+        frame = replace(frame, secondary_sign=lane_sign)
     return frame
 
 

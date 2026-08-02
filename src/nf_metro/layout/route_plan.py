@@ -782,9 +782,11 @@ class FanCentrelineAnchor:
         if not math.isfinite(self.lane_offset):
             raise ValueError("fan centreline anchor offset must be finite")
 
-    def coordinate(self, frame: AxisFrame, station: Station) -> float:
+    def coordinate(
+        self, frame: AxisFrame, station: Station, *, lane_sign: float
+    ) -> float:
         """Resolve the centreline from the anchor station in ``frame``."""
-        return frame.secondary.get(station) - frame.secondary_sign * self.lane_offset
+        return frame.secondary.get(station) - lane_sign * self.lane_offset
 
 
 @dataclass(frozen=True, slots=True)
@@ -805,6 +807,7 @@ class FanPlan:
     appearance_policy: FanAppearancePolicy
     appearance_centreline_branch_id: FanBranchPlanId | None
     appearance_lane_pitch: float | None
+    appearance_lane_sign: float | None
     branches: tuple[FanBranchPlan, ...]
     offset_line_order: tuple[str, ...]
     authored_edge_ids: tuple[ConnectorId, ...]
@@ -962,6 +965,13 @@ class FanPlan:
             or self.appearance_lane_pitch <= 0.0
         ):
             raise ValueError("fan appearance lane pitch must be finite and positive")
+        if planned != (self.appearance_lane_sign is not None):
+            raise ValueError("planned fan appearance lane sign is missing")
+        if self.appearance_lane_sign is not None and self.appearance_lane_sign not in (
+            -1.0,
+            1.0,
+        ):
+            raise ValueError("fan appearance lane sign must be -1 or +1")
         if has_appearance_centreline:
             lane_offsets = tuple(branch.lane_offset for branch in self.branches)
             if (
@@ -1024,6 +1034,24 @@ class FanPlan:
                 self.direction
             ):
                 raise ValueError("fan frame lane sign disagrees with its direction")
+
+    def appearance_coordinate(self, centreline: float, lane_offset: float) -> float:
+        """Map one canonical appearance offset onto the section's track axis."""
+        if self.appearance_lane_sign is None:
+            raise ValueError("legacy fan has no appearance coordinate")
+        return centreline + self.appearance_lane_sign * lane_offset
+
+    def appearance_centreline_coordinate(
+        self, anchor: FanCentrelineAnchor, station: Station
+    ) -> float:
+        """Resolve the fan centreline from an appearance-owned anchor."""
+        if self.frame is None or self.appearance_lane_sign is None:
+            raise ValueError("legacy fan has no appearance centreline")
+        return anchor.coordinate(
+            self.frame,
+            station,
+            lane_sign=self.appearance_lane_sign,
+        )
 
     def _validate_layout_ownership(self, planned: bool) -> None:
         layout_station_ids = self.layout_station_ids

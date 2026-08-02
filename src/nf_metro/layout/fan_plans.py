@@ -25,6 +25,8 @@ from nf_metro.layout.geometry import (
     flow_port_sides,
     lanes_run_along_x,
     lanes_run_along_y,
+    perpendicular_port_sides,
+    section_lane_sign,
 )
 from nf_metro.layout.labels import tb_left_label_marker_pitch
 from nf_metro.layout.route_plan import (
@@ -110,12 +112,14 @@ def vertical_fan_label_lane_pitch(
     branches: Sequence[FanBranchPlan],
     frame: AxisFrame,
     section_layers: dict[str, dict[str, int]],
-    tb_positive_fan: set[str],
+    appearance_lane_sign: float,
+    line_lane_sign: float,
     floor: float = 0.0,
 ) -> float:
     """Return the uniform X pitch needed by same-layer vertical fan labels."""
     if frame.secondary.name != "x":
         return floor
+    offset_step = graph_offset_step(graph)
     section_ids = {
         section_id
         for branch in branches
@@ -146,10 +150,9 @@ def vertical_fan_label_lane_pitch(
             node_ids,
         )
         section_layers[section_id] = layers
-    lane_sign = 1.0 if section_id in tb_positive_fan else frame.secondary_sign
     screen_order = sorted(
         (branch for branch in branches if branch.lane_offset is not None),
-        key=lambda branch: frame.secondary_sign * cast(float, branch.lane_offset),
+        key=lambda branch: appearance_lane_sign * cast(float, branch.lane_offset),
     )
     pitch = floor
     for left_branch, right_branch in pairwise(screen_order):
@@ -170,11 +173,80 @@ def vertical_fan_label_lane_pitch(
                     right.label,
                     left_line_count=len(graph.station_lines(left_id)),
                     right_line_count=len(graph.station_lines(right_id)),
-                    lane_sign=lane_sign,
-                    offset_step=graph_offset_step(graph),
+                    lane_sign=line_lane_sign,
+                    offset_step=offset_step,
                 ),
             )
     return pitch
+
+
+def fan_appearance_lane_sign(
+    graph: MetroGraph,
+    frame: AxisFrame,
+    layout_section_id: str | None,
+    source_station_id: str,
+) -> float:
+    """Open a fan away from a clear feeder on its track axis.
+
+    Section tracks use the same positive secondary-axis progression for LR,
+    RL, TB, and BT.  A feeder arriving from the negative or positive end of
+    that axis mirrors the progression so the hub occupies the nearest track.
+    Flow reversal belongs to the primary axis and does not change this rule.
+    """
+    section = graph.sections.get(layout_section_id or "")
+    if section is None:
+        return 1.0
+
+    near_side, far_side = perpendicular_port_sides(section.direction)
+
+    pending = [source_station_id]
+    seen: set[str] = set()
+    entry_sides: set[PortSide] = set()
+    feeder_section_ids: set[str] = set()
+    while pending:
+        station_id = pending.pop()
+        if station_id in seen:
+            continue
+        seen.add(station_id)
+        port = graph.ports.get(station_id)
+        if port is not None and port.section_id == section.id and port.is_entry:
+            entry_sides.add(port.side)
+        station = graph.stations.get(station_id)
+        station_section_id = station.section_id if station is not None else None
+        if station_section_id is not None and station_section_id != section.id:
+            feeder_section_ids.add(station_section_id)
+            continue
+        pending.extend(edge.source for edge in graph.edges_to(station_id))
+
+    if near_side in entry_sides and far_side not in entry_sides:
+        return 1.0
+    if far_side in entry_sides and near_side not in entry_sides:
+        return -1.0
+
+    feeder_sections = tuple(
+        graph.sections[section_id]
+        for section_id in feeder_section_ids
+        if section_id in graph.sections
+    )
+    if frame.secondary.name == "x":
+        section_low = section.grid_col
+        section_high = section.grid_col + section.grid_col_span - 1
+        feeder_spans = tuple(
+            (feeder.grid_col, feeder.grid_col + feeder.grid_col_span - 1)
+            for feeder in feeder_sections
+        )
+    else:
+        section_low = section.grid_row
+        section_high = section.grid_row + section.grid_row_span - 1
+        feeder_spans = tuple(
+            (feeder.grid_row, feeder.grid_row + feeder.grid_row_span - 1)
+            for feeder in feeder_sections
+        )
+    if feeder_spans and all(high < section_low for _low, high in feeder_spans):
+        return 1.0
+    if feeder_spans and all(low > section_high for low, _high in feeder_spans):
+        return -1.0
+    return 1.0
 
 
 def _fan_branch_solo_station_ids(
@@ -1176,6 +1248,7 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         local_frame_anchor=None,
         appearance_centreline_branch_id=None,
         appearance_lane_pitch=None,
+        appearance_lane_sign=None,
         disposition=FanPlanDisposition.LEGACY,
         legacy_reason=reason,
     )
@@ -1529,13 +1602,25 @@ def _build_candidate(
         if direction is not None
         else None
     )
-    if frame is not None:
+    appearance_lane_sign = (
+        fan_appearance_lane_sign(graph, frame, layout_section_id, source_id)
+        if frame is not None and reason is None
+        else None
+    )
+    if frame is not None and appearance_lane_sign is not None:
+        layout_section = graph.sections.get(layout_section_id or "")
+        line_lane_sign = (
+            section_lane_sign(layout_section, ctx.tb_positive_fan)
+            if layout_section is not None
+            else frame.secondary_sign
+        )
         required_pitch = vertical_fan_label_lane_pitch(
             graph,
             branch_plans,
             frame,
             ctx.section_layers,
-            ctx.tb_positive_fan,
+            appearance_lane_sign,
+            line_lane_sign,
             lane_pitch,
         )
         if required_pitch > lane_pitch:
@@ -1741,7 +1826,11 @@ def _build_candidate(
     )
     if len(set(layout_station_ids)) != len(layout_station_ids):
         reason = reason or "overlapping-branch-lane-ownership"
-    if layout_station_ids and frame is not None and frame.secondary_sign < 0:
+    if (
+        layout_station_ids
+        and appearance_lane_sign is not None
+        and appearance_lane_sign < 0
+    ):
         offset_carriers = tuple(
             replace(
                 carrier,
@@ -1884,6 +1973,7 @@ def _build_candidate(
             appearance_centreline_branch_id if planned else None
         ),
         appearance_lane_pitch=lane_pitch if planned else None,
+        appearance_lane_sign=appearance_lane_sign if planned else None,
         branches=(
             tuple(branch_plans)
             if planned
