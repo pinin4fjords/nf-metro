@@ -3309,6 +3309,7 @@ def _upstream_section_lane(
     entry_port_id: str,
     target_section_id: str,
     line_id: str,
+    upstream_exit_side: PortSide,
 ) -> tuple[str, str, float] | None:
     """Return the unique upstream carrier and slot supplying an entry lane."""
     if ctx.topology is None:
@@ -3322,6 +3323,7 @@ def _upstream_section_lane(
         for connector in port_connectors
         if connector.line_id == line_id
         and connector.target_section == target_section_id
+        and connector.exit_side is upstream_exit_side
     )
     owners = {
         (
@@ -3368,7 +3370,9 @@ def _linear_entry_frame(
     if len(entry_targets) != 1:
         return None
     supplied = {
-        line_id: _upstream_section_lane(ctx, entry_port_id, section.id, line_id)
+        line_id: _upstream_section_lane(
+            ctx, entry_port_id, section.id, line_id, flow_exit
+        )
         for line_id in continuing
     }
     if any(owner is None for owner in supplied.values()):

@@ -314,6 +314,27 @@ def test_linear_entry_frame_requires_a_materialized_upstream_slot() -> None:
     )
 
 
+def test_linear_entry_frame_excludes_far_side_entry_routes() -> None:
+    path = TOPOLOGIES / "bypass_leftward_far_side_entry.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+
+    ownership = routing_offsets.capture_linear_entry_frame_ownership(graph, offsets)
+
+    assert not any(
+        assignment.section_id == "tgt_sec" for assignment in ownership.assignments
+    )
+    assert [offsets[("tgt_sec__entry_left_1", f"l{rank}")] for rank in range(1, 8)] == [
+        24.0,
+        20.0,
+        16.0,
+        12.0,
+        8.0,
+        4.0,
+        0.0,
+    ]
+
+
 def test_exit_plan_falls_back_before_changing_a_linear_entry_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
