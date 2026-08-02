@@ -36,6 +36,8 @@ from nf_metro.layout.route_plan import (
     DemandAxis,
     DemandKind,
     FanAppearancePolicy,
+    FanOffsetAssignment,
+    FanOffsetCarrier,
     FanPlanDisposition,
     KeepOutClass,
     SharedReferenceKind,
@@ -46,6 +48,7 @@ from nf_metro.layout.routing import (
     observe_route_edges,
     route_edges,
 )
+from nf_metro.layout.routing.offsets import _apply_planned_fan_offsets
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 from nf_metro.parser.route_topology import (
@@ -1092,6 +1095,59 @@ def test_runtime_guard_rejects_missing_planned_carrier_offset() -> None:
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
 
 
+def test_offset_carrier_rejects_repeated_exact_slot() -> None:
+    with pytest.raises(ValueError, match="repeats a slot"):
+        FanOffsetCarrier(
+            station_id="hub",
+            assignments=(
+                FanOffsetAssignment("alpha", 0),
+                FanOffsetAssignment("beta", 0),
+            ),
+        )
+
+
+def test_planned_fan_rejects_assignment_outside_its_offset_frame() -> None:
+    path = ROOT / "examples" / "topologies" / "junction_entry_collision.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
+    carrier = plan.offset_carriers[0]
+    bad_carrier = replace(
+        carrier,
+        assignments=(
+            replace(
+                carrier.assignments[0],
+                slot=len(plan.offset_line_order),
+            ),
+            *carrier.assignments[1:],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="slot lies outside its offset frame"):
+        replace(plan, offset_carriers=(bad_carrier, *plan.offset_carriers[1:]))
+
+
+def test_runtime_guard_rejects_legacy_offset_carriers() -> None:
+    path = ROOT / "examples" / "topologies" / "tb_passthrough_continuation.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "starN")
+    line_id = plan.branches[0].line_ids[0]
+    object.__setattr__(
+        plan,
+        "offset_carriers",
+        (
+            FanOffsetCarrier(
+                station_id=plan.fork_station_id,
+                assignments=(FanOffsetAssignment(line_id, 0),),
+            ),
+        ),
+    )
+
+    with pytest.raises(PhaseInvariantError, match="legacy fan .* owns offset carriers"):
+        _guard_planned_fan_frame_realised(graph, "test", offsets={})
+
+
 def test_runtime_guard_rejects_unowned_carrier_line() -> None:
     path = ROOT / "examples" / "topologies" / "exit_turn_frame_filters.mmd"
     graph = parse_metro_mermaid(path.read_text())
@@ -1123,6 +1179,84 @@ def test_port_only_fan_freezes_only_structurally_shared_offset_carriers() -> Non
             )
 
     assert offsets[("secB__entry_left_4", "b")] == 0.0
+
+
+def test_solo_trunk_branch_offsets_are_frozen_in_the_plan() -> None:
+    path = ROOT / "examples" / "topologies" / "junction_entry_align.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
+    assignments = {
+        carrier.station_id: {
+            assignment.line_id: assignment.slot for assignment in carrier.assignments
+        }
+        for carrier in plan.offset_carriers
+    }
+
+    assert {
+        station_id: assignments[station_id]
+        for station_id in ("s_a", "da1", "da2", "dst_a__entry_left_6")
+    } == {
+        "s_a": {"alpha": 0},
+        "da1": {"alpha": 0},
+        "da2": {"alpha": 0},
+        "dst_a__entry_left_6": {"alpha": 0},
+    }
+
+
+def test_runtime_applies_only_frozen_fan_offset_assignments() -> None:
+    path = ROOT / "examples" / "topologies" / "junction_entry_align.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    sentinel = 999.0
+    initial = {
+        (station_id, line_id): sentinel
+        for station_id in graph.stations
+        for line_id in graph.station_lines(station_id)
+    }
+    expected = {
+        (carrier.station_id, assignment.line_id): assignment.slot * 4.0
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for carrier in plan.offset_carriers
+        for assignment in carrier.assignments
+    }
+
+    before_mutation = SimpleNamespace(
+        graph=graph,
+        offsets=initial.copy(),
+        offset_step=4.0,
+    )
+    _apply_planned_fan_offsets(before_mutation)
+    assert {
+        key: value
+        for key, value in before_mutation.offsets.items()
+        if value != sentinel
+    } == expected
+
+    graph.junction_ids.add("da1")
+    after_mutation = SimpleNamespace(
+        graph=graph,
+        offsets=initial.copy(),
+        offset_step=4.0,
+    )
+    _apply_planned_fan_offsets(after_mutation)
+    assert after_mutation.offsets == before_mutation.offsets
+
+
+def test_partial_offset_carrier_retains_absolute_slots() -> None:
+    path = ROOT / "examples" / "topologies" / "junction_entry_collision.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
+    carrier = next(item for item in plan.offset_carriers if item.station_id == "dbg1")
+
+    assert {
+        assignment.line_id: assignment.slot for assignment in carrier.assignments
+    } == {"beta": 1, "gamma": 2}
+    offsets = compute_station_offsets(graph)
+    assert offsets[("dbg1", "beta")] == 4.0
+    assert offsets[("dbg1", "gamma")] == 8.0
 
 
 def test_planned_fan_preserves_branch_local_reversal() -> None:
@@ -1191,6 +1325,9 @@ def test_stacked_right_landing_route_emission_ownership_is_exact() -> None:
         "source__exit_bottom_0": {"upper": 1, "lower": 0},
         "__junction_3": {"upper": 1, "lower": 0},
         "prepare": {"upper": 1, "lower": 0},
+        "lower_in": {"lower": 0},
+        "lower_done": {"lower": 0},
+        "lower_target__entry_right_2": {"lower": 0},
     }
 
     routes = route_edges(graph, station_offsets=compute_station_offsets(graph))
@@ -1249,6 +1386,9 @@ def test_stacked_right_multiline_landing_freezes_reflected_screen_order() -> Non
         "source__exit_bottom_0": expected,
         "__junction_3": expected,
         "prepare": expected,
+        "lower_in": {"lower": 0},
+        "lower_done": {"lower": 0},
+        "lower_target__entry_right_2": {"lower": 0},
     }
 
 

@@ -5263,6 +5263,10 @@ def _guard_planned_fan_frame_realised(
 
     offset_step = graph_offset_step(graph)
     for plan in graph.fan_plans:
+        if not plan.owns_geometry and plan.offset_carriers:
+            raise PhaseInvariantError(
+                f"{phase}: legacy fan {plan.id!s} owns offset carriers"
+            )
         frame = plan.frame
         if not plan.owns_geometry or frame is None:
             continue
@@ -5374,6 +5378,27 @@ def _guard_planned_fan_frame_realised(
                     )
 
         for carrier in plan.offset_carriers:
+            slots = tuple(assignment.slot for assignment in carrier.assignments)
+            if any(type(slot) is not int for slot in slots):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} has a non-integer slot"
+                )
+            if len(set(slots)) != len(slots):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} repeats a slot"
+                )
+            if any(abs(slot) >= len(plan.offset_line_order) for slot in slots):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} has a slot outside its offset frame"
+                )
+            if not set(carrier.line_ids).issubset(plan.offset_line_order):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} names a line outside its offset order"
+                )
             station_lines = set(graph.station_lines(carrier.station_id))
             if station_lines != set(carrier.line_ids):
                 raise PhaseInvariantError(

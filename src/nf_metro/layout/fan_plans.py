@@ -214,18 +214,22 @@ def vertical_fan_label_lane_pitch(
     return pitch
 
 
-def fan_branch_solo_station_ids(
+def _fan_branch_solo_station_ids(
     graph: MetroGraph, branch: FanBranchPlan
-) -> frozenset[str]:
+) -> tuple[str, ...]:
     """Branch stations whose only present line may return to its trunk."""
-    return frozenset(
-        station_id
-        for path in branch.resolved_paths
-        for edge in path
-        for station_id in (edge.source, edge.target)
-        if station_id not in graph.junction_ids
-        and graph.station_lines(station_id) == list(branch.line_ids)
-        and len(branch.line_ids) == 1
+    if len(branch.line_ids) != 1:
+        return ()
+    return cast(
+        tuple[str, ...],
+        _ordered_unique(
+            station_id
+            for path in branch.resolved_paths
+            for edge in path
+            for station_id in (edge.source, edge.target)
+            if station_id not in graph.junction_ids
+            and graph.station_lines(station_id) == list(branch.line_ids)
+        ),
     )
 
 
@@ -916,6 +920,41 @@ def _apply_screen_offset_assignments(
         )
         for station_id, line_assignments in assignments.items()
         if line_assignments
+    )
+
+
+def _apply_solo_branch_offset_assignments(
+    graph: MetroGraph,
+    branches: Sequence[FanBranchPlan],
+    fork_id: str,
+    carriers: Sequence[FanOffsetCarrier],
+) -> tuple[FanOffsetCarrier, ...]:
+    """Freeze trunk-slot assignments for single-line branch stations."""
+    assignments: dict[str, dict[str, int]] = {
+        carrier.station_id: {
+            assignment.line_id: assignment.slot for assignment in carrier.assignments
+        }
+        for carrier in carriers
+    }
+    fork_assignments = assignments.get(fork_id, {})
+    for branch in branches:
+        if len(branch.line_ids) != 1:
+            continue
+        line_id = branch.line_ids[0]
+        if fork_assignments.get(line_id) != 0:
+            continue
+        for station_id in _fan_branch_solo_station_ids(graph, branch):
+            assignments.setdefault(station_id, {})[line_id] = 0
+
+    return tuple(
+        FanOffsetCarrier(
+            station_id=station_id,
+            assignments=tuple(
+                FanOffsetAssignment(line_id, slot)
+                for line_id, slot in line_assignments.items()
+            ),
+        )
+        for station_id, line_assignments in assignments.items()
     )
 
 
@@ -1683,6 +1722,12 @@ def _build_candidate(
         owned_stations,
         offset_carriers,
         line_priority,
+    )
+    offset_carriers = _apply_solo_branch_offset_assignments(
+        graph,
+        branch_plans,
+        fork_id,
+        offset_carriers,
     )
     if any(
         set(graph.station_lines(carrier.station_id)) != set(carrier.line_ids)

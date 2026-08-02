@@ -733,7 +733,7 @@ class FanOffsetAssignment:
     def __post_init__(self) -> None:
         if not self.line_id:
             raise ValueError("fan offset assignment has no line")
-        if not isinstance(self.slot, int):
+        if type(self.slot) is not int:
             raise ValueError("fan offset assignment slot must be an integer")
 
 
@@ -749,6 +749,10 @@ class FanOffsetCarrier:
             raise ValueError("fan offset carrier is incomplete")
         if len(set(self.line_ids)) != len(self.line_ids):
             raise ValueError("fan offset carrier repeats a line")
+        if len({assignment.slot for assignment in self.assignments}) != len(
+            self.assignments
+        ):
+            raise ValueError("fan offset carrier repeats a slot")
 
     @property
     def line_ids(self) -> tuple[str, ...]:
@@ -1048,6 +1052,19 @@ class FanPlan:
             for carrier in self.offset_carriers
         ):
             raise ValueError("fan offset carrier names a line outside its branches")
+        if self.offset_carriers and not self.offset_line_order:
+            raise ValueError("fan offset carriers have no canonical line order")
+        if any(
+            not set(carrier.line_ids).issubset(self.offset_line_order)
+            for carrier in self.offset_carriers
+        ):
+            raise ValueError("fan offset carrier names a line outside its offset order")
+        if any(
+            abs(assignment.slot) >= len(self.offset_line_order)
+            for carrier in self.offset_carriers
+            for assignment in carrier.assignments
+        ):
+            raise ValueError("fan offset carrier slot lies outside its offset frame")
         if not planned and self.offset_carriers:
             raise ValueError("legacy fan owns offset carriers")
         if not planned and self.route_emissions:
