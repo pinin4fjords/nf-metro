@@ -29,7 +29,9 @@ from layout_validator import shared_same_line_turn_vertices
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
+from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.invariants import check_coincident_corner_radii
+from nf_metro.layout.routing.normalize import _unify_coincident_corner_radii
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -122,3 +124,27 @@ def test_check_reports_unequal_radii_at_shared_turn() -> None:
 
     matched = [_make_route("a", "x", 14.0), _make_route("b", "x", 14.0)]
     assert not check_coincident_corner_radii(graph, matched, {})
+
+
+def test_unify_uses_widest_radius_all_shared_legs_can_resolve() -> None:
+    """A short lead limits the common radius instead of drawing a double arc."""
+    from nf_metro.parser.model import MetroGraph
+
+    short = _make_route("short", "x", 22.0)
+    long = _make_route("long", "x", 22.0)
+    short.points[0] = (80.0, 100.0)
+    long.points[0] = (70.0, 100.0)
+    routes = [short, long]
+    graph = MetroGraph()
+
+    assert [
+        resolve_curve_radii(route.points, route.curve_radii)[0] for route in routes
+    ] == [20.0, 22.0]
+    assert check_coincident_corner_radii(graph, routes, {})
+
+    _unify_coincident_corner_radii(routes)
+
+    assert [
+        resolve_curve_radii(route.points, route.curve_radii)[0] for route in routes
+    ] == pytest.approx([20.0, 20.0])
+    assert not check_coincident_corner_radii(graph, routes, {})

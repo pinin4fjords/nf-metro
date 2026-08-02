@@ -62,6 +62,7 @@ from nf_metro.layout.routing.corners import (
     concentric_corner_radius_at,
     corner_radius,
     l_shape_radii,
+    resolve_curve_radii,
     widest_coincident_radius,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -1287,14 +1288,15 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
     member of a concentric multi-line bundle a wider one.  Where fused legs share
     a turn vertex the two arcs draw concentrically a few pixels apart: the
     doubled corner :func:`check_coincident_corner_radii` forbids.  Snap each
-    shared turn to the widest coincident radius, the one that nests outside any
-    bundle sharing the vertex, so the fused stroke reads as one clean arc.
+    shared turn to the widest radius every coincident leg can resolve from its
+    available runway, so the fused stroke reads as one clean arc.  A wider
+    desired radius is not shared geometry when one short lead clamps it.
 
     Bundle-mates of different lines sit ``OFFSET_STEP`` apart and never share a
     vertex, so their concentric nesting is untouched; only truly coincident
     same-line turns collapse.
     """
-    buckets: dict[tuple[str, int, int], list[tuple[list[float], int]]] = defaultdict(
+    buckets: dict[tuple[str, int, int], list[tuple[RoutedPath, int]]] = defaultdict(
         list
     )
     for rp in routes:
@@ -1308,13 +1310,54 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
             ):
                 continue
             key = (rp.line_id, round(pts[k][0]), round(pts[k][1]))
-            buckets[key].append((radii, k - 1))
+            buckets[key].append((rp, k - 1))
+
+    # Establish the concentric family's preferred outer radius first.  The
+    # resolved pass below only reduces a member when its waypoint runway cannot
+    # draw that common preference.
     for members in buckets.values():
         if len(members) < 2:
             continue
-        widest = widest_coincident_radius(radii[i] for radii, i in members)
-        for radii, i in members:
-            radii[i] = widest
+        desired: list[float] = []
+        for route, i in members:
+            assert route.curve_radii is not None
+            desired.append(route.curve_radii[i])
+        widest = widest_coincident_radius(desired)
+        for route, i in members:
+            assert route.curve_radii is not None
+            route.curve_radii[i] = widest
+
+    # Lower only the members that resolve wider than the bucket's limiting leg.
+    # A radius on an adjacent corner shares segment budget, so repeat until a
+    # correction can no longer alter a neighbouring coincident bucket.
+    for _ in range(max(1, len(buckets))):
+        changed = False
+        for members in buckets.values():
+            if len(members) < 2:
+                continue
+            effective = [
+                resolve_curve_radii(route.points, route.curve_radii)[i]
+                for route, i in members
+            ]
+            common = min(effective)
+            for (route, i), actual in zip(members, effective, strict=True):
+                if actual - common <= COORD_TOLERANCE_FINE:
+                    continue
+                radii = route.curve_radii
+                assert radii is not None
+                low, high = 0.0, radii[i]
+                for _step in range(64):
+                    candidate = (low + high) / 2
+                    radii[i] = candidate
+                    resolved = resolve_curve_radii(route.points, radii)[i]
+                    if resolved < common:
+                        low = candidate
+                    else:
+                        high = candidate
+                radii[i] = high
+                changed = True
+        if not changed:
+            break
 
 
 def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
