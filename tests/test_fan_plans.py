@@ -296,6 +296,22 @@ def test_straight_diamond_keeps_established_layout_ownership() -> None:
     assert plan.layout_station_ids == ()
 
 
+def test_same_line_open_boundary_fan_keeps_established_layout_ownership() -> None:
+    path = ROOT / "examples" / "topologies" / "section_trunk_short_output_branch.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "s3")
+
+    assert plan.disposition is FanPlanDisposition.LEGACY
+    assert plan.legacy_reason == "same-line-open-fan-layout-owns-geometry"
+    assert plan.resolved_member_edges
+    assert plan.layout_station_ids == ()
+    assert (graph.stations["s3"].x, graph.stations["s3"].y) != (
+        graph.stations["sink"].x,
+        graph.stations["sink"].y,
+    )
+
+
 def test_branches_keep_line_identity_after_partial_convergence() -> None:
     facts = [
         _fact("fork", "via", "b", 0),

@@ -1539,19 +1539,31 @@ def _build_candidate(
         and appearance_policy is FanAppearancePolicy.STRAIGHT
     ):
         reason = "straight-diamond-layout-owns-geometry"
-    planned = reason is None
-    if not planned:
-        route_emissions = ()
-    centreline_port_ids = (
+    # Same-line terminal and boundary arms have no semantic trunk identity.
+    # The section allocator must choose their tracks before it sizes the box.
+    if (
+        reason is None
+        and authored_join is None
+        and appearance_policy is FanAppearancePolicy.STRAIGHT
+        and len(local_terminal_ids) == 1
+        and any(branch.landing_port_ids for branch in branch_plans)
+        and len({frozenset(branch.line_ids) for branch in branch_plans}) == 1
+    ):
+        reason = "same-line-open-fan-layout-owns-geometry"
+    candidate_centreline_port_ids = (
         _centreline_port_ids(
             graph,
             direction,
             layout_section_id,
             (*entry_ports, *exit_ports),
         )
-        if planned
+        if reason is None
         else ()
     )
+    planned = reason is None
+    if not planned:
+        route_emissions = ()
+    centreline_port_ids = candidate_centreline_port_ids if planned else ()
     owned_stations = cast(
         tuple[str, ...],
         _ordered_unique((*owned_stations, *centreline_port_ids)),
