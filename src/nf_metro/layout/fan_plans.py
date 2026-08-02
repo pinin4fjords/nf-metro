@@ -148,6 +148,8 @@ def vertical_fan_label_lane_pitch(
     graph: MetroGraph,
     branches: Sequence[FanBranchPlan],
     frame: AxisFrame,
+    section_layers: dict[str, dict[str, int]],
+    tb_positive_fan: set[str],
     floor: float = 0.0,
 ) -> float:
     """Return the uniform X pitch needed by same-layer vertical fan labels."""
@@ -162,29 +164,28 @@ def vertical_fan_label_lane_pitch(
     if len(section_ids) != 1:
         return floor
     section_id = next(iter(section_ids))
-    section = graph.sections[section_id]
-    node_ids = tuple(
-        station_id
-        for station_id in section.station_ids
-        if station_id in graph.stations and station_id not in graph.ports
-    )
-    node_set = set(node_ids)
-    layers = longest_path_layers(
-        directed_graph(
-            node_ids,
-            (
-                (edge.source, edge.target)
-                for edge in graph.edges
-                if edge.source in node_set and edge.target in node_set
+    layers = section_layers.get(section_id)
+    if layers is None:
+        section = graph.sections[section_id]
+        node_ids = tuple(
+            station_id
+            for station_id in section.station_ids
+            if station_id in graph.stations and station_id not in graph.ports
+        )
+        node_set = set(node_ids)
+        layers = longest_path_layers(
+            directed_graph(
+                node_ids,
+                (
+                    (edge.source, edge.target)
+                    for edge in graph.edges
+                    if edge.source in node_set and edge.target in node_set
+                ),
             ),
-        ),
-        node_ids,
-    )
-    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
-
-    lane_sign = (
-        1.0 if section_id in tb_positive_fan_sections(graph) else frame.secondary_sign
-    )
+            node_ids,
+        )
+        section_layers[section_id] = layers
+    lane_sign = 1.0 if section_id in tb_positive_fan else frame.secondary_sign
     screen_order = sorted(
         (branch for branch in branches if branch.lane_offset is not None),
         key=lambda branch: frame.secondary_sign * cast(float, branch.lane_offset),
@@ -439,14 +440,25 @@ def _nearest_common_join(
     )
 
 
-def _can_reach(
-    adjacency: Mapping[str, tuple[str, ...]], source: str, target: str
-) -> bool:
-    return target in _distances(adjacency, source)
+def _reverse_reachable(
+    incoming: Mapping[str, tuple[str, ...]], target: str
+) -> set[str]:
+    result = {target}
+    pending = deque([target])
+    while pending:
+        station_id = pending.popleft()
+        for source_id in incoming.get(station_id, ()):
+            if source_id not in result:
+                result.add(source_id)
+                pending.append(source_id)
+    return result
 
 
 def _unique_path_to_join(
-    adjacency: Mapping[str, tuple[str, ...]], root: str, join: str
+    adjacency: Mapping[str, tuple[str, ...]],
+    root: str,
+    join: str,
+    reaches_join: set[str],
 ) -> tuple[str, ...] | None:
     path = [root]
     current = root
@@ -455,7 +467,7 @@ def _unique_path_to_join(
         continuations = tuple(
             candidate
             for candidate in adjacency.get(current, ())
-            if _can_reach(adjacency, candidate, join)
+            if candidate in reaches_join
         )
         if len(continuations) != 1:
             return None
@@ -1222,6 +1234,8 @@ class _FanPlanningContext:
     x_spacing: float
     y_spacing: float
     minimum_runway: float
+    section_layers: dict[str, dict[str, int]]
+    tb_positive_fan: set[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1270,8 +1284,9 @@ def _recognise_fan(
     authored_join = _nearest_common_join(adjacency, branch_targets, ctx.ranks)
     node_paths: list[tuple[str, ...]] = []
     if authored_join is not None:
+        reaches_join = _reverse_reachable(ctx.incoming, authored_join)
         for target in branch_targets:
-            path = _unique_path_to_join(adjacency, target, authored_join)
+            path = _unique_path_to_join(adjacency, target, authored_join, reaches_join)
             if path is None:
                 reason = reason or "ambiguous-branch-to-join"
                 path = _linear_path(adjacency, target)
@@ -1559,7 +1574,12 @@ def _build_candidate(
     )
     if frame is not None:
         required_pitch = vertical_fan_label_lane_pitch(
-            graph, branch_plans, frame, lane_pitch
+            graph,
+            branch_plans,
+            frame,
+            ctx.section_layers,
+            ctx.tb_positive_fan,
+            lane_pitch,
         )
         if required_pitch > lane_pitch:
             scale = required_pitch / lane_pitch
@@ -1641,18 +1661,19 @@ def _build_candidate(
         tuple[ResolvedEdge, ...],
         _ordered_unique(edge for path in member_paths for edge in path),
     )
+    member_id_set = set(member_ids)
     incoming_facts = tuple(
         fact
         for predecessor in incoming.get(source_id, ())
         for fact in bundles[(predecessor, source_id)]
-        if fact.id not in set(member_ids)
+        if fact.id not in member_id_set
     )
     exit_facts = (
         tuple(
             fact
             for target in adjacency.get(authored_join, ())
             for fact in bundles[(authored_join, target)]
-            if fact.id not in set(member_ids)
+            if fact.id not in member_id_set
         )
         if authored_join is not None
         else ()
@@ -2009,6 +2030,8 @@ def build_fan_plan_execution(
     facts = _authored_edges(topology)
     adjacency, incoming, bundles = _adjacency(facts)
     ranks = _node_rank(facts)
+    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
+
     context = _FanPlanningContext(
         graph=graph,
         topology=topology,
@@ -2019,6 +2042,8 @@ def build_fan_plan_execution(
         x_spacing=x_spacing,
         y_spacing=y_spacing,
         minimum_runway=minimum_runway,
+        section_layers={},
+        tb_positive_fan=tb_positive_fan_sections(graph),
     )
     plans = tuple(
         _build_candidate(context, source_id, targets)
@@ -2038,22 +2063,25 @@ def validate_fan_route_emissions(
     graph: MetroGraph, routes: Sequence[RoutedPath]
 ) -> None:
     """Require every exclusive fan emission to tag exactly one final route."""
-    expected = {
-        emission.edge: (plan, emission)
+    expected = tuple(
+        (plan, emission)
         for plan in graph.fan_plans
         if plan.owns_geometry
         for emission in plan.route_emissions
-    }
+    )
+    query = graph.fan_plan_query
     consumed: dict[ResolvedEdge, int] = defaultdict(int)
     for route in routes:
-        edge = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
         tagged = route.fan_plan_id is not None or route.fan_route_emitter is not None
-        binding = expected.get(edge)
         if not tagged:
             continue
+        edge = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        binding = (
+            query.route_emission_for_resolved_edge(edge) if query is not None else None
+        )
         if binding is None:
             raise RuntimeError(f"unclaimed fan route emission tagged {edge!r}")
-        plan, emission = binding
+        plan, _branch, emission = binding
         if (
             route.fan_plan_id != plan.id
             or route.fan_route_emitter != emission.emitter.value
@@ -2062,7 +2090,8 @@ def validate_fan_route_emissions(
                 f"planned fan {plan.id!s} route tag drifted for {edge!r}"
             )
         consumed[edge] += 1
-    for edge, (plan, _emission) in expected.items():
+    for plan, emission in expected:
+        edge = emission.edge
         if consumed.get(edge, 0) != 1:
             raise RuntimeError(
                 f"planned fan {plan.id!s} expected one consumed route for {edge!r}; "

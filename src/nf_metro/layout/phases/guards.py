@@ -5215,6 +5215,7 @@ def _guard_planned_fan_frame_realised(
         vertical_fan_label_lane_pitch,
     )
     from nf_metro.layout.route_plan import FanAppearancePolicy
+    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
     invalid_policy = next(
         (
@@ -5262,6 +5263,8 @@ def _guard_planned_fan_frame_realised(
         )
 
     offset_step = graph_offset_step(graph)
+    section_layers: dict[str, dict[str, int]] = {}
+    tb_positive_fan = tb_positive_fan_sections(graph)
     for plan in graph.fan_plans:
         if not plan.owns_geometry and plan.offset_carriers:
             raise PhaseInvariantError(
@@ -5278,6 +5281,8 @@ def _guard_planned_fan_frame_realised(
             graph,
             plan.branches,
             frame,
+            section_layers,
+            tb_positive_fan,
             floor=frame.secondary.step,
         )
         if plan.appearance_lane_pitch + COORD_TOLERANCE_FINE < required_pitch:
