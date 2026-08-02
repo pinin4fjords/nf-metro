@@ -13,13 +13,14 @@ from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import is_orthogonal_turn
 from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.invariants import (
-    FanOpeningSubfloorRadiusViolation,
+    FanOpeningFailure,
+    FanOpeningGeometryViolation,
+    NonConcentricCornerViolation,
+    StarvedTurnViolation,
     assert_render_curve_invariants,
     check_bundle_order_preserved,
     check_concentric_bundle_corners,
-    check_distinct_fan_opening_corners_concentric,
-    check_fan_opening_turn_runway,
-    check_planned_vertical_fan_opening,
+    check_fan_opening_geometry,
     check_seam_segments_meet_at_port,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -89,10 +90,10 @@ def test_bottom_exit_divergence_keeps_curve_runway() -> None:
     assert turn[0] == pytest.approx(first[0])
     assert abs(turn[1] - first[1]) >= CURVE_RADIUS
     assert branch.curve_radii
-    assert not check_fan_opening_turn_runway(graph, routes, offsets)
+    assert not check_fan_opening_geometry(graph, routes, offsets)
 
     branch.points[0] = branch.points[1]
-    assert check_fan_opening_turn_runway(graph, routes, offsets)
+    assert check_fan_opening_geometry(graph, routes, offsets)
 
 
 def test_stacked_right_entry_fan_continues_the_incoming_lanes() -> None:
@@ -109,13 +110,13 @@ def test_stacked_right_entry_fan_continues_the_incoming_lanes() -> None:
         first, turn = outgoing[line_id].points[:2]
         assert turn[0] == pytest.approx(first[0])
         assert abs(turn[1] - first[1]) >= CURVE_RADIUS
-    assert not check_planned_vertical_fan_opening(graph, routes, offsets)
+    assert not check_fan_opening_geometry(graph, routes, offsets)
 
     outgoing["lower"].points[0] = (
         outgoing["lower"].points[0][0] + 4,
         outgoing["lower"].points[0][1],
     )
-    assert check_planned_vertical_fan_opening(graph, routes, offsets)
+    assert check_fan_opening_geometry(graph, routes, offsets)
 
 
 def test_stacked_right_multiline_branch_keeps_lane_order_through_landing() -> None:
@@ -153,14 +154,83 @@ def test_cross_family_fan_opening_corners_are_concentric() -> None:
     assert min(normal.curve_radii[:2] + exempt.curve_radii[:2]) >= CURVE_RADIUS
     assert _arc_centre(normal, 1) == pytest.approx(_arc_centre(exempt, 1))
     assert _arc_centre(normal, 2) == pytest.approx(_arc_centre(exempt, 2))
-    assert not check_distinct_fan_opening_corners_concentric(graph, routes, offsets)
+    assert not check_fan_opening_geometry(graph, routes, offsets)
 
     for route in (normal, exempt):
         route.curve_radii[0] -= OFFSET_STEP
         route.curve_radii[1] -= OFFSET_STEP
     assert any(
-        isinstance(violation, FanOpeningSubfloorRadiusViolation)
-        for violation in check_distinct_fan_opening_corners_concentric(
-            graph, routes, offsets
-        )
+        isinstance(violation, StarvedTurnViolation)
+        for violation in check_fan_opening_geometry(graph, routes, offsets)
     )
+
+
+@pytest.mark.parametrize(
+    "corruption, expected_type, expected_failure",
+    [
+        ("collapsed", FanOpeningGeometryViolation, FanOpeningFailure.DEGENERATE),
+        ("diagonal", FanOpeningGeometryViolation, FanOpeningFailure.NON_CARDINAL),
+        ("same_rank", NonConcentricCornerViolation, None),
+        ("same_status", NonConcentricCornerViolation, None),
+    ],
+)
+def test_cross_family_fan_corruption_cannot_hide_from_semantic_invariant(
+    corruption: str,
+    expected_type: type,
+    expected_failure: FanOpeningFailure | None,
+) -> None:
+    graph, routes, offsets = _layout("seed72_cross_family_fan")
+    junction_id = next(iter(graph.junction_ids))
+    by_line = {
+        route.line_id: route
+        for route in routes
+        if route.edge.source == junction_id and len(route.points) >= 4
+    }
+    normal = by_line["normal"]
+    exempt = by_line["exempt"]
+
+    if corruption == "collapsed":
+        normal.points[0] = normal.points[1]
+    elif corruption == "diagonal":
+        normal.points[1] = (normal.points[1][0], normal.points[1][1] + 3.0)
+    else:
+        assert normal.curve_radii is not None
+        normal.curve_radii[0] -= OFFSET_STEP
+        normal.curve_radii[1] -= OFFSET_STEP
+        if corruption == "same_rank":
+            plan = graph.fan_plan_query.planned_for_fork(junction_id)
+            assert plan is not None
+            normal_branch = next(
+                branch for branch in plan.branches if "normal" in branch.line_ids
+            )
+            exempt_branch = next(
+                branch for branch in plan.branches if "exempt" in branch.line_ids
+            )
+            object.__setattr__(
+                normal_branch, "opening_rank", exempt_branch.opening_rank
+            )
+        else:
+            normal.normalize_exempt = exempt.normalize_exempt
+
+    violations = check_fan_opening_geometry(graph, routes, offsets)
+    matches = [
+        violation for violation in violations if isinstance(violation, expected_type)
+    ]
+    assert matches
+    if expected_failure is not None:
+        assert any(violation.failure is expected_failure for violation in matches)
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "seed72_cross_family_fan",
+        "bottom_exit_junction_collinear_top_entry",
+        "bottom_exit_stacked_right_entry_fan",
+        "bypass_gap2_rightward_overflow",
+        "fanout_bundle_plus_spurs",
+    ],
+)
+def test_semantic_fan_opening_invariant_accepts_clean_families(fixture: str) -> None:
+    graph, routes, offsets = _layout(fixture)
+    assert not check_fan_opening_geometry(graph, routes, offsets)

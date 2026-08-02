@@ -507,10 +507,11 @@ def _locate_slot_channel(
 
 
 def _planner_owns_channel(channel: _VChannel) -> bool:
-    """Whether an immutable exit-turn assignment owns this exact segment."""
-    return (
-        channel.route.exit_turn_axis_id is not None
-        and channel.route.exit_turn_segment_rank == channel.idx
+    """Whether a pre-routing plan owns this channel's final geometry."""
+    route = channel.route
+    return route.fan_route_emitter is not None or (
+        route.exit_turn_axis_id is not None
+        and route.exit_turn_segment_rank == channel.idx
     )
 
 
@@ -1832,7 +1833,7 @@ def _bundle_divergent_distinct_descents(
     by_source = _group_channels_by(routes, _distinct_descent_spans)
 
     step = ctx.offset_step
-    for (source_id, down), chans in by_source.items():
+    for chans in by_source.values():
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
         # it carries.  Seat per line, not per channel: keying each channel
@@ -1888,12 +1889,9 @@ def _bundle_divergent_distinct_descents(
         # Rank owns both track position and arc size.  Applying it to an already
         # tight group is necessary because its independent route families can
         # carry base radii that do not share an arc centre.
-        group_id = f"{source_id}:{'down' if down else 'up'}"
         base_radius = ctx.curve_radius + max(rank_off for _ch, _x, rank_off in moves)
         for ch, target_x, rank_off in moves:
             _set_vchannel_x(ch, target_x, rank_off, base_radius=base_radius)
-            ch.route.fan_opening_group_id = group_id
-            ch.route.fan_opening_rank = round(rank_off / step)
 
 
 def _descent_crosses_section(graph: MetroGraph, ch: _VChannel, x: float) -> bool:

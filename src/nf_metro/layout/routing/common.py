@@ -787,10 +787,6 @@ class RoutedPath:
     """Immutable fan plan that exclusively owns this route, when applicable."""
     fan_route_emitter: str | None = None
     """Planned fan emitter that produced this route."""
-    fan_opening_group_id: str | None = None
-    """Distinct-line opening descent group normalised as one corner family."""
-    fan_opening_rank: int | None = None
-    """Concentric rank within :attr:`fan_opening_group_id`."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None
