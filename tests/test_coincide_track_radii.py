@@ -109,8 +109,8 @@ def _touched_corner_mismatches(
     Returns any disagreement between the stored radius and the central derivation
     as ``(line_id, radius_index, stored, expected)``.
     """
-    # (id(route), radius_index) -> (route, offset, base radius); the last reseat
-    # wins, so the recorded frame is the one the final radius was derived in.
+    # (id(route), radius_index) -> (route, offset, reference radius); the last
+    # reseat wins, so these are the inputs that produced the final radius.
     touched: dict[tuple[int, int], tuple[RoutedPath, float, float]] = {}
 
     def vspy(
@@ -119,14 +119,18 @@ def _touched_corner_mismatches(
         offset: float = 0.0,
         *,
         base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
     ) -> None:
-        impl(ch, new_x, offset, base_radius=base_radius)
-        for radius_idx in (ch.idx - 1, ch.idx):
-            touched[(id(ch.route), radius_idx)] = (
-                ch.route,
-                offset,
-                base_radius,
-            )
+        impl(
+            ch,
+            new_x,
+            offset,
+            base_radius=base_radius,
+            base_radius_out=base_radius_out,
+        )
+        radius_out = base_radius if base_radius_out is None else base_radius_out
+        touched[(id(ch.route), ch.idx - 1)] = (ch.route, offset, base_radius)
+        touched[(id(ch.route), ch.idx)] = (ch.route, offset, radius_out)
 
     def hspy(
         rp: RoutedPath,
@@ -149,7 +153,7 @@ def _touched_corner_mismatches(
     route_ids = {id(r) for r in routes}
 
     mismatches: list[tuple[str, int, float, float]] = []
-    for (rid, radius_idx), (rp, offset, base_radius) in touched.items():
+    for (rid, radius_idx), (rp, offset, reference) in touched.items():
         if rid not in route_ids:
             continue
         radii = rp.curve_radii
@@ -164,7 +168,7 @@ def _touched_corner_mismatches(
             pts[radius_idx + 1],
             pts[radius_idx + 2],
             offset,
-            base_radius,
+            reference,
         )
         if abs(radii[radius_idx] - expected) > _RADIUS_TOLERANCE:
             mismatches.append((rp.line_id, radius_idx, radii[radius_idx], expected))
@@ -244,8 +248,15 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
         offset: float = 0.0,
         *,
         base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
     ) -> None:
-        _PROD_SET_VCHANNEL_X(ch, new_x, offset, base_radius=base_radius)
+        _PROD_SET_VCHANNEL_X(
+            ch,
+            new_x,
+            offset,
+            base_radius=base_radius,
+            base_radius_out=base_radius_out,
+        )
         touched.append(ch)
 
     monkeypatch.setattr(normalize, "_set_vchannel_x", spy)
@@ -275,6 +286,7 @@ def test_reintroduced_hand_clobber_is_detected(
         offset: float = 0.0,
         *,
         base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
     ) -> None:
         rp = ch.route
         pts = rp.points

@@ -152,6 +152,14 @@ def test_cross_family_fan_opening_corners_are_concentric() -> None:
     assert normal.curve_radii is not None
     assert exempt.curve_radii is not None
     assert min(normal.curve_radii[:2] + exempt.curve_radii[:2]) >= CURVE_RADIUS
+    assert normal.curve_radii[:2] == [
+        CURVE_RADIUS + OFFSET_STEP,
+        CURVE_RADIUS,
+    ]
+    assert exempt.curve_radii[:2] == [
+        CURVE_RADIUS,
+        CURVE_RADIUS + OFFSET_STEP,
+    ]
     assert _arc_centre(normal, 1) == pytest.approx(_arc_centre(exempt, 1))
     assert _arc_centre(normal, 2) == pytest.approx(_arc_centre(exempt, 2))
     assert not check_fan_opening_geometry(graph, routes, offsets)

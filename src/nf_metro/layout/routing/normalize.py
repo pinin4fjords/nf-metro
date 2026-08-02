@@ -1665,6 +1665,7 @@ def _reseat_concentric_flanking(
     offset_in: float = 0.0,
     offset_out: float = 0.0,
     base_radius: float = CURVE_RADIUS,
+    base_radius_out: float | None = None,
 ) -> None:
     """Move the ``points[k] -> points[k+1]`` segment onto *new_coord* and re-derive
     its two flanking corners concentrically.
@@ -1675,10 +1676,9 @@ def _reseat_concentric_flanking(
     straight and the flanking legs stretch to meet it.
 
     ``offset_in`` / ``offset_out`` are the signed displacements from the bundle's
-    reference line at the incoming (``k-1``) and outgoing (``k``) corners; each
-    flanking radius is re-derived through :func:`concentric_corner_radius_at` on
-    the moved waypoints, so the outer lanes take the wider, concentric radius and
-    the arcs hold a constant gap through the turn.
+    reference line at the incoming (``k-1``) and outgoing (``k``) corners.  The
+    two corners may pass different reference radii when they belong to separate
+    concentric families; otherwise both use ``base_radius``.
     """
     pts = rp.points
     for j in (k, k + 1):
@@ -1686,11 +1686,15 @@ def _reseat_concentric_flanking(
         pts[j] = (new_coord, py) if axis == 0 else (px, new_coord)
     if rp.curve_radii is None:
         return
-    for radius_idx, offset in ((k - 1, offset_in), (k, offset_out)):
+    radius_out = base_radius if base_radius_out is None else base_radius_out
+    for radius_idx, offset, reference in (
+        (k - 1, offset_in, base_radius),
+        (k, offset_out, radius_out),
+    ):
         if 0 <= radius_idx < len(rp.curve_radii):
             prev_pt, corner_pt, next_pt = pts[radius_idx : radius_idx + 3]
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
-                prev_pt, corner_pt, next_pt, offset, base_radius
+                prev_pt, corner_pt, next_pt, offset, reference
             )
 
 
@@ -1700,6 +1704,7 @@ def _set_vchannel_x(
     offset: float = 0.0,
     *,
     base_radius: float = CURVE_RADIUS,
+    base_radius_out: float | None = None,
 ) -> None:
     """Move a vertical channel to *new_x*, re-deriving its flanking corners.
 
@@ -1714,6 +1719,9 @@ def _set_vchannel_x(
     re-seating a bundle of distinct lines converging on one port passes each
     line's rank displacement so the outer lanes take the wider, concentric
     radius and the arcs hold a constant gap through the turn.
+
+    ``base_radius_out`` gives the outgoing corner family its own reference.
+    When omitted, both corners use ``base_radius``.
     """
     _reseat_concentric_flanking(
         ch.route,
@@ -1723,6 +1731,7 @@ def _set_vchannel_x(
         offset_in=offset,
         offset_out=offset,
         base_radius=base_radius,
+        base_radius_out=base_radius_out,
     )
 
 
@@ -1853,6 +1862,41 @@ def _fanout_descent_order_key(ch: _VChannel) -> tuple[int, float]:
     return (direction, turn_y if direction <= 0 else -turn_y)
 
 
+def _fan_opening_reference_radii(
+    moves: list[tuple[_VChannel, float, float]],
+    curve_radius: float,
+) -> tuple[float, float]:
+    """Smallest references that keep both fan corner families at the floor.
+
+    A ranked channel can be outside one turn and inside the next.  Its signed
+    displacement therefore widens one arc while narrowing the other.  Derive a
+    separate reference for each side instead of making the source turn inherit
+    the extra radius needed only by the peel-off turn.
+    """
+    references = [curve_radius, curve_radius]
+    for channel, target_x, rank_offset in moves:
+        route = channel.route
+        if route.curve_radii is None:
+            continue
+        points = list(route.points)
+        for index in (channel.idx, channel.idx + 1):
+            x, y = points[index]
+            points[index] = (target_x, y)
+        for side, radius_index in enumerate((channel.idx - 1, channel.idx)):
+            if not 0 <= radius_index < len(route.curve_radii):
+                continue
+            radius_at_floor = concentric_corner_radius_at(
+                points[radius_index],
+                points[radius_index + 1],
+                points[radius_index + 2],
+                rank_offset,
+                curve_radius,
+            )
+            floor_deficit = curve_radius - radius_at_floor
+            references[side] = max(references[side], curve_radius + floor_deficit)
+    return references[0], references[1]
+
+
 def _bundle_divergent_distinct_descents(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
@@ -1932,9 +1976,17 @@ def _bundle_divergent_distinct_descents(
         # Rank owns both track position and arc size.  Applying it to an already
         # tight group is necessary because its independent route families can
         # carry base radii that do not share an arc centre.
-        base_radius = ctx.curve_radius + max(rank_off for _ch, _x, rank_off in moves)
+        base_radius, base_radius_out = _fan_opening_reference_radii(
+            moves, ctx.curve_radius
+        )
         for ch, target_x, rank_off in moves:
-            _set_vchannel_x(ch, target_x, rank_off, base_radius=base_radius)
+            _set_vchannel_x(
+                ch,
+                target_x,
+                rank_off,
+                base_radius=base_radius,
+                base_radius_out=base_radius_out,
+            )
 
 
 def _descent_crosses_section(graph: MetroGraph, ch: _VChannel, x: float) -> bool:
