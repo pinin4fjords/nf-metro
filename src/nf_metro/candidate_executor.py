@@ -628,9 +628,7 @@ def _evaluate_attempt(
             observation = observe_route_edges(graph, station_offsets=offsets)
             build_route_plan_query(observation.plan)
             route_evidence = _route_evidence(observation.plan)
-            route_findings = tuple(
-                item for item in observation.plan.diagnostics if item.blocking
-            )
+            route_findings = observation.plan.diagnostics
         except Exception as exc:  # noqa: BLE001
             collect(CandidateStage.ROUTE_PLAN)
             return _failure_result(
@@ -647,7 +645,7 @@ def _evaluate_attempt(
                 "routing emitted a typed geometry warning",
                 evidence(),
             )
-        if route_findings:
+        if any(item.blocking for item in route_findings):
             return _rejection_result(
                 attempt,
                 CandidateStage.ROUTE_VALIDATION,
@@ -667,9 +665,7 @@ def _evaluate_attempt(
             )
             build_route_plan_query(observed.route_plan)
             route_evidence = _route_evidence(observed.route_plan)
-            route_findings = tuple(
-                item for item in observed.route_plan.diagnostics if item.blocking
-            )
+            route_findings = observed.route_plan.diagnostics
             render_evidence = _canonical_evidence(observed.plan)
         except Exception as exc:  # noqa: BLE001
             collect(CandidateStage.RENDER_PLAN)
@@ -687,7 +683,7 @@ def _evaluate_attempt(
                 "render planning emitted a typed geometry warning",
                 evidence(),
             )
-        if route_findings:
+        if any(item.blocking for item in route_findings):
             return _rejection_result(
                 attempt,
                 CandidateStage.ROUTE_VALIDATION,
@@ -873,6 +869,7 @@ def _evidence_from_wire(value: object) -> CandidateEvidence:
             cast(EmissionMemberId | None, _object(item)["member_id"]),
             str(_object(item)["code"]),
             str(_object(item)["message"]),
+            bool(_object(item)["blocking"]),
         )
         for item in _array(raw["route_findings"])
     )
