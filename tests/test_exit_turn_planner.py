@@ -358,6 +358,32 @@ def test_shared_destination_entry_keeps_target_bundle_concentric() -> None:
     assert target_arc_centres[0] == pytest.approx(target_arc_centres[1])
 
 
+def test_merge_feeder_does_not_compress_a_terminal_landing_curve() -> None:
+    graph, offsets, observation = _observe(
+        TOPOLOGIES / "merge_feeders_three_columns.mmd"
+    )
+    route = next(
+        route
+        for route in observation.routes
+        if route.edge.source == "__junction_9"
+        and route.edge.target == "e__entry_left_5"
+        and route.line_id == "main"
+    )
+    rank = route.exit_turn_segment_rank
+    assert rank is not None
+    assert route.curve_radii is not None
+
+    points = apply_route_offsets(route, offsets)
+    radii = resolve_curve_radii(points, route.curve_radii)
+
+    assert radii[rank] >= CURVE_RADIUS
+    assert not check_planned_fan_landing_radius(
+        graph,
+        observation.routes,
+        offsets,
+    )
+
+
 def test_leftward_upturn_preserves_source_lane_order() -> None:
     graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
     plan = _plan_for_source(observation, "s7__exit_left_5")

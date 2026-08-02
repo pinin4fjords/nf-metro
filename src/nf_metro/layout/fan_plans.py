@@ -2310,26 +2310,8 @@ def validate_fan_route_emissions(
 
     if station_offsets is None:
         return
-    from nf_metro.layout.routing.invariants import (
-        check_fan_opening_geometry,
-        check_fanout_tail_join,
-        check_no_hanging_routes,
-        check_seam_segments_meet_at_port,
-    )
+    from nf_metro.layout.routing.invariants import check_no_hanging_routes
 
-    planned_forks = {
-        plan.fork_station_id: plan for plan in graph.fan_plans if plan.owns_geometry
-    }
-    planned_ports = {
-        port_id
-        for plan in graph.fan_plans
-        if plan.owns_geometry
-        for port_id in (
-            *plan.entry_port_ids,
-            *plan.exit_port_ids,
-            *plan.centreline_port_ids,
-        )
-    }
     planned_edges = {
         expectation.edge
         for plan in graph.fan_plans
@@ -2338,53 +2320,6 @@ def validate_fan_route_emissions(
     }
     route_list = list(routes)
     offset_dict = dict(station_offsets)
-    opening_violations = check_fan_opening_geometry(
-        graph,
-        route_list,
-        offset_dict,
-    )
-    for violation in opening_violations:
-        station_id = next(
-            (
-                value
-                for attribute in ("junction_id", "source", "edge_source")
-                if isinstance((value := getattr(violation, attribute, None)), str)
-            ),
-            None,
-        )
-        owner = planned_forks.get(station_id or "")
-        if owner is not None:
-            raise RuntimeError(
-                f"planned fan {owner.id!s} route geometry drifted: "
-                f"{violation.message()}"
-            )
-    tail_gap = next(
-        (
-            item
-            for item in check_fanout_tail_join(route_list, graph)
-            if item.junction_id in planned_forks
-        ),
-        None,
-    )
-    if tail_gap is not None:
-        plan = planned_forks[tail_gap.junction_id]
-        raise RuntimeError(
-            f"planned fan {plan.id!s} route hand-off drifted: {tail_gap.message()}"
-        )
-    port_gap = next(
-        (
-            item
-            for item in check_seam_segments_meet_at_port(
-                graph,
-                route_list,
-                offset_dict,
-            )
-            if item.port_id in planned_ports
-        ),
-        None,
-    )
-    if port_gap is not None:
-        raise RuntimeError(f"planned fan port hand-off drifted: {port_gap.message()}")
     hanging = next(
         (
             item

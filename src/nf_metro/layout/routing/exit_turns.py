@@ -2324,9 +2324,10 @@ def consume_exit_turn_route(
             key=lambda item: item.coordinate * run.sign,
         )
         offset = membership.axis.coordinate - reference_axis.coordinate
-        shares_destination_entry = any(
+        shares_terminal_destination_entry = any(
             item.member_id != assignment.member_id
             and item.entry_group_id == assignment.entry_group_id
+            and EmissionRole.TERMINAL in item.roles
             for item in turn_cohort
         )
         _reseat_concentric_flanking(
@@ -2335,7 +2336,7 @@ def consume_exit_turn_route(
             membership.axis.coordinate,
             axis=0 if source_axis is DemandAxis.X else 1,
             offset_in=offset,
-            offset_out=offset if shares_destination_entry else 0.0,
+            offset_out=offset if shares_terminal_destination_entry else 0.0,
         )
     lead, start, end = route.points[segment_rank - 1 : segment_rank + 2]
     if (
