@@ -1012,6 +1012,7 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         local_frame_anchor_station_id=None,
         local_frame_anchor_offset=None,
         appearance_centreline_branch_id=None,
+        appearance_lane_pitch=None,
         disposition=FanPlanDisposition.LEGACY,
         legacy_reason=reason,
     )
@@ -1654,6 +1655,7 @@ def _build_candidate(
         appearance_centreline_branch_id=(
             appearance_centreline_branch_id if planned else None
         ),
+        appearance_lane_pitch=lane_pitch if planned else None,
         branches=(
             tuple(branch_plans)
             if planned

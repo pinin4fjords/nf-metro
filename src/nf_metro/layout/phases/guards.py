@@ -5263,11 +5263,15 @@ def _guard_planned_fan_frame_realised(
         frame = plan.frame
         if not plan.owns_geometry or frame is None:
             continue
+        if plan.appearance_lane_pitch is None:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} has no frozen appearance lane pitch"
+            )
         lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
         expected_lane_offsets = fan_lane_offsets(
             plan.branches,
             plan.appearance_policy,
-            frame.secondary.step,
+            plan.appearance_lane_pitch,
             plan.appearance_centreline_branch_id,
         )
         if plan.appearance_policy is FanAppearancePolicy.SYMMETRIC:

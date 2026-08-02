@@ -781,6 +781,7 @@ class FanPlan:
     join_station_id: str | None
     appearance_policy: FanAppearancePolicy
     appearance_centreline_branch_id: FanBranchPlanId | None
+    appearance_lane_pitch: float | None
     branches: tuple[FanBranchPlan, ...]
     offset_line_order: tuple[str, ...]
     authored_edge_ids: tuple[ConnectorId, ...]
@@ -931,6 +932,13 @@ class FanPlan:
             raise ValueError("symmetric fan cannot name a straight centreline branch")
         if not planned and has_appearance_centreline:
             raise ValueError("legacy fan cannot own an appearance centreline")
+        if planned != (self.appearance_lane_pitch is not None):
+            raise ValueError("planned fan appearance lane pitch is missing")
+        if self.appearance_lane_pitch is not None and (
+            not math.isfinite(self.appearance_lane_pitch)
+            or self.appearance_lane_pitch <= 0.0
+        ):
+            raise ValueError("fan appearance lane pitch must be finite and positive")
         if has_appearance_centreline:
             lane_offsets = tuple(branch.lane_offset for branch in self.branches)
             if (
@@ -950,6 +958,41 @@ class FanPlan:
             raise ValueError("fan disposition and geometry ownership disagree")
         if planned and any(branch.lane_offset is None for branch in self.branches):
             raise ValueError("planned fan branch has no lane offset")
+        if planned:
+            assert self.appearance_lane_pitch is not None
+            lane_offsets = tuple(branch.lane_offset for branch in self.branches)
+            if (
+                self.appearance_policy is FanAppearancePolicy.SYMMETRIC
+                or self.appearance_centreline_branch_id is None
+            ):
+                midpoint = (len(self.branches) - 1) / 2.0
+                expected_lane_offsets = tuple(
+                    (rank - midpoint) * self.appearance_lane_pitch
+                    for rank in range(len(self.branches))
+                )
+            else:
+                expected_by_id = {self.appearance_centreline_branch_id: 0.0}
+                expected_by_id.update(
+                    (branch.id, slot * self.appearance_lane_pitch)
+                    for slot, branch in enumerate(
+                        (
+                            branch
+                            for branch in self.branches
+                            if branch.id != self.appearance_centreline_branch_id
+                        ),
+                        start=1,
+                    )
+                )
+                expected_lane_offsets = tuple(
+                    expected_by_id[branch.id] for branch in self.branches
+                )
+            if any(
+                actual is None or abs(actual - expected) > 1e-9
+                for actual, expected in zip(
+                    lane_offsets, expected_lane_offsets, strict=True
+                )
+            ):
+                raise ValueError("fan lane offsets disagree with appearance pitch")
         if planned and any(branch.diagonal_runway is None for branch in self.branches):
             raise ValueError("planned fan branch has no diagonal runway")
         if not planned and any(

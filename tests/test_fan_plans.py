@@ -396,6 +396,54 @@ def test_runtime_guard_rejects_symmetric_straight_open_fan_plan() -> None:
         )
 
 
+def test_runtime_guard_accepts_content_expanded_appearance_lane_pitch() -> None:
+    """A fan may freeze a content-safe pitch larger than its nominal axis step."""
+    path = ROOT / "examples" / "topologies" / "tb_internal_diagonal.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=False)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
+    assert plan.frame is not None
+    expanded_pitch = plan.frame.secondary.step + 20.0
+    expanded_branches = tuple(
+        replace(
+            branch,
+            lane_offset=rank * expanded_pitch,
+            diagonal_runway=max(
+                branch.diagonal_runway or 0.0,
+                rank * expanded_pitch,
+            ),
+        )
+        for rank, branch in enumerate(plan.branches)
+    )
+    with pytest.raises(
+        ValueError,
+        match="fan lane offsets disagree with appearance pitch",
+    ):
+        replace(plan, appearance_lane_pitch=expanded_pitch)
+    expanded_plan = replace(
+        plan,
+        branches=expanded_branches,
+        appearance_lane_pitch=expanded_pitch,
+    )
+    install_fan_plan_execution(
+        graph,
+        FanPlanExecution(
+            plans=(expanded_plan,),
+            query=FanPlanQuery.build((expanded_plan,)),
+        ),
+    )
+    centreline = expanded_plan.frame.secondary.get(
+        graph.stations[expanded_plan.fork_station_id]
+    )
+    _apply_planned_fan_geometry(graph, {expanded_plan.id: centreline})
+
+    _guard_planned_fan_frame_realised(
+        graph,
+        "test",
+        offsets=compute_station_offsets(graph),
+    )
+
+
 def test_same_line_open_boundary_fan_keeps_established_layout_ownership() -> None:
     path = ROOT / "examples" / "topologies" / "section_trunk_short_output_branch.mmd"
     graph = parse_metro_mermaid(path.read_text())
@@ -1178,17 +1226,16 @@ def test_runtime_guard_rejects_asymmetric_symmetric_fan_plan() -> None:
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "entry")
-    bad_plan = replace(
-        plan,
-        branches=(replace(plan.branches[0], lane_offset=0.0), plan.branches[1]),
+    bad_branches = (
+        replace(plan.branches[0], lane_offset=0.0),
+        plan.branches[1],
     )
-    install_fan_plan_execution(
-        graph,
-        FanPlanExecution(
-            plans=(bad_plan,),
-            query=FanPlanQuery.build((bad_plan,)),
-        ),
-    )
+    with pytest.raises(
+        ValueError,
+        match="fan lane offsets disagree with appearance pitch",
+    ):
+        replace(plan, branches=bad_branches)
+    object.__setattr__(plan, "branches", bad_branches)
 
     with pytest.raises(PhaseInvariantError, match="uses asymmetric lane offsets"):
         _guard_planned_fan_frame_realised(
