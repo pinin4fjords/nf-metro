@@ -2325,7 +2325,7 @@ def consume_exit_turn_route(
             membership.axis.coordinate,
             axis=0 if source_axis is DemandAxis.X else 1,
             offset_in=offset,
-            offset_out=offset,
+            offset_out=0.0,
         )
     lead, start, end = route.points[segment_rank - 1 : segment_rank + 2]
     if (

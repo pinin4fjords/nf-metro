@@ -70,10 +70,12 @@ from nf_metro.layout.routing.common import (
     is_orthogonal_turn,
     iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
+    iter_opposing_entry_confluences,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
     merge_fanout_pivot_reference,
     opening_horizontal_vertical,
+    opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
     perp_peeloff_off_horizontal_junction,
@@ -1044,6 +1046,101 @@ def check_orthogonal_turns_form_curves(
                         requested=requested,
                     )
                 )
+    return violations
+
+
+@dataclass(frozen=True)
+class PlannedFanLandingRadiusViolation:
+    """A planned fan axis leaves room for a normal landing but requests less."""
+
+    source: str
+    target: str
+    line_id: str
+    corner: tuple[float, float]
+    requested: float
+    effective: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"planned fan {self.source!r}->{self.target!r} line {self.line_id!r}: "
+            f"landing corner at ({self.corner[0]:.0f}, {self.corner[1]:.0f}) "
+            f"requests radius {self.requested:.1f} and resolves to "
+            f"{self.effective:.1f}, despite having runway for the standard "
+            f"{CURVE_RADIUS:.1f}px curve"
+        )
+
+
+def check_planned_fan_landing_radius(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[PlannedFanLandingRadiusViolation]:
+    """Return shifted multi-line fan axes that compress an unblocked landing."""
+    from nf_metro.layout.routing.corners import (
+        resolve_curve_radii,
+        resolve_curve_radius_at,
+    )
+
+    by_plan: defaultdict[str, list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        if (
+            route.exit_turn_plan_id is not None
+            and route.exit_turn_axis_id is not None
+            and route.exit_turn_segment_rank is not None
+            and route.edge.source in graph.junction_ids
+        ):
+            by_plan[route.exit_turn_plan_id].append(route)
+
+    violations: list[PlannedFanLandingRadiusViolation] = []
+    for members in by_plan.values():
+        if len({route.line_id for route in members}) < 2:
+            continue
+        for route in members:
+            rank = route.exit_turn_segment_rank
+            assert rank is not None
+            points = apply_route_offsets(route, offsets)
+            landing_radius_index = rank
+            landing_point_index = landing_radius_index + 1
+            if landing_point_index + 1 >= len(points) or not is_orthogonal_turn(
+                points[landing_point_index - 1],
+                points[landing_point_index],
+                points[landing_point_index + 1],
+            ):
+                continue
+            desired = list(
+                route.curve_radii
+                or [CURVE_RADIUS for _ in range(max(0, len(points) - 2))]
+            )
+            if landing_radius_index >= len(desired):
+                continue
+            requested = desired[landing_radius_index]
+            desired[landing_radius_index] = CURVE_RADIUS
+            available = resolve_curve_radius_at(
+                points,
+                desired,
+                landing_radius_index,
+            )
+            if available < CURVE_RADIUS - _ORTHOGONAL_TURN_TOL:
+                continue
+            effective = resolve_curve_radii(points, route.curve_radii)[
+                landing_radius_index
+            ]
+            if (
+                requested >= CURVE_RADIUS - _ORTHOGONAL_TURN_TOL
+                and effective >= CURVE_RADIUS - _ORTHOGONAL_TURN_TOL
+            ):
+                continue
+            violations.append(
+                PlannedFanLandingRadiusViolation(
+                    route.edge.source,
+                    route.edge.target,
+                    route.line_id,
+                    points[landing_point_index],
+                    requested,
+                    effective,
+                )
+            )
     return violations
 
 
@@ -5553,6 +5650,59 @@ class PeeloffBundleCrossing:
 
 
 @dataclass(frozen=True)
+class OpposingEntryConfluenceOrderViolation:
+    """An opposing feeder changes side before a shared entry-port corner."""
+
+    port_id: str
+    line_id: str
+    peel_x: float
+    expected_peel_x: float
+    pair_crossings: int
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"opposing entry confluence at port {self.port_id!r}: line "
+            f"{self.line_id!r} descends at x={self.peel_x:.1f}, but its "
+            f"destination lane earns x={self.expected_peel_x:.1f}; the feeder "
+            f"pair crosses {self.pair_crossings} time(s) before the port"
+        )
+
+
+def check_opposing_entry_confluence_order(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+) -> list[OpposingEntryConfluenceOrderViolation]:
+    """Return opposing feeder bundles whose approach order flips at the port."""
+    out: list[OpposingEntryConfluenceOrderViolation] = []
+    step = graph_offset_step(graph)
+    for bundle in iter_opposing_entry_confluences(routes, graph, step):
+        slots = opposing_entry_confluence_slots(bundle, graph, step)
+        by_line = {route.line_id: route for route, _tail in bundle.entries}
+        for route, tail in bundle.entries:
+            expected = slots[route.line_id]
+            if abs(tail.peel_x - expected.peel_x) <= COORD_TOLERANCE:
+                continue
+            pair_crossings = sum(
+                _segments_properly_cross(a0, a1, b0, b1) is not None
+                for other_line, other in by_line.items()
+                if other_line != route.line_id
+                for a0, a1 in zip(route.points, route.points[1:])
+                for b0, b1 in zip(other.points, other.points[1:])
+            )
+            out.append(
+                OpposingEntryConfluenceOrderViolation(
+                    bundle.port_id,
+                    route.line_id,
+                    tail.peel_x,
+                    expected.peel_x,
+                    pair_crossings,
+                )
+            )
+    return out
+
+
+@dataclass(frozen=True)
 class LooseDestinationTail:
     """A same-port destination tail remains outside its eager bundle slot."""
 
@@ -5855,10 +6005,18 @@ def assert_render_curve_invariants(
             check_peeloff_concentric(graph, routes, curve_radius),
         ),
         (
+            "opposing feeder confluence changes lane order",
+            check_opposing_entry_confluence_order(graph, routes),
+        ),
+        (
             "junction peel-off leaves horizontal trunk at a hard 90",
             check_junction_peeloff_rounded(graph, routes),
         ),
         ("fan opening geometry", check_fan_opening_geometry(graph, routes, offsets)),
+        (
+            "planned fan landing curve compressed despite clear runway",
+            check_planned_fan_landing_radius(graph, routes, offsets),
+        ),
         (
             "inter-section orthogonal turn starved below a formed curve",
             check_orthogonal_turns_form_curves(graph, routes),
@@ -5963,8 +6121,10 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_opposing_gap_channel_clearance, "A"),
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
+    _check_spec(check_opposing_entry_confluence_order, "A"),
     _check_spec(check_junction_peeloff_rounded, "A"),
     _check_spec(check_fan_opening_geometry, "A"),
+    _check_spec(check_planned_fan_landing_radius, "A"),
     _check_spec(check_orthogonal_turns_form_curves, "A"),
     _check_spec(check_merge_fanout_pivots_shared, "A"),
     _check_spec(check_port_corner_within_bbox, "A"),
@@ -6081,6 +6241,8 @@ __all__ = [
     "NonConcentricCornerViolation",
     "LooseDestinationTail",
     "OpposingGapChannelCrowding",
+    "OpposingEntryConfluenceOrderViolation",
+    "PlannedFanLandingRadiusViolation",
     "PackedCellHandoffDivergence",
     "PartialBranchGapViolation",
     "PeeloffBundleCrossing",
@@ -6102,6 +6264,7 @@ __all__ = [
     "check_bundle_order_preserved",
     "check_gap_channels_materialized",
     "check_opposing_gap_channel_clearance",
+    "check_opposing_entry_confluence_order",
     "check_trunks_declared",
     "check_concentric_bundle_corners",
     "check_coincident_corner_radii",
@@ -6109,6 +6272,7 @@ __all__ = [
     "check_diamond_fan_in_diverges_together",
     "check_fanout_tail_join",
     "check_fan_opening_geometry",
+    "check_planned_fan_landing_radius",
     "check_no_distinct_line_fanout_crossing",
     "check_merge_branches_meet_trunk",
     "check_merge_feeders_land_on_trunk",

@@ -1361,7 +1361,10 @@ in pipeline order.
 - **Invariants preserved**: Station, port, junction, and section coordinates.
   The planner may commit per-line station offsets at its owned seam. Downstream
   passes may change unowned route geometry but cannot move, remove, or replace
-  a planner-owned source-turn segment or lane transition.
+  a planner-owned source-turn segment or lane transition. Re-seating a planned
+  axis derives the opening corner from the source-lane displacement; the corner
+  at the other end of that axis belongs to its destination or transition family
+  and keeps that family's radius.
 - **Related tests**: `tests/test_exit_turn_planner.py`,
   `tests/test_route_plan.py`, and the topology fixtures
   `leftward_up_exit_turn_order.mmd` and

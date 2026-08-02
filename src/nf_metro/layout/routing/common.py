@@ -1021,12 +1021,116 @@ class PortPeeloffBundle(NamedTuple):
     port_lead_sign: int
 
 
+class OpposingEntryConfluence(NamedTuple):
+    """Opposing horizontal feeders sharing one vertical approach to a port."""
+
+    port_id: str
+    entries: list[tuple[RoutedPath, PeeloffTail]]
+    per_line: dict[str, PeeloffTail]
+    vertical_sign: int
+    port_lead_sign: int
+
+
 class PeeloffSlot(NamedTuple):
     """A peel-off line's target peel-x, port-slot Y, and concentric rank."""
 
     peel_x: float
     port_y: float
     rank: int
+
+
+def iter_opposing_entry_confluences(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    *,
+    min_common_approach: float = 2 * CURVE_RADIUS,
+) -> Iterator[OpposingEntryConfluence]:
+    """Yield complete entry groups that bundle after approaching from both sides.
+
+    The routes must enter one side port through the same vertical direction,
+    occupy one contiguous channel band, and share a substantial vertical run.
+    Requiring the complete port line set keeps compatibility ownership atomic.
+    """
+    by_shape: dict[
+        tuple[str, int, int],
+        list[tuple[RoutedPath, PeeloffTail]],
+    ] = defaultdict(list)
+    for route in routes:
+        tail = port_peeloff_tail(route)
+        port = graph.ports.get(route.edge.target)
+        if (
+            tail is None
+            or port is None
+            or not port.is_entry
+            or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+        ):
+            continue
+        by_shape[route.edge.target, tail.vertical_sign, tail.port_lead_sign].append(
+            (route, tail)
+        )
+
+    for (port_id, vertical_sign, port_lead_sign), entries in by_shape.items():
+        per_line: dict[str, PeeloffTail] = {}
+        for route, tail in entries:
+            per_line.setdefault(route.line_id, tail)
+        n = len(per_line)
+        if n < 2 or len(entries) != n:
+            continue
+        if len({tail.trunk_sign for tail in per_line.values()}) < 2:
+            continue
+        if set(per_line) != set(graph.station_lines(port_id)):
+            continue
+        port_ys = sorted(tail.port_y for tail in per_line.values())
+        if len({round(value, 6) for value in port_ys}) != n:
+            continue
+        if port_ys[-1] - port_ys[0] > (n - 1) * step + COORD_TOLERANCE:
+            continue
+        peel_xs = [tail.peel_x for tail in per_line.values()]
+        if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:
+            continue
+        shared_lo = max(min(tail.trunk_y, tail.port_y) for tail in per_line.values())
+        shared_hi = min(max(tail.trunk_y, tail.port_y) for tail in per_line.values())
+        if shared_hi - shared_lo < min_common_approach - COORD_TOLERANCE:
+            continue
+        yield OpposingEntryConfluence(
+            port_id,
+            entries,
+            per_line,
+            vertical_sign,
+            port_lead_sign,
+        )
+
+
+def opposing_entry_confluence_slots(
+    bundle: OpposingEntryConfluence,
+    graph: MetroGraph,
+    step: float,
+) -> dict[str, PeeloffSlot]:
+    """Map port lane order onto the bundle's preceding vertical channels."""
+    port = graph.ports[bundle.port_id]
+    n = len(bundle.per_line)
+    realised_xs = [tail.peel_x for tail in bundle.per_line.values()]
+    inner_x = max(realised_xs) if port.side is PortSide.LEFT else min(realised_xs)
+    x_slots = (
+        [inner_x - (n - rank - 1) * step for rank in range(n)]
+        if port.side is PortSide.LEFT
+        else [inner_x + rank * step for rank in range(n)]
+    )
+    y_slots = sorted(tail.port_y for tail in bundle.per_line.values())
+    port_order = sorted(
+        bundle.per_line,
+        key=lambda line_id: bundle.per_line[line_id].port_y,
+    )
+    x_follows_port = bundle.vertical_sign == -bundle.port_lead_sign
+    return {
+        line_id: PeeloffSlot(
+            x_slots[rank if x_follows_port else n - rank - 1],
+            y_slots[rank],
+            rank if x_follows_port else n - rank - 1,
+        )
+        for rank, line_id in enumerate(port_order)
+    }
 
 
 class DestinationTailTrunk(NamedTuple):

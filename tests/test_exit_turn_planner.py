@@ -40,12 +40,14 @@ from nf_metro.layout.routing.common import (
     apply_route_offsets,
 )
 from nf_metro.layout.routing.context import _build_routing_context
+from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.exit_turns import (
     ExitTurnInvariantError,
     assert_exit_turn_snapshot,
     snapshot_exit_turn_segments,
     validate_exit_turn_plans,
 )
+from nf_metro.layout.routing.invariants import check_planned_fan_landing_radius
 from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
@@ -208,6 +210,82 @@ def test_three_family_exit_bundle_has_one_complete_turn_plan() -> None:
         axes["report"].coordinate
     )
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        ROOT / "examples" / "guide" / "03_fan_out.mmd",
+        TOPOLOGIES / "wide_fan_out.mmd",
+    ),
+    ids=("guide-fan-out", "wide-fan-out"),
+)
+def test_planned_fan_axis_keeps_a_full_landing_curve(path: Path) -> None:
+    """A shared fan opening does not donate its target-side curve radius."""
+    graph, offsets, observation = _observe(path)
+    plan = next(
+        item
+        for item in observation.plan.exit_turn_plans
+        if item.disposition is ExitTurnDisposition.PLANNED
+        and item.source_id in graph.junction_ids
+        and len(item.axes) >= 2
+    )
+    turning = [
+        route
+        for route in observation.routes
+        if route.exit_turn_plan_id == str(plan.id)
+        and route.exit_turn_segment_rank is not None
+    ]
+
+    assert len(turning) >= 2
+    source_arc_centres = []
+    for route in turning:
+        rank = route.exit_turn_segment_rank
+        assert rank is not None
+        points = apply_route_offsets(route, offsets)
+        radii = resolve_curve_radii(points, route.curve_radii)
+        source_radius = radii[rank - 1]
+        landing_radius = radii[rank]
+        source_corner = points[rank]
+        source_arc_centres.append(
+            (source_corner[0] - source_radius, source_corner[1] + source_radius)
+        )
+
+        assert landing_radius >= CURVE_RADIUS
+        assert route.curve_radii is not None
+        assert route.curve_radii[rank] >= CURVE_RADIUS
+        assert abs(points[rank + 2][0] - points[rank + 1][0]) >= landing_radius
+
+    first_centre = source_arc_centres[0]
+    assert all(centre == pytest.approx(first_centre) for centre in source_arc_centres)
+    assert not check_planned_fan_landing_radius(
+        graph,
+        observation.routes,
+        offsets,
+    )
+
+
+def test_planned_fan_landing_radius_rejects_a_compressed_request() -> None:
+    graph, offsets, observation = _observe(TOPOLOGIES / "wide_fan_out.mmd")
+    route = next(
+        route
+        for route in observation.routes
+        if route.edge.source in graph.junction_ids
+        and route.exit_turn_plan_id is not None
+        and route.exit_turn_segment_rank is not None
+    )
+    rank = route.exit_turn_segment_rank
+    assert rank is not None
+    assert route.curve_radii is not None
+    route.curve_radii[rank] = CURVE_RADIUS / 5
+
+    violations = check_planned_fan_landing_radius(
+        graph,
+        observation.routes,
+        offsets,
+    )
+
+    assert {violation.line_id for violation in violations} == {route.line_id}
 
 
 def test_leftward_upturn_preserves_source_lane_order() -> None:

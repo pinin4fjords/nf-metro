@@ -40,9 +40,11 @@ from nf_metro.layout.routing.common import (
     iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
     iter_inter_row_gaps,
+    iter_opposing_entry_confluences,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
     merge_fanout_pivot_reference,
+    opposing_entry_confluence_slots,
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     perp_peeloff_off_horizontal_junction,
@@ -1420,7 +1422,7 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
 def _stagger_convergent_distinct_lines(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
-    """Spread distinct-line final port descents that collapsed onto one channel.
+    """Seat distinct-line final port descents in destination lane order.
 
     The distinct-line counterpart to :func:`_coincide_same_line_tracks`: two
     feeders of DIFFERENT lines converging on one entry port can be forced down
@@ -1430,14 +1432,14 @@ def _stagger_convergent_distinct_lines(
     self-contained concentric loops (``normalize_exempt``), so neither the
     gap-slot pass nor the same-line coincidence pass separates them.
 
-    Re-stack each coincident distinct-line cluster ``OFFSET_STEP`` apart, ordered
-    so the descent-X sequence follows the per-line entry-Y order at the port --
-    the concentric order the port-approach corner needs (a LEFT entry runs its
-    approach rightward, so a lower entry Y descends further right; a RIGHT entry
-    mirrors it).  All routes of one line share a descent X, so the same-line
-    tracks the coincidence pass already fused stay fused.  Only fires on
-    genuinely coincident distinct-line descents, so a render whose port
-    approaches are already staggered is untouched.
+    Re-stack each coincident distinct-line cluster ``OFFSET_STEP`` apart. A
+    complete port group whose feeders approach from opposite horizontal sides
+    is handled atomically even when its channels are already adjacent, because
+    assigning its members in separate clusters can reverse the order twice
+    before the port. Both cases map the descent-X sequence to the per-line
+    entry-Y order needed by the concentric port-approach corner. All routes of
+    one line share a descent X, so the same-line tracks the coincidence pass
+    already fused stay fused.
     """
     entry_port_for = ctx.merge.entry_port_for
     by_port: dict[tuple[str, bool], list[tuple[RoutedPath, _VChannel]]] = defaultdict(
@@ -1452,9 +1454,54 @@ def _stagger_convergent_distinct_lines(
         target = entry_port_for.get(rp.edge.target, rp.edge.target)
         by_port[(target, ch.down)].append((rp, ch))
 
-    for (port_id, _down), entries in by_port.items():
+    opposing = {
+        (bundle.port_id, bundle.vertical_sign > 0): bundle
+        for bundle in iter_opposing_entry_confluences(
+            routes,
+            ctx.graph,
+            ctx.offset_step,
+        )
+    }
+
+    for (port_id, down), entries in by_port.items():
         port = ctx.graph.ports.get(port_id)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        opposing_bundle = opposing.get((port_id, down))
+        if opposing_bundle is not None and {
+            id(route) for route, _tail in opposing_bundle.entries
+        } != {id(route) for route, _channel in entries}:
+            opposing_bundle = None
+        if opposing_bundle is not None:
+            slots = opposing_entry_confluence_slots(
+                opposing_bundle,
+                ctx.graph,
+                ctx.offset_step,
+            )
+            if any(
+                _planner_owns_channel(channel)
+                or _descent_crosses_section(
+                    ctx.graph,
+                    channel,
+                    slots[route.line_id].peel_x,
+                )
+                for route, channel in entries
+            ):
+                continue
+            realised_xs = [slot.peel_x for slot in slots.values()]
+            inner_x = (
+                max(realised_xs) if port.side is PortSide.LEFT else min(realised_xs)
+            )
+            for route, channel in entries:
+                slot = slots[route.line_id]
+                _reseat_concentric_flanking(
+                    route,
+                    channel.idx,
+                    slot.peel_x,
+                    axis=0,
+                    offset_in=0.0,
+                    offset_out=slot.peel_x - inner_x,
+                )
             continue
         forced_order = _cross_row_convergence_channel_order(port_id, entries, ctx)
         if forced_order is not None:
