@@ -5210,10 +5210,8 @@ def _guard_planned_fan_frame_realised(
     offsets: dict[tuple[str, str], float],
 ) -> None:
     """Raise when a fan's settled frame disagrees with its semantic contract."""
-    from nf_metro.layout.fan_plans import (
-        fan_lane_offsets,
-        vertical_fan_label_lane_pitch,
-    )
+    from nf_metro.layout.fan_geometry import fan_lane_offsets
+    from nf_metro.layout.fan_plans import vertical_fan_label_lane_pitch
     from nf_metro.layout.route_plan import FanAppearancePolicy
     from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
@@ -5293,8 +5291,7 @@ def _guard_planned_fan_frame_realised(
             )
         lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
         expected_lane_offsets = fan_lane_offsets(
-            plan.branches,
-            plan.appearance_policy,
+            tuple(branch.id for branch in plan.branches),
             plan.appearance_lane_pitch,
             plan.appearance_centreline_branch_id,
         )
@@ -5327,14 +5324,13 @@ def _guard_planned_fan_frame_realised(
                 f"expected {expected_lane_offsets!r}"
             )
 
-        anchor_id = plan.local_frame_anchor_station_id
-        anchor = graph.stations.get(anchor_id or "")
+        local_anchor = plan.local_frame_anchor
+        anchor = graph.stations.get(
+            local_anchor.station_id if local_anchor is not None else ""
+        )
         centreline = None
-        if anchor is not None and plan.local_frame_anchor_offset is not None:
-            centreline = (
-                frame.secondary.get(anchor)
-                - frame.secondary_sign * plan.local_frame_anchor_offset
-            )
+        if anchor is not None and local_anchor is not None:
+            centreline = local_anchor.coordinate(frame, anchor)
         expected_coordinates: dict[str, float] = {}
         if centreline is not None:
             expected_coordinates.update(

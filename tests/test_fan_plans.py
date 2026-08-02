@@ -15,14 +15,13 @@ from nf_metro.layout.constants import (
     X_SPACING,
 )
 from nf_metro.layout.engine import compute_layout, compute_min_y_spacing
+from nf_metro.layout.fan_geometry import fan_lane_offsets, symmetric_lane_offsets
 from nf_metro.layout.fan_plans import (
     FanPlanExecution,
     FanPlanQuery,
     FanTopologyQuery,
     build_fan_plan_execution,
-    fan_lane_offsets,
     install_fan_plan_execution,
-    symmetric_lane_offsets,
     validate_fan_route_emissions,
 )
 from nf_metro.layout.labels import place_labels
@@ -135,6 +134,16 @@ class _Topology:
             raise KeyError(edge_id) from error
         return SimpleNamespace(bundle_id=bundle_id)
 
+    def convergence_for_junction(self, junction_id: str) -> object | None:
+        return next(
+            (
+                convergence
+                for convergence in self.convergences
+                if getattr(convergence, "junction_id", None) == junction_id
+            ),
+            None,
+        )
+
 
 def _graph(direction: str = "LR") -> MetroGraph:
     graph = MetroGraph()
@@ -245,8 +254,7 @@ def test_unique_exit_branch_keeps_trunk_on_centreline() -> None:
     )
     assert plan.appearance_centreline_branch_id == plan.branches[1].id
     assert tuple(branch.lane_offset for branch in plan.branches) == (10.0, 0.0)
-    assert plan.local_frame_anchor_station_id == "trunk"
-    assert plan.local_frame_anchor_offset == 0.0
+    assert plan.local_frame_anchor == FanCentrelineAnchor("trunk")
 
 
 def test_local_full_bundle_continuation_owns_the_fan_centreline() -> None:
@@ -438,7 +446,6 @@ def test_runtime_guard_accepts_content_expanded_appearance_lane_pitch() -> None:
     install_fan_plan_execution(
         graph,
         FanPlanExecution(
-            plans=(expanded_plan,),
             query=FanPlanQuery.build((expanded_plan,)),
         ),
     )
@@ -640,8 +647,7 @@ def test_runtime_guard_rejects_vertical_fan_pitch_under_reservation(
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "hub")
     bad_offsets = fan_lane_offsets(
-        plan.branches,
-        plan.appearance_policy,
+        tuple(branch.id for branch in plan.branches),
         bad_pitch,
         plan.appearance_centreline_branch_id,
     )
@@ -661,7 +667,6 @@ def test_runtime_guard_rejects_vertical_fan_pitch_under_reservation(
     install_fan_plan_execution(
         graph,
         FanPlanExecution(
-            plans=(bad_plan,),
             query=FanPlanQuery.build((bad_plan,)),
         ),
     )
@@ -717,8 +722,7 @@ def test_resolved_port_fork_uses_its_section_direction() -> None:
     assert plan.frame.secondary.step == 30.0
     assert tuple(branch.lane_offset for branch in plan.branches) == (0.0, 30.0)
     assert plan.appearance_centreline_branch_id == plan.branches[0].id
-    assert plan.local_frame_anchor_station_id == "a"
-    assert plan.local_frame_anchor_offset == 0.0
+    assert plan.local_frame_anchor == FanCentrelineAnchor("a")
 
 
 def test_common_resolved_approach_is_owned_as_one_fan_seam() -> None:
@@ -1428,7 +1432,7 @@ def test_absolute_centreline_anchor_is_frozen_before_materialisation() -> None:
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
 
     assert plan.centreline_anchor == FanCentrelineAnchor("src__exit_right_0")
-    assert plan.local_frame_anchor_station_id == "m1"
+    assert plan.local_frame_anchor == FanCentrelineAnchor("m1")
     anchor_y = 137.0
     graph.stations[plan.centreline_anchor.station_id].y = anchor_y
     graph.stations["mid__entry_left_2"].y = 263.0

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -328,23 +328,27 @@ def flow_port_sides(direction: str) -> tuple[PortSide, PortSide]:
     return (low, high) if AxisFrame.flow_sign(direction) > 0 else (high, low)
 
 
+def packed_section_visual_order(
+    sections: Mapping[str, Section], member_ids: Iterable[str]
+) -> tuple[str, ...]:
+    """Return a cell pack's section ids in left-to-right visual order."""
+    present_ids = tuple(item for item in member_ids if item in sections)
+    if not present_ids:
+        return ()
+    lead = sections[present_ids[0]].direction
+    if lanes_run_along_y(lead) and AxisFrame.flow_sign(lead) < 0:
+        return tuple(reversed(present_ids))
+    return present_ids
+
+
 def packed_section_visual_rank(
     graph: MetroGraph, section: Section, col: int, row: int
 ) -> int:
     """Return a section's left-to-right rank inside an authored cell pack."""
-    member_ids = graph.cell_packs.get((col, row), ())
-    members = [graph.sections[item] for item in member_ids if item in graph.sections]
-    if not members or section.id not in member_ids:
-        return 0
-    visual = (
-        tuple(reversed(members))
-        if lanes_run_along_y(members[0].direction)
-        and AxisFrame.flow_sign(members[0].direction) < 0
-        else tuple(members)
+    visual_ids = packed_section_visual_order(
+        graph.sections, graph.cell_packs.get((col, row), ())
     )
-    return next(
-        rank for rank, candidate in enumerate(visual) if candidate.id == section.id
-    )
+    return visual_ids.index(section.id) if section.id in visual_ids else 0
 
 
 def port_free_axis(side: PortSide) -> str:

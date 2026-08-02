@@ -63,15 +63,7 @@ def _centreline_coordinate(graph: MetroGraph, plan: FanPlan) -> float | None:
             f"planned fan {plan.id!r} centreline anchor "
             f"{anchor.station_id!r} is missing"
         )
-    return frame.secondary.get(station) - frame.secondary_sign * anchor.lane_offset
-
-
-def planned_fan_centreline_port_ids(
-    graph: MetroGraph, plan: FanPlan
-) -> tuple[str, ...]:
-    """Ports whose settled boundary anchor continues the fan centreline."""
-    del graph
-    return plan.centreline_port_ids
+    return anchor.coordinate(frame, station)
 
 
 def _apply_planned_fan_port_geometry(graph: MetroGraph) -> None:
@@ -81,7 +73,7 @@ def _apply_planned_fan_port_geometry(graph: MetroGraph) -> None:
         centreline = _centreline_coordinate(graph, plan)
         if frame is None or centreline is None:
             continue
-        for port_id in planned_fan_centreline_port_ids(graph, plan):
+        for port_id in plan.centreline_port_ids:
             port = graph.ports.get(port_id)
             station = graph.stations.get(port_id)
             if port is None or station is None:
@@ -258,13 +250,13 @@ def apply_planned_fans_to_section_subgraph(
         if origin is not None:
             centreline = getattr(origin, axis)
         else:
-            anchor = subgraph.stations.get(plan.local_frame_anchor_station_id or "")
-            if anchor is None or plan.local_frame_anchor_offset is None:
-                continue
-            centreline = (
-                getattr(anchor, axis)
-                - frame.secondary_sign * plan.local_frame_anchor_offset
+            local_anchor = plan.local_frame_anchor
+            anchor_station = subgraph.stations.get(
+                local_anchor.station_id if local_anchor is not None else ""
             )
+            if anchor_station is None or local_anchor is None:
+                continue
+            centreline = local_anchor.coordinate(frame, anchor_station)
         _materialise_plan_stations(
             subgraph.stations, plan, centreline, section_id=section.id
         )

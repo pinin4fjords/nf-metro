@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
 
 from nf_metro.graph_views import directed_graph, longest_path_layers
 from nf_metro.layout.constants import graph_offset_step
+from nf_metro.layout.fan_geometry import fan_lane_offsets, symmetric_lane_offsets
 from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -51,7 +52,6 @@ from nf_metro.parser.route_topology import (
     ResolvedConvergenceView,
     ResolvedEdge,
     RouteConnector,
-    RouteTopologyQuery,
     semantic_route_id,
 )
 
@@ -75,48 +75,9 @@ class FanTopologyQuery(Protocol):
 
     def connector(self, edge_id: ConnectorId) -> RouteConnector: ...
 
-
-def symmetric_lane_offsets(branch_count: int, lane_pitch: float) -> tuple[float, ...]:
-    """Return centreline-relative lane offsets in canonical branch order."""
-    if branch_count < 2:
-        raise ValueError("a fan requires at least two branches")
-    if not math.isfinite(lane_pitch) or lane_pitch <= 0:
-        raise ValueError("fan lane pitch must be finite and positive")
-    midpoint = (branch_count - 1) / 2.0
-    return tuple((rank - midpoint) * lane_pitch for rank in range(branch_count))
-
-
-def fan_lane_offsets(
-    branches: Sequence[FanBranchPlan],
-    appearance_policy: FanAppearancePolicy,
-    lane_pitch: float,
-    appearance_centreline_branch_id: FanBranchPlanId | None = None,
-) -> tuple[float, ...]:
-    """Return canonical lane offsets for an authored fan appearance."""
-    if not isinstance(appearance_policy, FanAppearancePolicy):
-        raise ValueError("fan appearance policy is not canonical")
-    if (
-        appearance_policy is FanAppearancePolicy.SYMMETRIC
-        or appearance_centreline_branch_id is None
-    ):
-        return symmetric_lane_offsets(len(branches), lane_pitch)
-    if not branches:
-        raise ValueError("fan requires at least one branch")
-    if appearance_centreline_branch_id not in {branch.id for branch in branches}:
-        raise ValueError("fan appearance centreline names an unknown branch")
-    offsets = {appearance_centreline_branch_id: 0.0}
-    offsets.update(
-        (branch.id, slot * lane_pitch)
-        for slot, branch in enumerate(
-            (
-                branch
-                for branch in branches
-                if branch.id != appearance_centreline_branch_id
-            ),
-            start=1,
-        )
-    )
-    return tuple(offsets[branch.id] for branch in branches)
+    def convergence_for_junction(
+        self, junction_id: str
+    ) -> ResolvedConvergenceView | None: ...
 
 
 def _appearance_centreline_branch_id(
@@ -352,8 +313,11 @@ class FanPlanQuery:
 class FanPlanExecution:
     """Context-local result installed for later layout and routing consumers."""
 
-    plans: tuple[FanPlan, ...]
     query: FanPlanQuery
+
+    @property
+    def plans(self) -> tuple[FanPlan, ...]:
+        return self.query.plans
 
     def __deepcopy__(self, memo: dict[int, object]) -> FanPlanExecution:
         del memo
@@ -1041,7 +1005,7 @@ def _centreline_anchor(
     branches: Sequence[FanBranchPlan],
     entry_port_ids: Sequence[str],
     exit_port_ids: Sequence[str],
-    local_frame_anchor: tuple[str, float | None] | None,
+    local_frame_anchor: FanCentrelineAnchor | None,
 ) -> FanCentrelineAnchor | None:
     """Freeze the source of one fan's settled absolute centreline."""
     layout_section = graph.sections.get(layout_section_id or "")
@@ -1100,12 +1064,7 @@ def _centreline_anchor(
         if fork_id in graph.stations:
             return FanCentrelineAnchor(fork_id)
 
-    if local_frame_anchor is None or local_frame_anchor[1] is None:
-        return None
-    return FanCentrelineAnchor(
-        station_id=local_frame_anchor[0],
-        lane_offset=local_frame_anchor[1],
-    )
+    return local_frame_anchor
 
 
 def _lane_station_ids(
@@ -1214,8 +1173,7 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         centreline_port_ids=(),
         centreline_station_ids=(),
         centreline_anchor=None,
-        local_frame_anchor_station_id=None,
-        local_frame_anchor_offset=None,
+        local_frame_anchor=None,
         appearance_centreline_branch_id=None,
         appearance_lane_pitch=None,
         disposition=FanPlanDisposition.LEGACY,
@@ -1507,7 +1465,7 @@ def _build_candidate(
             graph,
             fork_id,
             {line_id: rank for rank, line_id in enumerate(graph.lines)},
-            cast(RouteTopologyQuery, topology),
+            topology,
         )
         branch_by_line = {
             branch.line_ids[0]: branch
@@ -1549,8 +1507,7 @@ def _build_candidate(
         structural_trunk_rank,
     )
     lane_offsets = fan_lane_offsets(
-        branch_plans,
-        appearance_policy,
+        tuple(branch.id for branch in branch_plans),
         lane_pitch,
         appearance_centreline_branch_id,
     )
@@ -1852,12 +1809,16 @@ def _build_candidate(
     ):
         reason = "same-line-open-fan-layout-owns-geometry"
     local_anchor = next(
-        ((station_id, 0.0) for station_id in centreline_station_ids), None
+        (FanCentrelineAnchor(station_id) for station_id in centreline_station_ids),
+        None,
     )
     if local_anchor is None:
         local_anchor = next(
             (
-                (branch.lane_station_ids[0], branch.lane_offset)
+                FanCentrelineAnchor(
+                    branch.lane_station_ids[0],
+                    cast(float, branch.lane_offset),
+                )
                 for branch in sorted(
                     branch_plans,
                     key=lambda branch: (
@@ -1962,12 +1923,7 @@ def _build_candidate(
         owned_station_ids=owned_stations,
         centreline_station_ids=centreline_station_ids if planned else (),
         centreline_anchor=candidate_centreline_anchor if planned else None,
-        local_frame_anchor_station_id=(
-            local_anchor[0] if planned and local_anchor is not None else None
-        ),
-        local_frame_anchor_offset=(
-            local_anchor[1] if planned and local_anchor is not None else None
-        ),
+        local_frame_anchor=local_anchor if planned else None,
         frame=frame if planned else None,
         disposition=(
             FanPlanDisposition.PLANNED if planned else FanPlanDisposition.LEGACY
@@ -2051,7 +2007,7 @@ def build_fan_plan_execution(
         if len(targets) >= 2
     )
     plans = _reject_overlaps(plans, {fact.id: fact for fact in facts})
-    return FanPlanExecution(plans=plans, query=FanPlanQuery.build(plans))
+    return FanPlanExecution(query=FanPlanQuery.build(plans))
 
 
 def install_fan_plan_execution(graph: MetroGraph, execution: FanPlanExecution) -> None:

@@ -2,23 +2,30 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from nf_metro.layout.geometry import packed_section_visual_rank
 from nf_metro.layout.route_topology import convergence_entry_port_id
 from nf_metro.layout.routing.common import resolve_section, resolve_section_colrow
 from nf_metro.parser.model import MetroGraph, Station
-from nf_metro.parser.route_topology import RouteTopologyQuery
+
+if TYPE_CHECKING:
+    from nf_metro.layout.fan_plans import FanTopologyQuery
 
 
 def _fan_branch_entry_port(
     graph: MetroGraph,
     target_id: str,
-    topology: RouteTopologyQuery | None = None,
+    topology: FanTopologyQuery | None = None,
 ) -> str | None:
     """Return the entry port reached by one resolved divergence branch."""
     port = graph.ports.get(target_id)
     if port is not None:
         return target_id if port.is_entry else None
-    return convergence_entry_port_id(graph, target_id, topology)
+    if topology is not None:
+        convergence = topology.convergence_for_junction(target_id)
+        return convergence.entry_port_id if convergence is not None else None
+    return convergence_entry_port_id(graph, target_id)
 
 
 def _section_order_coordinate(graph: MetroGraph, station: Station) -> float | None:
@@ -39,7 +46,7 @@ def fanout_divergence_peel_order(
     graph: MetroGraph,
     junction_id: str,
     line_priority: dict[str, int],
-    topology: RouteTopologyQuery | None = None,
+    topology: FanTopologyQuery | None = None,
 ) -> list[str] | None:
     """Return the crossing-free opening order for a clean divergence.
 

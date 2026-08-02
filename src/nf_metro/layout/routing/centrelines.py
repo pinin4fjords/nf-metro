@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.fan_geometry import symmetric_lane_offsets
 from nf_metro.layout.geometry import (
     axis_point,
     axis_split,
@@ -133,7 +134,7 @@ def fan_offsets(n: int, step: float) -> list[float]:
     lines one at a time passes this as ``bundle_offsets`` so the builder can
     anchor each corner on the innermost line without seeing the siblings.
     """
-    return [(j - (n - 1) / 2) * step for j in range(n)]
+    return list(symmetric_lane_offsets(n, step))
 
 
 def gather_bundle(ctx: _RoutingCtx, edge: Edge) -> tuple[list[_Member], float, float]:

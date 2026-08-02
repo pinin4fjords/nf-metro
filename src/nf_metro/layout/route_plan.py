@@ -21,12 +21,13 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, NewType, TypeAlias, TypeVar
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.fan_geometry import fan_lane_offsets
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.common import Direction, right_normal_axis_sign
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.options import LineOrder
 from nf_metro.parser.commitments import FlowDirection
-from nf_metro.parser.model import MetroGraph, PortSide, is_bypass_v
+from nf_metro.parser.model import MetroGraph, PortSide, Station, is_bypass_v
 from nf_metro.parser.provenance import (
     ConnectorEndpointRole,
     DecisionOrigin,
@@ -770,7 +771,7 @@ class FanRouteEmission:
 
 @dataclass(frozen=True, slots=True)
 class FanCentrelineAnchor:
-    """Frozen station source for a fan's absolute secondary-axis centreline."""
+    """Frozen station source and offset defining a fan centreline."""
 
     station_id: str
     lane_offset: float = 0.0
@@ -780,6 +781,10 @@ class FanCentrelineAnchor:
             raise ValueError("fan centreline anchor has no station")
         if not math.isfinite(self.lane_offset):
             raise ValueError("fan centreline anchor offset must be finite")
+
+    def coordinate(self, frame: AxisFrame, station: Station) -> float:
+        """Resolve the centreline from the anchor station in ``frame``."""
+        return frame.secondary.get(station) - frame.secondary_sign * self.lane_offset
 
 
 @dataclass(frozen=True, slots=True)
@@ -827,8 +832,7 @@ class FanPlan:
     owned_station_ids: tuple[str, ...]
     centreline_station_ids: tuple[str, ...]
     centreline_anchor: FanCentrelineAnchor | None
-    local_frame_anchor_station_id: str | None
-    local_frame_anchor_offset: float | None
+    local_frame_anchor: FanCentrelineAnchor | None
     frame: AxisFrame | None
     disposition: FanPlanDisposition
     legacy_reason: str | None
@@ -980,31 +984,11 @@ class FanPlan:
         if planned:
             assert self.appearance_lane_pitch is not None
             lane_offsets = tuple(branch.lane_offset for branch in self.branches)
-            if (
-                self.appearance_policy is FanAppearancePolicy.SYMMETRIC
-                or self.appearance_centreline_branch_id is None
-            ):
-                midpoint = (len(self.branches) - 1) / 2.0
-                expected_lane_offsets = tuple(
-                    (rank - midpoint) * self.appearance_lane_pitch
-                    for rank in range(len(self.branches))
-                )
-            else:
-                expected_by_id = {self.appearance_centreline_branch_id: 0.0}
-                expected_by_id.update(
-                    (branch.id, slot * self.appearance_lane_pitch)
-                    for slot, branch in enumerate(
-                        (
-                            branch
-                            for branch in self.branches
-                            if branch.id != self.appearance_centreline_branch_id
-                        ),
-                        start=1,
-                    )
-                )
-                expected_lane_offsets = tuple(
-                    expected_by_id[branch.id] for branch in self.branches
-                )
+            expected_lane_offsets = fan_lane_offsets(
+                tuple(branch.id for branch in self.branches),
+                self.appearance_lane_pitch,
+                self.appearance_centreline_branch_id,
+            )
             if any(
                 actual is None or abs(actual - expected) > 1e-9
                 for actual, expected in zip(
@@ -1113,23 +1097,18 @@ class FanPlan:
             }
         ):
             raise ValueError("fan centreline anchor lies outside complete membership")
-        has_local_anchor = self.local_frame_anchor_station_id is not None
-        if has_local_anchor != (self.local_frame_anchor_offset is not None):
-            raise ValueError("fan local frame anchor is incomplete")
         if (
-            has_local_anchor
-            and self.local_frame_anchor_station_id not in layout_station_ids
+            self.local_frame_anchor is not None
+            and self.local_frame_anchor.station_id not in layout_station_ids
         ):
             raise ValueError("fan local frame anchor lies outside layout ownership")
-        if self.local_frame_anchor_offset is not None and not math.isfinite(
-            self.local_frame_anchor_offset
+        if planned and bool(layout_station_ids) != (
+            self.local_frame_anchor is not None
         ):
-            raise ValueError("fan local frame anchor offset must be finite")
-        if planned and bool(layout_station_ids) != has_local_anchor:
             raise ValueError(
                 "planned fan local frame anchor disagrees with layout ownership"
             )
-        if not planned and has_local_anchor:
+        if not planned and self.local_frame_anchor is not None:
             raise ValueError("legacy fan owns a local frame anchor")
 
     @property
