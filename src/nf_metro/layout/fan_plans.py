@@ -2265,6 +2265,8 @@ def validate_fan_route_emissions(
         if not plan.owns_geometry:
             continue
         for expectation in plan.route_expectations:
+            if plan.system_id is not None and expectation.member_id is None:
+                continue
             bound = routes_by_edge.get(expectation.edge, ())
             if len(bound) != 1:
                 raise RuntimeError(

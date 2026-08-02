@@ -779,7 +779,7 @@ class FanRouteEmission:
 
 @dataclass(frozen=True, slots=True)
 class FanRouteExpectation:
-    """One final route that must remain bound to a planned fan."""
+    """One resolved fan edge, optionally bound to an emission member."""
 
     edge: ResolvedEdge
     member_id: EmissionMemberId | None
