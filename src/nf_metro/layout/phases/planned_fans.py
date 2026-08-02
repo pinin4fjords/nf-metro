@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import ICON_HALF_HEIGHT
@@ -15,7 +16,7 @@ from nf_metro.layout.phases._common import (
 from nf_metro.parser.model import MetroGraph, Section, Station
 
 if TYPE_CHECKING:
-    from nf_metro.layout.route_plan import FanPlan
+    from nf_metro.layout.route_plan import FanPlan, FanPlanId
 
 
 def _planned_fans(graph: MetroGraph) -> tuple[FanPlan, ...]:
@@ -185,13 +186,42 @@ def _apply_planned_fan_port_geometry(graph: MetroGraph) -> None:
             frame.secondary.set(station, centreline)
 
 
-def _apply_planned_fan_geometry(graph: MetroGraph) -> None:
+def _snapshot_planned_fan_centrelines(
+    graph: MetroGraph,
+) -> Mapping[FanPlanId, float]:
+    """Freeze each complete plan's centreline at a structural boundary."""
+    centrelines: dict[FanPlanId, float] = {}
+    for plan in _planned_fans(graph):
+        if not plan.layout_station_ids:
+            continue
+        centreline = _centreline_coordinate(graph, plan)
+        if centreline is None:
+            from nf_metro.layout.phases.guards import PhaseInvariantError
+
+            raise PhaseInvariantError(
+                f"planned fan {plan.id!r} has no settled centreline"
+            )
+        centrelines[plan.id] = centreline
+    return MappingProxyType(centrelines)
+
+
+def _apply_planned_fan_geometry(
+    graph: MetroGraph,
+    centrelines: Mapping[FanPlanId, float],
+) -> None:
     """Place every plan-owned station from its one frozen relative frame."""
     for plan in _planned_fans(graph):
         frame = plan.frame
-        centreline = _centreline_coordinate(graph, plan)
-        if frame is None or centreline is None or not plan.layout_station_ids:
+        if frame is None or not plan.layout_station_ids:
             continue
+        try:
+            centreline = centrelines[plan.id]
+        except KeyError as error:
+            from nf_metro.layout.phases.guards import PhaseInvariantError
+
+            raise PhaseInvariantError(
+                f"planned fan {plan.id!r} has no frozen placement centreline"
+            ) from error
         _materialise_plan_stations(graph.stations, plan, centreline)
 
         if frame.secondary.name == "y":

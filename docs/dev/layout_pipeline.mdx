@@ -103,10 +103,13 @@ and `### Content-placement purity` sections.
 Before Stage 1, the engine recognises complete authored fans and diamonds from
 connector identity and resolver lineage. Each supported fan gets one immutable
 relative plan: its branches, opening and landing order, centreline, lanes,
-runways, offset carriers, and any dedicated route emissions. Stages 4.9 and
-6.17 materialise that plan against the anchors available at those boundaries.
-The authored straight or symmetric appearance is frozen separately from the
-structural question of whether the branches reconverge.
+runways, offset carriers, and any dedicated route emissions. The authored
+straight or symmetric appearance is frozen separately from the structural
+question of whether the branches reconverge.
+
+Stages 4.9 and 6.17 materialise the plan against a read-only centreline captured
+after the structural anchors settle at each boundary. The placement phase never
+derives its frame from a plan-owned station that it is about to move.
 
 Ownership is all-or-nothing. If a fan overlaps a local merge frame owned by
 another topology, or its membership is ambiguous, the complete fan uses the

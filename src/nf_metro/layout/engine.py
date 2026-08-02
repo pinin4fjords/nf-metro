@@ -257,6 +257,7 @@ from nf_metro.layout.phases.planned_fans import (  # noqa: F401
     _apply_planned_fan_geometry,
     _apply_planned_fan_port_geometry,
     _fit_planned_fan_bboxes,
+    _snapshot_planned_fan_centrelines,
     planned_fan_layout_section_ids,
 )
 from nf_metro.layout.phases.ports import (  # noqa: F401
@@ -1601,7 +1602,13 @@ def _compute_section_layout(
 
     # Stage 4.9: Materialise each complete semantic fan in its relative frame,
     # then leave unsupported groups to the legacy placement path.
-    _run_placement(graph, validate, "4.9", _apply_planned_fan_geometry)
+    _run_placement(
+        graph,
+        validate,
+        "4.9",
+        _apply_planned_fan_geometry,
+        _snapshot_planned_fan_centrelines(graph),
+    )
     _run_placement(graph, validate, "4.9", _redistribute_fanout_siblings, y_spacing)
     if _fit_planned_fan_bboxes(graph, section_x_padding, section_y_padding):
         reenforce_column_gaps(graph)
@@ -2051,7 +2058,13 @@ def _finalize_layout(
 
     # Stage 6.17: Re-materialise semantic fan frames against their settled
     # centreline, then compact unsupported legacy diamonds where requested.
-    _run_placement(graph, validate, "6.17", _apply_planned_fan_geometry)
+    _run_placement(
+        graph,
+        validate,
+        "6.17",
+        _apply_planned_fan_geometry,
+        _snapshot_planned_fan_centrelines(graph),
+    )
     if graph.diamond_style == "symmetric":
         _apply_half_grid_symmetric_diamonds(graph, y_spacing)
     _snap(graph, "6.17")

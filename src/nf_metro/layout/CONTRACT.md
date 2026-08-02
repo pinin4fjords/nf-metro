@@ -225,8 +225,12 @@ in 6.1 / 6.2, the balance arrangement in 6.11 - read it from a frozen *placement
 reference* (`_snapshot_placement_refs` populates `graph._placement_ref_y` /
 `_placement_ref_bbox_top`; phases read it via `_ref_y` / `_ref_bbox_top`)
 captured once right before the consumer, rather than from live geometry. The
-reference equals the live geometry at capture time, so the property was added
-with no change to any render.
+reference equals the live geometry at capture time. Planned fan materialisation
+uses the same boundary pattern without a graph-state channel:
+`_snapshot_planned_fan_centrelines` captures a read-only centreline mapping
+after structural settlement and passes it into `_apply_planned_fan_geometry`.
+These frozen inputs preserve the established render while keeping placement
+independent of mutable station and bbox geometry.
 
 ## Inter-phase state protocol
 
@@ -691,15 +695,19 @@ in pipeline order.
   redistribute side stations symmetrically around the trunk Y. No-op
   unless `graph.center_ports` (guard inside the helper, not at the call
   site).
-- **Helper**: `_redistribute_fanout_siblings` (`phases/fan_bundles.py`).
+- **Helpers**: `_snapshot_planned_fan_centrelines` and
+  `_apply_planned_fan_geometry` (`phases/planned_fans.py`) materialise complete
+  semantic plans first; `_redistribute_fanout_siblings`
+  (`phases/fan_bundles.py`) handles unsupported fans.
 - **Precondition**: Trunk Ys aligned (Stage 4.8).
 - **Postcondition**: In qualifying columns, fan-out siblings sit
   symmetrically around the section's LR/RL port trunk anchor (the trunk
   station's own Y only when the section has no such port). Linear chains,
   fan-in structures, and file inputs are left in place.
 - **Invariants preserved**: Trunk station Y. Off-track stations.
-- **Purity**: centres on the frozen port anchor, so the fan does not
-  depend on the trunk station's live Y (#491).
+- **Purity**: semantic plans read a centreline frozen immediately after
+  structural settlement; legacy fans centre on the frozen port anchor. Neither
+  path depends on a governed station's live Y (#491).
 - **Lifecycle:** transient - superseded by Stage 6.7 / 6.11, which
   re-fan the siblings against the final trunk Y (this fan uses the early
   trunk Y).
@@ -1259,7 +1267,8 @@ in pipeline order.
   pass, so the branches straddle the section trunk's final Y exactly; the
   compaction only moves them inward toward the trunk, so it never breaks bbox
   containment.
-- **Helpers**: `_apply_planned_fan_geometry`, then
+- **Helpers**: `_snapshot_planned_fan_centrelines` captures the settled frame,
+  `_apply_planned_fan_geometry` materialises it, then
   `_apply_half_grid_symmetric_diamonds` for symmetric legacy geometry.
 - **Precondition**: Trunk Ys and section bboxes settled (post-6.16).
 - **Postcondition**: Each planned station realises its immutable relative frame.
@@ -1362,8 +1371,10 @@ in pipeline order.
   emissions.
 - **Helpers**: `build_fan_plan_execution` runs before Stage 1.
   `_apply_planned_fan_port_geometry` seats owned boundary anchors.
-  `_apply_planned_fan_geometry` materialises the relative frame at Stages 4.9
-  and 6.17. Routing applies `FanOffsetCarrier` assignments before dispatch.
+  `_snapshot_planned_fan_centrelines` freezes each settled structural
+  centreline before `_apply_planned_fan_geometry` materialises the relative
+  frame at Stages 4.9 and 6.17. Routing applies `FanOffsetCarrier` assignments
+  before dispatch.
 - **Precondition**: Authored connector identity and resolver lineage are
   complete. Effective grid decisions are available even though section canvas
   coordinates are not.

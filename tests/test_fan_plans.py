@@ -28,6 +28,7 @@ from nf_metro.layout.phases.guards import (
     PhaseInvariantError,
     _guard_planned_fan_frame_realised,
 )
+from nf_metro.layout.phases.planned_fans import _apply_planned_fan_geometry
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
@@ -750,6 +751,18 @@ def test_runtime_guard_rejects_planned_branch_coordinate_drift() -> None:
 
     with pytest.raises(PhaseInvariantError, match="expected .* from its frame"):
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
+def test_planned_geometry_requires_every_frozen_centreline() -> None:
+    path = ROOT / "examples" / "topologies" / "wide_label_fan.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+
+    with pytest.raises(
+        PhaseInvariantError,
+        match="has no frozen placement centreline",
+    ):
+        _apply_planned_fan_geometry(graph, {})
 
 
 def test_planned_straight_diamond_is_invalid_at_construction() -> None:
