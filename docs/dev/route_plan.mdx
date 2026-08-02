@@ -90,6 +90,8 @@ A fan plan is built before station placement from authored connectors and their
 resolved paths. It describes one fork, every branch through an optional join,
 and any extra outputs that leave those branches. The plan freezes:
 
+- the authored straight or symmetric appearance, independently of whether the
+  branches reconverge;
 - branch, opening, and landing order;
 - the local flow frame, centreline, and branch lane offsets;
 - entry and exit runway requirements;
@@ -108,6 +110,11 @@ frame or cannot establish complete ownership, it is `LEGACY`: none of its
 geometry, offsets, or route emissions are claimed. The normal layout and
 routing paths then handle the complete fan. A non-blocking diagnostic records
 the reason so remaining fallback cases can be measured and removed.
+
+Straight reconvergences are recorded as one semantic fan but remain `LEGACY`.
+Their shape comes from the section track allocator, including its phantom
+tracks and collision compaction. #1658 will bring that allocator behind the
+plan boundary before the planner owns these cases.
 
 ## Identity and coverage
 

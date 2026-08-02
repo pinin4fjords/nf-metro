@@ -1311,6 +1311,22 @@ in pipeline order.
   the final boundary (no later Y mutation). The cleared marker reaches the
   next `_layout_once` pass, which re-derives the marks from scratch.
 
+### Stage 6.18a: refit planned fan bbox tops (engine.py)
+- **Purpose**: Stage 6.17 can move planned fan content after the general bbox
+  fit in Stage 6.15a. Remove top slack left by that final placement without
+  forcing the section to share a top edge with its row mates.
+- **Helper**: `refit_empty_section_tops_to_content` (`phases/bbox.py`), scoped
+  by `planned_fan_layout_section_ids` (`phases/planned_fans.py`).
+- **Precondition**: Planned fan geometry and half-pitch expansion are settled
+  (post-6.18).
+- **Postcondition**: A planned fan section with an unused top band has exactly
+  `section_y_padding` above its highest visible content.
+- **Invariants preserved**: Station and route geometry, unrelated section
+  bboxes, and top bands used by ports or bypass helpers.
+- **Related tests**: `test_section_bbox_top_hugs_content` and
+  `_guard_section_top_padding`.
+- **Lifecycle:** invariant - no geometry or bbox phase follows this refit.
+
 ## Post-layout routing boundary: exit-turn planning
 
 - **Purpose**: Decide source-lane order and turn axes for every complete

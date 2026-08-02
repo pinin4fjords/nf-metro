@@ -105,6 +105,8 @@ connector identity and resolver lineage. Each supported fan gets one immutable
 relative plan: its branches, opening and landing order, centreline, lanes,
 runways, offset carriers, and any dedicated route emissions. Stages 4.9 and
 6.17 materialise that plan against the anchors available at those boundaries.
+The authored straight or symmetric appearance is frozen separately from the
+structural question of whether the branches reconverge.
 
 Ownership is all-or-nothing. If a fan overlaps a local merge frame owned by
 another topology, or its membership is ambiguous, the complete fan uses the
@@ -279,6 +281,11 @@ broken by each cleanup pass, then handle the final geometric details
   `diamond_style='symmetric'` keep mirrored half-pitch lanes even when one
   branch is the topology's unique continuation. Unsupported symmetric diamonds
   then receive the legacy half-pitch compaction.
+- **Stage 6.18**: Expand a half-pitch branch to a full row when its mirrored
+  partner has gone, so an isolated branch does not remain between grid rows.
+- **Stage 6.18a**: Refit the top of each planned fan section after its final
+  content placement. The refit only removes empty space; it leaves any top band
+  used by a port or bypass route intact and never aligns unrelated sections.
 
 Stage 6 is where most of the historical organic-suffix sprawl (the old
 13d / 13d2 / 13h.1 / 13k2 names) lived. The flat Stage.N scheme makes
