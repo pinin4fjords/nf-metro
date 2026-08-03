@@ -217,6 +217,24 @@ def _route_edges(
 
     execution = build_exit_turn_execution(graph, ctx)
     ctx.exit_turns = execution.query
+    from nf_metro.layout.routing.convergences import (
+        build_convergence_plan_execution,
+        empty_convergence_plan_execution,
+    )
+
+    convergence_execution = (
+        build_convergence_plan_execution(
+            graph,
+            ctx,
+            execution.scaffold,
+            exit_turn_plans=execution.plans,
+            fan_plans=graph.fan_plans,
+            include_resources=observe_plan,
+        )
+        if execution.scaffold is not None
+        else empty_convergence_plan_execution()
+    )
+    ctx.convergences = convergence_execution.query
     observer = None
     if observe_plan:
         observer = build_route_plan_observer(
@@ -227,6 +245,10 @@ def _route_edges(
             exit_turn_references=execution.references,
             exit_turn_demands=execution.demands,
             exit_turn_diagnostics=execution.diagnostics,
+            convergence_plans=convergence_execution.plans,
+            convergence_references=convergence_execution.references,
+            convergence_demands=convergence_execution.demands,
+            convergence_diagnostics=convergence_execution.diagnostics,
         )
     # Route into the context's own list so handlers can read the routes settled
     # so far (a wrap clearing an already-placed sibling channel); it grows as
@@ -240,6 +262,22 @@ def _route_edges(
                 observer.record_merge_skip(
                     (edge.source, edge.target, edge.line_id),
                     observer.covering_edge((edge.source, edge.target, edge.line_id)),
+                )
+            continue
+        planned_covering_edge = (
+            ctx.convergences.covering_edge_for_edge(edge)
+            if ctx.convergences is not None
+            else None
+        )
+        if planned_covering_edge is not None:
+            if observer is not None:
+                observer.record_merge_skip(
+                    (edge.source, edge.target, edge.line_id),
+                    (
+                        planned_covering_edge.source,
+                        planned_covering_edge.target,
+                        planned_covering_edge.line_id,
+                    ),
                 )
             continue
         if (edge.source, edge.target, edge.line_id) in rail_internal:
@@ -378,6 +416,9 @@ def _route_edges(
     from nf_metro.layout.fan_plans import validate_fan_route_emissions
 
     validate_fan_route_emissions(graph, routes, ctx.station_offsets)
+    from nf_metro.layout.routing.convergences import validate_convergence_plans
+
+    validate_convergence_plans(routes, convergence_execution)
 
     return routes, moves, observer.finish(routes) if observer is not None else None
 

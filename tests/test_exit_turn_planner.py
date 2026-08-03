@@ -12,6 +12,7 @@ from types import MappingProxyType
 
 import pytest
 
+import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.offsets as routing_offsets
@@ -1422,6 +1423,11 @@ def test_missing_outbound_members_have_a_valid_legacy_lane_record(
         )
 
     monkeypatch.setattr(exit_turns, "build_route_semantic_scaffold", omit_outbound)
+    monkeypatch.setattr(
+        convergences,
+        "build_convergence_plan_execution",
+        lambda *_args, **_kwargs: convergences.empty_convergence_plan_execution(),
+    )
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     assert graph.fan_plan_execution is not None

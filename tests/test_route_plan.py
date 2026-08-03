@@ -264,17 +264,15 @@ def test_every_member_has_one_emitted_or_explicit_covered_binding(
 
 
 @pytest.mark.parametrize(
-    ("relative_path", "kind"),
-    [
-        ("genomeassembly.mmd", BindingKind.MERGE_SKIP),
-        ("genomeassembly_staggered.mmd", BindingKind.COVERED_MERGE_HOP),
-    ],
+    "relative_path", ("genomeassembly.mmd", "genomeassembly_staggered.mmd")
 )
-def test_merge_suppression_is_retained_at_its_actual_source(
-    relative_path: str, kind: BindingKind
+def test_planned_merge_suppression_occurs_before_dispatch(
+    relative_path: str,
 ) -> None:
     _graph, _routes, plan = _observe(EXAMPLES / relative_path)
-    covered = [binding for binding in plan.bindings if binding.kind is kind]
+    covered = [
+        binding for binding in plan.bindings if binding.kind is BindingKind.MERGE_SKIP
+    ]
 
     assert covered
     binding = covered[0]
@@ -320,10 +318,12 @@ def test_route_families_and_roles_come_from_production_dispatch() -> None:
     assert EmissionRole.BYPASS in bypass.roles
     assert EmissionRole.TERMINAL in bypass.roles
     skipped = [member for member in plan.members if member.family_id is None]
-    assert len(skipped) == 1
+    assert skipped
     query = build_route_plan_query(plan)
-    (binding,) = query.bindings_for(skipped[0].id)
-    assert binding.kind is BindingKind.MERGE_SKIP
+    assert all(
+        query.bindings_for(member.id)[0].kind is BindingKind.MERGE_SKIP
+        for member in skipped
+    )
     assert all(
         EmissionRole.CONTINUATION not in member.roles
         and EmissionRole.PEEL_OFF not in member.roles

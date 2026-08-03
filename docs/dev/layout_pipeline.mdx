@@ -330,16 +330,19 @@ The Stage and Pass labels line up cleanly:
 The numbered stages settle station, port, junction, and section coordinates.
 On the normal dispatcher path, routing then computes per-line station offsets,
 applies the exact slots owned by semantic fan plans, and builds complete
-exit-turn plans before emitting the first inter-section path. Whole-graph rail
-mode takes its documented short circuit instead.
+exit-turn and convergence plans before emitting the first inter-section path.
+Whole-graph rail mode takes its documented short circuit instead.
 
 `compute_station_offsets` first produces the ordinary offset map. Immediately
 before dispatch, `_route_edges` applies planned fan carriers and builds the
-exit-turn plan once. The exit-turn planner compacts each supported group onto
-its active lanes, commits the offsets it owns across the source seam, and
-assigns source-side turn axes from that same order. Ordinary and observed
-routing share this boundary. Always-on checks reject changes to a committed
-lane or axis and ensure every dedicated fan emission is consumed exactly once.
+exit-turn plan once. It then builds convergence plans from the same semantic
+scaffold and settled routing context. The exit-turn planner compacts each
+supported group onto its active lanes, commits the offsets it owns across the
+source seam, and assigns source-side turn axes from that same order. The
+convergence planner freezes target trunks, ordered feeder joins, continuations,
+and endpoint ownership. Ordinary and observed routing share this boundary.
+Always-on checks reject changes to a committed lane, axis, trunk, join, or
+endpoint and ensure every dedicated fan emission is consumed exactly once.
 
 This is a routing-boundary contract, not a numbered layout stage. It does not
 move stations, ports, junctions, or section boxes. See

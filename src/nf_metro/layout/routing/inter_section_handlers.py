@@ -1613,6 +1613,9 @@ def _route_inter_section(
         )
     if route is not None:
         consume_exit_turn_route(route, family_id, ctx)
+        from nf_metro.layout.routing.convergences import consume_convergence_route
+
+        consume_convergence_route(route, ctx)
     if observer is not None and route is not None:
         observer.record_dispatch((edge.source, edge.target, edge.line_id), family_id)
     _declare_trunk(route, ctx)

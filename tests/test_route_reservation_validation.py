@@ -98,7 +98,8 @@ def test_query_rejects_incomplete_connector_attribution() -> None:
 )
 def test_query_rejects_inconsistent_symbolic_demands(field, mutate) -> None:
     plan = _plan()
-    demand = plan.demands[0]
+    demand_id = plan.reservations[0].demand_ids[0]
+    demand = next(item for item in plan.demands if item.id == demand_id)
     malformed = replace(demand, **{field: mutate(demand)})
 
     with pytest.raises(ValueError, match="symbolic demand is inconsistent"):

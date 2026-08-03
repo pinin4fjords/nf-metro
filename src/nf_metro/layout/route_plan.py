@@ -73,6 +73,7 @@ ExitTurnPlanId = NewType("ExitTurnPlanId", str)
 ExitTurnAxisId = NewType("ExitTurnAxisId", str)
 FanPlanId = NewType("FanPlanId", str)
 FanBranchPlanId = NewType("FanBranchPlanId", str)
+ConvergencePlanId = NewType("ConvergencePlanId", str)
 _T = TypeVar("_T")
 
 
@@ -105,6 +106,30 @@ class FanPlanDisposition(str, Enum):
 
     PLANNED = "planned"
     LEGACY = "legacy"
+
+
+class ConvergenceDisposition(str, Enum):
+    """Whether one complete route system uses planned convergence geometry."""
+
+    PLANNED = "planned"
+    LEGACY = "legacy"
+
+
+class ConvergenceTrunkReason(str, Enum):
+    """Structural evidence selecting a convergence's primary trunk member."""
+
+    LONGEST_BYPASS = "longest-bypass"
+    OUTGOING_CONTINUATION = "outgoing-continuation"
+    SHARED_TERMINAL_APPROACH = "shared-terminal-approach"
+
+
+class ConvergenceEndpointRole(str, Enum):
+    """Geometry owned at one convergence member's terminal endpoint."""
+
+    FEEDER = "feeder"
+    TRUNK = "trunk"
+    CONTINUATION = "continuation"
+    COVERED_CONTINUATION = "covered-continuation"
 
 
 class FanAppearancePolicy(str, Enum):
@@ -1215,6 +1240,276 @@ class FanPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class ConvergenceTrunkAxis:
+    """Shared trunk axis and inclusive extent in layout-canvas coordinates."""
+
+    axis: DemandAxis
+    coordinate: float
+    extent_start: float
+    extent_end: float
+    direction: Direction
+    source_flank_coordinate: float
+    target_flank_coordinate: float
+    source_endpoint_coordinate: float | None = None
+    target_endpoint_coordinate: float | None = None
+    coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+
+    def __post_init__(self) -> None:
+        if self.axis is DemandAxis.BOTH:
+            raise ValueError("convergence trunk requires one scalar travel axis")
+        if not all(
+            math.isfinite(value)
+            for value in (
+                self.coordinate,
+                self.extent_start,
+                self.extent_end,
+                self.source_flank_coordinate,
+                self.target_flank_coordinate,
+                *(
+                    value
+                    for value in (
+                        self.source_endpoint_coordinate,
+                        self.target_endpoint_coordinate,
+                    )
+                    if value is not None
+                ),
+            )
+        ):
+            raise ValueError("convergence trunk geometry must be finite")
+        if self.extent_end - self.extent_start <= COORD_TOLERANCE:
+            raise ValueError("convergence trunk requires a positive extent")
+        if (self.source_endpoint_coordinate is None) != (
+            self.target_endpoint_coordinate is None
+        ):
+            raise ValueError("convergence trunk endpoint extent is incomplete")
+        horizontal = self.axis is DemandAxis.X
+        if horizontal != (self.direction in {Direction.R, Direction.L}):
+            raise ValueError("convergence trunk direction disagrees with its axis")
+
+
+@dataclass(frozen=True, slots=True)
+class ConvergenceLanding:
+    """One feeder's ordered approach and exact endpoint on shared geometry."""
+
+    member_id: EmissionMemberId
+    edge: ResolvedEdge
+    source_junction_id: str
+    approach_axis: DemandAxis
+    approach_direction: Direction
+    source_column: int | None
+    source_row: int | None
+    lane_rank: int
+    order: int
+    join_point: tuple[float, float]
+    corner_handedness: TurnHandedness | None
+    minimum_runway: float
+    opening_turn_coordinate: float | None
+    bypass: bool
+    long_haul: bool
+    multiple_row: bool
+
+    def __post_init__(self) -> None:
+        if self.approach_axis is DemandAxis.BOTH:
+            raise ValueError("convergence feeder requires one approach axis")
+        horizontal = self.approach_axis is DemandAxis.X
+        if horizontal != (self.approach_direction in {Direction.R, Direction.L}):
+            raise ValueError("convergence approach direction disagrees with its axis")
+        if self.lane_rank < 0 or self.order < 0:
+            raise ValueError("convergence feeder ranks must be non-negative")
+        if self.minimum_runway <= 0 or not math.isfinite(self.minimum_runway):
+            raise ValueError("convergence feeder runway must be positive and finite")
+        if self.opening_turn_coordinate is not None and not math.isfinite(
+            self.opening_turn_coordinate
+        ):
+            raise ValueError("convergence feeder opening turn must be finite")
+        if not all(math.isfinite(value) for value in self.join_point):
+            raise ValueError("convergence feeder join point must be finite")
+
+
+@dataclass(frozen=True, slots=True)
+class ConvergenceContinuation:
+    """Outgoing member beginning on the geometry shared by all feeders."""
+
+    member_id: EmissionMemberId
+    edge: ResolvedEdge
+    entry_port_id: str
+    lane_rank: int
+    start_point: tuple[float, float]
+    end_point: tuple[float, float]
+    covered_by_member_id: EmissionMemberId | None
+
+    def __post_init__(self) -> None:
+        if self.lane_rank < 0:
+            raise ValueError("convergence continuation lane rank must be non-negative")
+        if not all(
+            math.isfinite(value)
+            for point in (self.start_point, self.end_point)
+            for value in point
+        ):
+            raise ValueError("convergence continuation endpoints must be finite")
+
+
+@dataclass(frozen=True, slots=True)
+class ConvergenceEndpointOwnership:
+    """Exact emission or coverage owner for one convergence member endpoint."""
+
+    member_id: EmissionMemberId
+    edge: ResolvedEdge
+    role: ConvergenceEndpointRole
+    endpoint: tuple[float, float]
+    covered_by_member_id: EmissionMemberId | None = None
+
+    def __post_init__(self) -> None:
+        if not all(math.isfinite(value) for value in self.endpoint):
+            raise ValueError("convergence owned endpoint must be finite")
+        covered = self.role is ConvergenceEndpointRole.COVERED_CONTINUATION
+        if covered != (self.covered_by_member_id is not None):
+            raise ValueError("convergence coverage ownership is incomplete")
+        if self.covered_by_member_id == self.member_id:
+            raise ValueError("convergence member cannot cover itself")
+
+
+@dataclass(frozen=True, slots=True)
+class ConvergencePlan:
+    """Complete immutable decision for one convergence in a route system."""
+
+    id: ConvergencePlanId
+    system_id: RouteSystemId
+    convergence_ids: tuple[ConvergenceId, ...]
+    entry_group_ids: tuple[EndpointGroupId, ...]
+    merge_junction_ids: tuple[str, ...]
+    target_entry_port_ids: tuple[str, ...]
+    connector_ids: tuple[ConnectorId, ...]
+    member_ids: tuple[EmissionMemberId, ...]
+    resolved_member_paths: tuple[tuple[ResolvedEdge, ...], ...]
+    resolved_member_edges: tuple[ResolvedEdge, ...]
+    line_ids: tuple[str, ...]
+    upstream_exit_turn_plan_ids: tuple[ExitTurnPlanId, ...]
+    upstream_fan_plan_ids: tuple[FanPlanId, ...]
+    primary_trunk_member_id: EmissionMemberId | None
+    primary_trunk_reason: ConvergenceTrunkReason | None
+    trunk_axis: ConvergenceTrunkAxis | None
+    landings: tuple[ConvergenceLanding, ...]
+    outgoing_continuations: tuple[ConvergenceContinuation, ...]
+    lane_order: tuple[str, ...]
+    endpoint_ownership: tuple[ConvergenceEndpointOwnership, ...]
+    shared_reference_ids: tuple[SharedReferenceId, ...]
+    demand_ids: tuple[DemandId, ...]
+    foreign_reference_ids: tuple[SharedReferenceId, ...]
+    disposition: ConvergenceDisposition
+    legacy_reason: str | None
+
+    def __post_init__(self) -> None:
+        planned = self.disposition is ConvergenceDisposition.PLANNED
+        unique_fields = (
+            self.convergence_ids,
+            self.entry_group_ids,
+            self.merge_junction_ids,
+            self.target_entry_port_ids,
+            self.connector_ids,
+            self.member_ids,
+            self.resolved_member_edges,
+            self.line_ids,
+            self.shared_reference_ids,
+            self.demand_ids,
+            self.foreign_reference_ids,
+            self.lane_order,
+        )
+        if any(len(set(values)) != len(values) for values in unique_fields):
+            raise ValueError("convergence plan contains duplicate membership")
+        if not self.convergence_ids or not self.connector_ids or not self.member_ids:
+            raise ValueError("convergence plan requires complete semantic membership")
+        path_edges = tuple(
+            dict.fromkeys(edge for path in self.resolved_member_paths for edge in path)
+        )
+        if path_edges != self.resolved_member_edges:
+            raise ValueError("convergence resolved edge membership is not canonical")
+        landing_ids = tuple(item.member_id for item in self.landings)
+        continuation_ids = tuple(item.member_id for item in self.outgoing_continuations)
+        ownership_ids = tuple(item.member_id for item in self.endpoint_ownership)
+        if len(set(landing_ids)) != len(landing_ids):
+            raise ValueError("convergence plan repeats a feeder landing")
+        if tuple(item.order for item in self.landings) != tuple(
+            range(len(self.landings))
+        ):
+            raise ValueError("convergence feeder order is not canonical")
+        if planned and (
+            set(ownership_ids) != set(self.member_ids)
+            or len(ownership_ids) != len(self.member_ids)
+        ):
+            raise ValueError("convergence endpoint ownership is incomplete")
+        if not set((*landing_ids, *continuation_ids)).issubset(self.member_ids):
+            raise ValueError("convergence geometry lies outside member ownership")
+        lane_rank_by_line = {
+            line_id: rank for rank, line_id in enumerate(self.lane_order)
+        }
+        landing_lane_order_mismatch = any(
+            item.edge.line_id not in lane_rank_by_line
+            or item.lane_rank != lane_rank_by_line[item.edge.line_id]
+            for item in self.landings
+        )
+        continuation_lane_order_mismatch = any(
+            item.edge.line_id not in lane_rank_by_line
+            or item.lane_rank != lane_rank_by_line[item.edge.line_id]
+            for item in self.outgoing_continuations
+        )
+        if planned and (
+            not set(self.line_ids).issubset(lane_rank_by_line)
+            or landing_lane_order_mismatch
+            or continuation_lane_order_mismatch
+        ):
+            raise ValueError("convergence lane order is inconsistent")
+        if any(item.edge not in self.resolved_member_edges for item in self.landings):
+            raise ValueError("convergence landing lies outside resolved membership")
+        if any(
+            item.edge not in self.resolved_member_edges
+            for item in self.outgoing_continuations
+        ):
+            raise ValueError(
+                "convergence continuation lies outside resolved membership"
+            )
+        if any(
+            item.edge not in self.resolved_member_edges
+            for item in self.endpoint_ownership
+        ):
+            raise ValueError("convergence endpoint lies outside resolved membership")
+        if planned:
+            if (
+                self.primary_trunk_member_id is None
+                or self.primary_trunk_reason is None
+                or self.trunk_axis is None
+                or not self.landings
+                or not self.outgoing_continuations
+                or len(self.shared_reference_ids) != 2
+                or not self.demand_ids
+                or self.legacy_reason is not None
+            ):
+                raise ValueError("planned convergence geometry is incomplete")
+            if self.primary_trunk_member_id not in self.member_ids:
+                raise ValueError("convergence primary trunk lies outside membership")
+        elif any(
+            (
+                self.primary_trunk_member_id is not None,
+                self.primary_trunk_reason is not None,
+                self.trunk_axis is not None,
+                bool(self.landings),
+                bool(self.outgoing_continuations),
+                bool(self.lane_order),
+                bool(self.endpoint_ownership),
+                bool(self.shared_reference_ids),
+                bool(self.demand_ids),
+                bool(self.foreign_reference_ids),
+                self.legacy_reason is None,
+            )
+        ):
+            raise ValueError("legacy convergence owns geometry or lacks a reason")
+
+    @property
+    def owns_geometry(self) -> bool:
+        return self.disposition is ConvergenceDisposition.PLANNED
+
+
+@dataclass(frozen=True, slots=True)
 class RouteSystem:
     """One maximal semantically coupled authored connector component."""
 
@@ -1231,6 +1526,7 @@ class RouteSystem:
     feeder_ids: tuple[RouteFeederId, ...]
     exit_turn_plan_ids: tuple[ExitTurnPlanId, ...]
     fan_plan_ids: tuple[FanPlanId, ...]
+    convergence_plan_ids: tuple[ConvergencePlanId, ...]
     shared_reference_ids: tuple[SharedReferenceId, ...]
     demand_ids: tuple[DemandId, ...]
     reservation_ids: tuple[RouteReservationId, ...]
@@ -1298,6 +1594,7 @@ class RoutePlan:
     feeders: tuple[RouteFeeder, ...]
     exit_turn_plans: tuple[ExitTurnPlan, ...]
     fan_plans: tuple[FanPlan, ...]
+    convergence_plans: tuple[ConvergencePlan, ...]
     shared_references: tuple[SharedReference, ...]
     demands: tuple[SymbolicDemand, ...]
     reservations: tuple[RouteReservation, ...]
@@ -1547,6 +1844,10 @@ class RoutePlanObserver:
     exit_turn_references: tuple[SharedReference, ...] = ()
     exit_turn_demands: tuple[SymbolicDemand, ...] = ()
     exit_turn_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
+    convergence_plans: tuple[ConvergencePlan, ...] = ()
+    convergence_references: tuple[SharedReference, ...] = ()
+    convergence_demands: tuple[SymbolicDemand, ...] = ()
+    convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
     _merge_skips: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
     _covered_hops: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
@@ -1595,16 +1896,24 @@ def build_route_plan_observer(
     exit_turn_references: tuple[SharedReference, ...] = (),
     exit_turn_demands: tuple[SymbolicDemand, ...] = (),
     exit_turn_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
+    convergence_plans: tuple[ConvergencePlan, ...] = (),
+    convergence_references: tuple[SharedReference, ...] = (),
+    convergence_demands: tuple[SymbolicDemand, ...] = (),
+    convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
 ) -> RoutePlanObserver:
     """Create one transient observer after settled routing context construction."""
     return RoutePlanObserver(
-        graph,
-        context,
-        scaffold,
-        exit_turn_plans,
-        exit_turn_references,
-        exit_turn_demands,
-        exit_turn_diagnostics,
+        graph=graph,
+        context=context,
+        scaffold=scaffold,
+        exit_turn_plans=exit_turn_plans,
+        exit_turn_references=exit_turn_references,
+        exit_turn_demands=exit_turn_demands,
+        exit_turn_diagnostics=exit_turn_diagnostics,
+        convergence_plans=convergence_plans,
+        convergence_references=convergence_references,
+        convergence_demands=convergence_demands,
+        convergence_diagnostics=convergence_diagnostics,
     )
 
 
@@ -2087,6 +2396,7 @@ def _build_route_plan(
             feeders=(),
             exit_turn_plans=(),
             fan_plans=fan_plans,
+            convergence_plans=(),
             shared_references=(),
             demands=(),
             reservations=(),
@@ -2258,6 +2568,13 @@ def _build_route_plan(
         if fan_system_id is None:
             raise ValueError(f"route fan {fan_plan.id!r} has no canonical system")
         fan_ids_by_system[fan_system_id].append(fan_plan.id)
+    convergence_plan_ids_by_system: dict[RouteSystemId, list[ConvergencePlanId]] = (
+        defaultdict(list)
+    )
+    for convergence_plan in observer.convergence_plans:
+        convergence_plan_ids_by_system[convergence_plan.system_id].append(
+            convergence_plan.id
+        )
 
     provenance = _plan_provenance(graph, topology.connectors)
     fan_references, fan_demands = _build_fan_plan_resources(
@@ -2265,8 +2582,16 @@ def _build_route_plan(
         provenance,
         route_fan_plans,
     )
-    shared_references = (*observer.exit_turn_references, *fan_references)
-    demands = (*observer.exit_turn_demands, *fan_demands)
+    shared_references = (
+        *observer.exit_turn_references,
+        *fan_references,
+        *observer.convergence_references,
+    )
+    demands = (
+        *observer.exit_turn_demands,
+        *fan_demands,
+        *observer.convergence_demands,
+    )
     reference_ids_by_system: dict[RouteSystemId, list[SharedReferenceId]] = defaultdict(
         list
     )
@@ -2296,6 +2621,7 @@ def _build_route_plan(
                 tuple(feeder_ids_by_system[system_id]),
                 tuple(exit_turn_ids_by_system[system_id]),
                 tuple(fan_ids_by_system[system_id]),
+                tuple(convergence_plan_ids_by_system[system_id]),
                 tuple(reference_ids_by_system[system_id]),
                 tuple(demand_ids_by_system[system_id]),
                 (),
@@ -2312,6 +2638,7 @@ def _build_route_plan(
         feeders=tuple(feeders),
         exit_turn_plans=observer.exit_turn_plans,
         fan_plans=fan_plans,
+        convergence_plans=observer.convergence_plans,
         shared_references=shared_references,
         demands=demands,
         reservations=(),
@@ -2319,7 +2646,11 @@ def _build_route_plan(
         reservation_diagnostics=(),
         bindings=tuple(bindings),
         provenance=provenance,
-        diagnostics=tuple(diagnostics) + observer.exit_turn_diagnostics,
+        diagnostics=(
+            tuple(diagnostics)
+            + observer.exit_turn_diagnostics
+            + observer.convergence_diagnostics
+        ),
     )
     from nf_metro.layout.route_reservations import attach_route_reservations
 
@@ -2347,6 +2678,16 @@ class RoutePlanQuery:
     _fan_plans: Mapping[FanPlanId, FanPlan]
     _fan_plans_by_system: Mapping[RouteSystemId, tuple[FanPlan, ...]]
     _fan_plans_by_member: Mapping[EmissionMemberId, tuple[FanPlan, ...]]
+    _convergence_plans: Mapping[ConvergencePlanId, ConvergencePlan]
+    _convergence_plans_by_system: Mapping[RouteSystemId, tuple[ConvergencePlan, ...]]
+    _convergence_plans_by_convergence: Mapping[
+        ConvergenceId, tuple[ConvergencePlan, ...]
+    ]
+    _convergence_plans_by_connector: Mapping[ConnectorId, tuple[ConvergencePlan, ...]]
+    _convergence_plans_by_member: Mapping[EmissionMemberId, tuple[ConvergencePlan, ...]]
+    _convergence_plans_by_path: Mapping[
+        tuple[ResolvedEdge, ...], tuple[ConvergencePlan, ...]
+    ]
     _shared_references: Mapping[SharedReferenceId, SharedReference]
     _demands: Mapping[DemandId, SymbolicDemand]
     _reservations: Mapping[RouteReservationId, RouteReservation]
@@ -2388,6 +2729,34 @@ class RoutePlanQuery:
 
     def fan_plans_for_member(self, member_id: EmissionMemberId) -> tuple[FanPlan, ...]:
         return self._fan_plans_by_member.get(member_id, ())
+
+    def convergence_plan(self, plan_id: ConvergencePlanId) -> ConvergencePlan:
+        return self._convergence_plans[plan_id]
+
+    def convergence_plans_for_system(
+        self, system_id: RouteSystemId
+    ) -> tuple[ConvergencePlan, ...]:
+        return self._convergence_plans_by_system.get(system_id, ())
+
+    def convergence_plans_for_convergence(
+        self, convergence_id: ConvergenceId
+    ) -> tuple[ConvergencePlan, ...]:
+        return self._convergence_plans_by_convergence.get(convergence_id, ())
+
+    def convergence_plans_for_connector(
+        self, connector_id: ConnectorId
+    ) -> tuple[ConvergencePlan, ...]:
+        return self._convergence_plans_by_connector.get(connector_id, ())
+
+    def convergence_plans_for_member(
+        self, member_id: EmissionMemberId
+    ) -> tuple[ConvergencePlan, ...]:
+        return self._convergence_plans_by_member.get(member_id, ())
+
+    def convergence_plans_for_resolved_path(
+        self, path: tuple[ResolvedEdge, ...]
+    ) -> tuple[ConvergencePlan, ...]:
+        return self._convergence_plans_by_path.get(path, ())
 
     def shared_reference(self, reference_id: SharedReferenceId) -> SharedReference:
         return self._shared_references[reference_id]
@@ -3228,6 +3597,163 @@ def _validate_fan_records(
     return fan_plans, by_system, by_member
 
 
+def _validate_convergence_records(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+    bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
+) -> tuple[
+    dict[ConvergencePlanId, ConvergencePlan],
+    dict[RouteSystemId, list[ConvergencePlan]],
+    dict[ConvergenceId, list[ConvergencePlan]],
+    dict[ConnectorId, list[ConvergencePlan]],
+    dict[EmissionMemberId, list[ConvergencePlan]],
+    dict[tuple[ResolvedEdge, ...], list[ConvergencePlan]],
+]:
+    systems = {system.id: system for system in plan.systems}
+    convergences = {item.id: item for item in plan.convergences}
+    endpoint_groups = {item.id: item for item in plan.endpoint_groups}
+    references = {item.id: item for item in plan.shared_references}
+    demands = {item.id: item for item in plan.demands}
+    plans = {item.id: item for item in plan.convergence_plans}
+    if len(plans) != len(plan.convergence_plans):
+        raise ValueError("route plan contains duplicate convergence plan ids")
+    by_system: dict[RouteSystemId, list[ConvergencePlan]] = defaultdict(list)
+    by_convergence: dict[ConvergenceId, list[ConvergencePlan]] = defaultdict(list)
+    by_connector: dict[ConnectorId, list[ConvergencePlan]] = defaultdict(list)
+    by_member: dict[EmissionMemberId, list[ConvergencePlan]] = defaultdict(list)
+    by_path: dict[tuple[ResolvedEdge, ...], list[ConvergencePlan]] = defaultdict(list)
+    disposition_by_system: dict[RouteSystemId, ConvergenceDisposition] = {}
+    for item in plan.convergence_plans:
+        system = systems.get(item.system_id)
+        if system is None:
+            raise ValueError("convergence plan names an unknown route system")
+        if not set(item.convergence_ids).issubset(system.convergence_ids):
+            raise ValueError("convergence identity lies outside its route system")
+        if not set(item.connector_ids).issubset(system.connector_ids):
+            raise ValueError("convergence connectors lie outside their route system")
+        if not set(item.member_ids).issubset(system.member_ids):
+            raise ValueError("convergence members lie outside their route system")
+        if any(
+            convergence_id not in convergences
+            or convergences[convergence_id].system_id != item.system_id
+            for convergence_id in item.convergence_ids
+        ):
+            raise ValueError("convergence plan has inconsistent semantic identity")
+        semantic_records = tuple(
+            convergences[convergence_id] for convergence_id in item.convergence_ids
+        )
+        expected_entry_groups = _ordered_unique(
+            record.entry_group_id for record in semantic_records
+        )
+        expected_merge_junctions = _ordered_unique(
+            record.junction_id for record in semantic_records
+        )
+        expected_target_ports = tuple(
+            endpoint_groups[group_id].port_id for group_id in expected_entry_groups
+        )
+        expected_connectors = _ordered_unique(
+            connector_id
+            for record in semantic_records
+            for connector_id in record.connector_ids
+        )
+        expected_lines = _ordered_unique(record.line_id for record in semantic_records)
+        if (
+            item.entry_group_ids != expected_entry_groups
+            or item.merge_junction_ids != expected_merge_junctions
+            or item.target_entry_port_ids != expected_target_ports
+            or item.connector_ids != expected_connectors
+            or item.line_ids != expected_lines
+        ):
+            raise ValueError("convergence plan semantic fields are inconsistent")
+        if len(item.member_ids) != len(item.resolved_member_edges) or any(
+            member_id not in members
+            or members[member_id].system_id != item.system_id
+            or members[member_id].edge != edge
+            or not set(item.convergence_ids).intersection(
+                members[member_id].convergence_ids
+            )
+            for member_id, edge in zip(
+                item.member_ids, item.resolved_member_edges, strict=True
+            )
+        ):
+            raise ValueError("convergence plan has inconsistent emission membership")
+        prior = disposition_by_system.setdefault(item.system_id, item.disposition)
+        if prior is not item.disposition:
+            raise ValueError("one route system mixes convergence dispositions")
+        if item.disposition is ConvergenceDisposition.PLANNED:
+            owned_references = tuple(
+                references.get(value) for value in item.shared_reference_ids
+            )
+            owned_demands = tuple(demands.get(value) for value in item.demand_ids)
+            if (
+                any(value is None for value in owned_references)
+                or any(value is None for value in owned_demands)
+                or any(
+                    value is not None and value.system_id != item.system_id
+                    for value in (*owned_references, *owned_demands)
+                )
+            ):
+                raise ValueError("planned convergence resources are inconsistent")
+            for ownership in item.endpoint_ownership:
+                (binding,) = bindings[ownership.member_id]
+                if ownership.role is ConvergenceEndpointRole.COVERED_CONTINUATION:
+                    if (
+                        binding.kind
+                        not in {
+                            BindingKind.MERGE_SKIP,
+                            BindingKind.COVERED_MERGE_HOP,
+                        }
+                        or binding.covering_member_id != ownership.covered_by_member_id
+                    ):
+                        raise ValueError(
+                            "convergence coverage disagrees with final binding"
+                        )
+                elif binding.kind is not BindingKind.EMITTED:
+                    raise ValueError(
+                        "convergence endpoint owner has no emitted binding"
+                    )
+        by_system[item.system_id].append(item)
+        for convergence_id in item.convergence_ids:
+            by_convergence[convergence_id].append(item)
+        for connector_id in item.connector_ids:
+            by_connector[connector_id].append(item)
+        for member_id in item.member_ids:
+            by_member[member_id].append(item)
+        for path in item.resolved_member_paths:
+            by_path[path].append(item)
+    for system in plan.systems:
+        expected = tuple(item.id for item in by_system.get(system.id, ()))
+        if system.convergence_plan_ids != expected:
+            raise ValueError("route system convergence-plan index is inconsistent")
+    actual_diagnostics = Counter(
+        item for item in plan.diagnostics if item.code == "convergence-plan-legacy"
+    )
+    expected_diagnostics = Counter(
+        RoutePlanDiagnostic(
+            None,
+            "convergence-plan-legacy",
+            f"convergence system {item.system_id} uses legacy routing: "
+            f"{item.legacy_reason}",
+            blocking=False,
+        )
+        for item in plan.convergence_plans
+        if item.disposition is ConvergenceDisposition.LEGACY
+    )
+    if actual_diagnostics != expected_diagnostics:
+        raise ValueError("convergence legacy diagnostics are inconsistent")
+    from nf_metro.layout.route_reservations import (
+        expected_convergence_foreign_references,
+    )
+
+    expected_foreign = expected_convergence_foreign_references(plan)
+    if any(
+        item.foreign_reference_ids != expected_foreign[item.id]
+        for item in plan.convergence_plans
+    ):
+        raise ValueError("convergence foreign-reference index is inconsistent")
+    return plans, by_system, by_convergence, by_connector, by_member, by_path
+
+
 def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     endpoint_groups = {item.id: item for item in plan.endpoint_groups}
     divergences = {item.id: item for item in plan.divergences}
@@ -3286,6 +3812,14 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         members,
         bindings,
     )
+    (
+        convergence_plans,
+        convergence_plans_by_system,
+        convergence_plans_by_convergence,
+        convergence_plans_by_connector,
+        convergence_plans_by_member,
+        convergence_plans_by_path,
+    ) = _validate_convergence_records(plan, members, bindings)
 
     from nf_metro.layout.route_reservations import build_reservation_query_indexes
 
@@ -3310,6 +3844,25 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         ),
         MappingProxyType(
             {key: tuple(value) for key, value in fan_plans_by_member.items()}
+        ),
+        MappingProxyType(convergence_plans),
+        MappingProxyType(
+            {key: tuple(value) for key, value in convergence_plans_by_system.items()}
+        ),
+        MappingProxyType(
+            {
+                key: tuple(value)
+                for key, value in convergence_plans_by_convergence.items()
+            }
+        ),
+        MappingProxyType(
+            {key: tuple(value) for key, value in convergence_plans_by_connector.items()}
+        ),
+        MappingProxyType(
+            {key: tuple(value) for key, value in convergence_plans_by_member.items()}
+        ),
+        MappingProxyType(
+            {key: tuple(value) for key, value in convergence_plans_by_path.items()}
         ),
         MappingProxyType(reservation_indexes.references),
         MappingProxyType(reservation_indexes.demands),

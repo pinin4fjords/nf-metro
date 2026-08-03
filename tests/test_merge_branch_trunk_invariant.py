@@ -34,7 +34,6 @@ from pathlib import Path
 
 import pytest
 
-import nf_metro.layout.routing.context as routing_context
 import nf_metro.layout.routing.core as routing_core
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
@@ -116,38 +115,28 @@ def _without_feeder_landing(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_checker_fires_when_context_disagrees_with_trunk(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Desyncing the context's channel decision from the trunk route's
-    reproduces the hanging stubs the invariant is meant to catch: the branches
-    drop to the context's level while the trunk runs elsewhere.  Patching the
-    context's reference (the trunk route keeps its own) forces the disagreement,
-    and the landing pass has to be out of the way or it repairs it.  Proves the
-    check is not vacuous."""
-    _without_feeder_landing(monkeypatch)
-    monkeypatch.setattr(
-        routing_context,
-        "merge_trunk_force_cross_row",
-        lambda *args, **kwargs: True,
-    )
+def test_checker_fires_when_member_misses_planned_join() -> None:
+    """A convergence member ending away from its planned join is rejected."""
     graph, routes, offsets = _route(FIXTURES / "genomeassembly_organellar.mmd")
+    branch = next(
+        route
+        for route in routes
+        if route.convergence_plan_id is not None
+        and route.convergence_member_id is not None
+        and route.points[-1] != route.points[0]
+    )
+    end_x, end_y = branch.points[-1]
+    branch.points[-1] = (end_x, end_y + 1000.0)
     violations = check_merge_branches_meet_trunk(graph, routes, offsets)
-    assert violations, "expected hanging branches when context disagrees with trunk"
+    assert violations, "expected a hanging branch when a planned join is corrupted"
 
 
-def test_landing_pass_is_what_puts_three_column_feeders_on_the_trunk(
+def test_planned_three_column_feeders_do_not_need_landing_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without the landing pass the three-column fixture reproduces both fault
-    shapes, so the exact invariant is not vacuous either: the middle feeder ends
-    an offset step below the trunk's centreline, and the near one is carried a
-    tail length past the column the trunk turns down on."""
+    """Planned feeders terminate on their declared trunk during emission."""
     _without_feeder_landing(monkeypatch)
     path = EXAMPLES / "topologies" / "merge_feeders_three_columns.mmd"
     graph, routes, offsets = _route(path)
     violations = check_merge_feeders_land_on_trunk(graph, routes, offsets)
-    assert {v.source: round(v.gap, 1) for v in violations} == {
-        "__junction_8": 2.0,
-        "__junction_9": 16.1,
-    }, [v.message() for v in violations]
+    assert not violations, [v.message() for v in violations]

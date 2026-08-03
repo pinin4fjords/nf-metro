@@ -514,12 +514,23 @@ def _locate_slot_channel(
     return None
 
 
+def _convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    return any(
+        item in route.convergence_owned_segment_ranks
+        for item in (rank - 1, rank, rank + 1)
+    )
+
+
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
     route = channel.route
-    return route.fan_route_emitter is not None or (
-        route.exit_turn_axis_id is not None
-        and route.exit_turn_segment_rank == channel.idx
+    return (
+        _convergence_owns_segment_boundary(route, channel.idx)
+        or route.fan_route_emitter is not None
+        or (
+            route.exit_turn_axis_id is not None
+            and route.exit_turn_segment_rank == channel.idx
+        )
     )
 
 
@@ -732,6 +743,8 @@ def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
         for line_id, trunk in trunks.items():
+            if _convergence_owns_segment_boundary(trunk.route, trunk.idx):
+                continue
             target_y = targets[line_id]
             if abs(trunk.y - target_y) <= COORD_TOLERANCE:
                 continue
@@ -755,6 +768,7 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
         t
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
+        and not _convergence_owns_segment_boundary(t.route, t.idx)
     ]
 
 
@@ -904,7 +918,7 @@ def _snap_group(group: _Coincidence, graph: MetroGraph) -> None:
     planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
     ref_x = planned[0].x if planned else group.ref_x
     if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
-        raise ValueError("one coincidence group contains conflicting planned axes")
+        return
     for ch in group.channels:
         if _planner_owns_channel(ch):
             continue
@@ -927,16 +941,26 @@ def _snap_merge_feeder_group(group: _Coincidence, graph: MetroGraph) -> None:
     """
     ref_x = group.ref_x
     for ch in group.channels:
-        delta = ref_x - ch.x
-        if abs(delta) <= COORD_TOLERANCE:
-            continue
-        tail_start = ch.idx + 2
-        _reconcile_moved_gap_slot(ch, ref_x, graph)
-        _set_vchannel_x(ch, ref_x)
-        ch.route.points = [
-            (x + delta, y) if i >= tail_start else (x, y)
-            for i, (x, y) in enumerate(ch.route.points)
-        ]
+        _seat_merge_feeder_opening(ch.route, ref_x, graph)
+
+
+def _seat_merge_feeder_opening(
+    route: RoutedPath, coordinate: float, graph: MetroGraph
+) -> None:
+    """Seat a merge feeder's opening turn on its planned shared axis."""
+    channel = _initial_fanout_descent(route)
+    if channel is None:
+        return
+    delta = coordinate - channel.x
+    if abs(delta) <= COORD_TOLERANCE:
+        return
+    tail_start = channel.idx + 2
+    _reconcile_moved_gap_slot(channel, coordinate, graph)
+    _set_vchannel_x(channel, coordinate)
+    route.points = [
+        (x + delta, y) if rank >= tail_start else (x, y)
+        for rank, (x, y) in enumerate(route.points)
+    ]
 
 
 def _route_first_vertical(rp: RoutedPath) -> _VChannel | None:
@@ -995,6 +1019,8 @@ def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) ->
         routes, lambda rp: _merge_fanout_pivot_spans(rp, fanouts, merges)
     )
     for (src, _down), chans in groups.items():
+        if any(_planner_owns_channel(ch) for ch in chans):
+            continue
         source_x = ctx.graph.stations[src].x
         ref = merge_fanout_pivot_reference(
             [c.x for c in chans], source_x, COORD_TOLERANCE
@@ -1026,6 +1052,8 @@ def _coincide_fanout_opening_descents(
     that genuinely diverges to another column.
     """
     for group in _divergent_source_groups(routes):
+        if any(_planner_owns_channel(channel) for channel in group.channels):
+            continue
         _snap_group(group, ctx.graph)
     _bundle_divergent_distinct_descents(routes, ctx)
 
@@ -1093,6 +1121,7 @@ def _clear_merge_trunk_opposite_arm(routes: list[RoutedPath], ctx: _RoutingCtx) 
         and rp.edge.source in ctx.merge_fanouts
         and rp.edge.target in merge.junctions
         and (ch := _route_first_vertical(rp)) is not None
+        and not _planner_owns_channel(ch)
     ]
     downs = [ch for ch in arms if ch.down]
     ups = [ch for ch in arms if not ch.down]
@@ -1173,6 +1202,11 @@ def _bundle_divergent_distinct_traverses(
     """
     step = ctx.offset_step
     for members in _fanout_traverse_legs(routes).values():
+        if any(
+            _convergence_owns_segment_boundary(member.route, member.idx)
+            for member in members
+        ):
+            continue
         by_line: dict[str, list[_TraverseLeg]] = defaultdict(list)
         for m in members:
             by_line[m.route.line_id].append(m)
@@ -1225,7 +1259,7 @@ def _drop_covered_merge_entry_hops(
     *,
     report_coverage: bool = False,
 ) -> tuple[tuple[tuple[str, str, str], tuple[str, str, str]], ...]:
-    """Drop a merge -> entry hop that every feeder already runs for itself.
+    """Drop a compatibility merge -> entry hop covered by its feeders.
 
     The merge station is placed at ``max(feeder.x) + margin``, which is not the
     column the feeders' channels finally converge in, so the hop drawn from it
@@ -1464,6 +1498,8 @@ def _stagger_convergent_distinct_lines(
     }
 
     for (port_id, down), entries in by_port.items():
+        if any(_planner_owns_channel(channel) for _route, channel in entries):
+            continue
         port = ctx.graph.ports.get(port_id)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
             continue
@@ -1632,7 +1668,7 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through:
+                elif is_through and not _convergence_owns_segment_boundary(r, k):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue
@@ -2018,6 +2054,8 @@ def _bundle_divergent_distinct_descents(
 
     step = ctx.offset_step
     for chans in by_source.values():
+        if any(_planner_owns_channel(channel) for channel in chans):
+            continue
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
         # it carries.  Seat per line, not per channel: keying each channel
@@ -2267,7 +2305,7 @@ def _land_lane_changing_feeder_on_trunk_riser(
 
 
 def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
-    """Land every merge branch feeder on the trunk leg it converges onto.
+    """Land compatibility merge feeders on the trunk leg they converge onto.
 
     A merge with a trunk routes its other feeders as branches dropping toward the
     trunk's bypass channel (:func:`_route_merge_branch`), aimed at the level the
@@ -2278,11 +2316,14 @@ def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> 
     or carries its tail past the corner where the trunk has already turned away,
     and either way ends in a stroke cap over nothing.
 
-    This is the single pass that settles where a feeder meets its trunk, so it
-    runs after every pass that moves either of them.
+    Compatibility systems settle where a feeder meets its trunk here, after
+    every pass that can move either route. Planned systems are immutable and
+    bypass this pass.
     """
     merge = ctx.merge
     for mjid, trunk_rp, others in _merge_trunks_and_feeders(routes, merge):
+        if trunk_rp.convergence_plan_id is not None:
+            continue
         run = _merge_convergence_run(trunk_rp, merge.trunk_by[mjid])
         if run is None:
             continue
@@ -2810,7 +2851,7 @@ def _dogleg_off_exempt_trunks(
         return
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip:
+        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
@@ -2863,7 +2904,7 @@ def _dogleg_off_exempt_trunks(
 
     step = ctx.offset_step
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip:
+        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
