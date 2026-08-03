@@ -24,7 +24,7 @@ is laid out exactly once.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from nf_metro.layout.geometry import BBoxXIndex, segment_intersects_bbox
 from nf_metro.layout.phases._common import _station_marker_bbox, marker_cross_exempt
@@ -35,6 +35,7 @@ from nf_metro.parser.model import (
     Station,
     is_bypass_v,
 )
+from nf_metro.parser.route_topology import ResolvedEdge
 
 
 @dataclass(frozen=True)
@@ -198,11 +199,17 @@ def _is_improvement(before: _LayoutEval, after: _LayoutEval) -> bool:
     )
 
 
-def _insert_helpers(graph: MetroGraph, crossings: list[_Crossing]) -> list[str]:
+def _insert_helpers(
+    graph: MetroGraph, crossings: list[_Crossing]
+) -> tuple[
+    list[str],
+    dict[ResolvedEdge, list[tuple[ResolvedEdge, ...]]],
+]:
     """Rewrite each crossed edge ``pred -> V1 -> ... -> Vn -> target``.
 
     One hidden ``__bypass_`` helper is inserted per skipped station, ordered
-    along the edge.  Returns the ids of the inserted helpers.
+    along the edge.  Returns the helper ids and the corresponding physical-edge
+    replacements for the canonical authored-route trace.
     """
     by_edge: dict[int, list[_Crossing]] = {}
     for c in crossings:
@@ -212,6 +219,7 @@ def _insert_helpers(graph: MetroGraph, crossings: list[_Crossing]) -> list[str]:
     new_stations: list[Station] = []
     new_edges: list[Edge] = []
     edges_to_remove: set[int] = set()
+    replacements: dict[ResolvedEdge, list[tuple[ResolvedEdge, ...]]] = {}
 
     for ei, edge_crossings in by_edge.items():
         edge = graph.edges[ei]
@@ -226,6 +234,7 @@ def _insert_helpers(graph: MetroGraph, crossings: list[_Crossing]) -> list[str]:
 
         edges_to_remove.add(ei)
         prev = edge.source
+        replacement_path: list[ResolvedEdge] = []
         for c in ordered:
             count += 1
             v_id = f"{BYPASS_V_PREFIX}{c.crossed_id}_{c.pred_id}_{count}"
@@ -238,9 +247,23 @@ def _insert_helpers(graph: MetroGraph, crossings: list[_Crossing]) -> list[str]:
                     bypasses_station_id=c.crossed_id,
                 )
             )
-            new_edges.append(Edge(source=prev, target=v_id, line_id=edge.line_id))
+            replacement = Edge(source=prev, target=v_id, line_id=edge.line_id)
+            new_edges.append(replacement)
+            replacement_path.append(
+                ResolvedEdge(
+                    replacement.source,
+                    replacement.target,
+                    replacement.line_id,
+                )
+            )
             prev = v_id
-        new_edges.append(Edge(source=prev, target=edge.target, line_id=edge.line_id))
+        replacement = Edge(source=prev, target=edge.target, line_id=edge.line_id)
+        new_edges.append(replacement)
+        replacement_path.append(
+            ResolvedEdge(replacement.source, replacement.target, replacement.line_id)
+        )
+        replaced = ResolvedEdge(edge.source, edge.target, edge.line_id)
+        replacements.setdefault(replaced, []).append(tuple(replacement_path))
 
     for st in new_stations:
         graph.register_station(st)
@@ -249,7 +272,26 @@ def _insert_helpers(graph: MetroGraph, crossings: list[_Crossing]) -> list[str]:
     )
     for edge in new_edges:
         graph.add_edge(edge)
-    return [st.id for st in new_stations]
+    return [st.id for st in new_stations], replacements
+
+
+def _record_route_replacements(
+    graph: MetroGraph,
+    replacements: dict[ResolvedEdge, list[tuple[ResolvedEdge, ...]]],
+) -> None:
+    """Project physical rewrites into the canonical authored-route trace."""
+    resolution = graph.route_resolution
+    if resolution is None:
+        return
+    from nf_metro.parser.resolve import _expand_resolved_authored_edges
+
+    graph.route_resolution = replace(
+        resolution,
+        authored_edges=_expand_resolved_authored_edges(
+            resolution.authored_edges,
+            replacements,
+        ),
+    )
 
 
 def _remove_helpers(
@@ -282,12 +324,15 @@ def apply_geometric_bypass(
 
     before = _evaluate(graph)
     saved_edges = list(graph.edges)
-    helper_ids = _insert_helpers(graph, before.crossings)
+    saved_resolution = graph.route_resolution
+    helper_ids, replacements = _insert_helpers(graph, before.crossings)
+    _record_route_replacements(graph, replacements)
     layout_pass(False)
     after = _evaluate(graph)
     if _is_improvement(before, after):
         return True
 
     _remove_helpers(graph, helper_ids, saved_edges)
+    graph.route_resolution = saved_resolution
     layout_pass(False)
     return False
