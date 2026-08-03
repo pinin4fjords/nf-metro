@@ -1791,10 +1791,6 @@ function _b64urlToBytes(b64) {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
-function b64urlEncode(str) {
-  return _bytesToB64url(new TextEncoder().encode(str));
-}
-
 function b64urlDecode(b64) {
   return new TextDecoder().decode(_b64urlToBytes(b64));
 }
@@ -1848,15 +1844,9 @@ function _pageUrl(hash) {
   return location.origin + location.pathname + location.search + hash;
 }
 
-function shareUrl() {
+async function compressedShareUrl(source = editor.getValue()) {
   return _pageUrl(
-    "#mmd=" + encodeURIComponent(b64urlEncode(editor.getValue())),
-  );
-}
-
-async function compressedShareUrl() {
-  return _pageUrl(
-    "#mmd-gz=" + encodeURIComponent(await b64urlEncodeGz(editor.getValue())),
+    "#mmd-gz=" + encodeURIComponent(await b64urlEncodeGz(source)),
   );
 }
 
@@ -2002,9 +1992,13 @@ async function buildIssueUrl(explanation) {
     explanation,
     MAX_ISSUE_EXPLANATION_LENGTH,
   );
-  const reproduceUrl = await compressedShareUrl();
+  const reproduceUrl = await compressedShareUrl(mmd);
+  const withReproduce =
+    reproduceUrl.length < MAX_ISSUE_URL_LENGTH
+      ? fitIssueUrl(issueExplanation, opts, mmd, reproduceUrl)
+      : null;
   return (
-    fitIssueUrl(issueExplanation, opts, mmd, reproduceUrl) ||
+    withReproduce ||
     fitIssueUrl(issueExplanation, opts, mmd, null) ||
     fitIssueExplanation(explanation, opts, mmd)
   );
