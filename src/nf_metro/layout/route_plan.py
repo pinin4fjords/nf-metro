@@ -77,6 +77,21 @@ ConvergencePlanId = NewType("ConvergencePlanId", str)
 _T = TypeVar("_T")
 
 
+def convergence_resource_ids(
+    plan_id: ConvergencePlanId,
+) -> tuple[tuple[SharedReferenceId, ...], tuple[DemandId, ...]]:
+    return (
+        (
+            SharedReferenceId(semantic_route_id("convergence-trunk", plan_id)),
+            SharedReferenceId(semantic_route_id("convergence-landings", plan_id)),
+        ),
+        (
+            DemandId(semantic_route_id("convergence-band", plan_id)),
+            DemandId(semantic_route_id("convergence-runway", plan_id)),
+        ),
+    )
+
+
 class CoordinateRegime(str, Enum):
     """Coordinate system used by a coordinate-bearing record."""
 
@@ -3624,6 +3639,94 @@ def _validate_fan_records(
     return fan_plans, by_system, by_member
 
 
+def _validate_convergence_resources(
+    route_plan: RoutePlan,
+    convergence: ConvergencePlan,
+    references: Mapping[SharedReferenceId, SharedReference],
+    demands: Mapping[DemandId, SymbolicDemand],
+) -> None:
+    expected_reference_ids, expected_demand_ids = convergence_resource_ids(
+        convergence.id
+    )
+    if (
+        convergence.shared_reference_ids != expected_reference_ids
+        or convergence.demand_ids != expected_demand_ids
+    ):
+        raise ValueError("planned convergence resource identities are inconsistent")
+
+    trunk_reference = references.get(expected_reference_ids[0])
+    landing_reference = references.get(expected_reference_ids[1])
+    lanes_demand = demands.get(expected_demand_ids[0])
+    runway_demand = demands.get(expected_demand_ids[1])
+    if any(
+        item is None
+        for item in (
+            trunk_reference,
+            landing_reference,
+            lanes_demand,
+            runway_demand,
+        )
+    ):
+        raise ValueError("planned convergence resources are missing")
+    assert trunk_reference is not None
+    assert landing_reference is not None
+    assert lanes_demand is not None
+    assert runway_demand is not None
+    assert convergence.trunk_axis is not None
+
+    trunk_axis = convergence.trunk_axis.axis
+    if trunk_axis is DemandAxis.X:
+        lane_axis = DemandAxis.Y
+    elif trunk_axis is DemandAxis.Y:
+        lane_axis = DemandAxis.X
+    else:
+        raise ValueError("planned convergence trunk has an invalid demand axis")
+    landing_member_ids = tuple(item.member_id for item in convergence.landings)
+    expected_provenance = reservation_decision_refs(
+        route_plan.provenance,
+        convergence.connector_ids,
+        lanes_demand.span,
+    )
+    if (
+        trunk_reference.system_id != convergence.system_id
+        or trunk_reference.kind is not SharedReferenceKind.TRUNK
+        or trunk_reference.claimant_member_ids != convergence.member_ids
+        or trunk_reference.coordinate_regime is not CoordinateRegime.LAYOUT_CANVAS
+        or trunk_reference.provenance != expected_provenance
+        or landing_reference.system_id != convergence.system_id
+        or landing_reference.kind is not SharedReferenceKind.LANDING_SEQUENCE
+        or landing_reference.claimant_member_ids != convergence.member_ids
+        or landing_reference.coordinate_regime is not CoordinateRegime.LAYOUT_CANVAS
+        or landing_reference.provenance != expected_provenance
+    ):
+        raise ValueError("planned convergence shared references are inconsistent")
+    if (
+        lanes_demand.system_id != convergence.system_id
+        or lanes_demand.claimant_member_ids != convergence.member_ids
+        or lanes_demand.kind is not DemandKind.LANES
+        or lanes_demand.axis is not lane_axis
+        or lanes_demand.lane_count != len(convergence.lane_order)
+        or lanes_demand.minimum_size is not None
+        or lanes_demand.minimum_size_regime is not None
+        or lanes_demand.ordered_reference_ids != (expected_reference_ids[0],)
+        or lanes_demand.keep_out_classes != (KeepOutClass.SECTION, KeepOutClass.MARKER)
+        or lanes_demand.provenance != expected_provenance
+        or runway_demand.system_id != convergence.system_id
+        or runway_demand.claimant_member_ids != landing_member_ids
+        or runway_demand.kind is not DemandKind.RUNWAY
+        or runway_demand.axis is not trunk_axis
+        or runway_demand.span != lanes_demand.span
+        or runway_demand.lane_count != len(convergence.landings)
+        or runway_demand.minimum_size
+        != max(item.minimum_runway for item in convergence.landings)
+        or runway_demand.minimum_size_regime is not CoordinateRegime.LAYOUT_CANVAS
+        or runway_demand.ordered_reference_ids != expected_reference_ids
+        or runway_demand.keep_out_classes != (KeepOutClass.SECTION, KeepOutClass.MARKER)
+        or runway_demand.provenance != expected_provenance
+    ):
+        raise ValueError("planned convergence symbolic demands are inconsistent")
+
+
 def _validate_convergence_records(
     plan: RoutePlan,
     members: Mapping[EmissionMemberId, EmissionMember],
@@ -3649,6 +3752,13 @@ def _validate_convergence_records(
     by_connector: dict[ConnectorId, list[ConvergencePlan]] = defaultdict(list)
     by_member: dict[EmissionMemberId, list[ConvergencePlan]] = defaultdict(list)
     by_path: dict[tuple[ResolvedEdge, ...], list[ConvergencePlan]] = defaultdict(list)
+    member_rank = {member.id: rank for rank, member in enumerate(plan.members)}
+    members_by_convergence: dict[ConvergenceId, list[EmissionMember]] = defaultdict(
+        list
+    )
+    for member in plan.members:
+        for convergence_id in member.convergence_ids:
+            members_by_convergence[convergence_id].append(member)
     disposition_by_system: dict[RouteSystemId, ConvergenceDisposition] = {}
     for item in plan.convergence_plans:
         system = systems.get(item.system_id)
@@ -3704,23 +3814,30 @@ def _validate_convergence_records(
             )
         ):
             raise ValueError("convergence plan has inconsistent emission membership")
+        merge_junctions = set(item.merge_junction_ids)
+        candidate_members = {
+            member.id: member
+            for convergence_id in item.convergence_ids
+            for member in members_by_convergence.get(convergence_id, ())
+        }
+        expected_member_ids = tuple(
+            member.id
+            for member in sorted(
+                candidate_members.values(), key=lambda member: member_rank[member.id]
+            )
+            if member.system_id == item.system_id
+            and (
+                member.edge.source in merge_junctions
+                or member.edge.target in merge_junctions
+            )
+        )
+        if item.member_ids != expected_member_ids:
+            raise ValueError("convergence plan emission membership is incomplete")
         prior = disposition_by_system.setdefault(item.system_id, item.disposition)
         if prior is not item.disposition:
             raise ValueError("one route system mixes convergence dispositions")
         if item.disposition is ConvergenceDisposition.PLANNED:
-            owned_references = tuple(
-                references.get(value) for value in item.shared_reference_ids
-            )
-            owned_demands = tuple(demands.get(value) for value in item.demand_ids)
-            if (
-                any(value is None for value in owned_references)
-                or any(value is None for value in owned_demands)
-                or any(
-                    value is not None and value.system_id != item.system_id
-                    for value in (*owned_references, *owned_demands)
-                )
-            ):
-                raise ValueError("planned convergence resources are inconsistent")
+            _validate_convergence_resources(plan, item, references, demands)
             for ownership in item.endpoint_ownership:
                 (binding,) = bindings[ownership.member_id]
                 if (
@@ -3756,9 +3873,17 @@ def _validate_convergence_records(
         for path in item.resolved_member_paths:
             by_path[path].append(item)
     for system in plan.systems:
-        expected = tuple(item.id for item in by_system.get(system.id, ()))
-        if system.convergence_plan_ids != expected:
+        system_plans = tuple(by_system.get(system.id, ()))
+        expected_plan_ids = tuple(item.id for item in system_plans)
+        if system.convergence_plan_ids != expected_plan_ids:
             raise ValueError("route system convergence-plan index is inconsistent")
+        planned_convergence_ids = tuple(
+            convergence_id
+            for item in system_plans
+            for convergence_id in item.convergence_ids
+        )
+        if planned_convergence_ids != system.convergence_ids:
+            raise ValueError("route system convergence-plan coverage is inconsistent")
     actual_diagnostics = Counter(
         item for item in plan.diagnostics if item.code == "convergence-plan-legacy"
     )

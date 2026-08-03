@@ -18,7 +18,11 @@ from nf_metro.layout.route_plan import (
     ConvergencePlanId,
     ConvergenceTrunkAxis,
     ConvergenceTrunkReason,
+    CoordinateRegime,
     DemandAxis,
+    DemandKind,
+    KeepOutClass,
+    RoutePlan,
     RouteSystemId,
     SharedReferenceId,
     SharedReferenceKind,
@@ -63,6 +67,16 @@ def _observe_text(text: str):
     offsets = compute_station_offsets(graph)
     observed = observe_route_edges(graph, station_offsets=offsets)
     return graph, offsets, observed
+
+
+@pytest.fixture(scope="module")
+def three_column_route_plan() -> RoutePlan:
+    return _observe(TOPOLOGIES / "merge_feeders_three_columns.mmd")[2].plan
+
+
+@pytest.fixture(scope="module")
+def right_entry_route_plan() -> RoutePlan:
+    return _observe(TOPOLOGIES / "merge_right_entry.mmd")[2].plan
 
 
 def test_three_column_merge_has_one_complete_planned_convergence() -> None:
@@ -971,3 +985,144 @@ def test_route_plan_rejects_endpoint_connectors_from_another_member() -> None:
 
     with pytest.raises(ValueError, match="connectors disagree with member"):
         build_route_plan_query(route_plan)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"kind": SharedReferenceKind.BAND},
+        {"coordinate_regime": CoordinateRegime.RELATIVE_FRAME},
+        {"claimant_member_ids": ()},
+    ),
+)
+def test_route_plan_rejects_mutated_convergence_references(
+    changes: dict[str, object],
+    three_column_route_plan: RoutePlan,
+) -> None:
+    plan = three_column_route_plan.convergence_plans[0]
+    reference_id = plan.shared_reference_ids[0]
+    malformed = next(
+        replace(item, **changes)
+        for item in three_column_route_plan.shared_references
+        if item.id == reference_id
+    )
+    references = tuple(
+        malformed if item.id == reference_id else item
+        for item in three_column_route_plan.shared_references
+    )
+
+    with pytest.raises(ValueError, match="shared references"):
+        build_route_plan_query(
+            replace(three_column_route_plan, shared_references=references)
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"kind": DemandKind.KEEP_OUT},
+        {"axis": DemandAxis.BOTH},
+        {"lane_count": 999},
+        {"ordered_reference_ids": ()},
+        {"keep_out_classes": (KeepOutClass.SECTION,)},
+        {"claimant_member_ids": ()},
+    ),
+)
+def test_route_plan_rejects_mutated_convergence_lane_demands(
+    changes: dict[str, object],
+    three_column_route_plan: RoutePlan,
+) -> None:
+    plan = three_column_route_plan.convergence_plans[0]
+    demand_id = plan.demand_ids[0]
+    malformed = next(
+        replace(item, **changes)
+        for item in three_column_route_plan.demands
+        if item.id == demand_id
+    )
+    demands = tuple(
+        malformed if item.id == demand_id else item
+        for item in three_column_route_plan.demands
+    )
+
+    with pytest.raises(ValueError, match="symbolic demands"):
+        build_route_plan_query(replace(three_column_route_plan, demands=demands))
+
+
+def test_route_plan_rejects_mutated_convergence_runway_demand(
+    three_column_route_plan: RoutePlan,
+) -> None:
+    plan = three_column_route_plan.convergence_plans[0]
+    demand_id = plan.demand_ids[1]
+    malformed = next(
+        replace(item, minimum_size=item.minimum_size + 1.0)
+        for item in three_column_route_plan.demands
+        if item.id == demand_id and item.minimum_size is not None
+    )
+    demands = tuple(
+        malformed if item.id == demand_id else item
+        for item in three_column_route_plan.demands
+    )
+
+    with pytest.raises(ValueError, match="symbolic demands"):
+        build_route_plan_query(replace(three_column_route_plan, demands=demands))
+
+
+def test_route_plan_rejects_duplicate_semantic_convergence_coverage(
+    right_entry_route_plan: RoutePlan,
+) -> None:
+    (plan,) = right_entry_route_plan.convergence_plans
+    duplicate = replace(plan, id=ConvergencePlanId("duplicate-convergence-plan"))
+    systems = tuple(
+        replace(
+            item,
+            convergence_plan_ids=(*item.convergence_plan_ids, duplicate.id),
+        )
+        if item.id == plan.system_id
+        else item
+        for item in right_entry_route_plan.systems
+    )
+    route_plan = replace(
+        right_entry_route_plan,
+        systems=systems,
+        convergence_plans=(plan, duplicate),
+    )
+
+    with pytest.raises(ValueError, match="coverage"):
+        build_route_plan_query(route_plan)
+
+
+def test_route_plan_rejects_missing_semantic_convergence_coverage(
+    right_entry_route_plan: RoutePlan,
+) -> None:
+    (plan,) = right_entry_route_plan.convergence_plans
+    systems = tuple(
+        replace(item, convergence_plan_ids=()) if item.id == plan.system_id else item
+        for item in right_entry_route_plan.systems
+    )
+
+    with pytest.raises(ValueError, match="coverage"):
+        build_route_plan_query(
+            replace(right_entry_route_plan, systems=systems, convergence_plans=())
+        )
+
+
+def test_route_plan_rejects_incomplete_convergence_emission_membership(
+    right_entry_route_plan: RoutePlan,
+) -> None:
+    (plan,) = right_entry_route_plan.convergence_plans
+    remaining_paths = plan.resolved_member_paths[1:]
+    remaining_edges = tuple(
+        dict.fromkeys(edge for path in remaining_paths for edge in path)
+    )
+    member_by_edge = {item.edge: item.id for item in right_entry_route_plan.members}
+    mutated = replace(
+        plan,
+        member_ids=tuple(member_by_edge[edge] for edge in remaining_edges),
+        resolved_member_paths=remaining_paths,
+        resolved_member_edges=remaining_edges,
+    )
+
+    with pytest.raises(ValueError, match="membership is incomplete"):
+        build_route_plan_query(
+            replace(right_entry_route_plan, convergence_plans=(mutated,))
+        )

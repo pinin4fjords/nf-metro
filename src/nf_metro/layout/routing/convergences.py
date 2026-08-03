@@ -22,7 +22,6 @@ from nf_metro.layout.route_plan import (
     ConvergenceTrunkReason,
     CoordinateRegime,
     DemandAxis,
-    DemandId,
     DemandKind,
     EmissionMemberId,
     ExitTurnPlan,
@@ -35,12 +34,12 @@ from nf_metro.layout.route_plan import (
     RouteSemanticScaffold,
     RouteSystemId,
     SharedReference,
-    SharedReferenceId,
     SharedReferenceKind,
     SymbolicDemand,
     TurnHandedness,
     _ordered_unique,
     _plan_provenance,
+    convergence_resource_ids,
     grid_span_for_sections,
     reservation_decision_refs,
     turn_handedness,
@@ -928,14 +927,7 @@ def _build_planned_convergence(
     plan_id = ConvergencePlanId(
         semantic_route_id("convergence-plan", system_id, group.id)
     )
-    reference_ids = (
-        SharedReferenceId(semantic_route_id("convergence-trunk", plan_id)),
-        SharedReferenceId(semantic_route_id("convergence-landings", plan_id)),
-    )
-    demand_ids = (
-        DemandId(semantic_route_id("convergence-band", plan_id)),
-        DemandId(semantic_route_id("convergence-runway", plan_id)),
-    )
+    reference_ids, demand_ids = convergence_resource_ids(plan_id)
     return ConvergencePlan(
         id=plan_id,
         system_id=system_id,
