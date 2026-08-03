@@ -124,7 +124,7 @@ The corollary: once a check is in, it stays in. If a check fires incorrectly, fi
 
 Automated geometry checks verify the coordinates are correct; they can't verify the result _looks_ right. For layout or rendering changes, visual review is essential.
 
-**Via CI (preferred):** push to a PR. `.github/workflows/pr-renders.yml` renders the gallery on both the PR branch and the base, builds a side-by-side before/after for every SVG that changed, and publishes the diff (the comment on your PR links to it). Scroll through and confirm nothing regressed.
+**Via CI (preferred):** push to a PR. The CI workflow invokes `.github/workflows/pr-renders.yml` after lint and format pass, renders the gallery on both the PR branch and the base, builds a side-by-side before/after for every SVG that changed, and publishes the diff (the comment on your PR links to it). Scroll through and confirm nothing regressed.
 
 **Locally:** render individual examples directly:
 

@@ -2,7 +2,7 @@ name: Publish render preview
 
 on:
   workflow_run:
-    workflows: ["PR render preview"]
+    workflows: ["CI"]
     types: [requested, completed]
 
 permissions:
@@ -14,40 +14,67 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.workflow_run.event == 'pull_request'
+    outputs:
+      artifact: ${{ steps.context.outputs.artifact }}
+      pr: ${{ steps.context.outputs.pr }}
+    steps:
+      - name: Resolve workflow context
+        id: context
+        env:
+          ACTION: ${{ github.event.action }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PAYLOAD_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          pr="$PAYLOAD_PR"
+          if [ -z "$pr" ]; then
+            pr=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
+              --jq 'map(select(.state == "open"))[0].number // empty')
+          fi
+
+          artifact=false
+          if [ "$ACTION" = "completed" ]; then
+            artifact_id=$(gh api \
+              "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts?name=render-preview" \
+              --jq '.artifacts[0].id // empty')
+            if [ -n "$artifact_id" ]; then
+              artifact=true
+            fi
+          fi
+
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
   pending:
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.action == 'requested'
     steps:
-      - name: Resolve PR number from head SHA
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR=$(gh api --paginate \
-            "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
-            --jq ".[] | select(.head.sha == \"${{ github.event.workflow_run.head_sha }}\") | .number" \
-            | head -n1)
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
-
       - name: Mark preview as rendering
-        if: steps.pr.outputs.number != ''
+        if: needs.resolve.outputs.pr != ''
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2
         with:
           header: render-preview
-          number: ${{ steps.pr.outputs.number }}
+          number: ${{ needs.resolve.outputs.pr }}
           message: |
             **Render preview**: :hourglass_flowing_sand: rendering in progress...
 
   publish:
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.action == 'completed' &&
-      github.event.workflow_run.conclusion == 'success'
+      needs.resolve.outputs.artifact == 'true'
     steps:
       - name: Download preview artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -128,30 +155,20 @@ jobs:
             **Render preview**: no visual changes detected. All renders match `main`.
 
   failed:
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.action == 'completed' &&
-      github.event.workflow_run.conclusion != 'success'
+      needs.resolve.outputs.artifact != 'true'
     steps:
-      - name: Resolve PR number from head SHA
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR=$(gh api --paginate \
-            "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
-            --jq ".[] | select(.head.sha == \"${{ github.event.workflow_run.head_sha }}\") | .number" \
-            | head -n1)
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
-
       - name: Report preview failure
-        if: steps.pr.outputs.number != ''
+        if: needs.resolve.outputs.pr != ''
         uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2
         with:
           header: render-preview
-          number: ${{ steps.pr.outputs.number }}
+          number: ${{ needs.resolve.outputs.pr }}
           message: |
             **Render preview** was not generated because a prerequisite check or the render job failed.
             Inspect the [workflow run](${{ github.event.workflow_run.html_url }}) for details.
