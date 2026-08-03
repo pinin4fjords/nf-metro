@@ -2395,11 +2395,19 @@ def _validate_fan_runtime_frame(
         for _edge, point in incident
     )
     if carrier is None:
-        if any(
-            abs(point[secondary_axis] - planned_base) > COORD_TOLERANCE_FINE
-            for _line_id, point in fork_endpoints
-        ):
-            raise RuntimeError(f"{context} drifted from its planned fork centreline")
+        for line_id, point in fork_endpoints:
+            external_offset = (
+                station_offsets.get((plan.fork_station_id, line_id), 0.0)
+                if secondary_axis == 1
+                else 0.0
+            )
+            if (
+                abs(point[secondary_axis] - planned_base - external_offset)
+                > COORD_TOLERANCE_FINE
+            ):
+                raise RuntimeError(
+                    f"{context} drifted from its planned fork centreline"
+                )
         return
     slots = {assignment.line_id: assignment.slot for assignment in carrier.assignments}
     step = graph_offset_step(graph)

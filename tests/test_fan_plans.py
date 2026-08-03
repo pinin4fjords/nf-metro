@@ -1698,6 +1698,33 @@ def test_route_only_fan_without_slots_stays_on_its_fork_centreline() -> None:
         validate_fan_route_emissions(graph, routes, offsets)
 
 
+def test_route_only_fan_without_slots_retains_external_line_offset() -> None:
+    graph = prepare_graph(
+        """
+%%metro line: first | First | #2dd4bf
+%%metro line: main | Main | #c792ea
+graph LR
+    subgraph source [Source]
+        start[Start]
+        fork[Fork]
+        start -->|first,main| fork
+    end
+    subgraph targets [Targets]
+        left[Left]
+        right[Right]
+    end
+    fork -->|main| left
+    fork -->|main| right
+"""
+    )
+    offsets = compute_station_offsets(graph)
+    plan = next(item for item in graph.fan_plans if item.owns_geometry)
+
+    assert not plan.offset_carriers
+    assert offsets[plan.fork_station_id, "main"] != 0.0
+    route_edges(graph, station_offsets=offsets)
+
+
 def test_route_only_fan_hub_cannot_translate_its_complete_slot_frame() -> None:
     path = ROOT / "examples" / "topologies" / "seed72_cross_family_fan.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))

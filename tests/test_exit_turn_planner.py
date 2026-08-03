@@ -54,7 +54,7 @@ from nf_metro.layout.routing.exit_turns import (
 from nf_metro.layout.routing.invariants import check_planned_fan_landing_radius
 from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
-from nf_metro.parser.model import PortSide
+from nf_metro.parser.model import LineSpread, PortSide
 from nf_metro.parser.route_topology import build_route_topology_query
 from nf_metro.render.plan import freeze_render_value
 from nf_metro.render.svg import station_marker_box
@@ -708,6 +708,19 @@ def test_adjacent_local_terminator_does_not_inflate_entry_frame_pills() -> None:
             graph, NFCORE_THEME, graph.stations[station_id], offsets
         )
         assert height == pytest.approx(inherited_span + 2 * NFCORE_THEME.station_radius)
+
+
+def test_station_offset_rebuild_clears_entry_pill_metadata_for_rail_mode() -> None:
+    graph = prepare_graph(
+        (TOPOLOGIES / "external_owner_exit_lane_frame.mmd").read_text(),
+        source_dir=str(TOPOLOGIES),
+    )
+    compute_station_offsets(graph)
+    assert graph._linear_entry_pill_lines_cache
+
+    graph.line_spread = LineSpread.RAILS
+    assert compute_station_offsets(graph) == {}
+    assert graph._linear_entry_pill_lines_cache == {}
 
 
 @pytest.mark.parametrize(

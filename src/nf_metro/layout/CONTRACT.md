@@ -282,7 +282,8 @@ step for vertical-flow sections).
 
 A further group crosses a subsystem boundary rather than two numbered stages,
 so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,
-`rail-layout`) in place of a stage id. They carry no runtime check either:
+`station-offset-layout`, `rail-layout`) in place of a stage id. They carry no
+runtime check either:
 
 - `graph._cross_column_perp_bridges` - sections whose perpendicular drop was
   bridged across grid columns, accumulated by the Stage 3.2 / 3.4 port
@@ -293,6 +294,10 @@ so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,
   render fold-abort chokepoint. A resolve-time flow reversal is recorded as a
   `FLOW_REORIENTED_DIRECTION` decision in `graph.layout_provenance`; routing's
   exit-port offset reads that typed reason instead of a second section set.
+- `graph._linear_entry_pill_lines_cache` - accepted linear-entry cohorts
+  projected by each station-offset computation. Marker bbox, label, and render
+  consumers use the cohort with the offset map produced by that computation;
+  the empty default means no entry frame owns marker geometry.
 - `graph._rail_y` - the per-section `{line_id: rail_y}` map produced by the
   opt-in rail-mode layout; read by the rail router, label placement, and rail
   guards, empty when rail mode is off.
