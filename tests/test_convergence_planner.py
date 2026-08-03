@@ -16,6 +16,7 @@ from nf_metro.layout.route_plan import (
     ConvergenceDisposition,
     ConvergenceEndpointRole,
     ConvergencePlanId,
+    ConvergenceTrunkAxis,
     ConvergenceTrunkReason,
     DemandAxis,
     RouteSystemId,
@@ -27,19 +28,21 @@ from nf_metro.layout.route_reservations import (
     expected_convergence_foreign_references,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
-from nf_metro.layout.routing.common import Direction
+from nf_metro.layout.routing.common import Direction, OffsetRegime, RoutedPath
 from nf_metro.layout.routing.convergences import (
     ConvergenceInvariantError,
     ConvergencePlanningError,
     UnsupportedConvergenceError,
     _direct_axis,
+    _seat_route_on_trunk_flanks,
     validate_convergence_plans,
 )
+from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.invariants import (
     check_merge_branches_meet_trunk,
     check_merge_feeders_land_on_trunk,
 )
-from nf_metro.parser.model import PortSide, Station
+from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import build_route_topology_query
 
 ROOT = Path(__file__).parents[1]
@@ -511,7 +514,122 @@ def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> N
         opening = _opening_fanout_descent(route)
         assert opening is not None
         assert opening.x == pytest.approx(landing.opening_turn_coordinate)
+        assert tuple(route.points[opening.idx : opening.idx + 2]) == (
+            landing.opening_turn_segment
+        )
         assert opening.idx in route.convergence_owned_segment_ranks
+
+
+def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
+    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
+
+    candidates = []
+    for plan in observed.plan.convergence_plans:
+        for landing in plan.landings:
+            if (
+                landing.opening_turn_segment is None
+                or landing.member_id == plan.primary_trunk_member_id
+            ):
+                continue
+            route = next(
+                item
+                for item in observed.routes
+                if item.convergence_member_id == str(landing.member_id)
+            )
+            opening = _opening_fanout_descent(route)
+            if opening is not None and opening.idx + 2 < len(route.points):
+                candidates.append((plan, landing, route, opening))
+    plan, _landing, route, opening = candidates[0]
+    x, y = route.points[opening.idx + 1]
+    route.points[opening.idx + 1] = (x, y + 3.0)
+    execution = replace(
+        convergence_routing.empty_convergence_plan_execution(),
+        plans=(plan,),
+        query=convergence_routing._query((plan,)),
+    )
+
+    with pytest.raises(ConvergenceInvariantError, match="planned opening"):
+        validate_convergence_plans(observed.routes, execution)
+
+
+@pytest.mark.parametrize(
+    ("axis", "route_points", "segment_rank"),
+    (
+        (
+            ConvergenceTrunkAxis(
+                DemandAxis.X,
+                20.0,
+                10.0,
+                30.0,
+                Direction.R,
+                0.0,
+                40.0,
+            ),
+            [
+                (0.0, 0.0),
+                (12.0, 0.0),
+                (12.0, 20.0),
+                (30.0, 20.0),
+                (30.0, 40.0),
+                (40.0, 40.0),
+            ],
+            1,
+        ),
+        (
+            ConvergenceTrunkAxis(
+                DemandAxis.Y,
+                20.0,
+                10.0,
+                30.0,
+                Direction.D,
+                0.0,
+                40.0,
+            ),
+            [
+                (0.0, 0.0),
+                (0.0, 12.0),
+                (20.0, 12.0),
+                (20.0, 30.0),
+                (40.0, 30.0),
+                (40.0, 40.0),
+            ],
+            1,
+        ),
+    ),
+)
+def test_trunk_flank_settlement_rederives_curve_radii(
+    axis: ConvergenceTrunkAxis,
+    route_points: list[tuple[float, float]],
+    segment_rank: int,
+) -> None:
+    route = RoutedPath(
+        Edge("source", "target", "line"),
+        "line",
+        route_points,
+        is_inter_section=True,
+        curve_radii=[99.0] * (len(route_points) - 2),
+        offset_regime=OffsetRegime.BAKED,
+    )
+
+    _seat_route_on_trunk_flanks(route, axis, MetroGraph(), lane_offset=2.0)
+
+    assert route.curve_radii is not None
+    radii_and_offsets = (
+        (segment_rank - 1, 2.0),
+        (segment_rank, 0.0),
+        (segment_rank + 1, 0.0),
+        (segment_rank + 2, -2.0),
+    )
+    for radius_rank, offset in radii_and_offsets:
+        assert route.curve_radii[radius_rank] == pytest.approx(
+            concentric_corner_radius_at(
+                *route.points[radius_rank : radius_rank + 3],
+                offset,
+                10.0,
+            )
+        )
+        assert route.curve_radii[radius_rank] != 99.0
 
 
 def test_perpendicular_entry_convergences_emit_both_vertical_directions() -> None:
@@ -834,4 +952,22 @@ def test_route_plan_rejects_coverage_that_disagrees_with_binding() -> None:
     route_plan = replace(observed.plan, convergence_plans=(mutated,))
 
     with pytest.raises(ValueError, match="endpoint owner"):
+        build_route_plan_query(route_plan)
+
+
+def test_route_plan_rejects_endpoint_connectors_from_another_member() -> None:
+    _graph, _offsets, observed = _observe(
+        TOPOLOGIES / "merge_feeders_three_columns.mmd"
+    )
+    plan = observed.plan.convergence_plans[0]
+    first, second = plan.endpoint_ownership[:2]
+    assert first.connector_ids != second.connector_ids
+    ownership = (
+        replace(first, connector_ids=second.connector_ids),
+        *plan.endpoint_ownership[1:],
+    )
+    mutated = replace(plan, endpoint_ownership=ownership)
+    route_plan = replace(observed.plan, convergence_plans=(mutated,))
+
+    with pytest.raises(ValueError, match="connectors disagree with member"):
         build_route_plan_query(route_plan)

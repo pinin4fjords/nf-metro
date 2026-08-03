@@ -1304,6 +1304,7 @@ class ConvergenceLanding:
     corner_handedness: TurnHandedness | None
     minimum_runway: float
     opening_turn_coordinate: float | None
+    opening_turn_segment: tuple[tuple[float, float], tuple[float, float]] | None
     bypass: bool
     long_haul: bool
     multiple_row: bool
@@ -1322,6 +1323,22 @@ class ConvergenceLanding:
             self.opening_turn_coordinate
         ):
             raise ValueError("convergence feeder opening turn must be finite")
+        if (self.opening_turn_coordinate is None) != (
+            self.opening_turn_segment is None
+        ):
+            raise ValueError("convergence feeder opening turn is incomplete")
+        if self.opening_turn_segment is not None:
+            assert self.opening_turn_coordinate is not None
+            start, end = self.opening_turn_segment
+            if (
+                not all(
+                    math.isfinite(value) for point in (start, end) for value in point
+                )
+                or abs(start[0] - end[0]) > COORD_TOLERANCE
+                or abs(start[0] - self.opening_turn_coordinate) > COORD_TOLERANCE
+                or abs(start[1] - end[1]) <= COORD_TOLERANCE
+            ):
+                raise ValueError("convergence feeder opening turn is invalid")
         if not all(math.isfinite(value) for value in self.join_point):
             raise ValueError("convergence feeder join point must be finite")
 
@@ -3706,6 +3723,13 @@ def _validate_convergence_records(
                 raise ValueError("planned convergence resources are inconsistent")
             for ownership in item.endpoint_ownership:
                 (binding,) = bindings[ownership.member_id]
+                if (
+                    ownership.connector_ids
+                    != members[ownership.member_id].connector_ids
+                ):
+                    raise ValueError(
+                        "convergence endpoint ownership connectors disagree with member"
+                    )
                 if ownership.role is ConvergenceEndpointRole.COVERED_CONTINUATION:
                     if (
                         binding.kind

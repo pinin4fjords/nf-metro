@@ -918,7 +918,7 @@ def _snap_group(group: _Coincidence, graph: MetroGraph) -> None:
     planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
     ref_x = planned[0].x if planned else group.ref_x
     if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
-        return
+        raise ValueError("one coincidence group contains conflicting planned axes")
     for ch in group.channels:
         if _planner_owns_channel(ch):
             continue
@@ -1859,6 +1859,7 @@ def _set_vchannel_x(
     new_x: float,
     offset: float = 0.0,
     *,
+    offset_out: float | None = None,
     base_radius: float = CURVE_RADIUS,
     base_radius_out: float | None = None,
 ) -> None:
@@ -1868,13 +1869,11 @@ def _set_vchannel_x(
     :func:`concentric_corner_radius_at` -- the same central helper the routing
     handlers use -- rather than hand-set to a fixed radius after the move.
 
-    *offset* is the channel's signed displacement from the reference line the
-    bundle nests around (the innermost, anchored at the base radius).  Fusing
-    same-line descents onto one track leaves each a single stroke with no
-    nesting, so it passes zero and every corner resolves to the base radius;
-    re-seating a bundle of distinct lines converging on one port passes each
-    line's rank displacement so the outer lanes take the wider, concentric
-    radius and the arcs hold a constant gap through the turn.
+    *offset* is the incoming corner's signed displacement from the reference
+    line the bundle nests around.  *offset_out* supplies a distinct displacement
+    for the outgoing corner; omitting it applies *offset* to both corners.
+    Fusing same-line descents onto one track leaves each a single stroke with no
+    nesting, so it passes zero and every corner resolves to the base radius.
 
     ``base_radius_out`` gives the outgoing corner family its own reference.
     When omitted, both corners use ``base_radius``.
@@ -1885,7 +1884,7 @@ def _set_vchannel_x(
         new_x,
         axis=0,
         offset_in=offset,
-        offset_out=offset,
+        offset_out=offset if offset_out is None else offset_out,
         base_radius=base_radius,
         base_radius_out=base_radius_out,
     )

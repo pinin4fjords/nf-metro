@@ -399,6 +399,11 @@ def _landing_from_trial(
     from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
     opening_turn = _opening_fanout_descent(route)
+    opening_turn_segment = (
+        (route.points[opening_turn.idx], route.points[opening_turn.idx + 1])
+        if opening_turn is not None
+        else None
+    )
     column_span = (
         abs(target_column - source_column)
         if source_column is not None and target_column is not None
@@ -418,6 +423,7 @@ def _landing_from_trial(
         corner_handedness=handedness,
         minimum_runway=runway,
         opening_turn_coordinate=(opening_turn.x if opening_turn is not None else None),
+        opening_turn_segment=opening_turn_segment,
         bypass=is_trunk
         or (edge.source, edge.target, edge.line_id) in ctx.merge.branch_edges,
         long_haul=column_span > 1,
@@ -1161,18 +1167,21 @@ def _move_trunk_flank(
             join_point[1] - approach_start[1]
         )
         opening = landing.opening_turn_coordinate
+        opening_segment = landing.opening_turn_segment
         if axis.axis is DemandAxis.X and landing.approach_axis is DemandAxis.Y:
-            opening = (
-                coordinate
-                if opening is not None
-                and abs(opening - old_coordinate) <= COORD_TOLERANCE
-                else opening
-            )
+            if opening is not None and abs(opening - old_coordinate) <= COORD_TOLERANCE:
+                opening = coordinate
+                assert opening_segment is not None
+                opening_segment = (
+                    (coordinate, opening_segment[0][1]),
+                    (coordinate, opening_segment[1][1]),
+                )
         moved = replace(
             landing,
             join_point=join_point,
             minimum_runway=runway,
             opening_turn_coordinate=opening,
+            opening_turn_segment=opening_segment,
         )
         landings.append(moved)
         moved_join_by_member[landing.member_id] = join_point
@@ -1283,8 +1292,8 @@ def _landing_trunk_flank_conflict(
 
 
 def _system_conflict_reason(
-    system_id: RouteSystemId,
     plans: tuple[ConvergencePlan, ...],
+    system_edges: tuple[ResolvedEdge, ...],
     scaffold: RouteSemanticScaffold,
     ctx: _RoutingCtx,
 ) -> str | None:
@@ -1399,13 +1408,8 @@ def _system_conflict_reason(
 
     owned_edges = {edge for plan in plans for edge in plan.resolved_member_edges}
     unowned_system_edges: list[ResolvedEdge] = []
-    for edge_key in scaffold.edge_order:
+    for edge_key in system_edges:
         if edge_key in owned_edges:
-            continue
-        connector_ids = _ordered_unique(
-            item.connector_id for item in scaffold.refs_by_edge[edge_key]
-        )
-        if scaffold.system_for(connector_ids) != system_id:
             continue
         unowned_system_edges.append(edge_key)
         candidate_trunks = tuple(
@@ -1575,6 +1579,21 @@ def build_convergence_plan_execution(
     )
     for view in scaffold.query.convergences:
         views_by_system[scaffold.system_for(view.group.connector_ids)].append(view)
+    edges_by_system: dict[RouteSystemId, list[ResolvedEdge]] = defaultdict(list)
+    for edge in scaffold.edge_order:
+        edge_connector_ids = _ordered_unique(
+            item.connector_id for item in scaffold.refs_by_edge[edge]
+        )
+        edges_by_system[scaffold.system_for(edge_connector_ids)].append(edge)
+    exit_turn_plans_by_system: dict[RouteSystemId, list[ExitTurnPlan]] = defaultdict(
+        list
+    )
+    for exit_turn_plan in exit_turn_plans:
+        exit_turn_plans_by_system[exit_turn_plan.system_id].append(exit_turn_plan)
+    fan_plans_by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
+    for fan_plan in fan_plans:
+        if fan_plan.system_id is not None:
+            fan_plans_by_system[fan_plan.system_id].append(fan_plan)
     plans: list[ConvergencePlan] = []
     diagnostics: list[RoutePlanDiagnostic] = []
     for system_id in scaffold.ordered_system_ids:
@@ -1592,16 +1611,15 @@ def build_convergence_plan_execution(
         }
         upstream_exit_plans = tuple(
             item
-            for item in exit_turn_plans
+            for item in exit_turn_plans_by_system.get(system_id, ())
             if set(item.connector_ids) & connector_ids
             or set(item.member_ids) & member_ids
         )
         upstream_exit_ids = tuple(item.id for item in upstream_exit_plans)
         upstream_fan_ids = tuple(
             item.id
-            for item in fan_plans
-            if item.system_id == system_id
-            and (
+            for item in fan_plans_by_system.get(system_id, ())
+            if (
                 set(item.connector_ids) & connector_ids
                 or set(item.member_ids) & member_ids
             )
@@ -1623,7 +1641,10 @@ def build_convergence_plan_execution(
                 system_plans, graph, ctx.curve_radius
             )
             conflict_reason = _system_conflict_reason(
-                system_id, system_plans, scaffold, ctx
+                system_plans,
+                tuple(edges_by_system.get(system_id, ())),
+                scaffold,
+                ctx,
             )
             if conflict_reason is not None:
                 raise UnsupportedConvergenceError(conflict_reason)
@@ -1671,92 +1692,12 @@ def convergence_failure(
     )
 
 
-def _point_on_axis(point: tuple[float, float], axis: ConvergenceTrunkAxis) -> bool:
-    transverse, longitudinal = (
-        (point[1], point[0]) if axis.axis is DemandAxis.X else (point[0], point[1])
-    )
-    return (
-        abs(transverse - axis.coordinate) <= COORD_TOLERANCE
-        and axis.extent_start - COORD_TOLERANCE
-        <= longitudinal
-        <= axis.extent_end + COORD_TOLERANCE
-    )
-
-
 def _point_on_trunk_geometry(
     point: tuple[float, float], axis: ConvergenceTrunkAxis
 ) -> bool:
-    if _point_on_axis(point, axis):
-        return True
-    source_longitudinal, target_longitudinal = (
-        (axis.extent_start, axis.extent_end)
-        if axis.direction in {Direction.R, Direction.D}
-        else (axis.extent_end, axis.extent_start)
-    )
-    source_endpoint = (
-        axis.source_endpoint_coordinate
-        if axis.source_endpoint_coordinate is not None
-        else source_longitudinal
-    )
-    target_endpoint = (
-        axis.target_endpoint_coordinate
-        if axis.target_endpoint_coordinate is not None
-        else target_longitudinal
-    )
-    if axis.axis is DemandAxis.X:
-        return any(
-            abs(point[0] - longitudinal) <= COORD_TOLERANCE
-            and min(axis.coordinate, flank) - COORD_TOLERANCE
-            <= point[1]
-            <= max(axis.coordinate, flank) + COORD_TOLERANCE
-            for longitudinal, flank in (
-                (source_longitudinal, axis.source_flank_coordinate),
-                (target_longitudinal, axis.target_flank_coordinate),
-            )
-        ) or any(
-            abs(point[1] - flank) <= COORD_TOLERANCE
-            and min(longitudinal, endpoint) - COORD_TOLERANCE
-            <= point[0]
-            <= max(longitudinal, endpoint) + COORD_TOLERANCE
-            for longitudinal, flank, endpoint in (
-                (
-                    source_longitudinal,
-                    axis.source_flank_coordinate,
-                    source_endpoint,
-                ),
-                (
-                    target_longitudinal,
-                    axis.target_flank_coordinate,
-                    target_endpoint,
-                ),
-            )
-        )
     return any(
-        abs(point[1] - longitudinal) <= COORD_TOLERANCE
-        and min(axis.coordinate, flank) - COORD_TOLERANCE
-        <= point[0]
-        <= max(axis.coordinate, flank) + COORD_TOLERANCE
-        for longitudinal, flank in (
-            (source_longitudinal, axis.source_flank_coordinate),
-            (target_longitudinal, axis.target_flank_coordinate),
-        )
-    ) or any(
-        abs(point[0] - flank) <= COORD_TOLERANCE
-        and min(longitudinal, endpoint) - COORD_TOLERANCE
-        <= point[1]
-        <= max(longitudinal, endpoint) + COORD_TOLERANCE
-        for longitudinal, flank, endpoint in (
-            (
-                source_longitudinal,
-                axis.source_flank_coordinate,
-                source_endpoint,
-            ),
-            (
-                target_longitudinal,
-                axis.target_flank_coordinate,
-                target_endpoint,
-            ),
-        )
+        point_to_polyline_distance(point, segment) <= COORD_TOLERANCE
+        for segment in _trunk_segments(axis)
     )
 
 
@@ -1914,10 +1855,16 @@ def _trunk_segment_ranks(
 
 
 def _seat_route_on_trunk_flanks(
-    route: RoutedPath, axis: ConvergenceTrunkAxis, graph: MetroGraph
+    route: RoutedPath,
+    axis: ConvergenceTrunkAxis,
+    graph: MetroGraph,
+    lane_offset: float,
 ) -> None:
     planned_flanks = (_trunk_segments(axis)[1], _trunk_segments(axis)[3])
-    for planned in planned_flanks:
+    source_offset = (
+        lane_offset if axis.direction in {Direction.R, Direction.D} else -lane_offset
+    )
+    for flank_rank, planned in enumerate(planned_flanks):
         if all(
             abs(actual - expected) <= COORD_TOLERANCE
             for actual, expected in zip(*planned, strict=True)
@@ -1956,12 +1903,23 @@ def _seat_route_on_trunk_flanks(
             )
         _distance, rank = min(candidates)
         start, end = route.points[rank : rank + 2]
+        offset_in, offset_out = (
+            (source_offset, 0.0) if flank_rank == 0 else (0.0, -source_offset)
+        )
         if planned_horizontal:
-            route.points[rank] = (start[0], planned_coordinate)
-            route.points[rank + 1] = (end[0], planned_coordinate)
+            from nf_metro.layout.routing.normalize import _set_htrunk_y
+
+            _set_htrunk_y(
+                route,
+                rank,
+                planned_coordinate,
+                offset_in=offset_in,
+                offset_out=offset_out,
+            )
         else:
             from nf_metro.layout.routing.normalize import (
                 _reconcile_moved_gap_slot,
+                _set_vchannel_x,
                 _VChannel,
             )
 
@@ -1974,8 +1932,12 @@ def _seat_route_on_trunk_flanks(
                 down=end[1] > start[1],
             )
             _reconcile_moved_gap_slot(channel, planned_coordinate, graph)
-            route.points[rank] = (planned_coordinate, start[1])
-            route.points[rank + 1] = (planned_coordinate, end[1])
+            _set_vchannel_x(
+                channel,
+                planned_coordinate,
+                offset_in,
+                offset_out=offset_out,
+            )
 
 
 def _assert_landing_geometry(
@@ -2006,15 +1968,20 @@ def _assert_landing_geometry(
         from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
         opening = _opening_fanout_descent(route)
+        emitted_segment = (
+            (route.points[opening.idx], route.points[opening.idx + 1])
+            if opening is not None
+            else None
+        )
         if (
             opening is None
             or abs(opening.x - landing.opening_turn_coordinate) > COORD_TOLERANCE
+            or emitted_segment != landing.opening_turn_segment
         ):
-            emitted = None if opening is None else opening.x
             raise ConvergenceInvariantError(
                 f"convergence system {plan.system_id} feeder {landing.member_id} "
-                f"planned opening {landing.opening_turn_coordinate:g} but emitted "
-                f"{emitted}"
+                f"planned opening {landing.opening_turn_segment} but emitted "
+                f"{emitted_segment}"
             )
 
 
@@ -2079,7 +2046,14 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
             _bake_route(route, ctx)
             _connect_route_endpoint(route, landing.join_point)
         assert plan.trunk_axis is not None
-        _seat_route_on_trunk_flanks(route, plan.trunk_axis, ctx.graph)
+        lane_rank = plan.lane_order.index(route.line_id)
+        lane_offset = (len(plan.lane_order) - lane_rank - 1) * ctx.offset_step
+        _seat_route_on_trunk_flanks(
+            route,
+            plan.trunk_axis,
+            ctx.graph,
+            lane_offset,
+        )
         route.convergence_owned_segment_ranks = _ordered_unique(
             _trunk_segment_ranks(route, plan.trunk_axis)
             + (() if opening_rank is None else (opening_rank,))

@@ -2464,11 +2464,12 @@ def expected_convergence_foreign_references(
     )
     demands = {item.id: item for item in plan.demands}
     spans = {item.id: demands[item.demand_ids[0]].span for item in planned}
-    foreign: defaultdict[ConvergencePlanId, list[SharedReferenceId]] = defaultdict(list)
+    foreign: defaultdict[ConvergencePlanId, dict[SharedReferenceId, None]] = (
+        defaultdict(dict)
+    )
 
     def add(plan_id: ConvergencePlanId, reference_id: SharedReferenceId) -> None:
-        if reference_id not in foreign[plan_id]:
-            foreign[plan_id].append(reference_id)
+        foreign[plan_id].setdefault(reference_id, None)
 
     for rank, first in enumerate(planned):
         assert first.trunk_axis is not None
