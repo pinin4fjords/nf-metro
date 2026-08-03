@@ -1,0 +1,13 @@
+%%metro title: File node with an outgoing edge
+%%metro line: main | Main | #e6007e
+%%metro file: made_gtf | GTF | Hybrid GTF
+%%metro file: final_report | HTML | Report
+
+graph LR
+    subgraph a [Alpha]
+        a1[Make GTF]
+        a2[Use GTF]
+        a1 -->|main| made_gtf
+        made_gtf -->|main| a2
+        a2 -->|main| final_report
+    end

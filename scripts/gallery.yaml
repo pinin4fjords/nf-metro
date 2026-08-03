@@ -64,6 +64,12 @@ gallery:
     description:
       "Terminus icon variants: single-sheet `%%metro file:`, stacked `%%metro files:`
       for multiplicity, the `%%metro dir:` folder, and the optional `| banner` format strip."
+  - id: file_node_with_outgoing_edge
+    source_dir: examples/topologies
+    category: Feature Showcase
+    description:
+      "A produced GTF artifact feeds a downstream consumer while retaining its file icon
+      and human-readable caption on the pipeline trunk."
   - id: legend_logo_placement
     source_dir: examples
     category: Feature Showcase

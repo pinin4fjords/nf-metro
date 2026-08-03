@@ -533,6 +533,30 @@ def test_render_file_icon_with_name_caption():
     assert root.tag.endswith("svg") or "svg" in root.tag
 
 
+def test_render_file_icon_with_outgoing_edge():
+    fixture = (
+        pathlib.Path(__file__).parent.parent
+        / "examples/topologies/file_node_with_outgoing_edge.mmd"
+    )
+    graph = parse_metro_mermaid(fixture.read_text())
+    compute_layout(graph)
+    root = ET.fromstring(render_svg(graph, NFCORE_THEME))
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    visible_text = [
+        "".join(element.itertext()) for element in root.findall(".//svg:text", ns)
+    ]
+
+    assert "GTF" in visible_text
+    assert "Hybrid GTF" in visible_text
+    assert "made_gtf" not in visible_text
+    icon_group = next(
+        element
+        for element in root.findall(".//svg:g", ns)
+        if element.attrib.get("data-station-id") == "made_gtf"
+    )
+    assert icon_group.find("svg:path", ns) is not None
+
+
 def test_caption_font_smaller_than_label_font():
     """Caption renders smaller than the station label to fit the icon."""
     graph = parse_metro_mermaid(
