@@ -1595,8 +1595,16 @@ def _stack_distinct_port_descents(
     leave already-separated descents alone; an explicit ``line_order`` reseats
     a classified convergence onto that order.
     """
-    if any(_planner_owns_channel(channel) for _route, channel in cluster):
+    if any(
+        _planner_owns_channel(channel)
+        and not _convergence_owns_segment_boundary(channel.route, channel.idx)
+        for _route, channel in cluster
+    ):
         return
+    has_planned_channel = any(
+        _convergence_owns_segment_boundary(channel.route, channel.idx)
+        for _route, channel in cluster
+    )
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
     for rp, ch in cluster:
         by_line[rp.line_id].append(ch)
@@ -1624,8 +1632,18 @@ def _stack_distinct_port_descents(
     # outward in -X, a RIGHT entry in +X), which the corner helper needs to widen
     # the outer side rather than tighten it.
     x_inner = base + (n - 1) * step if left else base - (n - 1) * step
+    target_x_by_line = {
+        lid: base + rank * step if left else base - rank * step
+        for rank, lid in enumerate(ordered)
+    }
+    if has_planned_channel and any(
+        abs(channel.x - target_x_by_line[line_id]) > COORD_TOLERANCE
+        for line_id, channels in by_line.items()
+        for channel in channels
+    ):
+        return
     for rank, lid in enumerate(ordered):
-        x = base + rank * step if left else base - rank * step
+        x = target_x_by_line[lid]
         offset = x - x_inner
         for ch in by_line[lid]:
             if abs(ch.x - x) > COORD_TOLERANCE or abs(offset) > COORD_TOLERANCE:
@@ -1894,7 +1912,7 @@ def _set_htrunk_y(
     )
 
 
-def _initial_fanout_descent(rp: RoutedPath) -> _VChannel | None:
+def _opening_fanout_descent(rp: RoutedPath) -> _VChannel | None:
     """The first vertical descent leaving a route's source, when it leads H then V.
 
     Wraps :func:`initial_fanout_descent_span` in a :class:`_VChannel` whose
@@ -1905,7 +1923,13 @@ def _initial_fanout_descent(rp: RoutedPath) -> _VChannel | None:
     if span is None:
         return None
     x, y_lo, y_hi, down = span
-    channel = _VChannel(route=rp, idx=1, x=x, y_lo=y_lo, y_hi=y_hi, down=down)
+    return _VChannel(route=rp, idx=1, x=x, y_lo=y_lo, y_hi=y_hi, down=down)
+
+
+def _initial_fanout_descent(rp: RoutedPath) -> _VChannel | None:
+    channel = _opening_fanout_descent(rp)
+    if channel is None:
+        return None
     return None if _planner_owns_channel(channel) else channel
 
 
@@ -1922,9 +1946,10 @@ def _distinct_descent_spans(
     rp: RoutedPath,
 ) -> Iterable[tuple[tuple[str, bool], _VChannel]]:
     """A route's opening fan-out descent, keyed by source and direction."""
-    ch = _initial_fanout_descent(rp)
-    if ch is not None:
-        yield (rp.edge.source, ch.down), ch
+    channel = _opening_fanout_descent(rp)
+    if channel is None:
+        return
+    yield (rp.edge.source, channel.down), channel
 
 
 def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
@@ -2054,7 +2079,11 @@ def _bundle_divergent_distinct_descents(
 
     step = ctx.offset_step
     for chans in by_source.values():
-        if any(_planner_owns_channel(channel) for channel in chans):
+        if any(
+            _planner_owns_channel(channel)
+            and not _convergence_owns_segment_boundary(channel.route, channel.idx)
+            for channel in chans
+        ):
             continue
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
@@ -2092,6 +2121,14 @@ def _bundle_divergent_distinct_descents(
         }
         ordered = sorted(by_line, key=line_key.__getitem__)
         tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+        if (
+            any(
+                _convergence_owns_segment_boundary(channel.route, channel.idx)
+                for channel in chans
+            )
+            and not tight
+        ):
+            continue
         moves = (
             [(ch, ch.x, ch.x - base) for ch in chans]
             if tight

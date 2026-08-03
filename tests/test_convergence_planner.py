@@ -98,6 +98,97 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("fixture", "reason"),
+    (
+        (
+            "exit_run_three_drop_columns.mmd",
+            "planned convergence trunks require one shared channel decision",
+        ),
+        (
+            "funcprofiler_upstream.mmd",
+            "planned convergence corridor conflicts with unowned route-system members",
+        ),
+        (
+            "merge_around_below_leftmost.mmd",
+            "planned convergence trunks require one shared channel decision",
+        ),
+        (
+            "merge_trunk_out_of_range_section.mmd",
+            "planned convergence trunks require one shared channel decision",
+        ),
+    ),
+)
+def test_conflicting_route_systems_use_whole_system_compatibility(
+    fixture: str, reason: str
+) -> None:
+    _graph, _offsets, observed = _observe(TOPOLOGIES / fixture)
+
+    assert observed.plan.convergence_plans
+    assert {item.disposition for item in observed.plan.convergence_plans} == {
+        ConvergenceDisposition.LEGACY
+    }
+    assert len({item.system_id for item in observed.plan.convergence_plans}) == 1
+    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
+
+
+@pytest.mark.parametrize(
+    ("path", "reason"),
+    (
+        (
+            TOPOLOGIES / "merge_bottom_row_bypass.mmd",
+            "planned fan arms require opposing opening channels",
+        ),
+        (
+            TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
+            "planned fan arms require opposing opening channels",
+        ),
+        (
+            TOPOLOGIES / "merge_right_entry.mmd",
+            "planned convergence corridor conflicts with unowned route-system member",
+        ),
+        (
+            ROOT / "examples" / "genomeassembly.mmd",
+            "chained same-line convergences require one shared system settlement",
+        ),
+        (
+            ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+            "chained same-line convergences require one shared system settlement",
+        ),
+        (
+            ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+            "planned convergence feeder approaches require one shared channel decision",
+        ),
+    ),
+)
+def test_reviewed_conflicts_keep_the_complete_system_on_compatibility(
+    path: Path, reason: str
+) -> None:
+    _graph, _offsets, observed = _observe(path)
+
+    assert observed.plan.convergence_plans
+    assert all(
+        item.disposition is ConvergenceDisposition.LEGACY
+        for item in observed.plan.convergence_plans
+    )
+    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        GUIDE / "03b_fan_in_merge.mmd",
+        TOPOLOGIES / "merge_adjacent_feeder.mmd",
+        TOPOLOGIES / "merge_trunk_over_low_section.mmd",
+    ),
+)
+def test_non_conflicting_reviewed_systems_remain_planned(path: Path) -> None:
+    _graph, _offsets, observed = _observe(path)
+
+    assert observed.plan.convergence_plans
+    assert all(item.owns_geometry for item in observed.plan.convergence_plans)
+
+
 def test_convergence_plan_is_queryable_through_every_semantic_identity() -> None:
     _graph, _offsets, observed = _observe(
         TOPOLOGIES / "merge_feeders_three_columns.mmd"

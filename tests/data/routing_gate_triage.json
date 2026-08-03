@@ -759,16 +759,8 @@
     "note": "Both callers of _coincident_trunk_slots pre-filter input to a single traversal direction (band = [t for t in grp if t.sign_x == sign]), so within the function sg[0].sign_x != t.sign_x is always False; the opposing-direction continue is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
     "status": "defensive"
   },
-  "normalize.py::if trunk_ch is None:::#1": {
-    "note": "Defensive guard: the merge trunk route opens horizontal-then-vertical (lead into the gap, then descend), so its initial fan-out descent is always found; the skip arm is never taken.",
-    "status": "defensive"
-  },
   "normalize.py::if abs(turn[1] - start[1]) > COORD_TOLERANCE or abs(dx) <= COORD_TOLERANCE:::#1": {
     "note": "The opening segment before a declared same-source divergence channel is a non-degenerate horizontal run by construction. The non-horizontal or zero-length arm defensively rejects a route shape that cannot provide a shared trunk endpoint.",
-    "status": "defensive"
-  },
-  "normalize.py::if trunk_rp is not None:::#1": {
-    "note": "Yield guard in _merge_trunks_and_feeders: every merge in trunk_source has its trunk edge routed by _route_merge_trunk, so the skip arm is never taken. Kept because the whole convergence reconciliation reads the trunk's settled channel, and there is nothing to read without it (#1597).",
     "status": "defensive"
   },
   "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {

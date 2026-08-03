@@ -264,7 +264,11 @@ def test_every_member_has_one_emitted_or_explicit_covered_binding(
 
 
 @pytest.mark.parametrize(
-    "relative_path", ("genomeassembly.mmd", "genomeassembly_staggered.mmd")
+    "relative_path",
+    (
+        "topologies/merge_feeders_three_columns.mmd",
+        "guide/03b_fan_in_merge.mmd",
+    ),
 )
 def test_planned_merge_suppression_occurs_before_dispatch(
     relative_path: str,

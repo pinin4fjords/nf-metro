@@ -295,6 +295,17 @@ the group remains on the explicit legacy path with a deterministic diagnostic.
 No planner may publish a partial demand and ask a later normalization pass to
 recover the missing ownership.
 
+The convergence compatibility path is bounded to allocation capabilities that
+the current planner cannot settle atomically: opposing fan openings, shared fan
+channels that require one cross-convergence decision, chained same-line trunks,
+and collisions with an unowned endpoint bundle in the same route system.
+[#1660](https://github.com/seqeralabs/nf-metro/issues/1660) owns the shared row
+and column settlement needed to absorb those cases. Once that allocation is
+available, [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) owns
+removal of the displaced compatibility emission and repair machinery. A
+compatibility diagnostic therefore records a specific missing capability,
+rather than acting as an open-ended fallback for an unfamiliar topology.
+
 ## Canonical order
 
 Systems follow first connector appearance. Resolved endpoint groups follow exit

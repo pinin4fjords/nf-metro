@@ -117,7 +117,9 @@ def _without_feeder_landing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_checker_fires_when_member_misses_planned_join() -> None:
     """A convergence member ending away from its planned join is rejected."""
-    graph, routes, offsets = _route(FIXTURES / "genomeassembly_organellar.mmd")
+    graph, routes, offsets = _route(
+        EXAMPLES / "topologies" / "merge_feeders_three_columns.mmd"
+    )
     branch = next(
         route
         for route in routes
