@@ -431,14 +431,12 @@ def test_packed_adjacency_convergences_are_planned() -> None:
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
 
-def test_fan_in_merge_uses_whole_system_compatibility_until_shared_settlement() -> None:
+def test_fan_in_merge_settles_the_complete_system_before_emission() -> None:
     graph, offsets, observed = _observe(TOPOLOGIES / "fan_in_merge.mmd")
 
     assert observed.plan.convergence_plans
-    assert all(not plan.owns_geometry for plan in observed.plan.convergence_plans)
-    assert {plan.legacy_reason for plan in observed.plan.convergence_plans} == {
-        "planned convergence approaches and trunks require shared settlement"
-    }
+    assert all(plan.owns_geometry for plan in observed.plan.convergence_plans)
+    assert all(plan.legacy_reason is None for plan in observed.plan.convergence_plans)
     assert not check_merge_branches_meet_trunk(graph, observed.routes, offsets)
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
@@ -475,11 +473,45 @@ def test_target_section_orientations_use_one_convergence_model(
     assert all(
         graph.ports[plan.target_entry_port_ids[0]].side is side for plan in sink_plans
     )
-    assert all(not plan.owns_geometry for plan in sink_plans)
-    assert {plan.legacy_reason for plan in sink_plans} == {
-        "planned convergence approaches and trunks require shared settlement"
-    }
+    assert all(plan.owns_geometry for plan in sink_plans)
+    assert all(plan.legacy_reason is None for plan in sink_plans)
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        FROZEN / "seed_15.mmd",
+        ROOT / "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd",
+    ),
+)
+def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> None:
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
+
+    _graph, _offsets, observed = _observe(path)
+    planned = {
+        landing.member_id: landing
+        for plan in observed.plan.convergence_plans
+        if plan.owns_geometry
+        for landing in plan.landings
+        if landing.opening_turn_coordinate is not None
+    }
+
+    assert planned
+    for route in observed.routes:
+        if route.convergence_member_id not in {str(item) for item in planned}:
+            continue
+        landing = planned[
+            next(
+                member_id
+                for member_id in planned
+                if str(member_id) == route.convergence_member_id
+            )
+        ]
+        opening = _opening_fanout_descent(route)
+        assert opening is not None
+        assert opening.x == pytest.approx(landing.opening_turn_coordinate)
+        assert opening.idx in route.convergence_owned_segment_ranks
 
 
 def test_perpendicular_entry_convergences_emit_both_vertical_directions() -> None:
@@ -656,8 +688,14 @@ def test_runtime_guard_names_the_plan_member_and_broken_join() -> None:
         TOPOLOGIES / "merge_feeders_three_columns.mmd"
     )
     plan = observed.plan.convergence_plans[0]
+    ownership = next(
+        item
+        for item in plan.endpoint_ownership
+        if item.role is ConvergenceEndpointRole.FEEDER
+        and plan.connector_ids[0] not in item.connector_ids
+    )
     landing = next(
-        item for item in plan.landings if item.member_id != plan.primary_trunk_member_id
+        item for item in plan.landings if item.member_id == ownership.member_id
     )
     route = next(
         item
@@ -676,7 +714,10 @@ def test_runtime_guard_names_the_plan_member_and_broken_join() -> None:
 
     message = str(error.value)
     assert str(plan.system_id) in message
-    assert str(plan.connector_ids[0]) in message
+    connector_set = ", ".join(
+        str(connector_id) for connector_id in ownership.connector_ids
+    )
+    assert f"connectors {connector_set} member" in message
     assert str(landing.member_id) in message
     assert "planned join" in message
     assert "emitted endpoint" in message

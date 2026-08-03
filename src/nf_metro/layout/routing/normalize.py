@@ -945,10 +945,16 @@ def _snap_merge_feeder_group(group: _Coincidence, graph: MetroGraph) -> None:
 
 
 def _seat_merge_feeder_opening(
-    route: RoutedPath, coordinate: float, graph: MetroGraph
+    route: RoutedPath,
+    coordinate: float,
+    graph: MetroGraph,
+    *,
+    planned: bool = False,
 ) -> None:
     """Seat a merge feeder's opening turn on its planned shared axis."""
-    channel = _initial_fanout_descent(route)
+    channel = (
+        _opening_fanout_descent(route) if planned else _initial_fanout_descent(route)
+    )
     if channel is None:
         return
     delta = coordinate - channel.x

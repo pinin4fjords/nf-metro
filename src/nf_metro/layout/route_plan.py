@@ -1355,11 +1355,16 @@ class ConvergenceEndpointOwnership:
 
     member_id: EmissionMemberId
     edge: ResolvedEdge
+    connector_ids: tuple[ConnectorId, ...]
     role: ConvergenceEndpointRole
     endpoint: tuple[float, float]
     covered_by_member_id: EmissionMemberId | None = None
 
     def __post_init__(self) -> None:
+        if not self.connector_ids or len(set(self.connector_ids)) != len(
+            self.connector_ids
+        ):
+            raise ValueError("convergence endpoint connector ownership is incomplete")
         if not all(math.isfinite(value) for value in self.endpoint):
             raise ValueError("convergence owned endpoint must be finite")
         covered = self.role is ConvergenceEndpointRole.COVERED_CONTINUATION
@@ -1473,6 +1478,11 @@ class ConvergencePlan:
             for item in self.endpoint_ownership
         ):
             raise ValueError("convergence endpoint lies outside resolved membership")
+        if any(
+            not set(item.connector_ids).issubset(self.connector_ids)
+            for item in self.endpoint_ownership
+        ):
+            raise ValueError("convergence endpoint connector lies outside membership")
         if planned:
             if (
                 self.primary_trunk_member_id is None

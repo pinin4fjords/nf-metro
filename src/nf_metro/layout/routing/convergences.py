@@ -396,9 +396,9 @@ def _landing_from_trial(
     approach_direction, handedness, runway = approach
     source_column, source_row = _resolve_section_colrow(ctx.graph, source)
     target_column, target_row = _resolve_section_colrow(ctx.graph, target)
-    from nf_metro.layout.routing.normalize import _initial_fanout_descent
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
-    opening_turn = _initial_fanout_descent(route)
+    opening_turn = _opening_fanout_descent(route)
     column_span = (
         abs(target_column - source_column)
         if source_column is not None and target_column is not None
@@ -580,6 +580,12 @@ def _build_planned_convergence(
     system_id = scaffold.system_for(group.connector_ids)
     paths, edges, member_ids = membership
     member_by_edge = dict(zip(edges, member_ids, strict=True))
+    connector_ids_by_edge = {
+        edge: _ordered_unique(
+            reference.connector_id for reference in scaffold.refs_by_edge[edge]
+        )
+        for edge in edges
+    }
     entry_port_id = scaffold.query.entry_port(group.entry_group_id)
     entry = graph.stations[entry_port_id]
     outgoing_edges = tuple(edge for edge in edges if edge.source == view.junction_id)
@@ -778,7 +784,13 @@ def _build_planned_convergence(
                 else landing.join_point
             )
             ownership.append(
-                ConvergenceEndpointOwnership(member_id, edge_key, role, endpoint)
+                ConvergenceEndpointOwnership(
+                    member_id=member_id,
+                    edge=edge_key,
+                    connector_ids=connector_ids_by_edge[edge_key],
+                    role=role,
+                    endpoint=endpoint,
+                )
             )
             continue
         continuation_route = trial_routes.get(edge_key)
@@ -869,15 +881,16 @@ def _build_planned_convergence(
         )
         ownership.append(
             ConvergenceEndpointOwnership(
-                member_id,
-                edge_key,
-                (
+                member_id=member_id,
+                edge=edge_key,
+                connector_ids=connector_ids_by_edge[edge_key],
+                role=(
                     ConvergenceEndpointRole.COVERED_CONTINUATION
                     if covered_by is not None
                     else ConvergenceEndpointRole.CONTINUATION
                 ),
-                end_point,
-                covered_by,
+                endpoint=end_point,
+                covered_by_member_id=covered_by,
             )
         )
 
@@ -1095,29 +1108,177 @@ def _has_opposing_landing_approaches(
     return False
 
 
-def _has_opposing_landing_and_trunk_flanks(
+def _move_trunk_flank(
+    plan: ConvergencePlan,
+    flank_rank: int,
+    coordinate: float,
+) -> ConvergencePlan:
+    axis = plan.trunk_axis
+    assert axis is not None
+    source_flank = flank_rank == 1
+    moves_start = source_flank == (axis.direction in {Direction.R, Direction.D})
+    old_coordinate = axis.extent_start if moves_start else axis.extent_end
+    new_axis = (
+        replace(axis, extent_start=coordinate)
+        if moves_start
+        else replace(axis, extent_end=coordinate)
+    )
+    old_segment = _trunk_segments(axis)[flank_rank]
+
+    landings: list[ConvergenceLanding] = []
+    moved_join_by_member: dict[EmissionMemberId, tuple[float, float]] = {}
+    for landing in plan.landings:
+        if (
+            point_to_polyline_distance(landing.join_point, old_segment)
+            > COORD_TOLERANCE
+        ):
+            landings.append(landing)
+            continue
+        join_point = (
+            (coordinate, landing.join_point[1])
+            if axis.axis is DemandAxis.X
+            else (landing.join_point[0], coordinate)
+        )
+        approach_start = (
+            landing.join_point[0]
+            - (
+                landing.minimum_runway
+                if landing.approach_direction is Direction.R
+                else -landing.minimum_runway
+                if landing.approach_direction is Direction.L
+                else 0.0
+            ),
+            landing.join_point[1]
+            - (
+                landing.minimum_runway
+                if landing.approach_direction is Direction.D
+                else -landing.minimum_runway
+                if landing.approach_direction is Direction.U
+                else 0.0
+            ),
+        )
+        runway = abs(join_point[0] - approach_start[0]) + abs(
+            join_point[1] - approach_start[1]
+        )
+        opening = landing.opening_turn_coordinate
+        if axis.axis is DemandAxis.X and landing.approach_axis is DemandAxis.Y:
+            opening = (
+                coordinate
+                if opening is not None
+                and abs(opening - old_coordinate) <= COORD_TOLERANCE
+                else opening
+            )
+        moved = replace(
+            landing,
+            join_point=join_point,
+            minimum_runway=runway,
+            opening_turn_coordinate=opening,
+        )
+        landings.append(moved)
+        moved_join_by_member[landing.member_id] = join_point
+
+    old_axis_point = (
+        _axis_source_point(axis) if source_flank else _axis_target_point(axis)
+    )
+    new_axis_point = (
+        _axis_source_point(new_axis) if source_flank else _axis_target_point(new_axis)
+    )
+    continuations = tuple(
+        replace(item, start_point=new_axis_point)
+        if all(
+            abs(actual - expected) <= COORD_TOLERANCE
+            for actual, expected in zip(item.start_point, old_axis_point, strict=True)
+        )
+        else item
+        for item in plan.outgoing_continuations
+    )
+    ownership = tuple(
+        replace(item, endpoint=moved_join_by_member[item.member_id])
+        if item.member_id in moved_join_by_member
+        and item.role is ConvergenceEndpointRole.FEEDER
+        else item
+        for item in plan.endpoint_ownership
+    )
+    return replace(
+        plan,
+        trunk_axis=new_axis,
+        landings=tuple(landings),
+        outgoing_continuations=continuations,
+        endpoint_ownership=ownership,
+    )
+
+
+def _settle_landing_trunk_flanks(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> tuple[ConvergencePlan, ...]:
+    settled = list(plans)
+    clearance = curve_radius + COORD_TOLERANCE
+    for landing_plan in plans:
+        for landing in landing_plan.landings:
+            landing_segment = _landing_cross_segment(landing, graph)
+            if landing_segment is None:
+                continue
+            landing_direction = _direction(*landing_segment)
+            landing_horizontal = (
+                abs(landing_segment[0][1] - landing_segment[1][1]) <= COORD_TOLERANCE
+            )
+            landing_coordinate = (
+                landing_segment[0][1] if landing_horizontal else landing_segment[0][0]
+            )
+            for plan_rank, trunk_plan in enumerate(tuple(settled)):
+                axis = trunk_plan.trunk_axis
+                if trunk_plan.id == landing_plan.id or axis is None:
+                    continue
+                for flank_rank in (1, 3):
+                    flank = _trunk_segments(axis)[flank_rank]
+                    if (
+                        landing.edge.line_id not in trunk_plan.line_ids
+                        or landing_direction is _direction(*flank)
+                        or not _parallel_segments_conflict(
+                            landing_segment, flank, curve_radius
+                        )
+                    ):
+                        continue
+                    flank_coordinate = (
+                        flank[0][1] if landing_horizontal else flank[0][0]
+                    )
+                    endpoint = (
+                        axis.source_endpoint_coordinate
+                        if flank_rank == 1
+                        else axis.target_endpoint_coordinate
+                    )
+                    if (
+                        endpoint is None
+                        or abs(endpoint - flank_coordinate) <= clearance
+                    ):
+                        continue
+                    toward_endpoint = 1.0 if endpoint > flank_coordinate else -1.0
+                    coordinate = landing_coordinate + toward_endpoint * clearance
+                    if (endpoint - coordinate) * toward_endpoint <= curve_radius:
+                        continue
+                    moved = _move_trunk_flank(trunk_plan, flank_rank, coordinate)
+                    settled[plan_rank] = moved
+                    trunk_plan = moved
+                    axis = moved.trunk_axis
+                    assert axis is not None
+    return tuple(settled)
+
+
+def _landing_trunk_flank_conflict(
     plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
 ) -> bool:
-    landing_crosses = tuple(
-        (plan, landing, segment, _direction(*segment))
-        for plan in plans
-        for landing in plan.landings
-        if (segment := _landing_cross_segment(landing, graph)) is not None
-    )
-    trunk_flanks = tuple(
-        (plan, segment, _direction(*segment))
-        for plan in plans
-        if plan.trunk_axis is not None
-        for rank, segment in enumerate(_trunk_segments(plan.trunk_axis))
-        if rank in {1, 3}
-    )
     return any(
         landing_plan.id != trunk_plan.id
         and landing.edge.line_id in trunk_plan.line_ids
-        and landing_direction is not trunk_direction
-        and _parallel_segments_conflict(landing_segment, trunk_segment, curve_radius)
-        for landing_plan, landing, landing_segment, landing_direction in landing_crosses
-        for trunk_plan, trunk_segment, trunk_direction in trunk_flanks
+        and _direction(*landing_segment) is not _direction(*flank)
+        and _parallel_segments_conflict(landing_segment, flank, curve_radius)
+        for landing_plan in plans
+        for landing in landing_plan.landings
+        if (landing_segment := _landing_cross_segment(landing, graph)) is not None
+        for trunk_plan in plans
+        if trunk_plan.trunk_axis is not None
+        for rank, flank in enumerate(_trunk_segments(trunk_plan.trunk_axis))
+        if rank in {1, 3}
     )
 
 
@@ -1233,8 +1394,8 @@ def _system_conflict_reason(
                         "planned convergence trunks require one shared channel decision"
                     )
 
-    if _has_opposing_landing_and_trunk_flanks(plans, ctx.graph, ctx.curve_radius):
-        return "planned convergence approaches and trunks require shared settlement"
+    if _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius):
+        return "planned convergence approaches and trunks have no settlement room"
 
     owned_edges = {edge for plan in plans for edge in plan.resolved_member_edges}
     unowned_system_edges: list[ResolvedEdge] = []
@@ -1458,6 +1619,9 @@ def build_convergence_plan_execution(
                 )
                 for view, membership in zip(views, memberships, strict=True)
             )
+            system_plans = _settle_landing_trunk_flanks(
+                system_plans, graph, ctx.curve_radius
+            )
             conflict_reason = _system_conflict_reason(
                 system_id, system_plans, scaffold, ctx
             )
@@ -1498,10 +1662,10 @@ def convergence_failure(
     emitted_endpoint: tuple[float, float],
 ) -> str:
     plan = membership.plan
-    connector = plan.connector_ids[0]
+    connectors = ", ".join(str(item) for item in membership.ownership.connector_ids)
     expected = membership.ownership.endpoint
     return (
-        f"convergence system {plan.system_id} connector {connector} member "
+        f"convergence system {plan.system_id} connectors {connectors} member "
         f"{membership.member_id} planned join {expected} emitted endpoint "
         f"{emitted_endpoint}"
     )
@@ -1749,6 +1913,71 @@ def _trunk_segment_ranks(
     )
 
 
+def _seat_route_on_trunk_flanks(
+    route: RoutedPath, axis: ConvergenceTrunkAxis, graph: MetroGraph
+) -> None:
+    planned_flanks = (_trunk_segments(axis)[1], _trunk_segments(axis)[3])
+    for planned in planned_flanks:
+        if all(
+            abs(actual - expected) <= COORD_TOLERANCE
+            for actual, expected in zip(*planned, strict=True)
+        ):
+            continue
+        planned_horizontal = abs(planned[0][1] - planned[1][1]) <= COORD_TOLERANCE
+        planned_span = sorted(
+            (
+                planned[0][0] if planned_horizontal else planned[0][1],
+                planned[1][0] if planned_horizontal else planned[1][1],
+            )
+        )
+        planned_coordinate = planned[0][1] if planned_horizontal else planned[0][0]
+        candidates: list[tuple[float, int]] = []
+        for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
+            horizontal = abs(start[1] - end[1]) <= COORD_TOLERANCE
+            vertical = abs(start[0] - end[0]) <= COORD_TOLERANCE
+            if planned_horizontal != horizontal or not (horizontal or vertical):
+                continue
+            span = sorted(
+                (
+                    start[0] if horizontal else start[1],
+                    end[0] if horizontal else end[1],
+                )
+            )
+            if any(
+                abs(actual - expected) > COORD_TOLERANCE
+                for actual, expected in zip(span, planned_span, strict=True)
+            ):
+                continue
+            coordinate = start[1] if horizontal else start[0]
+            candidates.append((abs(coordinate - planned_coordinate), rank))
+        if not candidates:
+            raise ConvergenceInvariantError(
+                f"planned trunk flank {planned} is absent from member {route.edge!r}"
+            )
+        _distance, rank = min(candidates)
+        start, end = route.points[rank : rank + 2]
+        if planned_horizontal:
+            route.points[rank] = (start[0], planned_coordinate)
+            route.points[rank + 1] = (end[0], planned_coordinate)
+        else:
+            from nf_metro.layout.routing.normalize import (
+                _reconcile_moved_gap_slot,
+                _VChannel,
+            )
+
+            channel = _VChannel(
+                route=route,
+                idx=rank,
+                x=start[0],
+                y_lo=min(start[1], end[1]),
+                y_hi=max(start[1], end[1]),
+                down=end[1] > start[1],
+            )
+            _reconcile_moved_gap_slot(channel, planned_coordinate, graph)
+            route.points[rank] = (planned_coordinate, start[1])
+            route.points[rank + 1] = (planned_coordinate, end[1])
+
+
 def _assert_landing_geometry(
     route: RoutedPath,
     plan: ConvergencePlan,
@@ -1773,6 +2002,20 @@ def _assert_landing_geometry(
             f"{landing.minimum_runway:g}px runway but emitted "
             f"{direction.value}, {handedness}, and {runway:g}px"
         )
+    if landing.opening_turn_coordinate is not None:
+        from nf_metro.layout.routing.normalize import _opening_fanout_descent
+
+        opening = _opening_fanout_descent(route)
+        if (
+            opening is None
+            or abs(opening.x - landing.opening_turn_coordinate) > COORD_TOLERANCE
+        ):
+            emitted = None if opening is None else opening.x
+            raise ConvergenceInvariantError(
+                f"convergence system {plan.system_id} feeder {landing.member_id} "
+                f"planned opening {landing.opening_turn_coordinate:g} but emitted "
+                f"{emitted}"
+            )
 
 
 def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
@@ -1811,36 +2054,51 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
                 route, plan.trunk_axis
             )
         return
+    opening_rank: int | None = None
+    if landing.opening_turn_coordinate is not None:
+        from nf_metro.layout.routing.normalize import (
+            _opening_fanout_descent,
+            _seat_merge_feeder_opening,
+        )
+
+        _seat_merge_feeder_opening(
+            route,
+            landing.opening_turn_coordinate,
+            ctx.graph,
+            planned=True,
+        )
+        opening = _opening_fanout_descent(route)
+        if opening is None:
+            raise ConvergenceInvariantError(
+                f"convergence system {plan.system_id} feeder {landing.member_id} "
+                "has no emitted opening turn"
+            )
+        opening_rank = opening.idx
     if plan.primary_trunk_member_id == membership.member_id:
         if plan.primary_trunk_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:
             _bake_route(route, ctx)
             _connect_route_endpoint(route, landing.join_point)
         assert plan.trunk_axis is not None
-        route.convergence_owned_segment_ranks = _trunk_segment_ranks(
-            route, plan.trunk_axis
+        _seat_route_on_trunk_flanks(route, plan.trunk_axis, ctx.graph)
+        route.convergence_owned_segment_ranks = _ordered_unique(
+            _trunk_segment_ranks(route, plan.trunk_axis)
+            + (() if opening_rank is None else (opening_rank,))
         )
         _assert_landing_geometry(route, plan, landing)
         return
     elif plan.primary_trunk_reason is ConvergenceTrunkReason.LONGEST_BYPASS:
         assert plan.trunk_axis is not None
         run = _run_from_axis(plan.trunk_axis)
-        from nf_metro.layout.routing.normalize import (
-            _land_feeder_on_run,
-            _seat_merge_feeder_opening,
-        )
+        from nf_metro.layout.routing.normalize import _land_feeder_on_run
 
         key: _EdgeKey = (route.edge.source, route.edge.target, route.line_id)
         if key in ctx.merge.branch_edges:
-            if landing.opening_turn_coordinate is not None:
-                _seat_merge_feeder_opening(
-                    route,
-                    landing.opening_turn_coordinate,
-                    ctx.graph,
-                )
             _land_feeder_on_run(route, run, ctx)
     _bake_route(route, ctx)
     _connect_route_endpoint(route, landing.join_point)
-    route.convergence_owned_segment_ranks = (len(route.points) - 2,)
+    route.convergence_owned_segment_ranks = _ordered_unique(
+        (len(route.points) - 2,) + (() if opening_rank is None else (opening_rank,))
+    )
     endpoint = route.points[-1]
     if any(
         abs(actual - expected) > COORD_TOLERANCE
