@@ -69,6 +69,7 @@ _RADIUS_TOLERANCE = 1e-6
 # vertical-channel one out).
 _PROD_SET_VCHANNEL_X = normalize._set_vchannel_x
 _PROD_SET_HTRUNK_Y = normalize._set_htrunk_y
+_PROD_RESEAT_CONCENTRIC_FLANKING = normalize._reseat_concentric_flanking
 
 # Fixtures whose layout actually drives the coincide pass; the gallery sweep
 # below covers the rest vacuously (no corner snapped -> nothing to check).
@@ -147,6 +148,32 @@ def _touched_corner_mismatches(
         touched[(id(rp), k - 1)] = (rp, offset_in, CURVE_RADIUS)
         touched[(id(rp), k)] = (rp, offset_out, CURVE_RADIUS)
 
+    def reseat_spy(
+        rp: RoutedPath,
+        k: int,
+        new_coord: float,
+        *,
+        axis: int,
+        offset_in: float = 0.0,
+        offset_out: float = 0.0,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
+    ) -> None:
+        _PROD_RESEAT_CONCENTRIC_FLANKING(
+            rp,
+            k,
+            new_coord,
+            axis=axis,
+            offset_in=offset_in,
+            offset_out=offset_out,
+            base_radius=base_radius,
+            base_radius_out=base_radius_out,
+        )
+        radius_out = base_radius if base_radius_out is None else base_radius_out
+        touched[(id(rp), k - 1)] = (rp, offset_in, base_radius)
+        touched[(id(rp), k)] = (rp, offset_out, radius_out)
+
+    monkeypatch.setattr(normalize, "_reseat_concentric_flanking", reseat_spy)
     monkeypatch.setattr(normalize, "_set_vchannel_x", vspy)
     monkeypatch.setattr(normalize, "_set_htrunk_y", hspy)
     graph = parse_metro_mermaid(path.read_text())
