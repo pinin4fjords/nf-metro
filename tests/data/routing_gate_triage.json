@@ -239,6 +239,10 @@
     "note": "Bounds check for resolve_curve_radius_at. Production callers use indices from range(n_corners) or recorded corner buckets, so an invalid index requires a caller-contract violation and is covered as an error case by the corner unit tests.",
     "status": "defensive"
   },
+  "exit_turns.py::if scaffold is None:::#2": {
+    "note": "The second None check protects the manual or incomplete graph fallback after rebuilding a missing retained scaffold. Parsed render-path graphs publish one canonical scaffold during fan planning, so the fixture corpus never reaches a rebuild that can return None. Direct planner tests retain the fallback for graph construction without topology.",
+    "status": "defensive"
+  },
   "inter_section.py::for prev, curr in zip(self.corners, self.corners[1:]):::#1": {
     "note": "TurnSequence.parity loop over consecutive corners. parity is descriptor-level documentation (runtime wrap handlers preserve bundle ordering via per-corner offset propagation regardless of this value); nothing on the render path reads it, and the module is never imported during the sweep. Exercised by test_inter_section_descriptor.py.",
     "status": "defensive"
@@ -823,6 +827,10 @@
     "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive. The already-aligned arm (->1190) is exercised by the corpus; the body arm (->1192) is the reachable-but-defective one.",
     "status": "defensive"
   },
+  "offsets.py::if any(::#3": {
+    "note": "This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state.",
+    "status": "defensive"
+  },
   "offsets.py::if cur in seen:::#1": {
     "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
     "status": "needs-review"
@@ -857,6 +865,10 @@
   },
   "offsets.py::if len(shared) < 2:::#1": {
     "note": "In _align_flat_tb_exit_to_entry: scopes the flat-seam reconciliation to multi-line bundles, where a constant per-line offset delta means the lines share an order and only the bundle anchoring differs (the auto-folded serpentine case in #1198). A single shared line carries no bundle order to preserve and is left to the single-line corridor passes; no corpus fixture reaches the pass with fewer than two shared lines, so the skip arm is never taken.",
+    "status": "defensive"
+  },
+  "offsets.py::if local_offset is None or not (::#1": {
+    "note": "This post-acceptance marker-cache guard requires the sole local line to occupy exactly the adjacent lane above or below the continuing cohort. The accepted frame allocator always creates one such adjacent assignment. The missing or nonadjacent arm protects corrupted or incomplete offset maps.",
     "status": "defensive"
   },
   "offsets.py::if lid not in seen:::#1": {
@@ -917,6 +929,10 @@
   },
   "offsets.py::if set(inherited) != set(graph.station_lines(port_id)):::#1": {
     "note": "_inherit_level_convergence_entry_offsets skips a convergence entry port when the lines it inherits from its immediate feeders do not cover every line the port carries. A convergence entry's lines are, by construction, exactly the union of its inbound edges' lines, and each inbound edge supplies that line's feeder offset, so the inherited set always equals the port's line set and the mismatch arm is never taken. Defensive against a port line with no inbound edge (a malformed graph).",
+    "status": "defensive"
+  },
+  "offsets.py::if set(frames).difference(next_frames):::#1": {
+    "note": "This fixed-point transaction rollback handles an entry frame accepted in one iteration whose owner disappears in a later iteration. Valid settled graphs converge monotonically; only deliberately transient planner state reaches this arm. test_linear_entry_frame_settlement_restores_offsets_if_owner_disappears exercises the rollback through controlled planner output.",
     "status": "defensive"
   },
   "offsets.py::if single_exit and feeding_exit is not None:::#1": {
