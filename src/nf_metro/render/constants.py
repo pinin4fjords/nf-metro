@@ -47,9 +47,6 @@ LEGEND_SWATCH_WIDTH: float = 24.0
 LEGEND_TEXT_GAP: float = 12.0
 """Gap between swatch end and label text."""
 
-LEGEND_CHAR_WIDTH_RATIO: float = 0.55
-"""Character width as a fraction of font size for legend text sizing."""
-
 LOGO_SCALE_FACTOR: float = 0.95
 """Logo scale factor relative to content height."""
 
@@ -100,15 +97,6 @@ SECTION_NUM_Y_OFFSET: int = 4
 SECTION_LABEL_TEXT_OFFSET: int = 5
 """Text X offset from section number circle."""
 
-SECTION_LABEL_CHAR_WIDTH_RATIO: float = 0.6
-"""Per-character width of a bold section label as a fraction of its font size.
-
-Used to estimate the horizontal extent of a section header (badge + title) so
-the header can be relocated off a route that would otherwise cross it.  Sized a
-touch wider than the legend/caption ratio (0.55) because section labels render
-bold.  An over-estimate is the safe direction: it only ever moves the header
-*earlier*, never leaves a clash undetected."""
-
 SECTION_HEADER_ROUTE_PAD: float = 4.0
 """Slack between a section header's extent and a route, below which the route
 counts as clashing with the header.
@@ -123,11 +111,6 @@ SECTION_HEADER_SIDE_GAP: float = 6.0
 SECTION_LABEL_HALF_HEIGHT_RATIO: float = 0.8
 """Half the visual height of a section label as a fraction of its font size,
 used to extend the header keep-out band above/below the text baseline."""
-
-SECTION_LABEL_LINE_HEIGHT_RATIO: float = 1.2
-"""Line spacing for a wrapped section title, as a multiple of its font size.
-
-Mirrors the layout side's ``LABEL_LINE_HEIGHT`` for station labels."""
 
 HEADER_WRAP_CLEARANCE: float = 8.0
 """Minimum visible gap a wrapped header's extra lines leave before whatever
@@ -287,17 +270,9 @@ ICON_FOLD_CREASE_RATIO: float = 0.6
 ICON_TEXT_OFFSET_RATIO: float = 0.15
 """Vertical text offset as a fraction of icon height."""
 
-ICON_LABEL_CHAR_WIDTH_RATIO: float = 0.6
-"""Estimated glyph width as a fraction of font size, used to shrink the icon
-label font so it keeps clear of the icon's left/right edges."""
-
 ICON_LABEL_CLEARANCE: float = 2.5
 """Minimum horizontal clearance (px per side) between the icon label and the
 icon's left/right edges; the label font shrinks to honour it."""
-
-ICON_LABEL_LINE_HEIGHT_RATIO: float = 1.1
-"""Baseline-to-baseline spacing of wrapped icon-label lines, as a multiple of
-the font size."""
 
 FILES_ICON_OFFSET_RATIO: float = 0.15
 """Offset of the back page as a fraction of icon width/height (stacked files icon)."""

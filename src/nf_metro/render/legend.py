@@ -37,7 +37,6 @@ from nf_metro.parser.model import (
 )
 from nf_metro.render.constants import (
     LEGEND_BORDER_RADIUS,
-    LEGEND_CHAR_WIDTH_RATIO,
     LEGEND_LINE_HEIGHT,
     LEGEND_MARKER_GAP,
     LEGEND_MARKER_PILL_RATIO,
@@ -53,6 +52,7 @@ from nf_metro.render.constants import (
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.ns import ns as _ns
 from nf_metro.render.style import Theme
+from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
 
 def logo_is_resolvable(path: str) -> bool:
@@ -291,15 +291,18 @@ def compute_legend_dimensions(
     swatch_width = LEGEND_SWATCH_WIDTH
     text_offset = swatch_width + LEGEND_TEXT_GAP
 
-    max_name_len = max(len(row.label) for row in rows)
-    if graph.marker_legend:
-        max_name_len = max(max_name_len, *(len(e.caption) for e in graph.marker_legend))
-    char_width = theme.legend_font_size * LEGEND_CHAR_WIDTH_RATIO
+    labels = [row.label for row in rows]
+    labels.extend(entry.caption for entry in graph.marker_legend)
+    style = text_style(theme.legend_font_size)
+    max_text_width = max(
+        DEFAULT_TEXT_METRICS.reserve_width(label, style, TextRole.LEGEND_ENTRY)
+        for label in labels
+    )
 
     _text_h, content_height, logo_w, _logo_h = _legend_metrics(graph, rows, logo_size)
     logo_gap = _logo_gap(graph) if logo_size else 0.0
 
-    width = padding * 2 + logo_w + logo_gap + text_offset + max_name_len * char_width
+    width = padding * 2 + logo_w + logo_gap + text_offset + max_text_width
     height = padding * 2 + content_height
     return (width, height)
 

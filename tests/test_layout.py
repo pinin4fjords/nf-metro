@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from layout_validator import Severity, check_station_as_elbow
 
-from nf_metro.layout.constants import CHAR_WIDTH, SECTION_Y_PADDING
+from nf_metro.layout.constants import SECTION_Y_PADDING
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.layers import assign_layers
@@ -1540,12 +1540,12 @@ def test_mismatched_tracks_port_alignment():
 
 
 def test_label_text_width_single_line():
-    assert label_text_width("Hello") == 5 * CHAR_WIDTH
+    assert label_text_width("Hello") == 45.0
 
 
 def test_label_text_width_multiline():
     # Width should be based on the longest line
-    assert label_text_width("AB\nCDEF") == 4 * CHAR_WIDTH
+    assert label_text_width("AB\nCDEF") == 36.0
 
 
 def test_label_text_width_empty():

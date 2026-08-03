@@ -23,7 +23,6 @@ from typing import Any, Literal, NamedTuple
 import drawsvg as draw
 
 from nf_metro.layout.constants import (
-    LABEL_LINE_HEIGHT,
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
     SECTION_Y_GAP,
@@ -123,7 +122,6 @@ from nf_metro.render.constants import (
     RAIL_LINK_HALF_WIDTH_RATIO,
     SECTION_BOX_RADIUS,
     SECTION_HEADER_ROUTE_PAD,
-    SECTION_LABEL_LINE_HEIGHT_RATIO,
     SECTION_NUM_CIRCLE_R_LARGE,
     SECTION_NUM_FONT_SIZE,
     SECTION_STROKE_WIDTH,
@@ -173,6 +171,14 @@ from nf_metro.render.section_header import (
     resolve_all_section_headers,
 )
 from nf_metro.render.style import Theme
+from nf_metro.text_metrics import (
+    DEFAULT_TEXT_METRICS,
+    MetricsFace,
+    TextRole,
+    active_metrics_face,
+    metrics_face_context,
+    text_style,
+)
 
 
 def _compute_canvas_bounds(
@@ -491,6 +497,11 @@ def render_svg(
     if animate is None:
         animate = graph.animate
 
+    metrics_face = (
+        MetricsFace.INTER
+        if font_portability in ("embed", "paths")
+        else MetricsFace.FALLBACK
+    )
     with class_prefix_context(svg_class_prefix):
         plan = build_render_plan(
             graph,
@@ -502,6 +513,7 @@ def render_svg(
             legend_position=legend_position,
             chrome_css=chrome_css,
             bare=bare,
+            metrics_face=metrics_face,
         )
         svg = emit_render_plan(
             plan,
@@ -536,6 +548,7 @@ def _build_render_plan_result(
     chrome_css: bool = True,
     bare: bool = False,
     observe_routes: bool = False,
+    metrics_face: MetricsFace = MetricsFace.FALLBACK,
 ) -> tuple[RenderPlan, RoutePlan | None]:
     """Build a render plan and optionally observe its final routing pass."""
     scaled_theme = _scale_theme_strokes(
@@ -544,6 +557,7 @@ def _build_render_plan_result(
     with (
         font_scale_context(graph.font_scale),
         stroke_scale_context(graph.stroke_scale),
+        metrics_face_context(metrics_face),
     ):
         try:
             plan, route_plan = _build_render_plan_scaled(
@@ -582,6 +596,7 @@ def build_render_plan(
     legend_position: str | None = None,
     chrome_css: bool = True,
     bare: bool = False,
+    metrics_face: MetricsFace = MetricsFace.FALLBACK,
 ) -> RenderPlan:
     """Build an immutable render plan without changing the caller's graph."""
     plan, _route_plan = _build_render_plan_result(
@@ -594,6 +609,7 @@ def build_render_plan(
         legend_position=legend_position,
         chrome_css=chrome_css,
         bare=bare,
+        metrics_face=metrics_face,
     )
     return plan
 
@@ -609,6 +625,7 @@ def build_observed_render_plan(
     legend_position: str | None = None,
     chrome_css: bool = True,
     bare: bool = False,
+    metrics_face: MetricsFace = MetricsFace.FALLBACK,
 ) -> ObservedRenderPlan:
     """Build a plan and observe the final centred route invocation it used."""
     plan, route_plan = _build_render_plan_result(
@@ -622,6 +639,7 @@ def build_observed_render_plan(
         chrome_css=chrome_css,
         bare=bare,
         observe_routes=True,
+        metrics_face=metrics_face,
     )
     assert route_plan is not None
     return ObservedRenderPlan(plan, route_plan)
@@ -889,7 +907,7 @@ def _build_render_plan_scaled(
     # Group captions can extend below/right of the content; grow the canvas
     # so they are not clipped.
     if group_bands:
-        g_max_x, g_max_y = _group_caption_bounds(group_bands)
+        g_max_x, g_max_y = _group_caption_bounds(group_bands, theme)
         max_x = max(max_x, g_max_x)
         max_y = max(max_y, g_max_y)
 
@@ -995,6 +1013,7 @@ def _build_render_plan_scaled(
     return RenderPlan(
         theme=frozen_theme,
         graph=frozen_graph,
+        metrics_face=active_metrics_face(),
         station_offsets=freeze_render_value(station_offsets),
         routes=freeze_render_value(routes),
         route_polylines=freeze_render_value(route_polylines),
@@ -1040,6 +1059,26 @@ def emit_render_plan(
     baked_mode: str | None = None,
 ) -> str:
     """Create an SVG string from an immutable render plan."""
+    with metrics_face_context(plan.metrics_face):
+        return _emit_render_plan(
+            plan,
+            animate=animate,
+            responsive=responsive,
+            inject_dark_mode_css=inject_dark_mode_css,
+            self_color_scheme=self_color_scheme,
+            baked_mode=baked_mode,
+        )
+
+
+def _emit_render_plan(
+    plan: RenderPlan,
+    *,
+    animate: bool = False,
+    responsive: bool = False,
+    inject_dark_mode_css: bool = True,
+    self_color_scheme: bool = True,
+    baked_mode: str | None = None,
+) -> str:
     graph: Any = plan.graph
     theme: Any = plan.theme
     debug = plan.debug
@@ -1694,6 +1733,7 @@ def _render_first_class_sections(
                 f"rotate({placement.label_rotation} "
                 f"{placement.label_x} {placement.label_y})"
             )
+        section_label_style = text_style(theme.section_label_font_size, "bold")
         d.append(
             draw.Text(
                 "\n".join(placement.label_lines),
@@ -1704,7 +1744,12 @@ def _render_first_class_sections(
                 font_family=theme.label_font_family,
                 font_weight="bold",
                 dy=TEXT_VCENTER_DY,
-                line_height=SECTION_LABEL_LINE_HEIGHT_RATIO,
+                line_height=(
+                    DEFAULT_TEXT_METRICS.line_height(
+                        section_label_style, TextRole.SECTION_HEADER
+                    )
+                    / theme.section_label_font_size
+                ),
                 **label_kwargs,
             )
         )
@@ -2625,7 +2670,11 @@ def _terminus_icon_marching(
     caption-stagger logic so the two stay in lockstep.
     """
     caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
-    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in names]
+    caption_style = text_style(caption_font_size, theme.label_font_weight)
+    name_widths = [
+        DEFAULT_TEXT_METRICS.reserve_width(name, caption_style, TextRole.ICON_CAPTION)
+        for name in names
+    ]
     if is_vertical_flow:
         caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
         step = theme.terminus_height + ICON_INTER_GAP + caption_room
@@ -2855,7 +2904,11 @@ def _render_terminus_icons(
             if section and section.bbox_w > 0:
                 # Estimate caption width and clamp so it stays inside the
                 # section bbox right edge (and left edge for symmetry).
-                approx_w = len(name) * caption_font_size * 0.55
+                approx_w = DEFAULT_TEXT_METRICS.reserve_width(
+                    name,
+                    text_style(caption_font_size, theme.label_font_weight),
+                    TextRole.ICON_CAPTION,
+                )
                 left_bound = section.bbox_x + approx_w / 2 + ICON_BBOX_MARGIN
                 right_bound = (
                     section.bbox_x + section.bbox_w - approx_w / 2 - ICON_BBOX_MARGIN
@@ -2901,6 +2954,11 @@ def _render_labels(
 ) -> None:
     """Render station name labels."""
     halo_color = _label_halo_color(theme)
+    label_style = text_style(theme.label_font_size, theme.label_font_weight)
+    line_height_ratio = (
+        DEFAULT_TEXT_METRICS.line_height(label_style, TextRole.STATION_LABEL)
+        / theme.label_font_size
+    )
 
     def emit(text: str, x: float, y: float, **style: object) -> None:
         # The halo is a stroked copy drawn underneath the glyph fill. A second
@@ -2919,7 +2977,7 @@ def _render_labels(
                     stroke_linejoin="round",
                     font_family=theme.label_font_family,
                     font_weight=theme.label_font_weight,
-                    line_height=LABEL_LINE_HEIGHT,
+                    line_height=line_height_ratio,
                     aria_hidden="true",
                     class_=_ns("nf-metro-label-halo"),
                     **style,
@@ -2934,7 +2992,7 @@ def _render_labels(
                 fill=theme.label_color,
                 font_family=theme.label_font_family,
                 font_weight=theme.label_font_weight,
-                line_height=LABEL_LINE_HEIGHT,
+                line_height=line_height_ratio,
                 **style,
                 **label_data,
             )
@@ -2948,7 +3006,9 @@ def _render_labels(
         # the correct side of the station.
         y = label.y
         if n_lines > 1:
-            line_spacing = theme.label_font_size * LABEL_LINE_HEIGHT
+            line_spacing = DEFAULT_TEXT_METRICS.line_height(
+                label_style, TextRole.STATION_LABEL
+            )
             if label.dominant_baseline == "central":
                 # Center the block vertically on y
                 y -= (n_lines - 1) * line_spacing / 2
@@ -3194,12 +3254,17 @@ def _group_bands(
     return out
 
 
-def _group_caption_bounds(bands: list[_GroupBand]) -> tuple[float, float]:
+def _group_caption_bounds(bands: list[_GroupBand], theme: Theme) -> tuple[float, float]:
     """Return the max ``(x, y)`` reached by any group band."""
     max_x = 0.0
     max_y = 0.0
+    caption_style = text_style(theme.label_font_size * GROUP_LABEL_FONT_SCALE, "bold")
     for band in bands:
-        max_x = max(max_x, band.x_right)
+        caption_width = DEFAULT_TEXT_METRICS.reserve_width(
+            band.label, caption_style, TextRole.GROUP_CAPTION
+        )
+        caption_right = (band.x_left + band.x_right + caption_width) / 2
+        max_x = max(max_x, band.x_right, caption_right)
         max_y = max(max_y, band.rule_y, band.text_y, band.band_far_y)
     return max_x, max_y
 

@@ -20,17 +20,17 @@ from nf_metro.render.constants import (
     ICON_BANNER_TEXT_COLOR,
     ICON_FOLD_CREASE_RATIO,
     ICON_FOLD_OVERLAY_OPACITY,
-    ICON_LABEL_CHAR_WIDTH_RATIO,
     ICON_LABEL_CLEARANCE,
-    ICON_LABEL_LINE_HEIGHT_RATIO,
     ICON_TEXT_OFFSET_RATIO,
     TEXT_VCENTER_DY,
 )
+from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
 
 def _label_text_width(label: str, font_size: float) -> float:
     """Estimated rendered width of ``label`` at ``font_size``."""
-    return len(label) * font_size * ICON_LABEL_CHAR_WIDTH_RATIO
+    style = text_style(font_size, "bold")
+    return DEFAULT_TEXT_METRICS.reserve_width(label, style, TextRole.ICON_LABEL)
 
 
 def _fit_label_font(label: str, font_size: float, width: float) -> float:
@@ -115,7 +115,9 @@ def _append_icon_label(
     if not label:
         return
     lines = _wrap_icon_label(label, font_size, width)
-    line_height = font_size * ICON_LABEL_LINE_HEIGHT_RATIO
+    line_height = DEFAULT_TEXT_METRICS.line_height(
+        text_style(font_size, "bold"), TextRole.ICON_LABEL
+    )
     top_y = text_y - line_height * (len(lines) - 1) / 2
     for i, line in enumerate(lines):
         d.append(

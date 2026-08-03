@@ -39,10 +39,19 @@ from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.plan import RenderPlan
 from nf_metro.render.style import Theme
 from nf_metro.render.svg import build_render_plan, emit_render_plan
+from nf_metro.text_metrics import MetricsFace, metrics_face_context
 from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 
 # `style: dark` predates theme names; alias it onto the nfcore brand.
 _STYLE_THEME_ALIASES = {"dark": "nfcore"}
+
+
+def _metrics_face_for_config(cfg: RenderConfig) -> MetricsFace:
+    return (
+        MetricsFace.INTER
+        if cfg.embed_font or cfg.text_to_paths
+        else MetricsFace.FALLBACK
+    )
 
 
 @dataclass
@@ -147,6 +156,7 @@ def render_graph_result(
             theme_obj,
             debug=cfg.debug,
             legend_position="none",
+            metrics_face=_metrics_face_for_config(cfg),
         )
         content = emit_render_plan_html(
             plan,
@@ -164,6 +174,7 @@ def render_graph_result(
         debug=cfg.debug,
         chrome_css=cfg.chrome_css,
         bare=cfg.bare,
+        metrics_face=_metrics_face_for_config(cfg),
     )
     return RenderResult(_emit_svg_plan(graph, plan, cfg), plan)
 
@@ -270,6 +281,7 @@ def prepare_graph(
     source_dir: str = "",
     bare: bool = False,
     output_format: Literal["svg", "html"] = "svg",
+    metrics_face: MetricsFace = MetricsFace.FALLBACK,
 ) -> MetroGraph:
     """Parse *text*, apply option overrides, and compute the layout in place.
 
@@ -335,18 +347,19 @@ def prepare_graph(
         output_format=output_format,
     )
 
-    if graph.permissive:
-        try:
+    with metrics_face_context(metrics_face):
+        if graph.permissive:
+            try:
+                compute_layout(graph)
+            except PhaseInvariantError as e:
+                warnings.warn(
+                    f"layout guard downgraded under permissive mode: "
+                    f"{type(e).__name__}: {e}",
+                    category=PermissiveGuardWarning,
+                    stacklevel=2,
+                )
+        else:
             compute_layout(graph)
-        except PhaseInvariantError as e:
-            warnings.warn(
-                f"layout guard downgraded under permissive mode: "
-                f"{type(e).__name__}: {e}",
-                category=PermissiveGuardWarning,
-                stacklevel=2,
-            )
-    else:
-        compute_layout(graph)
     return graph
 
 
@@ -418,18 +431,6 @@ def render_string(
       traceback rather than a clean error message - report them as nf-metro
       bugs rather than handling them as expected input.
     """
-    graph = prepare_graph(
-        text,
-        from_nextflow=from_nextflow,
-        title=title,
-        line_spread=line_spread,
-        logo=logo,
-        legend=legend,
-        layout_options=layout_options,
-        bare=bare if config is None else config.bare,
-        output_format=output_format if config is None else config.output_format,
-    )
-    theme_obj = resolve_theme(theme, graph, mode=mode)
     flat = RenderConfig(
         output_format=output_format,
         debug=debug,
@@ -440,7 +441,7 @@ def render_string(
         inject_dark_mode_css=inject_dark_mode_css,
         chrome_css=chrome_css,
         self_color_scheme=self_color_scheme,
-        baked_mode=(mode or graph.mode).strip() or None if config is None else None,
+        baked_mode=(mode or "").strip() or None,
         bare=bare,
         embed_basename=embed_basename,
     )
@@ -457,4 +458,20 @@ def render_string(
                 f"ignoring {shadowed}",
                 stacklevel=2,
             )
-    return render_graph(graph, theme_obj, config or flat)
+    effective_cfg = config or flat
+    graph = prepare_graph(
+        text,
+        from_nextflow=from_nextflow,
+        title=title,
+        line_spread=line_spread,
+        logo=logo,
+        legend=legend,
+        layout_options=layout_options,
+        bare=effective_cfg.bare,
+        output_format=effective_cfg.output_format,
+        metrics_face=_metrics_face_for_config(effective_cfg),
+    )
+    if config is None and flat.baked_mode is None:
+        flat.baked_mode = graph.mode.strip() or None
+    theme_obj = resolve_theme(theme, graph, mode=mode)
+    return render_graph(graph, theme_obj, effective_cfg)
