@@ -10,8 +10,8 @@ The oracle compares only what a transform genuinely preserves.  Rotating a map
 does not rotate its text, so the *distances* between stations are free to change
 with glyph extents; what must not change is anything the engine decides -- flow
 ranks and lanes, port sides, a port's clearance to the edge it is pinned to,
-which end of the flow a port is seated at, and which grid groups are aligned.
-:mod:`orientation_signature` defines those measures.
+and which end of the flow a port is seated at. :mod:`orientation_signature`
+defines those measures.
 
 ``KNOWN_DIVERGENCES`` records the residuals that do not hold yet, each naming the
 defect behind it.  Which families an orbit member exhibits is only known once it
@@ -29,6 +29,7 @@ import warnings
 from functools import lru_cache
 from pathlib import Path
 
+import orientation_signature
 import pytest
 from conftest import content_corpus
 from orientation_signature import DIVERGENCE_FAMILIES, divergences
@@ -47,63 +48,6 @@ from nf_metro.parser.model import MetroGraph
 # A residual is excepted by the *kind* of defect behind it, so one entry covers
 # every orbit member the same defect breaks.
 KNOWN_DIVERGENCES: dict[tuple[str, str], str] = {
-    # Whether a grid group shares a box edge is decided by a content-hug policy
-    # on both axes: a row's bbox top hugs its content (_fit_bboxes_to_content_top)
-    # and a column's box edges are levelled only across mates whose content
-    # nearest that edge stands at one X (Stage 3.6).  Hugged edges coincide only
-    # when the members' content extents happen to match, and a rotation does not
-    # carry text extents with it, so the boolean is not rotation-invariant where
-    # the hug wins over the flush.
-    **{
-        (stem, "group_alignment"): (
-            "hugged row tops coincide only when the row-mates' content-top "
-            "padding matches, which a quarter turn does not preserve (#1545)"
-        )
-        for stem in (
-            "bt_perp_left_entry_right_exit",
-            "lr_to_tb_top_drop_two_lines",
-            "tb_two_line_vert_seam",
-        )
-    },
-    # A column mate whose content starts at a different X is held out of the
-    # Stage 3.6 levelling, because levelling it would trade the shared edge for a
-    # widened runway spread.  The Stage 3.3 perpendicular-entry runway is what
-    # puts the content at a different X here: it re-wraps the box around the
-    # shifted run, moving the box's own edge with it.
-    **{
-        (stem, "group_alignment"): (
-            "column mate held out of the levelling because the perpendicular-entry "
-            "runway moved its content off the column's content X (#1545)"
-        )
-        for stem in (
-            "bt_exit_top_above",
-            "bt_exit_top_above_2line",
-            "bt_to_tb",
-            "lr_top_entry_cross_column",
-            "lr_top_entry_cross_column_two_line",
-        )
-    },
-    # Both levelling passes act on maximal runs of *adjacent* rows / columns, so
-    # a group with a hole in it is levelled as separate runs and any shared edge
-    # across the hole is incidental.
-    **{
-        (stem, "group_alignment"): (
-            "grid group's members sit in non-adjacent cells, so no single run "
-            "levels them (#1545)"
-        )
-        for stem in ("lr_to_tb_top_cross_col",)
-    },
-    # A column of same-flow sections lands on one edge only when their leftward
-    # box overhangs match: Stage 1.5 absorbs the largest overhang globally, so a
-    # member with a smaller one is seated further in, and its content moves with
-    # it out of the levelling's reach.
-    **{
-        (stem, "group_alignment"): (
-            "column mates seated apart by their differing box overhangs, which "
-            "the global Stage 1.5 absorption does not equalise (#1545)"
-        )
-        for stem in ("orbit_perp_exit_back_row_entry",)
-    },
     # _infer_flow_exit_hints_with_drops's perpendicular-drop exception tests only
     # whether the TARGET section is vertical, so a vertical-flow source feeding a
     # same-row horizontal target keeps a flow-aligned exit instead of turning
@@ -269,6 +213,13 @@ def test_stated_exceptions_name_real_families() -> None:
         f"unknown divergence family in KNOWN_DIVERGENCES: {unknown}. "
         f"Known families: {sorted(DIVERGENCE_FAMILIES)}"
     )
+
+
+def test_group_alignment_is_explicitly_non_invariant() -> None:
+    """Glyph-driven box alignment cannot act as rotation-equivalence evidence."""
+    assert "group_alignment" not in DIVERGENCE_FAMILIES
+    reason = orientation_signature.NON_INVARIANT_MEASURES["group_alignment"]
+    assert "glyph" in reason.lower()
 
 
 def test_identity_transform_is_a_no_op() -> None:
