@@ -29,7 +29,10 @@ _EXEMPTIONS = {
     ),
     "phases/_common.py::_canvas_width": ("canvas width is intrinsically an X extent"),
     "phases/_common.py::_expand_bbox_for_y": (
-        "the name and contract explicitly expand one Y extent"
+        "the bbox edge mutation is intrinsically Y-scoped and serves port Y placement"
+    ),
+    "phases/_common.py::_grid_rows_top_to_bottom": (
+        "the row-local grouping contract delegates column ordering to its callback"
     ),
     "route_reservations.py::_section_x_overlaps": (
         "X overlap has a paired Y overlap primitive"
@@ -57,21 +60,21 @@ _EXEMPTIONS = {
     "section_placement.py::_cols_overlap": (
         "column overlap has a paired row overlap primitive"
     ),
-    "section_placement.py::_enforce_min_column_gaps": (
-        "column-gap enforcement has a paired row-gap pass"
-    ),
-    "section_placement.py::_enforce_min_column_gaps.<locals>.<lambda>#1": (
-        "the callback computes the right edge for the X-scoped column-gap pass"
-    ),
-    "section_placement.py::_enforce_min_column_gaps.<locals>.<lambda>#2": (
-        "the callback computes the left edge for the X-scoped column-gap pass"
-    ),
+    (
+        "section_placement.py::_enforce_min_column_gaps.<locals>."
+        "<lambda:keyword:right_extent>"
+    ): ("the callback computes the right edge for the X-scoped column-gap pass"),
+    (
+        "section_placement.py::_enforce_min_column_gaps.<locals>."
+        "<lambda:keyword:left_extent>"
+    ): ("the callback computes the left edge for the X-scoped column-gap pass"),
     "section_placement.py::_enforce_min_row_gaps": (
         "row-gap enforcement has a paired column-gap pass"
     ),
-    "section_placement.py::reenforce_column_gaps.<locals>.<lambda>#1": (
-        "the callback computes the right edge for the X-scoped column-gap pass"
-    ),
+    (
+        "section_placement.py::reenforce_column_gaps.<locals>."
+        "<lambda:keyword:right_extent>"
+    ): ("the callback computes the right edge for the X-scoped column-gap pass"),
 }
 
 
@@ -189,16 +192,40 @@ def column_edges():
 """
 
     assert single_axis_sites_from_source(source) == {
-        "column_edges": (
-            "x",
-            frozenset({"bbox_x", "bbox_w", "offset_x"}),
-        ),
-        "column_edges.<locals>.<lambda>#1": (
+        "column_edges.<locals>.<lambda:assigned:left>": (
             "x",
             frozenset({"bbox_x", "offset_x"}),
         ),
-        "column_edges.<locals>.<lambda>#2": (
+        "column_edges.<locals>.<lambda:assigned:right>": (
             "x",
             frozenset({"bbox_x", "bbox_w"}),
         ),
+    }
+
+
+def test_lambda_defaults_are_classified_independently() -> None:
+    source = """
+def select(edge=lambda section: section.bbox_x + section.bbox_w):
+    return edge
+"""
+
+    assert single_axis_sites_from_source(source) == {
+        "<lambda:default:select.edge>": (
+            "x",
+            frozenset({"bbox_x", "bbox_w"}),
+        )
+    }
+
+
+def test_defaults_on_lambdas_are_classified_independently() -> None:
+    source = """
+def select(factory=lambda edge=(lambda section: section.bbox_x + section.bbox_w): edge):
+    return factory
+"""
+
+    assert single_axis_sites_from_source(source) == {
+        "<lambda:default:select.factory.edge>": (
+            "x",
+            frozenset({"bbox_x", "bbox_w"}),
+        )
     }

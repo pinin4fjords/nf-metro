@@ -33,6 +33,9 @@ class _FieldReads(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         return
 
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
 
 def _classify(
     node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
@@ -63,7 +66,44 @@ class _FunctionCollector(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope.pop()
 
+    def _visit_default(
+        self, function_name: str, argument: ast.arg, default: ast.expr
+    ) -> None:
+        if isinstance(default, ast.Lambda):
+            self._visit_lambda(default, f"default:{function_name}.{argument.arg}")
+        else:
+            self.visit(default)
+
+    def _visit_argument_defaults(self, owner: str, arguments: ast.arguments) -> None:
+        positional = [*arguments.posonlyargs, *arguments.args]
+        for argument, default in zip(
+            positional[-len(arguments.defaults) :], arguments.defaults
+        ):
+            self._visit_default(owner, argument, default)
+        for argument, default in zip(arguments.kwonlyargs, arguments.kw_defaults):
+            if default is not None:
+                self._visit_default(owner, argument, default)
+
+    def _visit_definition_expressions(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        self._visit_argument_defaults(node.name, node.args)
+        positional = [*node.args.posonlyargs, *node.args.args]
+        arguments = [*positional, *node.args.kwonlyargs]
+        if node.args.vararg is not None:
+            arguments.append(node.args.vararg)
+        if node.args.kwarg is not None:
+            arguments.append(node.args.kwarg)
+        for argument in arguments:
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+        if node.returns is not None:
+            self.visit(node.returns)
+
     def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self._visit_definition_expressions(node)
         name_parts = [*self.scope, node.name]
         qualname = ".".join(name_parts)
         if result := _classify(node):
@@ -80,18 +120,39 @@ class _FunctionCollector(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node)
 
-    def visit_Lambda(self, node: ast.Lambda) -> None:
+    def _visit_lambda(self, node: ast.Lambda, role: str | None = None) -> None:
         parent = ".".join(self.scope)
-        ordinal = self.lambda_ordinals.get(parent, 0) + 1
-        self.lambda_ordinals[parent] = ordinal
-        name = f"<lambda>#{ordinal}"
+        base = f"<lambda:{role}>" if role else "<lambda>"
+        ordinal_key = f"{parent}.{base}"
+        ordinal = self.lambda_ordinals.get(ordinal_key, 0) + 1
+        self.lambda_ordinals[ordinal_key] = ordinal
+        name = base if role and ordinal == 1 else f"{base}#{ordinal}"
         qualname = f"{parent}.{name}" if parent else name
+        owner = role.removeprefix("default:") if role else name
+        self._visit_argument_defaults(owner, node.args)
         if result := _classify(node):
             axis, fields = result
             self.sites[qualname] = SingleAxisSite(axis, fields, node.lineno)
         self.scope.extend((name, "<locals>"))
         self.visit(node.body)
         del self.scope[-2:]
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_lambda(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if isinstance(node.value, ast.Lambda) and len(node.targets) == 1:
+            target = node.targets[0]
+            role = f"assigned:{target.id}" if isinstance(target, ast.Name) else None
+            self._visit_lambda(node.value, role)
+            return
+        self.generic_visit(node)
+
+    def visit_keyword(self, node: ast.keyword) -> None:
+        if isinstance(node.value, ast.Lambda) and node.arg is not None:
+            self._visit_lambda(node.value, f"keyword:{node.arg}")
+            return
+        self.generic_visit(node)
 
 
 def _sites_from_source(
