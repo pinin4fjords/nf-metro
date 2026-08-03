@@ -22,6 +22,7 @@
     "topologies/bypass_label_rake_left.mmd",
     "topologies/bypass_label_rake_wide.mmd",
     "topologies/bypass_v_tight.mmd",
+    "topologies/fan_branch_additional_outputs.mmd",
     "topologies/fanout_hub_two_line_trunk.mmd",
     "topologies/fold_bypass_creep.mmd",
     "topologies/fold_bypass_creep_tight.mmd",
@@ -48,6 +49,8 @@
     "topologies/asymmetric_tree.mmd",
     "topologies/bottom_exit_junction_collinear_top_entry.mmd",
     "topologies/bottom_exit_junction_offset_target.mmd",
+    "topologies/bottom_exit_stacked_right_entry_fan.mmd",
+    "topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd",
     "topologies/bottom_row_climb_clear_corridor.mmd",
     "topologies/branch_fold_forward.mmd",
     "topologies/branch_fold_stability.mmd",
@@ -59,6 +62,9 @@
     "topologies/divergent_fanout_split.mmd",
     "topologies/dogleg_exempt_sameline.mmd",
     "topologies/dogleg_twoline_fanout.mmd",
+    "topologies/exit_lane_settlement_without_crossings.mmd",
+    "topologies/exit_turn_frame_filters.mmd",
+    "topologies/external_owner_exit_lane_frame.mmd",
     "topologies/fan_bypass_nesting.mmd",
     "topologies/fan_bypass_shared_band.mmd",
     "topologies/fanout_bundle_plus_spurs.mmd",
@@ -79,6 +85,7 @@
     "topologies/mismatched_tracks.mmd",
     "topologies/mixed_bundle_column.mmd",
     "topologies/mixed_port_sides.mmd",
+    "topologies/multi_frame_exit_lane_settlement.mmd",
     "topologies/multi_section_cell.mmd",
     "topologies/multicarrier_offrow_exit_climb.mmd",
     "topologies/multirow_source_stacked_fan.mmd",
@@ -97,6 +104,7 @@
     "topologies/right_entry_wrap_no_fan.mmd",
     "topologies/rnaseq_lite.mmd",
     "topologies/same_line_fan_distinct_descent.mmd",
+    "topologies/seed72_cross_family_fan.mmd",
     "topologies/section_diamond.mmd",
     "topologies/self_crossing_bridge.mmd",
     "topologies/shared_cell_fork_trunk_align.mmd",
@@ -106,9 +114,11 @@
     "topologies/straddling_fanout_junction.mmd",
     "topologies/straight_drop_below.mmd",
     "topologies/symmetric_diamond_odd_slot_entry.mmd",
+    "topologies/target_lane_transition.mmd",
     "topologies/tb_fork_lane_transpose.mmd",
     "topologies/tb_left_exit_step.mmd",
     "topologies/tb_perp_exit_side_neighbour.mmd",
+    "topologies/terminated_exit_lane_compaction.mmd",
     "topologies/variant_calling.mmd",
     "topologies/wide_fan_out.mmd",
     "guide/02_sections.mmd",
@@ -125,6 +135,7 @@
     "topologies/tb_off_track_inputs.mmd"
   ],
   "merge_fanout": [
+    "ambiguous_exit_continuation.mmd",
     "genomeassembly_organellar.mmd",
     "genomeassembly.mmd",
     "genomeassembly_staggered.mmd",
@@ -136,6 +147,7 @@
     "guide/03b_fan_in_merge.mmd"
   ],
   "merge_port": [
+    "opposing_entry_partial_port_line.mmd",
     "topologies/bottom_row_climb_clear_corridor.mmd",
     "topologies/bypass_fan_in_outer_slot.mmd",
     "topologies/complex_multipath.mmd",
@@ -157,6 +169,7 @@
     "guide/04_directions.mmd"
   ],
   "sole_continuation": [
+    "compact_continuation_slot_conflict.mmd",
     "font_scale.mmd",
     "variantbenchmarking.mmd",
     "variantbenchmarking_auto.mmd",
@@ -165,10 +178,13 @@
     "topologies/bundle_terminator_continuation.mmd",
     "topologies/dogleg_exempt_distinct.mmd",
     "topologies/entry_hint_shared_edge.mmd",
+    "topologies/leftward_up_exit_turn_order.mmd",
+    "topologies/merge_feeders_three_columns.mmd",
     "topologies/packed_cell_right_exit_left_entry_wrap.mmd",
     "topologies/peeloff_extra_line_consumer.mmd",
     "topologies/post_convergence_trunk.mmd",
     "topologies/rl_entry_runway.mmd",
-    "topologies/same_side_culdesac.mmd"
+    "topologies/same_side_culdesac.mmd",
+    "topologies/tb_passthrough_continuation.mmd"
   ]
 }

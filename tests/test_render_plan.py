@@ -10,7 +10,6 @@ import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.parser.model import MetroGraph
-from nf_metro.parser.provenance import LayoutProvenance
 from nf_metro.render.html import emit_render_plan_html
 from nf_metro.render.manifest import read_manifest
 from nf_metro.render.plan import (
@@ -123,18 +122,29 @@ def test_repeated_html_emission_is_byte_identical() -> None:
     ],
 )
 def test_route_metadata_is_excluded_from_render_artifacts(path: str) -> None:
-    graph, observed = _plan(path)
-    graph.route_topology = None
-    graph.route_resolution = None
-    graph.layout_provenance = LayoutProvenance()
-    baseline = build_render_plan(graph, resolve_theme(None, graph))
+    _graph, plan = _plan(path)
 
-    assert observed == baseline
-    assert not hasattr(observed.graph, "layout_provenance")
-    assert not hasattr(observed.graph, "route_topology")
-    assert not hasattr(observed.graph, "route_resolution")
-    assert emit_render_plan(observed) == emit_render_plan(baseline)
-    assert emit_render_plan_html(observed) == emit_render_plan_html(baseline)
+    assert not hasattr(plan.graph, "layout_provenance")
+    assert not hasattr(plan.graph, "route_topology")
+    assert not hasattr(plan.graph, "route_resolution")
+    assert not hasattr(plan.graph, "_route_topology_query")
+    assert not hasattr(plan.graph, "fan_plan_execution")
+    assert hasattr(plan.graph, "_linear_entry_pill_lines_cache")
+    excluded_route_fields = {
+        "exit_turn_plan_id",
+        "exit_turn_member_id",
+        "exit_turn_family_id",
+        "exit_turn_axis_id",
+        "exit_turn_segment_rank",
+        "exit_lane_transition_plan_id",
+        "fan_plan_id",
+        "fan_route_emitter",
+    }
+    assert all(
+        not hasattr(route, field)
+        for route in plan.routes
+        for field in excluded_route_fields
+    )
 
 
 def test_rendering_does_not_mutate_prepared_graph() -> None:

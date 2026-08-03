@@ -456,6 +456,19 @@ def _route_same_track_straight(
     )
 
 
+def _route_planned_lane_transition(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Realise the exit planner's hand-off on an otherwise straight edge."""
+    from nf_metro.layout.routing.exit_turns import route_planned_lane_transition
+
+    return route_planned_lane_transition(
+        edge,
+        ctx,
+        is_inter_section=False,
+    )
+
+
 def _route_near_zero_gap_straight(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath | None:
@@ -474,6 +487,7 @@ def _route_near_zero_gap_straight(
 _INTRA_SECTION_SHAPES = (
     _route_fold_edge,
     _route_perp_exit,
+    _route_planned_lane_transition,
     _route_same_track_straight,
     _route_near_zero_gap_straight,
 )

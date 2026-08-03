@@ -31,6 +31,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_PADDING,
     TITLE_BAND_OVERLAP_FLOOR,
     X_SPACING,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -42,6 +43,7 @@ from nf_metro.layout.geometry import (
     iter_stations_outside_bbox,
     lanes_run_along_x,
     lanes_run_along_y,
+    section_lane_sign,
     segment_intersects_bbox,
 )
 from nf_metro.layout.pass_metrics import station_radius_approx
@@ -79,6 +81,8 @@ from nf_metro.layout.phases.bbox import (
     _column_neighbour_anchor_limit,
     _min_drawn_section_bbox_top,
     _predict_section_content_bottom,
+    _section_band_is_empty,
+    _section_content_hug_top,
     _section_fit_top,
     _shared_anchor_runway_runs,
 )
@@ -1639,30 +1643,17 @@ def _guard_entry_port_not_opposite_targets(graph: MetroGraph, phase: str) -> Non
 
 
 def _guard_post_convergence_trunk_continues(graph: MetroGraph, phase: str) -> None:
-    """The sole continuation of a line-shedding station continues on its row.
-
-    When a horizontal-section station carries strictly more lines than its only
-    in-section successor -- because some of its lines ended there, whether a
-    merged branch that stopped (#946) or a bundled line that terminated (#977)
-    -- and that successor is its only forward path, the chain is linear with no
-    sibling branch to fan toward. The successor must share the predecessor's Y;
-    otherwise the trunk dives onto a line base row, painting a needless diagonal
-    (or an in-section V-kink) right after the junction.
-
-    A predecessor whose flow also leaves elsewhere -- a section-exit edge or a
-    bypass V routing a line *around* the successor -- genuinely forks, so its
-    successor would legitimately drop off the trunk; the predecessor's *only*
-    forward path in the whole graph must be this successor. Vertical (TB/BT)
-    sections, ports, hidden, and off-track stations are out of scope.
-    """
-    for _section_id, pred, node in iter_sole_trunk_continuations(graph):
-        pred_y = graph.stations[pred].y
-        node_y = graph.stations[node].y
-        if abs(node_y - pred_y) > GUARD_TOLERANCE:
+    """An in-section linear continuation stays on one secondary track."""
+    for section_id, pred, node in iter_sole_trunk_continuations(graph):
+        section = graph.sections[section_id]
+        frame = AxisFrame.for_direction(section.direction, 1.0, 1.0)
+        pred_secondary = frame.secondary.get(graph.stations[pred])
+        node_secondary = frame.secondary.get(graph.stations[node])
+        if abs(node_secondary - pred_secondary) > GUARD_TOLERANCE:
             raise PhaseInvariantError(
-                f"{phase}: continuation station {node!r} at y={node_y:.1f} "
-                f"is off its predecessor {pred!r} y={pred_y:.1f}; the trunk "
-                f"dives onto a branch row right after the junction"
+                f"{phase}: continuation station {node!r} at secondary "
+                f"coordinate {node_secondary:.1f} is off its predecessor "
+                f"{pred!r} at {pred_secondary:.1f}"
             )
 
 
@@ -1789,7 +1780,10 @@ def _guard_section_top_padding(
     bbox top below that target means a later pass crowded the topmost
     marker against the box edge (issue #406).
     """
+    from nf_metro.layout.phases.planned_fans import planned_fan_layout_section_ids
+
     tol = 1.0
+    planned_sections = planned_fan_layout_section_ids(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
@@ -1803,6 +1797,17 @@ def _guard_section_top_padding(
                 f"{phase}: section {section.id!r} bbox top {section.bbox_y:.1f} "
                 f"sits below its content-anchored target {target:.1f} "
                 f"(highest marker crowds the bbox top edge)"
+            )
+        if section.id not in planned_sections or not _section_band_is_empty(
+            graph, section
+        ):
+            continue
+        hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
+        if hug is not None and section.bbox_y < hug - tol:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan section {section.id!r} bbox top "
+                f"{section.bbox_y:.1f} leaves an empty band above its "
+                f"content-hug target {hug:.1f}"
             )
 
 
@@ -5186,6 +5191,250 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         )
 
 
+def _guard_planned_fan_frame_realised(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    offsets: dict[tuple[str, str], float],
+) -> None:
+    """Raise when a fan's settled frame disagrees with its semantic contract."""
+    from nf_metro.layout.fan_geometry import fan_lane_offsets
+    from nf_metro.layout.fan_plans import (
+        fan_appearance_lane_sign,
+        vertical_fan_label_lane_pitch,
+    )
+    from nf_metro.layout.route_plan import FanAppearancePolicy
+    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
+
+    invalid_policy = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if not isinstance(plan.appearance_policy, FanAppearancePolicy)
+        ),
+        None,
+    )
+    if invalid_policy is not None:
+        raise PhaseInvariantError(
+            f"{phase}: fan {invalid_policy.id!s} has non-canonical appearance "
+            f"policy {invalid_policy.appearance_policy!r}"
+        )
+
+    unsupported = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+            and plan.authored_join_station_id is not None
+            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+        ),
+        None,
+    )
+    if unsupported is not None:
+        raise PhaseInvariantError(
+            f"{phase}: planned fan {unsupported.id!s} claims geometry for frozen "
+            f"appearance policy {unsupported.appearance_policy.value!r}"
+        )
+
+    missing_join = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+            and plan.authored_join_station_id is not None
+            and plan.join_station_id is None
+        ),
+        None,
+    )
+    if missing_join is not None:
+        raise PhaseInvariantError(
+            f"{phase}: planned reconvergence {missing_join.id!s} has no resolved join"
+        )
+
+    offset_step = graph_offset_step(graph)
+    section_layers: dict[str, dict[str, int]] = {}
+    tb_positive_fan = tb_positive_fan_sections(graph)
+    for plan in graph.fan_plans:
+        if not plan.owns_geometry and plan.offset_carriers:
+            raise PhaseInvariantError(
+                f"{phase}: legacy fan {plan.id!s} owns offset carriers"
+            )
+        frame = plan.frame
+        if not plan.owns_geometry or frame is None:
+            continue
+        if plan.appearance_lane_pitch is None or plan.appearance_lane_sign is None:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} has no frozen appearance frame"
+            )
+        section_id = graph.section_for_station(plan.fork_station_id)
+        expected_sign = fan_appearance_lane_sign(
+            graph,
+            frame,
+            section_id,
+            plan.authored_source_id,
+        )
+        if plan.appearance_lane_sign != expected_sign:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} appearance lane sign "
+                f"{plan.appearance_lane_sign:+.0f} disagrees with its feeder-aware "
+                f"axis sign {expected_sign:+.0f}"
+            )
+        section = graph.sections.get(section_id or "")
+        line_lane_sign = (
+            section_lane_sign(section, tb_positive_fan)
+            if section is not None
+            else frame.secondary_sign
+        )
+        required_pitch = vertical_fan_label_lane_pitch(
+            graph,
+            plan.branches,
+            frame,
+            section_layers,
+            plan.appearance_lane_sign,
+            line_lane_sign,
+            floor=frame.secondary.step,
+        )
+        if plan.appearance_lane_pitch + COORD_TOLERANCE_FINE < required_pitch:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} lane pitch "
+                f"{plan.appearance_lane_pitch:.1f}px under-reserves vertical label and "
+                f"marker clearance {required_pitch:.1f}px"
+            )
+        lane_offsets = tuple(branch.lane_offset for branch in plan.branches)
+        expected_lane_offsets = fan_lane_offsets(
+            tuple(branch.id for branch in plan.branches),
+            plan.appearance_lane_pitch,
+            plan.appearance_centreline_branch_id,
+        )
+        if plan.appearance_policy is FanAppearancePolicy.SYMMETRIC:
+            if any(
+                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+                for actual, target in zip(
+                    lane_offsets, expected_lane_offsets, strict=True
+                )
+            ):
+                raise PhaseInvariantError(
+                    f"{phase}: symmetric planned fan {plan.id!s} uses asymmetric "
+                    f"lane offsets {lane_offsets!r}; expected "
+                    f"{expected_lane_offsets!r} around one centreline"
+                )
+        elif plan.layout_station_ids and (
+            plan.appearance_centreline_branch_id is None
+            or sum(offset == 0.0 for offset in lane_offsets) != 1
+            or any(offset is None or offset < 0.0 for offset in lane_offsets)
+            or any(
+                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+                for actual, target in zip(
+                    lane_offsets, expected_lane_offsets, strict=True
+                )
+            )
+        ):
+            raise PhaseInvariantError(
+                f"{phase}: straight planned fan {plan.id!s} does not keep its "
+                f"top branch on the centreline; lane offsets {lane_offsets!r}, "
+                f"expected {expected_lane_offsets!r}"
+            )
+
+        local_anchor = plan.local_frame_anchor
+        anchor = graph.stations.get(
+            local_anchor.station_id if local_anchor is not None else ""
+        )
+        centreline = None
+        if anchor is not None and local_anchor is not None:
+            centreline = plan.appearance_centreline_coordinate(local_anchor, anchor)
+        expected_coordinates: dict[str, float] = {}
+        if centreline is not None:
+            expected_coordinates.update(
+                (station_id, centreline) for station_id in plan.centreline_station_ids
+            )
+            expected_coordinates.update(
+                (
+                    station_id,
+                    plan.appearance_coordinate(centreline, branch.lane_offset),
+                )
+                for branch in plan.branches
+                if branch.lane_offset is not None
+                for station_id in branch.lane_station_ids
+            )
+            expected_coordinates.update(
+                (port_id, centreline) for port_id in plan.centreline_port_ids
+            )
+        elif plan.layout_station_ids or plan.centreline_port_ids:
+            raise PhaseInvariantError(
+                f"{phase}: planned fan {plan.id!s} has local-frame ownership "
+                "but no realised anchor"
+            )
+
+        axis = frame.secondary.name
+        for station_id, expected in expected_coordinates.items():
+            station = graph.stations.get(station_id)
+            if station is None:
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} is missing station "
+                    f"{station_id!r} from its realised frame"
+                )
+            actual = getattr(station, axis)
+            if abs(actual - expected) > COORD_TOLERANCE_FINE:
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} station {station_id!r} "
+                    f"uses {axis}={actual:.1f}, expected {expected:.1f} from its frame"
+                )
+            port = graph.ports.get(station_id)
+            if port is not None:
+                port_actual = getattr(port, axis)
+                if abs(port_actual - expected) > COORD_TOLERANCE_FINE:
+                    raise PhaseInvariantError(
+                        f"{phase}: planned fan {plan.id!s} port {station_id!r} "
+                        f"uses {axis}={port_actual:.1f}, expected {expected:.1f} "
+                        "from its frame"
+                    )
+
+        for carrier in plan.offset_carriers:
+            slots = tuple(assignment.slot for assignment in carrier.assignments)
+            if any(type(slot) is not int for slot in slots):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} has a non-integer slot"
+                )
+            if len(set(slots)) != len(slots):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} repeats a slot"
+                )
+            if any(abs(slot) >= len(plan.offset_line_order) for slot in slots):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} has a slot outside its offset frame"
+                )
+            if not set(carrier.line_ids).issubset(plan.offset_line_order):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} names a line outside its offset order"
+                )
+            station_lines = set(graph.station_lines(carrier.station_id))
+            if station_lines != set(carrier.line_ids):
+                raise PhaseInvariantError(
+                    f"{phase}: planned fan {plan.id!s} offset carrier "
+                    f"{carrier.station_id!r} carries unowned lines"
+                )
+            for assignment in carrier.assignments:
+                expected = assignment.slot * offset_step
+                key = (carrier.station_id, assignment.line_id)
+                if key not in offsets:
+                    raise PhaseInvariantError(
+                        f"{phase}: planned fan {plan.id!s} hand-off "
+                        f"{carrier.station_id!r}/{assignment.line_id!r} "
+                        "has no offset"
+                    )
+                actual = offsets[key]
+                if abs(actual - expected) > COORD_TOLERANCE_FINE:
+                    raise PhaseInvariantError(
+                        f"{phase}: planned fan {plan.id!s} hand-off "
+                        f"{carrier.station_id!r}/{assignment.line_id!r} uses "
+                        f"offset {actual:.1f}, expected {expected:.1f} from its plan"
+                    )
+
+
 @dataclass(frozen=True)
 class GuardSpec:
     """One ``validate=True`` guard, with the dispatch + classification data
@@ -5302,6 +5551,11 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(_guard_station_x_column_drift, "A", bisection_safe=True),
     # --- final-only set (run only at the closing ``after final`` boundary) ---
+    GuardSpec(
+        _guard_planned_fan_frame_realised,
+        "A",
+        needs=frozenset({"offsets"}),
+    ),
     # A desync feeds a stale port position to later phases, not the renderer
     # (routing reads the Station record), so this is a pipeline-consistency
     # check for validate runs rather than a render-output guard.
@@ -5416,11 +5670,9 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "B",
         issue_pin=("#946", "#977"),
         narrow_reason=(
-            "Scoped to the sole in-section forward successor of a line-shedding "
-            "predecessor: a predecessor with multiple successors (including a "
-            "bypass V) fans out by design, a successor carrying as many lines is "
-            "trunk-aligned already, and a cross-section convergence anchors its "
-            "successor via port alignment."
+            "Scoped to a membership-changing in-section chain whose predecessor "
+            "has one complete forward target. Sibling paths and lines that bypass "
+            "an intermediate carrier retain separate tracks."
         ),
     ),
     GuardSpec(_guard_perp_entry_feed_not_collinear, "B"),

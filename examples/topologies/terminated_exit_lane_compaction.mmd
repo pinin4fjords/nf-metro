@@ -1,0 +1,40 @@
+%%metro title: Terminated Lane At Shared Exit
+%%metro line: lower | Lower branch | #3779b1
+%%metro line: wrap | Wrap branch | #6ef362
+%%metro line: ends | Terminates | #dde6c4
+%%metro line: straight | Straight branch | #156075
+%%metro grid: prelude | 0,0
+%%metro grid: feeder | 1,0
+%%metro grid: source | 2,0
+%%metro grid: side | 2,1
+%%metro grid: straight_target | 3,0
+%%metro grid: lower_target | 3,1
+
+graph LR
+    subgraph prelude [Prelude]
+        prelude_a[Prelude A]
+        prelude_b[Prelude B]
+        prelude_a -->|wrap| prelude_b
+    end
+    subgraph feeder [Feeder]
+        feed[Feed]
+    end
+    subgraph source [Source]
+        before[Before]
+        split[Split]
+        before -->|lower,wrap,ends,straight| split
+    end
+    subgraph side [Side]
+        side_end[Side]
+    end
+    subgraph straight_target [Straight target]
+        straight_in[Straight]
+    end
+    subgraph lower_target [Lower target]
+        lower_in[Lower]
+    end
+    prelude_b -->|wrap| feed
+    feed -->|lower,wrap,straight| before
+    feed -->|wrap| side_end
+    split -->|straight| straight_in
+    split -->|lower,wrap| lower_in

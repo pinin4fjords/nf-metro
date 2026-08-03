@@ -80,6 +80,8 @@ OBSERVATION_PROBES = frozenset(
     }
 )
 
+OFFSETLESS_ROUTING_PROBES = frozenset({"examples/guide/03b_fan_in_merge.mmd"})
+
 
 def ensure_pinned_hash_seed() -> None:
     """Re-exec under :data:`PINNED_HASH_SEED` unless it is already in effect.
@@ -203,12 +205,17 @@ def _render_under_coverage(corpus: list[tuple[Path, bool]]):
     # then render each fixture on the production path (validate=False).
     from nf_metro.convert import convert_nextflow_dag
     from nf_metro.layout.engine import compute_layout
-    from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
+    from nf_metro.layout.routing import (
+        compute_station_offsets,
+        observe_route_edges,
+        route_edges,
+    )
     from nf_metro.parser.mermaid import parse_metro_mermaid
     from nf_metro.render.svg import render_svg
     from nf_metro.themes import THEMES
 
     observed: set[str] = set()
+    routed_without_offsets: set[str] = set()
     for path, is_nextflow in corpus:
         ctx = str(path.relative_to(PROJECT_ROOT))
         cov.switch_context(ctx)
@@ -225,6 +232,9 @@ def _render_under_coverage(corpus: list[tuple[Path, bool]]):
                     graph, station_offsets=compute_station_offsets(graph)
                 )
                 observed.add(ctx)
+            if ctx in OFFSETLESS_ROUTING_PROBES:
+                route_edges(graph)
+                routed_without_offsets.add(ctx)
         except Exception as exc:  # noqa: BLE001 - a broken fixture must not abort the sweep
             print(f"  WARN: {ctx} failed to render: {exc}", file=sys.stderr)
 
@@ -233,6 +243,10 @@ def _render_under_coverage(corpus: list[tuple[Path, bool]]):
     if missing_probes:
         missing = ", ".join(sorted(missing_probes))
         raise RuntimeError(f"route-observation probe(s) did not complete: {missing}")
+    missing_offsetless = OFFSETLESS_ROUTING_PROBES - routed_without_offsets
+    if missing_offsetless:
+        missing = ", ".join(sorted(missing_offsetless))
+        raise RuntimeError(f"offsetless routing probe(s) did not complete: {missing}")
     return cov
 
 

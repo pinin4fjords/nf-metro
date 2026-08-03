@@ -28,6 +28,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing.common import initial_fanout_descent_span
 from nf_metro.layout.routing.context import _build_routing_context, _resolve_section_col
 from nf_metro.layout.routing.invariants import check_no_same_line_parallel_descents
 from nf_metro.layout.routing.normalize import (
@@ -139,14 +140,14 @@ def test_clear_adjacent_feeder_does_not_detour_to_the_trunk_channel() -> None:
 
 
 @pytest.mark.parametrize("name", sorted(_FIXTURES))
-def test_feeder_descent_snaps_only_in_trunk_column(name: str) -> None:
-    """A feeder's opening descent fuses with the trunk's only in its column.
+def test_feeder_descent_ownership_and_legacy_snapping(name: str) -> None:
+    """Planned turns stay immutable; legacy descents snap only in one column.
 
     ``_coincide_same_line_tracks`` snaps a feeder onto the trunk's exact
     descent X only when the feeder shares the trunk's source column; a feeder in
     another column descends in its own inter-column gap and converges along the
-    shared horizontal channel instead.  Pins that scope so the pass cannot
-    broaden to collapse genuinely distinct corridors onto one channel.
+    shared horizontal channel instead.  An exit-turn plan owns its opening
+    descent, so the legacy normalizer must not expose that segment as movable.
     """
     graph, routes, _offsets, ctx = _layout_and_route(_FIXTURES[name])
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
@@ -160,31 +161,39 @@ def test_feeder_descent_snaps_only_in_trunk_column(name: str) -> None:
             ),
             None,
         )
-        trunk_ch = _initial_fanout_descent(trunk_rp) if trunk_rp else None
-        if trunk_ch is None:
+        trunk_span = initial_fanout_descent_span(trunk_rp) if trunk_rp else None
+        if trunk_span is None:
             continue
+        trunk_x = trunk_span[0]
         trunk_col = _resolve_section_col(graph, graph.stations[trunk_src])
         for e in graph.edges_to(mjid):
             if e.source == trunk_src:
                 continue
             rp = by_key.get((e.source, e.target, e.line_id))
-            ch = _initial_fanout_descent(rp) if rp else None
-            if ch is None:
+            if rp is None or initial_fanout_descent_span(rp) is None:
                 continue
             seen += 1
+            planned = (
+                rp.exit_turn_axis_id is not None and rp.exit_turn_segment_rank == 1
+            )
+            ch = _initial_fanout_descent(rp)
+            if planned:
+                assert ch is None
+                continue
+            assert ch is not None
             same_col = (
                 _resolve_section_col(graph, graph.stations[e.source]) == trunk_col
             )
-            coincident = abs(ch.x - trunk_ch.x) <= COORD_TOLERANCE
+            coincident = abs(ch.x - trunk_x) <= COORD_TOLERANCE
             if same_col:
                 assert coincident, (
                     f"{name}: same-column feeder {e.source} descends at "
-                    f"x={ch.x:.1f}, not fused with trunk descent x={trunk_ch.x:.1f}"
+                    f"x={ch.x:.1f}, not fused with trunk descent x={trunk_x:.1f}"
                 )
             else:
                 assert not coincident, (
                     f"{name}: cross-column feeder {e.source} was snapped onto the "
-                    f"trunk descent x={trunk_ch.x:.1f}; distinct corridors collapsed"
+                    f"trunk descent x={trunk_x:.1f}; distinct corridors collapsed"
                 )
     assert seen, f"{name}: expected at least one non-trunk merge feeder"
 

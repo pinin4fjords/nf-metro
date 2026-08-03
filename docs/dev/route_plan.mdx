@@ -1,36 +1,120 @@
 ---
-title: "Route plan observation"
-description: Immutable route-system identity, production emission coverage, and layout provenance.
+title: "Route planning and observation"
+description: Immutable route-system decisions, production emission coverage, and layout provenance.
 sidebar:
   order: 4
 ---
 
 The route plan is an immutable description of the semantic route systems that
-reached production routing. It answers three questions:
+reach production routing. It answers four questions:
 
 1. Which authored connectors belong to the same route system?
 2. Which physical resolved legs represent that system?
 3. How did production routing emit, cover, or reject each leg?
+4. Which source-side turn geometry was committed before emission?
 
-It does not choose geometry. Routing handlers and post-processing remain the
-only production geometry path.
+The plan has both decisions and observations. Exit-turn records choose the
+source lanes, run direction, turn direction, shared axes, and runway demand for
+a complete exit group. Emission bindings and corridor reservations describe
+what production routing finally emitted.
 
 ## Observation boundary
 
-Call `observe_route_edges` when a caller needs both routed paths and a
-`RoutePlan`. The observer is created after the settled routing context exists
-and immediately before the real handler dispatch. An emitted inter-section
-member records the stable family ID of the handler that actually won. Rail
-members record the rail family at the rail call. A member skipped before
-dispatch has no family ID. If a matched inter-section builder declines to emit,
-the later TB, entry-runway, or general fallback that actually emits the member
-owns its family ID. After all normalization passes, the observer binds every
-member to the final route list.
+On the normal dispatcher path, the routing context and semantic scaffold are
+built before the first handler runs. Ordinary routing and
+`observe_route_edges` run the same exit-turn planner and consume the same
+decisions. Ordinary routing returns only the routes. It does not construct a
+`RoutePlanObserver`, emission bindings, corridor reservations, or the final
+`RoutePlan`. `observe_route_edges` collects and returns those additional
+records.
 
-Ordinary `route_edges` and `route_edges_centred` calls do not build a plan.
-The plan is not stored on `MetroGraph`, no global observation state exists, and
-no layout or routing consumer reads it. Observing a route therefore cannot
-change graph state, routed paths, render plans, SVG, manifests, or metrics.
+An emitted inter-section member records the stable family ID of the handler
+that won. Rail members record the rail family at the rail call. A member
+skipped before dispatch has no family ID. If a matched inter-section builder
+declines to emit, the later TB, entry-runway, or general fallback that emits
+the member owns its family ID. After all normalization passes, the observer
+binds every member to the final route list.
+
+The plan is not stored on `MetroGraph`, and no global planning state exists.
+Observation is read-only: enabling it cannot select a different plan or route.
+
+## Complete exit-turn plans
+
+The exit-turn planner works at the resolved exit-group boundary. It reads all
+members leaving one source port or divergence before any member is routed.
+The **source seam** is that exit port or divergence together with the directly
+owned approach and continuation stations.
+
+| Record                 | Meaning                                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Source lanes           | Active lines in physical station-offset order, with terminated lines removed, plus their input offsets and seam owners |
+| Assignments            | Each outbound member's destination, route family, semantic role, run, turn, and handedness                             |
+| Axes                   | Turn columns or rows, including any structural anchor and required curve runway                                        |
+| Lane transitions       | Explicit hand-offs between an unchanged feeder lane and a compacted seam lane                                          |
+| References and demands | Shared axes, symbolic space requirements, and conflicts with another route system                                      |
+
+The disposition applies to the complete group:
+
+| Disposition | Routing behaviour                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------- |
+| `PLANNED`   | Commits supported seam offsets, assignments, axes, and transitions before emission                                   |
+| `LEGACY`    | Keeps base offsets and established handlers when a member, source order, or geometry is unsupported or contradictory |
+
+Both dispositions use the same handler table and route templates. The planner
+adds shared decisions for a supported complete group; it does not introduce a
+second emitter or mix planned and compatibility members within one group.
+
+Support is atomic. A partial plan is invalid. Direct routing without an
+unambiguous station-offset map cannot compact a group safely, so that group
+uses legacy routing. When observation is enabled, one deterministic,
+non-blocking diagnostic records the legacy reason. Legacy is a compatibility
+disposition, not a render warning or render failure.
+
+Supported handlers consume the committed assignment during normal dispatch.
+They may build the rest of the path with their established family logic, but
+the source-side turn is seated on the planned axis. The planner owns lane
+order, axes, and transition requirements. Templates only realise those
+decisions as points and radii.
+
+Every downstream route-mutating pass is ratcheted against a snapshot of the
+owned segments and transitions. Moving, dropping, or replacing one raises an
+invariant error that names its route system and connectors. A lane transition
+must preserve every pairwise source-lane order at its target; otherwise the
+entire group uses legacy routing. The final runtime check uses the geometry
+that the renderer will draw, verifies structural anchors and runway, and
+confirms that each assignment was consumed once.
+
+## Complete fan plans
+
+A fan plan is built before station placement from authored connectors and their
+resolved paths. It describes one fork, every branch through an optional join,
+and any extra outputs that leave those branches. The plan freezes:
+
+- the authored straight or symmetric appearance, independently of whether the
+  branches reconverge;
+- branch, opening, and landing order;
+- the local flow frame, centreline, and branch lane offsets;
+- entry and exit runway requirements;
+- the exact station-line offset slots owned by the fan;
+- the ports and stations that remain on the centreline; and
+- any resolved edges assigned to a dedicated fan route template.
+
+Structural membership and emission ownership are separate. The plan can own a
+complete branch while ordinary routing emits edges that need no fan-specific
+template. A route template may emit only the exact edges assigned to it, and an
+always-on check confirms that every such assignment is consumed once.
+
+Fan ownership is atomic. A supported fan is `PLANNED` and materialises its
+relative frame during layout. If the fan intersects an unsupported local merge
+frame or cannot establish complete ownership, it is `LEGACY`: none of its
+geometry, offsets, or route emissions are claimed. The normal layout and
+routing paths then handle the complete fan. A non-blocking diagnostic records
+the reason so remaining fallback cases can be measured and removed.
+
+Straight reconvergences are recorded as one semantic fan but remain `LEGACY`.
+Their shape comes from the section track allocator, including its phantom
+tracks and collision compaction. #1658 will bring that allocator behind the
+plan boundary before the planner owns these cases.
 
 ## Identity and coverage
 
@@ -68,9 +152,10 @@ schema.
 Family identity and binding disposition are separate. `MERGE_SKIP` and
 `UNROUTED` are not route families because no production family emitted them.
 
-`CONTINUATION` and `PEEL_OFF` are part of the schema but remain absent in this
-observation layer. The first entry group is not enough to identify a mainline.
-Only structurally observable `BYPASS` and `TERMINAL` roles are recorded here.
+Base emission members record only structurally observable roles such as
+`BYPASS` and `TERMINAL`; an entry group alone cannot identify a mainline. Each
+exit-turn assignment adds exactly one seam role: `CONTINUATION` for a straight
+source-lane continuation, or `PEEL_OFF` for a member that turns away.
 
 ## Provenance and coordinates
 
@@ -80,8 +165,7 @@ its value, typed origin, lock state, reason, and accepted authored values. Fold
 threshold and line order also keep their typed caller/directive/default source.
 Line ordering keeps both the selected policy and the realised line IDs. Caller
 line-order precedence is recorded before inference, while the override is
-applied at its established API stage, so observation does not alter current
-renders.
+applied at its established API stage.
 
 Port endpoints carry their owning section's settled grid cell. Synthetic fan
 and merge junctions have no section owner, so their section, row, and column
@@ -144,17 +228,18 @@ The query layer rejects records whose claims disagree with final emission
 bindings or whose reference, demand, realisation, or diagnostic contradicts
 its reservation.
 
-## Planner hand-off
+## Planner roadmap
 
-The observational adapter publishes the corridors that current production
-facts prove. Later planners add their specialised demands to the same records:
+Pre-routing planners and post-routing corridor observation publish into the
+same reference and demand ledger:
 
-| Planner                                                     | Additional demand it owns                                                                 |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [#1655](https://github.com/seqeralabs/nf-metro/issues/1655) | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes                 |
-| [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Fan and diamond centrelines, branch transition runways, and hand-off space                |
-| [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Convergence trunk extent, feeder landing sequence, and approach space                     |
-| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Final row and column allocation; it realises every demand by monotone envelope settlement |
+| Owner                                                       | Status      | Demand it owns                                                                          |
+| ----------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------- |
+| Exit-turn planner                                           | Implemented | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes               |
+| [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Implemented | Fan and diamond centrelines, branch transition runways, and hand-off space              |
+| [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Planned     | Convergence trunk extent, feeder landing sequence, and approach space                   |
+| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Planned     | Final row and column allocation, realising demands through monotone envelope settlement |
+| [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) | Planned     | Consolidate plan-driven emission and retire displaced compatibility logic               |
 
 Each planner migrates a complete semantic group. If one member is unsupported,
 the group remains on the explicit legacy path with a deterministic diagnostic.
@@ -167,7 +252,11 @@ Systems follow first connector appearance. Resolved endpoint groups follow exit
 group order and then entry group order. Divergences and convergences follow
 topology order. Members follow first physical-leg appearance in connector,
 resolved-path, and leg order. Branches and feeders follow topology order.
-Bindings follow member order. Reservations, references, demands, realisations,
-and diagnostics are ordered by orientation, grid gap, complete span, route
-system, claimant, and content-derived ID. `serialize_route_plan` is therefore
+Exit-turn plans follow exit-group order. Planned lanes follow physical
+station-offset order; legacy records may fall back to graph line order and name
+that choice in `lane_order_source`. Assignments follow member order. Axis
+cohorts follow the first `(run_direction, turn_direction)` appearance, then
+lane rank within each cohort. Bindings follow member order. Reservations,
+references, demands, realisations, and diagnostics then use their documented
+semantic order. All IDs are content derived, so `serialize_route_plan` is
 stable across Python hash seeds.

@@ -14,6 +14,8 @@ import pytest
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import is_bypass_v
+from nf_metro.parser.route_topology import build_route_topology_query
 from nf_metro.render.svg import compute_station_offsets
 
 
@@ -57,6 +59,18 @@ def _pipeline_with_qc_at(col: int, n_top: int) -> str:
 def test_downward_feeder_does_not_dip_below_consumer(col, n_top):
     graph = parse_metro_mermaid(_pipeline_with_qc_at(col, n_top))
     compute_layout(graph)
+    topology = build_route_topology_query(graph)
+    assert topology is not None
+    connector = next(
+        fact
+        for fact in topology.authored_edges
+        if fact.key.source == "input_a" and fact.key.line_id == "qc"
+    )
+    assert any(
+        is_bypass_v(edge.source) or is_bypass_v(edge.target)
+        for path in topology.resolved_paths(connector.id)
+        for edge in path
+    )
     routes = route_edges(graph, station_offsets=compute_station_offsets(graph))
 
     qc = graph.sections["qc"]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -14,6 +14,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
+    flow_port_sides,
     lanes_run_along_x,
     perpendicular_port_sides,
     station_lane_coord,
@@ -90,6 +91,41 @@ class _OffsetCtx:
     station_rank: dict[str, int] = field(default_factory=dict)
     # Section -> flat-frame component root, populated by section-local re-indexing
     frame_roots: dict[str, str] = field(default_factory=dict)
+    fan_owned_offsets: dict[tuple[str, str], float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _LinearEntryFrame:
+    """A section bundle whose entry cohort owns its continuing lane slots."""
+
+    section_id: str
+    entry_port_id: str
+    feeder_section_id: str
+    feeder_station_id: str
+    continuing: tuple[tuple[str, float], ...]
+    assignments: tuple[tuple[str, float], ...]
+    carrier_ids: tuple[str, ...]
+
+
+class LaneFrameInvariantError(RuntimeError):
+    """A materialized linear entry frame violated its ownership contract."""
+
+
+@dataclass(frozen=True)
+class LinearEntryFrameAssignment:
+    """One station-lane assignment owned by a materialized entry frame."""
+
+    section_id: str
+    station_id: str
+    line_id: str
+    offset: float
+
+
+@dataclass(frozen=True)
+class LinearEntryFrameOwnership:
+    """Frozen station-lane assignments owned by materialized entry frames."""
+
+    assignments: tuple[LinearEntryFrameAssignment, ...]
 
 
 def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
@@ -113,6 +149,13 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
     lr_rl_sections = {
         sid for sid, s in graph.sections.items() if s.direction in ("LR", "RL")
     }
+    fan_owned_offsets = {
+        (carrier.station_id, assignment.line_id): assignment.slot * offset_step
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for carrier in plan.offset_carriers
+        for assignment in carrier.assignments
+    }
 
     return _OffsetCtx(
         graph=graph,
@@ -128,6 +171,7 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
         inbound=inbound,
         outbound=outbound,
         station_rank={sid: rank for rank, sid in enumerate(graph.stations)},
+        fan_owned_offsets=fan_owned_offsets,
     )
 
 
@@ -1516,6 +1560,18 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
                 ctx.offsets[(junction_id, line_id)] = port_off
 
 
+def _apply_planned_fan_offsets(ctx: _OffsetCtx) -> None:
+    """Apply the complete immutable offset assignment of every planned fan."""
+    for plan in ctx.graph.fan_plans:
+        if not plan.owns_geometry:
+            continue
+        for carrier in plan.offset_carriers:
+            for assignment in carrier.assignments:
+                ctx.offsets[(carrier.station_id, assignment.line_id)] = (
+                    assignment.slot * ctx.offset_step
+                )
+
+
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
     """Whether the run leaving a TOP/BOTTOM entry port heads to larger X.
 
@@ -2875,68 +2931,58 @@ def _convergence_feeders(
     """Classify a LEFT entry port's bypass-convergence feeders.
 
     Returns ``[(line_id, source_col, is_bypass), ...]`` when several lines
-    riding one shared bypass trunk converge into *port_id* and want
-    approach-depth slotting; ``None`` otherwise.
+    converge into *port_id* and need approach-depth slotting; ``None`` otherwise.
 
-    A feeder is a *bypass* when it hops two or more columns past intervening
-    sections, so it must route around their boxes and climb a riser into the
-    port.  Two shapes qualify:
-
-    * **All-bypass** - every feeder is a bypass spanning two or more source
-      columns: one shared bypass trunk into a common port.
-    * **Climb-with-shallow-feeder** - a climbing bundle of two or more bypass
-      feeders from distinct columns, joined by shallow feeders from adjacent
-      columns.  Left in declaration order a shallow feeder is slotted port-far
-      and weaves across the climbing risers at the turn; admitting it lets
-      approach-depth slot it port-near so the bundle turns concentrically.
-      Requires one feeder edge per line and one line per source column, so a
-      fan-in (a line or column feeding the port more than once) does not match.
-
-    A single bypass joined by a shallow feeder is one riser plus a flat line,
-    not a bundle to weave through, so two distinct bypass columns are required.
+    All-bypass bundles qualify. Mixed bundles require one line per source
+    column, then qualify when either at least two feeders bypass intervening
+    sections or a single bypass and its nearer feeders descend from one
+    off-target row. A single bypass joined by a flat same-row feeder does not
+    form a climbing bundle and remains in its ordinary lane order.
     """
-    tgt_col = _resolve_section_col(graph, graph.stations[port_id])
-    if tgt_col is None:
+    target_col = _resolve_section_col(graph, graph.stations[port_id])
+    if target_col is None:
         return None
+    target_row = _resolve_section_colrow(graph, graph.stations[port_id])[1]
 
     feeders: list[tuple[str, int, bool]] = []
+    source_rows: set[int | None] = set()
     for edge in graph.edges_to(port_id):
-        src = graph.station_for_edge_source(edge)
-        col, row = _resolve_section_colrow(graph, src)
-        if col is None:
+        source = graph.station_for_edge_source(edge)
+        source_col, source_row = _resolve_section_colrow(graph, source)
+        if source_col is None:
             return None
-        is_bypass = abs(tgt_col - col) > 1 and _has_intervening_sections(
-            graph, col, tgt_col, row
+        bypass = abs(target_col - source_col) > 1 and _has_intervening_sections(
+            graph, source_col, target_col, source_row
         )
-        feeders.append((edge.line_id, col, is_bypass))
+        feeders.append((edge.line_id, source_col, bypass))
+        source_rows.add(source_row)
 
-    if len({col for _, col, _ in feeders}) < 2:
+    source_cols = {source_col for _line_id, source_col, _bypass in feeders}
+    if len(source_cols) < 2:
+        return None
+    if all(bypass for _line_id, _source_col, bypass in feeders):
+        return feeders
+    if len(source_cols) != len(feeders) or len({f[0] for f in feeders}) != len(feeders):
         return None
 
-    if all(is_bypass for _, _, is_bypass in feeders):
+    bypass_count = sum(bypass for _line_id, _source_col, bypass in feeders)
+    if bypass_count >= 2:
         return feeders
-
-    bypass_cols = {col for _, col, is_bypass in feeders if is_bypass}
-    if (
-        len({col for _, col, _ in feeders}) == len(feeders)
-        and len({lid for lid, _, _ in feeders}) == len(feeders)
-        and len(bypass_cols) >= 2
-    ):
+    if bypass_count == 1 and len(source_rows) == 1 and target_row not in source_rows:
         return feeders
     return None
 
 
-def _bypass_convergence_feeders(
+def cross_row_convergence_channel_order(
     graph: MetroGraph, port_id: str
-) -> dict[str, int] | None:
-    """Source columns ``{line_id: source_grid_col}`` of a qualifying convergence.
-
-    Thin view over :func:`_convergence_feeders` for callers ordering by column.
-    """
+) -> list[str] | None:
+    """Outer-to-inner channels for a single-bypass off-row convergence."""
     feeders = _convergence_feeders(graph, port_id)
     if feeders is None:
         return None
-    return {lid: col for lid, col, _ in feeders}
+    if sum(bypass for _, _, bypass in feeders) != 1:
+        return None
+    return [line_id for line_id, _col, _bypass in sorted(feeders, key=lambda f: f[1])]
 
 
 def _left_entry_lr_ports(ctx: _OffsetCtx) -> Iterator[tuple[str, Port]]:
@@ -3258,6 +3304,352 @@ def _center_rail_boundary_port_bundles(ctx: _OffsetCtx) -> None:
             ctx.offsets[(port_id, lid)] = lane - shift
 
 
+def _upstream_section_lane(
+    ctx: _OffsetCtx,
+    entry_port_id: str,
+    target_section_id: str,
+    line_id: str,
+    upstream_exit_side: PortSide,
+) -> tuple[str, str, float] | None:
+    """Return the unique upstream carrier and slot supplying an entry lane."""
+    if ctx.topology is None:
+        return None
+    port_connectors = tuple(
+        ctx.topology.connector(connector_id)
+        for connector_id in ctx.topology.connector_ids_for_port(entry_port_id)
+    )
+    connectors = tuple(
+        connector
+        for connector in port_connectors
+        if connector.line_id == line_id
+        and connector.target_section == target_section_id
+        and connector.exit_side is upstream_exit_side
+    )
+    owners = {
+        (
+            connector.source_section,
+            ctx.topology.exit_port(connector.exit_group_id),
+        )
+        for connector in connectors
+    }
+    if len(owners) != 1:
+        return None
+    owner_section_id, owner_station_id = next(iter(owners))
+    key = owner_station_id, line_id
+    if key not in ctx.offsets:
+        return None
+    return owner_section_id, owner_station_id, ctx.offsets[key]
+
+
+def _linear_entry_frame(
+    ctx: _OffsetCtx,
+    section: Section,
+) -> _LinearEntryFrame | None:
+    """Plan a complete section frame from one flow-aligned entry cohort."""
+    graph = ctx.graph
+    flow_entry, flow_exit = flow_port_sides(section.direction)
+    entries = [
+        port_id
+        for port_id in section.entry_ports
+        if graph.ports[port_id].side is flow_entry
+        and len(graph.station_lines(port_id)) >= 2
+    ]
+    if len(entries) != 1:
+        return None
+    entry_port_id = entries[0]
+    if is_near_vertical_junction_right_entry(graph, graph.ports[entry_port_id]):
+        return None
+    continuing = tuple(graph.station_lines(entry_port_id))
+    entry_targets = {
+        edge.target
+        for edge in graph.edges_from(entry_port_id)
+        if edge.line_id in continuing
+        and not graph.stations[edge.target].is_port
+        and graph.stations[edge.target].section_id == section.id
+    }
+    if len(entry_targets) != 1:
+        return None
+    supplied = {
+        line_id: _upstream_section_lane(
+            ctx, entry_port_id, section.id, line_id, flow_exit
+        )
+        for line_id in continuing
+    }
+    if any(owner is None for owner in supplied.values()):
+        return None
+    owners = {(owner[0], owner[1]) for owner in supplied.values() if owner is not None}
+    if len(owners) != 1:
+        return None
+    inherited = {
+        line_id: owner[2] for line_id, owner in supplied.items() if owner is not None
+    }
+    levels = distinct_offset_levels(inherited.values())
+    if (
+        len(levels) != len(continuing)
+        or max_interior_offset_gap(levels, ctx.offset_step) is not None
+    ):
+        return None
+
+    real_station_ids = tuple(
+        station_id
+        for station_id in section.station_ids
+        if not graph.stations[station_id].is_port
+        and not graph.stations[station_id].is_hidden
+        and not graph.stations[station_id].off_track
+    )
+    continuing_set = set(continuing)
+    if not real_station_ids or any(
+        not continuing_set.issubset(graph.station_lines(station_id))
+        for station_id in real_station_ids
+    ):
+        return None
+    flow_exit_lines = {
+        line_id
+        for port_id in section.exit_ports
+        if graph.ports[port_id].side is flow_port_sides(section.direction)[1]
+        for line_id in graph.station_lines(port_id)
+    }
+    if flow_exit_lines and not continuing_set.issubset(flow_exit_lines):
+        return None
+
+    present = _section_present_line_set(ctx, section.id)
+    priority_order = tuple(sorted(present, key=ctx.line_priority.__getitem__))
+    determining = tuple(sorted(continuing, key=inherited.__getitem__))
+    arranged = lane_order(
+        BoundaryConfig(present=priority_order, determining=determining),
+        ctx.line_priority,
+    )
+    ordered = arranged if arranged is not None else priority_order
+    local = [line_id for line_id in ordered if line_id not in continuing_set]
+    first_priority = min(ctx.line_priority[line_id] for line_id in continuing)
+    before = [
+        line_id for line_id in local if ctx.line_priority[line_id] < first_priority
+    ]
+    available_below = max(0, round(min(levels) / ctx.offset_step))
+    below = before[-available_below:] if available_below else []
+    after = [line_id for line_id in local if line_id not in below]
+
+    assignments = dict(inherited)
+    base = min(levels)
+    for rank, line_id in enumerate(reversed(below), start=1):
+        assignments[line_id] = base - rank * ctx.offset_step
+    band_end = max(levels)
+    for rank, line_id in enumerate(after, start=1):
+        assignments[line_id] = band_end + rank * ctx.offset_step
+
+    carrier_ids = tuple(
+        station_id
+        for station_id in section.station_ids
+        if set(graph.station_lines(station_id)) & set(assignments)
+        and (
+            not graph.stations[station_id].is_port
+            or graph.ports[station_id].side in (flow_entry, flow_exit)
+        )
+    )
+    for station_id in carrier_ids:
+        for line_id in graph.station_lines(station_id):
+            if line_id not in assignments:
+                continue
+            owned = ctx.fan_owned_offsets.get((station_id, line_id))
+            if (
+                owned is not None
+                and abs(owned - assignments[line_id]) > _OFFSET_EQ_TOLERANCE
+            ):
+                return None
+
+    feeder_section_id, feeder_station_id = next(iter(owners))
+    return _LinearEntryFrame(
+        section_id=section.id,
+        entry_port_id=entry_port_id,
+        feeder_section_id=feeder_section_id,
+        feeder_station_id=feeder_station_id,
+        continuing=tuple((line_id, inherited[line_id]) for line_id in determining),
+        assignments=tuple(assignments.items()),
+        carrier_ids=carrier_ids,
+    )
+
+
+def _materialize_linear_entry_frames(ctx: _OffsetCtx) -> tuple[_LinearEntryFrame, ...]:
+    """Settle entry-owned section frames as one fixed-point transaction."""
+    if ctx.compact:
+        return ()
+    original = dict(ctx.offsets)
+    frames: dict[str, _LinearEntryFrame] = {}
+    for _iteration in range(len(ctx.graph.sections) + 1):
+        changed = False
+        next_frames: dict[str, _LinearEntryFrame] = {}
+        for section in ctx.graph.sections.values():
+            frame = _linear_entry_frame(ctx, section)
+            if frame is None:
+                continue
+            next_frames[section.id] = frame
+            assignments = dict(frame.assignments)
+            for station_id in frame.carrier_ids:
+                for line_id in ctx.graph.station_lines(station_id):
+                    if line_id not in assignments:
+                        continue
+                    key = station_id, line_id
+                    value = assignments[line_id]
+                    if abs(ctx.offsets.get(key, value) - value) > _OFFSET_EQ_TOLERANCE:
+                        changed = True
+                    ctx.offsets[key] = value
+        if set(frames).difference(next_frames):
+            ctx.offsets.clear()
+            ctx.offsets.update(original)
+            return ()
+        frames = next_frames
+        if not changed:
+            return tuple(frames.values())
+    ctx.offsets.clear()
+    ctx.offsets.update(original)
+    return ()
+
+
+def _cache_linear_entry_pill_lines(
+    ctx: _OffsetCtx,
+    frames: tuple[_LinearEntryFrame, ...],
+) -> None:
+    """Publish marker spans for accepted entry-frame carriers."""
+    cache = ctx.graph._linear_entry_pill_lines_cache
+    for frame in frames:
+        continuing = tuple(line_id for line_id, _offset in frame.continuing)
+        continuing_set = set(continuing)
+        for station_id in frame.carrier_ids:
+            station = ctx.graph.stations[station_id]
+            if station.is_port or station.is_hidden or station.off_track:
+                continue
+            served = tuple(ctx.graph.station_lines(station_id))
+            local = tuple(
+                line_id for line_id in served if line_id not in continuing_set
+            )
+            if len(local) != 1 or not continuing_set.issubset(served):
+                continue
+            inherited_offsets = [
+                ctx.offsets[station_id, line_id] for line_id in continuing
+            ]
+            ordered = sorted(inherited_offsets)
+            if any(
+                abs(right - left - ctx.offset_step) > COORD_TOLERANCE_FINE
+                for left, right in zip(ordered, ordered[1:])
+            ):
+                continue
+            local_offset = ctx.offsets.get((station_id, local[0]))
+            if local_offset is None or not (
+                abs(local_offset - (ordered[0] - ctx.offset_step))
+                <= COORD_TOLERANCE_FINE
+                or abs(local_offset - (ordered[-1] + ctx.offset_step))
+                <= COORD_TOLERANCE_FINE
+            ):
+                continue
+            cache[station_id] = continuing
+
+
+def _validate_linear_entry_frames(
+    ctx: _OffsetCtx,
+    frames: tuple[_LinearEntryFrame, ...],
+) -> None:
+    """Certify exact ownership and contiguous carriers for settled frames."""
+    graph = ctx.graph
+    for frame in frames:
+        assignments = dict(frame.assignments)
+        continuing = dict(frame.continuing)
+        for station_id in frame.carrier_ids:
+            lines = set(graph.station_lines(station_id))
+            for line_id, expected in continuing.items():
+                if line_id not in lines:
+                    continue
+                actual = ctx.offsets.get((station_id, line_id), 0.0)
+                if abs(actual - expected) > _OFFSET_EQ_TOLERANCE:
+                    raise LaneFrameInvariantError(
+                        f"section {frame.section_id!r} carrier {station_id!r} "
+                        f"moves continuing line {line_id!r} from {expected} to {actual}"
+                    )
+            levels = distinct_offset_levels(
+                ctx.offsets[(station_id, line_id)]
+                for line_id in lines
+                if line_id in assignments and (station_id, line_id) in ctx.offsets
+            )
+            gap = max_interior_offset_gap(levels, ctx.offset_step)
+            if gap is not None:
+                raise LaneFrameInvariantError(
+                    f"section {frame.section_id!r} carrier {station_id!r} "
+                    f"has an empty lane gap of {gap}"
+                )
+
+
+def capture_linear_entry_frame_ownership(
+    graph: MetroGraph,
+    station_offsets: Mapping[tuple[str, str], float],
+    offset_step: float | None = None,
+) -> LinearEntryFrameOwnership:
+    """Freeze every fully materialized entry frame for downstream routing."""
+    if graph.line_spread is LineSpread.RAILS or graph.compact_offsets:
+        return LinearEntryFrameOwnership(())
+    resolved = offset_step if offset_step is not None else graph_offset_step(graph)
+    ctx = _build_offset_ctx(graph, resolved)
+    ctx.offsets.update(station_offsets)
+    frames: list[_LinearEntryFrame] = []
+    owned_assignments: list[LinearEntryFrameAssignment] = []
+    for section in graph.sections.values():
+        frame = _linear_entry_frame(ctx, section)
+        if frame is None:
+            continue
+        assignments = dict(frame.assignments)
+        owned = [
+            (station_id, line_id, expected)
+            for station_id in frame.carrier_ids
+            for line_id in graph.station_lines(station_id)
+            if (expected := assignments.get(line_id)) is not None
+        ]
+        if any(
+            (station_id, line_id) not in station_offsets
+            or abs(station_offsets[station_id, line_id] - expected)
+            > _OFFSET_EQ_TOLERANCE
+            for station_id, line_id, expected in owned
+        ):
+            continue
+        frames.append(frame)
+        owned_assignments.extend(
+            LinearEntryFrameAssignment(frame.section_id, station_id, line_id, expected)
+            for station_id, line_id, expected in owned
+        )
+    frozen_frames = tuple(frames)
+    _validate_linear_entry_frames(ctx, frozen_frames)
+    return LinearEntryFrameOwnership(tuple(owned_assignments))
+
+
+def validate_linear_entry_frame_ownership(
+    station_offsets: Mapping[tuple[str, str], float],
+    ownership: LinearEntryFrameOwnership,
+) -> None:
+    """Reject downstream changes to a frozen entry-frame assignment."""
+    for assignment in ownership.assignments:
+        actual = station_offsets.get((assignment.station_id, assignment.line_id))
+        if actual is None or abs(actual - assignment.offset) > _OFFSET_EQ_TOLERANCE:
+            raise LaneFrameInvariantError(
+                f"section {assignment.section_id!r} carrier "
+                f"{assignment.station_id!r} moves frame-owned line "
+                f"{assignment.line_id!r} from {assignment.offset} to {actual}"
+            )
+
+
+def conflicting_linear_entry_frame_assignments(
+    proposed_offsets: Mapping[tuple[str, str], float],
+    ownership: LinearEntryFrameOwnership,
+) -> set[tuple[str, str]]:
+    """Return proposed assignments that disagree with frozen frame ownership."""
+    expected_by_key = {
+        (assignment.station_id, assignment.line_id): assignment.offset
+        for assignment in ownership.assignments
+    }
+    return {
+        key
+        for key, proposed in proposed_offsets.items()
+        if (expected := expected_by_key.get(key)) is not None
+        and abs(proposed - expected) > _OFFSET_EQ_TOLERANCE
+    }
+
+
 def compute_station_offsets(
     graph: MetroGraph,
     offset_step: float | None = None,
@@ -3269,7 +3661,7 @@ def compute_station_offsets(
     bundles across all sections - when a line splits off and later
     rejoins, it returns to its reserved slot rather than shifting.
 
-    Runs in nine phases:
+    Runs in ordered phases:
 
     1. **Base offsets** - global priority (or compact-mode) assignment.
     2. **Section-local re-indexing** - closes priority gaps within
@@ -3341,9 +3733,14 @@ def compute_station_offsets(
        is the middle of the fan out to that section's rails.  Runs after phase
        13, whose snapping would otherwise pull the port back onto the offsets
        of the rail-laid neighbour it feeds.
+    15. **Linear entry-frame materialization** - inherits a flow-aligned entry
+        cohort's exact upstream slots across every complete section carrier,
+        assigns section-local lines only to exterior slots, and publishes the
+        frame only after its ownership reaches a fixed point (non-compact only).
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
+    graph._linear_entry_pill_lines_cache.clear()
     # Rail mode bakes absolute rail Ys into the route points and the pill
     # span, so per-line offsets are not used; return an empty map.
     if graph.line_spread is LineSpread.RAILS:
@@ -3378,6 +3775,11 @@ def compute_station_offsets(
     _recompact_fan_port_bordering_stations(ctx, same_y_adj, sec_layer_stations)
     _reconcile_horizontal_offsets(ctx)
     _center_rail_boundary_port_bundles(ctx)
+    _recenter_single_line_corridor_entry(ctx)
+    _apply_planned_fan_offsets(ctx)
+    frames = _materialize_linear_entry_frames(ctx)
+    _validate_linear_entry_frames(ctx, frames)
+    _cache_linear_entry_pill_lines(ctx, frames)
     return ctx.offsets
 
 

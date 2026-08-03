@@ -36,6 +36,7 @@ from nf_metro.layout.labels import (
     place_labels,
 )
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
+from nf_metro.layout.phases._common import _station_bundle_offset_span
 from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
@@ -757,9 +758,18 @@ def _settle_render_geometry(
         station_offsets: dict[tuple[str, str], float],
     ) -> tuple[list[RoutedPath], RoutePlan | None]:
         if not observe_routes:
-            return route_edges_centred(graph, station_offsets=station_offsets), None
+            return (
+                route_edges_centred(
+                    graph,
+                    station_offsets=station_offsets,
+                    offset_step=offset_step,
+                ),
+                None,
+            )
         observation = observe_route_edges_centred(
-            graph, station_offsets=station_offsets
+            graph,
+            station_offsets=station_offsets,
+            offset_step=offset_step,
         )
         return observation.routes, observation.plan
 
@@ -1977,18 +1987,15 @@ def _drawn_bundle_span(
     centred on the lines that actually pass through the station, so a one-line or
     off-trunk-subset station does not leave its glyph beside its own track.
     """
-    raw = [
-        station_offsets.get((station.id, lid), 0.0)
-        for lid in graph.station_lines(station.id)
-    ]
-    if not raw:
+    raw_min, raw_max = _station_bundle_offset_span(graph, station.id, station_offsets)
+    if not graph.station_lines(station.id):
         return 0.0, 0.0
     sec = graph.sections.get(station.section_id) if station.section_id else None
     if sec is not None and sec.direction == "TB":
         sign = 1.0 if station.section_id in positive_fan else -1.0
-        drawn = [sign * off for off in raw]
+        drawn = [sign * raw_min, sign * raw_max]
     else:
-        drawn = raw
+        drawn = [raw_min, raw_max]
     return min(drawn), max(drawn)
 
 

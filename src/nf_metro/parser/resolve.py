@@ -42,7 +42,7 @@ from nf_metro.parser.route_topology import (
     DivergenceGroup,
     DivergenceId,
     EndpointGroupId,
-    ResolvedConnector,
+    ResolvedAuthoredEdge,
     ResolvedConvergence,
     ResolvedDivergence,
     ResolvedEdge,
@@ -400,6 +400,27 @@ def _expand_resolved_paths(
     return tuple(expanded_paths) if changed else edge_paths
 
 
+def _expand_resolved_authored_edges(
+    records: tuple[ResolvedAuthoredEdge, ...],
+    replacements: dict[ResolvedEdge, list[tuple[ResolvedEdge, ...]]],
+) -> tuple[ResolvedAuthoredEdge, ...]:
+    """Apply physical-edge replacements to the canonical authored trace."""
+    shared_paths: dict[
+        tuple[tuple[ResolvedEdge, ...], ...],
+        tuple[tuple[ResolvedEdge, ...], ...],
+    ] = {}
+    expanded: list[ResolvedAuthoredEdge] = []
+    for record in records:
+        paths = _expand_resolved_paths(record.edge_paths, replacements)
+        paths = shared_paths.setdefault(paths, paths)
+        expanded.append(
+            record
+            if paths is record.edge_paths
+            else ResolvedAuthoredEdge(record.authored_edge_id, paths)
+        )
+    return tuple(expanded)
+
+
 def _insert_bypass_stations(
     graph: MetroGraph, route_resolution: RouteResolutionTrace
 ) -> RouteResolutionTrace:
@@ -518,20 +539,12 @@ def _insert_bypass_stations(
     for edge in new_edges:
         graph.add_edge(edge)
 
-    shared_paths: dict[
-        tuple[tuple[ResolvedEdge, ...], ...],
-        tuple[tuple[ResolvedEdge, ...], ...],
-    ] = {}
-    connectors: list[ResolvedConnector] = []
-    for item in route_resolution.connectors:
-        paths = _expand_resolved_paths(item.edge_paths, bypass_replacements)
-        paths = shared_paths.setdefault(paths, paths)
-        connectors.append(
-            item
-            if paths is item.edge_paths
-            else ResolvedConnector(item.connector_id, paths)
-        )
-    return replace(route_resolution, connectors=tuple(connectors))
+    return replace(
+        route_resolution,
+        authored_edges=_expand_resolved_authored_edges(
+            route_resolution.authored_edges, bypass_replacements
+        ),
+    )
 
 
 def _section_topo_layers(graph: MetroGraph, section_ids: set[str]) -> dict[str, int]:
@@ -735,6 +748,7 @@ def _resolve_sections(
     graph: MetroGraph,
     resolution: SectionEndpointResolution,
     topology: RouteTopology,
+    authored_edges: tuple[ResolvedAuthoredEdge, ...],
 ) -> RouteResolutionTrace:
     """Post-parse: classify edges, create ports, rewrite inter-section edges.
 
@@ -744,9 +758,9 @@ def _resolve_sections(
     (side from hints or LEFT default).
     """
     if resolution.inter_section_edges:
-        trace = _create_ports_and_junctions(graph, resolution, topology)
+        trace = _create_ports_and_junctions(graph, resolution, topology, authored_edges)
     else:
-        trace = RouteResolutionTrace()
+        trace = RouteResolutionTrace(authored_edges=authored_edges)
 
     _assign_section_numbers(graph)
     return trace
@@ -1793,6 +1807,7 @@ def _create_ports_and_junctions(
     graph: MetroGraph,
     resolution: SectionEndpointResolution,
     topology: RouteTopology,
+    authored_edges: tuple[ResolvedAuthoredEdge, ...],
 ) -> RouteResolutionTrace:
     """Create exit/entry ports and junctions, rewrite inter-section edges.
 
@@ -1821,11 +1836,42 @@ def _create_ports_and_junctions(
         paths = tuple(tuple(path) for path in state.connector_paths[connector_id])
         return frozen_paths.setdefault(paths, paths)
 
+    endpoint_by_connector: dict[ConnectorId, ResolvedConnectorEndpoint] = {}
+    for endpoint in resolution.connectors:
+        for connector_id in endpoint.connector_ids:
+            if connector_id in endpoint_by_connector:
+                raise ValueError("authored connector has multiple boundary edges")
+            endpoint_by_connector[connector_id] = endpoint
+
+    resolved_authored_edges: list[ResolvedAuthoredEdge] = []
+    for record in authored_edges:
+        connector_endpoint = endpoint_by_connector.get(record.authored_edge_id)
+        if connector_endpoint is None:
+            paths = record.edge_paths
+        else:
+            current_edge = ResolvedEdge(
+                connector_endpoint.edge.source,
+                connector_endpoint.edge.target,
+                connector_endpoint.edge.line_id,
+            )
+            paths = _expand_resolved_paths(
+                record.edge_paths,
+                {current_edge: list(connector_paths(record.authored_edge_id))},
+            )
+            if paths is record.edge_paths:
+                raise ValueError("authored connector path is missing its boundary edge")
+        paths = frozen_paths.setdefault(paths, paths)
+        resolved_authored_edges.append(
+            record
+            if paths is record.edge_paths
+            else ResolvedAuthoredEdge(record.authored_edge_id, paths)
+        )
+
+    if set(endpoint_by_connector) != set(state.connectors):
+        raise ValueError("not every topology connector has one boundary edge")
+
     return RouteResolutionTrace(
-        connectors=tuple(
-            ResolvedConnector(connector.id, connector_paths(connector.id))
-            for connector in topology.connectors
-        ),
+        authored_edges=tuple(resolved_authored_edges),
         exit_ports=tuple(
             ResolvedEndpointPort(group.id, exit_port_map[group.id])
             for group in topology.exit_groups

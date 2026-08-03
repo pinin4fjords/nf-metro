@@ -130,7 +130,7 @@ def test_checked_in_control_returns_complete_accepted_evidence() -> None:
     assert baseline.evidence.svg is not None
     assert len(baseline.evidence.svg.content) > candidate_executor._MAX_FRAME_BYTES
     assert not baseline.evidence.graph_findings
-    assert not baseline.evidence.route_findings
+    assert not any(item.blocking for item in baseline.evidence.route_findings)
     assert not baseline.evidence.artifact_findings
 
 
@@ -771,7 +771,10 @@ def test_final_route_plan_diagnostics_are_structured_rejections(
         observed = real_build(*args, **kwargs)
         route_plan = replace(
             observed.route_plan,
-            diagnostics=(RoutePlanDiagnostic(None, "injected", "route rejected"),),
+            diagnostics=(
+                *observed.route_plan.diagnostics,
+                RoutePlanDiagnostic(None, "injected", "route rejected"),
+            ),
         )
         return ObservedRenderPlan(observed.plan, route_plan)
 
@@ -780,8 +783,53 @@ def test_final_route_plan_diagnostics_are_structured_rejections(
 
     assert result.status is CandidateStatus.VALIDATION_REJECTION
     assert result.stage is CandidateStage.ROUTE_VALIDATION
-    assert result.evidence.route_findings[0].code == "injected"
+    assert result.evidence.route_findings[-1].code == "injected"
     assert result.evidence.render_plan is not None
+
+
+def test_non_blocking_route_plan_diagnostics_do_not_reject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_build = candidate_executor.build_observed_render_plan
+
+    def diagnosed(*args: Any, **kwargs: Any) -> ObservedRenderPlan:
+        observed = real_build(*args, **kwargs)
+        route_plan = replace(
+            observed.route_plan,
+            diagnostics=(
+                *observed.route_plan.diagnostics,
+                RoutePlanDiagnostic(
+                    None,
+                    "injected",
+                    "legacy route retained",
+                    blocking=False,
+                ),
+            ),
+        )
+        return ObservedRenderPlan(observed.plan, route_plan)
+
+    monkeypatch.setattr(candidate_executor, "build_observed_render_plan", diagnosed)
+    result = _direct_result(_request())
+
+    assert result.status is CandidateStatus.ACCEPTED
+    assert result.evidence.route_findings[-1].code == "injected"
+    assert result.evidence.route_findings[-1].blocking is False
+
+
+def test_route_diagnostic_blocking_state_survives_evidence_transport() -> None:
+    finding = RoutePlanDiagnostic(
+        None,
+        "injected",
+        "legacy route retained",
+        blocking=False,
+    )
+    evidence = candidate_executor.CandidateEvidence(route_findings=(finding,))
+
+    restored = candidate_executor._evidence_from_wire(
+        candidate_executor._evidence_to_wire(evidence)
+    )
+
+    assert restored.route_findings == (finding,)
 
 
 def test_general_mapping_keys_are_canonical_but_sequences_remain_ordered() -> None:

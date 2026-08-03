@@ -175,6 +175,15 @@ EXPECTED_RESIDUALS = frozenset(
         ("lr_top_entry_bundle_east_turn", "intake", "align", "B->T"),
         ("lr_top_entry_bundle_east_turn", "align", "report", "R->L"),
         ("rl_bottom_exit_lr_top_entry_bundle", "intake", "align", "B->T"),
+        # A TB LEFT exit marks its same-row horizontal consumer reversed.  The
+        # seam itself is a straight L->R continuation, so the classifier
+        # preserves the delivered bundle order.
+        (
+            "multi_frame_exit_lane_settlement",
+            "side_work",
+            "side_report",
+            "L->R",
+        ),
     }
 )
 

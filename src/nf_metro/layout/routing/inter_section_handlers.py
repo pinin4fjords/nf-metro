@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple
 
+from nf_metro.layout.route_plan import FanRouteEmitter
 from nf_metro.layout.routing.families import RouteFamilyId
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ from nf_metro.layout.routing.centrelines import (
     route_straight,
     route_tapered,
     route_tapered_anchored,
+    route_vhvh_offset,
 )
 from nf_metro.layout.routing.common import (
     Direction,
@@ -116,6 +118,7 @@ from nf_metro.parser.model import (
     Section,
     Station,
 )
+from nf_metro.parser.route_topology import ResolvedEdge
 
 
 @dataclass(frozen=True)
@@ -455,11 +458,32 @@ def _build_inter_facts(
     )
 
 
+def _route_planned_lane_transition(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    *,
+    is_inter_section: bool,
+) -> RoutedPath | None:
+    from nf_metro.layout.routing.exit_turns import route_planned_lane_transition
+
+    return route_planned_lane_transition(
+        edge,
+        ctx,
+        is_inter_section=is_inter_section,
+    )
+
+
 def _route_straight_connector(f: _InterFacts) -> RoutedPath | None:
     """Straight horizontal (same Y) or vertical (same X) connector."""
-    ctx = f.ctx
+    planned_transition = _route_planned_lane_transition(
+        f.edge,
+        f.ctx,
+        is_inter_section=True,
+    )
+    if planned_transition is not None:
+        return planned_transition
     return route_straight(
-        f.edge, ctx, (f.sx, f.sy), (f.tx, f.ty), base_radius=ctx.curve_radius
+        f.edge, f.ctx, (f.sx, f.sy), (f.tx, f.ty), base_radius=f.ctx.curve_radius
     )
 
 
@@ -1565,10 +1589,51 @@ def _route_inter_section(
         # Standard L-shape: the default when no rule above claims the edge.
         family_id = RouteFamilyId.STANDARD_L_SHAPE
         route = _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
+    from nf_metro.layout.route_plan import ExitTurnDisposition
+    from nf_metro.layout.routing.exit_turns import (
+        ExitTurnInvariantError,
+        consume_exit_turn_route,
+        exit_turn_failure,
+    )
+
+    membership = (
+        ctx.exit_turns.membership_for_edge(edge) if ctx.exit_turns is not None else None
+    )
+    if (
+        route is None
+        and membership is not None
+        and membership.assignment is not None
+        and membership.plan.disposition is ExitTurnDisposition.PLANNED
+    ):
+        raise ExitTurnInvariantError(
+            exit_turn_failure(
+                membership.plan,
+                f"member {membership.member_id} declined its {family_id.value} emitter",
+            )
+        )
+    if route is not None:
+        consume_exit_turn_route(route, family_id, ctx)
     if observer is not None and route is not None:
         observer.record_dispatch((edge.source, edge.target, edge.line_id), family_id)
     _declare_trunk(route, ctx)
     return route
+
+
+def classify_inter_section_family(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+) -> RouteFamilyId | None:
+    """Return the production family selected before its builder is invoked."""
+    is_inter = (src.is_port or edge.source in ctx.junction_ids) and (
+        tgt.is_port or edge.target in ctx.junction_ids
+    )
+    if not is_inter:
+        return None
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    rule = _match_inter_section_rule(facts)
+    return rule.family_id if rule is not None else RouteFamilyId.STANDARD_L_SHAPE
 
 
 def _match_inter_section_rule(f: _InterFacts) -> _Rule | None:
@@ -1585,6 +1650,101 @@ def _match_inter_section_rule(f: _InterFacts) -> _Rule | None:
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class _TbBottomExitGeometry:
+    points: tuple[tuple[float, float], ...]
+    lane_offset: float
+    bundle_offsets: tuple[float, ...] | None
+    run_direction: Direction
+    turn_direction: Direction | None
+    launch_coordinate: float | None
+    axis_coordinate: float | None
+
+
+def _tb_bottom_exit_geometry(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> _TbBottomExitGeometry:
+    """Resolve the source seam shared by TB bottom-exit planning and emission."""
+    run_direction = vertical_direction(tgt.y - src.y)
+    if needs_perp_approach_fan(ctx.graph, edge.target):
+        land_x = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
+        channel_y = inter_row_channel_y(
+            ctx.graph,
+            src,
+            tgt,
+            src.y,
+            tgt.y,
+            tgt.y - src.y,
+            ctx.curve_radius,
+        )
+        lo, hi = sorted((src.y, tgt.y))
+        channel_y = min(max(channel_y, lo + ctx.curve_radius), hi - ctx.curve_radius)
+        turn_direction = horizontal_direction(land_x - src.x)
+        return _TbBottomExitGeometry(
+            ((src.x, src.y), (src.x, channel_y), (land_x, channel_y), (land_x, tgt.y)),
+            0.0,
+            None,
+            run_direction,
+            turn_direction,
+            src.y,
+            channel_y,
+        )
+
+    x_offset = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
+    source_x = src.x + x_offset
+    target_x = tgt.x + x_offset
+    if abs(target_x - source_x) <= COORD_TOLERANCE:
+        return _TbBottomExitGeometry(
+            ((source_x, src.y), (target_x, tgt.y)),
+            0.0,
+            None,
+            run_direction,
+            None,
+            None,
+            None,
+        )
+
+    channel_y = inter_row_channel_y(
+        ctx.graph,
+        src,
+        tgt,
+        src.y,
+        tgt.y,
+        tgt.y - src.y,
+        ctx.curve_radius,
+    )
+    _members, line_ids, _edge_by_line = gather_member_edges(ctx.graph, edge)
+    riser_sign = -run_direction.sign
+
+    def lane_offset(line_id: str) -> float:
+        return riser_sign * _tb_x_offset(ctx, edge.source, line_id, src.section_id)
+
+    fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
+    channel_y = src.y + run_direction.sign * max(
+        (channel_y - src.y) * run_direction.sign,
+        fan_clearance,
+    )
+    lo, hi = sorted((src.y, tgt.y))
+    channel_y = min(max(channel_y, lo + ctx.curve_radius), hi - ctx.curve_radius)
+    turn_direction = horizontal_direction(tgt.x - src.x)
+    own_offset = lane_offset(edge.line_id)
+    axis_coordinate = channel_y + own_offset * turn_direction.sign
+    return _TbBottomExitGeometry(
+        (
+            (src.x, src.y),
+            (src.x, channel_y),
+            (tgt.x, channel_y),
+            (tgt.x, tgt.y),
+        ),
+        own_offset,
+        tuple(lane_offset(line_id) for line_id in line_ids),
+        run_direction,
+        turn_direction,
+        src.y,
+        axis_coordinate,
+    )
+
+
 def _route_tb_bottom_exit(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath | None:
@@ -1597,66 +1757,23 @@ def _route_tb_bottom_exit(
     drop / jog / drop with curved corners instead: down out of the BOTTOM
     port, across the inter-row gap, then down into the target.
     """
-    if needs_perp_approach_fan(ctx.graph, edge.target):
-        return _route_tb_bottom_exit_approach_fan(edge, src, tgt, ctx)
-
-    # The drop continues the source section's own rotation lane (x - off) out of
-    # the BOTTOM port, so the trunk and its outgoing bundle share one lane.  A
-    # horizontal-flow target's perp-entry drop aligns to this feeder lane (via
-    # the crossing-X in _perp_drop_x), so the bundle stays on the same per-line X
-    # straight through the seam.
-    x_off = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
-    sx = src.x + x_off
-    sy = src.y
-    tx = tgt.x + x_off
-    ty = tgt.y
-
-    if abs(tx - sx) <= COORD_TOLERANCE:
-        return route_along(
-            edge,
-            [(edge, edge.line_id, 0.0)],
-            [(sx, sy), (tx, ty)],
-            base_radius=ctx.curve_radius,
-            normalize_exempt=False,
-        )
-
-    # Misaligned: jog in the inter-row gap so the line leaves the BOTTOM
-    # port travelling downward, transitions across with bounded curves,
-    # then drops into the target.  A short horizontal jog is shared by both
-    # corners, so the render-time segment budget shrinks each arc to half the
-    # jog and the bend stays orthogonal rather than collapsing into a diagonal.
-    dy = ty - sy
-    hy = inter_row_channel_y(ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius)
-
-    # Fan the whole co-travelling bundle off one centreline at the section's
-    # trunk X (offset 0) so the builder rotates each line's lane offset around
-    # both corners: the vertical legs separate in X and the horizontal jog
-    # separates in Y.  The first leg's right-hand normal points in -X for a
-    # downward drop, so the lane offset is signed to land each riser back on its
-    # own trunk X.
-    _members, line_ids, _edge_by_line = gather_member_edges(ctx.graph, edge)
-    drop_sign = 1.0 if dy >= 0 else -1.0
-    riser_sign = -drop_sign
-
-    def lane_offset(line_id: str) -> float:
-        return riser_sign * _tb_x_offset(ctx, edge.source, line_id, src.section_id)
-
-    # The fan widens the jog channel toward the source section (the BOTTOM port
-    # sits on that near edge at sy), so push the channel a bundle width past the
-    # edge in the drop direction so even the innermost line clears it.  Then
-    # clamp the channel strictly between the two ports, keeping both vertical
-    # legs positive-length for the corner curves to bite into.
-    fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
-    hy = sy + drop_sign * max((hy - sy) * drop_sign, fan_clearance)
-    lo, hi = (sy, ty) if dy >= 0 else (ty, sy)
-    hy = min(max(hy, lo + ctx.curve_radius), hi - ctx.curve_radius)
-
+    planned_transition = _route_planned_lane_transition(
+        edge,
+        ctx,
+        is_inter_section=True,
+    )
+    if planned_transition is not None:
+        return planned_transition
+    geometry = _tb_bottom_exit_geometry(edge, src, tgt, ctx)
     return route_along(
         edge,
-        [(edge, edge.line_id, lane_offset(edge.line_id))],
-        [(src.x, sy), (src.x, hy), (tgt.x, hy), (tgt.x, ty)],
+        [(edge, edge.line_id, geometry.lane_offset)],
+        list(geometry.points),
         base_radius=ctx.curve_radius,
-        bundle_offsets=[lane_offset(lid) for lid in line_ids],
+        bundle_offsets=list(geometry.bundle_offsets)
+        if geometry.bundle_offsets is not None
+        else None,
+        normalize_exempt=False if geometry.turn_direction is None else True,
     )
 
 
@@ -1705,8 +1822,20 @@ def _around_stack_channel_x(f: _InterFacts) -> float:
     return left_edge - f.ctx.curve_radius - f.ctx.offset_step
 
 
-def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
-    """Route a TB bottom-exit feeder around sections stacked below it.
+@dataclass(frozen=True, slots=True)
+class _TbBottomExitAroundStackGeometry:
+    points: tuple[tuple[float, float], ...]
+    lane_offset: float
+    bundle_offsets: tuple[float, ...]
+    channel_x: float
+    channel_y_lo: float
+    channel_y_hi: float
+
+
+def _tb_bottom_exit_around_stack_geometry(
+    f: _InterFacts,
+) -> _TbBottomExitAroundStackGeometry:
+    """Resolve the stack-bypass channel shared by planning and emission.
 
     The flow-direction drop would plough the branch boxes stacked between this
     feeder and a convergence sink folded onto a lower row of the same column.
@@ -1767,21 +1896,39 @@ def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
     )
     vx = _around_stack_channel_x(f)
 
-    route = route_along(
-        edge,
-        [(edge, edge.line_id, lane_offset(edge.line_id))],
-        [
+    own_offset = lane_offset(edge.line_id)
+    channel_y_start = cy_down - own_offset
+    channel_y_end = cy_entry + own_offset
+    return _TbBottomExitAroundStackGeometry(
+        (
             (sx, sy),
             (sx, cy_down),
             (vx, cy_down),
             (vx, cy_entry),
             (tx, cy_entry),
             (tx, ty),
-        ],
-        base_radius=ctx.curve_radius,
-        bundle_offsets=[lane_offset(lid) for lid in line_ids],
+        ),
+        own_offset,
+        tuple(lane_offset(line_id) for line_id in line_ids),
+        vx - own_offset,
+        min(channel_y_start, channel_y_end),
+        max(channel_y_start, channel_y_end),
     )
-    _declare_channel(route, ctx, vx, Direction.D)
+
+
+def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
+    """Route a TB bottom-exit feeder around sections stacked below it."""
+    geometry = _tb_bottom_exit_around_stack_geometry(f)
+    edge, ctx = f.edge, f.ctx
+
+    route = route_along(
+        edge,
+        [(edge, edge.line_id, geometry.lane_offset)],
+        list(geometry.points),
+        base_radius=ctx.curve_radius,
+        bundle_offsets=list(geometry.bundle_offsets),
+    )
+    _declare_channel(route, ctx, geometry.points[2][0], Direction.D)
     return route
 
 
@@ -1815,6 +1962,12 @@ def _route_bottom_exit_junction(
     # Each line keeps its source offset on both legs: the channel is anchored
     # on the exit fan, so a per-end taper would detach the descent from the
     # entry offsets it never carried.
+    planned = _route_planned_bottom_exit_right_landings(
+        edge, src, tgt, ctx, members, exit_x_offset, hy
+    )
+    if planned is not None:
+        return planned
+
     rigid = [(e, line_id, src_off, src_off) for e, line_id, src_off, _tgt in members]
 
     # The plain L runs its horizontal leg at the target's entry row.  When a
@@ -1834,6 +1987,82 @@ def _route_bottom_exit_junction(
         transition_leg=1,
         base_radius=ctx.curve_radius,
     )
+
+
+def _route_planned_bottom_exit_right_landings(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+    members: list[_TaperedMember],
+    exit_x_offset: Callable[[str], float],
+    target_y: float,
+) -> RoutedPath | None:
+    query = ctx.graph.fan_plan_query
+    if query is None:
+        return None
+    resolved = ResolvedEdge(edge.source, edge.target, edge.line_id)
+    binding = query.route_emission_for_resolved_edge(resolved)
+    if binding is None:
+        return None
+    plan, _branch, emission = binding
+    target_port = ctx.graph.ports.get(edge.target)
+    if (
+        emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
+        or plan.fork_station_id != edge.source
+        or target_port is None
+        or target_port.side is not PortSide.RIGHT
+    ):
+        raise RuntimeError(f"planned fan {plan.id!s} route-emission contract drifted")
+
+    landing_sections = []
+    for planned_branch in plan.branches:
+        for port_id in planned_branch.landing_port_ids:
+            port = ctx.graph.ports.get(port_id)
+            section = (
+                ctx.graph.sections.get(port.section_id) if port is not None else None
+            )
+            if port is None or port.side is not PortSide.RIGHT or section is None:
+                raise RuntimeError(
+                    f"planned fan {plan.id!s} lost a RIGHT landing section"
+                )
+            if section not in landing_sections:
+                landing_sections.append(section)
+    if len(landing_sections) != len(plan.branches):
+        raise RuntimeError(f"planned fan {plan.id!s} landing ownership drifted")
+
+    if plan.entry_runway is None:
+        raise RuntimeError(f"planned fan {plan.id!s} lost its routing runway")
+    right_edge = max(section.bbox_x + section.bbox_w for section in landing_sections)
+    source_lines = plan.offset_line_order
+    if not source_lines or edge.line_id not in source_lines:
+        raise RuntimeError(f"planned fan {plan.id!s} lost its source lane order")
+    corridor_x = _right_entry_descent_x(ctx, right_edge, len(source_lines))
+    launch_y = src.y + plan.entry_runway
+    source_offsets = {line_id: -exit_x_offset(line_id) for line_id in source_lines}
+    target_offsets = {
+        line_id: target_offset
+        for _member_edge, line_id, _source_offset, target_offset in members
+    }
+
+    route = route_vhvh_offset(
+        edge,
+        members,
+        source=(src.x, src.y),
+        launch_y=launch_y,
+        corridor_x=corridor_x,
+        target=(tgt.x, target_y),
+        source_offsets=source_offsets,
+        target_offsets=target_offsets,
+        line_order=source_lines,
+        base_radius=ctx.curve_radius,
+    )
+    if route is None:
+        raise RuntimeError(f"planned fan {plan.id!s} emitter omitted {resolved!r}")
+    route.fan_plan_id = plan.id
+    route.fan_route_emitter = emission.emitter.value
+    _declare_channel(route, ctx, corridor_x, Direction.D)
+    return route
 
 
 def _route_bottom_exit_junction_via_gap(
@@ -1904,13 +2133,7 @@ def _route_merge_branch(
     src_off = _get_offset(ctx, edge.source, edge.line_id)
     by = ctx.merge.trunk_by.get(edge.target, sy)
 
-    # Descend just outside the source section on the side the junction sits on.
-    left_edge = col_left_edge(graph, src_col)
-    right_edge = col_right_edge(graph, src_col)
-    if sx >= (left_edge + right_edge) / 2:
-        lead_x = max(right_edge + MERGE_ROUTE_MARGIN, sx + ctx.curve_radius)
-    else:
-        lead_x = min(left_edge - MERGE_ROUTE_MARGIN, sx - ctx.curve_radius)
+    lead_x = _merge_branch_lead_x(src, ctx, src_col)
 
     # Turn along the channel toward the entry port (the way the trunk runs).
     ep_id = ctx.merge.entry_port_for.get(edge.target)
@@ -1936,6 +2159,15 @@ def _route_merge_branch(
     )
     _declare_channel(route, ctx, lead_x, vertical_direction(by - sy))
     return route
+
+
+def _merge_branch_lead_x(src: Station, ctx: _RoutingCtx, src_col: int) -> float:
+    """Return the source channel fixed by a merge feeder's section edge."""
+    left_edge = col_left_edge(ctx.graph, src_col)
+    right_edge = col_right_edge(ctx.graph, src_col)
+    if src.x >= (left_edge + right_edge) / 2:
+        return max(right_edge + MERGE_ROUTE_MARGIN, src.x + ctx.curve_radius)
+    return min(left_edge - MERGE_ROUTE_MARGIN, src.x - ctx.curve_radius)
 
 
 def _would_route_around_section_below(edge: Edge, ctx: _RoutingCtx) -> bool:
@@ -2680,46 +2912,17 @@ def _route_l_shape_fan(
     :func:`build_concentric_bundle` derives every corner radius from the turn
     geometry and the bundle cannot flip or pinch.
     """
-    sx, sy = src.x, src.y
+    sy = src.y
     tx, ty = tgt.x, tgt.y
-    horizontal = horizontal_direction(tx - sx)
-    vertical = vertical_direction(ty - sy)
-
+    geometry = _l_shape_fan_source_turn(edge, src, tgt, fan, ctx)
     ui, un = fan
-    delta = l_shape_stagger(ui, un, vertical, ctx.offset_step)
-    # Channel centre within the combined fan-out: every fan line diverges at sx,
-    # so the source-side curve sits on the OUTSIDE of the source section.  The
-    # sign follows travel; the fan half-width keeps the whole bundle clear.
-    half_width = (un - 1) * ctx.offset_step / 2
-    mid_x = sx + horizontal.sign * (ctx.curve_radius + half_width)
-    # The fan pivots through ``sx +/- curve_radius``, hugging the source edge;
-    # when that edge is a section bbox border the descent grazes it, so push the
-    # channel outward until the nearest line clears.
-    mid_x = clear_channel_of_section_edge(
-        ctx.graph,
-        mid_x,
-        half_width,
-        min(sy, ty),
-        max(sy, ty),
-        endpoint_port_xs(ctx.graph, edge),
-        target_x=tx,
-    )
-
-    # Lead-in long enough for the outermost fan line's first-corner arc; it
-    # overlaps the upstream same-line tail (re-joined by the fan-out tail pass),
-    # so the extra length is free.  When the graze correction pushed the descent
-    # past the junction, extend the lead-in back to the junction (``sx``) so the
-    # feeder rejoins there as one horizontal run instead of being dragged out to
-    # a floating stub.
-    lead_len = ctx.curve_radius + 2 * half_width
-    lead_x = mid_x - horizontal.sign * lead_len
-    lead_x = min(lead_x, sx) if horizontal.sign > 0 else max(lead_x, sx)
+    delta = l_shape_stagger(ui, un, geometry.turn_direction, ctx.offset_step)
     src_off = _get_offset(ctx, edge.source, edge.line_id)
     tgt_off = _get_offset(ctx, edge.target, edge.line_id)
     centerline = [
-        (lead_x, sy + src_off + delta),
-        (mid_x, sy + src_off + delta),
-        (mid_x, ty + tgt_off + delta),
+        (geometry.launch_x, sy + src_off + delta),
+        (geometry.axis_x, sy + src_off + delta),
+        (geometry.axis_x, ty + tgt_off + delta),
         (tx, ty + tgt_off + delta),
     ]
     # Not normalize-exempt: L-shape fans from one junction to different targets
@@ -2734,8 +2937,60 @@ def _route_l_shape_fan(
         normalize_exempt=False,
     )
     assert route is not None  # the lone member is always in its own bundle
-    _declare_channel(route, ctx, mid_x, vertical_direction(ty - sy), ui, un)
+    _declare_channel(
+        route,
+        ctx,
+        geometry.axis_x,
+        geometry.turn_direction,
+        ui,
+        un,
+    )
     return route
+
+
+@dataclass(frozen=True, slots=True)
+class _LShapeFanSourceTurn:
+    """Source-side geometry shared by L-shape planning and emission."""
+
+    launch_x: float
+    axis_x: float
+    run_direction: Direction
+    turn_direction: Direction
+
+
+def _l_shape_fan_source_turn(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    fan: tuple[int, int],
+    ctx: _RoutingCtx,
+) -> _LShapeFanSourceTurn:
+    """Resolve the fixed launch and turn column of a junction-fan L-shape."""
+    sx, sy = src.x, src.y
+    tx, ty = tgt.x, tgt.y
+    run_direction = horizontal_direction(tx - sx)
+    turn_direction = vertical_direction(ty - sy)
+    _rank, size = fan
+    half_width = (size - 1) * ctx.offset_step / 2
+    axis_x = sx + run_direction.sign * (ctx.curve_radius + half_width)
+    axis_x = clear_channel_of_section_edge(
+        ctx.graph,
+        axis_x,
+        half_width,
+        min(sy, ty),
+        max(sy, ty),
+        endpoint_port_xs(ctx.graph, edge),
+        target_x=tx,
+    )
+    lead_length = ctx.curve_radius + 2 * half_width
+    launch_x = axis_x - run_direction.sign * lead_length
+    launch_x = min(launch_x, sx) if run_direction is Direction.R else max(launch_x, sx)
+    return _LShapeFanSourceTurn(
+        launch_x,
+        axis_x,
+        run_direction,
+        turn_direction,
+    )
 
 
 def _source_exit_side(graph: MetroGraph, src: Station) -> Direction | None:
@@ -3156,6 +3411,29 @@ def _perp_entry_junction_straight_drop(
         normalize_exempt=True,
     )
     assert drop is not None
+    membership = (
+        ctx.exit_turns.membership_for_edge(edge) if ctx.exit_turns is not None else None
+    )
+    if membership is not None and membership.axis is not None:
+        feeders = (
+            ctx.graph.station_for_edge_source(item)
+            for item in ctx.graph.edges_to(src.id)
+        )
+        feeder = min(
+            (
+                station
+                for station in feeders
+                if abs(station.y - src.y) <= COORD_TOLERANCE
+                and abs(station.x - src.x) > COORD_TOLERANCE
+            ),
+            key=lambda station: abs(station.x - src.x),
+            default=None,
+        )
+        if feeder is not None:
+            x0, y0 = drop.points[0]
+            side = -1.0 if feeder.x < src.x else 1.0
+            lead = min(ctx.curve_radius, abs(feeder.x - src.x))
+            drop.points = [(x0 + side * lead, y0), *drop.points]
     return drop
 
 

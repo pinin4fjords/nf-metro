@@ -15,21 +15,97 @@ out the centreline from the handler's named geometry, and returns the single
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.fan_geometry import symmetric_lane_offsets
+from nf_metro.layout.geometry import (
+    axis_point,
+    axis_split,
+)
 from nf_metro.layout.routing.bundle import (
     build_concentric_bundle,
     build_offset_bundle,
     build_tapered_bundle,
 )
-from nf_metro.layout.routing.common import RoutedPath
+from nf_metro.layout.routing.common import (
+    Direction,
+    OffsetRegime,
+    RoutedPath,
+    horizontal_direction,
+)
 from nf_metro.layout.routing.context import _get_offset, _RoutingCtx
+from nf_metro.layout.routing.orientation import direction_axis
 from nf_metro.parser.model import Edge, MetroGraph, Station
 
 _Vec = tuple[float, float]
 _Member = tuple[Edge, str, float]
 _TaperedMember = tuple[Edge, str, float, float]
+
+
+def route_lane_transition(
+    edge: Edge,
+    p_src: _Vec,
+    p_tgt: _Vec,
+    *,
+    source_offset: float,
+    target_offset: float,
+    run_direction: Direction,
+    source_runway: float,
+    target_runway: float,
+    diagonal_run: float,
+    place_at_source: bool,
+    is_inter_section: bool,
+) -> RoutedPath:
+    """Realise a planned lane hand-off along either cardinal flow axis."""
+    primary_axis = direction_axis(run_direction).value
+    source_primary, source_secondary = axis_split(primary_axis, p_src)
+    target_primary, target_secondary = axis_split(primary_axis, p_tgt)
+    source_point = axis_point(
+        primary_axis, source_primary, source_secondary + source_offset
+    )
+    target_point = axis_point(
+        primary_axis, target_primary, target_secondary + target_offset
+    )
+    sign = run_direction.sign
+    lateral_delta = target_secondary + target_offset - source_secondary - source_offset
+    available_run = (target_primary - source_primary) * sign
+    if (
+        source_runway <= 0
+        or target_runway <= 0
+        or diagonal_run <= 0
+        or abs(abs(lateral_delta) - diagonal_run) > COORD_TOLERANCE
+        or available_run
+        < source_runway + diagonal_run + target_runway - COORD_TOLERANCE
+    ):
+        raise ValueError("lane-transition template inputs are inconsistent")
+    if place_at_source:
+        diagonal_start = source_primary + sign * source_runway
+        diagonal_end = diagonal_start + sign * diagonal_run
+    else:
+        diagonal_end = target_primary - sign * target_runway
+        diagonal_start = diagonal_end - sign * diagonal_run
+    return RoutedPath(
+        edge=edge,
+        line_id=edge.line_id,
+        points=[
+            source_point,
+            axis_point(
+                primary_axis,
+                diagonal_start,
+                source_secondary + source_offset,
+            ),
+            axis_point(
+                primary_axis,
+                diagonal_end,
+                target_secondary + target_offset,
+            ),
+            target_point,
+        ],
+        is_inter_section=is_inter_section,
+        offset_regime=OffsetRegime.BAKED,
+        normalize_exempt=True,
+    )
 
 
 def gather_member_edges(
@@ -58,7 +134,7 @@ def fan_offsets(n: int, step: float) -> list[float]:
     lines one at a time passes this as ``bundle_offsets`` so the builder can
     anchor each corner on the innermost line without seeing the siblings.
     """
-    return [(j - (n - 1) / 2) * step for j in range(n)]
+    return list(symmetric_lane_offsets(n, step))
 
 
 def gather_bundle(ctx: _RoutingCtx, edge: Edge) -> tuple[list[_Member], float, float]:
@@ -163,6 +239,54 @@ def route_offset(
         normalize_exempt=normalize_exempt,
     )
     return next((r for r in routes if r.line_id == edge.line_id), None)
+
+
+def route_vhvh_offset(
+    edge: Edge,
+    members: Sequence[_TaperedMember],
+    *,
+    source: _Vec,
+    launch_y: float,
+    corridor_x: float,
+    target: _Vec,
+    source_offsets: Mapping[str, float],
+    target_offsets: Mapping[str, float],
+    line_order: Sequence[str],
+    base_radius: float,
+) -> RoutedPath | None:
+    """Route a vertical-horizontal-vertical-horizontal offset bundle.
+
+    This is the standard entry-wrap shape for a vertically-fed source whose
+    targets use RIGHT ports.  The first leg continues each source lane to
+    ``launch_y``; the middle vertical leg follows ``corridor_x``; the final leg
+    lands each target lane.  Per-leg offsets let both endpoint fans retain
+    their own ordering while :func:`route_offset` owns all corner radii.
+    """
+    sx, sy = source
+    tx, ty = target
+    centerline = [
+        (sx, sy),
+        (sx, launch_y),
+        (corridor_x, launch_y),
+        (corridor_x, ty),
+        (tx, ty),
+    ]
+
+    def leg_offsets(line_id: str) -> list[float]:
+        source_offset = source_offsets[line_id]
+        target_offset = target_offsets.get(line_id, 0.0)
+        return [source_offset, source_offset, source_offset, -target_offset]
+
+    return route_offset(
+        edge,
+        [
+            (member_edge, line_id, leg_offsets(line_id))
+            for member_edge, line_id, _source_offset, _target_offset in members
+        ],
+        centerline,
+        base_radius=base_radius,
+        bundle_offsets=[leg_offsets(line_id) for line_id in line_order],
+    )
 
 
 def route_tapered(
@@ -280,14 +404,34 @@ def route_hvh_tapered(
         seg = abs(ty_c - sy_c)
         if seg > 0 and 2 * base_radius > seg:
             base_radius = seg / 2
-    return route_tapered(
+    centerline = [
+        (src.x, sy_c),
+        (channel_x, sy_c),
+        (channel_x, ty_c),
+        (tgt.x, ty_c),
+    ]
+    reversed_route = horizontal_direction(tgt.x - src.x) is Direction.L
+    transition_leg = 1
+    if reversed_route:
+        centerline.reverse()
+        members = [
+            (member_edge, line_id, target_offset, source_offset)
+            for member_edge, line_id, source_offset, target_offset in members
+        ]
+        transition_leg = 2
+    route = route_tapered(
         edge,
         members,
-        [(src.x, sy_c), (channel_x, sy_c), (channel_x, ty_c), (tgt.x, ty_c)],
-        transition_leg=1,
+        centerline,
+        transition_leg=transition_leg,
         base_radius=base_radius,
         min_radius=min_radius,
     )
+    if route is not None and reversed_route:
+        route.points.reverse()
+        if route.curve_radii is not None:
+            route.curve_radii.reverse()
+    return route
 
 
 def route_straight(

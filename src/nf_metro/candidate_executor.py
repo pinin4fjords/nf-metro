@@ -93,6 +93,8 @@ __all__ = [
 
 LayoutOptionScalar = str | int | float | bool
 _CACHE_FIELDS = {
+    "_route_topology_query",
+    "_linear_entry_pill_lines_cache",
     "_station_lines_cache",
     "_edges_from_cache",
     "_edges_to_cache",
@@ -645,7 +647,7 @@ def _evaluate_attempt(
                 "routing emitted a typed geometry warning",
                 evidence(),
             )
-        if route_findings:
+        if any(item.blocking for item in route_findings):
             return _rejection_result(
                 attempt,
                 CandidateStage.ROUTE_VALIDATION,
@@ -683,7 +685,7 @@ def _evaluate_attempt(
                 "render planning emitted a typed geometry warning",
                 evidence(),
             )
-        if route_findings:
+        if any(item.blocking for item in route_findings):
             return _rejection_result(
                 attempt,
                 CandidateStage.ROUTE_VALIDATION,
@@ -869,6 +871,7 @@ def _evidence_from_wire(value: object) -> CandidateEvidence:
             cast(EmissionMemberId | None, _object(item)["member_id"]),
             str(_object(item)["code"]),
             str(_object(item)["message"]),
+            bool(_object(item)["blocking"]),
         )
         for item in _array(raw["route_findings"])
     )

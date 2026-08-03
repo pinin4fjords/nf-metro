@@ -38,6 +38,7 @@ from nf_metro.layout.geometry import (
     box_growth_sign,
     lanes_run_along_x,
     lanes_run_along_y,
+    packed_section_visual_order,
     shift_section,
 )
 from nf_metro.layout.route_topology import divergence_junction_sources
@@ -319,11 +320,9 @@ def _pack_cells(
         cell_left = col_offsets.get(col, 0.0)
         col_w = col_widths.get(col, content_w)
         start_x = cell_left + (col_w - content_w if col in right_align_cols else 0.0)
-        lead = members[0].direction
-        flows_leftward = lanes_run_along_y(lead) and AxisFrame.flow_sign(lead) < 0
-        visual = list(reversed(members)) if flows_leftward else members
         x = start_x
-        for section in visual:
+        for section_id in packed_section_visual_order(scoped, member_ids):
+            section = scoped[section_id]
             section.offset_x = x
             x += _effective_section_width(section) + section_x_gap
 
@@ -947,8 +946,10 @@ def _section_precedes(graph: MetroGraph, a: Section, b: Section) -> bool:
     """
     if a.grid_col != b.grid_col:
         return a.grid_col < b.grid_col
-    members = graph.cell_packs.get((a.grid_col, a.grid_row))
-    if members and a.id in members and b.id in members:
+    members = packed_section_visual_order(
+        graph.sections, graph.cell_packs.get((a.grid_col, a.grid_row), ())
+    )
+    if a.id in members and b.id in members:
         return members.index(a.id) < members.index(b.id)
     return False
 

@@ -350,6 +350,8 @@ def _place_single_node(
     pred_avg = _predecessor_avg(node, G, tracks)
     if pred_avg is None:
         return base
+    if node in continuation_nodes:
+        return pred_avg
 
     # Detect divergence: predecessor has more lines than this node
     if graph is not None:
@@ -371,7 +373,7 @@ def _place_single_node(
             # latter is needed because this subgraph cannot see a predecessor's
             # section-exit edge that would route a line around this node.
             if len(preds) == 1 and list(G.successors(preds[0])) == [node]:
-                if G.in_degree(preds[0]) > 1 or node in continuation_nodes:
+                if G.in_degree(preds[0]) > 1:
                     return pred_avg
             # Check if this is a diamond (temporary fork-join)
             if diamond_members is not None and node in diamond_members:

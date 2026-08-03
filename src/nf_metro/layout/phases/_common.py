@@ -12,12 +12,14 @@ from nf_metro.layout.constants import (
     COORD_GROUP_DIGITS_COARSE,
     COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
     PERP_PORT_EDGE_CLEARANCE,
     PERP_PORT_EDGE_INSET,
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
     STATION_RADIUS_APPROX,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
@@ -30,6 +32,7 @@ from nf_metro.layout.route_topology import divergence_junction_sources
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
     Edge,
+    LineSpread,
     MetroGraph,
     Port,
     PortSide,
@@ -80,22 +83,43 @@ def iter_sole_trunk_continuations(
 ) -> Iterator[tuple[str, str, str]]:
     """Yield ``(section_id, pred, node)`` for in-section linear continuations.
 
-    A *node* is a sole trunk continuation when, inside a horizontal (LR/RL)
-    section, it has exactly one real (non-port, non-hidden) in-section
-    predecessor whose *only* forward path in the whole graph is this node, and
-    that predecessor carries a strict superset of the node's lines (some of the
-    predecessor's lines ended there).  The chain is then linear with no sibling
-    branch to fan toward, so the node must hold the predecessor's track rather
-    than drop to its own line base.
-
-    The full-graph successor test is the discriminator: a predecessor that also
-    feeds a section-exit edge (or a bypass V) routes that line *around* the
-    node, so the node legitimately drops off the trunk.  Off-track stations are
-    excluded at both ends; their Y comes from later phases.
+    A linear continuation has exactly one visible, on-track predecessor whose
+    complete forward target set contains only that node.  Line membership may
+    change at the boundary, but there is no sibling path that needs a separate
+    track.  The relation is axis-independent and excludes ports, hidden
+    stations, and off-track stations.
     """
     for section in graph.sections.values():
-        if not lanes_run_along_y(section.direction):
-            continue
+        visible = [
+            station_id
+            for station_id in section.station_ids
+            if (station := graph.stations.get(station_id)) is not None
+            and not station.is_port
+            and not station.is_hidden
+            and not station.off_track
+        ]
+        visible_set = set(visible)
+        predecessors: dict[str, set[str]] = {
+            station_id: set() for station_id in visible
+        }
+        successors: dict[str, set[str]] = {station_id: set() for station_id in visible}
+        for edge in graph.edges:
+            if edge.source not in visible_set or edge.target not in visible_set:
+                continue
+            successors[edge.source].add(edge.target)
+            predecessors[edge.target].add(edge.source)
+
+        def reachable(start: str, adjacency: Mapping[str, set[str]]) -> set[str]:
+            found: set[str] = set()
+            frontier = list(adjacency[start])
+            while frontier:
+                station_id = frontier.pop()
+                if station_id in found:
+                    continue
+                found.add(station_id)
+                frontier.extend(adjacency[station_id] - found)
+            return found
+
         sec_ids = set(section.station_ids)
         for sid in section.station_ids:
             st = graph.stations.get(sid)
@@ -115,8 +139,58 @@ def iter_sole_trunk_continuations(
                 continue
             if {e.target for e in graph.edges_from(pred)} != {sid}:
                 continue
-            if set(graph.station_lines(pred)) > set(graph.station_lines(sid)):
-                yield (section.id, pred, sid)
+            pred_lines = set(graph.station_lines(pred))
+            node_lines = set(graph.station_lines(sid))
+            if pred_lines == node_lines:
+                continue
+            if not pred_lines > node_lines and graph.stations[pred].is_blank_terminus:
+                continue
+            if (
+                not pred_lines > node_lines
+                and len({edge.target for edge in graph.edges_from(sid)}) > 1
+            ):
+                continue
+            upstream = reachable(pred, predecessors)
+            downstream = reachable(sid, successors)
+            before = set().union(
+                *(
+                    set(graph.station_lines(station_id))
+                    for station_id in upstream | {pred}
+                )
+            )
+            after = set().union(
+                *(
+                    set(graph.station_lines(station_id))
+                    for station_id in downstream | {sid}
+                )
+            )
+            if any(
+                line_id not in pred_lines or line_id not in node_lines
+                for line_id in before & after
+            ):
+                continue
+            if not pred_lines > node_lines:
+                added = node_lines - pred_lines
+                earlier = set().union(
+                    *(set(graph.station_lines(station_id)) for station_id in upstream)
+                )
+                edge_lines = {
+                    edge.line_id
+                    for edge in graph.edges_from(pred)
+                    if edge.target == sid
+                }
+                added_continues = any(
+                    edge.line_id in added
+                    and edge.target in sec_ids
+                    and not graph.stations[edge.target].is_port
+                    and not graph.stations[edge.target].is_hidden
+                    and not graph.stations[edge.target].off_track
+                    for edge in graph.edges_from(sid)
+                )
+                rejoined = (pred_lines & node_lines) - edge_lines
+                if not added_continues and not added & earlier and not rejoined:
+                    continue
+            yield (section.id, pred, sid)
 
 
 def line_forks_within_section(
@@ -549,6 +623,44 @@ def _trunk_symmetric_fan_ids(graph: MetroGraph, section: Section) -> set[str]:
     return result
 
 
+def _linear_entry_pill_lines(
+    graph: MetroGraph,
+    sid: str,
+    offsets: Mapping[tuple[str, str], float],
+) -> tuple[str, ...] | None:
+    """Return the inherited cohort defining an accepted entry-frame pill."""
+    if graph.compact_offsets or graph.line_spread is LineSpread.RAILS:
+        return None
+    station = graph.stations.get(sid)
+    if station is None or station.section_id is None or station.is_port:
+        return None
+    inherited = graph._linear_entry_pill_lines_cache.get(sid)
+    if inherited is None:
+        return None
+    inherited_set = set(inherited)
+    served = tuple(graph.station_lines(sid))
+    local = tuple(line_id for line_id in served if line_id not in inherited_set)
+    if len(local) != 1 or not inherited_set.issubset(served):
+        return None
+    try:
+        ordered = sorted(offsets[sid, line_id] for line_id in inherited)
+    except KeyError:
+        return None
+    step = graph_offset_step(graph)
+    if any(
+        abs(right - left - step) > COORD_TOLERANCE_FINE
+        for left, right in zip(ordered, ordered[1:])
+    ):
+        return None
+    local_offset = offsets.get((sid, local[0]))
+    if local_offset is None or not (
+        abs(local_offset - (ordered[0] - step)) <= COORD_TOLERANCE_FINE
+        or abs(local_offset - (ordered[-1] + step)) <= COORD_TOLERANCE_FINE
+    ):
+        return None
+    return inherited
+
+
 def _station_bundle_offset_span(
     graph: MetroGraph, sid: str, offsets: dict[tuple[str, str], float]
 ) -> tuple[float, float]:
@@ -563,7 +675,10 @@ def _station_bundle_offset_span(
     targets in :mod:`...bbox`, so the room a padding constant reserves
     matches what the marker pill actually spans.
     """
-    line_offs = [offsets.get((sid, lid), 0.0) for lid in graph.station_lines(sid)]
+    line_ids = _linear_entry_pill_lines(graph, sid, offsets)
+    if line_ids is None:
+        line_ids = tuple(graph.station_lines(sid))
+    line_offs = [offsets.get((sid, lid), 0.0) for lid in line_ids]
     if not line_offs:
         return 0.0, 0.0
     return min(line_offs), max(line_offs)

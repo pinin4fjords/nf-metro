@@ -1,0 +1,47 @@
+%%metro title: Fan Branches with Additional Outputs
+%%metro style: dark
+%%metro diamond_style: symmetric
+%%metro line: main | Main flow | #24b064
+%%metro line: report | Report flow | #0dcaf0
+
+graph LR
+    subgraph input [Input]
+        identify_taxon[Identify taxon]
+    end
+
+    subgraph fetch_orthologs [Fetch orthologs]
+        fork[ ]
+        oma_online[OMA online]
+        oma_local[OMA local]
+        panther_online[PANTHER online]
+        panther_local[PANTHER local]
+        inspector_online[OrthoInspector online]
+        eggnog_local[EggNOG local]
+        join[ ]
+
+        fork -->|main| oma_online
+        fork -->|main| oma_local
+        fork -->|main| panther_online
+        fork -->|main| panther_local
+        fork -->|main| inspector_online
+        fork -->|main| eggnog_local
+        oma_online -->|main| join
+        oma_local -->|main| join
+        panther_online -->|main| join
+        panther_local -->|main| join
+        inspector_online -->|main| join
+        eggnog_local -->|main| join
+    end
+
+    subgraph reporting [Reporting]
+        generate_reports[Generate reports]
+    end
+
+    identify_taxon -->|main| fork
+    join -->|main| generate_reports
+    oma_online -->|report| generate_reports
+    oma_local -->|report| generate_reports
+    panther_online -->|report| generate_reports
+    panther_local -->|report| generate_reports
+    inspector_online -->|report| generate_reports
+    eggnog_local -->|report| generate_reports

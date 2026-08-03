@@ -75,6 +75,7 @@ from nf_metro.layout.phases._common import (
     iter_corridor_fed_solo_entries,
     iter_fold_lr_exit_straight_runs,
     iter_fold_lr_exits_short_of_target,
+    iter_sole_trunk_continuations,
     line_forks_within_section,
     section_axes,
     section_cross_axis,
@@ -634,11 +635,9 @@ def test_row_trunk_marker_cy_consistent(fixture):
 # Straight-through bundle line keeps a constant offset
 # ---------------------------------------------------------------------------
 
-# (fixture, line_id) where the named line's whole route lies on a single
-# base-Y trunk, so every station it touches must carry one per-line offset --
-# any variation paints the line as a kink or slant.  These fixtures exercise
-# the section-exit / junction-to-entry-port bundle-order paths in offsets.py
-# where a straight-through line is reordered off its incoming slot.
+# (fixture, line_id) where one line must retain its lateral slot across every
+# station and seam it traverses.  The centreline may descend inside a section;
+# the per-line offset remains constant relative to that local centreline.
 _STRAIGHT_THROUGH_LINES = [
     ("topologies/junction_entry_collision.mmd", "alpha"),
     ("topologies/junction_entry_align.mmd", "alpha"),
@@ -647,25 +646,21 @@ _STRAIGHT_THROUGH_LINES = [
 
 @pytest.mark.parametrize("fixture,line_id", _STRAIGHT_THROUGH_LINES)
 def test_straight_through_line_keeps_constant_offset(fixture, line_id):
-    """A line confined to one base-Y trunk must carry a single offset.
+    """A line crossing several routing boundaries must carry one offset.
 
-    The line is purely horizontal, so any per-station offset variation is
-    painted as a kink or slant.  Reordering the bundle at a section exit or
-    across a junction-to-entry-port boundary breaks this.
+    A station's centreline may move as the authored route descends through a
+    section.  Its line offset is the independent bundle-order coordinate: a
+    change there introduces an unrequested lane swap at a station or seam.
     """
     graph = _layout(fixture)
     offsets = compute_station_offsets(graph)
     stations = [sid for sid in graph.stations if line_id in graph.station_lines(sid)]
-    ys = [graph.stations[sid].y for sid in stations]
-    assert max(ys) - min(ys) <= _Y_TOL, (
-        f"{fixture}: {line_id} spans rows {min(ys)}..{max(ys)}; "
-        "test precondition (single trunk) does not hold"
-    )
+    assert len(stations) >= 2, f"{fixture}: {line_id} has no traversed boundary"
     offs = {sid: round(offsets.get((sid, line_id), 0.0), 1) for sid in stations}
     distinct = sorted(set(offs.values()))
     assert len(distinct) == 1, (
-        f"{fixture}: line {line_id} runs flat on one trunk but its offset "
-        f"varies {distinct}; per-station offsets {offs}"
+        f"{fixture}: line {line_id} changes lateral slot {distinct}; "
+        f"per-station offsets {offs}"
     )
 
 
@@ -824,55 +819,12 @@ def test_station_bundle_lanes_contiguous(fixture, station_id):
 # ---------------------------------------------------------------------------
 
 
-def _sole_continuation_pairs(graph: MetroGraph) -> list[tuple[str, str, str]]:
-    """Return ``(section_id, pred, node)`` for in-section linear continuations.
-
-    A *node* is a sole continuation when, inside an LR/RL section, it has a
-    single real in-section predecessor whose *only* forward path in the whole
-    graph is this node, and that predecessor carries a strict superset of the
-    node's lines.  The predecessor carries more lines only because some of
-    them ended there (a line terminated, or a merge stopped) -- there is no
-    sibling branch to fan toward, so the chain is linear and must run flat.
-
-    A predecessor that also feeds a section-exit edge or a bypass V routes
-    that line *around* the node and so genuinely forks; requiring the
-    predecessor's only out-target to be the node excludes those.  Off-track
-    stations are excluded at both ends; their Y comes from later phases.
-    """
-    pairs: list[tuple[str, str, str]] = []
-    for section in graph.sections.values():
-        if section.direction not in ("LR", "RL"):
-            continue
-        sids = set(section.station_ids)
-        for sid in section.station_ids:
-            st = graph.stations.get(sid)
-            if st is None or st.is_port or st.is_hidden or st.off_track:
-                continue
-            preds = {
-                e.source
-                for e in graph.edges_to(sid)
-                if e.source in sids
-                and not graph.stations[e.source].is_port
-                and not graph.stations[e.source].is_hidden
-            }
-            if len(preds) != 1:
-                continue
-            pred = next(iter(preds))
-            if graph.stations[pred].off_track:
-                continue
-            if {e.target for e in graph.edges_from(pred)} != {sid}:
-                continue
-            if set(graph.station_lines(pred)) > set(graph.station_lines(sid)):
-                pairs.append((section.id, pred, sid))
-    return pairs
-
-
 _FIXTURES_WITH_SOLE_CONTINUATION = _FEATURE_MANIFEST["sole_continuation"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_WITH_SOLE_CONTINUATION)
 def test_bundle_terminator_successor_stays_on_trunk(fixture):
-    """A bundle terminator's sole successor shares the predecessor's row.
+    """A bundle terminator's sole successor shares its secondary track.
 
     When a bundled line ends at a station while another continues to a single
     successor, that successor is the linear trunk continuation -- there is no
@@ -881,14 +833,59 @@ def test_bundle_terminator_successor_stays_on_trunk(fixture):
     climb back to the exit) on what is a simple chain (#977).
     """
     graph = _layout(fixture)
-    for section_id, pred, node in _sole_continuation_pairs(graph):
-        py = graph.stations[pred].y
-        ny = graph.stations[node].y
-        assert abs(ny - py) <= _Y_TOL, (
+    for section_id, pred, node in iter_sole_trunk_continuations(graph):
+        frame = AxisFrame.for_direction(graph.sections[section_id].direction, 1.0, 1.0)
+        pred_secondary = frame.secondary.get(graph.stations[pred])
+        node_secondary = frame.secondary.get(graph.stations[node])
+        assert abs(node_secondary - pred_secondary) <= _Y_TOL, (
             f"{fixture}: section {section_id} continuation {pred}->{node} drops "
-            f"{abs(ny - py):.0f}px (pred y={py}, succ y={ny}); the sole successor "
-            "should stay on the trunk row"
+            f"{abs(node_secondary - pred_secondary):.0f}px; the sole successor "
+            "should stay on the trunk track"
         )
+
+
+@pytest.mark.parametrize("direction", ("RL", "BT"))
+def test_sole_continuation_is_independent_of_station_declaration_order(
+    direction: str,
+) -> None:
+    axis = "2,0" if direction == "RL" else "0,2"
+    target = "1,0" if direction == "RL" else "0,1"
+    sink = "0,0"
+
+    def continuations(declarations: str) -> set[tuple[str, str, str]]:
+        graph = prepare_graph(
+            f"""
+%%metro line: first | First | #3779b1
+%%metro line: second | Second | #6ef362
+%%metro grid: feeder | {axis}
+%%metro grid: target | {target}
+%%metro grid: sink | {sink}
+graph LR
+    subgraph feeder [Feeder]
+        %%metro direction: {direction}
+        feed[Feed]
+    end
+    subgraph target [Target]
+        %%metro direction: {direction}
+        {declarations}
+        pred -->|second| node
+    end
+    subgraph sink [Sink]
+        %%metro direction: {direction}
+        done[Done]
+    end
+    feed -->|first,second| pred
+    node -->|second| done
+"""
+        )
+        assert graph.sections["target"].direction == direction
+        return set(iter_sole_trunk_continuations(graph))
+
+    declared_in_flow_order = continuations("pred[Pred]\n        node[Node]")
+    declared_in_reverse_order = continuations("node[Node]\n        pred[Pred]")
+
+    assert ("target", "pred", "node") in declared_in_flow_order
+    assert declared_in_reverse_order == declared_in_flow_order
 
 
 # ---------------------------------------------------------------------------
@@ -2529,6 +2526,37 @@ def test_junction_fanout_convergence_turns_concentric():
     )
 
 
+def test_cross_row_convergence_turns_concentric():
+    """A bypass and a nearer cross-row feeder keep their order into one port.
+
+    The farther feeder needs the outer approach channel and the port-far lane.
+    Giving it the opposite lane order forces one of the two strokes to cross:
+    either where the nearer feeder descends through the bypass trunk or where
+    both routes turn into the port.
+    """
+    graph = _layout("topologies/convergent_offrow_exit_climb.mmd", validate=True)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    port = "cnv_calling__entry_left_10"
+    converging = [rp for rp in routes if rp.edge.target == port]
+    assert {rp.edge.line_id for rp in converging} == {"other", "snvvcf"}, (
+        "fixture precondition: other and snvvcf converge into the CNV port"
+    )
+
+    crossings = check_route_segment_crossings(graph, (offsets, converging))
+    assert not crossings, "; ".join(v.message for v in crossings)
+
+    port_order = _routes_ordered_by_y(converging, offsets, at_target=True)
+    assert port_order == ["snvvcf", "other"], (
+        f"nearer feeder must take the port-near slot, got order {port_order}"
+    )
+    approach_xs = sorted(
+        {apply_route_offsets(route, offsets)[-3][0] for route in converging}
+    )
+    assert approach_xs[1] - approach_xs[0] == pytest.approx(graph_offset_step(graph))
+
+
 def test_rl_return_row_convergence_renders_cleanly():
     """A compact 2-row serpentine with an RL return row converging into shared
     entry ports routes without tripping the render-curve invariants (#876).
@@ -2571,19 +2599,18 @@ def test_rl_return_row_convergence_renders_cleanly():
     ],
 )
 def test_peeloff_concentric_runtime_guard(fixture):
-    """The always-on peel-off guard passes the settled routes and fires when the
-    convergence bundle ordering is suppressed.
+    """The always-on peel-off guard rejects a final route-level braid.
 
     ``check_peeloff_concentric`` runs on every render: a bundle riding one shared
     bypass trunk into a common LEFT entry port must rise in trunk-depth order.
-    The gap-bundle orderer slots the risers by approach (``_convergence_line_order``)
-    so they turn in concentrically through the standard path.  The guard must find
-    no braid on the real routes, and (suppressing that approach ordering, so the
-    risers fall back to declaration order while the port slots stay in approach
-    order) must flag the braid - so it is a meaningful regression guard, not a
-    vacuous pass.
+    The negative case swaps two realised riser columns after routing, directly at
+    the invariant boundary, so intervening normalizers cannot repair the test
+    mutation or make the guard pass vacuously.
     """
-    from nf_metro.layout.routing import core, normalize
+    from nf_metro.layout.routing.common import (
+        iter_port_peeloff_bundles,
+        peeloff_target_slots,
+    )
     from nf_metro.layout.routing.invariants import check_peeloff_concentric
 
     graph = _layout(fixture, validate=True)
@@ -2591,19 +2618,33 @@ def test_peeloff_concentric_runtime_guard(fixture):
     routes = route_edges(graph, station_offsets=offsets)
     assert not check_peeloff_concentric(graph, routes)
 
-    suppressed = _layout(fixture)
-    suppressed_offsets = compute_station_offsets(suppressed)
-    original = normalize._convergence_line_order
-    original_reconcile = core._reconcile_port_peeloff_risers
-    normalize._convergence_line_order = lambda chans, graph: None
-    core._reconcile_port_peeloff_risers = lambda routes, ctx: None
-    try:
-        unordered = route_edges(suppressed, station_offsets=suppressed_offsets)
-    finally:
-        normalize._convergence_line_order = original
-        core._reconcile_port_peeloff_risers = original_reconcile
-    assert check_peeloff_concentric(suppressed, unordered), (
-        "guard must flag the braid the approach ordering removes"
+    braided = copy.deepcopy(routes)
+    bundle = next(
+        iter_port_peeloff_bundles(
+            braided,
+            graph,
+            graph_offset_step(graph),
+            require_contiguous=False,
+        )
+    )
+    slots = peeloff_target_slots(bundle)
+    ranked = sorted(bundle.per_line, key=lambda line_id: slots[line_id].rank)
+    first_line, last_line = ranked[0], ranked[-1]
+    representatives = {
+        route.line_id: route
+        for route, _tail in bundle.entries
+        if route.line_id in (first_line, last_line)
+    }
+    first = representatives[first_line]
+    last = representatives[last_line]
+    first_x = first.points[-3][0]
+    last_x = last.points[-3][0]
+    for route, peel_x in ((first, last_x), (last, first_x)):
+        route.points[-3] = (peel_x, route.points[-3][1])
+        route.points[-2] = (peel_x, route.points[-2][1])
+
+    assert check_peeloff_concentric(graph, braided), (
+        "guard must flag swapped riser columns in the final routed bundle"
     )
 
 
@@ -6915,6 +6956,24 @@ def test_all_stations_snap_to_grid(fixture):
         b.id for _f, lo, hi, _j in _iter_symmetric_diamonds(graph) for b in (lo, hi)
     }
 
+    # A semantic plan is the source of truth for half-pitch branch tracks even
+    # when legacy live-geometry classifiers cannot reconstruct the fan shape.
+    planned_half_grid_ids = {
+        station_id
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        and plan.frame is not None
+        and plan.frame.secondary.name == "y"
+        and len(plan.branches) == 2
+        and {round(branch.lane_offset or 0.0, 6) for branch in plan.branches}
+        == {
+            round(-plan.frame.secondary.step / 2, 6),
+            round(plan.frame.secondary.step / 2, 6),
+        }
+        for branch in plan.branches
+        for station_id in branch.lane_station_ids
+    }
+
     offenders: list[str] = []
     for sid, st in graph.stations.items():
         if (
@@ -6950,7 +7009,11 @@ def test_all_stations_snap_to_grid(fixture):
         if (
             is_half
             and sid in half_grid_ids
-            and (st.section_id in half_grid_sections or sid in diamond_branch_ids)
+            and (
+                st.section_id in half_grid_sections
+                or sid in diamond_branch_ids
+                or sid in planned_half_grid_ids
+            )
         ):
             continue
         offenders.append(
@@ -9216,7 +9279,7 @@ def _layout_feature_names(graph: MetroGraph, fixture: str) -> set[str]:
             for consumer in consumers
         ):
             features.add("linear_off_track_consumer")
-    if _sole_continuation_pairs(graph):
+    if next(iter_sole_trunk_continuations(graph), None) is not None:
         features.add("sole_continuation")
     if next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None) is not None:
         features.add("corridor_solo")

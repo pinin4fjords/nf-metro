@@ -44,18 +44,27 @@ PRE_LAYOUT = "pre-layout"
 # Written or read after the stage pipeline has positioned every station: by
 # routing, render, or the closing validate guards.
 POST_LAYOUT = "post-layout"
+# Owned by one station-offset computation. The allocator publishes derived
+# marker metadata with its offset map, and bbox, guard, and render consumers
+# read both as one result.
+STATION_OFFSET_LAYOUT = "station-offset-layout"
 # Owned by the opt-in rail-mode layout (``layout/rail_mode.py``), a
 # self-contained path that runs instead of the numbered section pipeline.
 RAIL_LAYOUT = "rail-layout"
 
 # Non-stage phases a writer_stage / reader_stage may name in place of a
 # CANONICAL_STAGE_ORDER id.
-NON_STAGE_PHASES: tuple[str, ...] = (PRE_LAYOUT, POST_LAYOUT, RAIL_LAYOUT)
+NON_STAGE_PHASES: tuple[str, ...] = (
+    PRE_LAYOUT,
+    POST_LAYOUT,
+    STATION_OFFSET_LAYOUT,
+    RAIL_LAYOUT,
+)
 
 # Section-layout stage ids in execution order.  Mirrors the ``_snap(graph, ...)``
 # checkpoints in ``engine._compute_section_layout`` and its Pass C helpers;
 # ``test_phase_state_registry`` asserts the two stay identical.  Note ``6.15a``
-# runs before ``6.15``.
+# runs before ``6.15``, and ``6.18a`` follows ``6.18``.
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "1.1", "1.2", "1.3", "1.4", "1.5",
     "2.1",
@@ -63,7 +72,7 @@ CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "4.8", "4.9", "4.10",
     "5.1", "5.2", "5.3", "5.4", "5.5",
     "6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7", "6.8", "6.9", "6.10",
-    "6.11", "6.12", "6.13", "6.14", "6.15a", "6.15", "6.16", "6.17", "6.18",
+    "6.11", "6.12", "6.13", "6.14", "6.15a", "6.15", "6.16", "6.17", "6.18", "6.18a",
 )  # fmt: skip
 
 
@@ -228,6 +237,17 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
             "recorded at parse time; the fold-exit-side guard at the Stage 1.1 "
             "checkpoint and the render fold-abort chokepoint read the set and "
             "tolerate its empty default when no fold compression occurred"
+        ),
+    ),
+    "_linear_entry_pill_lines_cache": PhaseFieldSpec(
+        name="_linear_entry_pill_lines_cache",
+        writer_stage=STATION_OFFSET_LAYOUT,
+        reader_stages=(STATION_OFFSET_LAYOUT, POST_LAYOUT),
+        enforcement=FieldEnforcement.FALLBACK,
+        why=(
+            "accepted linear-entry cohorts projected by each station-offset "
+            "computation; marker bbox, label, and render consumers use the "
+            "cohort with that offset map and tolerate the empty default"
         ),
     ),
     "_rail_y": PhaseFieldSpec(

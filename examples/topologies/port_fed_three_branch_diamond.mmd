@@ -1,0 +1,27 @@
+%%metro title: Port-fed Three-branch Diamond
+%%metro style: dark
+%%metro diamond_style: symmetric
+%%metro line: alpha | Alpha branch | #e63946
+%%metro line: beta | Beta branch | #2db572
+%%metro line: gamma | Gamma branch | #0570b0
+
+graph LR
+    subgraph source [Source]
+        prepare[Prepare]
+    end
+
+    subgraph work [Port-fed work]
+        %%metro entry: left | alpha, beta, gamma
+        branch_alpha[Alpha]
+        branch_beta[Beta]
+        branch_gamma[Gamma]
+        join[Join]
+
+        branch_alpha -->|alpha| join
+        branch_beta -->|beta| join
+        branch_gamma -->|gamma| join
+    end
+
+    prepare -->|alpha| branch_alpha
+    prepare -->|beta| branch_beta
+    prepare -->|gamma| branch_gamma

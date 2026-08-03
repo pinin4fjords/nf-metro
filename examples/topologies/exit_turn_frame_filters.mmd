@@ -1,0 +1,24 @@
+%%metro title: Exit Turn Seam Boundary
+%%metro line: seam_blocker | Local seam lane | #8d99ae
+%%metro line: seam_a | Seam A | #ef476f
+%%metro line: seam_b | Seam B | #118ab2
+%%metro grid: seam_source | 0,0
+%%metro grid: seam_target | 2,0
+%%metro grid: seam_side | 1,1
+
+graph LR
+    subgraph seam_source [Seam source]
+        seam_start[Seam start]
+    end
+    subgraph seam_target [Seam target]
+        %%metro entry: left | seam_blocker, seam_a, seam_b
+        seam_in[Seam in]
+        seam_out[Seam out]
+        seam_in -->|seam_blocker,seam_a,seam_b| seam_out
+    end
+    subgraph seam_side [Seam branch]
+        seam_end[Seam end]
+    end
+
+    seam_start -->|seam_a,seam_b| seam_in
+    seam_start -->|seam_b| seam_end

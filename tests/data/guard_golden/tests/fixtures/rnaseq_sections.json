@@ -18,6 +18,7 @@
     "_guard_section_bboxes_positive|after Stage 2.1",
     "_guard_ports_on_boundaries|after Stage 3.1",
     "_guard_ports_on_boundaries|after top-align",
+    "_guard_anchors_frozen_during_placement|Stage 4.9 _apply_planned_fan_geometry",
     "_guard_anchors_frozen_during_placement|Stage 4.9 _redistribute_fanout_siblings",
     "_guard_anchors_frozen_during_placement|Stage 4.10 _redistribute_full_bundle_columns",
     "_guard_coordinates_finite|after Stage 5.2",

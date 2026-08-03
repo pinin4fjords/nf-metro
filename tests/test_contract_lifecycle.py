@@ -28,6 +28,7 @@ CONTRACT = (
 )
 
 _STAGE_HEADING = re.compile(r"^### Stage (\S+?):", re.MULTILINE)
+_HEADING = re.compile(r"^#{1,3} ", re.MULTILINE)
 # Match the Lifecycle bullet and any wrapped continuation lines (indented
 # two or more spaces), so a superseding-stage reference that wraps onto a
 # later line is still captured.
@@ -40,10 +41,10 @@ _LIFECYCLE = re.compile(
 def _stage_blocks():
     """Yield (stage_tag, block_text) for each ### Stage entry in the table."""
     text = CONTRACT.read_text()
-    matches = list(_STAGE_HEADING.finditer(text))
-    for i, m in enumerate(matches):
+    for m in _STAGE_HEADING.finditer(text):
         start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        next_heading = _HEADING.search(text, m.end())
+        end = next_heading.start() if next_heading is not None else len(text)
         yield m.group(1), text[start:end]
 
 

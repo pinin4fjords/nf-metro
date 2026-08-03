@@ -78,7 +78,11 @@ def _spread_diagonal_bundles(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
     fork_groups: dict[str, list[RoutedPath]] = defaultdict(list)
     join_groups: dict[str, list[RoutedPath]] = defaultdict(list)
     for rp in routes:
-        if not _is_diagonal_route(rp) or rp.offset_regime is OffsetRegime.BAKED:
+        if (
+            not _is_diagonal_route(rp)
+            or rp.offset_regime is OffsetRegime.BAKED
+            or rp.exit_lane_transition_plan_id is not None
+        ):
             continue
         if rp.edge.source in ctx.fork_stations:
             fork_groups[rp.edge.source].append(rp)
@@ -105,7 +109,11 @@ def _spread_diagonal_bundles(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
     # perpendicular gap on its own geometry.
     edge_groups: dict[tuple[str, str], list[RoutedPath]] = defaultdict(list)
     for rp in routes:
-        if not _is_diagonal_route(rp) or _edge_key(rp) in spread:
+        if (
+            not _is_diagonal_route(rp)
+            or _edge_key(rp) in spread
+            or rp.exit_lane_transition_plan_id is not None
+        ):
             continue
         edge_groups[(rp.edge.source, rp.edge.target)].append(rp)
     for (src, _tgt), group in edge_groups.items():
@@ -302,6 +310,7 @@ class _BubbleCtx:
     # >= 2 outbound real-station targets at distinct Ys, with at least one
     # above and one below the station's own Y.
     divergence_anchors: set[str]
+    planned_geometry_stations: set[str]
 
 
 def _build_bubble_ctx(routes: list[RoutedPath], graph: MetroGraph) -> _BubbleCtx:
@@ -348,6 +357,17 @@ def _build_bubble_ctx(routes: list[RoutedPath], graph: MetroGraph) -> _BubbleCtx
         diag_out_targets=diag_out_targets,
         original_x=original_x,
         divergence_anchors=_divergence_target_ys(graph),
+        planned_geometry_stations={
+            station_id
+            for route in routes
+            for station_id in (
+                (route.edge.source,)
+                if route.exit_turn_axis_id is not None
+                else (route.edge.source, route.edge.target)
+                if route.exit_lane_transition_plan_id is not None
+                else ()
+            )
+        },
     )
 
 
@@ -700,6 +720,8 @@ def _collect_centering_candidates(
     """
     station_move_candidates: dict[str, _StationMoveCandidate] = {}
     for sid, station in graph.stations.items():
+        if sid in ctx.planned_geometry_stations:
+            continue
         if station.is_port:
             continue
         if station.is_hidden and not is_bypass_v(sid):

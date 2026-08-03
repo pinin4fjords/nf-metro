@@ -435,6 +435,35 @@ gallery:
       an odd number of grid slots apart, so the fork midpoint lands off-grid.  The LR
       entry port centres on that midpoint -- matching the join station the branches
       reconverge at -- so the entry fork reads as symmetric as the exit fork (#1459)."
+  - id: port_fed_three_branch_diamond
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A three-line diamond that forks directly from a section entry port. The
+      three distinct branches must straddle the shared entry and return to one
+      join frame instead of cascading in declaration order (#1272).
+  - id: fan_branch_additional_outputs
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A six-branch symmetric diamond whose branches also feed a second output
+      line. The extra outputs must not pull individual branches away from the
+      shared fork and join frame.
+  - id: seed72_cross_family_fan
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A reduction of frozen recovery seed 72. One divergence feeds a normal
+      dogleg around an intervening section and an exempt continuation into a
+      reverse-flow target; both routes must leave through one ordered fan frame
+      without crossing.
+  - id: bottom_exit_stacked_right_entry_fan
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A two-line BOTTOM-exit divergence feeding vertically stacked RIGHT-entry
+      targets. The outgoing routes need distinct continuation columns and a
+      clean shared junction hand-off, without overlapping or grazing elbows.
   - id: terminal_symmetric_fan
     source_dir: examples/topologies
     category: Fan-out and Fan-in
@@ -557,6 +586,58 @@ gallery:
       row below. The fan pivots through a single corner column and orders its lanes by each
       branch's destination row, so the two that ride the inter-row band nest without crossing
       on the way out (issue #1594).
+  - id: leftward_up_exit_turn_order
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Two lines leave a reversing section on one leftward run and turn upward into
+      a shared target. Their turn columns preserve the source-lane order even when one line
+      also arrives from another section.
+  - id: terminated_exit_lane_compaction
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Four lines travel through a section, but one terminates before its shared exit.
+      The three active lines close the empty slot before the straight and turning branches
+      leave the section.
+  - id: target_lane_transition
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Three lines share an exit after crossing a section with a local fourth line.
+      The continuing lines close the empty lane on the final approach to the exit, placing
+      the handoff at the target end of that edge.
+  - id: multi_frame_exit_lane_settlement
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Two independent horizontal frames share a render with isolated vertical and mixed-direction
+      routes. In the upper frame, a line shifts at the entry and returns at the exit after a sibling
+      terminates, so the paired handoffs settle together. A separate horizontal feeder reaches a
+      vertical target, while vertical bottom and side exits stay outside horizontal frame settlement.
+  - id: exit_turn_frame_filters
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      A fan enters a target that already carries a local lane. One branch shifts inside the
+      target, while the other changes lane at the section seam, keeping the seam handoff outside
+      the target section's opposed-lane settlement.
+
+  - id: exit_lane_settlement_without_crossings
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      Three lines share a section with a fourth line that terminates locally. The active lines
+      close the empty lane at the exit, while an aligned branch leaves the feeder without imposing
+      a conflicting turn order on the straight bundle.
+
+  - id: external_owner_exit_lane_frame
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      A vertical prelude feeds two lines into a horizontal bundle whose lane order must settle.
+      The prelude remains part of the same atomic update even though its source section sits
+      outside the horizontal frame.
 
   # ── TB / BT Sections ───────────────────────────────────────────────────────
   - id: bt_chain
