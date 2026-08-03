@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import nf_metro.layout.fan_plans as fan_plans
 from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
@@ -206,9 +207,34 @@ def test_branch_rank_comes_from_authored_order() -> None:
     )
     assert plan.entry_runway == 24.0
     assert plan.exit_runway == 24.0
-    assert plan.centreline_reference_id is not None
-    assert len(plan.demand_ids) == 6
+    assert plan.centreline_reference_id is None
+    assert plan.demand_ids == ()
     assert execution.query.planned_for_fork("fork") is plan
+
+
+def test_centreline_anchor_uses_explicit_grid_before_section_placement() -> None:
+    graph = MetroGraph()
+    graph.add_section(Section("source", "Source", direction="LR"))
+    graph.add_section(Section("layout", "Layout", direction="LR"))
+    graph.grid_overrides = {
+        "source": (1, 1, 1, 1),
+        "layout": (2, 1, 1, 1),
+    }
+    graph.add_port(Port("source_exit", "source", PortSide.RIGHT, is_entry=False))
+
+    anchor = fan_plans._centreline_anchor(
+        graph,
+        direction="LR",
+        frame=AxisFrame.for_direction("LR", 30.0, 10.0),
+        fork_id="fork",
+        layout_section_id="layout",
+        branches=(),
+        entry_port_ids=(),
+        exit_port_ids=("source_exit",),
+        local_frame_anchor=None,
+    )
+
+    assert anchor == FanCentrelineAnchor("source_exit")
 
 
 def test_unique_exit_branch_keeps_trunk_on_centreline() -> None:
@@ -1551,7 +1577,179 @@ def test_ordinary_fan_member_geometry_is_checked_after_emission() -> None:
     end_x, end_y = route.points[-1]
     route.points[-1] = end_x + 100.0, end_y + 100.0
 
-    with pytest.raises(RuntimeError, match="planned fan member route drifted"):
+    with pytest.raises(RuntimeError, match="final route frame discontinuity"):
+        validate_fan_route_emissions(graph, routes, offsets)
+
+
+def test_intra_section_fan_member_must_have_one_final_route() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(item for item in graph.fan_plans if item.owns_geometry)
+    expectation = next(
+        item for item in plan.route_expectations if item.member_id is None
+    )
+    routes = [
+        route
+        for route in routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        != expectation.edge
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match="in route system .* expected one final route .* found 0",
+    ) as error:
+        validate_fan_route_emissions(graph, routes, offsets)
+    assert str(plan.id) in str(error.value)
+    assert str(plan.system_id) in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("edge", "endpoint"),
+    [
+        (ResolvedEdge("prepare", "split", "normal"), -1),
+        (
+            ResolvedEdge(
+                "__junction_4",
+                "normal_target__entry_left_2",
+                "normal",
+            ),
+            -1,
+        ),
+    ],
+    ids=("entry-handoff", "branch-landing"),
+)
+def test_fan_final_routes_must_meet_at_planned_boundaries(
+    edge: ResolvedEdge, endpoint: int
+) -> None:
+    path = ROOT / "examples" / "topologies" / "seed72_cross_family_fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    route = next(
+        item
+        for item in routes
+        if ResolvedEdge(item.edge.source, item.edge.target, item.line_id) == edge
+    )
+    x, y = route.points[endpoint]
+    route.points[endpoint] = x, y + 1.0
+
+    with pytest.raises(RuntimeError, match="planned boundary frame"):
+        validate_fan_route_emissions(graph, routes, offsets)
+
+
+def test_route_only_fan_hub_must_keep_its_planned_slot_frame() -> None:
+    path = ROOT / "examples" / "topologies" / "seed72_cross_family_fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(
+        item
+        for item in graph.fan_plans
+        if item.owns_geometry and item.fork_station_id in graph.junction_ids
+    )
+    edge = next(
+        expectation.edge
+        for expectation in plan.route_expectations
+        if expectation.edge.source == plan.fork_station_id
+        and expectation.edge.line_id == "normal"
+    )
+    route = next(
+        item
+        for item in routes
+        if ResolvedEdge(item.edge.source, item.edge.target, item.line_id) == edge
+    )
+    x, y = route.points[0]
+    route.points[0] = x, y + 1.0
+
+    with pytest.raises(RuntimeError, match="final route frame discontinuity") as error:
+        validate_fan_route_emissions(graph, routes, offsets)
+    assert str(plan.id) in str(error.value)
+    assert str(plan.system_id) in str(error.value)
+
+
+def test_route_only_fan_without_slots_stays_on_its_fork_centreline() -> None:
+    path = ROOT / "examples" / "topologies" / "divergent_fanout_split.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(
+        item
+        for item in graph.fan_plans
+        if item.owns_geometry and item.fork_station_id in graph.junction_ids
+    )
+    assert not plan.offset_carriers
+    edge = next(
+        expectation.edge
+        for expectation in plan.route_expectations
+        if expectation.edge.source == plan.fork_station_id
+    )
+    route = next(
+        item
+        for item in routes
+        if ResolvedEdge(item.edge.source, item.edge.target, item.line_id) == edge
+    )
+    x, y = route.points[0]
+    route.points[0] = x, y + 1.0
+
+    with pytest.raises(RuntimeError, match="final route frame discontinuity"):
+        validate_fan_route_emissions(graph, routes, offsets)
+
+
+def test_route_only_fan_hub_cannot_translate_its_complete_slot_frame() -> None:
+    path = ROOT / "examples" / "topologies" / "seed72_cross_family_fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(
+        item
+        for item in graph.fan_plans
+        if item.owns_geometry and item.fork_station_id in graph.junction_ids
+    )
+    fork_edges = {
+        expectation.edge
+        for expectation in plan.route_expectations
+        if plan.fork_station_id in (expectation.edge.source, expectation.edge.target)
+    }
+    for route in routes:
+        edge = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        if edge not in fork_edges:
+            continue
+        endpoint = 0 if edge.source == plan.fork_station_id else -1
+        x, y = route.points[endpoint]
+        route.points[endpoint] = x, y + 1.0
+
+    with pytest.raises(RuntimeError, match="drifted from its planned fork frame"):
+        validate_fan_route_emissions(graph, routes, offsets)
+
+
+@pytest.mark.parametrize(
+    "station_id",
+    ("split", "normal_target__entry_left_2"),
+    ids=("entry-handoff", "branch-landing"),
+)
+def test_fan_boundary_frame_rejects_collective_translation(station_id: str) -> None:
+    path = ROOT / "examples" / "topologies" / "seed72_cross_family_fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(item for item in graph.fan_plans if item.owns_geometry)
+    plan_edges = {expectation.edge for expectation in plan.route_expectations} | {
+        edge
+        for handoff_path in (*plan.entry_handoff_paths, *plan.exit_handoff_paths)
+        for edge in handoff_path
+    }
+    for route in routes:
+        edge = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        if edge not in plan_edges or station_id not in (edge.source, edge.target):
+            continue
+        endpoint = 0 if edge.source == station_id else -1
+        x, y = route.points[endpoint]
+        route.points[endpoint] = x, y + 1.0
+
+    with pytest.raises(RuntimeError, match="planned boundary frame"):
         validate_fan_route_emissions(graph, routes, offsets)
 
 

@@ -29,6 +29,7 @@ import pytest
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import (
     OffsetRegime,
+    RoutedPath,
     compute_station_offsets,
     route_edges,
 )
@@ -38,6 +39,7 @@ from nf_metro.layout.routing.invariants import (
     check_no_hanging_routes,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import Edge, MetroGraph, Station
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -110,6 +112,41 @@ def test_planted_hanging_tail_is_caught() -> None:
         and v.which == "target"
         for v in violations
     ), "expected the planted hanging tail to be reported"
+
+
+def test_subject_filter_keeps_all_routes_as_join_anchors() -> None:
+    graph = MetroGraph()
+    graph.register_station(Station("source", "Source", x=0.0, y=0.0))
+    subject = RoutedPath(
+        Edge("source", "floating", "subject"),
+        "subject",
+        [(0.0, 0.0), (50.0, 0.0)],
+        offset_regime=OffsetRegime.BAKED,
+    )
+    anchor = RoutedPath(
+        Edge("anchor_a", "anchor_b", "anchor"),
+        "anchor",
+        [(50.0, -10.0), (50.0, 10.0)],
+        offset_regime=OffsetRegime.BAKED,
+    )
+
+    assert not check_no_hanging_routes(
+        graph,
+        [subject, anchor],
+        {},
+        routes_to_check=(subject,),
+    )
+
+    anchor.points = [(100.0, -10.0), (100.0, 10.0)]
+    violations = check_no_hanging_routes(
+        graph,
+        [subject, anchor],
+        {},
+        routes_to_check=(subject,),
+    )
+    assert [(item.which, item.endpoint) for item in violations] == [
+        ("target", (50.0, 0.0))
+    ]
 
 
 def test_planted_hanging_tail_aborts_render_path() -> None:

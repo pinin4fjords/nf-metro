@@ -17,7 +17,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
 
 from nf_metro.graph_views import directed_graph, longest_path_layers
-from nf_metro.layout.constants import graph_offset_step
+from nf_metro.layout.constants import COORD_TOLERANCE_FINE, graph_offset_step
 from nf_metro.layout.fan_geometry import fan_lane_offsets, symmetric_lane_offsets
 from nf_metro.layout.fan_ordering import fanout_divergence_peel_order
 from nf_metro.layout.geometry import (
@@ -412,6 +412,7 @@ class FanPlanExecution:
     """Context-local result installed for later layout and routing consumers."""
 
     query: FanPlanQuery
+    scaffold: RouteSemanticScaffold | None = None
 
     @property
     def plans(self) -> tuple[FanPlan, ...]:
@@ -1122,16 +1123,14 @@ def _centreline_anchor(
                 or port.side not in flow_port_sides(section.direction)
             ):
                 continue
+            section_col, section_row = _grid_position(graph, section.id)
+            layout_col, layout_row = _grid_position(graph, layout_section.id)
             if horizontal:
-                same_strip = section.grid_row == layout_section.grid_row
-                distance = (
-                    layout_section.grid_col - section.grid_col
-                ) * frame.primary_sign
+                same_strip = section_row == layout_row
+                distance = (layout_col - section_col) * frame.primary_sign
             else:
-                same_strip = section.grid_col == layout_section.grid_col
-                distance = (
-                    layout_section.grid_row - section.grid_row
-                ) * frame.primary_sign
+                same_strip = section_col == layout_col
+                distance = (layout_row - section_row) * frame.primary_sign
             if same_strip and distance > 0:
                 candidates.append((distance, port_id))
         if candidates:
@@ -1279,6 +1278,22 @@ def _legacy(plan: FanPlan, reason: str) -> FanPlan:
         disposition=FanPlanDisposition.LEGACY,
         legacy_reason=reason,
     )
+
+
+def _fan_resource_ids(
+    plan_id: FanPlanId,
+    branches: Sequence[FanBranchPlan],
+) -> tuple[SharedReferenceId, tuple[DemandId, ...]]:
+    reference_id = SharedReferenceId(semantic_route_id("fan-centreline", plan_id))
+    demand_ids = (
+        DemandId(semantic_route_id("fan-entry-runway", plan_id)),
+        DemandId(semantic_route_id("fan-exit-runway", plan_id)),
+        *(
+            DemandId(semantic_route_id("fan-branch-runway", plan_id, branch.id))
+            for branch in branches
+        ),
+    )
+    return reference_id, demand_ids
 
 
 @dataclass(frozen=True, slots=True)
@@ -1775,15 +1790,6 @@ def _build_candidate(
     if join_id is not None and join_id not in owned_stations:
         owned_stations = (*owned_stations, join_id)
     plan_id = FanPlanId(semantic_route_id("fan-plan", source_id, *member_ids))
-    reference_id = SharedReferenceId(semantic_route_id("fan-centreline", plan_id))
-    demand_ids = (
-        DemandId(semantic_route_id("fan-entry-runway", plan_id)),
-        DemandId(semantic_route_id("fan-exit-runway", plan_id)),
-        *(
-            DemandId(semantic_route_id("fan-branch-runway", plan_id, branch.id))
-            for branch in branch_plans
-        ),
-    )
     bundle_handoffs, convergence_handoffs = _handoff_ids(
         topology, (*member_ids, *entry_handoff_ids, *exit_handoff_ids)
     )
@@ -2054,8 +2060,8 @@ def _build_candidate(
         trunk_follower_ids=trunk_follower_ids,
         entry_runway=minimum_runway if planned else None,
         exit_runway=minimum_runway if planned else None,
-        centreline_reference_id=reference_id if planned else None,
-        demand_ids=demand_ids if planned else (),
+        centreline_reference_id=None,
+        demand_ids=(),
         bundle_handoff_ids=bundle_handoffs,
         convergence_handoff_ids=convergence_handoffs,
         owned_station_ids=owned_stations,
@@ -2151,6 +2157,10 @@ def _bind_semantic_ownership(
         for branch in plan.branches
     )
     member_ids = member_ids_for_edges(plan.resolved_member_edges)
+    reference_id: SharedReferenceId | None = None
+    demand_ids: tuple[DemandId, ...] = ()
+    if plan.owns_geometry and system_id is not None:
+        reference_id, demand_ids = _fan_resource_ids(plan.id, branches)
     if connector_ids and not member_ids:
         return _legacy(
             replace(
@@ -2158,6 +2168,8 @@ def _bind_semantic_ownership(
                 system_id=system_id,
                 connector_ids=connector_ids,
                 branches=branches,
+                centreline_reference_id=reference_id,
+                demand_ids=demand_ids,
             ),
             "fan-route-system-has-no-emission-member",
         )
@@ -2179,6 +2191,8 @@ def _bind_semantic_ownership(
         member_ids=member_ids,
         branches=branches,
         route_expectations=expectations,
+        centreline_reference_id=reference_id,
+        demand_ids=demand_ids,
     )
 
 
@@ -2242,12 +2256,160 @@ def build_fan_plan_execution(
         plans = tuple(
             _bind_semantic_ownership(plan, semantic_scaffold) for plan in plans
         )
-    return FanPlanExecution(query=FanPlanQuery.build(plans))
+    return FanPlanExecution(
+        query=FanPlanQuery.build(plans),
+        scaffold=semantic_scaffold,
+    )
 
 
 def install_fan_plan_execution(graph: MetroGraph, execution: FanPlanExecution) -> None:
     """Publish one complete build for later layout and routing consumers."""
     graph.fan_plan_execution = execution
+
+
+def _fan_runtime_edges(plan: FanPlan) -> tuple[ResolvedEdge, ...]:
+    """Return the planned members and neighbouring hand-off edges."""
+    return _ordered_unique(
+        (
+            *(expectation.edge for expectation in plan.route_expectations),
+            *(
+                edge
+                for path in (*plan.entry_handoff_paths, *plan.exit_handoff_paths)
+                for edge in path
+            ),
+        )
+    )
+
+
+def _fan_boundary_station_ids(plan: FanPlan) -> frozenset[str]:
+    """Return hubs, ports, landings, and neighbouring hand-off boundaries."""
+    return frozenset(
+        (
+            *plan.entry_port_ids,
+            *plan.exit_port_ids,
+            *(
+                port_id
+                for branch in plan.branches
+                for port_id in branch.landing_port_ids
+            ),
+            *(path[-1].target for path in plan.entry_handoff_paths if path),
+            *(path[0].source for path in plan.exit_handoff_paths if path),
+            *((plan.join_station_id,) if plan.join_station_id is not None else ()),
+        )
+    )
+
+
+def _validate_fan_runtime_frame(
+    graph: MetroGraph,
+    plan: FanPlan,
+    bound_routes: Mapping[ResolvedEdge, RoutedPath],
+    station_offsets: dict[tuple[str, str], float],
+) -> None:
+    """Validate final route continuity against one fan's frozen frame."""
+    from nf_metro.layout.routing.common import apply_route_offsets
+
+    context = f"planned fan {plan.id!s} in route system {plan.system_id!s}"
+    endpoints: dict[tuple[str, str], list[tuple[ResolvedEdge, tuple[float, float]]]] = (
+        defaultdict(list)
+    )
+    for edge, route in bound_routes.items():
+        if not route.points:
+            raise RuntimeError(f"{context} emitted an empty final route for {edge!r}")
+        points = tuple(apply_route_offsets(route, station_offsets))
+        endpoints[(edge.source, edge.line_id)].append((edge, points[0]))
+        endpoints[(edge.target, edge.line_id)].append((edge, points[-1]))
+
+    if plan.frame is not None and plan.direction is not None:
+        secondary_axis = 0 if plan.frame.secondary.name == "x" else 1
+        perpendicular_sides = perpendicular_port_sides(plan.direction)
+        for station_id in _fan_boundary_station_ids(plan):
+            if station_id == plan.fork_station_id:
+                continue
+            station = graph.stations.get(station_id)
+            if station is None:
+                raise RuntimeError(
+                    f"{context} has no realised boundary station {station_id!r}"
+                )
+            port = graph.ports.get(station_id)
+            for (endpoint_id, line_id), incident in endpoints.items():
+                if endpoint_id != station_id:
+                    continue
+                offset = (
+                    0.0
+                    if port is not None and port.side in perpendicular_sides
+                    else station_offsets.get((station_id, line_id), 0.0)
+                )
+                expected = (
+                    plan.frame.secondary.get(station)
+                    + plan.frame.secondary_sign * offset
+                )
+                if any(
+                    abs(point[secondary_axis] - expected) > COORD_TOLERANCE_FINE
+                    for _edge, point in incident
+                ):
+                    raise RuntimeError(
+                        f"{context} drifted from its planned boundary frame at "
+                        f"{station_id!r} on {line_id!r}"
+                    )
+
+    for (station_id, line_id), incident in endpoints.items():
+        if len(incident) < 2:
+            continue
+        reference = incident[0][1]
+        axes = (
+            (0 if plan.frame.secondary.name == "x" else 1,)
+            if station_id == plan.fork_station_id and plan.frame is not None
+            else (0, 1)
+        )
+        if any(
+            abs(point[axis] - reference[axis]) > COORD_TOLERANCE_FINE
+            for _edge, point in incident[1:]
+            for axis in axes
+        ):
+            raise RuntimeError(
+                f"{context} has a final route frame discontinuity at "
+                f"{station_id!r} on {line_id!r}"
+            )
+
+    if plan.layout_station_ids or plan.fork_station_id not in graph.junction_ids:
+        return
+    if plan.frame is None:
+        return
+    fork = graph.stations.get(plan.fork_station_id)
+    if fork is None:
+        raise RuntimeError(f"{context} has no realised fork station")
+    secondary_axis = 0 if plan.frame.secondary.name == "x" else 1
+    planned_base = plan.frame.secondary.get(fork)
+    carrier = next(
+        (
+            item
+            for item in plan.offset_carriers
+            if item.station_id == plan.fork_station_id
+        ),
+        None,
+    )
+    fork_endpoints = tuple(
+        (line_id, point)
+        for (station_id, line_id), incident in endpoints.items()
+        if station_id == plan.fork_station_id
+        for _edge, point in incident
+    )
+    if carrier is None:
+        if any(
+            abs(point[secondary_axis] - planned_base) > COORD_TOLERANCE_FINE
+            for _line_id, point in fork_endpoints
+        ):
+            raise RuntimeError(f"{context} drifted from its planned fork centreline")
+        return
+    slots = {assignment.line_id: assignment.slot for assignment in carrier.assignments}
+    step = graph_offset_step(graph)
+    bases = [
+        point[secondary_axis] - plan.frame.secondary_sign * slots[line_id] * step
+        for line_id, point in fork_endpoints
+        if line_id in slots
+    ]
+    if any(abs(base - planned_base) > COORD_TOLERANCE_FINE for base in bases):
+        raise RuntimeError(f"{context} drifted from its planned fork frame")
 
 
 def validate_fan_route_emissions(
@@ -2261,19 +2423,21 @@ def validate_fan_route_emissions(
         routes_by_edge[
             ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
         ].append(route)
+    bound_routes_by_plan: list[tuple[FanPlan, dict[ResolvedEdge, RoutedPath]]] = []
     for plan in graph.fan_plans:
         if not plan.owns_geometry:
             continue
-        for expectation in plan.route_expectations:
-            if plan.system_id is not None and expectation.member_id is None:
-                continue
-            bound = routes_by_edge.get(expectation.edge, ())
+        bound_routes: dict[ResolvedEdge, RoutedPath] = {}
+        for edge in _fan_runtime_edges(plan):
+            bound = routes_by_edge.get(edge, ())
             if len(bound) != 1:
                 raise RuntimeError(
                     f"planned fan {plan.id!s} in route system {plan.system_id!s} "
-                    f"expected one final route for {expectation.edge!r}; "
+                    f"expected one final route for {edge!r}; "
                     f"found {len(bound)}"
                 )
+            bound_routes[edge] = bound[0]
+        bound_routes_by_plan.append((plan, bound_routes))
 
     expected = tuple(
         (plan, emission)
@@ -2314,19 +2478,28 @@ def validate_fan_route_emissions(
         return
     from nf_metro.layout.routing.invariants import check_no_hanging_routes
 
-    planned_edges = {
-        expectation.edge
-        for plan in graph.fan_plans
-        if plan.owns_geometry
-        for expectation in plan.route_expectations
-    }
+    if not bound_routes_by_plan:
+        return
     route_list = list(routes)
     offset_dict = dict(station_offsets)
+    for plan, bound_routes in bound_routes_by_plan:
+        _validate_fan_runtime_frame(graph, plan, bound_routes, offset_dict)
+    planned_routes = tuple(
+        {
+            id(route): route
+            for _plan, bound_routes in bound_routes_by_plan
+            for route in bound_routes.values()
+        }.values()
+    )
     hanging = next(
         (
             item
-            for item in check_no_hanging_routes(graph, route_list, offset_dict)
-            if ResolvedEdge(item.source, item.target, item.line_id) in planned_edges
+            for item in check_no_hanging_routes(
+                graph,
+                route_list,
+                offset_dict,
+                routes_to_check=planned_routes,
+            )
         ),
         None,
     )

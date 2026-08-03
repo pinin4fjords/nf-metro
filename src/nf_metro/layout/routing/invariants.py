@@ -4310,6 +4310,8 @@ def check_no_hanging_routes(
     graph: MetroGraph,
     routes: list[RoutedPath],
     offsets: dict[tuple[str, str], float],
+    *,
+    routes_to_check: Collection[RoutedPath] | None = None,
 ) -> list[HangingRoute]:
     """Return routes whose endpoints terminate disconnected from any anchor.
 
@@ -4327,13 +4329,18 @@ def check_no_hanging_routes(
     such as :func:`check_merge_branches_meet_trunk`; they stay as sharper
     diagnostics.
     """
+    subject_ids = (
+        {id(route) for route in routes_to_check}
+        if routes_to_check is not None
+        else None
+    )
     anchor_xy = [(st.x, st.y) for st in graph.stations.values()]
     rendered = [(r, apply_route_offsets(r, offsets)) for r in routes]
     polylines = [(r, pts) for r, pts in rendered if len(pts) >= 2]
 
     violations: list[HangingRoute] = []
     for r, pts in rendered:
-        if len(pts) < 2:
+        if len(pts) < 2 or (subject_ids is not None and id(r) not in subject_ids):
             continue
         ends = (("source", pts[0], r.edge.source), ("target", pts[-1], r.edge.target))
         for which, end, node in ends:

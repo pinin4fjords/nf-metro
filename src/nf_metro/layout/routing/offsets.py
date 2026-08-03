@@ -3493,12 +3493,55 @@ def _materialize_linear_entry_frames(ctx: _OffsetCtx) -> tuple[_LinearEntryFrame
                     if abs(ctx.offsets.get(key, value) - value) > _OFFSET_EQ_TOLERANCE:
                         changed = True
                     ctx.offsets[key] = value
+        if set(frames).difference(next_frames):
+            ctx.offsets.clear()
+            ctx.offsets.update(original)
+            return ()
         frames = next_frames
         if not changed:
             return tuple(frames.values())
     ctx.offsets.clear()
     ctx.offsets.update(original)
     return ()
+
+
+def _cache_linear_entry_pill_lines(
+    ctx: _OffsetCtx,
+    frames: tuple[_LinearEntryFrame, ...],
+) -> None:
+    """Publish marker spans for accepted entry-frame carriers."""
+    cache = ctx.graph._linear_entry_pill_lines_cache
+    for frame in frames:
+        continuing = tuple(line_id for line_id, _offset in frame.continuing)
+        continuing_set = set(continuing)
+        for station_id in frame.carrier_ids:
+            station = ctx.graph.stations[station_id]
+            if station.is_port or station.is_hidden or station.off_track:
+                continue
+            served = tuple(ctx.graph.station_lines(station_id))
+            local = tuple(
+                line_id for line_id in served if line_id not in continuing_set
+            )
+            if len(local) != 1 or not continuing_set.issubset(served):
+                continue
+            inherited_offsets = [
+                ctx.offsets[station_id, line_id] for line_id in continuing
+            ]
+            ordered = sorted(inherited_offsets)
+            if any(
+                abs(right - left - ctx.offset_step) > COORD_TOLERANCE_FINE
+                for left, right in zip(ordered, ordered[1:])
+            ):
+                continue
+            local_offset = ctx.offsets.get((station_id, local[0]))
+            if local_offset is None or not (
+                abs(local_offset - (ordered[0] - ctx.offset_step))
+                <= COORD_TOLERANCE_FINE
+                or abs(local_offset - (ordered[-1] + ctx.offset_step))
+                <= COORD_TOLERANCE_FINE
+            ):
+                continue
+            cache[station_id] = continuing
 
 
 def _validate_linear_entry_frames(
@@ -3697,6 +3740,7 @@ def compute_station_offsets(
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
+    graph._linear_entry_pill_lines_cache.clear()
     # Rail mode bakes absolute rail Ys into the route points and the pill
     # span, so per-line offsets are not used; return an empty map.
     if graph.line_spread is LineSpread.RAILS:
@@ -3735,6 +3779,7 @@ def compute_station_offsets(
     _apply_planned_fan_offsets(ctx)
     frames = _materialize_linear_entry_frames(ctx)
     _validate_linear_entry_frames(ctx, frames)
+    _cache_linear_entry_pill_lines(ctx, frames)
     return ctx.offsets
 
 

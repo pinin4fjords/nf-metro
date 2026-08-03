@@ -1065,13 +1065,18 @@ class FanPlan:
             for branch in self.branches
         ):
             raise ValueError("legacy fan branch owns relative geometry")
-        if planned != (
-            self.entry_runway is not None
-            and self.exit_runway is not None
-            and self.centreline_reference_id is not None
-            and bool(self.demand_ids)
-        ):
-            raise ValueError("fan disposition and shared resources disagree")
+        if planned != (self.entry_runway is not None and self.exit_runway is not None):
+            raise ValueError("fan disposition and runway ownership disagree")
+        has_any_resource = self.centreline_reference_id is not None or bool(
+            self.demand_ids
+        )
+        has_complete_resources = self.centreline_reference_id is not None and bool(
+            self.demand_ids
+        )
+        if has_any_resource != has_complete_resources:
+            raise ValueError("fan shared resources are incomplete")
+        if (planned and self.system_id is not None) != has_complete_resources:
+            raise ValueError("fan route ownership and shared resources disagree")
         for runway in (self.entry_runway, self.exit_runway):
             if runway is not None and (not math.isfinite(runway) or runway <= 0):
                 raise ValueError("fan runway must be finite and positive")
@@ -3131,6 +3136,8 @@ def _validate_fan_records(
             if (
                 fan_plan.connector_ids
                 or fan_plan.member_ids
+                or fan_plan.centreline_reference_id is not None
+                or fan_plan.demand_ids
                 or any(
                     item.member_id is not None for item in fan_plan.route_expectations
                 )

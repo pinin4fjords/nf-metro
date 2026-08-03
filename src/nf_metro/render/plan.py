@@ -210,6 +210,8 @@ _RENDER_GRAPH_EXCLUDED_FIELDS = {
     "layout_provenance",
     "route_resolution",
     "route_topology",
+    "_route_topology_query",
+    "fan_plan_execution",
     "_station_lines_cache",
     "_edges_from_cache",
     "_edges_to_cache",
@@ -222,6 +224,8 @@ _RENDER_ROUTE_EXCLUDED_FIELDS = {
     "exit_turn_axis_id",
     "exit_turn_segment_rank",
     "exit_lane_transition_plan_id",
+    "fan_plan_id",
+    "fan_route_emitter",
 }
 
 

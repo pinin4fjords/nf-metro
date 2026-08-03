@@ -465,6 +465,70 @@ graph LR
     assert not any(
         assignment.section_id == "target" for assignment in ownership.assignments
     )
+    assert not any(
+        station_id in graph._linear_entry_pill_lines_cache
+        for station_id in graph.sections["target"].station_ids
+    )
+
+
+def test_linear_entry_frame_settlement_restores_offsets_if_owner_disappears(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = parse_metro_mermaid(
+        """
+%%metro line: line | Line | #3779b1
+graph LR
+    subgraph section [Section]
+        first[First]
+        second[Second]
+        first -->|line| second
+    end
+"""
+    )
+    ctx = routing_offsets._build_offset_ctx(graph, 4.0)
+    ctx.offsets[("first", "line")] = 0.0
+    calls = 0
+
+    def transient_frame(_ctx, section):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            return None
+        return routing_offsets._LinearEntryFrame(
+            section_id=section.id,
+            entry_port_id="entry",
+            feeder_section_id="feeder",
+            feeder_station_id="source",
+            continuing=(("line", 12.0),),
+            assignments=(("line", 12.0),),
+            carrier_ids=("first",),
+        )
+
+    monkeypatch.setattr(routing_offsets, "_linear_entry_frame", transient_frame)
+
+    assert routing_offsets._materialize_linear_entry_frames(ctx) == ()
+    assert ctx.offsets == {("first", "line"): 0.0}
+
+
+def test_exit_turn_planner_reuses_fan_semantic_scaffold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = TOPOLOGIES / "bypass_v_tight.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    fan_execution = graph.fan_plan_execution
+    assert fan_execution is not None
+    assert fan_execution.scaffold is not None
+    offsets = compute_station_offsets(graph)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+
+    def reject_rebuild(*_args, **_kwargs):
+        pytest.fail("canonical route semantic scaffold was rebuilt")
+
+    monkeypatch.setattr(exit_turns, "build_route_semantic_scaffold", reject_rebuild)
+
+    execution = exit_turns.build_exit_turn_execution(graph, ctx)
+
+    assert execution.scaffold is fan_execution.scaffold
 
 
 def test_linear_entry_frame_requires_a_materialized_upstream_slot() -> None:
@@ -1345,9 +1409,12 @@ def test_missing_outbound_members_have_a_valid_legacy_lane_record(
         )
 
     monkeypatch.setattr(exit_turns, "build_route_semantic_scaffold", omit_outbound)
-    _graph, _offsets, observation = _observe(
-        TOPOLOGIES / "exit_run_three_drop_columns.mmd"
-    )
+    path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    assert graph.fan_plan_execution is not None
+    graph.fan_plan_execution = replace(graph.fan_plan_execution, scaffold=None)
+    offsets = compute_station_offsets(graph)
+    observation = observe_route_edges(graph, station_offsets=offsets)
     plan = _plan_for_source(observation, "__junction_9")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY

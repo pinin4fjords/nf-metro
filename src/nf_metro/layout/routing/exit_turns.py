@@ -2071,13 +2071,16 @@ def _apply_cross_plan_fallbacks(
 
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
-    scaffold = build_route_semantic_scaffold(
-        graph,
-        ctx.topology,
-        coupled_connector_groups=tuple(
-            plan.connector_ids for plan in graph.fan_plans if plan.connector_ids
-        ),
-    )
+    fan_execution = graph.fan_plan_execution
+    scaffold = fan_execution.scaffold if fan_execution is not None else None
+    if scaffold is None:
+        scaffold = build_route_semantic_scaffold(
+            graph,
+            ctx.topology,
+            coupled_connector_groups=tuple(
+                plan.connector_ids for plan in graph.fan_plans if plan.connector_ids
+            ),
+        )
     if scaffold is None:
         query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
         return ExitTurnExecution(None, (), (), (), (), query)
