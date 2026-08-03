@@ -132,22 +132,6 @@ def _parse_dy(dy_str: str, font_size: float) -> float:
         return 0.0
 
 
-def _text_role(attrs: dict[str, str]) -> TextRole:
-    """Classify an emitted SVG text element for deterministic measurement."""
-    classes = set(attrs.get("class", "").split())
-    if "nf-metro-label" in classes or "nf-metro-label-halo" in classes:
-        return TextRole.STATION_LABEL
-    if "nf-metro-section-label" in classes:
-        return TextRole.SECTION_HEADER
-    if "nf-metro-legend-text" in classes:
-        return TextRole.LEGEND_ENTRY
-    if "nf-metro-group-label" in classes:
-        return TextRole.GROUP_CAPTION
-    if "nf-metro-title" in classes:
-        return TextRole.TITLE
-    return TextRole.DEBUG
-
-
 # ── public API ───────────────────────────────────────────────────────────────
 
 
@@ -296,7 +280,6 @@ def _text_elem_to_paths(
     scale = font_size / upem
 
     metrics_style = TextStyle(font_size, font_weight, MetricsFace.INTER)
-    metrics_role = _text_role(attrs)
 
     # Compute per-character advances from the same tables used by layout.
     glyphs: list[tuple[str | None, float]] = []
@@ -305,11 +288,17 @@ def _text_elem_to_paths(
         gn = cmap.get(codepoint) if cmap else None
         if gn is not None and gn in glyphset:
             glyphs.append(
-                (gn, DEFAULT_TEXT_METRICS.advance(ch, metrics_style, metrics_role))
+                (
+                    gn,
+                    DEFAULT_TEXT_METRICS.advance(ch, metrics_style, TextRole.DEBUG),
+                )
             )
         else:
             glyphs.append(
-                (None, DEFAULT_TEXT_METRICS.advance(ch, metrics_style, metrics_role))
+                (
+                    None,
+                    DEFAULT_TEXT_METRICS.advance(ch, metrics_style, TextRole.DEBUG),
+                )
             )
 
     total_width = sum(adv for _, adv in glyphs)

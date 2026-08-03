@@ -7,7 +7,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import Iterator, Protocol
+from typing import Iterator, Literal, Protocol
 
 from nf_metro._inter_metrics import (
     INTER_ASCENT,
@@ -28,6 +28,7 @@ __all__ = [
     "TextStyle",
     "active_metrics_face",
     "is_bold_weight",
+    "metrics_face_for_portability",
     "metrics_face_context",
     "text_style",
 ]
@@ -94,6 +95,18 @@ class TextMetrics(Protocol):
     def line_height(self, style: TextStyle, role: TextRole) -> float: ...
 
     def reserve_width(self, text: str, style: TextStyle, role: TextRole) -> float: ...
+
+    def line_block_height(
+        self,
+        line_count: int,
+        style: TextStyle,
+        role: TextRole,
+        first_line_height: float | None = None,
+    ) -> float: ...
+
+    def ink_half_width(self, text: str, style: TextStyle, role: TextRole) -> float: ...
+
+    def inter_glyph_codepoint(self, char: str, style: TextStyle) -> int: ...
 
 
 _FALLBACK_ADVANCE_EM: dict[str, float] = {
@@ -227,6 +240,13 @@ def is_bold_weight(weight: str) -> bool:
     return weight.strip().lower() in {"bold", "600", "700"}
 
 
+def metrics_face_for_portability(
+    mode: Literal["embed", "paths"] | None,
+) -> MetricsFace:
+    """Select the deterministic face required by a portability mode."""
+    return MetricsFace.INTER if mode is not None else MetricsFace.FALLBACK
+
+
 def _lines(text: str) -> tuple[str, ...]:
     return tuple(text.split("\n"))
 
@@ -299,6 +319,7 @@ class _DeterministicTextMetrics:
             TextRole.RAIL_LABEL,
             TextRole.LEGEND_ENTRY,
         ):
+            # This grouping defines the canonical float serialization used by SVGs.
             policy_width = line_length * (style.font_size * ratio)
         else:
             policy_width = line_length * style.font_size * ratio
@@ -342,7 +363,8 @@ class _DeterministicTextMetrics:
         replacement = table[INTER_REPLACEMENT_CODEPOINT]
         scale = style.font_size / INTER_UNITS_PER_EM
         line_height = self.line_height(style, role)
-        bounds: list[tuple[float, float, float, float]] = []
+        x_minimum = y_minimum = float("inf")
+        x_maximum = y_maximum = float("-inf")
         for line_index, line in enumerate(_lines(text)):
             cursor = 0
             baseline_y = line_index * line_height
@@ -350,26 +372,17 @@ class _DeterministicTextMetrics:
                 metrics = table.get(ord(char), replacement)
                 if len(metrics) == 5:
                     _advance, x_min, y_min, x_max, y_max = metrics
-                    bounds.append(
-                        (
-                            (cursor + x_min) * scale,
-                            baseline_y - y_max * scale,
-                            (cursor + x_max) * scale,
-                            baseline_y - y_min * scale,
-                        )
-                    )
+                    x_minimum = min(x_minimum, (cursor + x_min) * scale)
+                    y_minimum = min(y_minimum, baseline_y - y_max * scale)
+                    x_maximum = max(x_maximum, (cursor + x_max) * scale)
+                    y_maximum = max(y_maximum, baseline_y - y_min * scale)
                 cursor += metrics[0]
-        if not bounds:
+        if x_minimum == float("inf"):
             return TextBBox(0.0, 0.0, 0.0, 0.0)
-        return TextBBox(
-            min(bound[0] for bound in bounds),
-            min(bound[1] for bound in bounds),
-            max(bound[2] for bound in bounds),
-            max(bound[3] for bound in bounds),
-        )
+        return TextBBox(x_minimum, y_minimum, x_maximum, y_maximum)
 
 
-DEFAULT_TEXT_METRICS = _DeterministicTextMetrics()
+DEFAULT_TEXT_METRICS: TextMetrics = _DeterministicTextMetrics()
 
 _ACTIVE_METRICS_FACE: ContextVar[MetricsFace] = ContextVar(
     "nf_metro_metrics_face", default=MetricsFace.FALLBACK

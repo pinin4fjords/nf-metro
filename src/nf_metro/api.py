@@ -39,7 +39,11 @@ from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.plan import RenderPlan
 from nf_metro.render.style import Theme
 from nf_metro.render.svg import build_render_plan, emit_render_plan
-from nf_metro.text_metrics import MetricsFace, metrics_face_context
+from nf_metro.text_metrics import (
+    MetricsFace,
+    metrics_face_context,
+    metrics_face_for_portability,
+)
 from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 
 # `style: dark` predates theme names; alias it onto the nfcore brand.
@@ -68,13 +72,19 @@ class RenderConfig:
     bare: bool = False
     embed_basename: str = "metro_map.html"
 
+    @property
+    def font_portability(self) -> Literal["embed", "paths"] | None:
+        """Return the requested self-contained font strategy."""
+        if self.text_to_paths:
+            return "paths"
+        if self.embed_font:
+            return "embed"
+        return None
 
-def _metrics_face_for_config(cfg: RenderConfig) -> MetricsFace:
-    return (
-        MetricsFace.INTER
-        if cfg.embed_font or cfg.text_to_paths
-        else MetricsFace.FALLBACK
-    )
+    @property
+    def metrics_face(self) -> MetricsFace:
+        """Return the face whose metrics must govern this render."""
+        return metrics_face_for_portability(self.font_portability)
 
 
 def apply_layout_overrides(graph: MetroGraph, opts: Mapping[str, object]) -> None:
@@ -128,9 +138,6 @@ class RenderResult:
 
 def _emit_svg_plan(graph: MetroGraph, plan: RenderPlan, cfg: RenderConfig) -> str:
     """Emit one production SVG plan with the complete render configuration."""
-    font_portability: Literal["embed", "paths"] | None = (
-        "paths" if cfg.text_to_paths else "embed" if cfg.embed_font else None
-    )
     with class_prefix_context(cfg.svg_class_prefix):
         content = emit_render_plan(
             plan,
@@ -140,29 +147,26 @@ def _emit_svg_plan(graph: MetroGraph, plan: RenderPlan, cfg: RenderConfig) -> st
             self_color_scheme=cfg.self_color_scheme,
             baked_mode=cfg.baked_mode,
         )
-    return apply_font_portability(content, font_portability)
+    return apply_font_portability(content, cfg.font_portability)
 
 
 def render_graph_result(
     graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig
 ) -> RenderResult:
     """Render a laid-out graph and return its content and plan."""
-    font_portability: Literal["embed", "paths"] | None = (
-        "paths" if cfg.text_to_paths else "embed" if cfg.embed_font else None
-    )
     if cfg.output_format == "html":
         plan = build_render_plan(
             graph,
             theme_obj,
             debug=cfg.debug,
             legend_position="none",
-            metrics_face=_metrics_face_for_config(cfg),
+            metrics_face=cfg.metrics_face,
         )
         content = emit_render_plan_html(
             plan,
             animate=graph.animate,
             embed_basename=cfg.embed_basename,
-            font_portability=font_portability,
+            font_portability=cfg.font_portability,
             inject_dark_mode_css=cfg.inject_dark_mode_css,
             baked_mode=cfg.baked_mode,
         )
@@ -174,7 +178,7 @@ def render_graph_result(
         debug=cfg.debug,
         chrome_css=cfg.chrome_css,
         bare=cfg.bare,
-        metrics_face=_metrics_face_for_config(cfg),
+        metrics_face=cfg.metrics_face,
     )
     return RenderResult(_emit_svg_plan(graph, plan, cfg), plan)
 
@@ -469,7 +473,7 @@ def render_string(
         layout_options=layout_options,
         bare=effective_cfg.bare,
         output_format=effective_cfg.output_format,
-        metrics_face=_metrics_face_for_config(effective_cfg),
+        metrics_face=effective_cfg.metrics_face,
     )
     if config is None and flat.baked_mode is None:
         flat.baked_mode = graph.mode.strip() or None

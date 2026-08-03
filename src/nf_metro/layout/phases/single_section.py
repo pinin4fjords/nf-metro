@@ -636,15 +636,10 @@ def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
     no multi-line labels are present.
     """
     font_height = FONT_HEIGHT * active_font_scale()
-    style = text_style(font_height, "bold")
     max_text_h = font_height
     for s in sub.stations.values():
-        n = s.label.count("\n")
-        if n > 0:
-            h = DEFAULT_TEXT_METRICS.line_block_height(
-                n + 1, style, TextRole.STATION_LABEL, font_height
-            )
-            max_text_h = max(max_text_h, h)
+        if "\n" in s.label:
+            max_text_h = max(max_text_h, _label_text_height(s.label))
 
     if max_text_h <= font_height:
         return y_spacing  # no multi-line labels
@@ -658,17 +653,10 @@ def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
 def _multiline_label_padding(sub: MetroGraph) -> float:
     """Return extra bbox Y padding for the tallest multi-line label."""
     font_height = FONT_HEIGHT * active_font_scale()
-    style = text_style(font_height, "bold")
     max_extra = 0.0
     for s in sub.stations.values():
-        n = s.label.count("\n")
-        if n > 0:
-            extra = (
-                DEFAULT_TEXT_METRICS.line_block_height(
-                    n + 1, style, TextRole.STATION_LABEL, font_height
-                )
-                - font_height
-            )
+        if "\n" in s.label:
+            extra = _label_text_height(s.label) - font_height
             max_extra = max(max_extra, extra)
     return max_extra
 

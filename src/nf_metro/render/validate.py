@@ -26,7 +26,7 @@ from nf_metro.manifest import read_manifest
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
-from nf_metro.render.plan import RenderPlan
+    from nf_metro.render.plan import RenderPlan
 from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
 # The defect family of a finding; one per render-geometry check.

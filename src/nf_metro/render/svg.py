@@ -177,6 +177,7 @@ from nf_metro.text_metrics import (
     TextRole,
     active_metrics_face,
     metrics_face_context,
+    metrics_face_for_portability,
     text_style,
 )
 
@@ -497,11 +498,7 @@ def render_svg(
     if animate is None:
         animate = graph.animate
 
-    metrics_face = (
-        MetricsFace.INTER
-        if font_portability in ("embed", "paths")
-        else MetricsFace.FALLBACK
-    )
+    metrics_face = metrics_face_for_portability(font_portability)
     with class_prefix_context(svg_class_prefix):
         plan = build_render_plan(
             graph,
@@ -2904,11 +2901,7 @@ def _render_terminus_icons(
             if section and section.bbox_w > 0:
                 # Estimate caption width and clamp so it stays inside the
                 # section bbox right edge (and left edge for symmetry).
-                approx_w = DEFAULT_TEXT_METRICS.reserve_width(
-                    name,
-                    text_style(caption_font_size, theme.label_font_weight),
-                    TextRole.ICON_CAPTION,
-                )
+                approx_w = name_widths[i]
                 left_bound = section.bbox_x + approx_w / 2 + ICON_BBOX_MARGIN
                 right_bound = (
                     section.bbox_x + section.bbox_w - approx_w / 2 - ICON_BBOX_MARGIN
