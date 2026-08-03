@@ -1095,6 +1095,32 @@ def _has_opposing_landing_approaches(
     return False
 
 
+def _has_opposing_landing_and_trunk_flanks(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> bool:
+    landing_crosses = tuple(
+        (plan, landing, segment, _direction(*segment))
+        for plan in plans
+        for landing in plan.landings
+        if (segment := _landing_cross_segment(landing, graph)) is not None
+    )
+    trunk_flanks = tuple(
+        (plan, segment, _direction(*segment))
+        for plan in plans
+        if plan.trunk_axis is not None
+        for rank, segment in enumerate(_trunk_segments(plan.trunk_axis))
+        if rank in {1, 3}
+    )
+    return any(
+        landing_plan.id != trunk_plan.id
+        and landing.edge.line_id in trunk_plan.line_ids
+        and landing_direction is not trunk_direction
+        and _parallel_segments_conflict(landing_segment, trunk_segment, curve_radius)
+        for landing_plan, landing, landing_segment, landing_direction in landing_crosses
+        for trunk_plan, trunk_segment, trunk_direction in trunk_flanks
+    )
+
+
 def _system_conflict_reason(
     system_id: RouteSystemId,
     plans: tuple[ConvergencePlan, ...],
@@ -1206,6 +1232,9 @@ def _system_conflict_reason(
                     return (
                         "planned convergence trunks require one shared channel decision"
                     )
+
+    if _has_opposing_landing_and_trunk_flanks(plans, ctx.graph, ctx.curve_radius):
+        return "planned convergence approaches and trunks require shared settlement"
 
     owned_edges = {edge for plan in plans for edge in plan.resolved_member_edges}
     unowned_system_edges: list[ResolvedEdge] = []

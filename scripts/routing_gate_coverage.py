@@ -76,6 +76,7 @@ OBSERVATION_PROBES = frozenset(
     {
         "examples/genomeassembly_staggered.mmd",
         "examples/guide/03b_fan_in_merge.mmd",
+        "examples/topologies/merge_feeders_three_columns.mmd",
         "examples/topologies/rail_inter_section.mmd",
     }
 )

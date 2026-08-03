@@ -177,7 +177,6 @@ def test_reviewed_conflicts_keep_the_complete_system_on_compatibility(
 @pytest.mark.parametrize(
     "path",
     (
-        GUIDE / "03b_fan_in_merge.mmd",
         TOPOLOGIES / "merge_adjacent_feeder.mmd",
         TOPOLOGIES / "merge_trunk_over_low_section.mmd",
     ),
@@ -423,12 +422,23 @@ def test_mixed_direct_bypass_and_multirow_approaches_are_frozen() -> None:
     assert any(landing.multiple_row for landing in landings)
 
 
-@pytest.mark.parametrize("name", ("fan_in_merge.mmd", "merge_adjacent_feeder.mmd"))
-def test_fan_in_and_packed_adjacency_convergences_are_planned(name: str) -> None:
-    graph, offsets, observed = _observe(TOPOLOGIES / name)
+def test_packed_adjacency_convergences_are_planned() -> None:
+    graph, offsets, observed = _observe(TOPOLOGIES / "merge_adjacent_feeder.mmd")
 
     assert observed.plan.convergence_plans
     assert all(plan.owns_geometry for plan in observed.plan.convergence_plans)
+    assert not check_merge_branches_meet_trunk(graph, observed.routes, offsets)
+    assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
+
+
+def test_fan_in_merge_uses_whole_system_compatibility_until_shared_settlement() -> None:
+    graph, offsets, observed = _observe(TOPOLOGIES / "fan_in_merge.mmd")
+
+    assert observed.plan.convergence_plans
+    assert all(not plan.owns_geometry for plan in observed.plan.convergence_plans)
+    assert {plan.legacy_reason for plan in observed.plan.convergence_plans} == {
+        "planned convergence approaches and trunks require shared settlement"
+    }
     assert not check_merge_branches_meet_trunk(graph, observed.routes, offsets)
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
@@ -465,7 +475,10 @@ def test_target_section_orientations_use_one_convergence_model(
     assert all(
         graph.ports[plan.target_entry_port_ids[0]].side is side for plan in sink_plans
     )
-    assert all(plan.owns_geometry for plan in sink_plans)
+    assert all(not plan.owns_geometry for plan in sink_plans)
+    assert {plan.legacy_reason for plan in sink_plans} == {
+        "planned convergence approaches and trunks require shared settlement"
+    }
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
 

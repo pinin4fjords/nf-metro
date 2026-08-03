@@ -2737,7 +2737,9 @@ def _route_bypass(
         return [member_off + (rank - i) * ctx.offset_step * sign for i in range(n)]
 
     src_anchor = channel_fan(sigma1, g1_j, g1_n, n1x)
-    tgt_anchor = channel_fan(sigma2, g2_j, g2_n, n3x)
+    # Gap-slot ranks follow channel travel, while the target rise's right-hand
+    # normal points against that ordering.
+    tgt_anchor = channel_fan(sigma2, g2_j, g2_n, -n3x)
     route = route_tapered_anchored(
         (edge, edge.line_id, sigma1, sigma2),
         centerline,
