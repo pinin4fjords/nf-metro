@@ -400,15 +400,13 @@ def _infer_layout(
 def _apply_pending_metadata(graph: MetroGraph) -> None:
     """Apply terminus icons, off-track marks, and markers buffered during parse.
 
-    Both terminus icons and off-track marks skip mid-pipeline hub stations: a
-    station the author tagged as off-track (or as a file/dir input) but which
-    both receives and forwards data. A hub has something on both sides of it
-    to protect a trunk slot from or lift clear of, so only pure sources (no
-    predecessors) and pure sinks (no successors) take either mark.
+    Off-track marks apply only to pure sources and sinks because a hub has no
+    free side against which it can be lifted. File icons are station metadata
+    and apply independently of graph degree.
     """
     for station_id, entries in graph._pending_terminus.items():
         station = graph.stations.get(station_id)
-        if not station or graph.is_hub(station_id):
+        if not station:
             continue
         station.terminus_labels = [label for label, _, _, _ in entries]
         station.terminus_icon_types = [icon_type for _, icon_type, _, _ in entries]

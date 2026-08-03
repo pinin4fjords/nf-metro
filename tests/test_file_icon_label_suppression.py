@@ -33,6 +33,7 @@ _FILE_ICON_FIXTURES = [
     FIXTURES / "file_icon_fanin.mmd",
     EXAMPLES / "differentialabundance_default.mmd",
     EXAMPLES / "genomeassembly_staggered.mmd",
+    EXAMPLES / "topologies/file_node_with_outgoing_edge.mmd",
 ]
 
 

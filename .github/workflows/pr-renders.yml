@@ -10,6 +10,7 @@ permissions:
 jobs:
   render-diff:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -30,6 +31,13 @@ jobs:
           base='${{ github.event.pull_request.base.sha }}'
           head='${{ github.event.pull_request.head.sha }}'
           echo "render_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          base_render_key="$(
+            git ls-tree -r "$base" -- \
+              pyproject.toml src scripts/build_gallery.py scripts/gallery.yaml \
+              examples tests/fixtures tests/layout_metrics.py \
+              | git hash-object --stdin
+          )"
+          echo "base_render_key=$base_render_key" >> "$GITHUB_OUTPUT"
           changed="$(git diff --name-only "$base" "$head")"
           echo "Changed files:"; echo "$changed"
           allowed='^(examples/|tests/fixtures/).*\.mmd$'
@@ -42,14 +50,14 @@ jobs:
           fi
           printf '%s\n' "$changed" > /tmp/changed_mmd.txt
 
-      # Base renders depend only on the base SHA, so cache them. Re-pushes to a
-      # PR share the same base SHA and reuse this instead of re-rendering.
+      # Only files that can affect gallery output belong in the cache key. A base
+      # branch update that changes unrelated files can reuse the rendered corpus.
       - name: Cache base renders
         id: base-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: /tmp/base_renders
-          key: render-base-${{ github.event.pull_request.base.sha }}
+          key: render-base-${{ steps.strategy.outputs.base_render_key }}
 
       - name: Install (PR head)
         run: pip install -e ".[docs]"

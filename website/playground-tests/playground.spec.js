@@ -1,4 +1,6 @@
 const { test, expect } = require("@playwright/test");
+const fs = require("fs");
+const path = require("path");
 
 // One shared page booted once: the Pyodide cold-start is too slow to repeat per
 // test. Tests run serially and each leaves the editor in a known state.
@@ -16,6 +18,16 @@ async function waitReady(p) {
 async function openAdvanced() {
   await page.evaluate(() => {
     document.getElementById("advanced").open = true;
+  });
+}
+
+async function suppressNextPopup() {
+  await page.evaluate(() => {
+    const open = window.open;
+    window.open = () => {
+      window.open = open;
+      return null;
+    };
   });
 }
 
@@ -432,9 +444,8 @@ test("bug report builds a prefilled GitHub issue with the map and explanation", 
     window.__nfMetro.setValue(
       "%%metro line: q | Q | #abc\ngraph LR\n  uniquenode[Unique] -->|q| other[Other]\n",
     );
-    // Prevent the real github.com tab from opening during the test.
-    window.open = () => null;
   });
+  await suppressNextPopup();
 
   await page.locator("#btn-report").click();
   await expect(page.locator("#report-modal")).toBeVisible();
@@ -448,6 +459,9 @@ test("bug report builds a prefilled GitHub issue with the map and explanation", 
   await page.locator("#report-submit").click();
 
   await expect(page.locator("#report-modal")).toBeHidden();
+  await expect
+    .poll(() => page.evaluate(() => window.__nfMetroLastIssueUrl))
+    .not.toBeNull();
   const issueUrl = await page.evaluate(() => window.__nfMetroLastIssueUrl);
   const u = new URL(issueUrl);
   expect(u.host).toBe("github.com");
@@ -456,7 +470,33 @@ test("bug report builds a prefilled GitHub issue with the map and explanation", 
   const body = u.searchParams.get("body");
   expect(body).toContain("Edge renders backwards from uniquenode");
   expect(body).toContain("uniquenode[Unique]");
-  expect(body).toContain("#mmd=");
+  expect(body).toContain("#mmd-gz=");
+});
+
+test("bug report URL stays within GitHub's request limit", async () => {
+  const source = fs.readFileSync(
+    path.join(
+      __dirname,
+      "../../examples/topologies/packed_cell_right_exit_left_entry_wrap.mmd",
+    ),
+    "utf8",
+  );
+  await page.evaluate((value) => {
+    window.__nfMetro.setValue(value);
+    window.__nfMetroLastIssueUrl = null;
+  }, source);
+  await suppressNextPopup();
+
+  await page.locator("#btn-report").click();
+  await page.locator("#report-text").fill("Genomeassembler map renders badly");
+  await page.locator("#report-submit").click();
+
+  await expect
+    .poll(() => page.evaluate(() => window.__nfMetroLastIssueUrl))
+    .not.toBeNull();
+  const issueUrl = await page.evaluate(() => window.__nfMetroLastIssueUrl);
+  expect(issueUrl.length).toBeLessThanOrEqual(7500);
+  expect(new URL(issueUrl).searchParams.get("body")).toContain("#mmd-gz=");
 });
 
 test("share link round-trips the editor content", async () => {
