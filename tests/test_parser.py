@@ -899,6 +899,37 @@ def test_parse_file_icon_name_applies_to_all_comma_labels():
     assert st.terminus_names == ["Reads", "Reads"]
 
 
+@pytest.mark.parametrize(
+    ("fixture", "station_id", "icon_label", "caption"),
+    [
+        (
+            Path(__file__).parent.parent
+            / "examples/topologies/file_node_with_outgoing_edge.mmd",
+            "made_gtf",
+            "GTF",
+            "Hybrid GTF",
+        ),
+        (
+            FIXTURES / "through_section/riboseq_packed_lr.mmd",
+            "hybrid_gtf_out",
+            "GTF",
+            "Hybrid GTF",
+        ),
+    ],
+    ids=("minimal", "riboseq"),
+)
+def test_parse_file_icon_applies_to_stations_with_outgoing_edges(
+    fixture: Path, station_id: str, icon_label: str, caption: str
+) -> None:
+    graph = parse_metro_mermaid(fixture.read_text())
+    station = graph.stations[station_id]
+
+    assert station.is_terminus
+    assert station.terminus_labels == [icon_label]
+    assert station.terminus_icon_types == ["file"]
+    assert station.terminus_names == [caption]
+
+
 def test_parse_legend_min_height():
     text = "%%metro legend_min_height: 72\ngraph LR\n"
     graph = parse_metro_mermaid(text)
