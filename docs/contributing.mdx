@@ -41,6 +41,12 @@ mypy src/
 
 The topology suite parametrizes over every `.mmd` in `examples/topologies/` and runs the full layout oracle against each one. It is the most sensitive regression check, so it is worth running after any layout change.
 
+CI balances its three test shards from the committed `.test_durations` file and reports the 25 slowest tests in each shard. Refresh the timings after a substantial change to test count or runtime, then review and commit the updated file:
+
+```bash frame="terminal"
+pytest --store-durations --clean-durations
+```
+
 ## Before opening a PR
 
 <Steps>
