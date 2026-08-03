@@ -451,10 +451,9 @@ def _symfan_branches_hub(
 
     Two shapes qualify:
 
-    - Exactly two non-terminus branch stations sharing a column, with no
-      in-section non-terminus source among them.  The fan source is upstream
-      (an entry port, or an in-section terminus source icon excluded from the
-      branch count).
+    - Exactly two branch stations sharing a column, with no in-section source
+      among them.  Pure file endpoints are excluded from the branch count, but
+      file-icon hubs remain structural fan members.
     - An in-section non-terminus source feeding exactly two equal-sibling
       branches (identical line sets): the source is excluded from the branch
       count as the hub.  The equal-sibling requirement keeps genuine
@@ -478,9 +477,10 @@ def _symfan_branches_hub(
         if st.off_track:
             has_off_track = True
             continue
-        if st.is_terminus:
-            # Terminus icons (file outputs / source icons) are not branch
-            # participants; a source icon is recovered as the hub below.
+        if st.is_terminus and not graph.is_hub(sid):
+            # Pure file endpoints are not branch participants; a source icon
+            # is recovered as the hub below. File-icon hubs participate in the
+            # section topology.
             continue
         nonterm.append(st)
         by_col[round(st.x, 3)] += 1
