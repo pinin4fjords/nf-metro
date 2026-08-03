@@ -2,7 +2,7 @@ name: Publish render preview
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["PR render preview"]
     types: [requested, completed]
 
 permissions:

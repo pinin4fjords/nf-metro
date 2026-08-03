@@ -35,15 +35,6 @@ jobs:
         with:
           extra-args: prettier --all-files
 
-  render-diff:
-    if: github.event_name == 'pull_request'
-    needs: [lint, format]
-    uses: ./.github/workflows/pr-renders.yml
-    with:
-      base-sha: ${{ github.event.pull_request.base.sha }}
-      head-sha: ${{ github.event.pull_request.head.sha }}
-      pr-number: ${{ github.event.number }}
-
   test:
     needs: [lint, format]
     runs-on: ubuntu-latest

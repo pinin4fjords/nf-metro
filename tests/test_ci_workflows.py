@@ -56,11 +56,12 @@ def test_test_matrix_uses_committed_timings_and_reports_slow_tests():
     assert "--durations=25" in job
 
 
-def test_render_diff_waits_for_fast_checks_and_uses_content_cache_key():
-    caller = _jobs(WORKFLOWS / "ci.yml")["render-diff"]
-    assert re.search(r"^    needs: \[lint, format\]$", caller, re.MULTILINE)
-    assert "uses: ./.github/workflows/pr-renders.yml" in caller
+def test_render_diff_runs_independently_and_uses_content_cache_key():
+    assert "render-diff" not in _jobs(WORKFLOWS / "ci.yml")
 
+    workflow = (WORKFLOWS / "pr-renders.yml").read_text()
+    assert re.search(r"^  pull_request:$", workflow, re.MULTILINE)
+    assert "branches: [main]" in workflow
     render_job = _jobs(WORKFLOWS / "pr-renders.yml")["render-diff"]
     assert "base_render_key=" in render_job
     assert "tests/layout_metrics.py" in render_job
@@ -69,8 +70,8 @@ def test_render_diff_waits_for_fast_checks_and_uses_content_cache_key():
     )
 
 
-def test_render_publisher_follows_ci_artifact_instead_of_ci_conclusion():
+def test_render_publisher_follows_render_workflow_artifact():
     workflow = (WORKFLOWS / "pr-render-publish.yml").read_text()
-    assert 'workflows: ["CI"]' in workflow
+    assert 'workflows: ["PR render preview"]' in workflow
     assert "actions/runs/${RUN_ID}/artifacts?name=render-preview" in workflow
     assert "needs.resolve.outputs.artifact == 'true'" in workflow

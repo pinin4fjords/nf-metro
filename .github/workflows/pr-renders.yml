@@ -1,17 +1,8 @@
 name: PR render preview
 
 on:
-  workflow_call:
-    inputs:
-      base-sha:
-        required: true
-        type: string
-      head-sha:
-        required: true
-        type: string
-      pr-number:
-        required: true
-        type: number
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -37,8 +28,8 @@ jobs:
       - name: Determine render strategy
         id: strategy
         run: |
-          base='${{ inputs.base-sha }}'
-          head='${{ inputs.head-sha }}'
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
           echo "render_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           base_render_key="$(
             git ls-tree -r "$base" -- \
@@ -103,7 +94,7 @@ jobs:
           set +e
           python scripts/build_render_diff.py \
             /tmp/base_renders /tmp/pr_renders /tmp/diff_site \
-            --pr ${{ inputs.pr-number }} \
+            --pr ${{ github.event.number }} \
             --marker ${{ github.run_id }}
           EXIT_CODE=$?
           set -e
@@ -121,7 +112,7 @@ jobs:
       - name: Stage preview metadata
         run: |
           mkdir -p /tmp/diff_site /tmp/preview_meta
-          echo "${{ inputs.pr-number }}" > /tmp/preview_meta/pr_number.txt
+          echo "${{ github.event.number }}" > /tmp/preview_meta/pr_number.txt
           echo "${{ steps.diff.outputs.has_changes }}" > /tmp/preview_meta/has_changes.txt
 
       - name: Upload preview artifact
