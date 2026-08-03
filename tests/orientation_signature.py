@@ -5,7 +5,7 @@ whichever way the flow runs, so the *distances* a layout puts between stations
 are not expected to survive a quarter turn.  What must survive is everything the
 engine decides structurally -- which station comes next along the flow, which
 lane it sits in, which side a port is pinned to, how far a port sits from the
-box edge it is pinned to, and which sections' box edges are made to agree.
+box edge it is pinned to.
 
 So a signature is split in two:
 
@@ -17,8 +17,8 @@ So a signature is split in two:
 :func:`relational_signature`
     Constant-driven clearances and boolean relationships (a port's clearance to
     its pinned edge, whether an entry port precedes its section's stations in
-    flow order, whether cell-mates' leading box edges agree).  Also compared for
-    exact equality, because none of it is a function of glyph extents.
+    flow order). Also compared for exact equality, because none of it is a
+    function of glyph extents.
 """
 
 from __future__ import annotations
@@ -136,29 +136,6 @@ class PortRelation:
 @dataclass(frozen=True)
 class RelationalSignature:
     ports: dict[str, PortRelation] = field(default_factory=dict)
-    # (axis, index) -> whether the sections sharing that grid row/column agree on
-    # one of the two box edges perpendicular to the group's own axis: top or
-    # bottom for a row of side-by-side sections, left or right for a column of
-    # stacked ones.
-    #
-    # Which of the pair is deliberately aligned is not itself rotation-invariant
-    # (a quarter turn carries a row's top onto a column's right), and the other
-    # edge of the pair agrees only when the members happen to be equally deep --
-    # an accident of glyph extents. That the group agrees on *an* edge is the
-    # part the engine decides, so that is what the signature records.
-    #
-    # This family is weaker than the rest of the signature, and a divergence in
-    # it is a lead rather than a proof.  A pass that levels a group's edges can
-    # be followed by one that reclaims each box back to its own content, and
-    # content extents are glyph-driven: two boxes then share an edge only where
-    # their content offsets happen to coincide.  So a group_alignment difference
-    # between two orientations can come from label metrics rather than from two
-    # code paths, and each one needs its mechanism identified before it is
-    # treated as a defect.
-    #
-    # The other families do not have this weakness: they are ordinals or
-    # constant-driven clearances, with no dependence on text.
-    aligned_groups: dict[tuple[str, int], bool] = field(default_factory=dict)
 
 
 def _flow_extent(graph: MetroGraph, section: Section) -> tuple[float, float] | None:
@@ -209,22 +186,15 @@ def relational_signature(graph: MetroGraph) -> RelationalSignature:
             follows_stations=follows,
         )
 
-    aligned: dict[tuple[str, int], bool] = {}
-    for axis, index_of, edges in (
-        ("row", lambda s: s.grid_row, ("top", "bottom")),
-        ("col", lambda s: s.grid_col, ("left", "right")),
-    ):
-        groups: dict[int, list[Section]] = {}
-        for section in graph.sections.values():
-            groups.setdefault(index_of(section), []).append(section)
-        for index, members in groups.items():
-            if len(members) < 2:
-                continue
-            aligned[(axis, index)] = any(
-                len({round(_box_edges(s)[edge], 1) for s in members}) == 1
-                for edge in edges
-            )
-    return RelationalSignature(ports=ports, aligned_groups=aligned)
+    return RelationalSignature(ports=ports)
+
+
+NON_INVARIANT_MEASURES = {
+    "group_alignment": (
+        "box-edge agreement depends on glyph-driven content extents, which a "
+        "quarter turn does not preserve"
+    )
+}
 
 
 DIVERGENCE_FAMILIES = frozenset(
@@ -237,7 +207,6 @@ DIVERGENCE_FAMILIES = frozenset(
         "port_perpendicular",
         "port_clearance",
         "port_flow_end",
-        "group_alignment",
     }
 )
 """Every property :func:`divergences` reports on.
@@ -265,25 +234,6 @@ class Divergence:
 
     def __str__(self) -> str:
         return f"[{self.family}] {self.detail}"
-
-
-def _map_group_key(
-    key: tuple[str, int], orientation: Orientation, dims: tuple[int, int]
-) -> tuple[str, int]:
-    """Carry a grid-group key through *orientation*.
-
-    A quarter turn sends a row onto a column and vice versa; the reflection
-    renumbers columns.  Mirrors the cell remap in
-    :meth:`Orientation.cell` at the level of whole rows and columns.
-    """
-    axis, index = key
-    cols, rows = dims
-    if orientation.mirrored and axis == "col":
-        index = cols - 1 - index
-    for _ in range(orientation.quarter_turns):
-        axis, index = ("col", rows - 1 - index) if axis == "row" else ("row", index)
-        cols, rows = rows, cols
-    return (axis, index)
 
 
 def _grid_dims(ordinals: dict[str, SectionOrdinals]) -> tuple[int, int]:
@@ -380,17 +330,4 @@ def divergences(
                     )
                 )
 
-    for key, ref_aligned in ref_r.aligned_groups.items():
-        want_key = _map_group_key(key, orientation, dims)
-        img_aligned = img_r.aligned_groups.get(want_key)
-        if img_aligned is None:
-            found.append(Divergence("group_alignment", f"grid group {want_key} absent"))
-        elif img_aligned != ref_aligned:
-            found.append(
-                Divergence(
-                    "group_alignment",
-                    f"grid group {key} -> {want_key}: shares an edge "
-                    f"{img_aligned}, expected {ref_aligned}",
-                )
-            )
     return found
