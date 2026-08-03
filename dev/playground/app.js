@@ -677,15 +677,20 @@ function setModeDirective(mode) {
 const _TRUE = new Set(["true", "yes", "1"]);
 
 function syncDirectiveControls() {
-  el("opt-theme").value = themeKeyFromSource();
+  const focused = document.activeElement;
+  const themeControl = el("opt-theme");
+  if (themeControl !== focused) themeControl.value = themeKeyFromSource();
   const mode = modeFromSource();
-  el("opt-mode").value = mode;
+  const modeControl = el("opt-mode");
+  if (modeControl !== focused) modeControl.value = mode;
   applyPreviewMode(mode);
   for (const [id, key, kind] of DIRECTIVE_CONTROLS) {
+    const control = el(id);
+    if (control === focused) continue;
     const value = readDirective(key);
     if (kind === "bool")
-      el(id).checked = _TRUE.has((value || "").toLowerCase());
-    else el(id).value = value ?? "";
+      control.checked = _TRUE.has((value || "").toLowerCase());
+    else control.value = value ?? "";
   }
 }
 
