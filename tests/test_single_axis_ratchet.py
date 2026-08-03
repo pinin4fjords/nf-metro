@@ -60,8 +60,17 @@ _EXEMPTIONS = {
     "section_placement.py::_enforce_min_column_gaps": (
         "column-gap enforcement has a paired row-gap pass"
     ),
+    "section_placement.py::_enforce_min_column_gaps.<locals>.<lambda>#1": (
+        "the callback computes the right edge for the X-scoped column-gap pass"
+    ),
+    "section_placement.py::_enforce_min_column_gaps.<locals>.<lambda>#2": (
+        "the callback computes the left edge for the X-scoped column-gap pass"
+    ),
     "section_placement.py::_enforce_min_row_gaps": (
         "row-gap enforcement has a paired column-gap pass"
+    ),
+    "section_placement.py::reenforce_column_gaps.<locals>.<lambda>#1": (
+        "the callback computes the right edge for the X-scoped column-gap pass"
     ),
 }
 
@@ -168,4 +177,28 @@ def outer(section):
     assert single_axis_sites_from_source(source) == {
         "outer": ("y", frozenset({"bbox_y", "bbox_h"})),
         "outer.<locals>.inner": ("x", frozenset({"bbox_x", "bbox_w"})),
+    }
+
+
+def test_lambdas_are_classified_with_stable_per_scope_keys() -> None:
+    source = """
+def column_edges():
+    left = lambda section: section.bbox_x + section.offset_x
+    right = lambda section: section.bbox_x + section.bbox_w
+    return left, right
+"""
+
+    assert single_axis_sites_from_source(source) == {
+        "column_edges": (
+            "x",
+            frozenset({"bbox_x", "bbox_w", "offset_x"}),
+        ),
+        "column_edges.<locals>.<lambda>#1": (
+            "x",
+            frozenset({"bbox_x", "offset_x"}),
+        ),
+        "column_edges.<locals>.<lambda>#2": (
+            "x",
+            frozenset({"bbox_x", "bbox_w"}),
+        ),
     }

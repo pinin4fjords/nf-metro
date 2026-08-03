@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import cache
 from pathlib import Path
 from typing import Callable
 
@@ -98,7 +99,7 @@ def _direction_named(node: ast.expr) -> str | None:
         return None
     tokens = {part.lower() for part in re.findall(r"[A-Za-z]+", name)}
     if tokens & _FLOW_NAME_TOKENS:
-        return name.rsplit(".", 1)[-1]
+        return name
     return None
 
 
@@ -154,11 +155,13 @@ def _scan(
     return out
 
 
+@cache
 def direction_predicate_sites() -> dict[str, list[tuple[int, str]]]:
     """Map each scanned module to literal direction-container sites."""
     return _scan(_literal_sites_in)
 
 
+@cache
 def named_direction_predicate_sites() -> dict[str, list[tuple[int, str]]]:
     """Map each scanned module to direction-keyed named sites."""
     return _scan(_named_sites_in)
@@ -264,4 +267,16 @@ def test_named_direction_classifier_call_is_counted(tmp_path: Path) -> None:
 
     assert _named_sites_in(source) == [
         (2, "call to direction-keyed helper tb_positive_fan_sections")
+    ]
+
+
+def test_direction_named_receiver_is_reported_in_full(tmp_path: Path) -> None:
+    source = tmp_path / "named_receiver.py"
+    source.write_text(
+        "def selected(tb_positive_fan, section_id):\n"
+        "    tb_positive_fan.add(section_id)\n"
+    )
+
+    assert _named_sites_in(source) == [
+        (2, "call to direction-keyed helper tb_positive_fan.add")
     ]

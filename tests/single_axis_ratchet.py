@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 X_FIELDS = frozenset({"bbox_x", "bbox_w", "grid_col", "grid_col_span", "offset_x"})
@@ -34,11 +35,14 @@ class _FieldReads(ast.NodeVisitor):
 
 
 def _classify(
-    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
 ) -> tuple[str, frozenset[str]] | None:
     reads = _FieldReads()
-    for statement in node.body:
-        reads.visit(statement)
+    if isinstance(node, ast.Lambda):
+        reads.visit(node.body)
+    else:
+        for statement in node.body:
+            reads.visit(statement)
     x_fields = frozenset(reads.fields & X_FIELDS)
     y_fields = frozenset(reads.fields & Y_FIELDS)
     if len(x_fields) >= 2 and not y_fields:
@@ -52,6 +56,7 @@ class _FunctionCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.scope: list[str] = []
         self.sites: dict[str, SingleAxisSite] = {}
+        self.lambda_ordinals: dict[str, int] = {}
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.scope.append(node.name)
@@ -75,6 +80,19 @@ class _FunctionCollector(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node)
 
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        parent = ".".join(self.scope)
+        ordinal = self.lambda_ordinals.get(parent, 0) + 1
+        self.lambda_ordinals[parent] = ordinal
+        name = f"<lambda>#{ordinal}"
+        qualname = f"{parent}.{name}" if parent else name
+        if result := _classify(node):
+            axis, fields = result
+            self.sites[qualname] = SingleAxisSite(axis, fields, node.lineno)
+        self.scope.extend((name, "<locals>"))
+        self.visit(node.body)
+        del self.scope[-2:]
+
 
 def _sites_from_source(
     source: str, filename: str = "<unknown>"
@@ -94,6 +112,7 @@ def single_axis_sites_from_source(
     }
 
 
+@cache
 def single_axis_sites(layout_dir: Path) -> dict[str, SingleAxisSite]:
     """Every one-axis function below *layout_dir*, keyed by stable qualname."""
     sites: dict[str, SingleAxisSite] = {}
