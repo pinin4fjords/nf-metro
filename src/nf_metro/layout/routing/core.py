@@ -138,6 +138,10 @@ from nf_metro.parser.model import (
 )
 
 if TYPE_CHECKING:
+    from nf_metro.layout.envelope_settlement import (
+        EnvelopeCapacityLimitation,
+        EnvelopeCapacityProof,
+    )
     from nf_metro.layout.route_plan import (
         RouteObservation,
         RoutePlan,
@@ -153,6 +157,8 @@ def _route_edges(
     *,
     observe_plan: bool,
     offset_step: float | None = None,
+    envelope_proofs: tuple[EnvelopeCapacityProof, ...] = (),
+    envelope_limitations: tuple[EnvelopeCapacityLimitation, ...] = (),
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -230,6 +236,8 @@ def _route_edges(
             exit_turn_plans=execution.plans,
             fan_plans=graph.fan_plans,
             include_resources=observe_plan,
+            envelope_proofs=envelope_proofs,
+            envelope_limitations=envelope_limitations,
         )
         if execution.scaffold is not None
         else empty_convergence_plan_execution()
@@ -521,6 +529,8 @@ def observe_route_edges_centred(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    envelope_proofs: tuple[EnvelopeCapacityProof, ...] = (),
+    envelope_limitations: tuple[EnvelopeCapacityLimitation, ...] = (),
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -532,6 +542,8 @@ def observe_route_edges_centred(
         station_offsets,
         observe_plan=True,
         offset_step=offset_step,
+        envelope_proofs=envelope_proofs,
+        envelope_limitations=envelope_limitations,
     )
     _settle_station_moves(graph, moves)
     assert plan is not None

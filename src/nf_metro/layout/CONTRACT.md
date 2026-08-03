@@ -1348,6 +1348,57 @@ in pipeline order.
   `_guard_section_top_padding`.
 - **Lifecycle:** invariant - no geometry or bbox phase follows this refit.
 
+## Render-boundary route-envelope settlement
+
+- **Purpose**: Make final row and column corridors durable after every local
+  bbox, header, and compaction extent is known, before the derived canvas is
+  frozen.
+- **Helpers**: `settle_route_envelopes` measures the immutable reservation
+  ledger and applies quantised downstream translations. The render boundary
+  re-observes routes once after the bounded event pass, then materialises any
+  realised coordinate required by an unowned member before semantic route
+  validation.
+- **Precondition**: Section-local station geometry, bbox sizes, port sides,
+  grid provenance, route-system membership, lane order, shared references,
+  symbolic demands, and reservation requirements are final. Stages 6.13,
+  6.15a, 6.15, 6.16, 6.17, and 6.18 have completed, so their local shrink,
+  top fit, canvas translation, port alignment, and fan work cannot consume a
+  settled corridor later.
+- **Allowed writes**: One boundary owns each translation. It moves every
+  section and packed cell whose grid start is on the positive side, their
+  stations and ports, and synthetic junctions anchored wholly to those
+  owners. It may update derived absolute route and realisation coordinates.
+  It does not change local coordinates, bbox sizes, grid cells, direction,
+  port side, plan membership, lane order, frames, runways, radii, demands, or
+  reservations.
+- **Postcondition**: Every feasible row-gap and column-gap reservation has
+  non-negative capacity and side slack. The router consumes the allocated
+  coordinate before plan validation. A strict infeasible pinned layout raises
+  an attributed reservation error before any route is rendered. A non-strict
+  pinned limitation records its reservations, blockers, pin decisions, and
+  owner #1658. Overlapping fan ownership that leaves a dynamic merge-entry
+  member outside convergence emission is likewise retained as a whole-system
+  #1658-owned compatibility boundary, not reclassified as envelope capacity.
+- **Idempotence**: A ledger with no positive boundary deficit is an exact
+  geometry no-op. A second invocation against the re-observed settled ledger
+  therefore emits no translation.
+- **Termination**: The directional pass visits each claimed adjacent column
+  boundary and then each claimed adjacent row boundary in canonical order.
+  The render boundary records completed boundary events and never schedules
+  one twice. At most `(occupied columns - 1) + (occupied rows - 1)` events can
+  occur; every event is a positive multiple of `graph_offset_step`, and no
+  event shrinks an earlier separation. This is a finite event pass, not an
+  arbitrary layout fixpoint or iteration cap.
+- **Responsibility inventory**: Stage 6.13 retains content-bottom shrink and
+  its local row tightening; Stage 6.15a retains content-top fitting; Stage
+  6.15 retains whole-canvas grid snapping; header clearance retains its title
+  translation; routing normalisers retain plan-local constructive geometry.
+  Settlement owns only the additional global row or column translation proved
+  by the final reservation ledger and does not bypass earlier compensation.
+- **Related tests**: `tests/test_envelope_settlement.py`,
+  `tests/test_route_reservations.py`, the serial routing gates, and the complete
+  topology render corpus.
+
 ## Post-layout routing boundary: exit-turn planning
 
 - **Purpose**: Decide source-lane order and turn axes for every complete

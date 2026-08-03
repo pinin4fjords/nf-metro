@@ -2558,31 +2558,13 @@ def expected_convergence_foreign_references(
     return {item.id: tuple(foreign[item.id]) for item in plan.convergence_plans}
 
 
-def attach_route_reservations(
+def _publish_reservation_ledger(
     plan: RoutePlan,
-    graph: MetroGraph,
-    routes: list[RoutedPath],
-    station_offsets: dict[tuple[str, str], float] | None,
-    *,
-    canvas_width: float | None = None,
-    canvas_height: float | None = None,
+    references: tuple[SharedReference, ...],
+    demands: tuple[SymbolicDemand, ...],
+    reservations: tuple[RouteReservation, ...],
+    realised: tuple[RealisedRouteReservation, ...],
 ) -> RoutePlan:
-    """Return *plan* with canonical symbolic and realised corridor ledgers."""
-    if not plan.systems:
-        return plan
-    offsets = station_offsets or {}
-    claims = _observed_claims(graph, routes, plan, offsets)
-    groups = _group_claims(
-        claims,
-        {system.id: rank for rank, system in enumerate(plan.systems)},
-        {member.id: rank for rank, member in enumerate(plan.members)},
-    )
-    observed_references, observed_demands, reservations = _build_symbolic_records(
-        graph, plan, groups
-    )
-    references = plan.shared_references + observed_references
-    demands = plan.demands + observed_demands
-    realised = _realise_all(graph, reservations, canvas_width, canvas_height)
     plan_with_corridors = replace(
         plan,
         shared_references=references,
@@ -2643,14 +2625,49 @@ def attach_route_reservations(
     )
 
 
+def attach_route_reservations(
+    plan: RoutePlan,
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    station_offsets: dict[tuple[str, str], float] | None,
+    *,
+    canvas_width: float | None = None,
+    canvas_height: float | None = None,
+) -> RoutePlan:
+    """Return *plan* with canonical symbolic and realised corridor ledgers."""
+    if not plan.systems:
+        return plan
+    offsets = station_offsets or {}
+    claims = _observed_claims(graph, routes, plan, offsets)
+    groups = _group_claims(
+        claims,
+        {system.id: rank for rank, system in enumerate(plan.systems)},
+        {member.id: rank for rank, member in enumerate(plan.members)},
+    )
+    observed_references, observed_demands, reservations = _build_symbolic_records(
+        graph, plan, groups
+    )
+    references = plan.shared_references + observed_references
+    demands = plan.demands + observed_demands
+    realised = _realise_all(graph, reservations, canvas_width, canvas_height)
+    return _publish_reservation_ledger(
+        plan, references, demands, reservations, realised
+    )
+
+
 def realise_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
     *,
-    canvas_width: float,
-    canvas_height: float,
+    canvas_width: float | None = None,
+    canvas_height: float | None = None,
 ) -> RoutePlan:
-    """Refresh the realised ledger against final render canvas bounds."""
+    """Refresh the realised ledger against final known corridor bounds.
+
+    Canvas reservations are included only when both canvas dimensions are
+    available. Row and column reservations can therefore be remeasured after
+    final content extents but before the render canvas is selected.
+    """
     realised = _realise_all(
         graph,
         plan.reservations,

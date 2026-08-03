@@ -219,6 +219,14 @@
     "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
     "status": "needs-review"
   },
+  "convergences.py::if not shared_coordinates:::#1": {
+    "note": "A differing shared-opening group is activated only by complete system capacity proofs. Every such group has at least one allocation coordinate claimed by members from two plans; the continue arm protects a hand-built or incomplete proof tuple that cannot be published by envelope settlement.",
+    "status": "defensive"
+  },
+  "convergences.py::if point_to_polyline_distance(::#1": {
+    "note": "Uncovered convergence continuations are frozen from the same trial route the handler emits. The mismatch arm therefore requires a mutated plan or route after publication; valid settled renders exercise the exact-match arm and the guard preserves strict plan-to-emission validation.",
+    "status": "defensive"
+  },
   "core.py::if result is not None and observer is not None and observe_fallback:::#1": {
     "note": "TB-section fallback reporting applies only to route-plan members, whose endpoints are both ports or junctions. The TB handler families that can claim an edge require an internal section endpoint, so no valid route-plan member can reach the reporting arm.",
     "status": "candidate-dead"

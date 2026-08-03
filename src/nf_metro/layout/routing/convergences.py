@@ -5,10 +5,15 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from enum import Enum
 from types import MappingProxyType
 from typing import TypeAlias
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.envelope_settlement import (
+    EnvelopeCapacityLimitation,
+    EnvelopeCapacityProof,
+)
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
     ConvergenceContinuation,
@@ -27,6 +32,7 @@ from nf_metro.layout.route_plan import (
     ExitTurnPlan,
     ExitTurnPlanId,
     FanPlan,
+    FanPlanDisposition,
     FanPlanId,
     GridSpan,
     KeepOutClass,
@@ -79,11 +85,38 @@ class ConvergencePlanningError(RuntimeError):
     """Semantic convergence membership is internally inconsistent."""
 
 
+class ConvergenceAllocationNeed(str, Enum):
+    """A whole-system conflict that a realised envelope can discharge."""
+
+    SHARED_CHANNEL = "shared-channel"
+    OPPOSING_OPENINGS = "opposing-openings"
+    UNOWNED_CORRIDOR = "unowned-corridor"
+    CHAINED_SAME_LINE = "chained-same-line"
+    LOCAL_GEOMETRY = "local-geometry"
+
+
+@dataclass(frozen=True, slots=True)
+class ConvergenceAllocationConflict:
+    need: ConvergenceAllocationNeed
+    message: str
+
+
+_ENVELOPE_ALLOCATION_NEEDS = frozenset(
+    {
+        ConvergenceAllocationNeed.SHARED_CHANNEL,
+        ConvergenceAllocationNeed.OPPOSING_OPENINGS,
+        ConvergenceAllocationNeed.UNOWNED_CORRIDOR,
+        ConvergenceAllocationNeed.CHAINED_SAME_LINE,
+    }
+)
+
+
 _PlanMembership: TypeAlias = tuple[
     tuple[tuple[ResolvedEdge, ...], ...],
     tuple[ResolvedEdge, ...],
     tuple[EmissionMemberId, ...],
 ]
+_OpeningKey: TypeAlias = tuple[str, str, DemandAxis, Direction]
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +256,30 @@ def _consume_exit_turn(route: RoutedPath, ctx: _RoutingCtx) -> None:
             "planned convergence member has no routing family"
         )
     consume_exit_turn_route(route, family, ctx)
+
+
+def _seat_trial_opening(
+    route: RoutedPath,
+    edge: Edge,
+    opening_coordinates: Mapping[_OpeningKey, float],
+    graph: MetroGraph,
+) -> None:
+    from nf_metro.layout.routing.normalize import (
+        _opening_fanout_descent,
+        _seat_merge_feeder_opening,
+    )
+
+    opening = _opening_fanout_descent(route)
+    if opening is not None:
+        key = (
+            edge.line_id,
+            edge.source,
+            DemandAxis.Y,
+            Direction.D if opening.down else Direction.U,
+        )
+        coordinate = opening_coordinates.get(key)
+        if coordinate is not None:
+            _seat_merge_feeder_opening(route, coordinate, graph, planned=True)
 
 
 def _trunk_run(route: RoutedPath, expected_coordinate: float) -> HTrunkSeg:
@@ -580,6 +637,8 @@ def _build_planned_convergence(
     membership: _PlanMembership,
     exit_turn_plan_ids: tuple[ExitTurnPlanId, ...],
     fan_plan_ids: tuple[FanPlanId, ...],
+    opening_coordinates: Mapping[_OpeningKey, float] = MappingProxyType({}),
+    envelope_proofs: tuple[EnvelopeCapacityProof, ...] = (),
 ) -> ConvergencePlan:
     group = view.group
     system_id = scaffold.system_for(group.connector_ids)
@@ -625,7 +684,9 @@ def _build_planned_convergence(
         edge = ctx.edge_by_key[
             (trunk_edge_key.source, trunk_edge_key.target, trunk_edge_key.line_id)
         ]
-        trial_routes[trunk_edge_key] = _trunk_route(edge, ctx)
+        trunk_route = _trunk_route(edge, ctx)
+        _seat_trial_opening(trunk_route, edge, opening_coordinates, graph)
+        trial_routes[trunk_edge_key] = trunk_route
         trunk_run = _trunk_run(
             trial_routes[trunk_edge_key], ctx.merge.trunk_by[view.junction_id]
         )
@@ -673,6 +734,7 @@ def _build_planned_convergence(
                 route = _trial_route(edge, ctx)
         if route is None:
             raise UnsupportedConvergenceError(f"feeder template declined {edge_key!r}")
+        _seat_trial_opening(route, edge, opening_coordinates, graph)
         trial_routes[edge_key] = route
 
     if trunk_run is not None:
@@ -803,8 +865,15 @@ def _build_planned_convergence(
             edge = ctx.edge_by_key[(edge_key.source, edge_key.target, edge_key.line_id)]
             continuation_route = _trial_route(edge, ctx)
             trial_routes[edge_key] = continuation_route
+        end_point = continuation_route.points[-1]
+        hop_start_point = continuation_route.points[0]
         start_point = (
-            _axis_source_point(trunk_axis)
+            hop_start_point
+            if envelope_proofs
+            and primary_reason is ConvergenceTrunkReason.LONGEST_BYPASS
+            and (edge_key.source, edge_key.target, edge_key.line_id)
+            not in ctx.skip_edges
+            else _axis_source_point(trunk_axis)
             if primary_reason
             in {
                 ConvergenceTrunkReason.OUTGOING_CONTINUATION,
@@ -812,8 +881,6 @@ def _build_planned_convergence(
             }
             else _axis_target_point(trunk_axis)
         )
-        end_point = continuation_route.points[-1]
-        hop_start_point = continuation_route.points[0]
         feeder_at_start = any(
             all(
                 abs(actual - expected) <= COORD_TOLERANCE
@@ -923,6 +990,39 @@ def _build_planned_convergence(
                 else item
                 for item in ownership
             ]
+
+    primary_ownership = next(
+        item for item in ownership if item.member_id == primary_member_id
+    )
+    covered_continuation_ids = {
+        item.member_id
+        for item in continuations
+        if item.member_id != primary_member_id
+        and item.covered_by_member_id is None
+        and all(
+            abs(actual - expected) <= COORD_TOLERANCE
+            for actual, expected in zip(
+                primary_ownership.endpoint, item.end_point, strict=True
+            )
+        )
+        and _point_on_trunk_geometry(item.start_point, trunk_axis)
+    }
+    continuations = [
+        replace(item, covered_by_member_id=primary_member_id)
+        if item.member_id in covered_continuation_ids
+        else item
+        for item in continuations
+    ]
+    ownership = [
+        replace(
+            item,
+            role=ConvergenceEndpointRole.COVERED_CONTINUATION,
+            covered_by_member_id=primary_member_id,
+        )
+        if item.member_id in covered_continuation_ids
+        else item
+        for item in ownership
+    ]
 
     plan_id = ConvergencePlanId(
         semantic_route_id("convergence-plan", system_id, group.id)
@@ -1283,12 +1383,12 @@ def _landing_trunk_flank_conflict(
     )
 
 
-def _system_conflict_reason(
+def _system_allocation_conflict(
     plans: tuple[ConvergencePlan, ...],
     system_edges: tuple[ResolvedEdge, ...],
     scaffold: RouteSemanticScaffold,
     ctx: _RoutingCtx,
-) -> str | None:
+) -> ConvergenceAllocationConflict | None:
     complete_pairwise_system = len(plans) == 2
     complete_isolated_system = len(plans) == 1
     opening_arms = tuple(
@@ -1320,7 +1420,10 @@ def _system_conflict_reason(
                 first_delta = first_plan.trunk_axis.coordinate - first_source.x
                 second_delta = second_plan.trunk_axis.coordinate - second_source.x
             if first_delta * second_delta < 0:
-                return "planned fan arms require opposing opening channels"
+                return ConvergenceAllocationConflict(
+                    ConvergenceAllocationNeed.OPPOSING_OPENINGS,
+                    "planned fan arms require opposing opening channels",
+                )
             if (
                 first_plan.line_ids == second_plan.line_ids
                 and abs(
@@ -1328,14 +1431,16 @@ def _system_conflict_reason(
                 )
                 > ctx.offset_step + COORD_TOLERANCE
             ):
-                return (
+                return ConvergenceAllocationConflict(
+                    ConvergenceAllocationNeed.CHAINED_SAME_LINE,
                     "chained same-line convergences require one shared system "
-                    "settlement"
+                    "settlement",
                 )
 
     if _has_opposing_landing_approaches(plans, ctx.graph):
-        return (
-            "planned convergence feeder approaches require one shared channel decision"
+        return ConvergenceAllocationConflict(
+            ConvergenceAllocationNeed.OPPOSING_OPENINGS,
+            "planned convergence feeder approaches require one shared channel decision",
         )
 
     trunks = tuple(
@@ -1373,7 +1478,10 @@ def _system_conflict_reason(
                 continue
             same_line = first_plan.line_ids == second_plan.line_ids
             if same_line and first_direction is not second_direction:
-                return "planned convergence trunks require one shared channel decision"
+                return ConvergenceAllocationConflict(
+                    ConvergenceAllocationNeed.SHARED_CHANNEL,
+                    "planned convergence trunks require one shared channel decision",
+                )
             if (
                 not first_central
                 and not second_central
@@ -1391,12 +1499,17 @@ def _system_conflict_reason(
                     else first_segment[0][0] - second_segment[0][0]
                 )
                 if separation > COORD_TOLERANCE:
-                    return (
-                        "planned convergence trunks require one shared channel decision"
+                    return ConvergenceAllocationConflict(
+                        ConvergenceAllocationNeed.SHARED_CHANNEL,
+                        "planned convergence trunks require one shared channel "
+                        "decision",
                     )
 
     if _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius):
-        return "planned convergence approaches and trunks have no settlement room"
+        return ConvergenceAllocationConflict(
+            ConvergenceAllocationNeed.LOCAL_GEOMETRY,
+            "planned convergence approaches and trunks have no settlement room",
+        )
 
     owned_edges = {edge for plan in plans for edge in plan.resolved_member_edges}
     unowned_system_edges: list[ResolvedEdge] = []
@@ -1428,9 +1541,10 @@ def _system_conflict_reason(
                 ) and _parallel_segments_conflict(
                     trunk_segment, route_segment, ctx.curve_radius
                 ):
-                    return (
+                    return ConvergenceAllocationConflict(
+                        ConvergenceAllocationNeed.UNOWNED_CORRIDOR,
                         "planned convergence corridor conflicts with unowned "
-                        "route-system member"
+                        "route-system member",
                     )
     if not complete_isolated_system:
         return None
@@ -1456,10 +1570,102 @@ def _system_conflict_reason(
             )
         ].add(foreign_edge.line_id)
     if any(len(line_ids) > 1 for line_ids in foreign_groups.values()):
-        return (
-            "planned convergence corridor conflicts with unowned route-system members"
+        return ConvergenceAllocationConflict(
+            ConvergenceAllocationNeed.UNOWNED_CORRIDOR,
+            "planned convergence corridor conflicts with unowned route-system members",
         )
     return None
+
+
+def _capacity_proves_allocation(
+    conflict: ConvergenceAllocationConflict,
+    plans: tuple[ConvergencePlan, ...],
+    proofs: tuple[EnvelopeCapacityProof, ...],
+) -> bool:
+    if conflict.need not in _ENVELOPE_ALLOCATION_NEEDS or not proofs:
+        return False
+    claimant_ids = {
+        member_id for proof in proofs for member_id in proof.claimant_member_ids
+    }
+    return all(
+        proof.available_width + COORD_TOLERANCE >= proof.required_width
+        for proof in proofs
+    ) and all(claimant_ids.intersection(plan.member_ids) for plan in plans)
+
+
+def _shared_opening_coordinates(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    proofs: tuple[EnvelopeCapacityProof, ...],
+) -> Mapping[_OpeningKey, float]:
+    grouped: defaultdict[
+        _OpeningKey, list[tuple[ConvergencePlanId, EmissionMemberId, float]]
+    ] = defaultdict(list)
+    for plan in plans:
+        for landing in plan.landings:
+            if landing.opening_turn_coordinate is None:
+                continue
+            assert landing.opening_turn_segment is not None
+            opening_direction = _direction(*landing.opening_turn_segment)
+            grouped[
+                (
+                    landing.edge.line_id,
+                    landing.source_junction_id,
+                    direction_axis(opening_direction),
+                    opening_direction,
+                )
+            ].append((plan.id, landing.member_id, landing.opening_turn_coordinate))
+    allocations: defaultdict[tuple[DemandAxis, EmissionMemberId], list[float]] = (
+        defaultdict(list)
+    )
+    for proof in proofs:
+        for allocation in proof.allocations:
+            allocations[(allocation.axis, allocation.member_id)].append(
+                allocation.coordinate
+            )
+    coordinates: dict[_OpeningKey, float] = {}
+    for key, candidates in grouped.items():
+        if len({plan_id for plan_id, _member_id, _coordinate in candidates}) < 2:
+            continue
+        existing_coordinates = tuple(
+            coordinate for _plan_id, _member_id, coordinate in candidates
+        )
+        if max(existing_coordinates) - min(existing_coordinates) <= COORD_TOLERANCE:
+            coordinates[key] = existing_coordinates[0]
+            continue
+        allocation_axis = {
+            DemandAxis.X: DemandAxis.Y,
+            DemandAxis.Y: DemandAxis.X,
+        }[key[2]]
+        candidate_coordinates = tuple(
+            coordinate
+            for _plan_id, member_id, _existing_coordinate in candidates
+            for coordinate in allocations[(allocation_axis, member_id)]
+        )
+        shared_coordinates = tuple(
+            coordinate
+            for coordinate in dict.fromkeys(candidate_coordinates)
+            if len(
+                {
+                    plan_id
+                    for plan_id, member_id, _existing_coordinate in candidates
+                    if any(
+                        abs(item - coordinate) <= COORD_TOLERANCE
+                        for item in allocations[(allocation_axis, member_id)]
+                    )
+                }
+            )
+            >= 2
+        )
+        if not shared_coordinates:
+            continue
+        source = graph.stations[key[1]]
+        source_coordinate = source.x if key[2] is DemandAxis.Y else source.y
+        coordinates[key] = min(
+            shared_coordinates,
+            key=lambda coordinate: abs(coordinate - source_coordinate),
+        )
+    return MappingProxyType(coordinates)
 
 
 def _resources(
@@ -1564,6 +1770,8 @@ def build_convergence_plan_execution(
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     fan_plans: tuple[FanPlan, ...],
     include_resources: bool = True,
+    envelope_proofs: tuple[EnvelopeCapacityProof, ...] = (),
+    envelope_limitations: tuple[EnvelopeCapacityLimitation, ...] = (),
 ) -> ConvergencePlanExecution:
     """Plan every semantic convergence atomically by route system."""
     views_by_system: dict[RouteSystemId, list[ResolvedConvergenceView]] = defaultdict(
@@ -1586,6 +1794,14 @@ def build_convergence_plan_execution(
     for fan_plan in fan_plans:
         if fan_plan.system_id is not None:
             fan_plans_by_system[fan_plan.system_id].append(fan_plan)
+    proofs_by_system: defaultdict[RouteSystemId, list[EnvelopeCapacityProof]] = (
+        defaultdict(list)
+    )
+    for proof in envelope_proofs:
+        proofs_by_system[proof.system_id].append(proof)
+    limitations_by_system = {
+        limitation.system_id: limitation for limitation in envelope_limitations
+    }
     plans: list[ConvergencePlan] = []
     diagnostics: list[RoutePlanDiagnostic] = []
     for system_id in scaffold.ordered_system_ids:
@@ -1616,6 +1832,12 @@ def build_convergence_plan_execution(
                 or set(item.member_ids) & member_ids
             )
         )
+        unresolved_fan_ownership = any(
+            item.id in upstream_fan_ids
+            and item.disposition is FanPlanDisposition.LEGACY
+            and item.legacy_reason == "overlapping-fan-ownership"
+            for item in fan_plans_by_system.get(system_id, ())
+        )
         try:
             system_plans = tuple(
                 _build_planned_convergence(
@@ -1632,14 +1854,84 @@ def build_convergence_plan_execution(
             system_plans = _settle_landing_trunk_flanks(
                 system_plans, graph, ctx.curve_radius
             )
-            conflict_reason = _system_conflict_reason(
+            allocation_conflict = _system_allocation_conflict(
                 system_plans,
                 tuple(edges_by_system.get(system_id, ())),
                 scaffold,
                 ctx,
             )
-            if conflict_reason is not None:
-                raise UnsupportedConvergenceError(conflict_reason)
+            system_proofs = tuple(proofs_by_system.get(system_id, ()))
+            capacity_limitation = limitations_by_system.get(system_id)
+            if allocation_conflict is not None and capacity_limitation is not None:
+                pinned = ", ".join(capacity_limitation.pinned_section_ids) or "none"
+                reservations = ", ".join(
+                    str(item) for item in capacity_limitation.reservation_ids
+                )
+                allocation_conflict = ConvergenceAllocationConflict(
+                    ConvergenceAllocationNeed.LOCAL_GEOMETRY,
+                    "settled route envelope remains infeasible under authored "
+                    f"grid commitments (pins {pinned}; reservations {reservations}; "
+                    f"owner #{capacity_limitation.owner_issue})",
+                )
+            depends_on_fan_consolidation = (
+                allocation_conflict is not None
+                and allocation_conflict.need
+                is ConvergenceAllocationNeed.UNOWNED_CORRIDOR
+                and unresolved_fan_ownership
+                and any(
+                    ctx.merge.entry_port_for.get(continuation.edge.source)
+                    == continuation.edge.target
+                    and (
+                        continuation.edge.source,
+                        continuation.edge.target,
+                        continuation.edge.line_id,
+                    )
+                    not in ctx.skip_edges
+                    for plan in system_plans
+                    for continuation in plan.outgoing_continuations
+                )
+            )
+            if depends_on_fan_consolidation:
+                allocation_conflict = ConvergenceAllocationConflict(
+                    ConvergenceAllocationNeed.LOCAL_GEOMETRY,
+                    "planned convergence corridor depends on unresolved "
+                    "overlapping fan ownership (owner #1658)",
+                )
+            if allocation_conflict is not None and _capacity_proves_allocation(
+                allocation_conflict, system_plans, system_proofs
+            ):
+                opening_coordinates = _shared_opening_coordinates(
+                    system_plans, graph, system_proofs
+                )
+                system_plans = tuple(
+                    _build_planned_convergence(
+                        graph,
+                        ctx,
+                        scaffold,
+                        view,
+                        membership,
+                        upstream_exit_ids,
+                        upstream_fan_ids,
+                        opening_coordinates,
+                        system_proofs,
+                    )
+                    for view, membership in zip(views, memberships, strict=True)
+                )
+                system_plans = _settle_landing_trunk_flanks(
+                    system_plans, graph, ctx.curve_radius
+                )
+                allocation_conflict = _system_allocation_conflict(
+                    system_plans,
+                    tuple(edges_by_system.get(system_id, ())),
+                    scaffold,
+                    ctx,
+                )
+            if allocation_conflict is not None and not _capacity_proves_allocation(
+                allocation_conflict,
+                system_plans,
+                system_proofs,
+            ):
+                raise UnsupportedConvergenceError(allocation_conflict.message)
         except UnsupportedConvergenceError as error:
             reason = str(error) or type(error).__name__
             system_plans = tuple(
@@ -1992,15 +2284,14 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
     landing = membership.landing
     if landing is None:
         continuation = membership.continuation
-        if continuation is not None and (
-            continuation.covered_by_member_id is not None
-            or point_to_polyline_distance(continuation.start_point, route.points)
-            > COORD_TOLERANCE
-            or any(
-                abs(actual - expected) > COORD_TOLERANCE
-                for actual, expected in zip(
-                    route.points[-1], continuation.end_point, strict=True
-                )
+        assert continuation is not None
+        assert continuation.covered_by_member_id is None
+        if point_to_polyline_distance(
+            continuation.start_point, route.points
+        ) > COORD_TOLERANCE or any(
+            abs(actual - expected) > COORD_TOLERANCE
+            for actual, expected in zip(
+                route.points[-1], continuation.end_point, strict=True
             )
         ):
             raise ConvergenceInvariantError(

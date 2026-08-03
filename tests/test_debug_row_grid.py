@@ -17,7 +17,13 @@ import pytest
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import DEBUG_ROW_GRID_COLOR
-from nf_metro.render.svg import compute_station_offsets, render_svg, station_marker_box
+from nf_metro.render.svg import (
+    build_render_plan,
+    compute_station_offsets,
+    emit_render_plan,
+    render_svg,
+    station_marker_box,
+)
 from nf_metro.themes import NFCORE_THEME
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
@@ -65,10 +71,11 @@ def test_debug_row_grid_marks_placement_anchors(fixture):
     """Every occupied row has a grid line on its anchor, and no grid line sits
     where no station is placed."""
     graph = _laid_out(fixture)
-    svg = render_svg(graph, NFCORE_THEME, debug=True, chrome_css=False)
+    plan = build_render_plan(graph, NFCORE_THEME, debug=True, chrome_css=False)
+    svg = emit_render_plan(plan)
     grid_ys = _row_grid_line_ys(svg)
     assert grid_ys, "debug render drew no row-grid lines"
-    anchors = _anchor_ys(graph)
+    anchors = _anchor_ys(plan.graph)
 
     for a in anchors:
         assert any(abs(a - g) <= EPS for g in grid_ys), (

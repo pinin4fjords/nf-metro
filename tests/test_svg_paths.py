@@ -22,7 +22,12 @@ from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import curve_tangents, resolve_curve_radii
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.animate import _points_to_svg_path
-from nf_metro.render.svg import _curve_tangents, apply_route_offsets, render_svg
+from nf_metro.render.svg import (
+    _curve_tangents,
+    apply_route_offsets,
+    build_render_plan,
+    emit_render_plan,
+)
 from nf_metro.themes import NFCORE_THEME
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
@@ -79,10 +84,9 @@ def _layout_and_route(mmd_text: str) -> tuple:
     """Parse, layout, route, and render. Returns (graph, routes, offsets, svg)."""
     graph = parse_metro_mermaid(mmd_text)
     compute_layout(graph)
-    offsets = compute_station_offsets(graph)
-    routes = route_edges(graph, station_offsets=offsets)
-    svg = render_svg(graph, NFCORE_THEME)
-    return graph, routes, offsets, svg
+    plan = build_render_plan(graph, NFCORE_THEME)
+    svg = emit_render_plan(plan)
+    return plan.graph, plan.routes, plan.station_offsets, svg
 
 
 def _layout_and_route_file(path: Path) -> tuple:

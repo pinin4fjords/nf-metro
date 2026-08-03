@@ -293,6 +293,30 @@ broken by each cleanup pass, then handle the final geometric details
   then receive the legacy half-pitch compaction.
 - **Stage 6.18**: Expand a half-pitch branch to a full row when its mirrored
   partner has gone, so an isolated branch does not remain between grid rows.
+
+### Final route-envelope settlement
+
+After local layout and header placement, routing publishes its immutable
+`RouteReservation` ledger against the final bbox extents. A finite axis-based
+pass visits deficient column boundaries and then deficient row boundaries in
+canonical order. Each event translates the complete positive-side rows,
+columns, packed cells, sections, stations, ports, and wholly anchored
+junctions by a quantised amount. LR, RL, TB, and BT therefore use the same
+construction under axis rotation.
+
+Routing is re-observed once after the bounded pass when a boundary event
+supplies space or when a settled allocation activates a complete
+compatibility-limited convergence system. A completed boundary is not
+scheduled again, so the derived bound is the number of adjacent occupied row
+and column boundaries rather than an iteration limit. A strict pinned layout
+whose ledger remains infeasible stops with the reservation span, blockers,
+sizes, pin, and claimants attributed.
+
+This boundary does not rerun Stages 1 to 6 or change section-local geometry,
+grid commitments, plan membership, lane order, semantic frames, runways, or
+corner radii. The existing row shrink, bbox-top fit, canvas snap, and header
+translation remain their local owners and all complete before settlement.
+
 - **Stage 6.18a**: Refit the top of each planned fan section after its final
   content placement. The refit only removes empty space; it leaves any top band
   used by a port or bypass route intact and never aligns unrelated sections.

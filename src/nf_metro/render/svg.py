@@ -29,6 +29,11 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     graph_offset_step,
 )
+from nf_metro.layout.envelope_settlement import (
+    EnvelopeCapacityLimitation,
+    EnvelopeCapacityProof,
+    EnvelopeSettlementError,
+)
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
@@ -54,10 +59,12 @@ from nf_metro.layout.routing import (
     observe_route_edges_centred,
     route_edges_centred,
 )
+from nf_metro.layout.routing.convergences import ConvergenceInvariantError
 from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
 )
+from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
 from nf_metro.layout.routing.invariants import (
     CurveInvariantError,
     assert_render_curve_invariants,
@@ -558,7 +565,13 @@ def _build_render_plan_result(
                 bare=bare,
                 observe_routes=observe_routes,
             )
-        except (CurveInvariantError, SectionHeaderClashError) as exc:
+        except (
+            ConvergenceInvariantError,
+            CurveInvariantError,
+            EnvelopeSettlementError,
+            ExitTurnInvariantError,
+            SectionHeaderClashError,
+        ) as exc:
             reframed = _fold_threshold_error(graph)
             if reframed is not None:
                 raise reframed from exc
@@ -756,30 +769,100 @@ def _settle_render_geometry(
 
     def _route(
         station_offsets: dict[tuple[str, str], float],
-    ) -> tuple[list[RoutedPath], RoutePlan | None]:
-        if not observe_routes:
-            return (
-                route_edges_centred(
-                    graph,
-                    station_offsets=station_offsets,
-                    offset_step=offset_step,
-                ),
-                None,
+        *,
+        envelope_proofs: tuple[EnvelopeCapacityProof, ...] = (),
+        envelope_limitations: tuple[EnvelopeCapacityLimitation, ...] = (),
+    ) -> tuple[list[RoutedPath], RoutePlan]:
+        production_routes = (
+            route_edges_centred(
+                graph,
+                station_offsets=station_offsets,
+                offset_step=offset_step,
             )
+            if not observe_routes and not envelope_proofs and not envelope_limitations
+            else None
+        )
         observation = observe_route_edges_centred(
             graph,
             station_offsets=station_offsets,
             offset_step=offset_step,
+            envelope_proofs=envelope_proofs,
+            envelope_limitations=envelope_limitations,
         )
-        return observation.routes, observation.plan
+        return production_routes or observation.routes, observation.plan
+
+    def _settle(
+        station_offsets: dict[tuple[str, str], float],
+        routes: list[RoutedPath],
+        route_plan: RoutePlan,
+    ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan, bool]:
+        from nf_metro.layout.envelope_settlement import (
+            assert_route_envelopes_satisfied,
+            settle_route_envelopes,
+        )
+        from nf_metro.layout.route_reservations import realise_route_reservations
+
+        settlement = settle_route_envelopes(graph, route_plan)
+        assert_route_envelopes_satisfied(
+            graph, realise_route_reservations(route_plan, graph)
+        )
+        translated = bool(settlement.translations)
+        compatible_system_ids = {
+            item.system_id
+            for item in route_plan.convergence_plans
+            if not item.owns_geometry
+        }
+        activation_proofs = tuple(
+            item
+            for item in settlement.capacity_proofs
+            if item.system_id in compatible_system_ids
+        )
+        activation_limitations = tuple(
+            item
+            for item in settlement.capacity_limitations
+            if item.system_id in compatible_system_ids
+        )
+        rerouted = bool(translated or activation_proofs or activation_limitations)
+        if rerouted:
+            station_offsets = compute_station_offsets(graph, offset_step=offset_step)
+            try:
+                routes, route_plan = _route(
+                    station_offsets,
+                    envelope_proofs=settlement.capacity_proofs,
+                    envelope_limitations=settlement.capacity_limitations,
+                )
+            except ValueError as error:
+                raise EnvelopeSettlementError(
+                    "settled route allocation produced inconsistent planned "
+                    "geometry during final emission"
+                ) from error
+        return station_offsets, routes, route_plan, rerouted
 
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets)
     effective_strict = graph.strict and not graph.permissive
-    assert_render_curve_invariants(graph, routes, station_offsets)
-    assert_render_layout_invariants(
-        graph, routes, station_offsets, strict=effective_strict
-    )
+    from nf_metro.layout.envelope_settlement import route_envelopes_need_settlement
+
+    if not route_envelopes_need_settlement(graph, route_plan):
+        assert_render_layout_invariants(
+            graph, routes, station_offsets, strict=effective_strict
+        )
+    structural_sections = {
+        section.id: (
+            section.bbox_x,
+            section.bbox_y,
+            section.bbox_w,
+            section.bbox_h,
+            section.station_ids[0] if section.station_ids else None,
+            (
+                graph.stations[section.station_ids[0]].x,
+                graph.stations[section.station_ids[0]].y,
+            )
+            if section.station_ids
+            else None,
+        )
+        for section in graph.sections.values()
+    }
 
     labels = _place(station_offsets, routes)
     if render_header_collision(graph) and not graph.has_rail_sections:
@@ -791,9 +874,47 @@ def _settle_render_geometry(
         station_offsets = compute_station_offsets(graph, offset_step=offset_step)
         routes, route_plan = _route(station_offsets)
         labels = _place(station_offsets, routes)
-        assert_render_curve_invariants(graph, routes, station_offsets)
+    station_offsets, routes, route_plan, settlement_rerouted = _settle(
+        station_offsets,
+        routes,
+        route_plan,
+    )
+    labels = _place(station_offsets, routes)
+    from nf_metro.layout.envelope_settlement import assert_route_envelopes_satisfied
+
+    assert_route_envelopes_satisfied(graph, route_plan)
+    assert_render_curve_invariants(graph, routes, station_offsets)
+    if settlement_rerouted:
+        grown_bboxes = {
+            section.id: (
+                section.bbox_x,
+                section.bbox_y,
+                section.bbox_w,
+                section.bbox_h,
+            )
+            for section in graph.sections.values()
+        }
+        try:
+            for section_id, structural in structural_sections.items():
+                x, y, width, height, anchor_id, anchor = structural
+                if anchor_id is not None and anchor is not None:
+                    station = graph.stations[anchor_id]
+                    x += station.x - anchor[0]
+                    y += station.y - anchor[1]
+                section = graph.sections[section_id]
+                section.bbox_x = x
+                section.bbox_y = y
+                section.bbox_w = width
+                section.bbox_h = height
+            assert_render_layout_invariants(
+                graph, routes, station_offsets, strict=effective_strict
+            )
+        finally:
+            for section_id, bbox in grown_bboxes.items():
+                section = graph.sections[section_id]
+                section.bbox_x, section.bbox_y, section.bbox_w, section.bbox_h = bbox
     assert_render_header_clearance(graph, strict=effective_strict)
-    return station_offsets, routes, labels, route_plan
+    return station_offsets, routes, labels, route_plan if observe_routes else None
 
 
 def _copy_graph_for_render(source_graph: MetroGraph) -> MetroGraph:
@@ -960,6 +1081,9 @@ def _build_render_plan_scaled(
     svg_height = height or int(auto_height)
 
     if route_plan is not None:
+        from nf_metro.layout.envelope_settlement import (
+            assert_route_envelopes_satisfied,
+        )
         from nf_metro.layout.route_reservations import realise_route_reservations
 
         route_plan = realise_route_reservations(
@@ -968,6 +1092,7 @@ def _build_render_plan_scaled(
             canvas_width=svg_width,
             canvas_height=svg_height,
         )
+        assert_route_envelopes_satisfied(graph, route_plan)
 
     positive_fan = tb_positive_fan_sections(graph)
 

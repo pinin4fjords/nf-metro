@@ -124,7 +124,8 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
         ),
         (
             "funcprofiler_upstream.mmd",
-            "planned convergence corridor conflicts with unowned route-system members",
+            "planned convergence corridor depends on unresolved overlapping fan "
+            "ownership (owner #1658)",
         ),
         (
             "merge_around_below_leftmost.mmd",
