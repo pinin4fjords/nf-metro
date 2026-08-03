@@ -1883,15 +1883,32 @@ async function copySource() {
 
 /* ----------------------------- bug report ----------------------------- */
 
-function buildIssueUrl(explanation) {
-  const opts = currentOptions();
-  const mmd = editor.getValue();
-  const MAX = 6000;
-  const mmdBlock =
-    mmd.length > MAX
-      ? mmd.slice(0, MAX) + "\n... (truncated; full map in the reproduce link)"
-      : mmd;
+const MAX_ISSUE_URL_LENGTH = 7500;
+const MAX_ISSUE_SOURCE_LENGTH = 6000;
+const MAX_ISSUE_EXPLANATION_LENGTH = 3000;
+
+function issueSourceBlock(mmd, limit, hasReproduceLink) {
+  if (mmd.length <= limit) return mmd;
+  const location = hasReproduceLink
+    ? "full map in the reproduce link"
+    : "attach the full .mmd file to this issue";
+  return mmd.slice(0, limit) + `\n... (truncated; ${location})`;
+}
+
+function issueExplanationBlock(explanation, limit) {
+  if (explanation.length <= limit) return explanation;
+  return (
+    explanation.slice(0, limit) +
+    "\n... (truncated; add the remaining details after opening this issue)"
+  );
+}
+
+function issueUrl(explanation, opts, mmd, sourceLimit, reproduceUrl) {
+  const mmdBlock = issueSourceBlock(mmd, sourceLimit, Boolean(reproduceUrl));
   const lo = opts.layout_options;
+  const reproduce = reproduceUrl
+    ? `[Open this map in the playground](${reproduceUrl})`
+    : "The map is too large for a reproduce link. Attach the `.mmd` file to this issue.";
   const body = `## What's wrong
 
 ${explanation}
@@ -1904,7 +1921,7 @@ ${mmdBlock}
 
 ## Reproduce
 
-[Open this map in the playground](${shareUrl()})
+${reproduce}
 
 ## Environment
 
@@ -1926,6 +1943,73 @@ ${mmdBlock}
   return `https://github.com/${REPO}/issues/new?${params.toString()}`;
 }
 
+function fitIssueUrl(explanation, opts, mmd, reproduceUrl) {
+  let low = 0;
+  let high = Math.min(mmd.length, MAX_ISSUE_SOURCE_LENGTH);
+  let best = issueUrl(explanation, opts, mmd, 0, reproduceUrl);
+  if (best.length > MAX_ISSUE_URL_LENGTH) return null;
+  const fullest = issueUrl(explanation, opts, mmd, high, reproduceUrl);
+  if (fullest.length <= MAX_ISSUE_URL_LENGTH) return fullest;
+  if (high === mmd.length) high -= 1;
+
+  while (low <= high) {
+    const limit = Math.floor((low + high) / 2);
+    const candidate = issueUrl(explanation, opts, mmd, limit, reproduceUrl);
+    if (candidate.length <= MAX_ISSUE_URL_LENGTH) {
+      best = candidate;
+      low = limit + 1;
+    } else {
+      high = limit - 1;
+    }
+  }
+  return best;
+}
+
+function fitIssueExplanation(explanation, opts, mmd) {
+  let low = 0;
+  let high = Math.min(explanation.length, MAX_ISSUE_EXPLANATION_LENGTH);
+  let best = issueUrl(
+    issueExplanationBlock(explanation, 0),
+    opts,
+    mmd,
+    0,
+    null,
+  );
+
+  while (low <= high) {
+    const limit = Math.floor((low + high) / 2);
+    const candidate = issueUrl(
+      issueExplanationBlock(explanation, limit),
+      opts,
+      mmd,
+      0,
+      null,
+    );
+    if (candidate.length <= MAX_ISSUE_URL_LENGTH) {
+      best = candidate;
+      low = limit + 1;
+    } else {
+      high = limit - 1;
+    }
+  }
+  return best;
+}
+
+async function buildIssueUrl(explanation) {
+  const opts = currentOptions();
+  const mmd = editor.getValue();
+  const issueExplanation = issueExplanationBlock(
+    explanation,
+    MAX_ISSUE_EXPLANATION_LENGTH,
+  );
+  const reproduceUrl = await compressedShareUrl();
+  return (
+    fitIssueUrl(issueExplanation, opts, mmd, reproduceUrl) ||
+    fitIssueUrl(issueExplanation, opts, mmd, null) ||
+    fitIssueExplanation(explanation, opts, mmd)
+  );
+}
+
 function openReport() {
   el("report-text").value = "";
   el("report-submit").disabled = true;
@@ -1937,18 +2021,20 @@ function closeReport() {
   el("report-modal").classList.add("hidden");
 }
 
-function submitReport() {
+async function submitReport() {
   const explanation = el("report-text").value.trim();
   if (!explanation) {
     el("report-text").focus();
     return;
   }
-  const url = buildIssueUrl(explanation);
+  const reportWindow = window.open("about:blank", "_blank");
+  if (reportWindow) reportWindow.opener = null;
+  closeReport();
+  const url = await buildIssueUrl(explanation);
   // Exposed so the e2e suite can assert the prefilled issue without
   // navigating to github.com.
   window.__nfMetroLastIssueUrl = url;
-  window.open(url, "_blank", "noopener");
-  closeReport();
+  if (reportWindow) reportWindow.location.href = url;
 }
 
 /* -------------------------- nextflow import --------------------------- */
