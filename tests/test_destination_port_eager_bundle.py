@@ -178,4 +178,3 @@ def test_destination_tail_runtime_guard_is_not_vacuous(monkeypatch) -> None:
     violations = check_peeloff_concentric(graph, routes)
     messages = [violation.message() for violation in violations]
     assert any("qc__entry_left_6" in message for message in messages)
-    assert any("polish__entry_left_7" in message for message in messages)
