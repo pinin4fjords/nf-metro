@@ -30,6 +30,7 @@ from nf_metro.text_metrics import (
     MetricsFace,
     TextRole,
     TextStyle,
+    is_bold_weight,
 )
 
 __all__ = [
@@ -288,7 +289,7 @@ def _text_elem_to_paths(
     dy = _parse_dy(dy_str, font_size)
     baseline_y = y + dy
 
-    is_bold = font_weight in ("bold", "700", "600")
+    is_bold = is_bold_weight(font_weight)
     glyphset = glyphsets.bold if is_bold else glyphsets.regular
     cmap = cmaps.bold if is_bold else cmaps.regular
     upem = upems.bold if is_bold else upems.regular

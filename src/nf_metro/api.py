@@ -46,14 +46,6 @@ from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
 _STYLE_THEME_ALIASES = {"dark": "nfcore"}
 
 
-def _metrics_face_for_config(cfg: RenderConfig) -> MetricsFace:
-    return (
-        MetricsFace.INTER
-        if cfg.embed_font or cfg.text_to_paths
-        else MetricsFace.FALLBACK
-    )
-
-
 @dataclass
 class RenderConfig:
     """Render-side options that control SVG/HTML output format and appearance.
@@ -75,6 +67,14 @@ class RenderConfig:
     baked_mode: str | None = None
     bare: bool = False
     embed_basename: str = "metro_map.html"
+
+
+def _metrics_face_for_config(cfg: RenderConfig) -> MetricsFace:
+    return (
+        MetricsFace.INTER
+        if cfg.embed_font or cfg.text_to_paths
+        else MetricsFace.FALLBACK
+    )
 
 
 def apply_layout_overrides(graph: MetroGraph, opts: Mapping[str, object]) -> None:

@@ -27,6 +27,7 @@ __all__ = [
     "TextRole",
     "TextStyle",
     "active_metrics_face",
+    "is_bold_weight",
     "metrics_face_context",
     "text_style",
 ]
@@ -204,8 +205,7 @@ _INK_WIDTH_RATIO: dict[TextRole, float] = {
     TextRole.RAIL_LABEL: 0.75,
 }
 
-# These ratios preserve the distinct clearance policies that predate the
-# centralized metrics layer. They are policy, not claims about glyph geometry.
+# Clearance ratios are policy, not claims about glyph geometry.
 _RESERVATION_EM: dict[TextRole, float] = {
     TextRole.STATION_LABEL: 9.0 / 13.0,
     TextRole.RAIL_LABEL: 9.0 / 13.0,
@@ -222,7 +222,8 @@ _RESERVATION_EM: dict[TextRole, float] = {
 }
 
 
-def _is_bold(weight: str) -> bool:
+def is_bold_weight(weight: str) -> bool:
+    """Return whether an SVG font weight selects the bundled bold face."""
     return weight.strip().lower() in {"bold", "600", "700"}
 
 
@@ -320,7 +321,11 @@ class _DeterministicTextMetrics:
         return codepoint if codepoint in table else INTER_REPLACEMENT_CODEPOINT
 
     def _inter_table(self, style: TextStyle) -> dict[int, tuple[int, ...]]:
-        return INTER_BOLD_METRICS if _is_bold(style.weight) else INTER_REGULAR_METRICS
+        return (
+            INTER_BOLD_METRICS
+            if is_bold_weight(style.weight)
+            else INTER_REGULAR_METRICS
+        )
 
     def _inter_advance(self, text: str, style: TextStyle) -> float:
         table = self._inter_table(style)
