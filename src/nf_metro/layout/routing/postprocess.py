@@ -365,6 +365,7 @@ def _build_bubble_ctx(routes: list[RoutedPath], graph: MetroGraph) -> _BubbleCtx
                 if route.exit_turn_axis_id is not None
                 else (route.edge.source, route.edge.target)
                 if route.exit_lane_transition_plan_id is not None
+                or route.convergence_plan_id is not None
                 else ()
             )
         },

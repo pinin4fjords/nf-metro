@@ -787,6 +787,12 @@ class RoutedPath:
     """Immutable fan plan that exclusively owns this route, when applicable."""
     fan_route_emitter: str | None = None
     """Planned fan emitter that produced this route."""
+    convergence_plan_id: str | None = None
+    """Immutable convergence plan that owns this route's terminal geometry."""
+    convergence_member_id: str | None = None
+    """Semantic emission member bound to the planned convergence."""
+    convergence_owned_segment_ranks: tuple[int, ...] = ()
+    """Segments whose final geometry is owned by the convergence plan."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None

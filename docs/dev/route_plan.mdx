@@ -11,19 +11,20 @@ reach production routing. It answers four questions:
 1. Which authored connectors belong to the same route system?
 2. Which physical resolved legs represent that system?
 3. How did production routing emit, cover, or reject each leg?
-4. Which source-side turn geometry was committed before emission?
+4. Which source turns and target convergences were committed before emission?
 
 The plan has both decisions and observations. Exit-turn records choose the
 source lanes, run direction, turn direction, shared axes, and runway demand for
-a complete exit group. Emission bindings and corridor reservations describe
-what production routing finally emitted.
+a complete exit group. Convergence records choose the target trunk, feeder
+landings, continuation, and endpoint ownership. Emission bindings and corridor
+reservations describe what production routing finally emitted.
 
 ## Observation boundary
 
 On the normal dispatcher path, the routing context and semantic scaffold are
 built before the first handler runs. Ordinary routing and
-`observe_route_edges` run the same exit-turn planner and consume the same
-decisions. Ordinary routing returns only the routes. It does not construct a
+`observe_route_edges` run the same exit-turn and convergence planners and
+consume the same decisions. Ordinary routing returns only the routes. It does not construct a
 `RoutePlanObserver`, emission bindings, corridor reservations, or the final
 `RoutePlan`. `observe_route_edges` collects and returns those additional
 records.
@@ -84,6 +85,52 @@ entire group uses legacy routing. The final runtime check uses the geometry
 that the renderer will draw, verifies structural anchors and runway, and
 confirms that each assignment was consumed once.
 
+## Complete convergence plans
+
+The convergence planner runs after exit-turn planning and before the first
+route is emitted. It starts from each resolved convergence and its target entry
+group, then freezes:
+
+- every authored connector, resolved path, and emission member in the
+  convergence;
+- the merge junction, target entry port, line membership, and complete target
+  bundle lane order;
+- the primary trunk member and whether a longest bypass, outgoing continuation,
+  or shared terminal approach supplied that identity;
+- the trunk travel axis, direction, extent, source and target flank
+  coordinates, and terminal cap endpoints;
+- every feeder's stable order, opening-turn coordinate, approach axis and
+  direction, exact join point, handedness, minimum runway, lane rank, and
+  direct, bypass, long-haul, or multi-row classification;
+- the outgoing continuation and its exact emitted or covered owner; and
+- shared trunk and landing references, symbolic lane and runway demands, and
+  conflicts with turn, fan, convergence, and observed corridor references.
+
+The model uses `DemandAxis.X` or `DemandAxis.Y` plus a cardinal direction, so
+LR, RL, TB, and BT shapes use the same records under rotation and reversal.
+Coordinates use the final layout canvas and include settled lane offsets where
+the canonical route template bakes them into the path.
+
+Planning is atomic by route system. If a supported route family cannot produce
+a complete geometric decision, every convergence in that system is `LEGACY`,
+owns no geometry or resources, and records the same deterministic reason.
+Incomplete semantic membership and programming errors are invariant failures,
+not compatibility fallbacks. Planned and compatibility members cannot coexist
+in one system.
+
+The established route families remain the emitters. The planner exercises
+those templates before dispatch to freeze their exact decisions. During
+dispatch, a feeder consumes its landing and a covered continuation is skipped
+with its named carrier. Gap and coincidence passes exclude plan-owned trunks
+and joins. The merge landing and covered-hop passes remain only for legacy
+systems.
+
+The final convergence guard checks every feeder join, the complete trunk axis,
+flanks and terminal caps, emitted and covered continuation endpoints, and each
+endpoint owner. A mismatch reports the route system, connector, member, planned
+point, and emitted point. Covered members are also checked by the ordinary
+emission-binding validation.
+
 ## Complete fan plans
 
 A fan plan is built before station placement from authored connectors and their
@@ -135,15 +182,17 @@ An `EmissionMember` is keyed by `(source, target, line_id)`. Its ordered
 occurrence, including duplicates and shared physical legs. Every member has
 exactly one final binding:
 
-| Binding             | Meaning                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| `EMITTED`           | One final `RoutedPath` carries the member.                                         |
-| `MERGE_SKIP`        | The production edge loop skipped the member because a named merge trunk covers it. |
-| `COVERED_MERGE_HOP` | A post-pass removed the emitted entry hop and records the exact carrying member.   |
-| `UNROUTED`          | No route or valid coverage was found. This also produces a diagnostic.             |
+| Binding             | Meaning                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| `EMITTED`           | One final `RoutedPath` carries the member.                                               |
+| `MERGE_SKIP`        | The production edge loop skipped the member because a named merge trunk covers it.       |
+| `COVERED_MERGE_HOP` | The compatibility post-pass removed an emitted entry hop and recorded its exact carrier. |
+| `UNROUTED`          | No route or valid coverage was found. This also produces a diagnostic.                   |
 
 `MERGE_SKIP` and `COVERED_MERGE_HOP` are recorded at their actual production
-suppression sites. They are not inferred by comparing input and output sets.
+suppression sites. A planned covered continuation uses `MERGE_SKIP` before
+dispatch; `COVERED_MERGE_HOP` remains available to compatibility routing. They
+are not inferred by comparing input and output sets.
 Whole-graph rail routing binds matching inter-section members against the same
 final route list. Per-section rail-internal station-to-port and port-to-station
 legs do not enter the inter-section dispatcher, so they are outside this
@@ -237,7 +286,7 @@ same reference and demand ledger:
 | ----------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------- |
 | Exit-turn planner                                           | Implemented | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes               |
 | [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Implemented | Fan and diamond centrelines, branch transition runways, and hand-off space              |
-| [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Planned     | Convergence trunk extent, feeder landing sequence, and approach space                   |
+| [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Implemented | Convergence trunk extent, feeder landing sequence, and approach space                   |
 | [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Planned     | Final row and column allocation, realising demands through monotone envelope settlement |
 | [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) | Planned     | Consolidate plan-driven emission and retire displaced compatibility logic               |
 
@@ -245,6 +294,17 @@ Each planner migrates a complete semantic group. If one member is unsupported,
 the group remains on the explicit legacy path with a deterministic diagnostic.
 No planner may publish a partial demand and ask a later normalization pass to
 recover the missing ownership.
+
+The convergence compatibility path is bounded to allocation capabilities that
+the current planner cannot settle atomically: opposing fan openings, shared fan
+channels that require one cross-convergence decision, chained same-line trunks,
+and collisions with an unowned endpoint bundle in the same route system.
+[#1660](https://github.com/seqeralabs/nf-metro/issues/1660) owns the shared row
+and column settlement needed to absorb those cases. Once that allocation is
+available, [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) owns
+removal of the displaced compatibility emission and repair machinery. A
+compatibility diagnostic therefore records a specific missing capability,
+rather than acting as an open-ended fallback for an unfamiliar topology.
 
 ## Canonical order
 

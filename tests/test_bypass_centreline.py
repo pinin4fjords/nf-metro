@@ -124,6 +124,33 @@ def test_single_line_bypass_descent_turns_tight() -> None:
     assert qc.curve_radii[1] == pytest.approx(CURVE_RADIUS, abs=0.01)
 
 
+def test_fan_in_merge_target_corners_share_arc_centres() -> None:
+    """The two target-side bends of a tapered U remain concentric."""
+    path = EXAMPLES / "topologies" / "fan_in_merge.mmd"
+    _graph, _offsets, routes = _route(path)
+    target_routes = {
+        route.line_id: route
+        for route in _bypass_routes(routes)
+        if route.edge.source == "__junction_6"
+        and route.edge.target in {"sink__entry_left_5", "__merge_3"}
+    }
+
+    assert set(target_routes) == {"main", "aux"}
+    centres: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {}
+    for line_id, route in target_routes.items():
+        assert route.curve_radii is not None
+        lower_x, lower_y = route.points[3]
+        upper_x, upper_y = route.points[4]
+        lower_radius, upper_radius = route.curve_radii[2:]
+        centres[line_id] = (
+            (lower_x - lower_radius, lower_y - lower_radius),
+            (upper_x + upper_radius, upper_y + upper_radius),
+        )
+
+    assert centres["main"][0] == pytest.approx(centres["aux"][0])
+    assert centres["main"][1] == pytest.approx(centres["aux"][1])
+
+
 def test_route_tapered_anchored_pairs_the_two_channel_fans() -> None:
     """The anchored helper reproduces the bypass's hand-paired ``bundle_offsets``.
 

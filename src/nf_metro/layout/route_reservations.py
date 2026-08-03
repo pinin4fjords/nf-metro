@@ -20,6 +20,8 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.route_plan import (
     BindingKind,
+    ConvergenceDisposition,
+    ConvergencePlanId,
     CoordinateRegime,
     DemandAxis,
     DemandId,
@@ -31,6 +33,7 @@ from nf_metro.layout.route_plan import (
     EmittedPathId,
     ExitTurnDisposition,
     ExitTurnPlanId,
+    FanPlanDisposition,
     GridSpan,
     KeepOutClass,
     ReservationDecisionRef,
@@ -2290,20 +2293,38 @@ def build_reservation_query_indexes(
         if item.system_id is not None
         for demand_id in item.demand_ids
     )
+    convergence_reference_ids = tuple(
+        reference_id
+        for item in plan.convergence_plans
+        for reference_id in item.shared_reference_ids
+    )
+    convergence_demand_ids = tuple(
+        demand_id for item in plan.convergence_plans for demand_id in item.demand_ids
+    )
     if tuple(item.id for item in planner_references) != (
         *exit_turn_reference_ids,
         *fan_reference_ids,
+        *convergence_reference_ids,
     ):
         raise ValueError("planner shared-reference ownership is inconsistent")
     if tuple(item.id for item in planner_demands) != (
         *exit_turn_demand_ids,
         *fan_demand_ids,
+        *convergence_demand_ids,
     ):
         raise ValueError("planner symbolic-demand ownership is inconsistent")
     if exit_turn_reference_set.intersection(fan_reference_ids):
         raise ValueError("exit-turn and fan plans share a reference id")
     if exit_turn_demand_set.intersection(fan_demand_ids):
         raise ValueError("exit-turn and fan plans share a demand id")
+    if set(convergence_reference_ids).intersection(
+        (*exit_turn_reference_ids, *fan_reference_ids)
+    ):
+        raise ValueError("convergence plans share a reference id with another planner")
+    if set(convergence_demand_ids).intersection(
+        (*exit_turn_demand_ids, *fan_demand_ids)
+    ):
+        raise ValueError("convergence plans share a demand id with another planner")
     fan_references = tuple(references[item] for item in fan_reference_ids)
     fan_demands = tuple(demands[item] for item in fan_demand_ids)
     fan_reference_id_set = set(fan_reference_ids)
@@ -2429,6 +2450,114 @@ def expected_exit_turn_foreign_references(
     return {item.id: tuple(foreign[item.id]) for item in plan.exit_turn_plans}
 
 
+def expected_convergence_foreign_references(
+    plan: RoutePlan,
+) -> dict[ConvergencePlanId, tuple[SharedReferenceId, ...]]:
+    """Return canonical planner and corridor conflicts for each convergence."""
+    planned = tuple(
+        item
+        for item in plan.convergence_plans
+        if item.disposition is ConvergenceDisposition.PLANNED
+        and item.trunk_axis is not None
+        and item.demand_ids
+        and item.shared_reference_ids
+    )
+    demands = {item.id: item for item in plan.demands}
+    spans = {item.id: demands[item.demand_ids[0]].span for item in planned}
+    foreign: defaultdict[ConvergencePlanId, dict[SharedReferenceId, None]] = (
+        defaultdict(dict)
+    )
+
+    def add(plan_id: ConvergencePlanId, reference_id: SharedReferenceId) -> None:
+        foreign[plan_id].setdefault(reference_id, None)
+
+    for rank, first in enumerate(planned):
+        assert first.trunk_axis is not None
+        for second in planned[rank + 1 :]:
+            assert second.trunk_axis is not None
+            if (
+                first.system_id != second.system_id
+                and first.trunk_axis.axis is second.trunk_axis.axis
+                and spans[first.id].overlaps(spans[second.id])
+                and abs(first.trunk_axis.coordinate - second.trunk_axis.coordinate)
+                < CURVE_RADIUS
+            ):
+                add(first.id, second.shared_reference_ids[0])
+                add(second.id, first.shared_reference_ids[0])
+
+    for convergence in planned:
+        assert convergence.trunk_axis is not None
+        span = spans[convergence.id]
+        trunk = convergence.trunk_axis
+        endpoint_coordinates = tuple(
+            value
+            for value in (
+                trunk.source_endpoint_coordinate,
+                trunk.target_endpoint_coordinate,
+            )
+            if value is not None
+        )
+        longitudinal_start = min((trunk.extent_start, *endpoint_coordinates))
+        longitudinal_end = max((trunk.extent_end, *endpoint_coordinates))
+        for exit_turn in plan.exit_turn_plans:
+            if (
+                exit_turn.disposition is not ExitTurnDisposition.PLANNED
+                or exit_turn.system_id == convergence.system_id
+                or exit_turn.reference_id is None
+                or not exit_turn.demand_ids
+                or not span.overlaps(demands[exit_turn.demand_ids[0]].span)
+            ):
+                continue
+            clearance = max(exit_turn.spacing, CURVE_RADIUS)
+            if exit_turn.source_axis is trunk.axis:
+                conflicts = any(
+                    longitudinal_start - clearance
+                    < axis.coordinate
+                    < longitudinal_end + clearance
+                    for axis in exit_turn.axes
+                )
+            else:
+                conflicts = any(
+                    abs(axis.coordinate - trunk.coordinate) < clearance
+                    for axis in exit_turn.axes
+                )
+            if not conflicts:
+                continue
+            add(convergence.id, exit_turn.reference_id)
+        for fan in plan.fan_plans:
+            if (
+                fan.disposition is not FanPlanDisposition.PLANNED
+                or fan.system_id is None
+                or fan.system_id == convergence.system_id
+                or fan.centreline_reference_id is None
+                or not fan.demand_ids
+                or fan.frame is None
+                or DemandAxis(fan.frame.primary.name) is not convergence.trunk_axis.axis
+                or not span.overlaps(demands[fan.demand_ids[0]].span)
+            ):
+                continue
+            add(convergence.id, fan.centreline_reference_id)
+        expected_orientation = (
+            CorridorOrientation.HORIZONTAL
+            if convergence.trunk_axis.axis is DemandAxis.X
+            else CorridorOrientation.VERTICAL
+        )
+        for reservation in plan.reservations:
+            if (
+                reservation.system_id == convergence.system_id
+                or reservation.orientation is not expected_orientation
+                or not span.overlaps(reservation.span)
+                or not any(
+                    abs(convergence.trunk_axis.coordinate - claim.allocation_coordinate)
+                    < max(CURVE_RADIUS, reservation.peer_clearance)
+                    for claim in reservation.claims
+                )
+            ):
+                continue
+            add(convergence.id, reservation.reference_id)
+    return {item.id: tuple(foreign[item.id]) for item in plan.convergence_plans}
+
+
 def attach_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
@@ -2469,6 +2598,16 @@ def attach_route_reservations(
         )
         for item in plan.exit_turn_plans
     )
+    convergence_foreign_references = expected_convergence_foreign_references(
+        plan_with_corridors
+    )
+    convergence_plans = tuple(
+        replace(
+            item,
+            foreign_reference_ids=convergence_foreign_references[item.id],
+        )
+        for item in plan.convergence_plans
+    )
     reference_ids_by_system: defaultdict[RouteSystemId, list[SharedReferenceId]] = (
         defaultdict(list)
     )
@@ -2495,6 +2634,7 @@ def attach_route_reservations(
         plan,
         systems=systems,
         exit_turn_plans=exit_turn_plans,
+        convergence_plans=convergence_plans,
         shared_references=references,
         demands=demands,
         reservations=reservations,

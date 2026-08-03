@@ -1613,6 +1613,9 @@ def _route_inter_section(
         )
     if route is not None:
         consume_exit_turn_route(route, family_id, ctx)
+        from nf_metro.layout.routing.convergences import consume_convergence_route
+
+        consume_convergence_route(route, ctx)
     if observer is not None and route is not None:
         observer.record_dispatch((edge.source, edge.target, edge.line_id), family_id)
     _declare_trunk(route, ctx)
@@ -2734,7 +2737,9 @@ def _route_bypass(
         return [member_off + (rank - i) * ctx.offset_step * sign for i in range(n)]
 
     src_anchor = channel_fan(sigma1, g1_j, g1_n, n1x)
-    tgt_anchor = channel_fan(sigma2, g2_j, g2_n, n3x)
+    # Gap-slot ranks follow channel travel, while the target rise's right-hand
+    # normal points against that ordering.
+    tgt_anchor = channel_fan(sigma2, g2_j, g2_n, -n3x)
     route = route_tapered_anchored(
         (edge, edge.line_id, sigma1, sigma2),
         centerline,

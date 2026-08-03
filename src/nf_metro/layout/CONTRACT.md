@@ -1378,6 +1378,35 @@ in pipeline order.
   and turn axis matches the final routed paths, and every assignment is
   consumed exactly once at the render boundary.
 
+## Post-layout routing boundary: convergence planning
+
+- **Purpose**: Give each complete semantic convergence one immutable target-side
+  decision before route emission.
+- **Helpers**: `_route_edges` calls `build_convergence_plan_execution` after
+  exit-turn planning and before dispatch. Canonical inter-section templates
+  provide the planned trunk, approaches, joins, and continuation geometry.
+- **Precondition**: The semantic route scaffold, exit-turn decisions, station
+  offsets, layout coordinates, topology resolution, and compatibility merge
+  classification are settled.
+- **Postcondition**: Every supported convergence records complete authored and
+  resolved membership, its merge and entry bundle, primary trunk and structural
+  reason, axis, extent, flanks and terminal caps, stable feeder and lane order,
+  opening-turn coordinate, exact joins, handedness, runway, continuation,
+  resource conflicts, and endpoint ownership. Unsupported geometry places
+  every convergence in the route system on the legacy path. Incomplete
+  semantic membership and programming errors fail the invariant.
+- **Invariants preserved**: Planning does not move stations, ports, junctions,
+  section boxes, or unrelated offsets. Templates consume plan-owned joins and
+  covered continuations during dispatch. Coincidence and normalization passes
+  may inspect but cannot move or replace plan-owned convergence geometry.
+- **Related tests**: `tests/test_convergence_planner.py`,
+  `tests/test_merge_branch_trunk_invariant.py`, `tests/test_route_plan.py`, and
+  the frozen hash-seed fixtures.
+- **Lifecycle:** invariant - every planned feeder retains its exact join, every
+  trunk retains its planned axis, flanks and terminal caps, every emitted
+  continuation ends at its owned endpoint, and every covered continuation names
+  its carrier.
+
 ## Cross-stage contract: semantic fan planning
 
 - **Purpose**: Give one immutable owner to a complete authored fan or diamond,

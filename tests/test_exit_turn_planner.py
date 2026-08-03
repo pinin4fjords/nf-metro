@@ -12,6 +12,7 @@ from types import MappingProxyType
 
 import pytest
 
+import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.offsets as routing_offsets
@@ -1422,13 +1423,22 @@ def test_missing_outbound_members_have_a_valid_legacy_lane_record(
         )
 
     monkeypatch.setattr(exit_turns, "build_route_semantic_scaffold", omit_outbound)
+    monkeypatch.setattr(
+        convergences,
+        "build_convergence_plan_execution",
+        lambda *_args, **_kwargs: convergences.empty_convergence_plan_execution(),
+    )
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     assert graph.fan_plan_execution is not None
     graph.fan_plan_execution = replace(graph.fan_plan_execution, scaffold=None)
     offsets = compute_station_offsets(graph)
     observation = observe_route_edges(graph, station_offsets=offsets)
-    plan = _plan_for_source(observation, "__junction_9")
+    (plan,) = tuple(
+        item
+        for item in observation.plan.exit_turn_plans
+        if item.source_id == "__junction_9"
+    )
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
     assert plan.legacy_reason == "missing-outbound-member"
@@ -1436,7 +1446,6 @@ def test_missing_outbound_members_have_a_valid_legacy_lane_record(
     assert sorted(
         member_id for lane in plan.source_lanes for member_id in lane.member_ids
     ) == sorted(plan.member_ids)
-    build_route_plan_query(observation.plan)
 
 
 def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(

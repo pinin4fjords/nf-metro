@@ -17,9 +17,10 @@ Lines are drawn as horizontal runs joined by 45-degree diagonal
 transitions; inter-section edges use L-shaped (horizontal + vertical)
 routing.
 
-The normal dispatcher path builds the semantic scaffold and complete exit-turn
-decisions described in [route planning and observation](/nf-metro/dev/route_plan/).
-Inter-section handlers consume those decisions during routing.
+The normal dispatcher path builds the semantic scaffold, complete exit-turn
+decisions, and complete convergence decisions described in
+[route planning and observation](/nf-metro/dev/route_plan/). Inter-section
+handlers consume those decisions during routing.
 `observe_route_edges` returns the same decisions together with final emission
 bindings, corridor reservations, and settled layout provenance. Whole-graph
 rail mode takes the short circuit below.
@@ -49,8 +50,10 @@ as interchange pills bridging the rails.
 `route_edges` first builds a `_RoutingCtx` containing merge classification,
 fold X, bundle information, station offsets, fork stations, and other shared
 facts. Before dispatch, the exit-turn planner classifies every member in each
-complete exit group and either commits the whole group or leaves the whole
-group on legacy routing. The dispatcher then tries a fixed sequence of handler
+complete exit group. The convergence planner then freezes the target-side
+trunk, landings, continuation, and endpoint owners for every complete route
+system. Either planner commits its complete ownership unit or leaves that unit
+on legacy routing. The dispatcher then tries a fixed sequence of handler
 functions. **The first handler that returns a `RoutedPath` wins**; handlers that
 do not apply return `None`.
 
@@ -90,20 +93,22 @@ station-to-station edges within each horizontal section.
 After all edges are routed, `route_edges` runs a series of post-passes that
 adjust the assembled polylines as a set, including diagonal spreading, gap and
 trunk slot materialization, and same-line coincidence. Source-turn segments
-owned by the planner are immutable during these passes. A snapshot ratchet
-checks them after every relevant pass, and the final invariant checks each
-assignment, lane offset, route family, turn direction, and turn axis.
+and convergence trunks and joins owned by the planners are immutable during
+these passes. A snapshot ratchet checks source turns after every relevant pass.
+The final invariants check every source assignment, lane offset, route family,
+turn direction, turn axis, convergence landing, and endpoint owner.
 
 ## Authored identity and final geometry
 
 Routing answers two different kinds of question. Keeping them separate avoids
 trying to recover authored intent from helper nodes that the resolver inserted.
 
-| Question                                                                                      | Source                                     |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Which authored connector, endpoint group, fan, or merge is this?                              | `RouteTopology` and `RouteResolutionTrace` |
-| Which port or junction represents that group?                                                 | `RouteResolutionTrace`                     |
-| Which corridor is clear, which feeder is the merge trunk, or where did a route actually turn? | The laid-out graph and routed polylines    |
+| Question                                                                 | Source                                     |
+| ------------------------------------------------------------------------ | ------------------------------------------ |
+| Which authored connector, endpoint group, fan, or merge is this?         | `RouteTopology` and `RouteResolutionTrace` |
+| Which port or junction represents that group?                            | `RouteResolutionTrace`                     |
+| Which corridor is clear, or where did a route actually turn?             | The laid-out graph and routed polylines    |
+| Which feeder owns a convergence trunk and where do its siblings join it? | The immutable convergence plan             |
 
 `RouteTopologyQuery` is the read-only bridge between the first two rows. It is
 built once for each routing or offset context. Its results follow authored
@@ -111,12 +116,13 @@ topology order, and its reverse edge lookup returns every owning connector.
 That reverse lookup is deliberately one-to-many: exact duplicate connectors
 and shared resolver legs can occupy the same final edge.
 
-The query selects the semantic candidates for fan and merge handling. Geometry
-then makes the routing decision. For example, topology identifies a convergence
-junction and its entry port, while `_classify_merge_edges` still reads final
-coordinates to choose the farthest bypass feeder as the trunk. The same rule
-applies to offsets, normalization, and invariants: topology scopes the group;
-the final graph or polyline supplies the measurements.
+The query selects the semantic candidates for fan and merge handling. The
+convergence planner combines that identity with settled coordinates and the
+canonical templates once, before emission. `_classify_merge_edges` supplies
+compatibility measurements and the structural longest-bypass candidate; the
+plan freezes the selected trunk, axis, feeder order, join points, continuation,
+and endpoint ownership. Templates and post-passes consume that record rather
+than selecting another trunk or landing.
 
 Several broad edge scans therefore remain by design:
 
@@ -124,11 +130,13 @@ Several broad edge scans therefore remain by design:
   authored `BundleRun` only means that connectors share exact authored
   endpoints.
 - bypass-gap and fan-corridor passes inspect section positions and obstructions;
-- merge trunk and branch selection compares final spans and bypass channels;
+- compatibility merge trunk and branch selection compares final spans and
+  bypass channels;
 - exit-port alignment follows immediate resolved successors because a branch
   feeding a merge can have a different geometric anchor from its authored
   destination;
-- normalization groups settled vertical channels, trunks, and route endpoints;
+- normalization groups settled unowned vertical channels, trunks, and route
+  endpoints while plan-owned convergence geometry is validation-only;
 - runtime invariants inspect the geometry that will actually be drawn.
 
 Graphs parsed from Mermaid always carry both topology records. Hand-built
@@ -188,8 +196,10 @@ terminates at a real anchor rather than hanging in open space:
 Both checks allow `2 * CURVE_RADIUS` of slack because they look for paths that
 end in open space. A smaller gap can still draw a visible stub.
 `check_merge_feeders_land_on_trunk` therefore applies the tighter
-`COORD_TOLERANCE` limit in Tier C. `_land_merge_feeders_on_trunk` enforces this
-limit after the routing passes have placed the feeder and trunk.
+`COORD_TOLERANCE` limit in Tier C. Planned feeders consume their exact join
+during emission. `_land_merge_feeders_on_trunk` enforces the same limit only
+for compatibility systems after their routing passes have placed the feeder
+and trunk.
 
 <Aside type="danger" title="Station-as-elbow constraint">
 Never position a port at the same coordinate as an internal station (within the 10 px tolerance checked by `check_station_as_elbow` in `tests/layout_validator.py`):

@@ -123,6 +123,7 @@ def _touched_corner_mismatches(
         new_x: float,
         offset: float = 0.0,
         *,
+        offset_out: float | None = None,
         base_radius: float = CURVE_RADIUS,
         base_radius_out: float | None = None,
     ) -> None:
@@ -130,12 +131,18 @@ def _touched_corner_mismatches(
             ch,
             new_x,
             offset,
+            offset_out=offset_out,
             base_radius=base_radius,
             base_radius_out=base_radius_out,
         )
+        outgoing_offset = offset if offset_out is None else offset_out
         radius_out = base_radius if base_radius_out is None else base_radius_out
         touched[(id(ch.route), ch.idx - 1)] = (ch.route, offset, base_radius)
-        touched[(id(ch.route), ch.idx)] = (ch.route, offset, radius_out)
+        touched[(id(ch.route), ch.idx)] = (
+            ch.route,
+            outgoing_offset,
+            radius_out,
+        )
 
     def hspy(
         rp: RoutedPath,
@@ -303,6 +310,7 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
         new_x: float,
         offset: float = 0.0,
         *,
+        offset_out: float | None = None,
         base_radius: float = CURVE_RADIUS,
         base_radius_out: float | None = None,
     ) -> None:
@@ -310,6 +318,7 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
             ch,
             new_x,
             offset,
+            offset_out=offset_out,
             base_radius=base_radius,
             base_radius_out=base_radius_out,
         )
@@ -341,6 +350,7 @@ def test_reintroduced_hand_clobber_is_detected(
         new_x: float,
         offset: float = 0.0,
         *,
+        offset_out: float | None = None,
         base_radius: float = CURVE_RADIUS,
         base_radius_out: float | None = None,
     ) -> None:

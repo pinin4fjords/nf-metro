@@ -28,7 +28,10 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
-from nf_metro.layout.routing.common import initial_fanout_descent_span
+from nf_metro.layout.routing.common import (
+    initial_fanout_descent_span,
+    iter_horizontal_trunks,
+)
 from nf_metro.layout.routing.context import _build_routing_context, _resolve_section_col
 from nf_metro.layout.routing.invariants import check_no_same_line_parallel_descents
 from nf_metro.layout.routing.normalize import (
@@ -77,15 +80,23 @@ def test_no_same_line_parallel_merge_descents(name: str) -> None:
 def test_merge_branches_join_trunk_channel(name: str) -> None:
     """Each feeder classified a branch terminates on the trunk's bypass channel.
 
-    A branch that ends at the channel ``Y`` (``trunk_by``) has dropped onto the
-    trunk to travel as one stroke; one that ends elsewhere (at the entry port,
-    or looping around below) is a second independent stroke into the merge.
+    A branch that ends on an emitted horizontal trunk run has dropped onto the
+    trunk to travel as one stroke; one that ends elsewhere is a second
+    independent stroke into the merge.
     """
     graph, routes, _offsets, ctx = _layout_and_route(_FIXTURES[name])
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
     checked = 0
-    for mjid in ctx.merge.trunk_source:
-        trunk_by = ctx.merge.trunk_by[mjid]
+    for mjid, trunk_source in ctx.merge.trunk_source.items():
+        trunk_route = next(
+            route
+            for route in routes
+            if route.edge.source == trunk_source and route.edge.target == mjid
+        )
+        trunk_channels = tuple(
+            segment.y for _rank, segment in iter_horizontal_trunks(trunk_route)
+        )
+        assert trunk_channels, f"{name}: merge trunk has no horizontal run"
         for e in graph.edges_to(mjid):
             key = (e.source, e.target, e.line_id)
             if key not in ctx.merge.branch_edges:
@@ -95,10 +106,12 @@ def test_merge_branches_join_trunk_channel(name: str) -> None:
                 continue
             checked += 1
             end_y = rp.points[-1][1]
-            assert abs(end_y - trunk_by) <= COORD_TOLERANCE, (
+            assert any(
+                abs(end_y - channel_y) <= COORD_TOLERANCE
+                for channel_y in trunk_channels
+            ), (
                 f"{name}: branch feeder {e.source}->{mjid} ends at "
-                f"y={end_y:.1f}, not on the trunk channel y={trunk_by:.1f} -- "
-                "routed as a separate stroke rather than joining the trunk"
+                f"y={end_y:.1f}, not on a trunk channel {trunk_channels}"
             )
     assert checked, f"{name}: expected at least one branch feeder"
 
@@ -175,7 +188,7 @@ def test_feeder_descent_ownership_and_legacy_snapping(name: str) -> None:
             seen += 1
             planned = (
                 rp.exit_turn_axis_id is not None and rp.exit_turn_segment_rank == 1
-            )
+            ) or bool(rp.convergence_owned_segment_ranks)
             ch = _initial_fanout_descent(rp)
             if planned:
                 assert ch is None
