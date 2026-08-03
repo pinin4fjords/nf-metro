@@ -15,6 +15,7 @@ from nf_metro.render.font_embed import apply_font_portability
 from nf_metro.render.plan import RenderPlan
 from nf_metro.render.style import Theme
 from nf_metro.render.svg import build_render_plan, emit_render_plan
+from nf_metro.text_metrics import metrics_face_for_portability
 
 _pkg = files(__package__)
 
@@ -55,6 +56,7 @@ def render_html(
         height=height,
         debug=debug,
         legend_position="none",
+        metrics_face=metrics_face_for_portability(font_portability),
     )
     return emit_render_plan_html(
         plan,

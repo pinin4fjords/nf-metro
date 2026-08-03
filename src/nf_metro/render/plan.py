@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Any
 
 from nf_metro.parser.model import LineSpread, MetroGraph
+from nf_metro.text_metrics import MetricsFace
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ class RenderPlan:
 
     theme: FrozenRecord
     graph: FrozenGraph
+    metrics_face: MetricsFace
     station_offsets: FrozenMap
     routes: tuple[FrozenRecord, ...]
     route_polylines: tuple[tuple[tuple[float, float], ...], ...]

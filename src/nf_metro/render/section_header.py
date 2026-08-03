@@ -30,14 +30,13 @@ from nf_metro.render.constants import (
     HEADER_WRAP_CLEARANCE,
     SECTION_HEADER_ROUTE_PAD,
     SECTION_HEADER_SIDE_GAP,
-    SECTION_LABEL_CHAR_WIDTH_RATIO,
     SECTION_LABEL_HALF_HEIGHT_RATIO,
-    SECTION_LABEL_LINE_HEIGHT_RATIO,
     SECTION_LABEL_TEXT_OFFSET,
     SECTION_NUM_CIRCLE_R_LARGE,
     SECTION_NUM_Y_OFFSET,
     TITLE_Y_OFFSET,
 )
+from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
 Rect = tuple[float, float, float, float]
 Polyline = list[tuple[float, float]]
@@ -80,7 +79,8 @@ class SectionHeaderPlacement:
 
 def estimate_section_label_width(name: str, font_size: float) -> float:
     """Estimate the rendered width of a section title in pixels."""
-    return len(name) * font_size * SECTION_LABEL_CHAR_WIDTH_RATIO
+    style = text_style(font_size, "bold")
+    return DEFAULT_TEXT_METRICS.reserve_width(name, style, TextRole.SECTION_HEADER)
 
 
 def _badge_span() -> float:
@@ -97,7 +97,9 @@ def _header_length(name: str, font_size: float) -> float:
 
 def header_line_height(font_size: float) -> float:
     """Pixel spacing between stacked lines of a wrapped section title."""
-    return font_size * SECTION_LABEL_LINE_HEIGHT_RATIO
+    return DEFAULT_TEXT_METRICS.line_height(
+        text_style(font_size, "bold"), TextRole.SECTION_HEADER
+    )
 
 
 _HEADER_HYPHEN_BREAK_RE = re.compile(r"(?<=-)(?!$)")

@@ -608,10 +608,8 @@ def test_wide_file_icon_label_wraps_within_icon_width():
     of which fits the icon width rather than overflowing it."""
     from pathlib import Path
 
-    from nf_metro.render.constants import (
-        ICON_LABEL_CHAR_WIDTH_RATIO,
-        ICON_LABEL_CLEARANCE,
-    )
+    from nf_metro.render.constants import ICON_LABEL_CLEARANCE
+    from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
     fixture = Path(__file__).parent / "fixtures" / "icon_caption_wrap.mmd"
     graph = parse_metro_mermaid(fixture.read_text())
@@ -627,7 +625,9 @@ def test_wide_file_icon_label_wraps_within_icon_width():
     max_width = NFCORE_THEME.terminus_width - 2 * ICON_LABEL_CLEARANCE
     tolerance = 1.0
     for font_size, text in pieces:
-        line_width = len(text) * float(font_size) * ICON_LABEL_CHAR_WIDTH_RATIO
+        line_width = DEFAULT_TEXT_METRICS.reserve_width(
+            text, text_style(float(font_size), "bold"), TextRole.ICON_LABEL
+        )
         assert line_width <= max_width + tolerance, (
             f"wrapped line {text!r} width {line_width:.1f} exceeds "
             f"icon usable width {max_width:.1f}"

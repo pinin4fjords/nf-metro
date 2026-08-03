@@ -25,18 +25,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from nf_metro.layout.constants import (
-    CHAR_WIDTH,
     COLLISION_MULTIPLIER,
     DESCENDER_CLEARANCE,
     DIAGONAL_LABEL_OFFSET,
     DIAGONAL_SLOPE_RATIO,
     FONT_HEIGHT,
-    GLYPH_ADVANCE_DEFAULT_EM,
-    GLYPH_ADVANCE_EM,
     LABEL_BBOX_MARGIN,
     LABEL_FONT_SIZE,
-    LABEL_GLYPH_INK_RATIO,
-    LABEL_LINE_HEIGHT,
     LABEL_MARGIN,
     LABEL_NUDGE_MAX,
     LABEL_OFFSET,
@@ -64,22 +59,21 @@ from nf_metro.layout.pass_metrics import (
 )
 from nf_metro.layout.phases._common import _station_bundle_offset_span
 from nf_metro.parser.model import MetroGraph
+from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import Section, Station
 
 
-def label_text_width(label: str) -> float:
+def label_text_width(label: str, role: TextRole = TextRole.STATION_LABEL) -> float:
     """Reserved pixel width of the widest line in a (possibly multi-line) label.
 
     A generous fixed-per-character budget for collision spacing; for the width
     the text actually draws at, use :func:`label_glyph_advance_width`.
     """
-    char_width = CHAR_WIDTH * active_font_scale()
-    if "\n" not in label:
-        return len(label) * char_width
-    return max(len(line) for line in label.split("\n")) * char_width
+    style = text_style(LABEL_FONT_SIZE * active_font_scale(), "bold")
+    return DEFAULT_TEXT_METRICS.reserve_width(label, style, role)
 
 
 def tb_left_label_marker_pitch(
@@ -112,29 +106,26 @@ def tb_left_label_marker_pitch(
     )
 
 
-def label_glyph_advance_width(label: str) -> float:
+def label_glyph_advance_width(
+    label: str, role: TextRole = TextRole.STATION_LABEL
+) -> float:
     """Rendered pixel width of the widest line in a (possibly multi-line) label.
 
-    Sums per-character advances (:data:`GLYPH_ADVANCE_EM`, Helvetica-Bold)
-    scaled by :data:`LABEL_FONT_SIZE` and the active font scale, so a wide
-    all-caps name measures as wide as it draws and a narrow one is not
-    over-claimed -- unlike the fixed-width :func:`label_text_width`.
+    Uses the active deterministic metrics face at :data:`LABEL_FONT_SIZE`,
+    scaled by the graph's font scale.
     """
-    size = LABEL_FONT_SIZE * active_font_scale()
-    lines = label.split("\n") if "\n" in label else [label]
-    return size * max(
-        sum(GLYPH_ADVANCE_EM.get(c, GLYPH_ADVANCE_DEFAULT_EM) for c in line)
-        for line in lines
-    )
+    style = text_style(LABEL_FONT_SIZE * active_font_scale(), "bold")
+    return DEFAULT_TEXT_METRICS.advance(label, style, role)
 
 
 def _label_text_height(label: str) -> float:
     """Pixel height of a (possibly multi-line) label."""
     font_height = FONT_HEIGHT * active_font_scale()
     n = label.count("\n") + 1
-    if n == 1:
-        return font_height
-    return font_height + (n - 1) * font_height * LABEL_LINE_HEIGHT
+    style = text_style(font_height, "bold")
+    return DEFAULT_TEXT_METRICS.line_block_height(
+        n, style, TextRole.STATION_LABEL, font_height
+    )
 
 
 def diagonal_label_pitch(
@@ -423,7 +414,9 @@ def _label_ink_y_band(placement: LabelPlacement) -> tuple[float, float]:
     """
     font_height = FONT_HEIGHT * active_font_scale()
     n = placement.text.count("\n") + 1
-    line_spacing = font_height * LABEL_LINE_HEIGHT
+    line_spacing = DEFAULT_TEXT_METRICS.line_height(
+        text_style(font_height, "bold"), TextRole.STATION_LABEL
+    )
     ascent = font_height * _GLYPH_ASCENT_RATIO
     if placement.above:
         first_baseline = placement.y - (n - 1) * line_spacing
@@ -443,14 +436,16 @@ def label_glyph_ink_bbox(
     growing upward from the anchor).  A route grazing only the empty reserved
     margin clears this box; a route striking through the text intersects it.
 
-    Rotated or vertically-centred labels keep the reserved-box footprint
-    narrowed by ``LABEL_GLYPH_INK_RATIO``; the advance model is for horizontal
-    text.
+    Rotated or vertically-centred labels use the active face's advance width
+    within the reserved vertical footprint.
     """
     x0, y0, x1, y1 = _label_bbox(placement)
     if placement.angle or placement.dominant_baseline:
+        style = text_style(LABEL_FONT_SIZE * active_font_scale(), "bold")
+        ink_half = DEFAULT_TEXT_METRICS.ink_half_width(
+            placement.text, style, TextRole.STATION_LABEL
+        )
         center = (x0 + x1) / 2
-        ink_half = (x1 - x0) / 2 * LABEL_GLYPH_INK_RATIO
         return (center - ink_half, y0, center + ink_half, y1)
 
     advance = label_glyph_advance_width(placement.text)
