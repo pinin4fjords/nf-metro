@@ -36,6 +36,12 @@ from enum import Enum
 from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
 from nf_metro.layout.geometry import shift_section
 from nf_metro.layout.route_plan import (
+    CONVERGENCE_COMPAT_CHAINED_SYSTEM,
+    CONVERGENCE_COMPAT_OPPOSING_OPENINGS,
+    CONVERGENCE_COMPAT_SHARED_FEEDERS,
+    CONVERGENCE_COMPAT_SHARED_TRUNK,
+    CONVERGENCE_COMPAT_UNOWNED_MEMBER,
+    CONVERGENCE_COMPAT_UNOWNED_MEMBERS,
     ConvergenceDisposition,
     ConvergencePlan,
     ConvergencePlanId,
@@ -218,24 +224,12 @@ _COLUMN_AXIS = _Axis(
 
 
 _COMPATIBILITY_OWNER_BY_REASON = {
-    "planned convergence trunks require one shared channel decision": (
-        "plan-driven shared-channel emission",
-    ),
-    "planned convergence feeder approaches require one shared channel decision": (
-        "plan-driven shared-channel emission",
-    ),
-    "planned fan arms require opposing opening channels": (
-        "plan-driven opposing-opening emission",
-    ),
-    "planned convergence corridor conflicts with unowned route-system member": (
-        "plan-driven whole-system emission",
-    ),
-    "planned convergence corridor conflicts with unowned route-system members": (
-        "plan-driven whole-system emission",
-    ),
-    "chained same-line convergences require one shared system settlement": (
-        "plan-driven chained-convergence emission",
-    ),
+    CONVERGENCE_COMPAT_SHARED_TRUNK: ("plan-driven shared-channel emission",),
+    CONVERGENCE_COMPAT_SHARED_FEEDERS: ("plan-driven shared-channel emission",),
+    CONVERGENCE_COMPAT_OPPOSING_OPENINGS: ("plan-driven opposing-opening emission",),
+    CONVERGENCE_COMPAT_UNOWNED_MEMBER: ("plan-driven whole-system emission",),
+    CONVERGENCE_COMPAT_UNOWNED_MEMBERS: ("plan-driven whole-system emission",),
+    CONVERGENCE_COMPAT_CHAINED_SYSTEM: ("plan-driven chained-convergence emission",),
 }
 
 
@@ -290,16 +284,17 @@ def _settle_axis(
 
     translations: list[SettlementTranslation] = []
     obstructions: list[SettlementObstruction] = []
+    coordinate_translations = list(
+        _reservation_coordinate_translations(prior_translations, plan)
+    )
     for boundary in sorted(by_boundary):
-        coordinate_translations = _reservation_coordinate_translations(
-            (*prior_translations, *translations), plan
-        )
+        projected_prefix = tuple(coordinate_translations)
         claims: list[tuple[float, RouteReservation, tuple[str, ...]]] = []
         for reservation in sorted(by_boundary[boundary], key=lambda item: item.id):
             realised = realise_reservation(
                 graph,
                 reservation,
-                coordinate_translations=coordinate_translations,
+                coordinate_translations=projected_prefix,
             )
             if realised is None:
                 continue
@@ -361,37 +356,43 @@ def _settle_axis(
                 tuple(sorted({blocker for _d, _r, got in claims for blocker in got})),
             )
         )
+        coordinate_translations.append(
+            _reservation_coordinate_translation(translations[-1], plan)
+        )
     return translations, obstructions
+
+
+def _reservation_coordinate_translation(
+    translation: SettlementTranslation,
+    plan: RoutePlan,
+) -> ReservationCoordinateTranslation:
+    section_ids = frozenset(translation.section_ids)
+    fully_owned: list[EmissionMemberId] = []
+    crossing: list[EmissionMemberId] = []
+    for member in plan.members:
+        source_owned = member.source.section_id in section_ids
+        target_owned = member.target.section_id in section_ids
+        if source_owned and target_owned:
+            fully_owned.append(member.id)
+        elif source_owned != target_owned:
+            crossing.append(member.id)
+    return ReservationCoordinateTranslation(
+        DemandAxis.Y if translation.axis is SettlementAxis.ROW else DemandAxis.X,
+        translation.coordinate,
+        translation.amount,
+        tuple(fully_owned),
+        tuple(crossing),
+    )
 
 
 def _reservation_coordinate_translations(
     translations: tuple[SettlementTranslation, ...],
     plan: RoutePlan,
 ) -> tuple[ReservationCoordinateTranslation, ...]:
-    projected: list[ReservationCoordinateTranslation] = []
-    for translation in translations:
-        section_ids = frozenset(translation.section_ids)
-        fully_owned: list[EmissionMemberId] = []
-        crossing: list[EmissionMemberId] = []
-        for member in plan.members:
-            source_owned = member.source.section_id in section_ids
-            target_owned = member.target.section_id in section_ids
-            if source_owned and target_owned:
-                fully_owned.append(member.id)
-            elif source_owned != target_owned:
-                crossing.append(member.id)
-        projected.append(
-            ReservationCoordinateTranslation(
-                DemandAxis.Y
-                if translation.axis is SettlementAxis.ROW
-                else DemandAxis.X,
-                translation.coordinate,
-                translation.amount,
-                tuple(fully_owned),
-                tuple(crossing),
-            )
-        )
-    return tuple(projected)
+    return tuple(
+        _reservation_coordinate_translation(translation, plan)
+        for translation in translations
+    )
 
 
 def _snapshot_geometry(graph: MetroGraph) -> _GeometrySnapshot:

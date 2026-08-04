@@ -19,10 +19,17 @@ from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     assert_reservations_are_settled,
 )
-from nf_metro.layout.route_plan import build_route_plan_query
+from nf_metro.layout.route_plan import (
+    DemandAxis,
+    EmissionMemberId,
+    build_route_plan_query,
+)
 from nf_metro.layout.route_reservations import (
+    CanvasRegion,
     ColumnGapRegion,
+    ReservationCoordinateTranslation,
     RowGapRegion,
+    _project_shared_coordinate,
     realise_reservation,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
@@ -421,6 +428,39 @@ def test_render_keeps_the_initial_grid_reservation_ledger(
     }
 
 
+def test_final_canvas_claims_are_not_projected_twice() -> None:
+    plan = _rendered_plan(
+        TOPOLOGIES / "convergent_offrow_exit_climb.mmd", permissive=True
+    ).route_plan
+    region_by_id = {item.id: item.region for item in plan.reservations}
+    canvas = tuple(
+        item
+        for item in plan.realised_reservations
+        if isinstance(region_by_id[item.reservation_id], CanvasRegion)
+    )
+    grid = tuple(
+        item
+        for item in plan.realised_reservations
+        if isinstance(region_by_id[item.reservation_id], RowGapRegion | ColumnGapRegion)
+    )
+
+    assert canvas
+    assert all(not item.coordinate_translations for item in canvas)
+    assert any(item.coordinate_translations for item in grid)
+
+
+def test_deficit_free_render_skips_ledger_adoption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_adoption(*_args, **_kwargs):
+        raise AssertionError("deficit-free render rebuilt its reservation ledger")
+
+    monkeypatch.setattr(
+        svg_render, "adopt_route_reservation_ledger", unexpected_adoption
+    )
+    _rendered_plan(SETTLED_CORPUS[0])
+
+
 def test_authored_spanning_grid_is_a_precise_strict_failure() -> None:
     path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
     graph, plan = _observe(path)
@@ -568,6 +608,25 @@ def test_decision_guard_rejects_route_turn_and_plan_changes() -> None:
     )
     with pytest.raises(LayoutInvariantError, match="planning decisions"):
         _assert_settlement_decisions_frozen([], observation, [], changed_plan)
+
+
+def test_shared_plan_projection_requires_one_coordinate_for_every_claimant() -> None:
+    first = EmissionMemberId("first")
+    second = EmissionMemberId("second")
+    translation = ReservationCoordinateTranslation(
+        DemandAxis.Y,
+        10.0,
+        4.0,
+        fully_owned_member_ids=(first,),
+        crossing_member_ids=(second,),
+    )
+    with pytest.raises(ValueError, match="separates shared exit-turn geometry"):
+        _project_shared_coordinate(
+            0.0,
+            DemandAxis.Y,
+            (first, second),
+            (translation,),
+        )
 
 
 def _narrow(graph, axis: SettlementAxis, boundary: int, amount: float) -> None:

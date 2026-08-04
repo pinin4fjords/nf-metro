@@ -77,6 +77,26 @@ ConvergencePlanId = NewType("ConvergencePlanId", str)
 _T = TypeVar("_T")
 
 
+CONVERGENCE_COMPAT_SHARED_TRUNK = (
+    "planned convergence trunks require one shared channel decision"
+)
+CONVERGENCE_COMPAT_SHARED_FEEDERS = (
+    "planned convergence feeder approaches require one shared channel decision"
+)
+CONVERGENCE_COMPAT_OPPOSING_OPENINGS = (
+    "planned fan arms require opposing opening channels"
+)
+CONVERGENCE_COMPAT_UNOWNED_MEMBER = (
+    "planned convergence corridor conflicts with unowned route-system member"
+)
+CONVERGENCE_COMPAT_UNOWNED_MEMBERS = (
+    "planned convergence corridor conflicts with unowned route-system members"
+)
+CONVERGENCE_COMPAT_CHAINED_SYSTEM = (
+    "chained same-line convergences require one shared system settlement"
+)
+
+
 def convergence_resource_ids(
     plan_id: ConvergencePlanId,
 ) -> tuple[tuple[SharedReferenceId, ...], tuple[DemandId, ...]]:

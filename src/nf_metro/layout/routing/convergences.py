@@ -11,6 +11,12 @@ from typing import TypeAlias
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
+    CONVERGENCE_COMPAT_CHAINED_SYSTEM,
+    CONVERGENCE_COMPAT_OPPOSING_OPENINGS,
+    CONVERGENCE_COMPAT_SHARED_FEEDERS,
+    CONVERGENCE_COMPAT_SHARED_TRUNK,
+    CONVERGENCE_COMPAT_UNOWNED_MEMBER,
+    CONVERGENCE_COMPAT_UNOWNED_MEMBERS,
     ConvergenceContinuation,
     ConvergenceDisposition,
     ConvergenceEndpointOwnership,
@@ -1320,7 +1326,7 @@ def _system_conflict_reason(
                 first_delta = first_plan.trunk_axis.coordinate - first_source.x
                 second_delta = second_plan.trunk_axis.coordinate - second_source.x
             if first_delta * second_delta < 0:
-                return "planned fan arms require opposing opening channels"
+                return CONVERGENCE_COMPAT_OPPOSING_OPENINGS
             if (
                 first_plan.line_ids == second_plan.line_ids
                 and abs(
@@ -1328,15 +1334,10 @@ def _system_conflict_reason(
                 )
                 > ctx.offset_step + COORD_TOLERANCE
             ):
-                return (
-                    "chained same-line convergences require one shared system "
-                    "settlement"
-                )
+                return CONVERGENCE_COMPAT_CHAINED_SYSTEM
 
     if _has_opposing_landing_approaches(plans, ctx.graph):
-        return (
-            "planned convergence feeder approaches require one shared channel decision"
-        )
+        return CONVERGENCE_COMPAT_SHARED_FEEDERS
 
     trunks = tuple(
         (
@@ -1373,7 +1374,7 @@ def _system_conflict_reason(
                 continue
             same_line = first_plan.line_ids == second_plan.line_ids
             if same_line and first_direction is not second_direction:
-                return "planned convergence trunks require one shared channel decision"
+                return CONVERGENCE_COMPAT_SHARED_TRUNK
             if (
                 not first_central
                 and not second_central
@@ -1391,9 +1392,7 @@ def _system_conflict_reason(
                     else first_segment[0][0] - second_segment[0][0]
                 )
                 if separation > COORD_TOLERANCE:
-                    return (
-                        "planned convergence trunks require one shared channel decision"
-                    )
+                    return CONVERGENCE_COMPAT_SHARED_TRUNK
 
     if _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius):
         return "planned convergence approaches and trunks have no settlement room"
@@ -1428,10 +1427,7 @@ def _system_conflict_reason(
                 ) and _parallel_segments_conflict(
                     trunk_segment, route_segment, ctx.curve_radius
                 ):
-                    return (
-                        "planned convergence corridor conflicts with unowned "
-                        "route-system member"
-                    )
+                    return CONVERGENCE_COMPAT_UNOWNED_MEMBER
     if not complete_isolated_system:
         return None
     landing_sources = {
@@ -1456,9 +1452,7 @@ def _system_conflict_reason(
             )
         ].add(foreign_edge.line_id)
     if any(len(line_ids) > 1 for line_ids in foreign_groups.values()):
-        return (
-            "planned convergence corridor conflicts with unowned route-system members"
-        )
+        return CONVERGENCE_COMPAT_UNOWNED_MEMBERS
     return None
 
 

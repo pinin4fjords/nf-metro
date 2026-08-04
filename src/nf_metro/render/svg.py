@@ -780,23 +780,13 @@ def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
     )
 
 
-def _route_system_decision(system: RouteSystem) -> tuple[object, ...]:
+def _route_system_decision(system: RouteSystem) -> RouteSystem:
     """Exclude resource indexes while retaining semantic system membership."""
-    return (
-        system.id,
-        system.connector_ids,
-        system.line_ids,
-        system.bundle_ids,
-        system.exit_group_ids,
-        system.entry_group_ids,
-        system.divergence_ids,
-        system.convergence_ids,
-        system.member_ids,
-        system.branch_ids,
-        system.feeder_ids,
-        system.exit_turn_plan_ids,
-        system.fan_plan_ids,
-        system.convergence_plan_ids,
+    return replace(
+        system,
+        shared_reference_ids=(),
+        demand_ids=(),
+        reservation_ids=(),
     )
 
 
@@ -1133,12 +1123,12 @@ def _settle_render_geometry(
             routes,
             route_plan,
         )
-    route_plan = adopt_route_reservation_ledger(
-        route_plan,
-        frozen_route_plan,
-        graph,
-        settlement.coordinate_translations,
-    )
+        route_plan = adopt_route_reservation_ledger(
+            route_plan,
+            frozen_route_plan,
+            graph,
+            settlement.coordinate_translations,
+        )
     route_plan = attach_compatibility_exit_diagnostics(route_plan, settlement)
     assert_reservations_are_settled(
         graph, route_plan, settlement, strict=effective_strict

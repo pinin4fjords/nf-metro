@@ -1693,43 +1693,13 @@ def _realise_one(
         canvas_width is None or canvas_height is None
     ):
         return None
-    allocation_axis = (
-        DemandAxis.Y
-        if reservation.orientation is CorridorOrientation.HORIZONTAL
-        else DemandAxis.X
-    )
-    longitudinal_axis = (
-        DemandAxis.X
-        if reservation.orientation is CorridorOrientation.HORIZONTAL
-        else DemandAxis.Y
-    )
-    projected_claims = tuple(
-        (
-            project_reservation_coordinate(
-                item.longitudinal_start,
-                longitudinal_axis,
-                item.member_id,
-                coordinate_translations,
-            ),
-            project_reservation_coordinate(
-                item.longitudinal_end,
-                longitudinal_axis,
-                item.member_id,
-                coordinate_translations,
-            ),
-            project_reservation_coordinate(
-                item.allocation_coordinate,
-                allocation_axis,
-                item.member_id,
-                coordinate_translations,
-            ),
-        )
-        for item in reservation.claims
-    )
-    longitudinal_start = min(item[0] for item in projected_claims)
-    longitudinal_end = max(item[1] for item in projected_claims)
-    occupied_start = min(item[2] for item in projected_claims)
-    occupied_end = max(item[2] for item in projected_claims)
+    projected = _projected_claim_bounds(reservation, coordinate_translations)
+    allocation_axis = projected.allocation_axis
+    longitudinal_axis = projected.longitudinal_axis
+    longitudinal_start = projected.longitudinal_start
+    longitudinal_end = projected.longitudinal_end
+    occupied_start = projected.occupied_start
+    occupied_end = projected.occupied_end
     if isinstance(reservation.region, RowGapRegion):
         measurement = _row_region_measurement(
             graph,
@@ -1818,7 +1788,9 @@ def _realise_all(
             reservation,
             canvas_width,
             canvas_height,
-            coordinate_translations,
+            ()
+            if isinstance(reservation.region, CanvasRegion)
+            else coordinate_translations,
         )
         for reservation in reservations
     )
@@ -1884,6 +1856,54 @@ def _reservation_axes(
     if reservation.orientation is CorridorOrientation.HORIZONTAL:
         return DemandAxis.Y, DemandAxis.X
     return DemandAxis.X, DemandAxis.Y
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectedClaimBounds:
+    allocation_axis: DemandAxis
+    longitudinal_axis: DemandAxis
+    longitudinal_start: float
+    longitudinal_end: float
+    occupied_start: float
+    occupied_end: float
+
+
+def _projected_claim_bounds(
+    reservation: RouteReservation,
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> _ProjectedClaimBounds:
+    allocation_axis, longitudinal_axis = _reservation_axes(reservation)
+    projected_claims = tuple(
+        (
+            project_reservation_coordinate(
+                item.longitudinal_start,
+                longitudinal_axis,
+                item.member_id,
+                translations,
+            ),
+            project_reservation_coordinate(
+                item.longitudinal_end,
+                longitudinal_axis,
+                item.member_id,
+                translations,
+            ),
+            project_reservation_coordinate(
+                item.allocation_coordinate,
+                allocation_axis,
+                item.member_id,
+                translations,
+            ),
+        )
+        for item in reservation.claims
+    )
+    return _ProjectedClaimBounds(
+        allocation_axis,
+        longitudinal_axis,
+        min(item[0] for item in projected_claims),
+        max(item[1] for item in projected_claims),
+        min(item[2] for item in projected_claims),
+        max(item[2] for item in projected_claims),
+    )
 
 
 def _validate_reservation_record(
@@ -2221,43 +2241,7 @@ def _validate_reservation_realisation(
     reservation: RouteReservation,
     realised: RealisedRouteReservation,
 ) -> None:
-    allocation_axis, longitudinal_axis = _reservation_axes(reservation)
-    expected_longitudinal_start = min(
-        project_reservation_coordinate(
-            item.longitudinal_start,
-            longitudinal_axis,
-            item.member_id,
-            realised.coordinate_translations,
-        )
-        for item in reservation.claims
-    )
-    expected_longitudinal_end = max(
-        project_reservation_coordinate(
-            item.longitudinal_end,
-            longitudinal_axis,
-            item.member_id,
-            realised.coordinate_translations,
-        )
-        for item in reservation.claims
-    )
-    expected_occupied_start = min(
-        project_reservation_coordinate(
-            item.allocation_coordinate,
-            allocation_axis,
-            item.member_id,
-            realised.coordinate_translations,
-        )
-        for item in reservation.claims
-    )
-    expected_occupied_end = max(
-        project_reservation_coordinate(
-            item.allocation_coordinate,
-            allocation_axis,
-            item.member_id,
-            realised.coordinate_translations,
-        )
-        for item in reservation.claims
-    )
+    projected = _projected_claim_bounds(reservation, realised.coordinate_translations)
     expected_capacity = realised.available_width - reservation.minimum_width
     expected_negative = realised.occupied_start - (
         realised.region_start + reservation.negative_side_clearance
@@ -2269,8 +2253,8 @@ def _validate_reservation_realisation(
     )
     expected_coordinate = (realised.occupied_start + realised.occupied_end) / 2
     if (
-        realised.allocation_axis is not allocation_axis
-        or realised.longitudinal_axis is not longitudinal_axis
+        realised.allocation_axis is not projected.allocation_axis
+        or realised.longitudinal_axis is not projected.longitudinal_axis
         or realised.coordinate_regime is not CoordinateRegime.LAYOUT_CANVAS
         or not _same_measurement(realised.required_width, reservation.minimum_width)
         or not _same_measurement(realised.capacity_slack, expected_capacity)
@@ -2278,11 +2262,11 @@ def _validate_reservation_realisation(
         or not _same_measurement(realised.positive_side_slack, expected_positive)
         or not _same_measurement(realised.coordinate, expected_coordinate)
         or not _same_measurement(
-            realised.longitudinal_start, expected_longitudinal_start
+            realised.longitudinal_start, projected.longitudinal_start
         )
-        or not _same_measurement(realised.longitudinal_end, expected_longitudinal_end)
-        or not _same_measurement(realised.occupied_start, expected_occupied_start)
-        or not _same_measurement(realised.occupied_end, expected_occupied_end)
+        or not _same_measurement(realised.longitudinal_end, projected.longitudinal_end)
+        or not _same_measurement(realised.occupied_start, projected.occupied_start)
+        or not _same_measurement(realised.occupied_end, projected.occupied_end)
     ):
         raise ValueError("realised reservation is inconsistent with its reservation")
     _validate_blocker_ids(plan, reservation, realised)
@@ -2707,6 +2691,63 @@ def expected_convergence_foreign_references(
     return {item.id: tuple(foreign[item.id]) for item in plan.convergence_plans}
 
 
+def _finalise_reservation_ledger(
+    plan: RoutePlan,
+    graph: MetroGraph,
+    *,
+    canvas_width: float | None = None,
+    canvas_height: float | None = None,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+) -> RoutePlan:
+    exit_foreign = expected_exit_turn_foreign_references(plan)
+    exit_turn_plans = tuple(
+        replace(item, foreign_reference_ids=exit_foreign[item.id])
+        for item in plan.exit_turn_plans
+    )
+    convergence_foreign = expected_convergence_foreign_references(plan)
+    convergence_plans = tuple(
+        replace(item, foreign_reference_ids=convergence_foreign[item.id])
+        for item in plan.convergence_plans
+    )
+    reference_ids_by_system: defaultdict[RouteSystemId, list[SharedReferenceId]] = (
+        defaultdict(list)
+    )
+    demand_ids_by_system: defaultdict[RouteSystemId, list[DemandId]] = defaultdict(list)
+    reservation_ids_by_system: defaultdict[RouteSystemId, list[RouteReservationId]] = (
+        defaultdict(list)
+    )
+    for reference in plan.shared_references:
+        reference_ids_by_system[reference.system_id].append(reference.id)
+    for demand in plan.demands:
+        demand_ids_by_system[demand.system_id].append(demand.id)
+    for reservation in plan.reservations:
+        reservation_ids_by_system[reservation.system_id].append(reservation.id)
+    systems = tuple(
+        replace(
+            system,
+            shared_reference_ids=tuple(reference_ids_by_system[system.id]),
+            demand_ids=tuple(demand_ids_by_system[system.id]),
+            reservation_ids=tuple(reservation_ids_by_system[system.id]),
+        )
+        for system in plan.systems
+    )
+    realised_reservations = _realise_all(
+        graph,
+        plan.reservations,
+        canvas_width,
+        canvas_height,
+        coordinate_translations,
+    )
+    return replace(
+        plan,
+        systems=systems,
+        exit_turn_plans=exit_turn_plans,
+        convergence_plans=convergence_plans,
+        realised_reservations=realised_reservations,
+        reservation_diagnostics=_diagnostics(plan.reservations, realised_reservations),
+    )
+
+
 def attach_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
@@ -2731,64 +2772,17 @@ def attach_route_reservations(
     )
     references = plan.shared_references + observed_references
     demands = plan.demands + observed_demands
-    realised = _realise_all(graph, reservations, canvas_width, canvas_height)
     plan_with_corridors = replace(
         plan,
         shared_references=references,
         demands=demands,
         reservations=reservations,
-        realised_reservations=realised,
     )
-    foreign_references = expected_exit_turn_foreign_references(plan_with_corridors)
-    exit_turn_plans = tuple(
-        replace(
-            item,
-            foreign_reference_ids=foreign_references[item.id],
-        )
-        for item in plan.exit_turn_plans
-    )
-    convergence_foreign_references = expected_convergence_foreign_references(
-        plan_with_corridors
-    )
-    convergence_plans = tuple(
-        replace(
-            item,
-            foreign_reference_ids=convergence_foreign_references[item.id],
-        )
-        for item in plan.convergence_plans
-    )
-    reference_ids_by_system: defaultdict[RouteSystemId, list[SharedReferenceId]] = (
-        defaultdict(list)
-    )
-    demand_ids_by_system: defaultdict[RouteSystemId, list[DemandId]] = defaultdict(list)
-    reservation_ids_by_system: defaultdict[RouteSystemId, list[RouteReservationId]] = (
-        defaultdict(list)
-    )
-    for reference in references:
-        reference_ids_by_system[reference.system_id].append(reference.id)
-    for demand in demands:
-        demand_ids_by_system[demand.system_id].append(demand.id)
-    for reservation in reservations:
-        reservation_ids_by_system[reservation.system_id].append(reservation.id)
-    systems = tuple(
-        replace(
-            system,
-            shared_reference_ids=tuple(reference_ids_by_system[system.id]),
-            demand_ids=tuple(demand_ids_by_system[system.id]),
-            reservation_ids=tuple(reservation_ids_by_system[system.id]),
-        )
-        for system in plan.systems
-    )
-    return replace(
-        plan,
-        systems=systems,
-        exit_turn_plans=exit_turn_plans,
-        convergence_plans=convergence_plans,
-        shared_references=references,
-        demands=demands,
-        reservations=reservations,
-        realised_reservations=realised,
-        reservation_diagnostics=_diagnostics(reservations, realised),
+    return _finalise_reservation_ledger(
+        plan_with_corridors,
+        graph,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
     )
 
 
@@ -2810,7 +2804,7 @@ def realise_route_reservations(
             ),
             (),
         )
-    realised = _realise_all(
+    realised_reservations = _realise_all(
         graph,
         plan.reservations,
         canvas_width,
@@ -2819,8 +2813,8 @@ def realise_route_reservations(
     )
     return replace(
         plan,
-        realised_reservations=realised,
-        reservation_diagnostics=_diagnostics(plan.reservations, realised),
+        realised_reservations=realised_reservations,
+        reservation_diagnostics=_diagnostics(plan.reservations, realised_reservations),
     )
 
 
@@ -2899,56 +2893,10 @@ def adopt_route_reservation_ledger(
         demands=demands,
         reservations=reservations,
     )
-    exit_foreign = expected_exit_turn_foreign_references(preliminary)
-    convergence_foreign = expected_convergence_foreign_references(preliminary)
-    exit_turn_plans = tuple(
-        replace(item, foreign_reference_ids=exit_foreign[item.id])
-        for item in exit_turn_plans
-    )
-    convergence_plans = tuple(
-        replace(item, foreign_reference_ids=convergence_foreign[item.id])
-        for item in convergence_plans
-    )
-    reference_ids_by_system: defaultdict[RouteSystemId, list[SharedReferenceId]] = (
-        defaultdict(list)
-    )
-    demand_ids_by_system: defaultdict[RouteSystemId, list[DemandId]] = defaultdict(list)
-    reservation_ids_by_system: defaultdict[RouteSystemId, list[RouteReservationId]] = (
-        defaultdict(list)
-    )
-    for reference in shared_references:
-        reference_ids_by_system[reference.system_id].append(reference.id)
-    for demand in demands:
-        demand_ids_by_system[demand.system_id].append(demand.id)
-    for reservation in reservations:
-        reservation_ids_by_system[reservation.system_id].append(reservation.id)
-    systems = tuple(
-        replace(
-            item,
-            shared_reference_ids=tuple(reference_ids_by_system[item.id]),
-            demand_ids=tuple(demand_ids_by_system[item.id]),
-            reservation_ids=tuple(reservation_ids_by_system[item.id]),
-        )
-        for item in plan.systems
-    )
-    realised = _realise_all(
+    return _finalise_reservation_ledger(
+        preliminary,
         graph,
-        reservations,
-        None,
-        None,
-        coordinate_translations,
-    )
-    return replace(
-        plan,
-        systems=systems,
-        exit_turn_plans=exit_turn_plans,
-        fan_plans=frozen.fan_plans,
-        convergence_plans=convergence_plans,
-        shared_references=shared_references,
-        demands=demands,
-        reservations=reservations,
-        realised_reservations=realised,
-        reservation_diagnostics=_diagnostics(reservations, realised),
+        coordinate_translations=coordinate_translations,
     )
 
 
@@ -2963,6 +2911,34 @@ def _project_point(
     )
 
 
+def _project_shared_coordinate(
+    value: float,
+    axis: DemandAxis,
+    member_ids: tuple[EmissionMemberId, ...],
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> float:
+    projected = tuple(
+        project_reservation_coordinate(value, axis, member_id, translations)
+        for member_id in member_ids
+    )
+    if not projected or any(
+        abs(item - projected[0]) > SAME_COORD_TOLERANCE for item in projected[1:]
+    ):
+        raise ValueError("settlement separates shared exit-turn geometry")
+    return projected[0]
+
+
+def _project_shared_point(
+    point: tuple[float, float],
+    member_ids: tuple[EmissionMemberId, ...],
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> tuple[float, float]:
+    return (
+        _project_shared_coordinate(point[0], DemandAxis.X, member_ids, translations),
+        _project_shared_coordinate(point[1], DemandAxis.Y, member_ids, translations),
+    )
+
+
 def _project_exit_turn_plan(
     plan: ExitTurnPlan,
     translations: tuple[ReservationCoordinateTranslation, ...],
@@ -2970,17 +2946,17 @@ def _project_exit_turn_plan(
     axes = tuple(
         replace(
             axis,
-            coordinate=project_reservation_coordinate(
+            coordinate=_project_shared_coordinate(
                 axis.coordinate,
                 axis.axis,
-                axis.claimant_member_ids[0],
+                axis.claimant_member_ids,
                 translations,
             ),
             fixed_anchor_coordinate=(
-                project_reservation_coordinate(
+                _project_shared_coordinate(
                     axis.fixed_anchor_coordinate,
                     axis.axis,
-                    axis.claimant_member_ids[0],
+                    axis.claimant_member_ids,
                     translations,
                 )
                 if axis.fixed_anchor_coordinate is not None
@@ -3013,14 +2989,14 @@ def _project_exit_turn_plan(
     lane_transitions = tuple(
         replace(
             item,
-            source_point=_project_point(
+            source_point=_project_shared_point(
                 item.source_point,
-                item.claimant_member_ids[0],
+                item.claimant_member_ids,
                 translations,
             ),
-            target_point=_project_point(
+            target_point=_project_shared_point(
                 item.target_point,
-                item.claimant_member_ids[0],
+                item.claimant_member_ids,
                 translations,
             ),
         )
