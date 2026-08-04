@@ -275,16 +275,6 @@ with the stations and ports they contain. Section sizes, a station's place
 inside its section, plan frames, lane order, port sides, and author pins are
 all frozen inputs.
 
-Each pass visits every adjacent-index boundary once in ascending order.
-Translating everything from boundary `b` onward widens `b` by exactly that
-amount, leaves the blockers before `b` stationary, and moves the blockers on
-both sides of any later boundary together. Boundaries therefore do not
-interfere, no separation ever decreases, and the pass is finite in the number
-of boundaries rather than iterating toward a fixpoint. A second pass becomes
-reachable only when the extra width let the router admit a further line into a
-bundle crossing that corridor, raising its demand; `settlement_pass_bound`
-bounds that escalation by the number of lines the graph defines.
-
 Two residues are outside what row and column offsets can reach, both measured
 rather than assumed. Canvas-side corridors are bounded on one side by the canvas
 edge, so closing one means growing a margin, which is a different translation

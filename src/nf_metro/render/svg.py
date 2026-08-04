@@ -28,7 +28,10 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     graph_offset_step,
 )
-from nf_metro.layout.envelope_settlement import settle_route_envelopes
+from nf_metro.layout.envelope_settlement import (
+    attach_compatibility_exit_diagnostics,
+    settle_route_envelopes,
+)
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
@@ -834,6 +837,7 @@ def _settle_render_geometry(
         station_offsets, routes, route_plan = _resettle()
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
+    route_plan = attach_compatibility_exit_diagnostics(route_plan, settlement)
     assert_reservations_are_settled(
         graph, route_plan, settlement, strict=effective_strict
     )

@@ -453,6 +453,51 @@ def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
     assert settle_route_envelopes(graph, plan).translations == ()
 
 
+COMPATIBILITY_SYSTEMS = (
+    TOPOLOGIES / "exit_run_three_drop_columns.mmd",
+    TOPOLOGIES / "merge_around_below_leftmost.mmd",
+    TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
+    ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+    TOPOLOGIES / "merge_bottom_row_bypass.mmd",
+    TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
+    TOPOLOGIES / "funcprofiler_upstream.mmd",
+    TOPOLOGIES / "merge_right_entry.mmd",
+    ROOT / "examples" / "genomeassembly.mmd",
+    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+)
+
+
+@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
+def test_every_compatibility_system_is_attributed_in_the_published_plan(
+    path: Path,
+) -> None:
+    """#1660 lets a system stay on compatibility only with evidence naming a
+    separate owner, so that evidence has to reach the plan a consumer reads."""
+    observed = _rendered_plan(path, permissive=True)
+    published = [
+        item
+        for item in observed.route_plan.diagnostics
+        if item.code == "convergence-settlement-exit"
+    ]
+    assert published
+    for item in published:
+        assert item.blocking is False
+        assert "#1658" in item.message
+        assert "owns the decision" in item.message
+
+
+def test_a_demand_pinned_by_the_authored_grid_fails_the_strict_path() -> None:
+    """An arrangement no offset can satisfy is rejected, not drawn through."""
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    pinned = [item for item in settlement.shortfalls if item.pinned_section_ids]
+    assert pinned, "fixture no longer exercises an author-pinned shortfall"
+    for item in pinned:
+        for section_id in item.pinned_section_ids:
+            assert graph.layout_provenance.author_owns_grid(section_id)
+
+
 def test_a_compatibility_system_with_adequate_corridors_names_its_owner() -> None:
     graph, plan = _observe(TOPOLOGIES / "merge_bottom_row_bypass.mmd")
     settlement = settle_route_envelopes(graph, plan)

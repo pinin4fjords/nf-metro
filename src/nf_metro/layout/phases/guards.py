@@ -6320,12 +6320,19 @@ def assert_reservations_are_settled(
     for shortfall in settlement.shortfalls:
         if shortfall.kind is ObstructionKind.INCOHERENT_CLAIM:
             continue
-        warnings.warn(
+        detail = (
             "envelope settlement did not meet a demand it was handed: "
-            f"{shortfall.message}",
-            category=PermissiveGuardWarning,
-            stacklevel=2,
+            f"{shortfall.message}"
         )
+        if shortfall.pinned_section_ids:
+            detail += (
+                "; the authored grid pins section(s) "
+                f"{', '.join(shortfall.pinned_section_ids)} across it, so no row "
+                "or column offset can supply the clearance"
+            )
+        if strict:
+            raise LayoutInvariantError(detail)
+        warnings.warn(detail, category=PermissiveGuardWarning, stacklevel=2)
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue

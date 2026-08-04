@@ -36,12 +36,16 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
 from nf_metro.layout.geometry import shift_section
-from nf_metro.layout.route_plan import EmissionMemberId, RoutePlan
+from nf_metro.layout.route_plan import (
+    EmissionMemberId,
+    RoutePlan,
+    RoutePlanDiagnostic,
+)
 from nf_metro.layout.route_reservations import (
     SECTION_HEADER_BLOCKER,
     SECTION_LEFT_BLOCKER,
@@ -85,6 +89,8 @@ class SettlementTranslation:
     reservation_id: RouteReservationId
     claimant_member_ids: tuple[EmissionMemberId, ...]
     blocker_ids: tuple[str, ...]
+    section_ids: tuple[str, ...]
+    reservation_ids: tuple[RouteReservationId, ...]
 
     @property
     def message(self) -> str:
@@ -93,7 +99,9 @@ class SettlementTranslation:
         return (
             f"{self.axis.value} boundary {self.boundary} widened by "
             f"{self.amount:.2f}px for the corridor claimed by {claimants}, "
-            f"held from below by {blockers}"
+            f"held from below by {blockers}; it moved "
+            f"{len(self.section_ids)} section(s) and settled "
+            f"{len(self.reservation_ids)} claim(s)"
         )
 
 
@@ -148,12 +156,22 @@ class CompatibilityOwnership:
 
     @property
     def message(self) -> str:
+        if self.worst_capacity_slack < -COORD_TOLERANCE:
+            fit = (
+                f"its tightest of {self.corridor_count} reserved corridor(s) is "
+                f"still {-self.worst_capacity_slack:.2f}px short, which "
+                f"settlement has attributed separately"
+            )
+        else:
+            fit = (
+                f"its {self.corridor_count} reserved corridor(s) all fit, the "
+                f"tightest with {self.worst_capacity_slack:.2f}px to spare, so "
+                f"envelope allocation is not what limits it"
+            )
         return (
             f"route system {self.system_id} stays on compatibility for "
-            f"{self.convergence_reason!r}, but its {self.corridor_count} "
-            f"reserved corridor(s) all fit, the tightest with "
-            f"{self.worst_capacity_slack:.2f}px to spare.  Envelope allocation "
-            f"is not what limits it; {self.owner} owns the decision it needs."
+            f"{self.convergence_reason!r}: {fit}.  {self.owner} owns the "
+            f"decision it needs."
         )
 
 
@@ -172,6 +190,7 @@ class SettlementShortfall:
     required_width: float
     available_width: float
     kind: ObstructionKind | None
+    pinned_section_ids: tuple[str, ...] = ()
 
     @property
     def message(self) -> str:
@@ -201,19 +220,27 @@ class _Axis:
     boundary_of: Callable[[RouteReservation], int]
     start_index: Callable[[Section], int]
     blocker_prefix: str
-    translate: Callable[[MetroGraph, int, float], None]
+    translate: Callable[[MetroGraph, int, float], tuple[str, ...]]
 
 
-def _translate_rows(graph: MetroGraph, boundary: int, amount: float) -> None:
-    for section in graph.sections.values():
+def _translate_rows(graph: MetroGraph, boundary: int, amount: float) -> tuple[str, ...]:
+    moved = []
+    for key, section in graph.sections.items():
         if section.grid_row >= boundary:
             shift_section(graph, section, dy=amount)
+            moved.append(key)
+    return tuple(sorted(moved))
 
 
-def _translate_columns(graph: MetroGraph, boundary: int, amount: float) -> None:
-    for section in graph.sections.values():
+def _translate_columns(
+    graph: MetroGraph, boundary: int, amount: float
+) -> tuple[str, ...]:
+    moved = []
+    for key, section in graph.sections.items():
         if section.grid_col >= boundary:
             shift_section(graph, section, dx=amount)
+            moved.append(key)
+    return tuple(sorted(moved))
 
 
 _ROW_AXIS = _Axis(
@@ -349,7 +376,12 @@ def _settle_axis(
             continue
         deficit, reservation, blockers = max(claims, key=lambda item: item[0])
         amount = math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
-        axis.translate(graph, boundary, amount)
+        moved = axis.translate(graph, boundary, amount)
+        if not moved:
+            raise ValueError(
+                f"{axis.axis.value} boundary {boundary} has no translation "
+                "owner: nothing sits at or beyond it to move"
+            )
         translations.append(
             SettlementTranslation(
                 axis.axis,
@@ -358,6 +390,8 @@ def _settle_axis(
                 reservation.id,
                 reservation.claimant_member_ids,
                 blockers,
+                moved,
+                tuple(item[1].id for item in claims),
             )
         )
     return translations, obstructions
@@ -367,6 +401,33 @@ def _settle_axis(
 # corridors are shown to fit.  Plan-driven emission is the programme stage that
 # consolidates those channel and lane decisions.
 _COMPATIBILITY_OWNER = "plan-driven inter-section emission (#1658)"
+
+# Each compatibility reason the convergence planner can record, mapped to the
+# emission decision the system is actually short of.  An unmapped reason falls
+# back to the generic owner rather than being dropped.
+_COMPATIBILITY_OWNER_BY_REASON = {
+    "planned convergence trunks require one shared channel decision": (
+        "plan-driven shared-channel emission (#1658)"
+    ),
+    "planned convergence feeder approaches require one shared channel decision": (
+        "plan-driven shared-channel emission (#1658)"
+    ),
+    "planned fan arms require opposing opening channels": (
+        "plan-driven opposing-opening emission (#1658)"
+    ),
+    "planned convergence corridor conflicts with unowned route-system member": (
+        "plan-driven whole-system emission (#1658)"
+    ),
+    "planned convergence corridor conflicts with unowned route-system members": (
+        "plan-driven whole-system emission (#1658)"
+    ),
+    "chained same-line convergences require one shared system settlement": (
+        "plan-driven chained-convergence emission (#1658)"
+    ),
+    "planned convergence approaches and trunks have no settlement room": (
+        "plan-driven chained-convergence emission (#1658)"
+    ),
+}
 
 
 def _compatibility_ownership(
@@ -390,12 +451,36 @@ def _compatibility_ownership(
             continue
         system_id = str(convergence.system_id)
         slacks = slack_by_system.get(system_id)
-        if not slacks or min(slacks) < -COORD_TOLERANCE:
+        if not slacks:
             continue
         found[system_id] = CompatibilityOwnership(
-            system_id, reason, len(slacks), min(slacks), _COMPATIBILITY_OWNER
+            system_id,
+            reason,
+            len(slacks),
+            min(slacks),
+            _COMPATIBILITY_OWNER_BY_REASON.get(reason, _COMPATIBILITY_OWNER),
         )
     return tuple(found[key] for key in sorted(found))
+
+
+def attach_compatibility_exit_diagnostics(
+    plan: RoutePlan, settlement: EnvelopeSettlement
+) -> RoutePlan:
+    """Publish settlement's compatibility attribution into *plan*.
+
+    A record nobody can read is not evidence.  Emitting these as non-blocking
+    plan diagnostics is what lets the emission stage that owns these decisions
+    find them without re-deriving the measurement.
+    """
+    if not settlement.compatibility_ownership:
+        return plan
+    added = tuple(
+        RoutePlanDiagnostic(
+            None, "convergence-settlement-exit", item.message, blocking=False
+        )
+        for item in settlement.compatibility_ownership
+    )
+    return replace(plan, diagnostics=plan.diagnostics + added)
 
 
 def _verify_against_input_ledger(
@@ -410,6 +495,10 @@ def _verify_against_input_ledger(
     claims, so a deficit found there answers a different question.
     """
     kind_by_id = {item.reservation_id: item.kind for item in obstructions}
+    blockers_by_id = {
+        item.reservation_id: item.blocking_section_ids for item in obstructions
+    }
+    provenance = graph.layout_provenance
     shortfalls: list[SettlementShortfall] = []
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
@@ -417,6 +506,11 @@ def _verify_against_input_ledger(
         realised = realise_reservation(graph, reservation)
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
             continue
+        pinned = tuple(
+            section_id
+            for section_id in blockers_by_id.get(reservation.id, ())
+            if provenance.author_owns_grid(section_id)
+        )
         shortfalls.append(
             SettlementShortfall(
                 reservation.id,
@@ -424,6 +518,7 @@ def _verify_against_input_ledger(
                 realised.required_width,
                 realised.available_width,
                 kind_by_id.get(reservation.id),
+                pinned,
             )
         )
     return tuple(shortfalls)
