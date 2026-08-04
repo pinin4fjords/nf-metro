@@ -4130,7 +4130,7 @@ def _iter_merge_convergences(
     """
     by_key = {(r.edge.source, r.edge.target, r.line_id): r for r in routes}
     topology = build_route_topology_query(graph)
-    merge_ports = (
+    merge_ports: tuple[tuple[str, str | None], ...] = (
         tuple(
             (convergence.junction_id, convergence.entry_port_id)
             for convergence in topology.convergences
