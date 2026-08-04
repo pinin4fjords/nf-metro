@@ -26,8 +26,8 @@ import math
 from collections.abc import Iterable
 from typing import NamedTuple
 
-from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
-from nf_metro.layout.routing.common import Direction, bundle_width
+from nf_metro.layout.constants import COORD_TOLERANCE_FINE, CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.routing.common import Direction, bundle_width, is_orthogonal_turn
 
 # ---------------------------------------------------------------------------
 # Primitive: reversed (inner/outer) offset
@@ -130,6 +130,36 @@ def resolve_curve_radii(
         )
         for corner_idx in range(n_corners)
     ]
+
+
+def axis_segment_has_straight_run(
+    points: list[tuple[float, float]],
+    desired_radii: list[float] | None,
+    start_rank: int,
+    end_rank: int,
+) -> bool:
+    """Whether an axis-aligned waypoint span contains non-corner geometry.
+
+    ``start_rank`` and ``end_rank`` index the span's endpoint waypoints.  Each
+    orthogonal turn at an endpoint consumes its effective tangent radius from
+    the span.  When those tangents meet, the whole span is rendered as corner
+    arcs and no straight corridor remains to reserve or materialise.
+    """
+    if not 0 <= start_rank < end_rank < len(points):
+        raise IndexError("axis segment ranks are outside the routed path")
+    start, end = points[start_rank], points[end_rank]
+    length = math.hypot(end[0] - start[0], end[1] - start[1])
+    resolved = resolve_curve_radii(points, desired_radii)
+    consumed = 0.0
+    if start_rank > 0 and is_orthogonal_turn(
+        points[start_rank - 1], start, points[start_rank + 1]
+    ):
+        consumed += resolved[start_rank - 1]
+    if end_rank < len(points) - 1 and is_orthogonal_turn(
+        points[end_rank - 1], end, points[end_rank + 1]
+    ):
+        consumed += resolved[end_rank - 1]
+    return length > consumed + COORD_TOLERANCE_FINE
 
 
 class CornerTangent(NamedTuple):

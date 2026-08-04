@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import NewType, TypeAlias
+from typing import TYPE_CHECKING, NewType, TypeAlias
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -48,6 +48,7 @@ from nf_metro.layout.route_plan import (
     reservation_decision_refs,
 )
 from nf_metro.layout.routing.common import Direction, RoutedPath, apply_route_offsets
+from nf_metro.layout.routing.corners import axis_segment_has_straight_run
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.parser.model import MetroGraph, Section
 from nf_metro.parser.provenance import (
@@ -55,6 +56,9 @@ from nf_metro.parser.provenance import (
     GridCell,
 )
 from nf_metro.parser.route_topology import ConnectorId
+
+if TYPE_CHECKING:
+    from nf_metro.layout.envelope_settlement import EnvelopeCapacityLimitation
 
 RouteReservationId = NewType("RouteReservationId", str)
 
@@ -147,6 +151,7 @@ class RouteReservationClaim:
     longitudinal_start: float
     longitudinal_end: float
     allocation_coordinate: float
+    endpoint_anchor_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -166,6 +171,8 @@ class RouteReservationClaim:
             raise ValueError("reservation claim coordinates must be finite")
         if self.longitudinal_end - self.longitudinal_start <= COORD_TOLERANCE:
             raise ValueError("reservation claim requires a positive travel interval")
+        if len(set(self.endpoint_anchor_ids)) != len(self.endpoint_anchor_ids):
+            raise ValueError("reservation claim endpoint anchors must be unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,7 +313,11 @@ class RouteReservation:
 
 @dataclass(frozen=True, slots=True)
 class RealisedRouteReservation:
-    """Final canvas measurement of one symbolic corridor reservation."""
+    """Final canvas measurement of one symbolic corridor reservation.
+
+    Occupied-bound translations authenticate the final extrema while explicit
+    lane allocations prove each independently settled physical coordinate.
+    """
 
     reservation_id: RouteReservationId
     allocation_axis: DemandAxis
@@ -326,6 +337,8 @@ class RealisedRouteReservation:
     negative_blocker_ids: tuple[str, ...]
     positive_blocker_ids: tuple[str, ...]
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+    occupied_start_translation: float = 0.0
+    occupied_end_translation: float = 0.0
 
     def __post_init__(self) -> None:
         if self.allocation_axis is DemandAxis.BOTH:
@@ -345,6 +358,12 @@ class RealisedRouteReservation:
             raise ValueError("realised available width disagrees with its edges")
         if not self.negative_blocker_ids or not self.positive_blocker_ids:
             raise ValueError("realised corridor requires both boundary blockers")
+        if not math.isfinite(self.occupied_start_translation) or not math.isfinite(
+            self.occupied_end_translation
+        ):
+            raise ValueError(
+                "realised corridor requires finite occupied-bound projections"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -460,7 +479,7 @@ def _is_vertical(first: tuple[float, float], second: tuple[float, float]) -> boo
 
 
 def _maximal_axis_segments(
-    points: Sequence[tuple[float, float]],
+    points: list[tuple[float, float]],
 ) -> tuple[_AxisSegment, ...]:
     segments: list[_AxisSegment] = []
     index = 0
@@ -745,16 +764,56 @@ def _dominant_interior_segment(
 
 
 def _topology_gap_fallback_is_proven(
+    graph: MetroGraph,
     member: EmissionMember,
     segment: _AxisSegment,
     segments: tuple[_AxisSegment, ...],
+    candidates: Sequence[RowGapRegion | ColumnGapRegion],
 ) -> bool:
-    return (
-        segment.orientation is CorridorOrientation.HORIZONTAL
-        and member.family_id
-        in {RouteFamilyId.MERGE_TRUNK, RouteFamilyId.LEFT_ENTRY_WRAP}
-        and _dominant_interior_segment(segment, segments)
+    return _dominant_interior_segment(segment, segments) and (
+        member.family_id is RouteFamilyId.LEFT_ENTRY_WRAP
+        or (
+            member.family_id is RouteFamilyId.MERGE_TRUNK
+            and len(candidates) == 1
+            and _canvas_region_for_segment(graph, segment) is None
+        )
     )
+
+
+def _outer_turn_region(
+    segment: _AxisSegment,
+    segments: tuple[_AxisSegment, ...],
+    span: GridSpan,
+) -> RowGapRegion | ColumnGapRegion | None:
+    if not _dominant_interior_segment(segment, segments):
+        return None
+    allocation_rank = 1 if segment.orientation is CorridorOrientation.HORIZONTAL else 0
+    neighbours = tuple(
+        point[allocation_rank]
+        for point in (segment.before, segment.after)
+        if point is not None
+    )
+    if len(neighbours) != 2:
+        return None
+    if all(value < segment.coordinate - COORD_TOLERANCE for value in neighbours):
+        return (
+            RowGapRegion(span.max_row, span.max_row + 1)
+            if segment.orientation is CorridorOrientation.HORIZONTAL
+            else ColumnGapRegion(span.max_column, span.max_column + 1)
+        )
+    if all(value > segment.coordinate + COORD_TOLERANCE for value in neighbours):
+        if segment.orientation is CorridorOrientation.HORIZONTAL:
+            return (
+                RowGapRegion(span.min_row - 1, span.min_row)
+                if span.min_row > 0
+                else None
+            )
+        return (
+            ColumnGapRegion(span.min_column - 1, span.min_column)
+            if span.min_column > 0
+            else None
+        )
+    return None
 
 
 def _nearest_topology_region(
@@ -902,10 +961,69 @@ def _corridor_region(
             candidates,
         )
         if region is not None:
+            if not isinstance(region, RowGapRegion):
+                raise ValueError("horizontal corridor resolved to a column gap")
+            measurement = _row_region_measurement(
+                graph,
+                region,
+                CorridorMeasurementScope.TOPOLOGY_SPAN,
+                span,
+                segment.span_start,
+                segment.span_end,
+            )
+            canvas_region = _canvas_region_for_segment(graph, segment)
+            if (
+                canvas_region is not None
+                and measurement.end < measurement.start - COORD_TOLERANCE
+            ):
+                return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
             return region, CorridorMeasurementScope.TOPOLOGY_SPAN
-        if candidates and _topology_gap_fallback_is_proven(member, segment, segments):
+        outer_region = (
+            _outer_turn_region(segment, segments, span)
+            if member.family_id is RouteFamilyId.MERGE_TRUNK
+            and _canvas_region_for_segment(graph, segment) is None
+            else None
+        )
+        if outer_region is not None:
+            if not isinstance(outer_region, RowGapRegion):
+                raise ValueError("horizontal outer turn resolved to a column gap")
+            try:
+                _row_region_measurement(
+                    graph,
+                    outer_region,
+                    CorridorMeasurementScope.TOPOLOGY_SPAN,
+                    span,
+                    segment.span_start,
+                    segment.span_end,
+                )
+            except ValueError:
+                pass
+            else:
+                return outer_region, CorridorMeasurementScope.TOPOLOGY_SPAN
+        canvas_region = _canvas_region_for_segment(graph, segment)
+        if canvas_region is not None:
+            return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
+        if candidates and _topology_gap_fallback_is_proven(
+            graph, member, segment, segments, candidates
+        ):
             region = _nearest_topology_region(graph, segment, span, candidates)
             if region is not None:
+                if not isinstance(region, RowGapRegion):
+                    raise ValueError("horizontal fallback resolved to a column gap")
+                measurement = _row_region_measurement(
+                    graph,
+                    region,
+                    CorridorMeasurementScope.TOPOLOGY_SPAN,
+                    span,
+                    segment.span_start,
+                    segment.span_end,
+                )
+                canvas_region = _canvas_region_for_segment(graph, segment)
+                if (
+                    canvas_region is not None
+                    and measurement.end < measurement.start - COORD_TOLERANCE
+                ):
+                    return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
                 return region, CorridorMeasurementScope.TOPOLOGY_SPAN
         observed_region: CorridorRegion | None = _geometric_row_gap(
             graph, segment, span
@@ -926,12 +1044,69 @@ def _corridor_region(
         column_candidates,
     )
     if region is not None:
+        if not isinstance(region, ColumnGapRegion):
+            raise ValueError("vertical corridor resolved to a row gap")
+        measurement = _column_region_measurement(
+            graph,
+            region,
+            CorridorMeasurementScope.TOPOLOGY_SPAN,
+            span,
+            segment.span_start,
+            segment.span_end,
+        )
+        canvas_region = _canvas_region_for_segment(graph, segment)
+        if (
+            canvas_region is not None
+            and measurement.end < measurement.start - COORD_TOLERANCE
+        ):
+            return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
         return region, CorridorMeasurementScope.TOPOLOGY_SPAN
+    outer_region = (
+        _outer_turn_region(segment, segments, span)
+        if member.family_id is RouteFamilyId.MERGE_TRUNK
+        and _canvas_region_for_segment(graph, segment) is None
+        else None
+    )
+    if outer_region is not None:
+        if not isinstance(outer_region, ColumnGapRegion):
+            raise ValueError("vertical outer turn resolved to a row gap")
+        try:
+            _column_region_measurement(
+                graph,
+                outer_region,
+                CorridorMeasurementScope.TOPOLOGY_SPAN,
+                span,
+                segment.span_start,
+                segment.span_end,
+            )
+        except ValueError:
+            pass
+        else:
+            return outer_region, CorridorMeasurementScope.TOPOLOGY_SPAN
+    canvas_region = _canvas_region_for_segment(graph, segment)
+    if canvas_region is not None:
+        return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
     if column_candidates and _topology_gap_fallback_is_proven(
-        member, segment, segments
+        graph, member, segment, segments, column_candidates
     ):
         region = _nearest_topology_region(graph, segment, span, column_candidates)
         if region is not None:
+            if not isinstance(region, ColumnGapRegion):
+                raise ValueError("vertical fallback resolved to a row gap")
+            measurement = _column_region_measurement(
+                graph,
+                region,
+                CorridorMeasurementScope.TOPOLOGY_SPAN,
+                span,
+                segment.span_start,
+                segment.span_end,
+            )
+            canvas_region = _canvas_region_for_segment(graph, segment)
+            if (
+                canvas_region is not None
+                and measurement.end < measurement.start - COORD_TOLERANCE
+            ):
+                return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
             return region, CorridorMeasurementScope.TOPOLOGY_SPAN
     observed_region = _geometric_column_gap(graph, segment, span)
     if observed_region is None:
@@ -1008,6 +1183,63 @@ def _sharing_ids(member: EmissionMember) -> tuple[str, ...]:
     )
 
 
+def _segment_owns_gap_corridor(
+    segment: _AxisSegment,
+    region: CorridorRegion,
+    points: list[tuple[float, float]],
+    desired_radii: list[float] | None,
+) -> bool:
+    return isinstance(region, CanvasRegion) or axis_segment_has_straight_run(
+        points,
+        desired_radii,
+        segment.rank,
+        segment.end_rank + 1,
+    )
+
+
+def _segment_is_allocatable_lane_transition(
+    segment: _AxisSegment,
+    previous: _AxisSegment | None,
+    following: _AxisSegment | None,
+    previous_corridor: tuple[CorridorRegion, CorridorMeasurementScope] | None,
+    following_corridor: tuple[CorridorRegion, CorridorMeasurementScope] | None,
+) -> bool:
+    return (
+        previous is not None
+        and following is not None
+        and previous.end_rank + 1 == segment.rank
+        and segment.end_rank + 1 == following.rank
+        and previous.orientation is following.orientation
+        and previous.orientation is not segment.orientation
+        and previous_corridor is not None
+        and previous_corridor == following_corridor
+    )
+
+
+def _endpoint_segment_owns_canvas(
+    graph: MetroGraph,
+    region: CanvasRegion,
+    coordinate: float,
+    endpoint_anchor_ids: tuple[str, ...],
+) -> bool:
+    for endpoint_id in endpoint_anchor_ids:
+        section_id = graph.stations[endpoint_id].section_id
+        if section_id is None:
+            continue
+        section = graph.sections[section_id]
+        outside = {
+            CanvasSide.TOP: coordinate <= section.bbox_y + COORD_TOLERANCE,
+            CanvasSide.BOTTOM: coordinate
+            >= section.bbox_y + section.bbox_h - COORD_TOLERANCE,
+            CanvasSide.LEFT: coordinate <= section.bbox_x + COORD_TOLERANCE,
+            CanvasSide.RIGHT: coordinate
+            >= section.bbox_x + section.bbox_w - COORD_TOLERANCE,
+        }[region.side]
+        if not outside:
+            return False
+    return True
+
+
 def _observed_claims(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -1035,21 +1267,58 @@ def _observed_claims(
             if connector_id in connector_membership
         )
         span = _connector_span(graph, connector_ids)
-        segments = _maximal_axis_segments(
-            apply_route_offsets(routes[binding.path_rank], station_offsets)
+        route = routes[binding.path_rank]
+        points = apply_route_offsets(route, station_offsets)
+        segments = _maximal_axis_segments(points)
+        corridors = tuple(
+            _corridor_region(graph, segment, segments, span, connector_ids, member)
+            for segment in segments
         )
-        for segment in segments:
+        for segment_index, segment in enumerate(segments):
+            endpoint_anchor_ids = tuple(
+                dict.fromkeys(
+                    (
+                        *((member.source.station_id,) if segment.rank == 0 else ()),
+                        *(
+                            (member.target.station_id,)
+                            if segment.end_rank == len(points) - 2
+                            else ()
+                        ),
+                    )
+                )
+            )
             if (
                 segment.orientation is CorridorOrientation.HORIZONTAL
                 and member.family_id is RouteFamilyId.MERGE_BRANCH
             ):
                 continue
-            corridor = _corridor_region(
-                graph, segment, segments, span, connector_ids, member
-            )
+            corridor = corridors[segment_index]
             if corridor is None:
                 continue
+            allocatable_lane_transition = _segment_is_allocatable_lane_transition(
+                segment,
+                segments[segment_index - 1] if segment_index > 0 else None,
+                (
+                    segments[segment_index + 1]
+                    if segment_index + 1 < len(segments)
+                    else None
+                ),
+                corridors[segment_index - 1] if segment_index > 0 else None,
+                (
+                    corridors[segment_index + 1]
+                    if segment_index + 1 < len(corridors)
+                    else None
+                ),
+            )
             region, measurement_scope = corridor
+            if isinstance(region, CanvasRegion) and not _endpoint_segment_owns_canvas(
+                graph, region, segment.coordinate, endpoint_anchor_ids
+            ):
+                continue
+            if not allocatable_lane_transition and not _segment_owns_gap_corridor(
+                segment, region, points, route.curve_radii
+            ):
+                continue
             kind = (
                 _horizontal_kind(segment, region, member)
                 if segment.orientation is CorridorOrientation.HORIZONTAL
@@ -1070,6 +1339,7 @@ def _observed_claims(
                         segment.span_start,
                         segment.span_end,
                         segment.coordinate,
+                        endpoint_anchor_ids,
                     ),
                     kind,
                     segment.orientation,
@@ -1374,9 +1644,51 @@ def _reservation_order_key(
     )
 
 
+def _lane_continuity_keys(
+    member: EmissionMember,
+) -> frozenset[tuple[str, str, str, str]]:
+    """Exact topology identities that can keep overlapping claims coincident."""
+    return frozenset(
+        (
+            "divergence",
+            divergence_id,
+            member.source.station_id,
+            member.line_id,
+        )
+        for divergence_id in member.divergence_ids
+    ) | frozenset(
+        (
+            "convergence",
+            convergence_id,
+            member.target.station_id,
+            member.line_id,
+        )
+        for convergence_id in member.convergence_ids
+    )
+
+
+_CHANNEL_REFERENCE_KINDS = frozenset(
+    {
+        SharedReferenceKind.TRUNK,
+        SharedReferenceKind.LANDING_SEQUENCE,
+        SharedReferenceKind.FORK_PIVOT,
+    }
+)
+
+
 def _allocate_physical_lanes(
     claims: tuple[RouteReservationClaim, ...],
+    members: Mapping[EmissionMemberId, EmissionMember],
+    references: Iterable[SharedReference] = (),
 ) -> tuple[tuple[RouteReservationLane, ...], float]:
+    reference_ids_by_member: defaultdict[EmissionMemberId, set[SharedReferenceId]] = (
+        defaultdict(set)
+    )
+    for reference in references:
+        if reference.kind not in _CHANNEL_REFERENCE_KINDS:
+            continue
+        for member_id in reference.claimant_member_ids:
+            reference_ids_by_member[member_id].add(reference.id)
     active_by_lane: list[list[RouteReservationClaim]] = []
     claim_indices_by_lane: list[list[int]] = []
     maximum_bundle_width = 0.0
@@ -1390,6 +1702,9 @@ def _allocate_physical_lanes(
         ),
     )
     for claim_index, claim in sweep:
+        member = members[claim.member_id]
+        continuity_keys = _lane_continuity_keys(member)
+        reference_ids = reference_ids_by_member[claim.member_id]
         for active in active_by_lane:
             active[:] = [
                 item
@@ -1401,8 +1716,37 @@ def _allocate_physical_lanes(
                 index
                 for index, active in enumerate(active_by_lane)
                 if active
-                and abs(active[0].allocation_coordinate - claim.allocation_coordinate)
-                <= COORD_TOLERANCE
+                and (
+                    any(
+                        members[item.member_id].line_id == member.line_id
+                        and (
+                            abs(
+                                item.allocation_coordinate - claim.allocation_coordinate
+                            )
+                            <= COORD_TOLERANCE
+                            or bool(
+                                _lane_continuity_keys(
+                                    members[item.member_id]
+                                ).intersection(continuity_keys)
+                            )
+                            or bool(
+                                reference_ids_by_member[item.member_id].intersection(
+                                    reference_ids
+                                )
+                            )
+                        )
+                        for item in active
+                    )
+                    or all(
+                        not _lane_continuity_keys(members[item.member_id])
+                        and not continuity_keys
+                        and abs(
+                            item.allocation_coordinate - claim.allocation_coordinate
+                        )
+                        <= COORD_TOLERANCE
+                        for item in active
+                    )
+                )
             ),
             None,
         )
@@ -1431,6 +1775,107 @@ def _allocate_physical_lanes(
     return lanes, maximum_bundle_width
 
 
+def reservation_claim_lane_coordinates(
+    graph: MetroGraph,
+    reservation: RouteReservation,
+    members: Mapping[EmissionMemberId, EmissionMember],
+) -> tuple[float, ...]:
+    coordinates = [claim.allocation_coordinate for claim in reservation.claims]
+    allocation_rank = (
+        1 if reservation.orientation is CorridorOrientation.HORIZONTAL else 0
+    )
+    for lane in reservation.lanes:
+        pending = set(lane.claim_indices)
+        while pending:
+            component = {pending.pop()}
+            frontier = list(component)
+            while frontier:
+                claim_index = frontier.pop()
+                claim = reservation.claims[claim_index]
+                keys = _lane_continuity_keys(members[claim.member_id])
+                neighbours = {
+                    other_index
+                    for other_index in pending
+                    if min(
+                        claim.longitudinal_end,
+                        reservation.claims[other_index].longitudinal_end,
+                    )
+                    > max(
+                        claim.longitudinal_start,
+                        reservation.claims[other_index].longitudinal_start,
+                    )
+                    + COORD_TOLERANCE
+                    and keys.intersection(
+                        _lane_continuity_keys(
+                            members[reservation.claims[other_index].member_id]
+                        )
+                    )
+                }
+                pending.difference_update(neighbours)
+                component.update(neighbours)
+                frontier.extend(neighbours)
+            if len(component) == 1:
+                continue
+            shared_keys = set.intersection(
+                *(
+                    set(
+                        _lane_continuity_keys(
+                            members[reservation.claims[index].member_id]
+                        )
+                    )
+                    for index in component
+                )
+            )
+            if not shared_keys:
+                continue
+            anchor_coordinates = tuple(
+                (graph.stations[key[2]].x, graph.stations[key[2]].y)[allocation_rank]
+                for key in shared_keys
+            )
+            coordinate = min(
+                (coordinates[index] for index in component),
+                key=lambda item: (
+                    min(abs(item - anchor) for anchor in anchor_coordinates),
+                    item,
+                ),
+            )
+            for index in component:
+                coordinates[index] = coordinate
+    return tuple(coordinates)
+
+
+def _claims_owning_group_canvas(
+    graph: MetroGraph,
+    group: tuple[_ObservedClaim, ...],
+) -> tuple[_ObservedClaim, ...]:
+    first = group[0]
+    if not isinstance(first.region, CanvasRegion):
+        return group
+    canvas_region = first.region
+    measurement = _canvas_region_measurement(
+        graph,
+        canvas_region,
+        min(item.travel_start for item in group),
+        max(item.travel_end for item in group),
+        0.0,
+        0.0,
+    )
+    inner = (
+        measurement.end
+        if canvas_region.side in {CanvasSide.TOP, CanvasSide.LEFT}
+        else measurement.start
+    )
+
+    def owns_canvas(item: _ObservedClaim) -> bool:
+        if not item.claim.endpoint_anchor_ids:
+            return True
+        if canvas_region.side in {CanvasSide.TOP, CanvasSide.LEFT}:
+            return item.coordinate <= inner + COORD_TOLERANCE
+        return item.coordinate >= inner - COORD_TOLERANCE
+
+    return tuple(item for item in group if owns_canvas(item))
+
+
 def _build_symbolic_records(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -1445,6 +1890,9 @@ def _build_symbolic_records(
     system_by_id = {system.id: system for system in plan.systems}
     records: list[tuple[SharedReference, SymbolicDemand, RouteReservation]] = []
     for group in groups:
+        group = _claims_owning_group_canvas(graph, group)
+        if not group:
+            continue
         first = group[0]
         if any(item.measurement_scope is not first.measurement_scope for item in group):
             raise ValueError("one reservation cannot mix blocker measurement scopes")
@@ -1468,7 +1916,11 @@ def _build_symbolic_records(
             )
         )
         claims = tuple(item.claim for item in ordered_group)
-        lanes, bundle_width = _allocate_physical_lanes(claims)
+        lanes, bundle_width = _allocate_physical_lanes(
+            claims,
+            {item.member.id: item.member for item in ordered_group},
+            plan.shared_references,
+        )
         connector_set = {
             connector_id for item in group for connector_id in item.connector_ids
         }
@@ -1619,11 +2071,95 @@ def _canvas_region_measurement(
     return _RegionMeasurement(start, canvas_width, negative, ("canvas:right",))
 
 
+def canvas_inner_boundary(
+    graph: MetroGraph,
+    reservation: RouteReservation,
+) -> tuple[float, tuple[str, ...]]:
+    """Measure the finite section-side edge of one canvas corridor."""
+    if not isinstance(reservation.region, CanvasRegion):
+        raise ValueError("canvas inner-boundary measurement requires a canvas region")
+    measurement = _canvas_region_measurement(
+        graph,
+        reservation.region,
+        min(claim.longitudinal_start for claim in reservation.claims),
+        max(claim.longitudinal_end for claim in reservation.claims),
+        0.0,
+        0.0,
+    )
+    if reservation.region.side in {CanvasSide.TOP, CanvasSide.LEFT}:
+        return measurement.end, measurement.positive_blocker_ids
+    return measurement.start, measurement.negative_blocker_ids
+
+
+def _settled_blocker_coordinate(
+    graph: MetroGraph,
+    blocker_id: str,
+    canvas_width: float | None,
+    canvas_height: float | None,
+) -> float:
+    prefix, item_id = blocker_id.split(":", 1)
+    if prefix == "canvas":
+        coordinates = {
+            "top": 0.0,
+            "left": 0.0,
+            "bottom": canvas_height,
+            "right": canvas_width,
+        }
+        coordinate = coordinates.get(item_id)
+        if coordinate is None:
+            raise ValueError("canvas blocker requires its settled extent")
+        return coordinate
+    try:
+        section = graph.sections[item_id]
+    except KeyError as error:
+        raise ValueError("settled reservation blocker section is missing") from error
+    if prefix == "section-bottom":
+        return section.bbox_y + section.bbox_h
+    if prefix == "section-header":
+        return section.bbox_y
+    if prefix == "section-right":
+        return section.bbox_x + section.bbox_w
+    if prefix == "section-left":
+        return section.bbox_x
+    raise ValueError("settled reservation blocker kind is invalid")
+
+
+def _settled_blocker_measurement(
+    graph: MetroGraph,
+    realised: RealisedRouteReservation,
+    canvas_width: float | None,
+    canvas_height: float | None,
+) -> _RegionMeasurement:
+    negative_coordinates = tuple(
+        _settled_blocker_coordinate(graph, item, canvas_width, canvas_height)
+        for item in realised.negative_blocker_ids
+    )
+    positive_coordinates = tuple(
+        _settled_blocker_coordinate(graph, item, canvas_width, canvas_height)
+        for item in realised.positive_blocker_ids
+    )
+    if any(
+        abs(item - negative_coordinates[0]) > COORD_TOLERANCE
+        for item in negative_coordinates[1:]
+    ) or any(
+        abs(item - positive_coordinates[0]) > COORD_TOLERANCE
+        for item in positive_coordinates[1:]
+    ):
+        raise ValueError("settled reservation blocker ownership diverged")
+    return _RegionMeasurement(
+        negative_coordinates[0],
+        positive_coordinates[0],
+        realised.negative_blocker_ids,
+        realised.positive_blocker_ids,
+    )
+
+
 def _realise_one(
     graph: MetroGraph,
     reservation: RouteReservation,
     canvas_width: float | None,
     canvas_height: float | None,
+    blocker_realisation: RealisedRouteReservation | None = None,
 ) -> RealisedRouteReservation | None:
     if isinstance(reservation.region, CanvasRegion) and (
         canvas_width is None or canvas_height is None
@@ -1633,7 +2169,14 @@ def _realise_one(
     longitudinal_end = max(item.longitudinal_end for item in reservation.claims)
     occupied_start = min(item.allocation_coordinate for item in reservation.claims)
     occupied_end = max(item.allocation_coordinate for item in reservation.claims)
-    if isinstance(reservation.region, RowGapRegion):
+    if blocker_realisation is not None:
+        measurement = _settled_blocker_measurement(
+            graph,
+            blocker_realisation,
+            canvas_width,
+            canvas_height,
+        )
+    elif isinstance(reservation.region, RowGapRegion):
         measurement = _row_region_measurement(
             graph,
             reservation.region,
@@ -1692,9 +2235,21 @@ def _realise_all(
     reservations: tuple[RouteReservation, ...],
     canvas_width: float | None,
     canvas_height: float | None,
+    blocker_realisations: dict[RouteReservationId, RealisedRouteReservation]
+    | None = None,
 ) -> tuple[RealisedRouteReservation, ...]:
     realised = (
-        _realise_one(graph, reservation, canvas_width, canvas_height)
+        _realise_one(
+            graph,
+            reservation,
+            canvas_width,
+            canvas_height,
+            (
+                blocker_realisations.get(reservation.id)
+                if blocker_realisations is not None
+                else None
+            ),
+        )
         for reservation in reservations
     )
     return tuple(item for item in realised if item is not None)
@@ -1761,6 +2316,57 @@ def _reservation_axes(
     return DemandAxis.X, DemandAxis.Y
 
 
+def _adjacent_outer_turn_region_is_proven(
+    reservation: RouteReservation,
+    members: Mapping[EmissionMemberId, EmissionMember],
+) -> bool:
+    region = reservation.region
+    if isinstance(region, RowGapRegion):
+        adjacent = reservation.orientation is CorridorOrientation.HORIZONTAL and (
+            (
+                region.upper_row == reservation.span.max_row
+                and region.lower_row == reservation.span.max_row + 1
+            )
+            or (
+                region.lower_row == reservation.span.min_row
+                and region.upper_row == reservation.span.min_row - 1
+            )
+        )
+    elif isinstance(region, ColumnGapRegion):
+        adjacent = reservation.orientation is CorridorOrientation.VERTICAL and (
+            (
+                region.left_column == reservation.span.max_column
+                and region.right_column == reservation.span.max_column + 1
+            )
+            or (
+                region.right_column == reservation.span.min_column
+                and region.left_column == reservation.span.min_column - 1
+            )
+        )
+    else:
+        adjacent = False
+    kind_matches_axis = (
+        reservation.orientation is CorridorOrientation.HORIZONTAL
+        and reservation.kind is CorridorKind.BYPASS_BAND
+    ) or (
+        reservation.orientation is CorridorOrientation.VERTICAL
+        and reservation.kind is CorridorKind.INTER_COLUMN_CHANNEL
+    )
+    return (
+        adjacent
+        and kind_matches_axis
+        and reservation.route_family_ids == (RouteFamilyId.MERGE_TRUNK,)
+        and all(
+            claim.segment_rank > 0
+            and not claim.endpoint_anchor_ids
+            and members[claim.member_id].family_id is RouteFamilyId.MERGE_TRUNK
+            and members[claim.member_id].divergence_ids
+            and members[claim.member_id].convergence_ids
+            for claim in reservation.claims
+        )
+    )
+
+
 def _validate_reservation_record(
     plan: RoutePlan,
     reservation: RouteReservation,
@@ -1806,7 +2412,9 @@ def _validate_reservation_record(
         ):
             raise ValueError("reservation claim disagrees with its emitted binding")
 
-    expected_lanes, expected_bundle_width = _allocate_physical_lanes(reservation.claims)
+    expected_lanes, expected_bundle_width = _allocate_physical_lanes(
+        reservation.claims, members, references.values()
+    )
     if reservation.lanes != expected_lanes or not _same_measurement(
         reservation.bundle_width, expected_bundle_width
     ):
@@ -1837,6 +2445,7 @@ def _validate_reservation_record(
         not in _topology_gap_regions_from_plan(
             plan, reservation.connector_ids, reservation.orientation
         )
+        and not _adjacent_outer_turn_region_is_proven(reservation, members)
     ):
         raise ValueError("reservation region is not crossed by its connectors")
 
@@ -2097,18 +2706,16 @@ def _validate_reservation_realisation(
     realised: RealisedRouteReservation,
 ) -> None:
     allocation_axis, longitudinal_axis = _reservation_axes(reservation)
-    expected_longitudinal_start = min(
-        item.longitudinal_start for item in reservation.claims
-    )
-    expected_longitudinal_end = max(
-        item.longitudinal_end for item in reservation.claims
-    )
-    expected_occupied_start = min(
+    claimed_occupied_start = min(
         item.allocation_coordinate for item in reservation.claims
     )
-    expected_occupied_end = max(
+    claimed_occupied_end = max(
         item.allocation_coordinate for item in reservation.claims
     )
+    expected_occupied_start = (
+        claimed_occupied_start + realised.occupied_start_translation
+    )
+    expected_occupied_end = claimed_occupied_end + realised.occupied_end_translation
     expected_capacity = realised.available_width - reservation.minimum_width
     expected_negative = realised.occupied_start - (
         realised.region_start + reservation.negative_side_clearance
@@ -2128,10 +2735,6 @@ def _validate_reservation_realisation(
         or not _same_measurement(realised.negative_side_slack, expected_negative)
         or not _same_measurement(realised.positive_side_slack, expected_positive)
         or not _same_measurement(realised.coordinate, expected_coordinate)
-        or not _same_measurement(
-            realised.longitudinal_start, expected_longitudinal_start
-        )
-        or not _same_measurement(realised.longitudinal_end, expected_longitudinal_end)
         or not _same_measurement(realised.occupied_start, expected_occupied_start)
         or not _same_measurement(realised.occupied_end, expected_occupied_end)
     ):
@@ -2298,6 +2901,11 @@ def build_reservation_query_indexes(
         for item in plan.convergence_plans
         for reference_id in item.shared_reference_ids
     )
+    fork_pivot_reference_ids = tuple(
+        item.id
+        for item in planner_references
+        if item.kind is SharedReferenceKind.FORK_PIVOT
+    )
     convergence_demand_ids = tuple(
         demand_id for item in plan.convergence_plans for demand_id in item.demand_ids
     )
@@ -2305,6 +2913,7 @@ def build_reservation_query_indexes(
         *exit_turn_reference_ids,
         *fan_reference_ids,
         *convergence_reference_ids,
+        *fork_pivot_reference_ids,
     ):
         raise ValueError("planner shared-reference ownership is inconsistent")
     if tuple(item.id for item in planner_demands) != (
@@ -2325,6 +2934,26 @@ def build_reservation_query_indexes(
         (*exit_turn_demand_ids, *fan_demand_ids)
     ):
         raise ValueError("convergence plans share a demand id with another planner")
+    planned_convergence_member_ids = {
+        member_id
+        for item in plan.convergence_plans
+        if item.owns_geometry
+        for member_id in item.member_ids
+    }
+    for reference_id in fork_pivot_reference_ids:
+        reference = references[reference_id]
+        if (
+            reference.system_id not in systems
+            or reference.coordinate_regime is not CoordinateRegime.LAYOUT_CANVAS
+            or len(reference.claimant_member_ids) < 2
+            or not reference.provenance
+            or any(
+                member_id not in planned_convergence_member_ids
+                or members[member_id].system_id != reference.system_id
+                for member_id in reference.claimant_member_ids
+            )
+        ):
+            raise ValueError("convergence fork-pivot reference is inconsistent")
     fan_references = tuple(references[item] for item in fan_reference_ids)
     fan_demands = tuple(demands[item] for item in fan_demand_ids)
     fan_reference_id_set = set(fan_reference_ids)
@@ -2661,6 +3290,7 @@ def realise_route_reservations(
     *,
     canvas_width: float | None = None,
     canvas_height: float | None = None,
+    blocker_plan: RoutePlan | None = None,
 ) -> RoutePlan:
     """Refresh the realised ledger against final known corridor bounds.
 
@@ -2668,14 +3298,670 @@ def realise_route_reservations(
     available. Row and column reservations can therefore be remeasured after
     final content extents but before the render canvas is selected.
     """
+    blocker_realisations = (
+        {item.reservation_id: item for item in blocker_plan.realised_reservations}
+        if blocker_plan is not None
+        else None
+    )
     realised = _realise_all(
         graph,
         plan.reservations,
         canvas_width,
         canvas_height,
+        blocker_realisations,
     )
     return replace(
         plan,
         realised_reservations=realised,
         reservation_diagnostics=_diagnostics(plan.reservations, realised),
     )
+
+
+def _reservation_semantic_witness(
+    reservation: RouteReservation,
+) -> tuple[object, ...]:
+    return (
+        reservation.system_id,
+        reservation.kind,
+        reservation.direction,
+        reservation.region,
+        reservation.measurement_scope,
+        reservation.span,
+    )
+
+
+def _reservation_claim_witness(
+    claim: RouteReservationClaim,
+) -> tuple[EmissionMemberId, int, int]:
+    return claim.member_id, claim.segment_rank, claim.segment_end_rank
+
+
+def _extra_claim_convergence_owner(
+    plan: RoutePlan,
+    immutable: RouteReservation,
+    extra_claim: RouteReservationClaim,
+) -> ConvergencePlanId | None:
+    immutable_member_ids = {item.member_id for item in immutable.claims}
+    owners = tuple(
+        convergence.id
+        for convergence in plan.convergence_plans
+        if convergence.owns_geometry
+        and convergence.system_id == immutable.system_id
+        and immutable_member_ids.intersection(convergence.member_ids)
+        and any(
+            ownership.member_id == extra_claim.member_id
+            for ownership in convergence.endpoint_ownership
+        )
+    )
+    return owners[0] if len(owners) == 1 else None
+
+
+def _validate_reemitted_reservation(
+    plan: RoutePlan,
+    immutable: RouteReservation,
+    final: RouteReservation,
+) -> None:
+    immutable_claims = {
+        _reservation_claim_witness(item): item for item in immutable.claims
+    }
+    final_claims = {_reservation_claim_witness(item): item for item in final.claims}
+    if not immutable_claims.keys() <= final_claims.keys():
+        raise ValueError("re-emitted reservation lost or changed direct claims")
+    if any(
+        final_claims[witness].path_id != immutable_claim.path_id
+        or final_claims[witness].path_rank != immutable_claim.path_rank
+        for witness, immutable_claim in immutable_claims.items()
+    ):
+        raise ValueError("re-emitted reservation changed immutable claim path identity")
+
+    extra_claims = tuple(
+        claim
+        for witness, claim in final_claims.items()
+        if witness not in immutable_claims
+    )
+    if any(
+        _extra_claim_convergence_owner(plan, immutable, claim) is None
+        for claim in extra_claims
+    ):
+        raise ValueError(
+            "re-emitted reservation has an unowned additional direct claim"
+        )
+
+    immutable_claimants = set(immutable.claimant_member_ids)
+    final_claimants = set(final.claimant_member_ids)
+    if not immutable_claimants <= final_claimants:
+        raise ValueError("re-emitted reservation lost immutable claimant coverage")
+    extra_direct_member_ids = {item.member_id for item in extra_claims}
+    direct_member_ids = {item.member_id for item in final.claims}
+    binding_by_member = {item.member_id: item for item in plan.bindings}
+    for member_id in final_claimants - immutable_claimants:
+        if member_id in extra_direct_member_ids:
+            continue
+        binding = binding_by_member[member_id]
+        if (
+            binding.kind not in {BindingKind.MERGE_SKIP, BindingKind.COVERED_MERGE_HOP}
+            or binding.covering_member_id not in direct_member_ids
+        ):
+            raise ValueError("re-emitted reservation changed claimant ownership")
+
+    if (
+        replace(
+            final,
+            id=immutable.id,
+            connector_ids=immutable.connector_ids,
+            claimant_member_ids=immutable.claimant_member_ids,
+            claims=immutable.claims,
+            lanes=immutable.lanes,
+            route_family_ids=immutable.route_family_ids,
+            reference_id=immutable.reference_id,
+            demand_ids=immutable.demand_ids,
+            provenance=immutable.provenance,
+        )
+        != immutable
+    ):
+        raise ValueError("re-emitted reservation changed its symbolic contract")
+
+
+def _materialise_claim_from_final_route(
+    reservation: RouteReservation,
+    claim: RouteReservationClaim,
+    member: EmissionMember,
+    binding: EmissionBinding,
+    routes: list[RoutedPath],
+    station_offsets: dict[tuple[str, str], float],
+    *,
+    require_allocation: bool,
+) -> RouteReservationClaim:
+    if binding.path_id != claim.path_id or binding.path_rank != claim.path_rank:
+        raise ValueError("final binding changed immutable claim path identity")
+    if claim.path_rank >= len(routes):
+        raise ValueError("immutable claim path rank is outside the final routes")
+    route = routes[claim.path_rank]
+    if (
+        route.edge.source != member.edge.source
+        or route.edge.target != member.edge.target
+        or route.line_id != member.edge.line_id
+    ):
+        raise ValueError("immutable claim path rank resolves to a different member")
+    points = apply_route_offsets(route, station_offsets)
+    point_end_rank = claim.segment_end_rank + 1
+    if claim.segment_rank < 0 or point_end_rank >= len(points):
+        raise ValueError("immutable claim segment is outside its final route")
+
+    allocation_rank = (
+        1 if reservation.orientation is CorridorOrientation.HORIZONTAL else 0
+    )
+    travel_rank = 1 - allocation_rank
+    segment_points = points[claim.segment_rank : point_end_rank + 1]
+    for start, end in zip(segment_points, segment_points[1:]):
+        travel = end[travel_rank] - start[travel_rank]
+        if (
+            abs(end[allocation_rank] - start[allocation_rank]) > COORD_TOLERANCE
+            or travel * reservation.direction.sign <= COORD_TOLERANCE
+        ):
+            raise ValueError(
+                "final route changed an immutable claim segment's axis or direction"
+            )
+    allocation_coordinate = segment_points[0][allocation_rank]
+    if any(
+        abs(point[allocation_rank] - allocation_coordinate) > COORD_TOLERANCE
+        for point in segment_points[1:]
+    ):
+        raise ValueError("final route split an immutable claim allocation axis")
+
+    if require_allocation:
+        allocated = {
+            (rank, coordinate_rank): coordinate
+            for rank, coordinate_rank, coordinate in route.envelope_allocated_segments
+        }
+        for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
+            coordinate = allocated.get((rank, allocation_rank))
+            if coordinate is None:
+                raise ValueError(
+                    "final route did not consume an immutable reservation claim"
+                )
+            if (
+                abs(coordinate - route.points[rank][allocation_rank]) > COORD_TOLERANCE
+                or abs(coordinate - route.points[rank + 1][allocation_rank])
+                > COORD_TOLERANCE
+                or abs(coordinate - allocation_coordinate) > COORD_TOLERANCE
+            ):
+                raise ValueError(
+                    "final route allocation disagrees with immutable claim geometry"
+                )
+
+    longitudinal = tuple(point[travel_rank] for point in segment_points)
+    return replace(
+        claim,
+        longitudinal_start=min(longitudinal),
+        longitudinal_end=max(longitudinal),
+        allocation_coordinate=allocation_coordinate,
+    )
+
+
+def _materialise_immutable_reservations(
+    plan: RoutePlan,
+    ledger: RoutePlan,
+    routes: list[RoutedPath],
+    station_offsets: dict[tuple[str, str], float],
+    compatibility_system_ids: frozenset[RouteSystemId] = frozenset(),
+) -> tuple[RouteReservation, ...]:
+    members = {item.id: item for item in ledger.members}
+    bindings = {item.member_id: item for item in plan.bindings}
+    immutable_claims: dict[
+        tuple[EmissionMemberId, int, int],
+        tuple[RouteReservation, RouteReservationClaim],
+    ] = {}
+    materialised_claims: dict[RouteReservationId, list[RouteReservationClaim]] = {}
+    for reservation in ledger.reservations:
+        if reservation.system_id in compatibility_system_ids:
+            continue
+        projected: list[RouteReservationClaim] = []
+        for claim in reservation.claims:
+            witness = _reservation_claim_witness(claim)
+            if witness in immutable_claims:
+                raise ValueError("immutable reservations share a direct claim witness")
+            immutable_claims[witness] = (reservation, claim)
+            try:
+                member = members[claim.member_id]
+                binding = bindings[claim.member_id]
+            except KeyError as error:
+                raise ValueError(
+                    "final plan is missing an immutable reservation member"
+                ) from error
+            projected.append(
+                _materialise_claim_from_final_route(
+                    reservation,
+                    claim,
+                    member,
+                    binding,
+                    routes,
+                    station_offsets,
+                    require_allocation=True,
+                )
+            )
+        materialised_claims[reservation.id] = projected
+
+    def final_extends_immutable_corridor(
+        final: RouteReservation,
+        immutable: RouteReservation,
+        extras: list[RouteReservationClaim],
+    ) -> bool:
+        if _reservation_semantic_witness(final)[:-1] != _reservation_semantic_witness(
+            immutable
+        )[:-1] or not set(immutable.connector_ids) <= set(final.connector_ids):
+            return False
+        outer, inner = final.span, immutable.span
+        if not (
+            outer.min_column <= inner.min_column <= inner.max_column <= outer.max_column
+            and outer.min_row <= inner.min_row <= inner.max_row <= outer.max_row
+        ):
+            return False
+        if outer == inner:
+            return True
+        immutable_segment_ranks = {
+            (claim.member_id, claim.path_rank, rank)
+            for reservation in ledger.reservations
+            for claim in reservation.claims
+            for rank in range(claim.segment_rank, claim.segment_end_rank + 1)
+        }
+        return all(
+            claim.segment_rank > 0
+            and (
+                claim.member_id,
+                claim.path_rank,
+                claim.segment_rank - 1,
+            )
+            in immutable_segment_ranks
+            and (
+                claim.member_id,
+                claim.path_rank,
+                claim.segment_end_rank + 1,
+            )
+            in immutable_segment_ranks
+            for claim in extras
+        )
+
+    def exact_convergence_owner(
+        reservation: RouteReservation,
+        claim: RouteReservationClaim,
+    ) -> bool:
+        if claim.path_rank >= len(routes):
+            return False
+        route = routes[claim.path_rank]
+        owners = tuple(
+            convergence
+            for convergence in plan.convergence_plans
+            if convergence.id == route.convergence_plan_id
+            and convergence.owns_geometry
+            and convergence.system_id == reservation.system_id
+            and claim.member_id in convergence.member_ids
+            and any(
+                ownership.member_id == claim.member_id
+                for ownership in convergence.endpoint_ownership
+            )
+        )
+        return len(owners) == 1 and route.convergence_member_id == claim.member_id
+
+    for final in plan.reservations:
+        if final.system_id in compatibility_system_ids:
+            continue
+        owning_reservation_ids: set[RouteReservationId] = set()
+        extras: list[RouteReservationClaim] = []
+        for claim in final.claims:
+            immutable = immutable_claims.get(_reservation_claim_witness(claim))
+            if immutable is None:
+                extras.append(claim)
+                continue
+            reservation, immutable_claim = immutable
+            if (
+                claim.path_id != immutable_claim.path_id
+                or claim.path_rank != immutable_claim.path_rank
+            ):
+                raise ValueError(
+                    "re-emitted reservation changed immutable claim path identity"
+                )
+            owning_reservation_ids.add(reservation.id)
+        if not extras:
+            continue
+        candidates = tuple(
+            reservation
+            for reservation in ledger.reservations
+            if reservation.id in owning_reservation_ids
+            and final_extends_immutable_corridor(final, reservation, extras)
+            and all(exact_convergence_owner(reservation, claim) for claim in extras)
+        )
+        if len(candidates) != 1:
+            raise ValueError(
+                "re-emitted reservation has an unattributed additional direct claim"
+            )
+        owner = candidates[0]
+        for claim in extras:
+            try:
+                member = members[claim.member_id]
+                binding = bindings[claim.member_id]
+            except KeyError as error:
+                raise ValueError(
+                    "additional reservation claim has no final member binding"
+                ) from error
+            materialised_claims[owner.id].append(
+                _materialise_claim_from_final_route(
+                    owner,
+                    claim,
+                    member,
+                    binding,
+                    routes,
+                    station_offsets,
+                    require_allocation=False,
+                )
+            )
+
+    materialised: list[RouteReservation] = []
+    for reservation in ledger.reservations:
+        if reservation.system_id in compatibility_system_ids:
+            continue
+        claims = tuple(materialised_claims[reservation.id])
+        lanes, _bundle_width = _allocate_physical_lanes(
+            claims, members, ledger.shared_references
+        )
+        materialised.append(
+            replace(
+                reservation,
+                claims=claims,
+                lanes=lanes,
+                lane_count=len(lanes),
+            )
+        )
+    return tuple(materialised)
+
+
+def _compatibility_system_ids(
+    plan: RoutePlan,
+    ledger: RoutePlan,
+    graph: MetroGraph,
+    limitations: tuple[EnvelopeCapacityLimitation, ...],
+) -> frozenset[RouteSystemId]:
+    if not limitations:
+        return frozenset()
+    system_ids = tuple(item.system_id for item in limitations)
+    if len(set(system_ids)) != len(system_ids):
+        raise ValueError("capacity limitations repeat a route system")
+    plan_system_ids = {item.id for item in plan.systems}
+    ledger_system_ids = {item.id for item in ledger.systems}
+    reservation_system = {item.id: item.system_id for item in ledger.reservations}
+    for limitation in limitations:
+        if limitation.owner_issue != 1658:
+            raise ValueError("capacity limitation has an unexpected owner")
+        if (
+            limitation.system_id not in plan_system_ids
+            or limitation.system_id not in ledger_system_ids
+        ):
+            raise ValueError("capacity limitation names an unknown route system")
+        if (
+            not limitation.reservation_ids
+            or len(set(limitation.reservation_ids)) != len(limitation.reservation_ids)
+            or any(
+                reservation_system.get(reservation_id) != limitation.system_id
+                for reservation_id in limitation.reservation_ids
+            )
+        ):
+            raise ValueError(
+                "capacity limitation reservation ownership is inconsistent"
+            )
+        if (
+            not limitation.blocker_ids
+            or len(set(limitation.blocker_ids)) != len(limitation.blocker_ids)
+            or not limitation.pinned_section_ids
+            or len(set(limitation.pinned_section_ids))
+            != len(limitation.pinned_section_ids)
+        ):
+            raise ValueError("capacity limitation evidence is incomplete")
+        for section_id in limitation.pinned_section_ids:
+            decision = graph.layout_provenance.grid_decision(section_id)
+            if (
+                section_id not in graph.sections
+                or decision is None
+                or not decision.is_reinference_locked
+                or not any(
+                    blocker_id.endswith(f":{section_id}")
+                    for blocker_id in limitation.blocker_ids
+                )
+            ):
+                raise ValueError("capacity limitation pin evidence is inconsistent")
+        pinned = ", ".join(limitation.pinned_section_ids)
+        reservations = ", ".join(str(item) for item in limitation.reservation_ids)
+        expected_reason = (
+            "settled route envelope remains infeasible under authored grid "
+            f"commitments (pins {pinned}; reservations {reservations}; "
+            f"owner #{limitation.owner_issue})"
+        )
+        convergence_plans = tuple(
+            item
+            for item in plan.convergence_plans
+            if item.system_id == limitation.system_id
+        )
+        if not convergence_plans or any(
+            item.owns_geometry or item.legacy_reason != expected_reason
+            for item in convergence_plans
+        ):
+            raise ValueError("capacity limitation is not the final convergence owner")
+    return frozenset(system_ids)
+
+
+def _validate_materialised_realisation(
+    reservation: RouteReservation,
+    realised: RealisedRouteReservation,
+) -> None:
+    if (
+        realised.occupied_end - realised.occupied_start
+        < reservation.bundle_width - COORD_TOLERANCE
+    ):
+        raise ValueError("final reservation violated its monotone occupied projection")
+    expected_capacity = realised.available_width - realised.required_width
+    if abs(realised.capacity_slack - expected_capacity) > COORD_TOLERANCE:
+        raise ValueError(
+            "final reservation capacity evidence is internally inconsistent"
+        )
+    expected_negative = realised.occupied_start - (
+        realised.region_start + reservation.negative_side_clearance
+    )
+    expected_positive = (
+        realised.region_end
+        - reservation.positive_side_clearance
+        - realised.occupied_end
+    )
+    if (
+        abs(realised.negative_side_slack - expected_negative) > COORD_TOLERANCE
+        or abs(realised.positive_side_slack - expected_positive) > COORD_TOLERANCE
+        or not realised.negative_blocker_ids
+        or not realised.positive_blocker_ids
+    ):
+        raise ValueError("final reservation region evidence is internally inconsistent")
+
+
+def apply_route_reservation_ledger(
+    plan: RoutePlan,
+    ledger: RoutePlan,
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    station_offsets: dict[tuple[str, str], float],
+    *,
+    canvas_width: float,
+    canvas_height: float,
+    compatibility_limitations: tuple[EnvelopeCapacityLimitation, ...] = (),
+) -> RoutePlan:
+    """Attach immutable symbolic records to their final realised geometry."""
+    from nf_metro.layout.route_plan import build_route_plan_query
+
+    build_route_plan_query(plan)
+    build_route_plan_query(ledger)
+
+    def system_semantics(system: RouteSystem) -> RouteSystem:
+        return replace(
+            system,
+            shared_reference_ids=(),
+            demand_ids=(),
+            reservation_ids=(),
+        )
+
+    if tuple(system_semantics(item) for item in plan.systems) != tuple(
+        system_semantics(item) for item in ledger.systems
+    ):
+        raise ValueError("re-emitted route systems do not match the settled ledger")
+
+    compatibility_system_ids = _compatibility_system_ids(
+        plan,
+        ledger,
+        graph,
+        compatibility_limitations,
+    )
+    materialised = _materialise_immutable_reservations(
+        plan,
+        ledger,
+        routes,
+        station_offsets,
+        compatibility_system_ids,
+    )
+    if compatibility_system_ids:
+        materialised_by_id = {item.id: item for item in materialised}
+        final_by_system: defaultdict[RouteSystemId, list[RouteReservation]] = (
+            defaultdict(list)
+        )
+        for reservation in plan.reservations:
+            final_by_system[reservation.system_id].append(reservation)
+        reservations = tuple(
+            reservation
+            for system in ledger.systems
+            for reservation in (
+                final_by_system[system.id]
+                if system.id in compatibility_system_ids
+                else [
+                    item for item in ledger.reservations if item.system_id == system.id
+                ]
+            )
+        )
+        materialised = tuple(
+            reservation
+            if reservation.system_id in compatibility_system_ids
+            else materialised_by_id[reservation.id]
+            for reservation in reservations
+        )
+    else:
+        reservations = ledger.reservations
+
+    planner_reference_ids = (
+        tuple(
+            item.reference_id
+            for item in plan.exit_turn_plans
+            if item.reference_id is not None
+        )
+        + tuple(
+            item.centreline_reference_id
+            for item in plan.fan_plans
+            if item.system_id is not None and item.centreline_reference_id is not None
+        )
+        + tuple(
+            reference_id
+            for item in plan.convergence_plans
+            for reference_id in item.shared_reference_ids
+        )
+        + tuple(
+            item.id
+            for item in plan.shared_references
+            if item.kind is SharedReferenceKind.FORK_PIVOT
+        )
+    )
+    planner_demand_ids = (
+        tuple(
+            demand_id for item in plan.exit_turn_plans for demand_id in item.demand_ids
+        )
+        + tuple(
+            demand_id
+            for item in plan.fan_plans
+            if item.system_id is not None
+            for demand_id in item.demand_ids
+        )
+        + tuple(
+            demand_id
+            for item in plan.convergence_plans
+            for demand_id in item.demand_ids
+        )
+    )
+    if len(set(planner_reference_ids)) != len(planner_reference_ids):
+        raise ValueError("re-emitted planners share a reference id")
+    if len(set(planner_demand_ids)) != len(planner_demand_ids):
+        raise ValueError("re-emitted planners share a demand id")
+    plan_references = {item.id: item for item in plan.shared_references}
+    plan_demands = {item.id: item for item in plan.demands}
+    ledger_references = {item.id: item for item in ledger.shared_references}
+    ledger_demands = {item.id: item for item in ledger.demands}
+    corridor_reference_ids = tuple(item.reference_id for item in reservations)
+    corridor_demand_ids = tuple(
+        demand_id for item in reservations for demand_id in item.demand_ids
+    )
+    if set(planner_reference_ids).intersection(corridor_reference_ids):
+        raise ValueError("planner and reservation reference ownership overlaps")
+    if set(planner_demand_ids).intersection(corridor_demand_ids):
+        raise ValueError("planner and reservation demand ownership overlaps")
+    try:
+        references = tuple(
+            plan_references[item] for item in planner_reference_ids
+        ) + tuple(
+            (
+                plan_references[item.reference_id]
+                if item.system_id in compatibility_system_ids
+                else ledger_references[item.reference_id]
+            )
+            for item in reservations
+        )
+        demands = tuple(plan_demands[item] for item in planner_demand_ids) + tuple(
+            (
+                plan_demands[demand_id]
+                if reservation.system_id in compatibility_system_ids
+                else ledger_demands[demand_id]
+            )
+            for reservation in reservations
+            for demand_id in reservation.demand_ids
+        )
+    except KeyError as error:
+        raise ValueError("re-emitted route resources are incomplete") from error
+    realised = _realise_all(
+        graph,
+        materialised,
+        canvas_width,
+        canvas_height,
+        {item.reservation_id: item for item in ledger.realised_reservations},
+    )
+    if len(realised) != len(reservations):
+        raise ValueError("immutable reservation is missing its final realisation")
+    materialised_by_id = {item.id: item for item in materialised}
+    published_by_id = {item.id: item for item in reservations}
+    realised = tuple(
+        replace(
+            item,
+            occupied_start_translation=item.occupied_start
+            - min(
+                claim.allocation_coordinate
+                for claim in published_by_id[item.reservation_id].claims
+            ),
+            occupied_end_translation=item.occupied_end
+            - max(
+                claim.allocation_coordinate
+                for claim in published_by_id[item.reservation_id].claims
+            ),
+        )
+        for item in realised
+    )
+    for item in realised:
+        _validate_materialised_realisation(
+            materialised_by_id[item.reservation_id], item
+        )
+    combined = _publish_reservation_ledger(
+        plan,
+        references,
+        demands,
+        reservations,
+        realised,
+    )
+    build_route_plan_query(combined)
+    return combined

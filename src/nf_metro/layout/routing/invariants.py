@@ -86,6 +86,7 @@ from nf_metro.layout.routing.common import (
     vertical_flow_sections,
 )
 from nf_metro.layout.routing.context import partial_flat_continuation_lines
+from nf_metro.layout.routing.corners import axis_segment_has_straight_run
 from nf_metro.parser.model import (
     Edge,
     LayoutGeometryWarning,
@@ -2379,12 +2380,11 @@ def check_merge_fanout_pivots_shared(
 ) -> list[MergeFanoutPivotSplit]:
     """Return merge fan-out branches whose first corner is off the shared pivot.
 
-    A merge fan-out's branches should pivot through one shared first corner (see
-    :func:`merge_fanout_junction_ids`). Branches are grouped by source and turn
-    DIRECTION: an up-turning arm and a down-turning arm of one fork leave on the
-    same lead but never share a column (sharing one would fold the line back
-    over itself), so only same-direction arms are held to a common corner.  For
-    each group this derives the shared pivot with
+    A merge fan-out's same-line branches should pivot through one shared first
+    corner (see :func:`merge_fanout_junction_ids`). Branches are grouped by
+    source, line, and turn direction. Distinct lines retain separate physical
+    lanes, while an up-turning arm and a down-turning arm of one line never
+    share a column. For each group this derives the shared pivot with
     :func:`merge_fanout_pivot_reference` and flags any branch off it.
     """
     topology = build_route_topology_query(graph)
@@ -2392,7 +2392,9 @@ def check_merge_fanout_pivots_shared(
     if not fanouts:
         return []
     merges = set(convergence_junction_ids(graph, topology))
-    by_key: dict[tuple[str, bool], list[tuple[str, str, float]]] = defaultdict(list)
+    by_key: dict[tuple[str, bool, str], list[tuple[str, str, float]]] = defaultdict(
+        list
+    )
     for rp in routes:
         if not rp.is_inter_section or rp.edge.source not in fanouts:
             continue
@@ -2401,10 +2403,12 @@ def check_merge_fanout_pivots_shared(
         corner = _first_corner(apply_route_offsets(rp, offsets))
         if corner is not None:
             cx, down = corner
-            by_key[(rp.edge.source, down)].append((rp.edge.target, rp.line_id, cx))
+            by_key[(rp.edge.source, down, rp.line_id)].append(
+                (rp.edge.target, rp.line_id, cx)
+            )
 
     violations: list[MergeFanoutPivotSplit] = []
-    for (src, _down), branches in by_key.items():
+    for (src, _down, _line_id), branches in by_key.items():
         xs = [x for _tgt, _lid, x in branches]
         source_x = graph.stations[src].x if src in graph.stations else xs[0]
         ref = merge_fanout_pivot_reference(xs, source_x, COORD_TOLERANCE)
@@ -5466,7 +5470,9 @@ def check_gap_channels_materialized(
         if not rp.is_inter_section or rp.normalize_exempt:
             continue
         declared = {(s.gap_lo_col, s.direction is Direction.D) for s in rp.gap_slots}
-        for _k, x, y_lo, y_hi, down in iter_vertical_segments(rp):
+        for k, x, y_lo, y_hi, down in iter_vertical_segments(rp):
+            if not axis_segment_has_straight_run(rp.points, rp.curve_radii, k, k + 1):
+                continue
             match = gap_lo_for_x(
                 graph,
                 x,

@@ -2736,15 +2736,13 @@ def _allocate_merge_ports_by_approach(ctx: _OffsetCtx) -> None:
     land on the far side of the bundle, so its riser crosses over the
     horizontally-arriving lines.
 
-    For each such port, leave the horizontal co-travellers on their
-    incoming offsets (so their feeder edges stay flat) and move only a
-    mis-slotted perpendicular line: a ``below`` line is pushed just past
-    the bottom of the horizontal band (one step below its largest
-    offset), an ``above`` line just past the top.  Multiple perpendicular
-    lines on the same side keep their incoming relative order.  Ports
-    already in approach order are unchanged.  The new per-line offsets
-    propagate to every downstream station in the port's section so the
-    bundle stays consistent through the section.
+    For each such port, leave the horizontal co-travellers and unclassified
+    feeders on their incoming offsets, then move only a mis-slotted
+    perpendicular line into the nearest free slot beyond its approach-side
+    boundary.  Multiple perpendicular lines on the same side keep their
+    incoming relative order.  Ports already in approach order are unchanged.
+    The new per-line offsets propagate to every downstream station in the
+    port's section so the bundle stays consistent through the section.
     """
     if ctx.compact:
         return
@@ -2763,13 +2761,27 @@ def _allocate_merge_ports_by_approach(ctx: _OffsetCtx) -> None:
         max_horiz = max(cur[lid] for lid in horizontal)
         min_horiz = min(cur[lid] for lid in horizontal)
 
+        moving = set(below) | set(above)
+        occupied = {offset for lid, offset in cur.items() if lid not in moving}
         new_offs: dict[str, float] = {}
         for rank, lid in enumerate(sorted(below, key=lambda lid: cur[lid]), start=1):
-            new_offs[lid] = max_horiz + rank * ctx.offset_step
+            candidate = max_horiz + rank * ctx.offset_step
+            while any(
+                abs(candidate - offset) <= _OFFSET_EQ_TOLERANCE for offset in occupied
+            ):
+                candidate += ctx.offset_step
+            new_offs[lid] = candidate
+            occupied.add(candidate)
         for rank, lid in enumerate(
             sorted(above, key=lambda lid: cur[lid], reverse=True), start=1
         ):
-            new_offs[lid] = min_horiz - rank * ctx.offset_step
+            candidate = min_horiz - rank * ctx.offset_step
+            while any(
+                abs(candidate - offset) <= _OFFSET_EQ_TOLERANCE for offset in occupied
+            ):
+                candidate -= ctx.offset_step
+            new_offs[lid] = candidate
+            occupied.add(candidate)
 
         if any(
             abs(new_offs[lid] - cur[lid]) > _OFFSET_EQ_TOLERANCE for lid in new_offs

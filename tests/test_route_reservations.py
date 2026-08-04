@@ -12,6 +12,7 @@ import pytest
 from layout_metrics import compute_metrics
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.route_plan import (
     BindingKind,
     ExitTurnDisposition,
@@ -27,7 +28,9 @@ from nf_metro.layout.route_reservations import (
     CorridorKind,
     CorridorMeasurementScope,
     CorridorOrientation,
+    RouteReservationLane,
     RowGapRegion,
+    reservation_claim_lane_coordinates,
 )
 from nf_metro.layout.routing import (
     compute_station_offsets,
@@ -61,6 +64,10 @@ RESERVATION_CORPUS = tuple(
         "lr_to_tb_top_near_vertical.mmd",
     )
 ) + (ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd",)
+HASH_SEED_FIXTURES = ROOT / "tests" / "fixtures" / "hash_seed_determinism"
+CROSS_COLUMN = (
+    ROOT / "tests" / "fixtures" / "regressions" / "cross_column_perp_entry_overflow.mmd"
+)
 
 EXPECTED_RESERVATION_CLAIMS = {
     "inter_row_wrap_clearance.mmd": (
@@ -74,7 +81,7 @@ EXPECTED_RESERVATION_CLAIMS = {
         (23, 2),
         (23, 3),
     ),
-    "cross_row_gap_wrap.mmd": ((20, 1), (20, 2), (21, 1), (21, 2), (22, 0)),
+    "cross_row_gap_wrap.mmd": ((20, 1), (20, 2), (21, 1), (21, 2)),
     "merge_bottom_row_bypass.mmd": (
         (11, 1),
         (12, 1),
@@ -83,11 +90,9 @@ EXPECTED_RESERVATION_CLAIMS = {
         (14, 1),
     ),
     "corridor_narrow_gap_fallback.mmd": (
-        (12, 0),
         (12, 1),
         (12, 2),
         (12, 3),
-        (13, 0),
         (13, 1),
         (13, 2),
         (13, 3),
@@ -95,16 +100,12 @@ EXPECTED_RESERVATION_CLAIMS = {
         (14, 2),
         (14, 3),
     ),
-    "fan_bypass_shared_band.mmd": ((9, 1), (9, 2), (9, 3), (9, 4)),
+    "fan_bypass_shared_band.mmd": ((9, 1), (9, 2), (9, 3)),
     "packed_cell_right_exit_left_entry_wrap.mmd": (
         (57, 1),
-        (57, 2),
         (58, 1),
-        (58, 2),
         (59, 1),
-        (59, 2),
         (60, 1),
-        (60, 2),
         (61, 0),
         (61, 1),
         (61, 2),
@@ -114,11 +115,6 @@ EXPECTED_RESERVATION_CLAIMS = {
         (62, 1),
         (62, 2),
         (62, 3),
-        (63, 0),
-        (64, 0),
-        (65, 0),
-        (66, 0),
-        (67, 0),
         (68, 0),
         (68, 2),
         (68, 3),
@@ -128,14 +124,11 @@ EXPECTED_RESERVATION_CLAIMS = {
         (70, 1),
         (70, 2),
         (70, 3),
-        (71, 0),
         (71, 1),
     ),
     "opposing_bypass_corridor.mmd": (
         (19, 1),
         (19, 2),
-        (20, 0),
-        (21, 0),
         (22, 0),
         (22, 1),
         (22, 2),
@@ -145,18 +138,15 @@ EXPECTED_RESERVATION_CLAIMS = {
         (25, 2),
     ),
     "opposing_return_row_pair.mmd": (
-        (8, 0),
-        (9, 0),
         (10, 0),
         (10, 1),
         (10, 2),
-        (11, 0),
         (11, 1),
         (11, 2),
     ),
     "lr_to_tb_top_near_vertical.mmd": ((4, 1), (4, 2)),
     "stacked_collector_fanin.mmd": (
-        *((rank, 0) for rank in range(200, 212)),
+        *((rank, 0) for rank in range(206, 209)),
         (213, 0),
         (215, 0),
         (217, 0),
@@ -172,7 +162,6 @@ EXPECTED_RESERVATION_CLAIMS = {
         (198, 3),
         (199, 3),
         *((rank, 3) for rank in range(206, 218)),
-        *((rank, 4) for rank in range(206, 218)),
     ),
 }
 
@@ -220,6 +209,120 @@ def _reservation_order(plan, reservation):
         min(member_rank[item] for item in reservation.claimant_member_ids),
         reservation.id,
     )
+
+
+@pytest.mark.parametrize(
+    ("fixture", "source_id"),
+    (
+        ("seed_15.mmd", "__junction_25"),
+        ("seed_41.mmd", "__junction_29"),
+        ("seed_41.mmd", "__junction_32"),
+    ),
+)
+def test_same_line_divergence_opening_claims_own_one_immutable_lane(
+    fixture: str,
+    source_id: str,
+) -> None:
+    path = HASH_SEED_FIXTURES / fixture
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    ).plan
+    members = {item.id: item for item in plan.members}
+    source = graph.stations[source_id]
+    candidates = []
+    for reservation in plan.reservations:
+        if reservation.orientation is not CorridorOrientation.VERTICAL:
+            continue
+        grouped_indices: dict[tuple[tuple[str, ...], str], list[int]] = {}
+        for rank, claim in enumerate(reservation.claims):
+            member = members[claim.member_id]
+            if (
+                member.source.station_id != source_id
+                or not member.divergence_ids
+                or member.family_id
+                not in {
+                    RouteFamilyId.MERGE_BRANCH,
+                    RouteFamilyId.MERGE_ENTRY,
+                    RouteFamilyId.MERGE_TRUNK,
+                }
+                or min(
+                    abs(claim.longitudinal_start - source.y),
+                    abs(claim.longitudinal_end - source.y),
+                )
+                > CURVE_RADIUS
+            ):
+                continue
+            grouped_indices.setdefault(
+                (member.divergence_ids, member.line_id), []
+            ).append(rank)
+        candidates.extend(
+            (reservation, tuple(indices))
+            for indices in grouped_indices.values()
+            if len(indices) > 1
+        )
+    reservation, claim_indices = candidates[0]
+
+    owning_lanes = {
+        lane_rank
+        for lane_rank, lane in enumerate(reservation.lanes)
+        if set(lane.claim_indices).intersection(claim_indices)
+    }
+    assert len(owning_lanes) == 1
+    lane_coordinates = reservation_claim_lane_coordinates(graph, reservation, members)
+    (coordinate,) = tuple({lane_coordinates[rank] for rank in claim_indices})
+    assert coordinate == min(
+        (reservation.claims[rank].allocation_coordinate for rank in claim_indices),
+        key=lambda item: abs(item - source.x),
+    )
+    reference = next(
+        item for item in plan.shared_references if item.id == reservation.reference_id
+    )
+    assert {reservation.claims[rank].member_id for rank in claim_indices}.issubset(
+        reference.claimant_member_ids
+    )
+    demand = next(item for item in plan.demands if item.id in reservation.demand_ids)
+    assert demand.ordered_reference_ids == (reference.id,)
+
+    malformed = replace(
+        reservation,
+        lanes=tuple(
+            RouteReservationLane((claim_index,))
+            for claim_index in range(len(reservation.claims))
+        ),
+        lane_count=len(reservation.claims),
+    )
+    malformed_plan = replace(
+        plan,
+        reservations=tuple(
+            malformed if item.id == reservation.id else item
+            for item in plan.reservations
+        ),
+    )
+    with pytest.raises(ValueError, match="physical lanes are inconsistent"):
+        build_route_plan_query(malformed_plan)
+
+
+def test_bypass_below_lower_row_is_not_reclassified_as_a_topology_gap() -> None:
+    path = TOPOLOGIES / "merge_right_entry.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    ).plan
+    member = next(
+        item
+        for item in plan.members
+        if item.edge.source == "__junction_7" and item.edge.target == "__merge_2"
+    )
+    reservation = next(
+        item
+        for item in plan.reservations
+        if item.orientation is CorridorOrientation.HORIZONTAL
+        and any(claim.member_id == member.id for claim in item.claims)
+    )
+
+    assert reservation.region == CanvasRegion(CanvasSide.BOTTOM)
+    assert reservation.measurement_scope is CorridorMeasurementScope.OBSERVED_RUN
 
 
 def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> None:
@@ -321,8 +424,12 @@ def test_reportho_ownership_does_not_depend_on_resolved_section_pairs() -> None:
             CorridorKind.DIRECT_INTER_ROW_BAND,
             RowGapRegion,
         ),
-        ("fan_bypass_shared_band.mmd", CorridorKind.BYPASS_BAND, CanvasRegion),
-        ("cross_row_gap_wrap.mmd", CorridorKind.OVER_TOP_BAND, CanvasRegion),
+        ("fan_bypass_shared_band.mmd", CorridorKind.BYPASS_BAND, RowGapRegion),
+        (
+            "cross_row_gap_wrap.mmd",
+            CorridorKind.DIRECT_INTER_ROW_BAND,
+            RowGapRegion,
+        ),
         (
             "merge_bottom_row_bypass.mmd",
             CorridorKind.INTER_COLUMN_CHANNEL,
@@ -364,23 +471,24 @@ def test_supported_corridor_families_publish_complete_records(
     )
 
 
-def test_narrow_corridor_fallback_retains_the_original_demand() -> None:
+def test_narrow_corridor_settlement_satisfies_the_original_demand() -> None:
     _graph, _routes, plan = _observe(TOPOLOGIES / "corridor_narrow_gap_fallback.mmd")
     reservation = next(
         item
         for item in plan.reservations
-        if item.kind is CorridorKind.BYPASS_BAND
+        if item.kind is CorridorKind.DIRECT_INTER_ROW_BAND
         and isinstance(item.region, RowGapRegion)
     )
     realised = build_route_plan_query(plan).realised_reservation(reservation.id)
     assert realised is not None
 
     assert reservation.measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
-    assert realised.available_width == pytest.approx(reservation.minimum_width)
-    assert realised.coordinate > realised.region_end
-    assert realised.positive_side_slack < 0
-    assert any(
-        item.reservation_id == reservation.id for item in plan.reservation_diagnostics
+    assert realised.available_width >= reservation.minimum_width
+    assert realised.region_start <= realised.coordinate <= realised.region_end
+    assert realised.negative_side_slack >= 0
+    assert realised.positive_side_slack >= 0
+    assert all(
+        item.reservation_id != reservation.id for item in plan.reservation_diagnostics
     )
 
 
@@ -470,6 +578,33 @@ def test_coincident_concurrent_approaches_share_one_physical_lane() -> None:
     assert {members[claim.member_id].line_id for claim in reservation.claims} == {
         "main"
     }
+
+
+def test_distinct_lines_from_one_merge_opening_keep_distinct_physical_lanes() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd"
+    _graph, _routes, plan = _observe(path)
+    members = {member.id: member for member in plan.members}
+    reservation = next(
+        item
+        for item in plan.reservations
+        if {
+            members[claim.member_id].line_id
+            for claim in item.claims
+            if members[claim.member_id].source.station_id == "__junction_42"
+        }
+        == {"l0", "l4"}
+    )
+    opening_claim_indices = {
+        claim_index
+        for claim_index, claim in enumerate(reservation.claims)
+        if members[claim.member_id].source.station_id == "__junction_42"
+    }
+
+    assert len(opening_claim_indices) == 2
+    assert all(
+        len(opening_claim_indices.intersection(lane.claim_indices)) <= 1
+        for lane in reservation.lanes
+    )
 
 
 def test_stacked_collector_reuses_three_lanes_across_twelve_claims() -> None:
@@ -592,6 +727,7 @@ def test_reservation_corpus_has_one_linked_record_per_observed_claim() -> None:
         routes = observed.plan.routes
         plan = observed.route_plan
         query = build_route_plan_query(plan)
+        station_offsets = compute_station_offsets(graph)
         reservation_reference_ids = {item.reference_id for item in plan.reservations}
         reservation_demand_ids = {
             demand_id for item in plan.reservations for demand_id in item.demand_ids
@@ -639,22 +775,38 @@ def test_reservation_corpus_has_one_linked_record_per_observed_claim() -> None:
             ) == len(reservation.claims), path
             for claim in reservation.claims:
                 assert claim.path_rank < len(routes), path
-                start = routes[claim.path_rank].points[claim.segment_rank]
-                end = routes[claim.path_rank].points[claim.segment_end_rank + 1]
-                assert claim.longitudinal_start == pytest.approx(
-                    min(start[0], end[0])
+                points = apply_route_offsets(routes[claim.path_rank], station_offsets)
+                start = points[claim.segment_rank]
+                end = points[claim.segment_end_rank + 1]
+                allocation_rank = (
+                    1
                     if reservation.orientation is CorridorOrientation.HORIZONTAL
-                    else min(start[1], end[1])
+                    else 0
+                )
+                allocated_coordinate = next(
+                    coordinate
+                    for segment_rank, coordinate_rank, coordinate in routes[
+                        claim.path_rank
+                    ].envelope_allocated_segments
+                    if segment_rank == claim.segment_rank
+                    and coordinate_rank == allocation_rank
+                )
+                assert allocated_coordinate == pytest.approx(start[allocation_rank]), (
+                    path
+                )
+                realised = query.realised_reservation(reservation.id)
+                assert realised is not None
+                longitudinal_rank = 1 - allocation_rank
+                assert realised.longitudinal_start <= min(
+                    start[longitudinal_rank], end[longitudinal_rank]
                 ), path
-                assert claim.longitudinal_end == pytest.approx(
-                    max(start[0], end[0])
-                    if reservation.orientation is CorridorOrientation.HORIZONTAL
-                    else max(start[1], end[1])
+                assert realised.longitudinal_end >= max(
+                    start[longitudinal_rank], end[longitudinal_rank]
                 ), path
-                assert claim.allocation_coordinate == pytest.approx(
-                    start[1]
-                    if reservation.orientation is CorridorOrientation.HORIZONTAL
-                    else start[0]
+                assert (
+                    realised.occupied_start - 1e-9
+                    <= allocated_coordinate
+                    <= realised.occupied_end + 1e-9
                 ), path
                 (binding,) = query.bindings_for(claim.member_id)
                 assert binding.kind is BindingKind.EMITTED, path
@@ -717,6 +869,28 @@ def test_observed_run_blockers_intersect_the_exact_final_run(name: str) -> None:
             assert min(realised.longitudinal_end, section_end) > max(
                 realised.longitudinal_start, section_start
             )
+
+
+def test_section_external_run_is_not_owned_by_its_spanned_grid_boundary() -> None:
+    graph = prepare_graph(CROSS_COLUMN.read_text(), source_dir=str(CROSS_COLUMN.parent))
+    plan = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    ).plan
+    member_ids = {
+        item.id
+        for item in plan.members
+        if item.source.station_id == "__junction_8"
+        and item.target.station_id == "variant_calling__entry_left_4"
+    }
+    reservations = tuple(
+        item
+        for item in plan.reservations
+        if set(item.claimant_member_ids).intersection(member_ids)
+    )
+
+    assert reservations
+    assert any(item.region == CanvasRegion(CanvasSide.LEFT) for item in reservations)
+    assert not any(isinstance(item.region, ColumnGapRegion) for item in reservations)
 
 
 @pytest.mark.parametrize(

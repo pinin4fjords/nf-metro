@@ -226,6 +226,7 @@ class SharedReferenceKind(str, Enum):
     RUNWAY = "runway"
     ORDERED_TURNS = "ordered-turns"
     LANDING_SEQUENCE = "landing-sequence"
+    FORK_PIVOT = "fork-pivot"
 
 
 class DemandKind(str, Enum):

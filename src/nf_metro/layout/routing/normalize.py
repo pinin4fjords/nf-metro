@@ -26,10 +26,12 @@ from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
 from nf_metro.layout.routing.common import (
+    DestinationTailTrunk,
     Direction,
     GapSlot,
     HTrunkSeg,
     OffsetRegime,
+    PortPeeloffBundle,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -48,6 +50,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     perp_peeloff_off_horizontal_junction,
+    port_peeloff_tail,
     seat_peeloff_port_y,
     symmetric_bundle_midpoint,
     tail_on_slot,
@@ -531,6 +534,26 @@ def _planner_owns_channel(channel: _VChannel) -> bool:
             route.exit_turn_axis_id is not None
             and route.exit_turn_segment_rank == channel.idx
         )
+        or any(
+            rank == channel.idx and coordinate_rank == 0
+            for rank, coordinate_rank, _coordinate in route.envelope_allocated_segments
+        )
+    )
+
+
+def _exit_turn_owns_channel(channel: _VChannel) -> bool:
+    route = channel.route
+    return (
+        route.exit_turn_axis_id is not None
+        and route.exit_turn_segment_rank == channel.idx
+    )
+
+
+def _envelope_owns_segment(route: RoutedPath, rank: int, axis: int) -> bool:
+    """Whether settlement owns one emitted segment coordinate exactly."""
+    return any(
+        item[0] == rank and item[1] == axis
+        for item in route.envelope_allocated_segments
     )
 
 
@@ -703,6 +726,20 @@ class _HTrunk:
     sign_x: int  # traversal direction along the trunk: +1 left->right, -1 right->left
 
 
+def _planner_owns_trunk(trunk: _HTrunk | DestinationTailTrunk) -> bool:
+    """Whether a pre-routing plan owns this trunk's final Y coordinate."""
+    route = trunk.route
+    return (
+        _convergence_owns_segment_boundary(route, trunk.idx)
+        or route.fan_route_emitter is not None
+        or (
+            route.exit_turn_axis_id is not None
+            and route.exit_turn_segment_rank == trunk.idx
+        )
+        or _envelope_owns_segment(route, trunk.idx, 1)
+    )
+
+
 def _collect_htrunks(
     routes: list[RoutedPath], *, include_exempt: bool = False
 ) -> list[_HTrunk]:
@@ -743,7 +780,7 @@ def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
         for line_id, trunk in trunks.items():
-            if _convergence_owns_segment_boundary(trunk.route, trunk.idx):
+            if _planner_owns_trunk(trunk):
                 continue
             target_y = targets[line_id]
             if abs(trunk.y - target_y) <= COORD_TOLERANCE:
@@ -918,7 +955,7 @@ def _snap_group(group: _Coincidence, graph: MetroGraph) -> None:
     planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
     ref_x = planned[0].x if planned else group.ref_x
     if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
-        raise ValueError("one coincidence group contains conflicting planned axes")
+        return
     for ch in group.channels:
         if _planner_owns_channel(ch):
             continue
@@ -1058,8 +1095,6 @@ def _coincide_fanout_opening_descents(
     that genuinely diverges to another column.
     """
     for group in _divergent_source_groups(routes):
-        if any(_planner_owns_channel(channel) for channel in group.channels):
-            continue
         _snap_group(group, ctx.graph)
     _bundle_divergent_distinct_descents(routes, ctx)
 
@@ -1210,6 +1245,7 @@ def _bundle_divergent_distinct_traverses(
     for members in _fanout_traverse_legs(routes).values():
         if any(
             _convergence_owns_segment_boundary(member.route, member.idx)
+            or _envelope_owns_segment(member.route, member.idx, 1)
             for member in members
         ):
             continue
@@ -1305,11 +1341,45 @@ def _drop_covered_merge_entry_hops(
         [] if report_coverage else None
     )
     for merge_id, hop in hop_by_merge.items():
+        convergence_membership = (
+            ctx.convergences.membership_for_edge(hop.edge)
+            if ctx.convergences is not None
+            else None
+        )
+        if (
+            convergence_membership is not None
+            and convergence_membership.continuation is not None
+            and convergence_membership.continuation.covered_by_member_id is None
+        ):
+            continue
         feeders = feeders_by_merge.get(merge_id)
         if not feeders or any(ends_at(route, hop.points[0]) for route in feeders):
             continue
+        preferred_edge = (
+            convergence_membership.covering_edge
+            if convergence_membership is not None
+            else None
+        )
         carrier = next(
-            (route for route in feeders if ends_at(route, hop.points[-1])), None
+            (
+                route
+                for route in feeders
+                if ends_at(route, hop.points[-1])
+                and (
+                    preferred_edge is None
+                    or (
+                        route.edge.source,
+                        route.edge.target,
+                        route.line_id,
+                    )
+                    == (
+                        preferred_edge.source,
+                        preferred_edge.target,
+                        preferred_edge.line_id,
+                    )
+                )
+            ),
+            None,
         )
         if carrier is None:
             continue
@@ -1347,14 +1417,9 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
         list
     )
     for rp in routes:
-        radii = rp.curve_radii
-        if radii is None:
-            continue
         pts = rp.points
         for k in range(1, len(pts) - 1):
-            if k - 1 >= len(radii) or not is_orthogonal_turn(
-                pts[k - 1], pts[k], pts[k + 1]
-            ):
+            if not is_orthogonal_turn(pts[k - 1], pts[k], pts[k + 1]):
                 continue
             key = (rp.line_id, round(pts[k][0]), round(pts[k][1]))
             buckets[key].append((rp, k - 1))
@@ -1367,6 +1432,13 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
             continue
         desired: list[float] = []
         for route, i in members:
+            n_corners = max(0, len(route.points) - 2)
+            if route.curve_radii is None:
+                route.curve_radii = [CURVE_RADIUS for _ in range(n_corners)]
+            elif len(route.curve_radii) < n_corners:
+                route.curve_radii.extend(
+                    CURVE_RADIUS for _ in range(n_corners - len(route.curve_radii))
+                )
             assert route.curve_radii is not None
             desired.append(route.curve_radii[i])
         widest = widest_coincident_radius(desired)
@@ -1431,13 +1503,16 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
     at the port, never the section linkage.
     """
     step = ctx.offset_step
-    for bundle in iter_port_peeloff_bundles(routes, ctx.graph, step):
+    for bundle in iter_port_peeloff_bundles(
+        routes,
+        ctx.graph,
+        step,
+        min_common_suffix=ctx.curve_radius,
+    ):
         targets = peeloff_target_slots(bundle)
-        n = len(bundle.per_line)
+        channels: list[tuple[RoutedPath, _VChannel, float, float]] = []
         for rp, tail in bundle.entries:
             slot = targets[rp.edge.line_id]
-            if tail_on_slot(tail, slot):
-                continue
             ch = _VChannel(
                 route=rp,
                 idx=len(rp.points) - 3,  # riser leg points[-3] -> points[-2]
@@ -1446,17 +1521,50 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 y_hi=max(tail.trunk_y, tail.port_y),
                 down=tail.port_y > tail.trunk_y,
             )
-            if not _planner_owns_channel(ch):
-                _restack_channel(
-                    ch,
-                    slot.peel_x,
-                    slot.rank,
-                    n,
-                    step,
-                    ctx.curve_radius,
-                    ch.down,
-                )
-            seat_peeloff_port_y(rp, slot.port_y)
+            target_x = ch.x if _planner_owns_channel(ch) else slot.peel_x
+            channels.append((rp, ch, target_x, slot.port_y))
+
+        if len({rp.line_id for rp, _ch, _x, _y in channels}) < 2:
+            continue
+        for rp, ch, _target_x, port_y in channels:
+            current_tail = port_peeloff_tail(rp)
+            assert current_tail is not None
+            if not tail_on_slot(current_tail, targets[rp.line_id]):
+                seat_peeloff_port_y(rp, port_y)
+
+        reference_x = min(target_x for _rp, _ch, target_x, _port_y in channels)
+        moves = [
+            (ch, target_x, target_x - reference_x)
+            for _rp, ch, target_x, _port_y in channels
+        ]
+        references = _fan_opening_reference_radii(moves, ctx.curve_radius)
+        if references is None:
+            continue
+        base_radius, base_radius_out = references
+        for _rp, ch, target_x, _port_y in channels:
+            if _exit_turn_owns_channel(ch):
+                continue
+            _set_vchannel_x(
+                ch,
+                target_x,
+                target_x - reference_x,
+                base_radius=base_radius,
+                base_radius_out=base_radius_out,
+            )
+
+
+def _peeloff_bundle_is_reconciled(bundle: PortPeeloffBundle, step: float) -> bool:
+    """Whether distinct lines occupy one complete canonical peel-off slot band."""
+    targets = peeloff_target_slots(bundle)
+    ranked = sorted(targets.values(), key=lambda slot: slot.rank)
+    if any(
+        abs(following.peel_x - previous.peel_x - step) > COORD_TOLERANCE
+        for previous, following in zip(ranked, ranked[1:])
+    ):
+        return False
+    return all(
+        tail_on_slot(tail, targets[route.line_id]) for route, tail in bundle.entries
+    )
 
 
 def _stagger_convergent_distinct_lines(
@@ -1502,12 +1610,25 @@ def _stagger_convergent_distinct_lines(
             ctx.offset_step,
         )
     }
+    reconciled_peeloffs = {
+        (bundle.port_id, bundle.vertical_sign > 0): bundle
+        for bundle in iter_port_peeloff_bundles(
+            routes,
+            ctx.graph,
+            ctx.offset_step,
+            min_common_suffix=ctx.curve_radius,
+        )
+        if _peeloff_bundle_is_reconciled(bundle, ctx.offset_step)
+    }
 
     for (port_id, down), entries in by_port.items():
-        if any(_planner_owns_channel(channel) for _route, channel in entries):
-            continue
         port = ctx.graph.ports.get(port_id)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+            continue
+        peeloff_bundle = reconciled_peeloffs.get((port_id, down))
+        if peeloff_bundle is not None and {
+            id(route) for route, _tail in peeloff_bundle.entries
+        } == {id(route) for route, _channel in entries}:
             continue
         opposing_bundle = opposing.get((port_id, down))
         if opposing_bundle is not None and {
@@ -1552,7 +1673,10 @@ def _stagger_convergent_distinct_lines(
         entries.sort(key=lambda e: e[1].x)
         cluster: list[tuple[RoutedPath, _VChannel]] = []
         for rp, ch in entries:
-            if cluster and abs(ch.x - cluster[-1][1].x) > COORD_TOLERANCE + 1.0:
+            if (
+                cluster
+                and abs(ch.x - cluster[-1][1].x) > ctx.offset_step + COORD_TOLERANCE
+            ):
                 _stack_distinct_port_descents(cluster, port, ctx)
                 cluster = []
             cluster.append((rp, ch))
@@ -1597,10 +1721,42 @@ def _stack_distinct_port_descents(
     horizontal traverse at its turn-down Y before dropping in; seating the
     longest descent (whose turn spans the widest Y range) on the outer lane
     keeps every traverse clear of the other feeders' descents, so the
-    convergent lanes stay parallel rather than crossing (#1326). Ordinary calls
-    leave already-separated descents alone; an explicit ``line_order`` reseats
-    a classified convergence onto that order.
+    convergent lanes stay parallel rather than crossing (#1326). An already
+    separated group retains its coordinates while both flanking corner
+    families are reconciled against those tracks. An explicit ``line_order``
+    reseats a classified convergence onto that order.
     """
+    by_line: dict[str, list[_VChannel]] = defaultdict(list)
+    for rp, ch in cluster:
+        by_line[rp.line_id].append(ch)
+    if len(by_line) < 2:
+        return
+    already_separated = all(
+        abs(first.x - second.x) > COORD_TOLERANCE
+        for first_line, second_line in itertools.combinations(by_line, 2)
+        for first in by_line[first_line]
+        for second in by_line[second_line]
+    )
+    if line_order is None and already_separated:
+        reference_x = min(channel.x for _route, channel in cluster)
+        moves = [
+            (channel, channel.x, channel.x - reference_x) for _route, channel in cluster
+        ]
+        references = _fan_opening_reference_radii(moves, ctx.curve_radius)
+        if references is None:
+            return
+        base_radius, base_radius_out = references
+        for channel, target_x, offset in moves:
+            if _exit_turn_owns_channel(channel):
+                continue
+            _set_vchannel_x(
+                channel,
+                target_x,
+                offset,
+                base_radius=base_radius,
+                base_radius_out=base_radius_out,
+            )
+        return
     if any(
         _planner_owns_channel(channel)
         and not _convergence_owns_segment_boundary(channel.route, channel.idx)
@@ -1611,11 +1767,6 @@ def _stack_distinct_port_descents(
         _convergence_owns_segment_boundary(channel.route, channel.idx)
         for _route, channel in cluster
     )
-    by_line: dict[str, list[_VChannel]] = defaultdict(list)
-    for rp, ch in cluster:
-        by_line[rp.line_id].append(ch)
-    if len(by_line) < 2:
-        return
     offs = ctx.station_offsets or {}
     span = {lid: max(ch.y_hi - ch.y_lo for ch in chs) for lid, chs in by_line.items()}
     ordered = line_order or sorted(
@@ -1652,8 +1803,7 @@ def _stack_distinct_port_descents(
         x = target_x_by_line[lid]
         offset = x - x_inner
         for ch in by_line[lid]:
-            if abs(ch.x - x) > COORD_TOLERANCE or abs(offset) > COORD_TOLERANCE:
-                _set_vchannel_x(ch, x, offset)
+            _set_vchannel_x(ch, x, offset)
 
 
 def _nest_bypass_above_over_top_wrap(
@@ -1692,7 +1842,11 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through and not _convergence_owns_segment_boundary(r, k):
+                elif (
+                    is_through
+                    and not _convergence_owns_segment_boundary(r, k)
+                    and not _envelope_owns_segment(r, k, 1)
+                ):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue
@@ -2008,26 +2162,30 @@ def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
     return groups
 
 
-def _fanout_descent_order_key(ch: _VChannel) -> tuple[int, float]:
-    """Left-to-right seat order for a fan-out descent, by the side it turns to.
+def _fanout_descent_order_key(ch: _VChannel) -> tuple[float, int, float]:
+    """Left-to-right seat order preserving the opening corner's lane order.
 
-    A branch is placed on the side it later turns toward so peeling off never
-    crosses a sibling still descending: left-turners (and straight drops) rank
-    by turn-Y ascending so the earliest turn sits outermost-left; right-turners
-    mirror it.  ``direction`` is the sign of the leg leaving the descent's foot.
+    The incoming horizontal run and opening vertical determine whether the
+    source's top-to-bottom lanes map directly or in reverse onto left-to-right
+    descent tracks. The later turn remains the deterministic tie-break for
+    coincident source lanes.
     """
     pts = ch.route.points
     j = ch.idx + 1
     dx = pts[j + 1][0] - pts[j][0] if j + 1 < len(pts) else 0.0
     direction = -1 if dx < -COORD_TOLERANCE else (1 if dx > COORD_TOLERANCE else 0)
     turn_y = pts[j][1]
-    return (direction, turn_y if direction <= 0 else -turn_y)
+    incoming_sign = 1 if pts[ch.idx][0] > pts[ch.idx - 1][0] else -1
+    vertical_sign = 1 if ch.down else -1
+    source_y = pts[ch.idx][1]
+    opening_order = -source_y if incoming_sign == vertical_sign else source_y
+    return (opening_order, direction, turn_y if direction <= 0 else -turn_y)
 
 
 def _fan_opening_reference_radii(
     moves: list[tuple[_VChannel, float, float]],
     curve_radius: float,
-) -> tuple[float, float]:
+) -> tuple[float, float] | None:
     """Smallest references that keep both fan corner families at the floor.
 
     A ranked channel can be outside one turn and inside the next.  Its signed
@@ -2035,8 +2193,9 @@ def _fan_opening_reference_radii(
     separate reference for each side instead of making the source turn inherit
     the extra radius needed only by the peel-off turn.
     """
-    references = [curve_radius, curve_radius]
-    for channel, target_x, rank_offset in moves:
+    minimum_references: list[list[float]] = [[], []]
+    fixed_references: list[list[float]] = [[], []]
+    for channel, target_x, signed_offset in moves:
         route = channel.route
         if route.curve_radii is None:
             continue
@@ -2048,15 +2207,37 @@ def _fan_opening_reference_radii(
             channel.idx - 1,
             min(channel.idx + 1, len(route.curve_radii)),
         )
+        resolved = resolve_curve_radii(route.points, route.curve_radii)
         for side, radius_index in enumerate(radius_indices):
+            lane_radius = (
+                resolved[radius_index]
+                if _exit_turn_owns_channel(channel)
+                else curve_radius
+            )
             required_reference = concentric_reference_radius_at(
                 points[radius_index],
                 points[radius_index + 1],
                 points[radius_index + 2],
-                rank_offset,
-                curve_radius,
+                signed_offset,
+                lane_radius,
             )
-            references[side] = max(references[side], required_reference)
+            if _exit_turn_owns_channel(channel):
+                fixed_references[side].append(required_reference)
+            else:
+                minimum_references[side].append(required_reference)
+    references: list[float] = []
+    for fixed, minimums in zip(fixed_references, minimum_references, strict=True):
+        if fixed:
+            reference = fixed[0]
+            if any(
+                abs(candidate - reference) > COORD_TOLERANCE for candidate in fixed[1:]
+            ):
+                return None
+            if minimums and max(minimums) - reference > COORD_TOLERANCE:
+                return None
+        else:
+            reference = max((curve_radius, *minimums))
+        references.append(reference)
     return references[0], references[1]
 
 
@@ -2084,12 +2265,6 @@ def _bundle_divergent_distinct_descents(
 
     step = ctx.offset_step
     for chans in by_source.values():
-        if any(
-            _planner_owns_channel(channel)
-            and not _convergence_owns_segment_boundary(channel.route, channel.idx)
-            for channel in chans
-        ):
-            continue
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
         # it carries.  Seat per line, not per channel: keying each channel
@@ -2118,31 +2293,32 @@ def _bundle_divergent_distinct_descents(
         }
         if len(target_sets) == 1:
             continue
-        xs = [c.x for c in chans]
-        base = min(xs)
         line_key = {
             lid: min(_fanout_descent_order_key(c) for c in cs)
             for lid, cs in by_line.items()
         }
         ordered = sorted(by_line, key=line_key.__getitem__)
-        tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
-        if (
-            any(
-                _convergence_owns_segment_boundary(channel.route, channel.idx)
-                for channel in chans
-            )
-            and not tight
+        line_rank = {line_id: rank for rank, line_id in enumerate(ordered)}
+        planned_bases = {
+            channel.x - line_rank[channel.route.line_id] * step
+            for channel in chans
+            if _planner_owns_channel(channel)
+        }
+        if planned_bases and any(
+            abs(candidate - min(planned_bases)) > COORD_TOLERANCE
+            for candidate in planned_bases
         ):
             continue
-        moves = (
-            [(ch, ch.x, ch.x - base) for ch in chans]
-            if tight
-            else [
-                (ch, base + rank * step, rank * step)
-                for rank, lid in enumerate(ordered)
-                for ch in by_line[lid]
-            ]
-        )
+        base = min(planned_bases) if planned_bases else min(c.x for c in chans)
+        moves = [
+            (
+                ch,
+                ch.x if _planner_owns_channel(ch) else base + rank * step,
+                (ch.x if _planner_owns_channel(ch) else base + rank * step) - base,
+            )
+            for rank, lid in enumerate(ordered)
+            for ch in by_line[lid]
+        ]
         # Never re-seat a descent into a section it does not belong to; leave the
         # whole group on its handler channels if any target column is obstructed.
         if any(
@@ -2153,10 +2329,13 @@ def _bundle_divergent_distinct_descents(
         # Rank owns both track position and arc size.  Applying it to an already
         # tight group is necessary because its independent route families can
         # carry base radii that do not share an arc centre.
-        base_radius, base_radius_out = _fan_opening_reference_radii(
-            moves, ctx.curve_radius
-        )
+        references = _fan_opening_reference_radii(moves, ctx.curve_radius)
+        if references is None:
+            continue
+        base_radius, base_radius_out = references
         for ch, target_x, rank_off in moves:
+            if _exit_turn_owns_channel(ch):
+                continue
             _set_vchannel_x(
                 ch,
                 target_x,
@@ -2414,6 +2593,9 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         # One trunk per distinct route; a shared channel needs >1 to fan.
         if len({id(t.route) for t in grp}) < 2:
             continue
+        if any(_planner_owns_trunk(trunk) for trunk in grp):
+            bundled.update(id(trunk.route) for trunk in grp)
+            continue
         # Exempt (handler-owned) trunks only join the fan when they share the
         # channel with a non-exempt trunk; a group of only exempt trunks keeps
         # its handler geometry untouched here.
@@ -2435,8 +2617,8 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         _stack_trunk_bands(bands, ctx, step, bundled)
 
     _dogleg_off_exempt_trunks(routes, ctx, skip=bundled)
-    _bundle_same_destination_tails(routes, ctx)
     _separate_declared_opposing_gap_bundles(routes, ctx)
+    _bundle_same_destination_tails(routes, ctx)
 
 
 def _stack_trunk_bands(
@@ -2511,6 +2693,13 @@ def _separate_opposing_inter_row_trunks(
                     continue
                 participating.update((a_key, b_key))
         if len(participating) < 2:
+            continue
+
+        if any(
+            _planner_owns_trunk(trunk)
+            for key in participating
+            for trunk in by_direction[key]
+        ):
             continue
 
         bands = [(key, by_direction[key]) for key in participating]
@@ -2893,7 +3082,7 @@ def _dogleg_off_exempt_trunks(
         return
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or _planner_owns_trunk(t):
             continue
         hit = next(
             (
@@ -2946,7 +3135,7 @@ def _dogleg_off_exempt_trunks(
 
     step = ctx.offset_step
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or _planner_owns_trunk(t):
             continue
         hit = next(
             (

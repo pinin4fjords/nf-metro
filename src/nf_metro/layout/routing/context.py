@@ -62,6 +62,7 @@ from nf_metro.parser.route_topology import (
 
 if TYPE_CHECKING:
     from nf_metro.layout.routing.convergences import ConvergencePlanExecutionQuery
+    from nf_metro.layout.routing.envelope_allocations import EnvelopeAllocationQuery
     from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
 
 _EdgeKey = tuple[str, str, str]
@@ -228,6 +229,7 @@ class _RoutingCtx:
     diagonal_run: float
     curve_radius: float
     exit_turns: ExitTurnPlanQuery | None = None
+    envelope_allocations: EnvelopeAllocationQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
     built_routes: list[RoutedPath] = field(default_factory=list)

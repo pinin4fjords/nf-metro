@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import nf_metro.layout.routing.convergences as convergence_routing
 import nf_metro.layout.routing.core as routing_core
 from nf_metro.api import prepare_graph
+from nf_metro.layout.envelope_settlement import settle_route_envelopes
 from nf_metro.layout.geometry import point_to_polyline_distance
+from nf_metro.layout.phases._common import (
+    routes_through_own_section_interior,
+    routes_through_unrelated_sections,
+)
 from nf_metro.layout.route_plan import (
     BindingKind,
     ConvergenceDisposition,
@@ -27,6 +33,7 @@ from nf_metro.layout.route_plan import (
     SharedReferenceId,
     SharedReferenceKind,
     build_route_plan_query,
+    convergence_resource_ids,
 )
 from nf_metro.layout.route_reservations import (
     expected_convergence_foreign_references,
@@ -42,6 +49,9 @@ from nf_metro.layout.routing.convergences import (
     validate_convergence_plans,
 )
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
+from nf_metro.layout.routing.inter_section_handlers import (
+    _merge_entry_cross_axis_order,
+)
 from nf_metro.layout.routing.invariants import (
     check_merge_branches_meet_trunk,
     check_merge_feeders_land_on_trunk,
@@ -67,6 +77,29 @@ def _observe_text(text: str):
     offsets = compute_station_offsets(graph)
     observed = observe_route_edges(graph, station_offsets=offsets)
     return graph, offsets, observed
+
+
+def _observe_after_settlement(path: Path, *, offset_step: float | None = None):
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph, offset_step=offset_step)
+    preflight = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        offset_step=offset_step,
+    )
+    settlement = settle_route_envelopes(graph, preflight.plan)
+    offsets = compute_station_offsets(graph, offset_step=offset_step)
+    final = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        offset_step=offset_step,
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=preflight.plan.reservations,
+        envelope_bindings=preflight.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+    return graph, offsets, preflight, final
 
 
 @pytest.fixture(scope="module")
@@ -131,10 +164,6 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
             "merge_around_below_leftmost.mmd",
             "planned convergence trunks require one shared channel decision",
         ),
-        (
-            "merge_trunk_out_of_range_section.mmd",
-            "planned convergence trunks require one shared channel decision",
-        ),
     ),
 )
 def test_conflicting_route_systems_use_whole_system_compatibility(
@@ -160,10 +189,6 @@ def test_conflicting_route_systems_use_whole_system_compatibility(
         (
             TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
             "planned fan arms require opposing opening channels",
-        ),
-        (
-            TOPOLOGIES / "merge_right_entry.mmd",
-            "planned convergence corridor conflicts with unowned route-system member",
         ),
         (
             ROOT / "examples" / "genomeassembly.mmd",
@@ -196,7 +221,9 @@ def test_reviewed_conflicts_keep_the_complete_system_on_compatibility(
     "path",
     (
         TOPOLOGIES / "merge_adjacent_feeder.mmd",
+        TOPOLOGIES / "merge_right_entry.mmd",
         TOPOLOGIES / "merge_trunk_over_low_section.mmd",
+        TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
     ),
 )
 def test_non_conflicting_reviewed_systems_remain_planned(path: Path) -> None:
@@ -204,6 +231,12 @@ def test_non_conflicting_reviewed_systems_remain_planned(path: Path) -> None:
 
     assert observed.plan.convergence_plans
     assert all(item.owns_geometry for item in observed.plan.convergence_plans)
+    assert all(item.legacy_reason is None for item in observed.plan.convergence_plans)
+    assert all(
+        set(item.member_ids)
+        == {ownership.member_id for ownership in item.endpoint_ownership}
+        for item in observed.plan.convergence_plans
+    )
 
 
 def test_convergence_plan_is_queryable_through_every_semantic_identity() -> None:
@@ -398,7 +431,9 @@ def test_every_feeder_join_connects_to_the_target_entry() -> None:
 
 
 def test_multiple_lines_share_the_target_entry_bundle_order() -> None:
-    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
+    _graph, _offsets, _preflight, observed = _observe_after_settlement(
+        FROZEN / "seed_15.mmd"
+    )
     plans_by_entry: dict[object, list] = {}
     for plan in observed.plan.convergence_plans:
         plans_by_entry.setdefault(plan.entry_group_ids[0], []).append(plan)
@@ -419,9 +454,39 @@ def test_multiple_lines_share_the_target_entry_bundle_order() -> None:
         )
 
 
-@pytest.mark.parametrize("name", ("seed_15.mmd", "seed_41.mmd"))
-def test_frozen_recovery_seeds_have_complete_planned_convergences(name: str) -> None:
-    graph, offsets, observed = _observe(FROZEN / name)
+def test_seed15_chained_convergences_exit_compatibility_after_settlement() -> None:
+    graph, _offsets, preflight = _observe(FROZEN / "seed_15.mmd")
+    reason = "chained same-line convergences require one shared system settlement"
+
+    assert preflight.plan.convergence_plans
+    assert {plan.legacy_reason for plan in preflight.plan.convergence_plans} == {reason}
+
+    settlement = settle_route_envelopes(graph, preflight.plan)
+    final = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=preflight.plan.reservations,
+        envelope_bindings=preflight.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+
+    assert all(plan.owns_geometry for plan in final.plan.convergence_plans)
+    assert tuple(plan.member_ids for plan in final.plan.convergence_plans) == tuple(
+        plan.member_ids for plan in preflight.plan.convergence_plans
+    )
+    assert final.plan.bindings == preflight.plan.bindings
+    assert not check_merge_branches_meet_trunk(
+        graph, final.routes, compute_station_offsets(graph)
+    )
+    assert not check_merge_feeders_land_on_trunk(
+        graph, final.routes, compute_station_offsets(graph)
+    )
+
+
+def test_seed41_has_complete_planned_convergences() -> None:
+    graph, offsets, observed = _observe(FROZEN / "seed_41.mmd")
 
     assert observed.plan.convergence_plans
     assert all(plan.owns_geometry for plan in observed.plan.convergence_plans)
@@ -429,8 +494,133 @@ def test_frozen_recovery_seeds_have_complete_planned_convergences(name: str) -> 
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
 
+def test_immutable_covered_continuation_uses_its_named_carrier_terminal() -> None:
+    path = ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd"
+    graph, _offsets, preflight = _observe(path)
+    continuation_edge = next(
+        member.edge
+        for member in preflight.plan.members
+        if (member.edge.source, member.edge.target, member.line_id)
+        == ("__merge_3", "side__entry_left_3", "a")
+    )
+    continuation_member = next(
+        member for member in preflight.plan.members if member.edge == continuation_edge
+    )
+    binding = next(
+        item
+        for item in preflight.plan.bindings
+        if item.member_id == continuation_member.id
+    )
+
+    assert binding.kind is BindingKind.COVERED_MERGE_HOP
+    assert binding.covering_member_id is not None
+
+    settlement = settle_route_envelopes(graph, preflight.plan)
+    final = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=preflight.plan.reservations,
+        envelope_bindings=preflight.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+    plan = next(
+        item
+        for item in final.plan.convergence_plans
+        if continuation_member.id in item.member_ids
+    )
+    continuation = next(
+        item
+        for item in plan.outgoing_continuations
+        if item.member_id == continuation_member.id
+    )
+    routes_by_member = {
+        route.convergence_member_id: route
+        for route in final.routes
+        if route.convergence_member_id is not None
+    }
+    carrier = routes_by_member[str(binding.covering_member_id)]
+    primary = routes_by_member[str(plan.primary_trunk_member_id)]
+
+    assert plan.owns_geometry
+    assert continuation.covered_by_member_id == binding.covering_member_id
+    assert continuation.start_point == carrier.points[-2]
+    assert continuation.start_point != primary.points[-2]
+    assert point_to_polyline_distance(continuation.start_point, carrier.points) <= 1e-6
+    assert point_to_polyline_distance(continuation.end_point, carrier.points) <= 1e-6
+
+
+@pytest.mark.parametrize(
+    ("side", "source", "target", "expected"),
+    (
+        (PortSide.LEFT, (9, 1), (3, 2), -1),
+        (PortSide.RIGHT, (9, 3), (3, 2), 1),
+        (PortSide.TOP, (1, 9), (2, 3), -1),
+        (PortSide.BOTTOM, (3, 9), (2, 3), 1),
+    ),
+)
+def test_merge_entry_cross_axis_order_transposes_rows_and_columns(
+    side: PortSide,
+    source: tuple[int, int],
+    target: tuple[int, int],
+    expected: int,
+) -> None:
+    facts = SimpleNamespace(
+        src_col=source[0],
+        src_row=source[1],
+        tgt_col=target[0],
+        tgt_row=target[1],
+    )
+
+    assert _merge_entry_cross_axis_order(facts, side) == expected
+
+
+def test_seed41_right_entry_convergences_clear_sections_and_keep_endpoints() -> None:
+    graph, offsets, observed = _observe(FROZEN / "seed_41.mmd")
+    routes_by_edge = {
+        (route.edge.source, route.edge.target, route.edge.line_id): route
+        for route in observed.routes
+        if route.convergence_member_id is not None
+    }
+    plans = tuple(
+        plan
+        for plan in observed.plan.convergence_plans
+        if graph.ports[plan.target_entry_port_ids[0]].side is PortSide.RIGHT
+    )
+
+    assert plans
+    assert not routes_through_own_section_interior(
+        graph, routes=observed.routes, offsets=offsets
+    )
+    assert not routes_through_unrelated_sections(
+        graph, routes=observed.routes, offsets=offsets
+    )
+    for plan in plans:
+        for landing in plan.landings:
+            route = routes_by_edge[
+                (landing.edge.source, landing.edge.target, landing.edge.line_id)
+            ]
+            assert point_to_polyline_distance(landing.join_point, route.points) <= 1e-6
+        edge_by_member = dict(
+            zip(plan.member_ids, plan.resolved_member_edges, strict=True)
+        )
+        for continuation in plan.outgoing_continuations:
+            carrier_id = continuation.covered_by_member_id or continuation.member_id
+            carrier_edge = edge_by_member[carrier_id]
+            carrier = routes_by_edge[
+                (carrier_edge.source, carrier_edge.target, carrier_edge.line_id)
+            ]
+            assert (
+                point_to_polyline_distance(continuation.end_point, carrier.points)
+                <= 1e-6
+            )
+
+
 def test_mixed_direct_bypass_and_multirow_approaches_are_frozen() -> None:
-    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
+    _graph, _offsets, _preflight, observed = _observe_after_settlement(
+        FROZEN / "seed_15.mmd"
+    )
     landings = [
         landing for plan in observed.plan.convergence_plans for landing in plan.landings
     ]
@@ -506,7 +696,7 @@ def test_target_section_orientations_use_one_convergence_model(
 def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> None:
     from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
-    _graph, _offsets, observed = _observe(path)
+    _graph, _offsets, _preflight, observed = _observe_after_settlement(path)
     planned = {
         landing.member_id: landing
         for plan in observed.plan.convergence_plans
@@ -536,7 +726,9 @@ def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> N
 
 
 def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
-    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
+    _graph, _offsets, _preflight, observed = _observe_after_settlement(
+        FROZEN / "seed_15.mmd"
+    )
     from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
     candidates = []
@@ -647,7 +839,7 @@ def test_trunk_flank_settlement_rederives_curve_radii(
         assert route.curve_radii[radius_rank] != 99.0
 
 
-def test_perpendicular_entry_convergences_emit_both_vertical_directions() -> None:
+def test_perpendicular_top_entry_convergences_travel_from_exterior_to_entry() -> None:
     path = (
         ROOT
         / "tests"
@@ -655,15 +847,23 @@ def test_perpendicular_entry_convergences_emit_both_vertical_directions() -> Non
         / "regressions"
         / "cross_column_perp_entry_overflow.mmd"
     )
-    _graph, _offsets, observed = _observe(path)
+    graph, _offsets, observed = _observe(path)
     vertical = [
         plan
         for plan in observed.plan.convergence_plans
         if plan.trunk_axis is not None and plan.trunk_axis.axis is DemandAxis.Y
     ]
 
-    assert {plan.trunk_axis.direction.value for plan in vertical} == {"U", "D"}
+    assert vertical
+    assert {graph.ports[plan.target_entry_port_ids[0]].side for plan in vertical} == {
+        PortSide.TOP
+    }
+    assert {plan.trunk_axis.direction for plan in vertical} == {Direction.D}
     for plan in vertical:
+        axis = plan.trunk_axis
+        assert axis.source_endpoint_coordinate is not None
+        assert axis.target_endpoint_coordinate is not None
+        assert axis.source_endpoint_coordinate < axis.target_endpoint_coordinate
         continuation = plan.outgoing_continuations[0]
         assert continuation.covered_by_member_id is not None
         assert continuation.start_point != continuation.end_point
@@ -797,7 +997,7 @@ def test_incomplete_semantic_membership_is_a_planning_error(
         _observe(FROZEN / "seed_15.mmd")
 
 
-def test_exit_turn_conflict_uses_whole_system_compatibility() -> None:
+def test_exit_turn_shared_channel_has_exact_whole_system_ownership() -> None:
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph, offset_step=10.0)
@@ -809,9 +1009,12 @@ def test_exit_turn_conflict_uses_whole_system_compatibility() -> None:
     plans = observed.plan.convergence_plans
 
     assert plans
-    assert {plan.disposition for plan in plans} == {ConvergenceDisposition.LEGACY}
     assert all(
-        plan.legacy_reason == "convergence landing conflicts with an upstream exit turn"
+        plan.disposition is ConvergenceDisposition.PLANNED
+        and plan.legacy_reason is None
+        and plan.primary_trunk_member_id in plan.member_ids
+        and set(plan.member_ids)
+        == {ownership.member_id for ownership in plan.endpoint_ownership}
         for plan in plans
     )
 
@@ -1072,7 +1275,42 @@ def test_route_plan_rejects_duplicate_semantic_convergence_coverage(
     right_entry_route_plan: RoutePlan,
 ) -> None:
     (plan,) = right_entry_route_plan.convergence_plans
-    duplicate = replace(plan, id=ConvergencePlanId("duplicate-convergence-plan"))
+    duplicate_id = ConvergencePlanId("duplicate-convergence-plan")
+    duplicate_reference_ids, duplicate_demand_ids = convergence_resource_ids(
+        duplicate_id
+    )
+    reference_id_map = dict(
+        zip(plan.shared_reference_ids, duplicate_reference_ids, strict=True)
+    )
+    duplicate = replace(
+        plan,
+        id=duplicate_id,
+        shared_reference_ids=duplicate_reference_ids,
+        demand_ids=duplicate_demand_ids,
+    )
+    references_by_id = {
+        item.id: item for item in right_entry_route_plan.shared_references
+    }
+    demands_by_id = {item.id: item for item in right_entry_route_plan.demands}
+    duplicate_references = tuple(
+        replace(references_by_id[source_id], id=target_id)
+        for source_id, target_id in zip(
+            plan.shared_reference_ids, duplicate_reference_ids, strict=True
+        )
+    )
+    duplicate_demands = tuple(
+        replace(
+            demands_by_id[source_id],
+            id=target_id,
+            ordered_reference_ids=tuple(
+                reference_id_map[reference_id]
+                for reference_id in demands_by_id[source_id].ordered_reference_ids
+            ),
+        )
+        for source_id, target_id in zip(
+            plan.demand_ids, duplicate_demand_ids, strict=True
+        )
+    )
     systems = tuple(
         replace(
             item,
@@ -1086,6 +1324,11 @@ def test_route_plan_rejects_duplicate_semantic_convergence_coverage(
         right_entry_route_plan,
         systems=systems,
         convergence_plans=(plan, duplicate),
+        shared_references=(
+            *right_entry_route_plan.shared_references,
+            *duplicate_references,
+        ),
+        demands=(*right_entry_route_plan.demands, *duplicate_demands),
     )
 
     with pytest.raises(ValueError, match="coverage"):
@@ -1116,11 +1359,30 @@ def test_route_plan_rejects_incomplete_convergence_emission_membership(
         dict.fromkeys(edge for path in remaining_paths for edge in path)
     )
     member_by_edge = {item.edge: item.id for item in right_entry_route_plan.members}
+    remaining_member_ids = tuple(member_by_edge[edge] for edge in remaining_edges)
+    remaining_member_id_set = set(remaining_member_ids)
+    remaining_landings = tuple(
+        replace(item, order=rank)
+        for rank, item in enumerate(
+            item for item in plan.landings if item.member_id in remaining_member_id_set
+        )
+    )
     mutated = replace(
         plan,
-        member_ids=tuple(member_by_edge[edge] for edge in remaining_edges),
+        member_ids=remaining_member_ids,
         resolved_member_paths=remaining_paths,
         resolved_member_edges=remaining_edges,
+        landings=remaining_landings,
+        outgoing_continuations=tuple(
+            item
+            for item in plan.outgoing_continuations
+            if item.member_id in remaining_member_id_set
+        ),
+        endpoint_ownership=tuple(
+            item
+            for item in plan.endpoint_ownership
+            if item.member_id in remaining_member_id_set
+        ),
     )
 
     with pytest.raises(ValueError, match="membership is incomplete"):

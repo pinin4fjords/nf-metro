@@ -11,7 +11,7 @@ combinatorial space documented in ``docs/dev/inter_section_dispatch.mdx``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -374,8 +374,10 @@ class _InterFacts:
         cedes to the cross-row wrap rule, which drops down the port's outward side
         and turns in once; everything else drops straight.
         """
-        return self.is_near_vertical_same_col_junction and not (
-            self.entry_side is PortSide.RIGHT and self.n >= 2
+        return (
+            self.merge_ep is None
+            and self.is_near_vertical_same_col_junction
+            and not (self.entry_side is PortSide.RIGHT and self.n >= 2)
         )
 
     @property
@@ -1267,7 +1269,20 @@ class _MergeEntryRoute(Enum):
     STRAIGHT = "straight"
     CORRIDOR = "corridor"
     AROUND_BELOW = "around_below"
+    OUTWARD_CROSS_ROW = "outward_cross_row"
     L_SHAPE = "l_shape"
+
+
+def _merge_entry_cross_axis_order(f: _InterFacts, side: PortSide) -> int:
+    """Order a merge feeder and its entry along the port's cross axis."""
+    source, target = (
+        (f.src_row, f.tgt_row)
+        if side in {PortSide.LEFT, PortSide.RIGHT}
+        else (f.src_col, f.tgt_col)
+    )
+    if source is None or target is None:
+        return 0
+    return (source > target) - (source < target)
 
 
 def _merge_entry_route_kind(f: _InterFacts) -> _MergeEntryRoute:
@@ -1284,6 +1299,12 @@ def _merge_entry_route_kind(f: _InterFacts) -> _MergeEntryRoute:
     if abs(ep.y - f.sy) < ctx.curve_radius:
         return _MergeEntryRoute.STRAIGHT
     ep_port = graph.ports.get(ep.id)
+    if (
+        ep_port is not None
+        and ep_port.side is PortSide.RIGHT
+        and _merge_entry_cross_axis_order(f, ep_port.side) < 0
+    ):
+        return _MergeEntryRoute.OUTWARD_CROSS_ROW
     if ep_port and ep_port.side == PortSide.LEFT:
         exclude = {src.section_id} if src.section_id else set[str]()
         if _h_segment_crosses_other_section(graph, f.sx, ep.x, ep.y, exclude):
@@ -1298,6 +1319,21 @@ def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
     edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
     ep = f.merge_ep
     assert ep is not None
+
+    def outward_cross_row() -> RoutedPath | None:
+        port = f.graph.ports.get(ep.id)
+        if port is None:
+            return None
+        entry_facts = replace(
+            f,
+            tgt=ep,
+            tx=ep.x,
+            ty=ep.y,
+            tgt_port=port,
+            merge_ep=None,
+        )
+        return _route_right_entry_cross_row(entry_facts)
+
     builders = {
         _MergeEntryRoute.STRAIGHT: lambda: RoutedPath(
             edge=edge,
@@ -1311,6 +1347,7 @@ def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
         _MergeEntryRoute.AROUND_BELOW: lambda: _route_around_section_below(
             edge, src, tgt, ep, f.i, f.n, ctx
         ),
+        _MergeEntryRoute.OUTWARD_CROSS_ROW: outward_cross_row,
         _MergeEntryRoute.L_SHAPE: lambda: _route_l_shape(edge, src, ep, f.i, f.n, ctx),
     }
     return builders[_merge_entry_route_kind(f)]()
@@ -1385,6 +1422,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         "same-Y straight",
         lambda f: (
             f.same_y
+            and f.merge_ep is None
             and not f.needs_bypass
             and not f.right_entry_from_left
             and not f.left_entry_from_right
@@ -1446,6 +1484,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         "same-X vertical drop",
         lambda f: (
             f.same_x
+            and f.merge_ep is None
             and not f.is_serpentine_left_exit_left_entry
             and not f.is_stacked_right_exit_right_entry
         ),
@@ -1616,6 +1655,8 @@ def _route_inter_section(
         from nf_metro.layout.routing.convergences import consume_convergence_route
 
         consume_convergence_route(route, ctx)
+        if ctx.envelope_allocations is not None and route.convergence_plan_id is None:
+            ctx.envelope_allocations.consume(route)
     if observer is not None and route is not None:
         observer.record_dispatch((edge.source, edge.target, edge.line_id), family_id)
     _declare_trunk(route, ctx)
@@ -2385,7 +2426,7 @@ def _route_bypass(
 
     # Per-line trunk Y keeps lines visually separate on the horizontal.
     if fan is not None:
-        nest_offset = g2_j * ctx.offset_step
+        nest_offset = fan[0] * ctx.offset_step
     else:
         nest_offset = max(i, g2_j) * ctx.offset_step
     # Resolve target row to detect cross-row bypasses.
@@ -2451,8 +2492,8 @@ def _route_bypass(
         nest_offset = 0.0
 
     # A bypass branch of a junction fan traverses the fan's one shared below-row
-    # band (the deepest sibling's ``bypass_bottom_y``), so its trunk coincides
-    # with its bypass siblings' by construction.  Only ever lowers a shallower
+    # band (the deepest sibling's ``bypass_bottom_y``).  The per-line nest
+    # offset preserves fan order within that band.  Only ever lowers a shallower
     # branch onto the shared band -- never lifts one above a section it must
     # clear -- and the source-track special cases above keep precedence.  A feed
     # into a merge junction is excluded: its convergence shares the merge's own
@@ -2498,6 +2539,7 @@ def _route_bypass(
     # into their final centred / B-separated bundle positions.
     half_g1 = (g1_n - 1) * ctx.offset_step / 2
     half_g2 = (g2_n - 1) * ctx.offset_step / 2
+    fan_delta = 0.0
 
     if horizontal is Direction.R:
         if fan is not None:
@@ -2632,6 +2674,10 @@ def _route_bypass(
     # box its Y-span pierces, bounded to the inter-column gap so the channel
     # stays in clear space.
     exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
+    fan_half_width = (fan[1] - 1) * ctx.offset_step / 2 if fan is not None else 0.0
+    gap1_fan_offset = fan_delta if fan is not None else 0.0
+    gap1_anchor_x = gap1_x - gap1_fan_offset
+    gap1_clearance = SECTION_ROUTE_CLEARANCE + fan_half_width
     if cross_row:
         if horizontal is Direction.R:
             g1_lo, g1_hi = column_gap_edges(graph, src_col, src_col + 1)
@@ -2639,9 +2685,17 @@ def _route_bypass(
         else:
             g1_lo, g1_hi = column_gap_edges(graph, src_col - 1, src_col)
             g2_lo, g2_hi = column_gap_edges(graph, tgt_col, tgt_col + 1)
-        gap1_x = _clear_channel_x_in_band(
-            graph, gap1_x, sy, by, SECTION_ROUTE_CLEARANCE, exclude, g1_lo, g1_hi
+        gap1_anchor_x = _clear_channel_x_in_band(
+            graph,
+            gap1_anchor_x,
+            sy,
+            by,
+            gap1_clearance,
+            exclude,
+            g1_lo,
+            g1_hi,
         )
+        gap1_x = gap1_anchor_x + gap1_fan_offset
         gap2_x = _clear_channel_x_in_band(
             graph, gap2_x, by, ty, SECTION_ROUTE_CLEARANCE, exclude, g2_lo, g2_hi
         )
@@ -2656,18 +2710,20 @@ def _route_bypass(
             if src_sec is not None and src_sec.bbox_w > 0:
                 src_right = src_sec.bbox_x + src_sec.bbox_w
                 if sx >= src_right - COORD_TOLERANCE and gap1_x < src_right:
-                    gap1_x = max(
-                        sx + ctx.curve_radius, src_right + SECTION_ROUTE_CLEARANCE
+                    gap1_anchor_x = max(
+                        sx + ctx.curve_radius,
+                        src_right + gap1_clearance,
                     )
-                    gap1_x = _clear_channel_x_in_band(
+                    gap1_anchor_x = _clear_channel_x_in_band(
                         graph,
-                        gap1_x,
+                        gap1_anchor_x,
                         sy,
                         by,
-                        SECTION_ROUTE_CLEARANCE,
+                        gap1_clearance,
                         exclude,
-                        bound_left=gap1_x,
+                        bound_left=gap1_anchor_x,
                     )
+                    gap1_x = gap1_anchor_x + gap1_fan_offset
     else:
         # Same-row bypass past an intervening section whose box is wider than
         # its grid cell: the neighbour cell sits empty, so the gap query bounds
@@ -2676,12 +2732,30 @@ def _route_bypass(
         # target end, so the long below-row traverse, not the descent, passes
         # the box.  The current leg X seeds the bound that pins each push.
         if horizontal is Direction.L:
-            g1_left, g1_right, g2_left, g2_right = gap1_x, None, None, gap2_x
+            g1_left, g1_right, g2_left, g2_right = (
+                gap1_anchor_x,
+                None,
+                None,
+                gap2_x,
+            )
         else:
-            g1_left, g1_right, g2_left, g2_right = None, gap1_x, gap2_x, None
-        gap1_x = _clear_channel_x_in_band(
-            graph, gap1_x, sy, by, SECTION_ROUTE_CLEARANCE, exclude, g1_left, g1_right
+            g1_left, g1_right, g2_left, g2_right = (
+                None,
+                gap1_anchor_x,
+                gap2_x,
+                None,
+            )
+        gap1_anchor_x = _clear_channel_x_in_band(
+            graph,
+            gap1_anchor_x,
+            sy,
+            by,
+            gap1_clearance,
+            exclude,
+            g1_left,
+            g1_right,
         )
+        gap1_x = gap1_anchor_x + gap1_fan_offset
         gap2_x = _clear_channel_x_in_band(
             graph, gap2_x, by, ty, SECTION_ROUTE_CLEARANCE, exclude, g2_left, g2_right
         )

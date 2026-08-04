@@ -6,6 +6,10 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nf_metro.layout.routing.envelope_allocations import EnvelopeAllocationQuery
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -209,6 +213,102 @@ class ExitTurnExecution:
     demands: tuple[SymbolicDemand, ...]
     diagnostics: tuple[RoutePlanDiagnostic, ...]
     query: ExitTurnPlanQuery
+
+
+def materialize_exit_turn_envelope_axes(
+    execution: ExitTurnExecution,
+    allocations: EnvelopeAllocationQuery,
+) -> ExitTurnExecution:
+    """Seat frozen exit axes on their authenticated settled coordinates."""
+    changed = False
+    plans: list[ExitTurnPlan] = []
+    for plan in execution.plans:
+        axes = []
+        for axis in plan.axes:
+            coordinates = {
+                allocation.coordinate
+                for member_id in axis.claimant_member_ids
+                for allocation in allocations.allocations_for_member(member_id)
+                if allocation.axis is axis.axis
+                and allocation.segment_rank <= 1 <= allocation.segment_end_rank
+            }
+            if len(coordinates) > 1:
+                raise ExitTurnInvariantError(
+                    _failure(plan, "settlement assigned one exit axis twice")
+                )
+            coordinate = next(iter(coordinates), axis.coordinate)
+            changed = changed or abs(coordinate - axis.coordinate) > COORD_TOLERANCE
+            axes.append(
+                replace(
+                    axis,
+                    coordinate=coordinate,
+                    fixed_anchor_coordinate=(
+                        coordinate - axis.fixed_anchor_offset
+                        if axis.fixed_anchor_offset is not None
+                        else None
+                    ),
+                )
+            )
+        axis_by_id = {axis.id: axis for axis in axes}
+        assignments = tuple(
+            replace(
+                assignment,
+                minimum_runway=(
+                    min(
+                        assignment.minimum_runway,
+                        abs(
+                            axis_by_id[assignment.axis_id].coordinate
+                            - assignment.launch_coordinate
+                        ),
+                    )
+                    if assignment.axis_id is not None
+                    and assignment.minimum_runway is not None
+                    and assignment.launch_coordinate is not None
+                    else assignment.minimum_runway
+                ),
+            )
+            for assignment in plan.assignments
+        )
+        plans.append(replace(plan, axes=tuple(axes), assignments=assignments))
+    if not changed:
+        return execution
+
+    plan_by_id = {plan.id: plan for plan in plans}
+    by_edge = {
+        key: _Membership(
+            plan_by_id[membership.plan.id],
+            membership.member_id,
+            (
+                next(
+                    assignment
+                    for assignment in plan_by_id[membership.plan.id].assignments
+                    if assignment.member_id == membership.member_id
+                )
+                if membership.assignment is not None
+                else None
+            ),
+            (
+                next(
+                    axis
+                    for axis in plan_by_id[membership.plan.id].axes
+                    if membership.axis is not None and axis.id == membership.axis.id
+                )
+                if membership.axis is not None
+                else None
+            ),
+        )
+        for key, membership in execution.query._by_edge.items()
+    }
+    transition_by_edge = {
+        key: _TransitionMembership(
+            plan_by_id[membership.plan.id], membership.transition
+        )
+        for key, membership in execution.query._transition_by_edge.items()
+    }
+    query = ExitTurnPlanQuery(
+        tuple(plans), MappingProxyType(by_edge), MappingProxyType(transition_by_edge)
+    )
+    return replace(execution, plans=tuple(plans), query=query)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2383,9 +2483,12 @@ def snapshot_exit_turn_segments(
             rank = route.exit_turn_segment_rank
             if rank is None:
                 continue
-            landing_point_settled_later = (
-                route.exit_turn_family_id == RouteFamilyId.MERGE_BRANCH.value
-            )
+            segment_start = route.points[rank]
+            segment_end = route.points[rank + 1]
+            if abs(segment_start[0] - segment_end[0]) <= COORD_TOLERANCE:
+                owned_segment_end = (segment_end[0], segment_start[1])
+            else:
+                owned_segment_end = (segment_start[0], segment_end[1])
             radii = None
             if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):
                 radii = ((rank - 1, route.curve_radii[rank - 1]),)
@@ -2401,7 +2504,7 @@ def snapshot_exit_turn_segments(
                 rank,
                 route.points[rank - 1],
                 route.points[rank],
-                None if landing_point_settled_later else route.points[rank + 1],
+                owned_segment_end,
                 radii,
                 None,
                 None,

@@ -27,8 +27,14 @@ from pathlib import Path
 import pytest
 from layout_validator import shared_same_line_turn_vertices
 
+from nf_metro.api import prepare_graph
 from nf_metro.layout.engine import compute_layout
-from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
+from nf_metro.layout.envelope_settlement import settle_route_envelopes
+from nf_metro.layout.routing import (
+    compute_station_offsets,
+    observe_route_edges,
+    route_edges_centred,
+)
 from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.invariants import check_coincident_corner_radii
 from nf_metro.layout.routing.normalize import _unify_coincident_corner_radii
@@ -66,6 +72,24 @@ def _route(path: Path):
     return graph, routes, offsets
 
 
+def _settled_route(path: Path):
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    preflight = observe_route_edges(graph, station_offsets=offsets)
+    settlement = settle_route_envelopes(graph, preflight.plan)
+    offsets = compute_station_offsets(graph)
+    final = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=preflight.plan.reservations,
+        envelope_bindings=preflight.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+    return graph, final.routes, offsets
+
+
 @pytest.mark.parametrize(
     "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
@@ -88,10 +112,11 @@ def test_named_fixtures_have_a_coincident_turn(fixture: str) -> None:
     no such corner the unification has nothing to equalise and a passing
     ``test_no_doubled_coincident_corner`` would prove nothing here.
     """
-    _graph, routes, _offsets = _route(REPO_ROOT / fixture)
+    graph, routes, offsets = _settled_route(REPO_ROOT / fixture)
     assert shared_same_line_turn_vertices(routes), (
         f"{fixture} no longer routes a coincident same-line turn"
     )
+    assert not check_coincident_corner_radii(graph, routes, offsets)
 
 
 def _make_route(source: str, target: str, radius: float):
@@ -148,6 +173,64 @@ def test_unify_uses_widest_radius_all_shared_legs_can_resolve() -> None:
         resolve_curve_radii(route.points, route.curve_radii)[0] for route in routes
     ] == pytest.approx([20.0, 20.0])
     assert not check_coincident_corner_radii(graph, routes, {})
+
+
+def test_unify_materialises_the_default_radius_for_a_shared_turn() -> None:
+    """An implicit base-radius leg participates in coincident unification."""
+    from nf_metro.parser.model import MetroGraph
+
+    explicit = _make_route("explicit", "x", 14.0)
+    implicit = _make_route("implicit", "x", 10.0)
+    implicit.curve_radii = None
+    routes = [explicit, implicit]
+    graph = MetroGraph()
+
+    assert check_coincident_corner_radii(graph, routes, {})
+
+    _unify_coincident_corner_radii(routes)
+
+    assert explicit.curve_radii == [14.0]
+    assert implicit.curve_radii == [14.0]
+    assert not check_coincident_corner_radii(graph, routes, {})
+
+
+def test_unify_preserves_route_order_and_allocated_segment_ownership() -> None:
+    """Radius reconciliation cannot rebind settled channel allocations."""
+    first = _make_route("first", "x", 14.0)
+    second = _make_route("second", "x", 18.0)
+    first.envelope_allocated_segments = ((1, 0, 100.0),)
+    second.envelope_allocated_segments = ((1, 0, 100.0),)
+    routes = [first, second]
+    order = tuple(id(route) for route in routes)
+    allocations = tuple(route.envelope_allocated_segments for route in routes)
+
+    _unify_coincident_corner_radii(routes)
+
+    assert tuple(id(route) for route in routes) == order
+    assert tuple(route.envelope_allocated_segments for route in routes) == allocations
+    assert [
+        resolve_curve_radii(route.points, route.curve_radii)[0] for route in routes
+    ] == pytest.approx([18.0, 18.0])
+
+
+def test_unify_materialises_a_missing_default_radius_in_a_sparse_list() -> None:
+    """Missing radius entries retain the renderer's base-radius fallback."""
+    explicit = _make_route("explicit", "x", 14.0)
+    sparse = _make_route("sparse", "x", 10.0)
+    for route in (explicit, sparse):
+        route.points = [
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.0, 100.0),
+            (200.0, 100.0),
+        ]
+    explicit.curve_radii = [10.0, 14.0]
+    sparse.curve_radii = [10.0]
+
+    _unify_coincident_corner_radii([explicit, sparse])
+
+    assert explicit.curve_radii == [10.0, 14.0]
+    assert sparse.curve_radii == [10.0, 14.0]
 
 
 def test_unify_refreshes_a_shared_route_after_changing_one_corner(

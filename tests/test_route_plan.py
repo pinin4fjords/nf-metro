@@ -395,6 +395,7 @@ def test_schema_names_every_future_reference_and_demand_kind() -> None:
         SharedReferenceKind.RUNWAY,
         SharedReferenceKind.ORDERED_TURNS,
         SharedReferenceKind.LANDING_SEQUENCE,
+        SharedReferenceKind.FORK_PIVOT,
     }
     assert set(DemandKind) == {
         DemandKind.SPAN,

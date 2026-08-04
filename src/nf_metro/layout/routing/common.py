@@ -24,7 +24,12 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_ROUTE_CLEARANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    lanes_run_along_x,
+    lanes_run_along_y,
+    perpendicular_port_sides,
+)
 from nf_metro.layout.route_topology import (
     convergence_junction_ids,
     merge_fanout_junction_ids,
@@ -204,6 +209,67 @@ def perp_entry_consumer(graph: MetroGraph, port_id: str) -> Station | None:
         if not consumer.is_port:
             return consumer
     return None
+
+
+def projected_perp_entry_lane_coordinate(
+    graph: MetroGraph,
+    port_id: str,
+    line_id: str,
+    station_offsets: Mapping[tuple[str, str], float],
+) -> float | None:
+    """Project a port offset onto its perpendicular entry channel axis."""
+    port = graph.ports.get(port_id)
+    if port is None or not port.is_entry:
+        return None
+    section = graph.section_for_port(port)
+    if port.side not in perpendicular_port_sides(section.direction):
+        return None
+    feeds = [
+        edge for edge in graph.edges_to(port_id) if edge.source in graph.junction_ids
+    ]
+    lines = tuple(
+        lid
+        for lid in graph.station_lines(port_id)
+        if any(edge.line_id == lid for edge in feeds)
+    )
+    consumer = perp_entry_consumer(graph, port_id)
+    if len(lines) < 2 or line_id not in lines or consumer is None:
+        return None
+    incoming = {
+        PortSide.TOP: Direction.D,
+        PortSide.BOTTOM: Direction.U,
+        PortSide.LEFT: Direction.R,
+        PortSide.RIGHT: Direction.L,
+    }[port.side]
+    horizontal_flow = lanes_run_along_y(section.direction)
+    outgoing = (
+        Direction.R
+        if consumer.x > graph.stations[port_id].x
+        else Direction.L
+        if horizontal_flow
+        else Direction.D
+        if consumer.y > graph.stations[port_id].y
+        else Direction.U
+    )
+    normal_sign = {
+        Direction.R: 1.0,
+        Direction.L: -1.0,
+        Direction.D: -1.0,
+        Direction.U: 1.0,
+    }
+    station = graph.stations[port_id]
+    lane_sign = 1.0 if horizontal_flow else -1.0
+    displacement = (
+        station_offsets.get((port_id, line_id), 0.0)
+        * lane_sign
+        * normal_sign[incoming]
+        / normal_sign[outgoing]
+    )
+    return (
+        station.x + displacement
+        if port.side in {PortSide.TOP, PortSide.BOTTOM}
+        else station.y + displacement
+    )
 
 
 def needs_perp_approach_fan(graph: MetroGraph, port_id: str) -> bool:
@@ -793,6 +859,8 @@ class RoutedPath:
     """Semantic emission member bound to the planned convergence."""
     convergence_owned_segment_ranks: tuple[int, ...] = ()
     """Segments whose final geometry is owned by the convergence plan."""
+    envelope_allocated_segments: tuple[tuple[int, int, float], ...] = ()
+    """Settled segment ranks with their canvas-axis index and coordinate."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None
@@ -1201,31 +1269,49 @@ def iter_port_peeloff_bundles(
 
     for shape, entries in by_shape.items():
         port_id, trunk_sign, vertical_sign, port_lead_sign = shape
-        # One representative tail per distinct line (a line feeding several
-        # approaches shares a single slot, so its approaches move together).
-        per_line: dict[str, PeeloffTail] = {}
-        for rp, t in entries:
-            per_line.setdefault(rp.edge.line_id, t)
-        n = len(per_line)
-        if n < 2:
-            continue
-        overlap_lo = max(t.x_lo for t in per_line.values())
-        overlap_hi = min(t.x_hi for t in per_line.values())
-        if overlap_hi - overlap_lo < min_common_suffix - COORD_TOLERANCE:
-            continue
-        trunk_ys = sorted(t.trunk_y for t in per_line.values())
-        if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:
-            continue  # no distinct trunk depths to order by
-        if require_contiguous and not trunk_depths_contiguous(trunk_ys, n, step):
-            continue  # not one contiguous concentric bundle
-        yield PortPeeloffBundle(
-            port_id,
-            entries,
-            per_line,
-            trunk_sign,
-            vertical_sign,
-            port_lead_sign,
-        )
+        parent = list(range(len(entries)))
+
+        def root(rank: int) -> int:
+            while parent[rank] != rank:
+                parent[rank] = parent[parent[rank]]
+                rank = parent[rank]
+            return rank
+
+        for first_rank, (_first_route, first) in enumerate(entries):
+            for second_rank in range(first_rank + 1, len(entries)):
+                second = entries[second_rank][1]
+                overlap = min(first.x_hi, second.x_hi) - max(first.x_lo, second.x_lo)
+                if overlap < min_common_suffix - COORD_TOLERANCE:
+                    continue
+                first_root, second_root = root(first_rank), root(second_rank)
+                if first_root != second_root:
+                    parent[second_root] = first_root
+        corridors: dict[int, list[tuple[RoutedPath, PeeloffTail]]] = defaultdict(list)
+        for rank, entry in enumerate(entries):
+            corridors[root(rank)].append(entry)
+
+        for corridor in corridors.values():
+            # One representative tail per distinct line (a line feeding several
+            # approaches shares a single slot, so its approaches move together).
+            per_line: dict[str, PeeloffTail] = {}
+            for rp, tail in corridor:
+                per_line.setdefault(rp.edge.line_id, tail)
+            n = len(per_line)
+            if n < 2:
+                continue
+            trunk_ys = sorted(t.trunk_y for t in per_line.values())
+            if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:
+                continue  # no distinct trunk depths to order by
+            if require_contiguous and not trunk_depths_contiguous(trunk_ys, n, step):
+                continue  # not one contiguous concentric bundle
+            yield PortPeeloffBundle(
+                port_id,
+                corridor,
+                per_line,
+                trunk_sign,
+                vertical_sign,
+                port_lead_sign,
+            )
 
 
 def peeloff_trunk_line_order(bundle: PortPeeloffBundle) -> list[str]:
@@ -1259,6 +1345,74 @@ def peeloff_target_slots(bundle: PortPeeloffBundle) -> dict[str, PeeloffSlot]:
         )
         for i, lid in enumerate(ranked)
     }
+
+
+def _destination_tail_targets_clear(
+    graph: MetroGraph,
+    bundle: PortPeeloffBundle,
+    trunks: dict[str, DestinationTailTrunk],
+    targets: dict[str, float],
+    all_trunks: list[DestinationTailTrunk],
+    group_routes: set[int],
+) -> bool:
+    for route, _tail in bundle.entries:
+        trunk = trunks[route.line_id]
+        target_y = targets[route.line_id]
+        if any(
+            id(sibling.route) not in group_routes
+            and sibling.route.line_id != route.line_id
+            and abs(sibling.y - target_y) <= COORD_TOLERANCE
+            and min(sibling.x_hi, trunk.x_hi) - max(sibling.x_lo, trunk.x_lo)
+            > COORD_TOLERANCE
+            for sibling in all_trunks
+        ):
+            return False
+        points = route.points
+        k = trunk.idx
+        if k == 0 or k + 2 >= len(points):
+            return False
+        own_sections = {
+            section_id
+            for station_id in (route.edge.source, route.edge.target)
+            if (section_id := graph.section_for_station(station_id)) is not None
+        }
+        xa, xb = points[k][0], points[k + 1][0]
+        source_section_id = graph.section_for_station(route.edge.source)
+        source_section = (
+            graph.sections.get(source_section_id) if source_section_id else None
+        )
+        horizontal_blocked = source_section is not None and (
+            _h_segment_penetrates_section(
+                min(xa, xb), max(xa, xb), target_y, source_section, 0.0
+            )
+        )
+        if not horizontal_blocked:
+            horizontal_blocked = any(
+                section.id not in own_sections
+                and _h_segment_penetrates_section(
+                    min(xa, xb), max(xa, xb), target_y, section, 0.0
+                )
+                for section in graph.sections.values()
+            )
+
+        def vertical_blocked(x: float, y1: float, y2: float) -> bool:
+            y_lo, y_hi = sorted((y1, y2))
+            return any(
+                section.bbox_w > 0
+                and section.id not in own_sections
+                and y_lo < section.bbox_y + section.bbox_h
+                and section.bbox_y < y_hi
+                and section.bbox_x <= x <= section.bbox_x + section.bbox_w
+                for section in graph.sections.values()
+            )
+
+        if (
+            horizontal_blocked
+            or vertical_blocked(xa, points[k - 1][1], target_y)
+            or vertical_blocked(xb, target_y, points[k + 2][1])
+        ):
+            return False
+    return True
 
 
 def iter_eligible_destination_tail_bundles(
@@ -1327,6 +1481,13 @@ def iter_eligible_destination_tail_bundles(
         pinned_bases: list[float] = []
         for line_id, trunk in trunks.items():
             if any(
+                rank == trunk.idx and axis_rank == 1
+                for rank, axis_rank, _coordinate in (
+                    trunk.route.envelope_allocated_segments
+                )
+            ):
+                pinned_bases.append(trunk.y - rank_of[line_id] * step)
+            if any(
                 id(sibling.route) not in group_routes
                 and sibling.route.line_id == line_id
                 and sibling.sign_x == trunk.sign_x
@@ -1341,65 +1502,34 @@ def iter_eligible_destination_tail_bundles(
         ):
             continue
         base = pinned_bases[0] if pinned_bases else min(t.y for t in trunks.values())
-        targets = {line_id: base + rank * step for rank, line_id in enumerate(order)}
-
-        clear = True
-        for route, _tail in bundle.entries:
-            trunk = trunks[route.line_id]
-            target_y = targets[route.line_id]
-            points = route.points
-            k = trunk.idx
-            if k == 0 or k + 2 >= len(points):
-                clear = False
-                break
-            own_sections = {
-                section_id
-                for station_id in (route.edge.source, route.edge.target)
-                if (section_id := graph.section_for_station(station_id)) is not None
+        candidate_bases = {base}
+        if not pinned_bases:
+            forbidden_bases = {
+                sibling.y - rank_of[line_id] * step
+                for line_id, trunk in trunks.items()
+                for sibling in all_trunks
+                if id(sibling.route) not in group_routes
+                and sibling.route.line_id != line_id
+                and min(sibling.x_hi, trunk.x_hi) - max(sibling.x_lo, trunk.x_lo)
+                > COORD_TOLERANCE
             }
-            xa, xb = points[k][0], points[k + 1][0]
-            source_section_id = graph.section_for_station(route.edge.source)
-            source_section = (
-                graph.sections.get(source_section_id) if source_section_id else None
+            candidate_bases.update(
+                candidate
+                for forbidden in forbidden_bases
+                for candidate in (forbidden - step, forbidden + step)
             )
-            horizontal_blocked = source_section is not None and (
-                _h_segment_penetrates_section(
-                    min(xa, xb),
-                    max(xa, xb),
-                    target_y,
-                    source_section,
-                    0.0,
-                )
-            )
-            if not horizontal_blocked:
-                horizontal_blocked = any(
-                    section.id not in own_sections
-                    and _h_segment_penetrates_section(
-                        min(xa, xb), max(xa, xb), target_y, section, 0.0
-                    )
-                    for section in graph.sections.values()
-                )
-
-            def vertical_blocked(x: float, y1: float, y2: float) -> bool:
-                y_lo, y_hi = sorted((y1, y2))
-                return any(
-                    section.bbox_w > 0
-                    and section.id not in own_sections
-                    and y_lo < section.bbox_y + section.bbox_h
-                    and section.bbox_y < y_hi
-                    and section.bbox_x <= x <= section.bbox_x + section.bbox_w
-                    for section in graph.sections.values()
-                )
-
-            if (
-                horizontal_blocked
-                or vertical_blocked(xa, points[k - 1][1], target_y)
-                or vertical_blocked(xb, target_y, points[k + 2][1])
+        for candidate_base in sorted(
+            candidate_bases, key=lambda candidate: (abs(candidate - base), candidate)
+        ):
+            targets = {
+                line_id: candidate_base + rank * step
+                for rank, line_id in enumerate(order)
+            }
+            if _destination_tail_targets_clear(
+                graph, bundle, trunks, targets, all_trunks, group_routes
             ):
-                clear = False
+                yield bundle, trunks, targets
                 break
-        if clear:
-            yield bundle, trunks, targets
 
 
 def tail_on_slot(tail: PeeloffTail, slot: PeeloffSlot) -> bool:

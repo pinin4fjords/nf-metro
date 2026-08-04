@@ -34,7 +34,12 @@ from __future__ import annotations
 
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.geometry import lanes_run_along_x, lanes_run_along_y
-from nf_metro.layout.routing.common import needs_perp_approach_fan, resolve_section
+from nf_metro.layout.route_topology import convergence_junction_ids
+from nf_metro.layout.routing.common import (
+    needs_perp_approach_fan,
+    projected_perp_entry_lane_coordinate,
+    resolve_section,
+)
 from nf_metro.layout.routing.context import (
     _get_offset,
     _max_offset_at,
@@ -144,6 +149,41 @@ def _perp_entry_crossing_x(
         # feeder's section lane.
         return port_x + _get_offset(ctx, entry_port_id, line_id)
     return port_x - max_index * ctx.offset_step
+
+
+def convergence_perp_entry_lane_coordinate(
+    ctx: _RoutingCtx, entry_port_id: str, line_id: str
+) -> float | None:
+    """Canonical line channel through a convergence's perpendicular entry.
+
+    TOP/BOTTOM seams retain the feeder-aware crossing used by both sides of
+    the section boundary. LEFT/RIGHT seams use the same axis projection of the
+    port's lane offset. The convergence planner and the internal drop therefore
+    read one channel decision instead of independently interpreting the shared
+    port marker.
+    """
+    port = ctx.graph.ports.get(entry_port_id)
+    if port is None:
+        return None
+    convergence_sources = set(convergence_junction_ids(ctx.graph, ctx.topology))
+    has_convergence_family = any(
+        edge.source in convergence_sources for edge in ctx.graph.edges_to(entry_port_id)
+    )
+    if not has_convergence_family and port.side in {PortSide.TOP, PortSide.BOTTOM}:
+        crossing = _perp_entry_crossing_x(
+            ctx,
+            entry_port_id,
+            line_id,
+            ctx.graph.stations[entry_port_id].x,
+        )
+        if crossing is not None:
+            return crossing
+    return projected_perp_entry_lane_coordinate(
+        ctx.graph,
+        entry_port_id,
+        line_id,
+        ctx.station_offsets or {},
+    )
 
 
 def _aligned_horizontal_drop_entry(ctx: _RoutingCtx, exit_port_id: str) -> str | None:
