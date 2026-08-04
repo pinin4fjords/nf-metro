@@ -700,3 +700,17 @@ def iter_serpentine_backtracks(
         limit = backtrack_frac * max(section.bbox_w, 1.0)
         if against > limit + tolerance:
             yield sid, against, limit, section
+
+
+def spans_share_corridor(
+    first_lo: float, first_hi: float, second_lo: float, second_hi: float
+) -> bool:
+    """Whether two spans overlap enough to occupy one corridor.
+
+    Runs that merely touch at a shared elbow band are independent and must stay
+    free to spread across the gap; only a substantial overlap makes them
+    neighbours that have to be separated from each other.
+    """
+    from nf_metro.layout.constants import MIN_CORRIDOR_Y_OVERLAP
+
+    return min(first_hi, second_hi) - max(first_lo, second_lo) > MIN_CORRIDOR_Y_OVERLAP

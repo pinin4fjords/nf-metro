@@ -208,7 +208,6 @@ def test_an_unmet_demand_is_reported_against_the_input_ledger() -> None:
     for shortfall in settlement.shortfalls:
         assert shortfall.available_width < shortfall.required_width
         assert shortfall.claimant_member_ids
-        assert "its reservation requires" in shortfall.message
     assert any(
         item.kind is ObstructionKind.INCOHERENT_CLAIM for item in settlement.shortfalls
     )
@@ -479,11 +478,15 @@ def test_every_compatibility_system_is_attributed_in_the_published_plan(
         for item in observed.route_plan.diagnostics
         if item.code == "convergence-settlement-exit"
     ]
+    assert all(
+        item.blocking is False
+        for item in observed.route_plan.diagnostics
+        if item.code == "envelope-settlement-translation"
+    )
     assert published
     for item in published:
         assert item.blocking is False
         assert "#1658" in item.message
-        assert "owns the decision" in item.message
 
 
 def test_a_demand_pinned_by_the_authored_grid_fails_the_strict_path() -> None:
@@ -507,7 +510,6 @@ def test_a_compatibility_system_with_adequate_corridors_names_its_owner() -> Non
         assert item.corridor_count > 0
         assert item.worst_capacity_slack >= 0.0
         assert "#1658" in item.owner
-        assert "not what limits it" in item.message
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)

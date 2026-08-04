@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
+from nf_metro.layout.geometry import spans_share_corridor
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
@@ -139,10 +140,7 @@ def _split_corridors(chans: list[_VChannel]) -> list[list[_VChannel]]:
     for ch in chans:
         placed = False
         for g in groups:
-            if any(
-                min(ch.y_hi, o.y_hi) - max(ch.y_lo, o.y_lo) > MIN_CORRIDOR_Y_OVERLAP
-                for o in g
-            ):
+            if any(spans_share_corridor(ch.y_lo, ch.y_hi, o.y_lo, o.y_hi) for o in g):
                 g.append(ch)
                 placed = True
                 break
@@ -311,8 +309,9 @@ def _overlays_distinct_line(
     return (
         channel.down is obstacle.down
         and channel.route.line_id != obstacle.route.line_id
-        and min(channel.y_hi, obstacle.y_hi) - max(channel.y_lo, obstacle.y_lo)
-        > MIN_CORRIDOR_Y_OVERLAP
+        and spans_share_corridor(
+            channel.y_lo, channel.y_hi, obstacle.y_lo, obstacle.y_hi
+        )
         and abs(x - obstacle.x) < step - COORD_TOLERANCE
     )
 
@@ -376,8 +375,7 @@ def _anchor_same_direction_fixed_channels(
             if obstacle.down is down
             and all(obstacle.route.line_id != ch.route.line_id for ch in chans)
             and any(
-                min(ch.y_hi, obstacle.y_hi) - max(ch.y_lo, obstacle.y_lo)
-                > MIN_CORRIDOR_Y_OVERLAP
+                spans_share_corridor(ch.y_lo, ch.y_hi, obstacle.y_lo, obstacle.y_hi)
                 for ch in chans
             )
         ]

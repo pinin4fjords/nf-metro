@@ -12,9 +12,11 @@ from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     COORD_TOLERANCE,
     EDGE_TO_BUNDLE_CLEARANCE,
-    MIN_CORRIDOR_Y_OVERLAP,
 )
-from nf_metro.layout.geometry import point_to_polyline_distance
+from nf_metro.layout.geometry import (
+    point_to_polyline_distance,
+    spans_share_corridor,
+)
 from nf_metro.layout.route_plan import (
     ConvergenceContinuation,
     ConvergenceDisposition,
@@ -1355,8 +1357,7 @@ def _gap_channels_crowd(first: _PlanGapChannel, second: _PlanGapChannel) -> bool
     return (
         first.gap == second.gap
         and first.down is not second.down
-        and min(first.y_hi, second.y_hi) - max(first.y_lo, second.y_lo)
-        > MIN_CORRIDOR_Y_OVERLAP
+        and spans_share_corridor(first.y_lo, first.y_hi, second.y_lo, second.y_hi)
         and abs(first.coordinate - second.coordinate)
         < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
     )

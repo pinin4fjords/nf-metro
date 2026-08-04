@@ -45,6 +45,7 @@ from nf_metro.layout.route_plan import (
     EmissionMemberId,
     RoutePlan,
     RoutePlanDiagnostic,
+    RouteSystemId,
 )
 from nf_metro.layout.route_reservations import (
     SECTION_HEADER_BLOCKER,
@@ -148,7 +149,7 @@ class CompatibilityOwnership:
     the decision the system is actually short of.
     """
 
-    system_id: str
+    system_id: RouteSystemId
     convergence_reason: str
     corridor_count: int
     worst_capacity_slack: float
@@ -434,22 +435,22 @@ def _compatibility_ownership(
     graph: MetroGraph, plan: RoutePlan
 ) -> tuple[CompatibilityOwnership, ...]:
     """Attribute every compatibility system whose corridors are all adequate."""
-    slack_by_system: dict[str, list[float]] = {}
+    slack_by_system: dict[RouteSystemId, list[float]] = {}
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
         realised = realise_reservation(graph, reservation)
         if realised is not None:
-            slack_by_system.setdefault(str(reservation.system_id), []).append(
+            slack_by_system.setdefault(reservation.system_id, []).append(
                 realised.capacity_slack
             )
 
-    found: dict[str, CompatibilityOwnership] = {}
+    found: dict[RouteSystemId, CompatibilityOwnership] = {}
     for convergence in plan.convergence_plans:
         reason = convergence.legacy_reason
         if reason is None:
             continue
-        system_id = str(convergence.system_id)
+        system_id = convergence.system_id
         slacks = slack_by_system.get(system_id)
         if not slacks:
             continue
@@ -463,23 +464,30 @@ def _compatibility_ownership(
     return tuple(found[key] for key in sorted(found))
 
 
-def attach_compatibility_exit_diagnostics(
+def attach_settlement_diagnostics(
     plan: RoutePlan, settlement: EnvelopeSettlement
 ) -> RoutePlan:
-    """Publish settlement's compatibility attribution into *plan*.
+    """Publish what settlement moved and what it attributed, into *plan*.
 
     A record nobody can read is not evidence.  Emitting these as non-blocking
-    plan diagnostics is what lets the emission stage that owns these decisions
-    find them without re-deriving the measurement.
+    plan diagnostics gives every translated row and column a named owner in the
+    published plan, and lets the emission stage that owns a compatibility
+    system's remaining decision find that attribution without re-deriving the
+    measurement.
     """
-    if not settlement.compatibility_ownership:
-        return plan
     added = tuple(
+        RoutePlanDiagnostic(
+            None, "envelope-settlement-translation", item.message, blocking=False
+        )
+        for item in settlement.translations
+    ) + tuple(
         RoutePlanDiagnostic(
             None, "convergence-settlement-exit", item.message, blocking=False
         )
         for item in settlement.compatibility_ownership
     )
+    if not added:
+        return plan
     return replace(plan, diagnostics=plan.diagnostics + added)
 
 
