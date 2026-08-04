@@ -1,7 +1,7 @@
-"""Tests for dependency-aware section numbering.
+"""Tests for connectivity-aware section numbering.
 
-After layout, automatic sections are numbered by dependency wave.  Visual row
-and horizontal flow break ties, while authored numbers stay fixed.
+After layout, automatic sections follow connected visual routes.  Parallel
+branches complete before their join, while authored numbers stay fixed.
 """
 
 from __future__ import annotations
@@ -53,15 +53,15 @@ def asymmetric_tree():
 
 
 class TestSectionNumberingOrder:
-    """Automatic numbers should follow dependencies, then visual order."""
+    """Automatic numbers should follow connected visual routes."""
 
     def test_numbers_are_sequential(self, variantprioritization):
         """Section numbers should be 1..N with no gaps."""
         numbers = sorted(s.number for s in variantprioritization.sections.values())
         assert numbers == list(range(1, len(variantprioritization.sections) + 1))
 
-    def test_all_examples_sequential_and_dependency_ordered(self):
-        """Every example should number producers before their consumers."""
+    def test_all_examples_sequential_with_only_cross_row_route_returns(self):
+        """Backward edges should only rejoin a completed route from another row."""
         for mmd_path in sorted(EXAMPLES_DIR.rglob("*.mmd")):
             text = mmd_path.read_text()
             g = parse_metro_mermaid(text)
@@ -73,13 +73,29 @@ class TestSectionNumberingOrder:
                 f"{mmd_path.name}: section numbers not sequential: {numbers}"
             )
             section_edges = g.section_dag.section_edges if g.section_dag else set()
+
+            def lane(sid: str) -> int:
+                return g.sections[sid].grid_row
+
             for source, target in section_edges:
-                assert g.sections[source].number < g.sections[target].number, (
-                    f"{mmd_path.name}: producer {source!r} is numbered after "
-                    f"consumer {target!r}"
+                if g.sections[source].number < g.sections[target].number:
+                    continue
+                earlier_predecessors = [
+                    predecessor
+                    for predecessor, candidate in section_edges
+                    if candidate == target
+                    and g.sections[predecessor].number < g.sections[target].number
+                ]
+                assert lane(source) != lane(target)
+                assert any(
+                    lane(predecessor) == lane(target)
+                    for predecessor in earlier_predecessors
+                ), (
+                    f"{mmd_path.name}: {source!r} rejoins {target!r} without an "
+                    "earlier predecessor continuing along the target row"
                 )
 
-    def test_dependency_waves_precede_visual_row_order(self, variantprioritization):
+    def test_connected_routes_precede_secondary_inputs(self, variantprioritization):
         ordered_ids = [
             section.id
             for section in sorted(
@@ -89,22 +105,33 @@ class TestSectionNumberingOrder:
         ]
         assert ordered_ids == [
             "preprocessing",
-            "get_reference",
             "format_files",
+            "get_reference",
             "run_cpsr",
             "run_pcgr",
         ]
 
-    def test_rl_rows_are_numbered_right_to_left(self, longread_variant_calling):
-        return_row = sorted(
-            (
-                section
-                for section in longread_variant_calling.sections.values()
-                if section.grid_row == 1
-            ),
-            key=lambda section: section.number,
-        )
-        assert [section.grid_col for section in return_row] == [5, 4, 3, 2, 1, 0]
+    def test_longread_primary_route_precedes_secondary_inputs(
+        self, longread_variant_calling
+    ):
+        ordered_ids = [
+            section.id
+            for section in sorted(
+                longread_variant_calling.sections.values(),
+                key=lambda section: section.number,
+            )
+        ]
+        assert ordered_ids == [
+            "preprocessing",
+            "small_variants",
+            "phasing",
+            "structural_variants",
+            "jointcalling",
+            "annotation",
+            "cnv_calling",
+            "tr_calling",
+            "reports",
+        ]
 
     def test_connected_flow_precedes_a_disconnected_rowmate(self, leftward_bypass):
         ordered_ids = [
@@ -164,6 +191,22 @@ class TestSectionNumberingOrder:
             (
                 "topologies/corridor_narrow_gap_fallback",
                 ["source", "tall", "target"],
+            ),
+            (
+                "topologies/bottom_row_climb_clear_corridor",
+                ["feed", "mid_a", "mid_b", "dest", "low"],
+            ),
+            (
+                "topologies/convergence_stacked_sink",
+                ["prep", "align", "dedup", "aux", "repeats", "merge_pt", "report"],
+            ),
+            (
+                "topologies/junction_entry_align",
+                ["pre", "src", "dst_a", "dst_b", "beta_extra_1", "beta_extra_2"],
+            ),
+            (
+                "topologies/merge_trunk_over_low_section",
+                ["ingest", "tall", "proc2", "collect", "sub"],
             ),
         ],
     )
