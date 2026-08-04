@@ -12,16 +12,31 @@ import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import MetroGraph
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
 
-def _load(name: str):
+def _load(name: str) -> MetroGraph:
     """Parse and lay out an example pipeline."""
     text = (EXAMPLES_DIR / f"{name}.mmd").read_text()
     g = parse_metro_mermaid(text)
     compute_layout(g)
     return g
+
+
+def _ordered_section_ids(graph: MetroGraph, *, row: int | None = None) -> list[str]:
+    return [
+        section.id
+        for section in sorted(
+            (
+                section
+                for section in graph.sections.values()
+                if row is None or section.grid_row == row
+            ),
+            key=lambda section: section.number,
+        )
+    ]
 
 
 # Module-scoped fixtures to avoid redundant compute_layout calls.
@@ -96,14 +111,7 @@ class TestSectionNumberingOrder:
                 )
 
     def test_connected_routes_precede_secondary_inputs(self, variantprioritization):
-        ordered_ids = [
-            section.id
-            for section in sorted(
-                variantprioritization.sections.values(),
-                key=lambda section: section.number,
-            )
-        ]
-        assert ordered_ids == [
+        assert _ordered_section_ids(variantprioritization) == [
             "preprocessing",
             "format_files",
             "get_reference",
@@ -114,14 +122,7 @@ class TestSectionNumberingOrder:
     def test_longread_primary_route_precedes_secondary_inputs(
         self, longread_variant_calling
     ):
-        ordered_ids = [
-            section.id
-            for section in sorted(
-                longread_variant_calling.sections.values(),
-                key=lambda section: section.number,
-            )
-        ]
-        assert ordered_ids == [
+        assert _ordered_section_ids(longread_variant_calling) == [
             "preprocessing",
             "small_variants",
             "phasing",
@@ -134,18 +135,11 @@ class TestSectionNumberingOrder:
         ]
 
     def test_connected_flow_precedes_a_disconnected_rowmate(self, leftward_bypass):
-        ordered_ids = [
-            section.id
-            for section in sorted(
-                (
-                    section
-                    for section in leftward_bypass.sections.values()
-                    if section.grid_row == 0
-                ),
-                key=lambda section: section.number,
-            )
+        assert _ordered_section_ids(leftward_bypass, row=0) == [
+            "source",
+            "target",
+            "blocker",
         ]
-        assert ordered_ids == ["source", "target", "blocker"]
 
     @pytest.mark.parametrize(
         ("name", "expected"),
@@ -212,13 +206,7 @@ class TestSectionNumberingOrder:
     )
     def test_reviewed_render_order(self, name, expected):
         graph = _load(name)
-        ordered_ids = [
-            section.id
-            for section in sorted(
-                graph.sections.values(), key=lambda section: section.number
-            )
-        ]
-        assert ordered_ids == expected
+        assert _ordered_section_ids(graph) == expected
 
     def test_authored_number_is_reserved_while_automatic_numbers_fill_gaps(self):
         text = (

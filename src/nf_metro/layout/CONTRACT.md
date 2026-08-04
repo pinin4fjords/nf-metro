@@ -389,7 +389,7 @@ in pipeline order.
 ### Stage 1.4: renumber sections
 - **Purpose**: Renumber sections by connected route continuity, using visual
   lanes to choose between alternative continuations.
-- **Helper**: `_renumber_sections_by_grid` (`phases/canvas.py`).
+- **Helper**: `_renumber_sections_by_route` (`phases/canvas.py`).
 - **Precondition**: Section grid positions and directions finalised.
 - **Postcondition**: Each disconnected flow is numbered completely before the
   next. The nearest connected section on the current lane is preferred;

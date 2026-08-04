@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import cache
+
+from nf_metro.layout.auto_layout import _transitive_successors
 from nf_metro.layout.constants import (
     TITLE_BAND_CLEARANCE,
     TITLE_BAND_OVERLAP_FLOOR,
@@ -20,16 +24,18 @@ def _section_row_directions(
     for sid, section in graph.sections.items():
         rows.setdefault(section.grid_row, []).append(sid)
 
+    flow_scores = {row: 0 for row in rows}
+    for source, target in section_edges:
+        source_section = graph.sections[source]
+        target_section = graph.sections[target]
+        if source_section.grid_row == target_section.grid_row:
+            flow_scores[source_section.grid_row] += (
+                target_section.grid_col - source_section.grid_col
+            )
+
     result: dict[int, bool] = {}
     for row, row_ids in rows.items():
-        row_set = set(row_ids)
-        flow_score = sum(
-            graph.sections[target].grid_col - graph.sections[source].grid_col
-            for source, target in section_edges
-            if source in row_set
-            and target in row_set
-            and graph.sections[source].grid_col != graph.sections[target].grid_col
-        )
+        flow_score = flow_scores[row]
         if flow_score == 0:
             flow_score = sum(
                 1 if graph.sections[sid].direction == "LR" else -1
@@ -40,21 +46,10 @@ def _section_row_directions(
     return result
 
 
-def _reachable_sections(start: str, adjacency: dict[str, set[str]]) -> set[str]:
-    found = {start}
-    pending = [start]
-    while pending:
-        current = pending.pop()
-        for adjacent in adjacency[current] - found:
-            found.add(adjacent)
-            pending.append(adjacent)
-    return found
-
-
 def _parallel_branch_sets(
     graph: MetroGraph,
     outgoing: dict[str, set[str]],
-    descendant_sets: dict[str, set[str]],
+    descendants: Callable[[str], frozenset[str]],
 ) -> tuple[dict[str, set[str]], set[str]]:
     parallel_peers: dict[str, set[str]] = {sid: set() for sid in graph.sections}
     parallel_joins: set[str] = set()
@@ -66,13 +61,11 @@ def _parallel_branch_sets(
             )
         for peers in targets_by_stage.values():
             if len(peers) < 2 or any(
-                other in descendant_sets[peer]
-                for peer in peers
-                for other in peers - {peer}
+                other in descendants(peer) for peer in peers for other in peers - {peer}
             ):
                 continue
-            branch_reach = [descendant_sets[peer] for peer in peers]
-            common = branch_reach[0].copy()
+            branch_reach = [descendants(peer) for peer in peers]
+            common = set(branch_reach[0])
             for reachable in branch_reach[1:]:
                 common.intersection_update(reachable)
             for peer in peers:
@@ -81,7 +74,7 @@ def _parallel_branch_sets(
     return parallel_peers, parallel_joins
 
 
-def _renumber_sections_by_grid(graph: MetroGraph) -> None:
+def _renumber_sections_by_route(graph: MetroGraph) -> None:
     """Renumber sections by connected route continuity and visual reading order.
 
     Each disconnected flow is numbered fully before the next.  Within a flow,
@@ -94,18 +87,15 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
     from nf_metro.layout.section_placement import _weakly_connected_components
 
     section_rank = {sid: rank for rank, sid in enumerate(graph.sections)}
-    section_edges = {
-        (src, tgt)
-        for src, tgt in (
-            graph.section_dag.section_edges if graph.section_dag else set()
-        )
-        if src in graph.sections and tgt in graph.sections
+    dag = graph.section_dag
+    section_edges = dag.section_edges if dag else set()
+    outgoing = {
+        sid: dag.successors.get(sid, set()) if dag else set() for sid in graph.sections
     }
-    outgoing: dict[str, set[str]] = {sid: set() for sid in graph.sections}
-    incoming: dict[str, set[str]] = {sid: set() for sid in graph.sections}
-    for source, target in section_edges:
-        outgoing[source].add(target)
-        incoming[target].add(source)
+    incoming = {
+        sid: dag.predecessors.get(sid, set()) if dag else set()
+        for sid in graph.sections
+    }
 
     row_is_rl = _section_row_directions(graph, section_edges)
 
@@ -115,13 +105,15 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
     def lane_coordinate(sid: str) -> int:
         return graph.sections[sid].grid_row
 
-    descendant_sets = {
-        sid: _reachable_sections(sid, outgoing) for sid in graph.sections
-    }
-    ancestor_sets = {sid: _reachable_sections(sid, incoming) for sid in graph.sections}
-    parallel_peers, parallel_joins = _parallel_branch_sets(
-        graph, outgoing, descendant_sets
-    )
+    @cache
+    def descendants(sid: str) -> frozenset[str]:
+        return frozenset({sid} | _transitive_successors(sid, outgoing))
+
+    @cache
+    def ancestors(sid: str) -> frozenset[str]:
+        return frozenset({sid} | _transitive_successors(sid, incoming))
+
+    parallel_peers, parallel_joins = _parallel_branch_sets(graph, outgoing, descendants)
 
     def visual_key(sid: str) -> tuple[int, int, int]:
         section = graph.sections[sid]
@@ -157,7 +149,7 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
                 lane_coordinate(source) == lane_coordinate(target) for source in unseen
             )
             or any(
-                not (ancestor_sets[left] & ancestor_sets[right])
+                ancestors(left).isdisjoint(ancestors(right))
                 for left in seen
                 for right in unseen
             )
@@ -172,11 +164,12 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
         roots = [sid for sid in component if not (incoming[sid] & component)]
         current = min(roots or component, key=visual_key)
         deferred_targets: list[str] = []
+        remaining = set(component)
         while True:
             visited.add(current)
             visit_index[current] = len(ordered_ids)
             ordered_ids.append(current)
-            remaining = component - visited
+            remaining.remove(current)
             if not remaining:
                 break
 

@@ -506,7 +506,7 @@ def _make_layout_option_handler(
 # Graph-wide directives, keyed by exact name. The simple scalar/bool/enum
 # knobs are generated from the LAYOUT_OPTIONS registry (shared with the CLI);
 # the bespoke handlers below carry grammar the generic registry can't express.
-# Section-scoped (entry/exit/direction) and icon (file/files/dir) keys are
+# Section-scoped (entry/exit/direction/number) and icon (file/files/dir) keys are
 # dispatched separately in _apply_directive / _apply_scoped_directive.
 _GLOBAL_DIRECTIVE_HANDLERS: dict[str, Callable[[str, MetroGraph], None]] = {
     opt.name: _make_layout_option_handler(opt) for opt in LAYOUT_OPTIONS
@@ -588,7 +588,7 @@ def _apply_directive(
 
 
 def _deduplicate_section_number_overrides(graph: MetroGraph) -> None:
-    """Keep the first surviving section for each authored badge number."""
+    """Keep the first section assigned each authored badge number."""
     owners: dict[int, str] = {}
     for section in graph.sections.values():
         number = section.number_override
