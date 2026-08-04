@@ -1,8 +1,7 @@
-"""Tests for section numbering by visual reading order (#217).
+"""Tests for section numbering by visual reading order.
 
-After layout, sections are numbered by flow sweep then (grid_col,
-grid_row).  Each left-to-right or right-to-left run is one sweep,
-with TB fold sections belonging to the sweep they terminate.
+After layout, automatic sections are numbered top-to-bottom.  Sections within
+a row follow its horizontal flow direction, while authored numbers stay fixed.
 """
 
 from __future__ import annotations
@@ -44,6 +43,16 @@ def rnaseq_auto():
 
 
 @pytest.fixture(scope="module")
+def longread_variant_calling():
+    return _load("longread_variant_calling")
+
+
+@pytest.fixture(scope="module")
+def leftward_bypass():
+    return _load("topologies/bypass_left_entry_from_right")
+
+
+@pytest.fixture(scope="module")
 def asymmetric_tree():
     return _load("topologies/asymmetric_tree")
 
@@ -69,27 +78,85 @@ class TestSectionNumberingOrder:
                 f"{mmd_path.name}: section numbers not sequential: {numbers}"
             )
 
-    def test_within_sweep_columns_increase(
+    def test_rows_are_numbered_top_to_bottom(
         self, variantprioritization, variantbenchmarking, rnaseq_auto
     ):
-        """Within each flow sweep, numbers increase left-to-right.
+        for graph in (variantprioritization, variantbenchmarking, rnaseq_auto):
+            rows = [
+                section.grid_row
+                for section in sorted(
+                    graph.sections.values(), key=lambda section: section.number
+                )
+            ]
+            assert rows == sorted(rows)
 
-        Sections at the same column should be numbered top-to-bottom.
-        """
-        for name, g in [
-            ("variantprioritization", variantprioritization),
-            ("variantbenchmarking", variantbenchmarking),
-            ("rnaseq_auto", rnaseq_auto),
-        ]:
-            secs = sorted(g.sections.values(), key=lambda s: s.number)
-            for i in range(len(secs) - 1):
-                a, b = secs[i], secs[i + 1]
-                if a.grid_col == b.grid_col:
-                    assert a.grid_row <= b.grid_row, (
-                        f"{name}: #{a.number} {a.name} (row {a.grid_row}) "
-                        f"before #{b.number} {b.name} (row {b.grid_row}) "
-                        f"at col {a.grid_col}"
-                    )
+    def test_lr_rows_are_numbered_left_to_right(self, variantprioritization):
+        ordered_ids = [
+            section.id
+            for section in sorted(
+                variantprioritization.sections.values(),
+                key=lambda section: section.number,
+            )
+        ]
+        assert ordered_ids == [
+            "preprocessing",
+            "format_files",
+            "run_pcgr",
+            "get_reference",
+            "run_cpsr",
+        ]
+
+    def test_rl_rows_are_numbered_right_to_left(self, longread_variant_calling):
+        return_row = sorted(
+            (
+                section
+                for section in longread_variant_calling.sections.values()
+                if section.grid_row == 1
+            ),
+            key=lambda section: section.number,
+        )
+        assert [section.grid_col for section in return_row] == [5, 4, 3, 2, 1, 0]
+
+    def test_row_edge_sets_flow_when_section_directions_are_mixed(
+        self, leftward_bypass
+    ):
+        ordered_ids = [
+            section.id
+            for section in sorted(
+                (
+                    section
+                    for section in leftward_bypass.sections.values()
+                    if section.grid_row == 0
+                ),
+                key=lambda section: section.number,
+            )
+        ]
+        assert ordered_ids == ["source", "blocker", "target"]
+
+    def test_authored_number_is_reserved_while_automatic_numbers_fill_gaps(self):
+        text = (
+            "%%metro line: main | Main | #ff0000\n"
+            "graph LR\n"
+            "    subgraph first [First]\n"
+            "        a[A]\n"
+            "    end\n"
+            "    subgraph second [Second]\n"
+            "        %%metro number: 7\n"
+            "        b[B]\n"
+            "    end\n"
+            "    subgraph third [Third]\n"
+            "        c[C]\n"
+            "    end\n"
+            "    a -->|main| b\n"
+            "    b -->|main| c\n"
+        )
+        graph = parse_metro_mermaid(text)
+        compute_layout(graph)
+        assert {sid: section.number for sid, section in graph.sections.items()} == {
+            "first": 1,
+            "second": 7,
+            "third": 2,
+        }
 
     def test_fold_return_row_numbered_after_forward_row(self, rnaseq_auto):
         """RL sections after a fold should have higher numbers than all
@@ -108,7 +175,6 @@ class TestSectionNumberingOrder:
             )
 
     def test_asymmetric_top_row_sequential(self, asymmetric_tree):
-        """In asymmetric_tree, the top row should be numbered sequentially."""
         top_row = sorted(
             (s for s in asymmetric_tree.sections.values() if s.grid_row == 0),
             key=lambda s: s.grid_col,

@@ -352,6 +352,8 @@ class Section:
     id: str
     name: str
     number: int = 0
+    # Authored badge number applied by the final numbering pass.
+    number_override: int | None = None
     station_ids: list[str] = field(default_factory=list)
     internal_edges: list[Edge] = field(default_factory=list)
     entry_ports: list[str] = field(default_factory=list)  # port IDs
