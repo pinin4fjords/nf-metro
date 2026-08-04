@@ -735,7 +735,7 @@ def _settle_render_geometry(
 ]:
     """Route, place labels, and reconcile a header collision for the render.
 
-    Returns settled station offsets, routes, labels, and optional route plan.
+    Returns settled station offsets, routes, labels, and the route plan.
     Label wrapping
     needs the theme's font/icon metrics, so it runs here rather than in
     ``compute_layout``; when it grows a section's bbox downward it can push the

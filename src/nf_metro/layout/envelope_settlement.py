@@ -33,9 +33,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 
-from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
+from nf_metro.layout.geometry import shift_section
 from nf_metro.layout.route_plan import EmissionMemberId, RoutePlan
 from nf_metro.layout.route_reservations import (
+    SECTION_HEADER_BLOCKER,
+    SECTION_LEFT_BLOCKER,
     ColumnGapRegion,
     RouteReservation,
     RouteReservationId,
@@ -43,10 +46,6 @@ from nf_metro.layout.route_reservations import (
     realise_reservation,
 )
 from nf_metro.parser.model import MetroGraph, Section
-
-# Translations are rounded up to this many pixels so a settled boundary lands
-# clear of the tolerance band the reservation ledger measures against.
-SETTLEMENT_QUANTUM: float = 1.0
 
 
 class SettlementAxis(Enum):
@@ -67,6 +66,16 @@ class SettlementTranslation:
     claimant_member_ids: tuple[EmissionMemberId, ...]
     blocker_ids: tuple[str, ...]
 
+    @property
+    def message(self) -> str:
+        claimants = ", ".join(sorted(self.claimant_member_ids))
+        blockers = ", ".join(sorted(self.blocker_ids))
+        return (
+            f"{self.axis.value} boundary {self.boundary} widened by "
+            f"{self.amount:.2f}px for the corridor claimed by {claimants}, "
+            f"held from below by {blockers}"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class SettlementObstruction:
@@ -82,13 +91,14 @@ class SettlementObstruction:
 
     @property
     def message(self) -> str:
+        claimants = ", ".join(sorted(self.claimant_member_ids))
         blockers = ", ".join(self.blocking_section_ids)
         return (
-            f"{self.axis.value} boundary {self.boundary} is short of its "
-            f"reserved corridor by {self.deficit:.2f}px, but section(s) "
-            f"{blockers} bound the far side without belonging to the "
-            f"translated {self.axis.value}s, so widening the boundary cannot "
-            f"supply it"
+            f"{self.axis.value} boundary {self.boundary} is short of the "
+            f"corridor claimed by {claimants} by {self.deficit:.2f}px, but "
+            f"section(s) {blockers} bound the far side without belonging to "
+            f"the translated {self.axis.value}s, so widening the boundary "
+            f"cannot supply it"
         )
 
 
@@ -113,37 +123,21 @@ class _Axis:
 
 def _translate_rows(graph: MetroGraph, boundary: int, amount: float) -> None:
     for section in graph.sections.values():
-        if section.grid_row < boundary:
-            continue
-        section.bbox_y += amount
-        for station_id in section.station_ids:
-            station = graph.stations.get(station_id)
-            if station is not None:
-                station.y += amount
-            port = graph.ports.get(station_id)
-            if port is not None:
-                port.y += amount
+        if section.grid_row >= boundary:
+            shift_section(graph, section, dy=amount)
 
 
 def _translate_columns(graph: MetroGraph, boundary: int, amount: float) -> None:
     for section in graph.sections.values():
-        if section.grid_col < boundary:
-            continue
-        section.bbox_x += amount
-        for station_id in section.station_ids:
-            station = graph.stations.get(station_id)
-            if station is not None:
-                station.x += amount
-            port = graph.ports.get(station_id)
-            if port is not None:
-                port.x += amount
+        if section.grid_col >= boundary:
+            shift_section(graph, section, dx=amount)
 
 
 _ROW_AXIS = _Axis(
     SettlementAxis.ROW,
     lambda reservation: _row_region(reservation).lower_row,
     lambda section: section.grid_row,
-    "section-header:",
+    SECTION_HEADER_BLOCKER,
     _translate_rows,
 )
 
@@ -151,7 +145,7 @@ _COLUMN_AXIS = _Axis(
     SettlementAxis.COLUMN,
     lambda reservation: _column_region(reservation).right_column,
     lambda section: section.grid_col,
-    "section-left:",
+    SECTION_LEFT_BLOCKER,
     _translate_columns,
 )
 
@@ -187,7 +181,7 @@ def _obstructing_sections(
     """
     stuck: list[str] = []
     for blocker_id in blocker_ids:
-        section_id = blocker_id.removeprefix(axis.blocker_prefix)
+        section_id = blocker_id.removeprefix(f"{axis.blocker_prefix}:")
         section = graph.sections.get(section_id)
         if section is None or axis.start_index(section) < boundary:
             stuck.append(section_id)

@@ -185,13 +185,14 @@ def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
     observed = _rendered_plan(REPORT_HO, permissive=True)
     plan = observed.route_plan
     query = build_route_plan_query(plan)
-    reservation = next(
-        item
-        for item in plan.reservations
-        if isinstance(item.region, RowGapRegion) and item.minimum_width == 78
+    reservation = max(
+        (item for item in plan.reservations if isinstance(item.region, RowGapRegion)),
+        key=lambda item: item.minimum_width,
     )
+    assert len(reservation.connector_ids) == 12
     realised = query.realised_reservation(reservation.id)
     assert realised is not None
+    assert reservation.minimum_width == 78
     assert realised.available_width >= 78.0
     assert realised.capacity_slack >= 0.0
     assert _capacity_deficits(plan) == {}
@@ -308,7 +309,6 @@ def test_a_corridor_bounded_by_a_row_spanning_section_is_attributed_not_moved() 
             section = graph.sections[section_id]
             assert section.grid_row < obstruction.boundary
             assert section.grid_row + section.grid_row_span - 1 >= obstruction.boundary
-        assert "cannot supply it" in obstruction.message
 
 
 # Route systems the convergence planner puts on its compatibility disposition

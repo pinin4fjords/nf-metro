@@ -58,6 +58,14 @@ from nf_metro.parser.route_topology import ConnectorId
 
 RouteReservationId = NewType("RouteReservationId", str)
 
+# Blocker ids name the section edge that bounds a corridor.  The prefix is the
+# link between the measurement that publishes a blocker and the settlement that
+# has to decide whether that edge is one it can translate.
+SECTION_BOTTOM_BLOCKER = "section-bottom"
+SECTION_HEADER_BLOCKER = "section-header"
+SECTION_LEFT_BLOCKER = "section-left"
+SECTION_RIGHT_BLOCKER = "section-right"
+
 
 class CorridorKind(str, Enum):
     """Structurally distinct shared routing spaces."""
@@ -590,13 +598,16 @@ def _row_region_measurement(
     )
     start, negative = _edge_blockers(
         (
-            (f"section-bottom:{section.id}", section.bbox_y + section.bbox_h)
+            (f"{SECTION_BOTTOM_BLOCKER}:{section.id}", section.bbox_y + section.bbox_h)
             for section in upper
         ),
         maximum=True,
     )
     end, positive = _edge_blockers(
-        ((f"section-header:{section.id}", section.bbox_y) for section in lower),
+        (
+            (f"{SECTION_HEADER_BLOCKER}:{section.id}", section.bbox_y)
+            for section in lower
+        ),
         maximum=False,
     )
     return _RegionMeasurement(start, end, negative, positive)
@@ -641,13 +652,13 @@ def _column_region_measurement(
     )
     start, negative = _edge_blockers(
         (
-            (f"section-right:{section.id}", section.bbox_x + section.bbox_w)
+            (f"{SECTION_RIGHT_BLOCKER}:{section.id}", section.bbox_x + section.bbox_w)
             for section in left
         ),
         maximum=True,
     )
     end, positive = _edge_blockers(
-        ((f"section-left:{section.id}", section.bbox_x) for section in right),
+        ((f"{SECTION_LEFT_BLOCKER}:{section.id}", section.bbox_x) for section in right),
         maximum=False,
     )
     return _RegionMeasurement(start, end, negative, positive)
@@ -1583,7 +1594,7 @@ def _canvas_region_measurement(
         if region.side is CanvasSide.TOP:
             end, positive = _edge_blockers(
                 (
-                    (f"section-header:{section.id}", section.bbox_y)
+                    (f"{SECTION_HEADER_BLOCKER}:{section.id}", section.bbox_y)
                     for section in sections
                 ),
                 maximum=False,
@@ -1591,7 +1602,10 @@ def _canvas_region_measurement(
             return _RegionMeasurement(0.0, end, ("canvas:top",), positive)
         start, negative = _edge_blockers(
             (
-                (f"section-bottom:{section.id}", section.bbox_y + section.bbox_h)
+                (
+                    f"{SECTION_BOTTOM_BLOCKER}:{section.id}",
+                    section.bbox_y + section.bbox_h,
+                )
                 for section in sections
             ),
             maximum=True,
@@ -1605,13 +1619,16 @@ def _canvas_region_measurement(
     )
     if region.side is CanvasSide.LEFT:
         end, positive = _edge_blockers(
-            ((f"section-left:{section.id}", section.bbox_x) for section in sections),
+            (
+                (f"{SECTION_LEFT_BLOCKER}:{section.id}", section.bbox_x)
+                for section in sections
+            ),
             maximum=False,
         )
         return _RegionMeasurement(0.0, end, ("canvas:left",), positive)
     start, negative = _edge_blockers(
         (
-            (f"section-right:{section.id}", section.bbox_x + section.bbox_w)
+            (f"{SECTION_RIGHT_BLOCKER}:{section.id}", section.bbox_x + section.bbox_w)
             for section in sections
         ),
         maximum=True,
@@ -2044,13 +2061,13 @@ def _validate_blocker_ids(
             plan,
             reservation,
             realised.negative_blocker_ids,
-            prefix="section-bottom",
+            prefix=SECTION_BOTTOM_BLOCKER,
             negative_side=True,
         ) and _valid_section_blockers(
             plan,
             reservation,
             realised.positive_blocker_ids,
-            prefix="section-header",
+            prefix=SECTION_HEADER_BLOCKER,
             negative_side=False,
         )
     elif isinstance(region, ColumnGapRegion):
@@ -2058,13 +2075,13 @@ def _validate_blocker_ids(
             plan,
             reservation,
             realised.negative_blocker_ids,
-            prefix="section-right",
+            prefix=SECTION_RIGHT_BLOCKER,
             negative_side=True,
         ) and _valid_section_blockers(
             plan,
             reservation,
             realised.positive_blocker_ids,
-            prefix="section-left",
+            prefix=SECTION_LEFT_BLOCKER,
             negative_side=False,
         )
     elif region.side is CanvasSide.TOP:
@@ -2074,7 +2091,7 @@ def _validate_blocker_ids(
             plan,
             reservation,
             realised.positive_blocker_ids,
-            prefix="section-header",
+            prefix=SECTION_HEADER_BLOCKER,
             negative_side=False,
         )
     elif region.side is CanvasSide.BOTTOM:
@@ -2082,7 +2099,7 @@ def _validate_blocker_ids(
             plan,
             reservation,
             realised.negative_blocker_ids,
-            prefix="section-bottom",
+            prefix=SECTION_BOTTOM_BLOCKER,
             negative_side=True,
         ) and realised.positive_blocker_ids == ("canvas:bottom",)
     elif region.side is CanvasSide.LEFT:
@@ -2092,7 +2109,7 @@ def _validate_blocker_ids(
             plan,
             reservation,
             realised.positive_blocker_ids,
-            prefix="section-left",
+            prefix=SECTION_LEFT_BLOCKER,
             negative_side=False,
         )
     else:
@@ -2100,7 +2117,7 @@ def _validate_blocker_ids(
             plan,
             reservation,
             realised.negative_blocker_ids,
-            prefix="section-right",
+            prefix=SECTION_RIGHT_BLOCKER,
             negative_side=True,
         ) and realised.positive_blocker_ids == ("canvas:right",)
     if not valid:

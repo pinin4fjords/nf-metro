@@ -301,6 +301,14 @@ COORD_TOLERANCE: float = 1.0
 COORD_TOLERANCE_FINE: float = 0.01
 """Fine tolerance for detecting nearly identical Y coordinates."""
 
+SETTLEMENT_QUANTUM: float = 1.0
+"""Granularity of an envelope-settlement translation.
+
+Rounding a corridor's deficit up to this lands the settled boundary clear of
+the ``COORD_TOLERANCE`` band the reservation ledger measures against, so a
+second settlement pass sees no residual deficit.
+"""
+
 SAME_COORD_TOLERANCE: float = 0.5
 """Sub-pixel tolerance for treating two coordinates as the same assigned
 row / track / value.
