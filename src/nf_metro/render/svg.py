@@ -49,6 +49,7 @@ from nf_metro.layout.phases.guards import (
     iter_opposing_line_overlaps,
     render_header_collision,
 )
+from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.route_plan import RoutePlan
 from nf_metro.layout.route_reservations import realise_route_reservations
@@ -77,6 +78,7 @@ from nf_metro.parser.model import (
     MARKER_SHAPE_PILL,
     Interchange,
     LayoutGeometryWarning,
+    LineSpread,
     MarkerStyle,
     MetroGraph,
     Section,
@@ -761,6 +763,15 @@ def _settle_render_geometry(
     legitimately moves a bbox edge past an invisible port, which the port guards
     would otherwise flag); the header-clearance guard runs last, on the settled
     geometry.
+
+    Junction coordinates are a function of the ports they join rather than
+    independent data, so they are re-derived from the incoming section geometry
+    before anything is routed.  That keeps routing self-consistent no matter
+    which stage last moved a section: a junction left at a stale Y sits off the
+    bundle it belongs to and the connector into it degenerates into a
+    sub-radius dogleg.  A graph-wide rail layout anchors its junctions on
+    per-line rail Ys instead, by a rule the port-derived placement does not
+    reproduce, so it is exempt.
     """
 
     def _place(
@@ -785,15 +796,21 @@ def _settle_render_geometry(
         )
         return observation.routes, observation.plan
 
+    def _reanchor_junctions() -> None:
+        if graph.line_spread is not LineSpread.RAILS:
+            _position_junctions(graph)
+
     def _resettle() -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
         # The shift moved section-anchored geometry; refresh the bypass-label
         # obstacle boxes (derived from station Ys, read by the router) so the
         # re-route does not seat a bypass corner against a stale box.
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
+        _reanchor_junctions()
         offsets = compute_station_offsets(graph, offset_step=offset_step)
         moved_routes, moved_plan = _route(offsets)
         return offsets, moved_routes, moved_plan
 
+    _reanchor_junctions()
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets)
     effective_strict = graph.strict and not graph.permissive

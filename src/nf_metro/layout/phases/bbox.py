@@ -39,6 +39,7 @@ from nf_metro.layout.phases._common import (
     port_edge_inset,
     section_anchor_edge,
 )
+from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.single_section import (
     _terminus_y_overhang,
     angled_label_reach,
@@ -136,8 +137,12 @@ def _aggregate_bypass_spans(
 def _shift_rows_from(graph: MetroGraph, from_row: int, deficit: float) -> None:
     """Shift every section at or below *from_row* down by *deficit*.
 
-    Moves the sections' bboxes and their stations/ports together. Junctions live
-    in inter-section space and are reproduced by routing, so they are not moved.
+    Moves the sections' bboxes and their stations/ports together, then
+    re-derives junction placement from the moved ports: a junction's
+    coordinates are a function of the ports it joins (a fan-out junction is
+    pinned to its exit port's Y, a merge junction to its entry port's Y), so
+    a translation that left junctions behind would strand them off the
+    bundle they belong to.
     """
     for s in graph.sections.values():
         if s.grid_row < from_row:
@@ -150,6 +155,7 @@ def _shift_rows_from(graph: MetroGraph, from_row: int, deficit: float) -> None:
             port = graph.ports.get(stid)
             if port is not None:
                 port.y += deficit
+    _position_junctions(graph)
 
 
 def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> bool:
@@ -171,8 +177,7 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
     columns can sit with smaller (or no) vertical separation without
     visual interference.  If a positive deficit remains, shift row
     ``r`` and below downward by that deficit (sections + stations +
-    ports).  Junctions live in inter-section space and are reproduced
-    by routing.
+    ports + the junctions those ports anchor).
 
     Returns ``True`` when any row was shifted, so a render-time caller
     can recompute the geometry that tracks the moved sections.
