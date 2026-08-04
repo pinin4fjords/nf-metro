@@ -11,12 +11,10 @@ from nf_metro.layout.constants import (
     ENTRY_SHIFT_TB,
     EXIT_GAP_MULTIPLIER,
     FONT_HEIGHT,
-    ICON_CAPTION_FONT_HEIGHT,
     ICON_CAPTION_GAP,
     ICON_HALF_HEIGHT,
     ICON_INTER_GAP,
     LABEL_BBOX_MARGIN,
-    LABEL_LINE_HEIGHT,
     LABEL_MARGIN,
     LABEL_OFFSET,
     LABEL_PAD,
@@ -60,6 +58,12 @@ from nf_metro.layout.phases.planned_fans import (
     apply_planned_fans_to_section_subgraph,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station, is_bypass_v
+from nf_metro.text_metrics import (
+    DEFAULT_TEXT_METRICS,
+    MetricsFace,
+    TextRole,
+    text_style,
+)
 
 
 def _align_straight_diamond_trunks(
@@ -634,10 +638,8 @@ def _multiline_track_spacing(sub: MetroGraph, y_spacing: float) -> float:
     font_height = FONT_HEIGHT * active_font_scale()
     max_text_h = font_height
     for s in sub.stations.values():
-        n = s.label.count("\n")
-        if n > 0:
-            h = font_height + n * font_height * LABEL_LINE_HEIGHT
-            max_text_h = max(max_text_h, h)
+        if "\n" in s.label:
+            max_text_h = max(max_text_h, _label_text_height(s.label))
 
     if max_text_h <= font_height:
         return y_spacing  # no multi-line labels
@@ -653,9 +655,8 @@ def _multiline_label_padding(sub: MetroGraph) -> float:
     font_height = FONT_HEIGHT * active_font_scale()
     max_extra = 0.0
     for s in sub.stations.values():
-        n = s.label.count("\n")
-        if n > 0:
-            extra = n * font_height * LABEL_LINE_HEIGHT
+        if "\n" in s.label:
+            extra = _label_text_height(s.label) - font_height
             max_extra = max(max_extra, extra)
     return max_extra
 
@@ -1052,10 +1053,24 @@ def _terminus_icon_clearance(
 
     safe_names = names or [""] * n_icons
     caption_font_size = 14.0 * ICON_NAME_FONT_SCALE
-    name_widths = [len(n) * caption_font_size * 0.55 if n else 0.0 for n in safe_names]
+    caption_style = text_style(caption_font_size, "bold")
+    name_widths = [
+        DEFAULT_TEXT_METRICS.reserve_width(name, caption_style, TextRole.ICON_CAPTION)
+        for name in safe_names
+    ]
     step = caption_aware_icon_step(safe_names, name_widths, TERMINUS_WIDTH)
     extra = (n_icons - 1) * step
     return TERMINUS_ICON_CLEARANCE + extra
+
+
+def _icon_caption_height() -> float:
+    """Drawn height of a representative terminus caption."""
+    from nf_metro.render.constants import ICON_NAME_FONT_SCALE
+
+    style = text_style(FONT_HEIGHT * ICON_NAME_FONT_SCALE * active_font_scale(), "bold")
+    if style.face is MetricsFace.FALLBACK:
+        return style.font_size
+    return DEFAULT_TEXT_METRICS.ink_bbox("Ag", style, TextRole.ICON_CAPTION).height
 
 
 def _terminus_icon_clearance_vertical(
@@ -1071,9 +1086,7 @@ def _terminus_icon_clearance_vertical(
     if n_icons <= 1:
         return TERMINUS_ICON_CLEARANCE_V
     caption_room = (
-        ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * active_font_scale()
-        if names and any(names)
-        else 0.0
+        ICON_CAPTION_GAP + _icon_caption_height() if names and any(names) else 0.0
     )
     step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
     return TERMINUS_ICON_CLEARANCE_V + (n_icons - 1) * step
@@ -1093,11 +1106,7 @@ def _terminus_icon_flow_overhang(
     reserving bbox padding.
     """
     captioned = bool(names and any(names))
-    caption_room = (
-        ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * active_font_scale()
-        if captioned
-        else 0.0
-    )
+    caption_room = ICON_CAPTION_GAP + _icon_caption_height() if captioned else 0.0
     body = station_radius_approx() + TERMINUS_ICON_GAP + 2 * ICON_HALF_HEIGHT
     step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
     return body + caption_room + (n_icons - 1) * step

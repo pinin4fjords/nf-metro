@@ -15,6 +15,12 @@ import pytest
 from nf_metro.layout import compute_layout
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.render.svg import render_svg
+from nf_metro.text_metrics import (
+    DEFAULT_TEXT_METRICS,
+    MetricsFace,
+    TextRole,
+    TextStyle,
+)
 from nf_metro.themes import THEMES
 
 EXAMPLES = list((Path(__file__).parent.parent / "examples").glob("*.mmd"))
@@ -103,3 +109,60 @@ def test_text_to_paths_is_valid_svg() -> None:
         ET.fromstring(svg)
     except ET.ParseError as exc:
         pytest.fail(f"paths output is not valid XML: {exc}")
+
+
+def test_text_to_paths_anchor_uses_centralized_inter_advance() -> None:
+    from nf_metro.render.font_embed import text_to_paths
+
+    source = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<text x="100" y="20" font-size="13" font-weight="600" '
+        'text-anchor="middle">WWW</text></svg>'
+    )
+    converted = text_to_paths(source)
+    match = re.search(r"translate\(([-0-9.]+),20\.000\)", converted)
+    assert match, converted
+    style = TextStyle(13.0, "600", MetricsFace.INTER)
+    expected_x = 100.0 - DEFAULT_TEXT_METRICS.advance("WWW", style, TextRole.DEBUG) / 2
+    assert float(match.group(1)) == pytest.approx(expected_x, abs=0.001)
+
+
+def test_text_to_paths_draws_visible_replacement_for_missing_glyph() -> None:
+    from nf_metro.render.font_embed import text_to_paths
+
+    template = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<text x="0" y="20" font-size="13" font-weight="bold">{}</text></svg>'
+    )
+    missing = text_to_paths(template.format("Ω"))
+    replacement = text_to_paths(template.format("?"))
+    assert missing.count("<path ") == 1
+    assert re.findall(r'<path d="([^"]+)"', missing) == re.findall(
+        r'<path d="([^"]+)"', replacement
+    )
+
+
+def test_portable_render_uses_inter_metrics_during_layout() -> None:
+    from nf_metro.api import render_string
+
+    source = (
+        "graph LR\nsubgraph s [S]\n%%metro direction: TB\na[WWW] -->|x| b[Ill]\nend\n"
+    )
+    fallback = render_string(source)
+    embedded = render_string(source, embed_font=True)
+
+    def section_width(svg: str) -> float:
+        import xml.etree.ElementTree as ET
+
+        root = ET.fromstring(svg)
+        section = next(
+            element
+            for element in root.iter()
+            if element.attrib.get("class") == "nf-metro-section-box"
+        )
+        return float(section.attrib["width"])
+
+    fallback_width = section_width(fallback)
+    embedded_width = section_width(embedded)
+    assert fallback_width == pytest.approx(160.0)
+    assert embedded_width == pytest.approx(167.46630859375)

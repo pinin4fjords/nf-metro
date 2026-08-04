@@ -32,6 +32,32 @@ safer than changing the caller's graph and trying to restore it after an error.
 Across three representative maps, the copy took 1.8 to 2.2 ms. That was 1.6%
 to 2.8% of the combined plan-build and SVG-emission time.
 
+## Deterministic text metrics
+
+`src/nf_metro/text_metrics.py` owns text advances, ink bounds, line heights,
+and reserved widths. Each measurement carries a semantic role, such as station
+label, section header, legend entry, or icon caption. This keeps the safety
+margin for each use explicit while sharing one deterministic measurement path.
+
+The default SVG mode retains the existing Helvetica-family output and its
+conservative per-role reservations. Its proportional advance table is bundled
+in the package, so layout never searches the host for an installed font.
+`--embed-font` and `--text-to-paths` instead select exact Inter metrics from
+generated tables shipped in `src/nf_metro/_inter_metrics.py`. Those tables come
+from the same bundled Inter Regular and Bold WOFF2 files used by the output;
+weights 600, 700, and `bold` all select Inter Bold. Unsupported characters use
+the visible `?` replacement's advance, bounds, and outline.
+
+The runtime path has no FontTools dependency. Maintainers can regenerate the
+tables after intentionally replacing the bundled fonts with:
+
+```bash
+python scripts/build_text_metrics.py
+```
+
+The generator requires FontTools with WOFF2 support. Commit the generated table
+with the font files so metrics and portable output cannot drift apart.
+
 ## SVG generation (`svg.py`)
 
 `render_svg(graph, theme, ...)` is the top-level call. It:

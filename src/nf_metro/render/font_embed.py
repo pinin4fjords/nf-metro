@@ -25,6 +25,14 @@ from collections import namedtuple
 from pathlib import Path
 from typing import Literal
 
+from nf_metro.text_metrics import (
+    DEFAULT_TEXT_METRICS,
+    MetricsFace,
+    TextRole,
+    TextStyle,
+    is_bold_weight,
+)
+
 __all__ = [
     "apply_font_portability",
     "embed_font",
@@ -183,9 +191,9 @@ def embed_font(svg: str) -> str:
 def text_to_paths(svg: str) -> str:
     """Convert all <text> elements to <path> elements.
 
-    Uses the bundled Inter WOFF2 font for glyph outlines.  Characters outside
-    the bundled Latin subset are silently dropped; their advance-width is
-    consumed so subsequent glyphs remain correctly positioned.
+    Uses the bundled Inter WOFF2 font for glyph outlines. Characters outside
+    the bundled subset render as a visible question-mark replacement using the
+    same advance and bounds as the centralized metrics layer.
 
     Parameters
     ----------
@@ -211,8 +219,7 @@ def text_to_paths(svg: str) -> str:
             'Install it with: pip install "fonttools[woff]"'
         ) from exc
 
-    regular = TTFont(str(_FONTS_DIR / "Inter-Regular.woff2"))
-    bold = TTFont(str(_FONTS_DIR / "Inter-Bold.woff2"))
+    regular, bold = _load_path_fonts(TTFont)
 
     glyphsets = _FontPair(regular.getGlyphSet(), bold.getGlyphSet())
     cmaps = _FontPair(regular.getBestCmap(), bold.getBestCmap())
@@ -222,6 +229,15 @@ def text_to_paths(svg: str) -> str:
         return _text_elem_to_paths(match, glyphsets, cmaps, upems)
 
     return _TEXT_ELEM_RE.sub(_replace, svg)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_path_fonts(ttfont_type: type) -> _FontPair:
+    """Load each bundled path-conversion face once per process."""
+    return _FontPair(
+        ttfont_type(str(_FONTS_DIR / "Inter-Regular.woff2")),
+        ttfont_type(str(_FONTS_DIR / "Inter-Bold.woff2")),
+    )
 
 
 # ── text-to-paths internals ──────────────────────────────────────────────────
@@ -257,21 +273,33 @@ def _text_elem_to_paths(
     dy = _parse_dy(dy_str, font_size)
     baseline_y = y + dy
 
-    is_bold = font_weight in ("bold", "700", "600")
+    is_bold = is_bold_weight(font_weight)
     glyphset = glyphsets.bold if is_bold else glyphsets.regular
     cmap = cmaps.bold if is_bold else cmaps.regular
     upem = upems.bold if is_bold else upems.regular
     scale = font_size / upem
 
-    # Compute per-character advance widths (needed for text-anchor offsets).
+    metrics_style = TextStyle(font_size, font_weight, MetricsFace.INTER)
+
+    # Compute per-character advances from the same tables used by layout.
     glyphs: list[tuple[str | None, float]] = []
     for ch in text_content:
-        gn = cmap.get(ord(ch)) if cmap else None
+        codepoint = DEFAULT_TEXT_METRICS.inter_glyph_codepoint(ch, metrics_style)
+        gn = cmap.get(codepoint) if cmap else None
         if gn is not None and gn in glyphset:
-            glyphs.append((gn, glyphset[gn].width * scale))
+            glyphs.append(
+                (
+                    gn,
+                    DEFAULT_TEXT_METRICS.advance(ch, metrics_style, TextRole.DEBUG),
+                )
+            )
         else:
-            # Missing glyph: use a per-em estimate for advance, no path.
-            glyphs.append((None, font_size * 0.55))
+            glyphs.append(
+                (
+                    None,
+                    DEFAULT_TEXT_METRICS.advance(ch, metrics_style, TextRole.DEBUG),
+                )
+            )
 
     total_width = sum(adv for _, adv in glyphs)
 

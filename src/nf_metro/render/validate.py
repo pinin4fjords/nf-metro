@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from nf_metro.layout.constants import LABEL_FONT_SIZE, LABEL_LINE_HEIGHT, OFFSET_STEP
+from nf_metro.layout.constants import LABEL_FONT_SIZE, OFFSET_STEP
 from nf_metro.layout.geometry import segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
@@ -27,6 +27,7 @@ from nf_metro.manifest import read_manifest
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
     from nf_metro.render.plan import RenderPlan
+from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
 # The defect family of a finding; one per render-geometry check.
 LABEL_STRIKE = "label-strike"
@@ -172,7 +173,9 @@ def parse_station_labels(svg: str) -> list[_Label]:
         # A rotated label is emitted at its anchor already; only the upright
         # baselines carry the multi-line Y stacking that has to be undone.
         n_lines = text.count("\n") + 1
-        line_spacing = font_size * LABEL_LINE_HEIGHT
+        line_spacing = DEFAULT_TEXT_METRICS.line_height(
+            text_style(font_size, "bold"), TextRole.STATION_LABEL
+        )
         above = False
         dominant = ""
         if not angle:

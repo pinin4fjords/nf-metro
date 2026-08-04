@@ -43,6 +43,7 @@ from nf_metro.layout.constants import (
     graph_offset_step,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Section
+from nf_metro.text_metrics import TextRole
 
 # Horizontal room a blank terminus's fan-out/fan-in needs to ease between the
 # convergence point and the rails without compressing: a flat lead plus the
@@ -546,7 +547,7 @@ def _rail_label_band(
         if st.is_blank_terminus:
             continue
         h = _label_text_height(st.label)
-        w = label_text_width(st.label)
+        w = label_text_width(st.label, TextRole.RAIL_LABEL)
         footprint = h * cos_a + w * sin_a if angle else h
         band = max(band, LABEL_OFFSET + footprint)
     return band
@@ -681,7 +682,7 @@ def _label_aware_x_spacing(
         # Blank termini render as icons, not text labels, so don't size to them.
         if st.is_blank_terminus:
             continue
-        widest = max(widest, label_text_width(st.label))
+        widest = max(widest, label_text_width(st.label, TextRole.RAIL_LABEL))
     if widest <= 0.0:
         return x_spacing
     return max(x_spacing, widest + LABEL_MARGIN * 2)
