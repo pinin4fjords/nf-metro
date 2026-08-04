@@ -17,10 +17,12 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
+    SAME_COORD_TOLERANCE,
 )
 from nf_metro.layout.route_plan import (
     BindingKind,
     ConvergenceDisposition,
+    ConvergencePlan,
     ConvergencePlanId,
     CoordinateRegime,
     DemandAxis,
@@ -32,6 +34,7 @@ from nf_metro.layout.route_plan import (
     EmissionRole,
     EmittedPathId,
     ExitTurnDisposition,
+    ExitTurnPlan,
     ExitTurnPlanId,
     FanPlanDisposition,
     GridSpan,
@@ -334,6 +337,7 @@ class RealisedRouteReservation:
     negative_blocker_ids: tuple[str, ...]
     positive_blocker_ids: tuple[str, ...]
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = ()
 
     def __post_init__(self) -> None:
         if self.allocation_axis is DemandAxis.BOTH:
@@ -353,6 +357,48 @@ class RealisedRouteReservation:
             raise ValueError("realised available width disagrees with its edges")
         if not self.negative_blocker_ids or not self.positive_blocker_ids:
             raise ValueError("realised corridor requires both boundary blockers")
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationCoordinateTranslation:
+    """One global translation applied while realising immutable claims."""
+
+    axis: DemandAxis
+    coordinate: float
+    amount: float
+    fully_owned_member_ids: tuple[EmissionMemberId, ...] = ()
+    crossing_member_ids: tuple[EmissionMemberId, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.axis is DemandAxis.BOTH:
+            raise ValueError("reservation translation requires one canvas axis")
+        if not math.isfinite(self.coordinate) or not math.isfinite(self.amount):
+            raise ValueError("reservation translation must be finite")
+        if self.amount <= COORD_TOLERANCE:
+            raise ValueError("reservation translation must be positive")
+        if set(self.fully_owned_member_ids).intersection(self.crossing_member_ids):
+            raise ValueError("reservation translation member ownership overlaps")
+
+
+def project_reservation_coordinate(
+    value: float,
+    axis: DemandAxis,
+    member_id: EmissionMemberId,
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> float:
+    """Project one claim coordinate through global settlement translations."""
+    projected = value
+    for translation in translations:
+        if translation.axis is not axis:
+            continue
+        if member_id in translation.fully_owned_member_ids:
+            projected += translation.amount
+        elif (
+            member_id in translation.crossing_member_ids
+            and projected >= translation.coordinate - SAME_COORD_TOLERANCE
+        ):
+            projected += translation.amount
+    return projected
 
 
 @dataclass(frozen=True, slots=True)
@@ -1641,15 +1687,49 @@ def _realise_one(
     reservation: RouteReservation,
     canvas_width: float | None,
     canvas_height: float | None,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RealisedRouteReservation | None:
     if isinstance(reservation.region, CanvasRegion) and (
         canvas_width is None or canvas_height is None
     ):
         return None
-    longitudinal_start = min(item.longitudinal_start for item in reservation.claims)
-    longitudinal_end = max(item.longitudinal_end for item in reservation.claims)
-    occupied_start = min(item.allocation_coordinate for item in reservation.claims)
-    occupied_end = max(item.allocation_coordinate for item in reservation.claims)
+    allocation_axis = (
+        DemandAxis.Y
+        if reservation.orientation is CorridorOrientation.HORIZONTAL
+        else DemandAxis.X
+    )
+    longitudinal_axis = (
+        DemandAxis.X
+        if reservation.orientation is CorridorOrientation.HORIZONTAL
+        else DemandAxis.Y
+    )
+    projected_claims = tuple(
+        (
+            project_reservation_coordinate(
+                item.longitudinal_start,
+                longitudinal_axis,
+                item.member_id,
+                coordinate_translations,
+            ),
+            project_reservation_coordinate(
+                item.longitudinal_end,
+                longitudinal_axis,
+                item.member_id,
+                coordinate_translations,
+            ),
+            project_reservation_coordinate(
+                item.allocation_coordinate,
+                allocation_axis,
+                item.member_id,
+                coordinate_translations,
+            ),
+        )
+        for item in reservation.claims
+    )
+    longitudinal_start = min(item[0] for item in projected_claims)
+    longitudinal_end = max(item[1] for item in projected_claims)
+    occupied_start = min(item[2] for item in projected_claims)
+    occupied_end = max(item[2] for item in projected_claims)
     if isinstance(reservation.region, RowGapRegion):
         measurement = _row_region_measurement(
             graph,
@@ -1681,12 +1761,8 @@ def _realise_one(
     available = measurement.end - measurement.start
     return RealisedRouteReservation(
         reservation.id,
-        DemandAxis.Y
-        if reservation.orientation is CorridorOrientation.HORIZONTAL
-        else DemandAxis.X,
-        DemandAxis.X
-        if reservation.orientation is CorridorOrientation.HORIZONTAL
-        else DemandAxis.Y,
+        allocation_axis,
+        longitudinal_axis,
         (occupied_start + occupied_end) / 2,
         longitudinal_start,
         longitudinal_end,
@@ -1701,6 +1777,8 @@ def _realise_one(
         measurement.end - reservation.positive_side_clearance - occupied_end,
         measurement.negative_blocker_ids,
         measurement.positive_blocker_ids,
+        CoordinateRegime.LAYOUT_CANVAS,
+        coordinate_translations,
     )
 
 
@@ -1710,6 +1788,7 @@ def realise_reservation(
     *,
     canvas_width: float | None = None,
     canvas_height: float | None = None,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RealisedRouteReservation | None:
     """Measure one reservation against *graph* as it currently stands.
 
@@ -1717,7 +1796,13 @@ def realise_reservation(
     has to read live section envelopes rather than a frozen realisation.
     Returns ``None`` for a canvas-side corridor when no canvas bounds are known.
     """
-    return _realise_one(graph, reservation, canvas_width, canvas_height)
+    return _realise_one(
+        graph,
+        reservation,
+        canvas_width,
+        canvas_height,
+        coordinate_translations,
+    )
 
 
 def _realise_all(
@@ -1725,9 +1810,16 @@ def _realise_all(
     reservations: tuple[RouteReservation, ...],
     canvas_width: float | None,
     canvas_height: float | None,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> tuple[RealisedRouteReservation, ...]:
     realised = (
-        _realise_one(graph, reservation, canvas_width, canvas_height)
+        _realise_one(
+            graph,
+            reservation,
+            canvas_width,
+            canvas_height,
+            coordinate_translations,
+        )
         for reservation in reservations
     )
     return tuple(item for item in realised if item is not None)
@@ -2131,16 +2223,40 @@ def _validate_reservation_realisation(
 ) -> None:
     allocation_axis, longitudinal_axis = _reservation_axes(reservation)
     expected_longitudinal_start = min(
-        item.longitudinal_start for item in reservation.claims
+        project_reservation_coordinate(
+            item.longitudinal_start,
+            longitudinal_axis,
+            item.member_id,
+            realised.coordinate_translations,
+        )
+        for item in reservation.claims
     )
     expected_longitudinal_end = max(
-        item.longitudinal_end for item in reservation.claims
+        project_reservation_coordinate(
+            item.longitudinal_end,
+            longitudinal_axis,
+            item.member_id,
+            realised.coordinate_translations,
+        )
+        for item in reservation.claims
     )
     expected_occupied_start = min(
-        item.allocation_coordinate for item in reservation.claims
+        project_reservation_coordinate(
+            item.allocation_coordinate,
+            allocation_axis,
+            item.member_id,
+            realised.coordinate_translations,
+        )
+        for item in reservation.claims
     )
     expected_occupied_end = max(
-        item.allocation_coordinate for item in reservation.claims
+        project_reservation_coordinate(
+            item.allocation_coordinate,
+            allocation_axis,
+            item.member_id,
+            realised.coordinate_translations,
+        )
+        for item in reservation.claims
     )
     expected_capacity = realised.available_width - reservation.minimum_width
     expected_negative = realised.occupied_start - (
@@ -2682,16 +2798,346 @@ def realise_route_reservations(
     *,
     canvas_width: float,
     canvas_height: float,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] | None = None,
 ) -> RoutePlan:
     """Refresh the realised ledger against final render canvas bounds."""
+    if coordinate_translations is None:
+        coordinate_translations = next(
+            (
+                item.coordinate_translations
+                for item in plan.realised_reservations
+                if item.coordinate_translations
+            ),
+            (),
+        )
     realised = _realise_all(
         graph,
         plan.reservations,
         canvas_width,
         canvas_height,
+        coordinate_translations,
     )
     return replace(
         plan,
         realised_reservations=realised,
         reservation_diagnostics=_diagnostics(plan.reservations, realised),
+    )
+
+
+def adopt_route_reservation_ledger(
+    plan: RoutePlan,
+    frozen: RoutePlan,
+    graph: MetroGraph,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...],
+) -> RoutePlan:
+    """Use final derived coordinates with the frozen grid-corridor ledger."""
+    frozen_grid_reservations = tuple(
+        item
+        for item in frozen.reservations
+        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+    )
+    final_canvas_reservations = tuple(
+        item for item in plan.reservations if isinstance(item.region, CanvasRegion)
+    )
+    system_rank = {system.id: rank for rank, system in enumerate(plan.systems)}
+    member_rank = {member.id: rank for rank, member in enumerate(plan.members)}
+    reservations = tuple(
+        sorted(
+            (*frozen_grid_reservations, *final_canvas_reservations),
+            key=lambda item: _reservation_order_key(item, system_rank, member_rank),
+        )
+    )
+    frozen_reservation_reference_ids = {
+        item.reference_id for item in frozen.reservations
+    }
+    frozen_reservation_demand_ids = {
+        demand_id for item in frozen.reservations for demand_id in item.demand_ids
+    }
+    planner_references = tuple(
+        item
+        for item in frozen.shared_references
+        if item.id not in frozen_reservation_reference_ids
+    )
+    planner_demands = tuple(
+        item for item in frozen.demands if item.id not in frozen_reservation_demand_ids
+    )
+    frozen_references_by_id = {item.id: item for item in frozen.shared_references}
+    final_references_by_id = {item.id: item for item in plan.shared_references}
+    frozen_demands_by_id = {item.id: item for item in frozen.demands}
+    final_demands_by_id = {item.id: item for item in plan.demands}
+    shared_references = planner_references + tuple(
+        (
+            frozen_references_by_id[item.reference_id]
+            if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+            else final_references_by_id[item.reference_id]
+        )
+        for item in reservations
+    )
+    demands = planner_demands + tuple(
+        (
+            frozen_demands_by_id[demand_id]
+            if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+            else final_demands_by_id[demand_id]
+        )
+        for item in reservations
+        for demand_id in item.demand_ids
+    )
+    exit_turn_plans = tuple(
+        _project_exit_turn_plan(item, coordinate_translations)
+        for item in frozen.exit_turn_plans
+    )
+    convergence_plans = tuple(
+        _project_convergence_plan(item, coordinate_translations)
+        for item in frozen.convergence_plans
+    )
+    preliminary = replace(
+        plan,
+        exit_turn_plans=exit_turn_plans,
+        fan_plans=frozen.fan_plans,
+        convergence_plans=convergence_plans,
+        shared_references=shared_references,
+        demands=demands,
+        reservations=reservations,
+    )
+    exit_foreign = expected_exit_turn_foreign_references(preliminary)
+    convergence_foreign = expected_convergence_foreign_references(preliminary)
+    exit_turn_plans = tuple(
+        replace(item, foreign_reference_ids=exit_foreign[item.id])
+        for item in exit_turn_plans
+    )
+    convergence_plans = tuple(
+        replace(item, foreign_reference_ids=convergence_foreign[item.id])
+        for item in convergence_plans
+    )
+    reference_ids_by_system: defaultdict[RouteSystemId, list[SharedReferenceId]] = (
+        defaultdict(list)
+    )
+    demand_ids_by_system: defaultdict[RouteSystemId, list[DemandId]] = defaultdict(list)
+    reservation_ids_by_system: defaultdict[RouteSystemId, list[RouteReservationId]] = (
+        defaultdict(list)
+    )
+    for reference in shared_references:
+        reference_ids_by_system[reference.system_id].append(reference.id)
+    for demand in demands:
+        demand_ids_by_system[demand.system_id].append(demand.id)
+    for reservation in reservations:
+        reservation_ids_by_system[reservation.system_id].append(reservation.id)
+    systems = tuple(
+        replace(
+            item,
+            shared_reference_ids=tuple(reference_ids_by_system[item.id]),
+            demand_ids=tuple(demand_ids_by_system[item.id]),
+            reservation_ids=tuple(reservation_ids_by_system[item.id]),
+        )
+        for item in plan.systems
+    )
+    realised = _realise_all(
+        graph,
+        reservations,
+        None,
+        None,
+        coordinate_translations,
+    )
+    return replace(
+        plan,
+        systems=systems,
+        exit_turn_plans=exit_turn_plans,
+        fan_plans=frozen.fan_plans,
+        convergence_plans=convergence_plans,
+        shared_references=shared_references,
+        demands=demands,
+        reservations=reservations,
+        realised_reservations=realised,
+        reservation_diagnostics=_diagnostics(reservations, realised),
+    )
+
+
+def _project_point(
+    point: tuple[float, float],
+    member_id: EmissionMemberId,
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> tuple[float, float]:
+    return (
+        project_reservation_coordinate(point[0], DemandAxis.X, member_id, translations),
+        project_reservation_coordinate(point[1], DemandAxis.Y, member_id, translations),
+    )
+
+
+def _project_exit_turn_plan(
+    plan: ExitTurnPlan,
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> ExitTurnPlan:
+    axes = tuple(
+        replace(
+            axis,
+            coordinate=project_reservation_coordinate(
+                axis.coordinate,
+                axis.axis,
+                axis.claimant_member_ids[0],
+                translations,
+            ),
+            fixed_anchor_coordinate=(
+                project_reservation_coordinate(
+                    axis.fixed_anchor_coordinate,
+                    axis.axis,
+                    axis.claimant_member_ids[0],
+                    translations,
+                )
+                if axis.fixed_anchor_coordinate is not None
+                else None
+            ),
+        )
+        for axis in plan.axes
+    )
+    axis_by_id = {item.id: item for item in plan.axes}
+    assignments = tuple(
+        replace(
+            item,
+            launch_coordinate=(
+                project_reservation_coordinate(
+                    item.launch_coordinate,
+                    (
+                        axis_by_id[item.axis_id].axis
+                        if item.axis_id is not None
+                        else plan.source_axis
+                    ),
+                    item.member_id,
+                    translations,
+                )
+                if item.launch_coordinate is not None
+                else None
+            ),
+        )
+        for item in plan.assignments
+    )
+    lane_transitions = tuple(
+        replace(
+            item,
+            source_point=_project_point(
+                item.source_point,
+                item.claimant_member_ids[0],
+                translations,
+            ),
+            target_point=_project_point(
+                item.target_point,
+                item.claimant_member_ids[0],
+                translations,
+            ),
+        )
+        for item in plan.lane_transitions
+    )
+    return replace(
+        plan,
+        lane_transitions=lane_transitions,
+        axes=axes,
+        assignments=assignments,
+    )
+
+
+def _project_convergence_plan(
+    plan: ConvergencePlan,
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> ConvergencePlan:
+    if plan.primary_trunk_member_id is None or plan.trunk_axis is None:
+        return plan
+    member_id = plan.primary_trunk_member_id
+    trunk = plan.trunk_axis
+    longitudinal_axis = trunk.axis
+    allocation_axis = (
+        DemandAxis.Y if longitudinal_axis is DemandAxis.X else DemandAxis.X
+    )
+    projected_trunk = replace(
+        trunk,
+        coordinate=project_reservation_coordinate(
+            trunk.coordinate, allocation_axis, member_id, translations
+        ),
+        extent_start=project_reservation_coordinate(
+            trunk.extent_start, longitudinal_axis, member_id, translations
+        ),
+        extent_end=project_reservation_coordinate(
+            trunk.extent_end, longitudinal_axis, member_id, translations
+        ),
+        source_flank_coordinate=project_reservation_coordinate(
+            trunk.source_flank_coordinate,
+            allocation_axis,
+            member_id,
+            translations,
+        ),
+        target_flank_coordinate=project_reservation_coordinate(
+            trunk.target_flank_coordinate,
+            allocation_axis,
+            member_id,
+            translations,
+        ),
+        source_endpoint_coordinate=(
+            project_reservation_coordinate(
+                trunk.source_endpoint_coordinate,
+                longitudinal_axis,
+                member_id,
+                translations,
+            )
+            if trunk.source_endpoint_coordinate is not None
+            else None
+        ),
+        target_endpoint_coordinate=(
+            project_reservation_coordinate(
+                trunk.target_endpoint_coordinate,
+                longitudinal_axis,
+                member_id,
+                translations,
+            )
+            if trunk.target_endpoint_coordinate is not None
+            else None
+        ),
+    )
+    landings = tuple(
+        replace(
+            item,
+            join_point=_project_point(item.join_point, item.member_id, translations),
+            opening_turn_coordinate=(
+                project_reservation_coordinate(
+                    item.opening_turn_coordinate,
+                    DemandAxis.X,
+                    item.member_id,
+                    translations,
+                )
+                if item.opening_turn_coordinate is not None
+                else None
+            ),
+            opening_turn_segment=(
+                (
+                    _project_point(
+                        item.opening_turn_segment[0], item.member_id, translations
+                    ),
+                    _project_point(
+                        item.opening_turn_segment[1], item.member_id, translations
+                    ),
+                )
+                if item.opening_turn_segment is not None
+                else None
+            ),
+        )
+        for item in plan.landings
+    )
+    continuations = tuple(
+        replace(
+            item,
+            start_point=_project_point(item.start_point, item.member_id, translations),
+            end_point=_project_point(item.end_point, item.member_id, translations),
+        )
+        for item in plan.outgoing_continuations
+    )
+    endpoint_ownership = tuple(
+        replace(
+            item,
+            endpoint=_project_point(item.endpoint, item.member_id, translations),
+        )
+        for item in plan.endpoint_ownership
+    )
+    return replace(
+        plan,
+        trunk_axis=projected_trunk,
+        landings=landings,
+        outgoing_continuations=continuations,
+        endpoint_ownership=endpoint_ownership,
     )

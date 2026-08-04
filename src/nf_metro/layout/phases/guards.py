@@ -6292,13 +6292,20 @@ def assert_reservations_are_settled(
         realise_reservation,
     )
 
-    explained = {item.reservation_id for item in settlement.obstructions}
+    obstruction_by_reservation = {
+        item.reservation_id: item for item in settlement.obstructions
+    }
     worst: tuple[float, str] | None = None
     deferred: list[str] = []
+    pinned: list[str] = []
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
-        realised = realise_reservation(graph, reservation)
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=settlement.coordinate_translations,
+        )
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
             continue
         claimants = ", ".join(sorted(reservation.claimant_member_ids))
@@ -6312,10 +6319,27 @@ def assert_reservations_are_settled(
             f"requires {realised.required_width:.1f}px and has "
             f"{realised.available_width:.1f}px between {blockers}"
         )
-        if reservation.id in explained:
+        obstruction = obstruction_by_reservation.get(reservation.id)
+        if obstruction is not None:
             deferred.append(detail)
+            conflicting_pins = tuple(
+                section_id
+                for section_id in obstruction.blocking_section_ids
+                if graph.layout_provenance.author_owns_grid(section_id)
+            )
+            if conflicting_pins:
+                pinned.append(
+                    f"system {reservation.system_id}, reservation "
+                    f"{reservation.id}, {detail}, conflicting authored grid "
+                    f"section(s) {', '.join(conflicting_pins)}"
+                )
         elif worst is None or realised.capacity_slack < worst[0]:
             worst = (realised.capacity_slack, detail)
+    if strict and pinned:
+        raise LayoutInvariantError(
+            "envelope settlement is infeasible under authored grid "
+            f"commitments: {pinned[0]}"
+        )
     if worst is not None:
         msg = (
             "the settled layout draws a route through a corridor narrower than "

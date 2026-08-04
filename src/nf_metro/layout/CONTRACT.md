@@ -1417,22 +1417,32 @@ in pipeline order.
   requires, by translating whole grid rows and whole grid columns and nothing
   else.
 - **Helpers**: `settle_route_envelopes` (`layout/envelope_settlement.py`),
-  driven from `_settle_render_geometry` in `render/svg.py`. Each pass
-  re-measures live geometry through `realise_reservation`.
+  driven once from `_settle_render_geometry` in `render/svg.py`. The row and
+  column sweeps re-measure the frozen ledger through `realise_reservation`.
 - **Precondition**: `compute_layout` has finished, routing has published the
   reservation ledger, render-time label wrapping has taken its bbox growth, and
   the header-collision reconcile has run. Local station geometry, section bbox
-  sizes, port anchors, plan frames, lane orders, and author pins are frozen.
+  sizes, port anchors, route-system membership, reservation membership and
+  width, plan frames, lane orders, and author pins are frozen.
 - **Allowed writes**: `Section.bbox_x` / `Section.bbox_y` and the `x` / `y` of
   the stations and ports those sections own, all by one shared per-boundary
-  amount. Junctions live in inter-section space and are reproduced by routing.
+  amount. Junctions live in inter-section space and are reproduced by one final
+  coordinate rederivation. Absolute reservation and plan coordinates are
+  projected through the same translation records.
 - **Postcondition**: Every row-gap and column-gap reservation whose far-side
   blockers all belong to the translated band has non-negative capacity slack.
   Any remaining deficit carries a `SettlementObstruction` naming the sections
-  that bound it from outside the translated band.
+  that bound it from outside the translated band. An obstruction involving an
+  authored grid owner is a precise strict-mode failure naming the system,
+  reservation, span, capacity, blockers, and conflicting authored sections.
 - **Invariants preserved**: No row or column separation decreases. Section
   sizes, a station's position within its section, plan-owned frames, lane
-  order, port sides, and author-pinned grid relationships are unchanged.
+  order, port sides, corner radii, route skeletons, route ownership metadata,
+  and author-pinned grid relationships are unchanged. The final coordinate
+  rederivation is guarded against any route-turn, family, fan, convergence,
+  binding, disposition, or ownership change. The final plan adopts the initial
+  row-gap and column-gap reservations, references, and demands unchanged;
+  canvas claims are observed against the final canvas only.
 - **Idempotence**: A second pass over settled geometry finds no positive
   deficit and writes nothing, so running settlement twice is an exact
   geometry no-op.
@@ -1440,10 +1450,17 @@ in pipeline order.
   ascending order. Translating everything from boundary `b` onward widens `b`
   by exactly that amount, leaves earlier boundaries' blockers stationary, and
   moves later boundaries' blockers together, so boundaries do not interfere and
-  a pass is finite in the number of boundaries. A repeat pass is reachable only
-  when widening let the router admit a further line into a bundle, raising that
-  corridor's demand; `settlement_pass_bound` caps that escalation at the number
-  of lines the graph defines, beyond which no bundle can grow.
+  the sweep is finite in the number of boundaries. Routing does not rebuild the
+  ledger and cannot admit another claimant after settlement.
+- **Transactionality**: Settlement snapshots every mutable section, station,
+  and port coordinate before its first write. Any exception restores that
+  snapshot exactly before propagating the failure.
+- **Compatibility exit**: A convergence system on a named legacy compatibility
+  path keeps its disposition and geometry decision. Settlement records whether
+  its frozen row and column claims fit or are blocked by spanning sections, then
+  publishes a non-blocking `convergence-settlement-exit` diagnostic assigning
+  the remaining shared-channel, opposing-opening, whole-system, or chained
+  emission work to #1658.
 - **Related tests**: `tests/test_envelope_settlement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation

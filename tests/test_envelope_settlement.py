@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+import nf_metro.layout.envelope_settlement as envelope_settlement
+import nf_metro.render.svg as svg_render
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.envelope_settlement import (
     SettlementAxis,
     settle_route_envelopes,
+)
+from nf_metro.layout.phases.guards import (
+    LayoutInvariantError,
+    assert_reservations_are_settled,
 )
 from nf_metro.layout.route_plan import build_route_plan_query
 from nf_metro.layout.route_reservations import (
@@ -19,7 +26,10 @@ from nf_metro.layout.route_reservations import (
     realise_reservation,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
-from nf_metro.render.svg import build_observed_render_plan
+from nf_metro.render.svg import (
+    _assert_settlement_decisions_frozen,
+    build_observed_render_plan,
+)
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -57,6 +67,18 @@ DIRECTION_CORPUS = {
     "TB": ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
     "BT": TOPOLOGIES / "bt_perp_left_entry_right_exit.mmd",
 }
+
+LEDGER_STABILITY_CORPUS = (
+    ROOT / "examples" / "longread_variant_calling.mmd",
+    TOPOLOGIES / "bypass_fan_in_outer_slot.mmd",
+    TOPOLOGIES / "complex_multipath.mmd",
+    TOPOLOGIES / "convergence_fold_diamond.mmd",
+    TOPOLOGIES / "convergence_sink_fold.mmd",
+    TOPOLOGIES / "fold_split_targets.mmd",
+    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+    ROOT / "tests" / "fixtures" / "planned_compatibility_channel_collision.mmd",
+    ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+)
 
 
 def _observe(path: Path):
@@ -311,29 +333,241 @@ def test_a_corridor_bounded_by_a_row_spanning_section_is_attributed_not_moved() 
             assert section.grid_row + section.grid_row_span - 1 >= obstruction.boundary
 
 
+def test_settlement_restores_every_coordinate_when_a_translation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph, plan = _observe(TOPOLOGIES / "convergence_fold_diamond.mmd")
+    before = _geometry(graph)
+    shift_section = envelope_settlement.shift_section
+    calls = 0
+
+    def fail_after_one_write(graph, section, *, dx=0.0, dy=0.0):
+        nonlocal calls
+        shift_section(graph, section, dx=dx, dy=dy)
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("injected translation failure")
+
+    monkeypatch.setattr(envelope_settlement, "shift_section", fail_after_one_write)
+    with pytest.raises(RuntimeError, match="injected translation failure"):
+        settle_route_envelopes(graph, plan)
+    assert calls == 1
+    assert _geometry(graph) == before
+
+
+def test_translation_names_every_deficient_claim_at_its_boundary() -> None:
+    graph, plan = _observe(TOPOLOGIES / "convergent_offrow_exit_climb.mmd")
+    query = build_route_plan_query(plan)
+    expected: dict[tuple[SettlementAxis, int], set] = {}
+    for reservation in plan.reservations:
+        if isinstance(reservation.region, RowGapRegion):
+            key = (SettlementAxis.ROW, reservation.region.lower_row)
+        elif isinstance(reservation.region, ColumnGapRegion):
+            key = (SettlementAxis.COLUMN, reservation.region.right_column)
+        else:
+            continue
+        realised = query.realised_reservation(reservation.id)
+        if realised is not None and realised.capacity_slack < -0.01:
+            expected.setdefault(key, set()).add(reservation.id)
+
+    settlement = settle_route_envelopes(graph, plan)
+    translated = {
+        (item.axis, item.boundary): set(item.reservation_ids)
+        for item in settlement.translations
+    }
+    assert any(len(reservation_ids) > 1 for reservation_ids in expected.values())
+    assert translated == expected
+
+
+@pytest.mark.parametrize("path", LEDGER_STABILITY_CORPUS, ids=lambda item: item.name)
+def test_render_keeps_the_initial_grid_reservation_ledger(
+    path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = []
+    settle = svg_render.settle_route_envelopes
+
+    def capture_plan(graph, plan):
+        captured.append(plan)
+        return settle(graph, plan)
+
+    monkeypatch.setattr(svg_render, "settle_route_envelopes", capture_plan)
+    final = _rendered_plan(path, permissive=True).route_plan
+    assert len(captured) == 1
+    frozen = captured[0]
+    frozen_grid = tuple(
+        item
+        for item in frozen.reservations
+        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+    )
+    final_grid = tuple(
+        item
+        for item in final.reservations
+        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+    )
+    assert final_grid == frozen_grid
+
+    reference_ids = {item.reference_id for item in frozen_grid}
+    demand_ids = {
+        demand_id for reservation in frozen_grid for demand_id in reservation.demand_ids
+    }
+    assert {
+        item.id: item for item in final.shared_references if item.id in reference_ids
+    } == {
+        item.id: item for item in frozen.shared_references if item.id in reference_ids
+    }
+    assert {item.id: item for item in final.demands if item.id in demand_ids} == {
+        item.id: item for item in frozen.demands if item.id in demand_ids
+    }
+
+
+def test_authored_spanning_grid_is_a_precise_strict_failure() -> None:
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    with pytest.raises(LayoutInvariantError) as error:
+        assert_reservations_are_settled(graph, plan, settlement, strict=True)
+    message = str(error.value)
+    assert "system route-system|" in message
+    assert "reservation route-reservation:" in message
+    assert "requires" in message and "has" in message
+    assert "spans columns" in message and "rows" in message
+    assert "conflicting authored grid section(s)" in message
+
+
 # Route systems the convergence planner puts on its compatibility disposition
 # for want of "a wider shared settlement".  Each one's corridors reach their
 # required width, which is the evidence that what limits them is a channel
 # decision rather than envelope allocation.
-SHARED_SETTLEMENT_CANDIDATES = (
-    TOPOLOGIES / "exit_run_three_drop_columns.mmd",
-    TOPOLOGIES / "merge_around_below_leftmost.mmd",
-    TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
-    ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
-    TOPOLOGIES / "merge_bottom_row_bypass.mmd",
-    TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-    TOPOLOGIES / "funcprofiler_upstream.mmd",
-    TOPOLOGIES / "merge_right_entry.mmd",
-    ROOT / "examples" / "genomeassembly.mmd",
+COMPATIBILITY_EXIT_MATRIX = (
+    (
+        TOPOLOGIES / "exit_run_three_drop_columns.mmd",
+        "plan-driven shared-channel emission",
+        False,
+    ),
+    (
+        TOPOLOGIES / "merge_around_below_leftmost.mmd",
+        "plan-driven shared-channel emission",
+        False,
+    ),
+    (
+        TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
+        "plan-driven shared-channel emission",
+        False,
+    ),
+    (
+        ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+        "plan-driven shared-channel emission",
+        False,
+    ),
+    (
+        TOPOLOGIES / "merge_bottom_row_bypass.mmd",
+        "plan-driven opposing-opening emission",
+        False,
+    ),
+    (
+        TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
+        "plan-driven opposing-opening emission",
+        False,
+    ),
+    (
+        TOPOLOGIES / "funcprofiler_upstream.mmd",
+        "plan-driven whole-system emission",
+        False,
+    ),
+    (
+        TOPOLOGIES / "merge_right_entry.mmd",
+        "plan-driven whole-system emission",
+        False,
+    ),
+    (
+        ROOT / "examples" / "genomeassembly.mmd",
+        "plan-driven chained-convergence emission",
+        False,
+    ),
+    (
+        ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+        "plan-driven chained-convergence emission",
+        True,
+    ),
 )
 
 
 @pytest.mark.parametrize(
-    "path", SHARED_SETTLEMENT_CANDIDATES, ids=lambda item: item.name
+    ("path", "owner", "obstructed"),
+    COMPATIBILITY_EXIT_MATRIX,
+    ids=[item[0].name for item in COMPATIBILITY_EXIT_MATRIX],
 )
-def test_compatibility_systems_are_not_short_of_corridor(path: Path) -> None:
+def test_compatibility_systems_publish_exact_settlement_exit_evidence(
+    path: Path,
+    owner: str,
+    obstructed: bool,
+) -> None:
+    _graph, initial = _observe(path)
     observed = _rendered_plan(path, permissive=True)
-    assert _capacity_deficits(observed.route_plan) == {}
+    final = observed.route_plan
+    assert tuple(
+        (item.id, item.disposition, item.legacy_reason)
+        for item in final.convergence_plans
+    ) == tuple(
+        (item.id, item.disposition, item.legacy_reason)
+        for item in initial.convergence_plans
+    )
+    diagnostics = tuple(
+        item for item in final.diagnostics if item.code == "convergence-settlement-exit"
+    )
+    assert len(diagnostics) == 1
+    message = diagnostics[0].message
+    assert owner in message
+    assert "#1658" in message
+    if obstructed:
+        assert _capacity_deficits(final)
+        assert "bounded by spanning section(s)" in message
+        assert "global row or column translation cannot supply" in message
+    else:
+        assert _capacity_deficits(final) == {}
+        assert "row or column corridor claim(s) fit" in message
+
+
+def test_decision_guard_rejects_route_turn_and_plan_changes() -> None:
+    graph, observation = _observe(TOPOLOGIES / "merge_right_entry.mmd")
+    routed = observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
+    changed_routes = list(routed.routes)
+    start = changed_routes[0].points[0]
+    second = changed_routes[0].points[1]
+    changed_routes[0] = replace(
+        changed_routes[0],
+        points=[
+            start,
+            (
+                start[0] - (second[0] - start[0]),
+                start[1] - (second[1] - start[1]),
+            ),
+            *changed_routes[0].points[2:],
+        ],
+    )
+    with pytest.raises(LayoutInvariantError, match="route topology"):
+        _assert_settlement_decisions_frozen(
+            routed.routes,
+            routed.plan,
+            changed_routes,
+            routed.plan,
+        )
+
+    convergence = next(
+        item for item in observation.convergence_plans if item.legacy_reason is not None
+    )
+    changed_plan = replace(
+        observation,
+        convergence_plans=tuple(
+            replace(item, legacy_reason=f"{item.legacy_reason}: changed")
+            if item.id == convergence.id
+            else item
+            for item in observation.convergence_plans
+        ),
+    )
+    with pytest.raises(LayoutInvariantError, match="planning decisions"):
+        _assert_settlement_decisions_frozen([], observation, [], changed_plan)
 
 
 def _narrow(graph, axis: SettlementAxis, boundary: int, amount: float) -> None:

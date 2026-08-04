@@ -30,16 +30,26 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
 from nf_metro.layout.geometry import shift_section
-from nf_metro.layout.route_plan import EmissionMemberId, RoutePlan
+from nf_metro.layout.route_plan import (
+    ConvergenceDisposition,
+    ConvergencePlan,
+    ConvergencePlanId,
+    DemandAxis,
+    EmissionMemberId,
+    RoutePlan,
+    RoutePlanDiagnostic,
+    RouteSystemId,
+)
 from nf_metro.layout.route_reservations import (
     SECTION_HEADER_BLOCKER,
     SECTION_LEFT_BLOCKER,
     ColumnGapRegion,
+    ReservationCoordinateTranslation,
     RouteReservation,
     RouteReservationId,
     RowGapRegion,
@@ -61,8 +71,10 @@ class SettlementTranslation:
 
     axis: SettlementAxis
     boundary: int
+    coordinate: float
     amount: float
-    reservation_id: RouteReservationId
+    section_ids: tuple[str, ...]
+    reservation_ids: tuple[RouteReservationId, ...]
     claimant_member_ids: tuple[EmissionMemberId, ...]
     blocker_ids: tuple[str, ...]
 
@@ -72,7 +84,8 @@ class SettlementTranslation:
         blockers = ", ".join(sorted(self.blocker_ids))
         return (
             f"{self.axis.value} boundary {self.boundary} widened by "
-            f"{self.amount:.2f}px for the corridor claimed by {claimants}, "
+            f"{self.amount:.2f}px for {len(self.reservation_ids)} corridor "
+            f"claim(s) owned by {claimants}, "
             f"held from below by {blockers}"
         )
 
@@ -103,11 +116,62 @@ class SettlementObstruction:
 
 
 @dataclass(frozen=True, slots=True)
+class CompatibilityExitEvidence:
+    """Why one compatible convergence system is outside settlement ownership."""
+
+    system_id: RouteSystemId
+    convergence_plan_ids: tuple[ConvergencePlanId, ...]
+    compatibility_reasons: tuple[str, ...]
+    reservation_ids: tuple[RouteReservationId, ...]
+    minimum_capacity_slack: float | None
+    obstruction_reservation_ids: tuple[RouteReservationId, ...]
+    blocking_section_ids: tuple[str, ...]
+    owner_kinds: tuple[str, ...]
+    owner_issue: str = "#1658"
+
+    @property
+    def message(self) -> str:
+        reasons = "; ".join(self.compatibility_reasons)
+        owners = ", ".join(self.owner_kinds)
+        if self.obstruction_reservation_ids:
+            blockers = ", ".join(self.blocking_section_ids)
+            outcome = (
+                f"{len(self.obstruction_reservation_ids)} corridor claim(s) remain "
+                f"bounded by spanning section(s) {blockers}, so global row or "
+                "column translation cannot supply their separation"
+            )
+        elif self.minimum_capacity_slack is None:
+            outcome = "the system publishes no row or column corridor claim"
+        else:
+            outcome = (
+                f"all {len(self.reservation_ids)} row or column corridor claim(s) "
+                f"fit, with minimum capacity slack "
+                f"{self.minimum_capacity_slack:.2f}px"
+            )
+        return (
+            f"convergence system {self.system_id}: {outcome}. Compatibility "
+            f"reason: {reasons}. The remaining limitation belongs to {owners} "
+            f"in {self.owner_issue}, not envelope allocation"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EnvelopeSettlement:
     """What one settlement pass moved, and what it could not."""
 
     translations: tuple[SettlementTranslation, ...]
     obstructions: tuple[SettlementObstruction, ...]
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = ()
+    compatibility_exits: tuple[CompatibilityExitEvidence, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _GeometrySnapshot:
+    """Mutable coordinates owned by envelope settlement."""
+
+    sections: dict[str, tuple[float, float]]
+    stations: dict[str, tuple[float, float]]
+    ports: dict[str, tuple[float, float]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +181,7 @@ class _Axis:
     axis: SettlementAxis
     boundary_of: Callable[[RouteReservation], int]
     start_index: Callable[[Section], int]
+    coordinate_of: Callable[[Section], float]
     blocker_prefix: str
     translate: Callable[[MetroGraph, int, float], None]
 
@@ -137,6 +202,7 @@ _ROW_AXIS = _Axis(
     SettlementAxis.ROW,
     lambda reservation: _row_region(reservation).lower_row,
     lambda section: section.grid_row,
+    lambda section: section.bbox_y,
     SECTION_HEADER_BLOCKER,
     _translate_rows,
 )
@@ -145,9 +211,32 @@ _COLUMN_AXIS = _Axis(
     SettlementAxis.COLUMN,
     lambda reservation: _column_region(reservation).right_column,
     lambda section: section.grid_col,
+    lambda section: section.bbox_x,
     SECTION_LEFT_BLOCKER,
     _translate_columns,
 )
+
+
+_COMPATIBILITY_OWNER_BY_REASON = {
+    "planned convergence trunks require one shared channel decision": (
+        "plan-driven shared-channel emission",
+    ),
+    "planned convergence feeder approaches require one shared channel decision": (
+        "plan-driven shared-channel emission",
+    ),
+    "planned fan arms require opposing opening channels": (
+        "plan-driven opposing-opening emission",
+    ),
+    "planned convergence corridor conflicts with unowned route-system member": (
+        "plan-driven whole-system emission",
+    ),
+    "planned convergence corridor conflicts with unowned route-system members": (
+        "plan-driven whole-system emission",
+    ),
+    "chained same-line convergences require one shared system settlement": (
+        "plan-driven chained-convergence emission",
+    ),
+}
 
 
 def _row_region(reservation: RouteReservation) -> RowGapRegion:
@@ -190,8 +279,10 @@ def _obstructing_sections(
 
 def _settle_axis(
     graph: MetroGraph,
+    plan: RoutePlan,
     reservations: tuple[RouteReservation, ...],
     axis: _Axis,
+    prior_translations: tuple[SettlementTranslation, ...] = (),
 ) -> tuple[list[SettlementTranslation], list[SettlementObstruction]]:
     by_boundary: dict[int, list[RouteReservation]] = {}
     for reservation in reservations:
@@ -200,9 +291,16 @@ def _settle_axis(
     translations: list[SettlementTranslation] = []
     obstructions: list[SettlementObstruction] = []
     for boundary in sorted(by_boundary):
+        coordinate_translations = _reservation_coordinate_translations(
+            (*prior_translations, *translations), plan
+        )
         claims: list[tuple[float, RouteReservation, tuple[str, ...]]] = []
         for reservation in sorted(by_boundary[boundary], key=lambda item: item.id):
-            realised = realise_reservation(graph, reservation)
+            realised = realise_reservation(
+                graph,
+                reservation,
+                coordinate_translations=coordinate_translations,
+            )
             if realised is None:
                 continue
             deficit = -realised.capacity_slack
@@ -227,33 +325,205 @@ def _settle_axis(
             claims.append((deficit, reservation, realised.negative_blocker_ids))
         if not claims:
             continue
-        deficit, reservation, blockers = max(claims, key=lambda item: item[0])
+        deficit, _reservation, _blockers = max(claims, key=lambda item: item[0])
         amount = math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+        owners = tuple(
+            section.id
+            for section in sorted(graph.sections.values(), key=lambda item: item.id)
+            if axis.start_index(section) >= boundary
+        )
+        if not owners:
+            raise ValueError(
+                f"{axis.axis.value} boundary {boundary} has no translation owner"
+            )
+        coordinate = min(
+            axis.coordinate_of(graph.sections[section_id]) for section_id in owners
+        )
         axis.translate(graph, boundary, amount)
+        reservations = tuple(item[1] for item in claims)
         translations.append(
             SettlementTranslation(
                 axis.axis,
                 boundary,
+                coordinate,
                 amount,
-                reservation.id,
-                reservation.claimant_member_ids,
-                blockers,
+                owners,
+                tuple(item.id for item in reservations),
+                tuple(
+                    sorted(
+                        {
+                            member_id
+                            for item in reservations
+                            for member_id in item.claimant_member_ids
+                        }
+                    )
+                ),
+                tuple(sorted({blocker for _d, _r, got in claims for blocker in got})),
             )
         )
     return translations, obstructions
 
 
-def settlement_pass_bound(graph: MetroGraph) -> int:
-    """How many settle-and-reroute passes a graph can possibly need.
+def _reservation_coordinate_translations(
+    translations: tuple[SettlementTranslation, ...],
+    plan: RoutePlan,
+) -> tuple[ReservationCoordinateTranslation, ...]:
+    projected: list[ReservationCoordinateTranslation] = []
+    for translation in translations:
+        section_ids = frozenset(translation.section_ids)
+        fully_owned: list[EmissionMemberId] = []
+        crossing: list[EmissionMemberId] = []
+        for member in plan.members:
+            source_owned = member.source.section_id in section_ids
+            target_owned = member.target.section_id in section_ids
+            if source_owned and target_owned:
+                fully_owned.append(member.id)
+            elif source_owned != target_owned:
+                crossing.append(member.id)
+        projected.append(
+            ReservationCoordinateTranslation(
+                DemandAxis.Y
+                if translation.axis is SettlementAxis.ROW
+                else DemandAxis.X,
+                translation.coordinate,
+                translation.amount,
+                tuple(fully_owned),
+                tuple(crossing),
+            )
+        )
+    return tuple(projected)
 
-    One pass settles every boundary against the demand the routed members
-    declared.  A second pass is only reachable when widening a boundary let the
-    router admit a further line into a bundle crossing it, raising that
-    corridor's required width.  A bundle cannot hold more lines than the graph
-    defines, so demand can escalate at most that many times, after which a pass
-    finds no deficit and writes nothing.
-    """
-    return len(graph.lines) + 1
+
+def _snapshot_geometry(graph: MetroGraph) -> _GeometrySnapshot:
+    return _GeometrySnapshot(
+        {
+            section_id: (section.bbox_x, section.bbox_y)
+            for section_id, section in graph.sections.items()
+        },
+        {
+            station_id: (station.x, station.y)
+            for station_id, station in graph.stations.items()
+        },
+        {port_id: (port.x, port.y) for port_id, port in graph.ports.items()},
+    )
+
+
+def _restore_geometry(graph: MetroGraph, snapshot: _GeometrySnapshot) -> None:
+    for section_id, (x, y) in snapshot.sections.items():
+        section = graph.sections[section_id]
+        section.bbox_x = x
+        section.bbox_y = y
+    for station_id, (x, y) in snapshot.stations.items():
+        station = graph.stations[station_id]
+        station.x = x
+        station.y = y
+    for port_id, (x, y) in snapshot.ports.items():
+        port = graph.ports[port_id]
+        port.x = x
+        port.y = y
+
+
+def _compatibility_exit_evidence(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    obstructions: tuple[SettlementObstruction, ...],
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...],
+) -> tuple[CompatibilityExitEvidence, ...]:
+    plans_by_system: dict[RouteSystemId, list[ConvergencePlan]] = {}
+    for convergence in plan.convergence_plans:
+        if (
+            convergence.disposition is ConvergenceDisposition.LEGACY
+            and convergence.legacy_reason in _COMPATIBILITY_OWNER_BY_REASON
+        ):
+            plans_by_system.setdefault(convergence.system_id, []).append(convergence)
+
+    obstruction_by_reservation = {item.reservation_id: item for item in obstructions}
+    evidence: list[CompatibilityExitEvidence] = []
+    for system_id in sorted(plans_by_system, key=str):
+        convergence_plans = plans_by_system[system_id]
+        reservations = tuple(
+            item
+            for item in plan.reservations
+            if item.system_id == system_id
+            and isinstance(item.region, RowGapRegion | ColumnGapRegion)
+        )
+        realised = tuple(
+            (item, result)
+            for item in reservations
+            if (
+                result := realise_reservation(
+                    graph,
+                    item,
+                    coordinate_translations=coordinate_translations,
+                )
+            )
+            is not None
+        )
+        deficits = tuple(
+            (item, result)
+            for item, result in realised
+            if result.capacity_slack < -COORD_TOLERANCE
+        )
+        if any(item.id not in obstruction_by_reservation for item, _got in deficits):
+            continue
+        relevant_obstructions = tuple(
+            obstruction_by_reservation[item.id] for item, _got in deficits
+        )
+        reasons = tuple(
+            dict.fromkeys(
+                item.legacy_reason
+                for item in convergence_plans
+                if item.legacy_reason is not None
+            )
+        )
+        evidence.append(
+            CompatibilityExitEvidence(
+                system_id,
+                tuple(item.id for item in convergence_plans),
+                reasons,
+                tuple(item.id for item in reservations),
+                min(
+                    (result.capacity_slack for _item, result in realised),
+                    default=None,
+                ),
+                tuple(item.id for item, _result in deficits),
+                tuple(
+                    sorted(
+                        {
+                            section_id
+                            for item in relevant_obstructions
+                            for section_id in item.blocking_section_ids
+                        }
+                    )
+                ),
+                tuple(
+                    dict.fromkeys(
+                        owner
+                        for reason in reasons
+                        for owner in _COMPATIBILITY_OWNER_BY_REASON[reason]
+                    )
+                ),
+            )
+        )
+    return tuple(evidence)
+
+
+def attach_compatibility_exit_diagnostics(
+    plan: RoutePlan, settlement: EnvelopeSettlement
+) -> RoutePlan:
+    """Publish the final ownership boundary without changing route decisions."""
+    diagnostics = tuple(
+        item for item in plan.diagnostics if item.code != "convergence-settlement-exit"
+    ) + tuple(
+        RoutePlanDiagnostic(
+            None,
+            "convergence-settlement-exit",
+            item.message,
+            blocking=False,
+        )
+        for item in settlement.compatibility_exits
+    )
+    return replace(plan, diagnostics=diagnostics)
 
 
 def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettlement:
@@ -262,13 +532,38 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
     Mutates *graph* in place, translating whole rows and whole columns only.
     Returns what moved and any deficit outside this stage's ownership.
     """
-    row_translations, row_obstructions = _settle_axis(
-        graph, _reservations_on(plan, RowGapRegion), _ROW_AXIS
-    )
-    column_translations, column_obstructions = _settle_axis(
-        graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
-    )
-    return EnvelopeSettlement(
-        tuple(row_translations + column_translations),
-        tuple(row_obstructions + column_obstructions),
-    )
+    snapshot = _snapshot_geometry(graph)
+    try:
+        row_translations, row_obstructions = _settle_axis(
+            graph,
+            plan,
+            _reservations_on(plan, RowGapRegion),
+            _ROW_AXIS,
+        )
+        column_translations, column_obstructions = _settle_axis(
+            graph,
+            plan,
+            _reservations_on(plan, ColumnGapRegion),
+            _COLUMN_AXIS,
+            tuple(row_translations),
+        )
+        translations = tuple(row_translations + column_translations)
+        obstructions = tuple(row_obstructions + column_obstructions)
+        coordinate_translations = _reservation_coordinate_translations(
+            translations, plan
+        )
+        compatibility_exits = _compatibility_exit_evidence(
+            graph,
+            plan,
+            obstructions,
+            coordinate_translations,
+        )
+        return EnvelopeSettlement(
+            translations,
+            obstructions,
+            coordinate_translations,
+            compatibility_exits,
+        )
+    except Exception:
+        _restore_geometry(graph, snapshot)
+        raise

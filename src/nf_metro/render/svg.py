@@ -8,6 +8,7 @@ __all__ = [
     "build_render_plan",
     "emit_render_plan",
     "render_svg",
+    "route_edges_centred",
 ]
 
 import copy
@@ -29,8 +30,8 @@ from nf_metro.layout.constants import (
     graph_offset_step,
 )
 from nf_metro.layout.envelope_settlement import (
+    attach_compatibility_exit_diagnostics,
     settle_route_envelopes,
-    settlement_pass_bound,
 )
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
@@ -43,6 +44,7 @@ from nf_metro.layout.phases._common import _station_bundle_offset_span
 from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
+    LayoutInvariantError,
     assert_render_header_clearance,
     assert_render_layout_invariants,
     assert_reservations_are_settled,
@@ -51,13 +53,22 @@ from nf_metro.layout.phases.guards import (
 )
 from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
-from nf_metro.layout.route_plan import RoutePlan
-from nf_metro.layout.route_reservations import realise_route_reservations
+from nf_metro.layout.route_plan import (
+    ConvergencePlan,
+    ExitTurnPlan,
+    RoutePlan,
+    RouteSystem,
+)
+from nf_metro.layout.route_reservations import (
+    adopt_route_reservation_ledger,
+    realise_route_reservations,
+)
 from nf_metro.layout.routing import (
     RoutedPath,
     apply_route_offsets,
     compute_station_offsets,
     observe_route_edges_centred,
+    route_edges_centred,
 )
 from nf_metro.layout.routing.corners import (
     curve_tangents,
@@ -724,6 +735,288 @@ def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
     )
 
 
+def _route_segment_signature(
+    points: list[tuple[float, float]],
+) -> tuple[tuple[str, int, int], ...]:
+    """Describe a route's turns without retaining absolute coordinates."""
+    result: list[tuple[str, int, int]] = []
+    for start, end in zip(points, points[1:], strict=False):
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        x_sign = 0 if abs(dx) <= SAME_COORD_TOLERANCE else (1 if dx > 0 else -1)
+        y_sign = 0 if abs(dy) <= SAME_COORD_TOLERANCE else (1 if dy > 0 else -1)
+        kind = "point" if not x_sign and not y_sign else "segment"
+        result.append((kind, x_sign, y_sign))
+    return tuple(result)
+
+
+def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
+    """Return route topology and ownership facts that settlement cannot change."""
+    return tuple(
+        (
+            route.edge.source,
+            route.edge.target,
+            route.line_id,
+            route.is_inter_section,
+            _route_segment_signature(route.points),
+            tuple(round(value, 6) for value in route.curve_radii or ()),
+            route.offset_regime,
+            route.normalize_exempt,
+            tuple(route.gap_slots),
+            route.trunk_slot is not None,
+            route.exit_turn_plan_id,
+            route.exit_turn_member_id,
+            route.exit_turn_family_id,
+            route.exit_turn_axis_id,
+            route.fan_plan_id,
+            route.fan_route_emitter,
+            route.convergence_plan_id,
+            route.convergence_member_id,
+            route.convergence_owned_segment_ranks,
+            route.exit_turn_segment_rank,
+            route.exit_lane_transition_plan_id,
+        )
+        for route in routes
+    )
+
+
+def _route_system_decision(system: RouteSystem) -> tuple[object, ...]:
+    """Exclude resource indexes while retaining semantic system membership."""
+    return (
+        system.id,
+        system.connector_ids,
+        system.line_ids,
+        system.bundle_ids,
+        system.exit_group_ids,
+        system.entry_group_ids,
+        system.divergence_ids,
+        system.convergence_ids,
+        system.member_ids,
+        system.branch_ids,
+        system.feeder_ids,
+        system.exit_turn_plan_ids,
+        system.fan_plan_ids,
+        system.convergence_plan_ids,
+    )
+
+
+def _exit_turn_decision(plan: ExitTurnPlan) -> tuple[object, ...]:
+    """Return an exit-turn decision without its translated coordinates."""
+    lane_transitions = tuple(
+        (
+            item.edge,
+            item.claimant_member_ids,
+            item.source_offset,
+            item.target_offset,
+            item.source_lane_offset,
+            item.target_lane_offset,
+            item.run_direction,
+            item.placement,
+            item.coordinate_regime,
+        )
+        for item in plan.lane_transitions
+    )
+    axes = tuple(
+        (
+            item.id,
+            item.line_id,
+            item.axis,
+            item.rank,
+            item.claimant_member_ids,
+            item.fixed_anchor_id,
+            item.fixed_anchor_offset,
+            item.coordinate_regime,
+        )
+        for item in plan.axes
+    )
+    assignments = tuple(
+        (
+            item.member_id,
+            item.entry_group_id,
+            item.destination_section_id,
+            item.destination_column,
+            item.destination_row,
+            item.destination_side,
+            item.source_lane_rank,
+            item.planned_family_id,
+            item.roles,
+            item.run_direction,
+            item.turn_direction,
+            item.handedness,
+            item.axis_id,
+        )
+        for item in plan.assignments
+    )
+    return (
+        plan.id,
+        plan.system_id,
+        plan.exit_group_id,
+        plan.exit_port_id,
+        plan.divergence_id,
+        plan.source_id,
+        plan.source_run_direction,
+        plan.source_axis,
+        plan.connector_ids,
+        plan.system_member_ids,
+        plan.member_ids,
+        plan.source_lanes,
+        plan.lane_order_source,
+        lane_transitions,
+        axes,
+        assignments,
+        plan.unclassified_member_ids,
+        plan.spacing,
+        plan.minimum_runway,
+        plan.disposition,
+        plan.legacy_reason,
+        plan.provenance,
+    )
+
+
+def _convergence_decision(plan: ConvergencePlan) -> tuple[object, ...]:
+    """Return convergence ownership and ordering without absolute geometry."""
+    trunk = (
+        None
+        if plan.trunk_axis is None
+        else (
+            plan.trunk_axis.axis,
+            plan.trunk_axis.direction,
+            plan.trunk_axis.coordinate_regime,
+        )
+    )
+    landings = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.source_junction_id,
+            item.approach_axis,
+            item.approach_direction,
+            item.source_column,
+            item.source_row,
+            item.lane_rank,
+            item.order,
+            item.corner_handedness,
+            item.opening_turn_coordinate is not None,
+            item.bypass,
+            item.long_haul,
+            item.multiple_row,
+        )
+        for item in plan.landings
+    )
+    continuations = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.entry_port_id,
+            item.lane_rank,
+            item.covered_by_member_id,
+        )
+        for item in plan.outgoing_continuations
+    )
+    endpoint_ownership = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.connector_ids,
+            item.role,
+            item.covered_by_member_id,
+        )
+        for item in plan.endpoint_ownership
+    )
+    return (
+        plan.id,
+        plan.system_id,
+        plan.convergence_ids,
+        plan.entry_group_ids,
+        plan.merge_junction_ids,
+        plan.target_entry_port_ids,
+        plan.connector_ids,
+        plan.member_ids,
+        plan.resolved_member_paths,
+        plan.resolved_member_edges,
+        plan.line_ids,
+        plan.upstream_exit_turn_plan_ids,
+        plan.upstream_fan_plan_ids,
+        plan.primary_trunk_member_id,
+        plan.primary_trunk_reason,
+        trunk,
+        landings,
+        continuations,
+        plan.lane_order,
+        endpoint_ownership,
+        plan.disposition,
+        plan.legacy_reason,
+    )
+
+
+def _plan_decision_fingerprint(plan: RoutePlan) -> tuple[object, ...]:
+    """Return the immutable semantic decisions in a route observation."""
+    return (
+        tuple(_route_system_decision(item) for item in plan.systems),
+        plan.endpoint_groups,
+        plan.divergences,
+        plan.convergences,
+        plan.members,
+        plan.branches,
+        plan.feeders,
+        tuple(_exit_turn_decision(item) for item in plan.exit_turn_plans),
+        plan.fan_plans,
+        tuple(_convergence_decision(item) for item in plan.convergence_plans),
+        plan.bindings,
+        plan.provenance,
+    )
+
+
+def _assert_settlement_decisions_frozen(
+    frozen_routes: list[RoutedPath],
+    frozen_plan: RoutePlan,
+    realised_routes: list[RoutedPath],
+    realised_plan: RoutePlan,
+) -> None:
+    """Reject any settlement rederivation that changes semantic routing."""
+    if _route_decision_fingerprint(realised_routes) != _route_decision_fingerprint(
+        frozen_routes
+    ):
+        raise LayoutInvariantError(
+            "envelope settlement changed route topology or geometry ownership"
+        )
+    if _plan_decision_fingerprint(realised_plan) != _plan_decision_fingerprint(
+        frozen_plan
+    ):
+        raise LayoutInvariantError(
+            "envelope settlement changed route-system planning decisions"
+        )
+
+
+def _restore_settlement_curve_radii(
+    frozen_routes: list[RoutedPath], realised_routes: list[RoutedPath]
+) -> None:
+    """Keep corner sizing fixed when only absolute route coordinates moved."""
+    for frozen, realised in zip(frozen_routes, realised_routes, strict=False):
+        same_route = (
+            frozen.edge.source,
+            frozen.edge.target,
+            frozen.line_id,
+            frozen.is_inter_section,
+        ) == (
+            realised.edge.source,
+            realised.edge.target,
+            realised.line_id,
+            realised.is_inter_section,
+        )
+        same_skeleton = _route_segment_signature(
+            frozen.points
+        ) == _route_segment_signature(realised.points)
+        if (
+            same_route
+            and same_skeleton
+            and len(frozen.curve_radii or ()) == len(realised.curve_radii or ())
+        ):
+            realised.curve_radii = (
+                list(frozen.curve_radii) if frozen.curve_radii is not None else None
+            )
+
+
 def _settle_render_geometry(
     graph: MetroGraph,
     theme: Theme,
@@ -826,13 +1119,27 @@ def _settle_render_geometry(
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
 
-    for _pass in range(settlement_pass_bound(graph)):
-        settlement = settle_route_envelopes(graph, route_plan)
-        if not settlement.translations:
-            break
+    frozen_routes = routes
+    frozen_route_plan = route_plan
+    settlement = settle_route_envelopes(graph, frozen_route_plan)
+    if settlement.translations:
         station_offsets, routes, route_plan = _resettle()
+        _restore_settlement_curve_radii(frozen_routes, routes)
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
+        _assert_settlement_decisions_frozen(
+            frozen_routes,
+            frozen_route_plan,
+            routes,
+            route_plan,
+        )
+    route_plan = adopt_route_reservation_ledger(
+        route_plan,
+        frozen_route_plan,
+        graph,
+        settlement.coordinate_translations,
+    )
+    route_plan = attach_compatibility_exit_diagnostics(route_plan, settlement)
     assert_reservations_are_settled(
         graph, route_plan, settlement, strict=effective_strict
     )
