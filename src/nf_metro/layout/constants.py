@@ -181,6 +181,9 @@ the floor so the badge sits a visible gap below the title rather than flush
 against it.  Untitled maps keep the tighter ``SECTION_Y_PADDING`` top.
 """
 
+TITLE_BAND_ROUTE_FLOOR: float = TITLE_BAND_CLEARANCE - SECTION_HEADER_PROTRUSION
+"""Lowest route centreline allowed through a rendered canvas title band."""
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------

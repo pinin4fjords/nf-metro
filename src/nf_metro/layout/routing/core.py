@@ -178,11 +178,37 @@ def _route_edges(
         from nf_metro.layout.routing.rail import route_rail_edges
 
         rail_graph_routes = route_rail_edges(graph)
+        from nf_metro.layout.route_plan import build_route_semantic_scaffold
+
+        scaffold = build_route_semantic_scaffold(
+            graph,
+            coupled_connector_groups=tuple(
+                fan_plan.connector_ids
+                for fan_plan in graph.fan_plans
+                if fan_plan.connector_ids
+            ),
+        )
+        if scaffold is not None and envelope_reservations:
+            from nf_metro.layout.routing.envelope_allocations import (
+                build_envelope_allocation_query,
+            )
+
+            envelope_allocations = build_envelope_allocation_query(
+                envelope_proofs,
+                scaffold.member_id_by_edge,
+                envelope_reservations,
+                envelope_bindings,
+                envelope_limitations,
+                envelope_identity_projections,
+            )
+            for route in rail_graph_routes:
+                envelope_allocations.consume(route)
+            envelope_allocations.assert_complete(rail_graph_routes)
         observer = None
         if observe_plan:
             from nf_metro.layout.route_plan import build_route_plan_observer
 
-            observer = build_route_plan_observer(graph, None)
+            observer = build_route_plan_observer(graph, None, scaffold=scaffold)
         if observer is not None:
             observer.record_rail_routes(rail_graph_routes)
         return (
@@ -466,7 +492,7 @@ def _route_edges(
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
-    _unify_coincident_corner_radii(routes)
+    _unify_coincident_corner_radii(routes, ctx)
     assert_route_allocations(routes, "corner-radius unification")
     assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
     covered_merge_hops = _drop_covered_merge_entry_hops(

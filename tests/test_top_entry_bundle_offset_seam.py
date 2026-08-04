@@ -21,7 +21,7 @@ import pytest
 
 from nf_metro import api
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
-from nf_metro.layout.routing.common import apply_route_offsets
+from nf_metro.layout.routing.common import apply_route_offsets, drop_coincident_points
 from nf_metro.layout.routing.invariants import (
     check_perp_entry_boundary_consistent,
     check_seam_segments_meet_at_port,
@@ -113,3 +113,18 @@ def test_junction_drop_below_is_one_vertical_run(path: str) -> None:
     assert all(x == pytest.approx(port.x, abs=1.0) for x, _ in descent)
     # No point sits on the far side of the port's column (an out-and-back).
     assert max(x for x, _ in pts) <= port.x + 1.0
+
+
+def test_vertical_fork_does_not_gain_a_horizontal_peeloff_lead() -> None:
+    path = "examples/topologies/bottom_exit_junction_collinear_top_entry.mmd"
+    graph, routes, offsets = _route(path)
+    drop = next(
+        route
+        for route in routes
+        if route.edge.source == "__junction_3"
+        and route.edge.target == "first__entry_top_1"
+    )
+    points = drop_coincident_points(apply_route_offsets(drop, offsets))
+
+    assert len(points) == 2
+    assert points[0][0] == pytest.approx(points[1][0])

@@ -48,6 +48,7 @@ from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     assert_render_header_clearance,
     assert_render_layout_invariants,
+    assert_render_title_route_clearance,
     iter_opposing_line_overlaps,
     render_header_collision,
 )
@@ -60,6 +61,9 @@ from nf_metro.layout.routing import (
     compute_station_offsets,
     observe_route_edges,
     observe_route_edges_centred,
+)
+from nf_metro.layout.routing import (
+    route_edges_centred as _route_edges_centred,
 )
 from nf_metro.layout.routing.convergences import ConvergenceInvariantError
 from nf_metro.layout.routing.corners import (
@@ -191,6 +195,8 @@ from nf_metro.text_metrics import (
     metrics_face_for_portability,
     text_style,
 )
+
+route_edges_centred = _route_edges_centred
 
 
 def _compute_canvas_bounds(
@@ -1012,6 +1018,7 @@ def _settle_render_geometry(
     assert_render_layout_invariants(
         graph, routes, station_offsets, strict=effective_strict
     )
+    assert_render_title_route_clearance(graph, routes, strict=effective_strict)
     assert_render_header_clearance(graph, strict=effective_strict)
     return (
         station_offsets,

@@ -22,6 +22,7 @@ TOPOLOGIES = Path(__file__).parent.parent / "examples" / "topologies"
     [
         "dogleg_exempt_distinct.mmd",
         "dogleg_exempt_sameline.mmd",
+        "convergence_stacked_sink.mmd",
         "exit_run_three_drop_columns.mmd",
         "merge_around_below_leftmost.mmd",
         "merge_feeder_shared_channel_gap.mmd",

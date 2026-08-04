@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import warnings
 import xml.etree.ElementTree as ET
@@ -87,6 +88,106 @@ def test_query_authenticates_every_proof_against_immutable_reservation() -> None
     assert any(
         query.allocations_for_member(member_id) for member_id in member_by_edge.values()
     )
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    (
+        "riboseq_fold_two_dir_entry.mmd",
+        "samerow_left_exit_far_left_entry.mmd",
+    ),
+)
+def test_final_emission_consumes_an_aligned_junction_peeloff_claim(
+    fixture: str,
+) -> None:
+    path = ROOT / "examples" / "topologies" / fixture
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    immutable = observe_route_edges(graph, station_offsets=offsets)
+    edge = ResolvedEdge("__junction_10", "psite_id__entry_top_8", "ribo")
+    member = next(item for item in immutable.plan.members if item.edge == edge)
+    binding = next(
+        item for item in immutable.plan.bindings if item.member_id == member.id
+    )
+    reservation = next(
+        item
+        for item in immutable.plan.reservations
+        if any(claim.member_id == member.id for claim in item.claims)
+    )
+    claim = next(item for item in reservation.claims if item.member_id == member.id)
+    settlement = settle_route_envelopes(graph, immutable.plan)
+
+    final = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=immutable.plan.reservations,
+        envelope_bindings=immutable.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+
+    final_binding = next(
+        item for item in final.plan.bindings if item.member_id == member.id
+    )
+    immutable_route = immutable.routes[binding.path_rank]
+    final_route = final.routes[final_binding.path_rank]
+    segment = final_route.points[claim.segment_rank : claim.segment_end_rank + 2]
+    assert reservation.orientation is CorridorOrientation.HORIZONTAL
+    assert final_binding == binding
+    assert final_route.points == immutable_route.points
+    assert all(
+        point[1] == pytest.approx(claim.allocation_coordinate) for point in segment
+    )
+    assert segment[-1][0] > segment[0][0]
+    assert final_route.envelope_allocated_segments == (
+        (claim.segment_rank, 1, claim.allocation_coordinate),
+    )
+
+
+def test_global_rail_emission_consumes_every_immutable_claim() -> None:
+    path = ROOT / "examples" / "topologies" / "rail_inter_section.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    immutable = observe_route_edges(graph, station_offsets=offsets)
+    settlement = settle_route_envelopes(graph, immutable.plan)
+
+    final = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=immutable.plan.reservations,
+        envelope_bindings=immutable.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+
+    claims = tuple(
+        (reservation, claim)
+        for reservation in immutable.plan.reservations
+        for claim in reservation.claims
+    )
+    assert claims
+    expected_count = sum(
+        claim.segment_end_rank - claim.segment_rank + 1
+        for _reservation, claim in claims
+    )
+    assert sum(len(route.envelope_allocated_segments) for route in final.routes) == (
+        expected_count
+    )
+    for reservation, claim in claims:
+        route = final.routes[claim.path_rank]
+        allocation_rank = (
+            1 if reservation.orientation is CorridorOrientation.HORIZONTAL else 0
+        )
+        consumed = {
+            (rank, rank_axis): coordinate
+            for rank, rank_axis, coordinate in route.envelope_allocated_segments
+        }
+        for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
+            coordinate = consumed[rank, allocation_rank]
+            assert route.points[rank][allocation_rank] == pytest.approx(coordinate)
+            assert route.points[rank + 1][allocation_rank] == pytest.approx(coordinate)
 
 
 @pytest.mark.parametrize("resource", ("reference", "demand"))
@@ -495,6 +596,203 @@ def test_final_convergence_emission_preserves_immutable_route_membership() -> No
     assert final_edges == preflight_edges
     assert final.route_plan.bindings == preflight.plan.bindings
     assert all(plan.owns_geometry for plan in final.route_plan.convergence_plans)
+
+
+def test_perpendicular_family_preserves_stable_facts_and_projects_only_claims() -> None:
+    path = (
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "regressions"
+        / "cross_column_perp_entry_overflow.mmd"
+    )
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    preflight = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    settlement = settle_route_envelopes(graph, preflight.plan)
+
+    final = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        envelope_proofs=settlement.capacity_proofs,
+        envelope_limitations=settlement.capacity_limitations,
+        envelope_reservations=preflight.plan.reservations,
+        envelope_bindings=preflight.plan.bindings,
+        envelope_identity_projections=settlement.identity_projections,
+    )
+
+    def stable_facts(plan):
+        axis = plan.trunk_axis
+        assert axis is not None
+        source_longitudinal, target_longitudinal = (
+            (axis.extent_start, axis.extent_end)
+            if axis.direction.value in {"R", "D"}
+            else (axis.extent_end, axis.extent_start)
+        )
+        return (
+            plan.id,
+            plan.system_id,
+            plan.convergence_ids,
+            plan.entry_group_ids,
+            plan.merge_junction_ids,
+            plan.target_entry_port_ids,
+            plan.connector_ids,
+            plan.member_ids,
+            plan.resolved_member_paths,
+            plan.resolved_member_edges,
+            plan.line_ids,
+            plan.upstream_exit_turn_plan_ids,
+            plan.upstream_fan_plan_ids,
+            plan.primary_trunk_member_id,
+            plan.primary_trunk_reason,
+            plan.lane_order,
+            plan.shared_reference_ids,
+            plan.demand_ids,
+            plan.foreign_reference_ids,
+            plan.disposition,
+            plan.legacy_reason,
+            (
+                axis.axis,
+                axis.direction,
+                axis.extent_end - axis.extent_start,
+                axis.source_flank_coordinate - axis.coordinate,
+                axis.target_flank_coordinate - axis.coordinate,
+                axis.source_endpoint_coordinate - source_longitudinal,
+                axis.target_endpoint_coordinate - target_longitudinal,
+            ),
+            tuple(
+                (
+                    item.member_id,
+                    item.edge,
+                    item.source_junction_id,
+                    item.approach_axis,
+                    item.approach_direction,
+                    item.source_column,
+                    item.source_row,
+                    item.lane_rank,
+                    item.order,
+                    item.corner_handedness,
+                    item.minimum_runway,
+                    (
+                        (
+                            item.opening_turn_segment[1][0]
+                            - item.opening_turn_segment[0][0],
+                            item.opening_turn_segment[1][1]
+                            - item.opening_turn_segment[0][1],
+                        )
+                        if item.opening_turn_segment is not None
+                        else None
+                    ),
+                    item.bypass,
+                    item.long_haul,
+                    item.multiple_row,
+                )
+                for item in plan.landings
+            ),
+            tuple(
+                (
+                    item.member_id,
+                    item.edge,
+                    item.entry_port_id,
+                    item.lane_rank,
+                    (
+                        item.end_point[0] - item.start_point[0],
+                        item.end_point[1] - item.start_point[1],
+                    ),
+                    item.covered_by_member_id,
+                )
+                for item in plan.outgoing_continuations
+            ),
+            tuple(
+                (
+                    item.member_id,
+                    item.edge,
+                    item.connector_ids,
+                    item.role,
+                    item.covered_by_member_id,
+                )
+                for item in plan.endpoint_ownership
+            ),
+        )
+
+    assert tuple(stable_facts(item) for item in final.plan.convergence_plans) == tuple(
+        stable_facts(item) for item in preflight.plan.convergence_plans
+    )
+    assert final.plan.bindings == preflight.plan.bindings
+    projected_coordinates = {
+        (allocation.path_rank, point_rank, coordinate_rank)
+        for proof in settlement.capacity_proofs
+        for reservation in proof.reservations
+        for allocation in reservation.allocations
+        for point_rank in range(
+            allocation.segment_rank, allocation.segment_end_rank + 2
+        )
+        for coordinate_rank in (0 if allocation.axis.value == "x" else 1,)
+    }
+    changed_coordinates = {
+        (path_rank, point_rank, coordinate_rank)
+        for path_rank, (before, after) in enumerate(
+            zip(preflight.routes, final.routes, strict=True)
+        )
+        for point_rank, (before_point, after_point) in enumerate(
+            zip(before.points, after.points, strict=True)
+        )
+        for coordinate_rank, (before_coordinate, after_coordinate) in enumerate(
+            zip(before_point, after_point, strict=True)
+        )
+        if abs(before_coordinate - after_coordinate) > 1e-6
+    }
+    assert changed_coordinates
+    assert changed_coordinates <= projected_coordinates
+
+
+def test_allocation_consumption_is_transactional_and_idempotent() -> None:
+    path = (
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "regressions"
+        / "cross_column_perp_entry_overflow.mmd"
+    )
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observed = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    settlement = settle_route_envelopes(graph, observed.plan)
+    member_by_edge = {item.edge: item.id for item in observed.plan.members}
+    query = build_envelope_allocation_query(
+        settlement.capacity_proofs,
+        member_by_edge,
+        observed.plan.reservations,
+        observed.plan.bindings,
+        settlement.capacity_limitations,
+        settlement.identity_projections,
+    )
+    member_id = next(
+        member_id
+        for member_id in member_by_edge.values()
+        if query.allocations_for_member(member_id)
+    )
+    binding = next(
+        item for item in observed.plan.bindings if item.member_id == member_id
+    )
+    assert binding.path_rank is not None
+    original = observed.routes[binding.path_rank]
+
+    consumed = copy.deepcopy(original)
+    query.consume(consumed)
+    once = copy.deepcopy(consumed)
+    query.consume(consumed)
+    assert consumed == once
+
+    invalid = copy.deepcopy(original)
+    first_claim = query.allocations_for_member(member_id)[0]
+    invalid.points = invalid.points[: first_claim.segment_end_rank + 1]
+    before = copy.deepcopy(invalid)
+    with pytest.raises(EnvelopeAllocationError, match="outside its emitted route"):
+        query.consume(invalid)
+    assert invalid == before
 
 
 @pytest.mark.parametrize(

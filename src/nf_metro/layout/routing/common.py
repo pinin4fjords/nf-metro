@@ -127,7 +127,7 @@ def drop_coincident_points(
     return out
 
 
-def perp_peeloff_off_horizontal_junction(
+def perp_peeloff_from_junction(
     graph: MetroGraph,
     routes: list[RoutedPath],
     rp: RoutedPath,

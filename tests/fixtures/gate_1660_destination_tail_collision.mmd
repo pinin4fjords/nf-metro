@@ -1,0 +1,34 @@
+%%metro line_order: definition
+%%metro track_gap: 2
+%%metro line: l1 | One | #e63946
+%%metro line: l2 | Two | #2db572
+%%metro line: f | Foreign | #0570b0
+%%metro grid: s1 | 0,0
+%%metro grid: s2 | 2,0
+%%metro grid: fs | 1,0
+%%metro grid: dest | 4,0
+%%metro grid: fd | 3,0
+
+graph LR
+    subgraph s1 [S1]
+        a[A]
+    end
+    subgraph s2 [S2]
+        b[B]
+    end
+    subgraph fs [FS]
+        x[X]
+    end
+    subgraph dest [Dest]
+        %%metro direction: LR
+        %%metro entry: left | l1,l2
+        d[D]
+        e[E]
+        d -->|l1,l2| e
+    end
+    subgraph fd [FD]
+        z[Z]
+    end
+    a -->|l1| d
+    b -->|l2| d
+    x -->|f| z

@@ -6,12 +6,23 @@ import math
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, graph_offset_step
-from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
+    CURVE_RADIUS,
+    TITLE_BAND_ROUTE_FLOOR,
+    graph_offset_step,
+)
 from nf_metro.layout.route_plan import (
+    ConvergencePlanId,
     DemandAxis,
     DemandId,
+    EmissionMember,
     EmissionMemberId,
+    ExitTurnAxisReservationIdentity,
+    ExitTurnDisposition,
+    ExitTurnPlanId,
+    FanPlanId,
     RoutePlan,
     RouteSystemId,
     SharedReferenceId,
@@ -27,6 +38,7 @@ from nf_metro.layout.route_reservations import (
     RouteReservationClaim,
     RouteReservationId,
     RowGapRegion,
+    _exit_axis_identities_by_member,
     canvas_inner_boundary,
     realise_route_reservations,
     reservation_claim_lane_coordinates,
@@ -150,6 +162,13 @@ class EnvelopeCapacityProof:
         return self.id.boundary
 
 
+class EnvelopeCapacityOwnerKind(str, Enum):
+    """Planner class retaining exact whole-system compatibility ownership."""
+
+    CONVERGENCE = "convergence"
+    PINNED_EXIT_FAN = "pinned-exit-fan"
+
+
 @dataclass(frozen=True, slots=True)
 class EnvelopeCapacityLimitation:
     """Final evidence that authored commitments prevent system settlement."""
@@ -159,6 +178,8 @@ class EnvelopeCapacityLimitation:
     blocker_ids: tuple[str, ...]
     pinned_section_ids: tuple[str, ...]
     owner_issue: int = 1658
+    owner_kind: EnvelopeCapacityOwnerKind = EnvelopeCapacityOwnerKind.CONVERGENCE
+    owner_plan_ids: tuple[ConvergencePlanId | ExitTurnPlanId | FanPlanId, ...] = ()
 
 
 class EnvelopeSettlementError(ValueError):
@@ -212,6 +233,22 @@ class _BoundaryReservation:
     sharing_coordinates: tuple[float, ...]
     lane_coordinates: tuple[float, ...]
     sharing_keys: tuple[frozenset[tuple[str, str]], ...]
+    exit_turn_axis_identities: tuple[ExitTurnAxisReservationIdentity | None, ...]
+
+
+def _member_channel_sharing_keys(
+    member: EmissionMember,
+) -> frozenset[tuple[str, str]]:
+    return frozenset(
+        (
+            (member.line_id, member.source.station_id),
+            (member.line_id, member.target.station_id),
+            *(
+                (member.line_id, f"entry-group:{entry_group_id}")
+                for entry_group_id in member.entry_group_ids
+            ),
+        )
+    )
 
 
 def _snapshot(graph: MetroGraph) -> _GeometrySnapshot:
@@ -678,6 +715,39 @@ def _endpoint_incident_members(
     }
 
 
+def _authenticated_exit_axis_identities(
+    plan: RoutePlan,
+    reservation: RouteReservation,
+) -> tuple[ExitTurnAxisReservationIdentity | None, ...]:
+    identities = reservation.exit_turn_axis_identities
+    if len(identities) != len(reservation.claims):
+        return (None,) * len(reservation.claims)
+    references = {item.id: item for item in plan.shared_references}
+    demands = {item.id: item for item in plan.demands}
+    reference = references.get(reservation.reference_id)
+    reservation_demands = tuple(demands.get(item) for item in reservation.demand_ids)
+    if (
+        reference is None
+        or reference.exit_turn_axis_identities != identities
+        or not reservation_demands
+        or any(
+            demand is None or demand.exit_turn_axis_identities != identities
+            for demand in reservation_demands
+        )
+    ):
+        return (None,) * len(reservation.claims)
+    expected_by_member = _exit_axis_identities_by_member(plan)
+    expected = tuple(
+        expected_by_member.get(claim.member_id)
+        if claim.segment_rank <= 1 <= claim.segment_end_rank
+        else None
+        for claim in reservation.claims
+    )
+    if identities != expected:
+        return (None,) * len(reservation.claims)
+    return identities
+
+
 def _boundary_reservations(
     plan: RoutePlan,
     graph: MetroGraph | None = None,
@@ -705,12 +775,28 @@ def _boundary_reservations(
     }
     fixed_member_ids = fixed_axis_member_ids | transition_member_ids
     member_by_id = {item.id: item for item in plan.members}
+    fan_emission_anchor_by_edge = {
+        emission.edge: fan_plan.fork_station_id
+        for fan_plan in plan.fan_plans
+        for emission in fan_plan.route_emissions
+    }
+    fan_opening_anchor_by_member = {
+        member.id: fan_emission_anchor_by_edge[member.edge]
+        for member in plan.members
+        if member.edge in fan_emission_anchor_by_edge
+    }
+    fan_opening_member_ids = set(fan_opening_anchor_by_member)
     incident_members = _endpoint_incident_members(plan)
     junction_anchors = _junction_anchors(plan)
+    external_route_anchor_ids = (
+        _external_route_anchor_ids(graph, plan) if graph is not None else frozenset()
+    )
 
     def endpoint_is_positive(station_id: str, boundary: _AxisBoundary) -> bool:
         if graph is None:
             return False
+        if station_id in external_route_anchor_ids:
+            return _external_anchor_is_positive(graph, station_id, boundary)
         station = graph.stations[station_id]
         section_ids = (
             (station.section_id,)
@@ -780,13 +866,22 @@ def _boundary_reservations(
                     claim.member_id in transition_member_ids
                     or claim.member_id in fixed_axis_member_ids
                     and claim.segment_rank <= 1 <= claim.segment_end_rank
+                    or claim.member_id in fan_opening_member_ids
+                    and claim.segment_rank <= 1 <= claim.segment_end_rank
                     for claim in reservation.claims
                 ),
                 tuple(
-                    not claim.endpoint_anchor_ids
-                    or all(
-                        endpoint_is_positive(endpoint, boundary)
-                        for endpoint in claim.endpoint_anchor_ids
+                    (
+                        endpoint_is_positive(
+                            fan_opening_anchor_by_member[claim.member_id], boundary
+                        )
+                        if claim.member_id in fan_opening_member_ids
+                        and claim.segment_rank <= 1 <= claim.segment_end_rank
+                        else not claim.endpoint_anchor_ids
+                        or all(
+                            endpoint_is_positive(endpoint, boundary)
+                            for endpoint in claim.endpoint_anchor_ids
+                        )
                     )
                     for claim in reservation.claims
                 ),
@@ -814,16 +909,10 @@ def _boundary_reservations(
                 ),
                 lane_coordinates,
                 tuple(
-                    frozenset(
-                        (member.line_id, endpoint)
-                        for member in (member_by_id[claim.member_id],)
-                        for endpoint in (
-                            member.source.station_id,
-                            member.target.station_id,
-                        )
-                    )
+                    _member_channel_sharing_keys(member_by_id[claim.member_id])
                     for claim in reservation.claims
                 ),
+                _authenticated_exit_axis_identities(plan, reservation),
             )
         )
     return {
@@ -942,16 +1031,10 @@ def _canvas_reservations(
                 tuple(claim.allocation_coordinate for claim in sharing.claims),
                 lane_coordinates,
                 tuple(
-                    frozenset(
-                        (member.line_id, endpoint)
-                        for member in (member_by_id[claim.member_id],)
-                        for endpoint in (
-                            member.source.station_id,
-                            member.target.station_id,
-                        )
-                    )
+                    _member_channel_sharing_keys(member_by_id[claim.member_id])
                     for claim in reservation.claims
                 ),
+                _authenticated_exit_axis_identities(plan, reservation),
             )
         )
     return {
@@ -1000,6 +1083,16 @@ def _shares_channel(first: _BoundaryReservation, second: _BoundaryReservation) -
     return bool(_shared_channel_offsets(first, second))
 
 
+def _sharing_keys_authorise_reseating(
+    first: frozenset[tuple[str, str]],
+    second: frozenset[tuple[str, str]],
+) -> bool:
+    return any(
+        identity.startswith("entry-group:")
+        for _line_id, identity in first.intersection(second)
+    )
+
+
 def _shared_channel_offsets(
     first: _BoundaryReservation,
     second: _BoundaryReservation,
@@ -1018,13 +1111,16 @@ def _shared_channel_offsets(
         if min(first_claim.longitudinal_end, second_claim.longitudinal_end)
         - max(first_claim.longitudinal_start, second_claim.longitudinal_start)
         > -CURVE_RADIUS + COORD_TOLERANCE
-        and abs(
-            first.sharing_coordinates[first_rank]
-            - second.sharing_coordinates[second_rank]
-        )
-        <= COORD_TOLERANCE
-        and first.sharing_keys[first_rank].intersection(
-            second.sharing_keys[second_rank]
+        and (
+            abs(
+                first.sharing_coordinates[first_rank]
+                - second.sharing_coordinates[second_rank]
+            )
+            <= COORD_TOLERANCE
+            or _sharing_keys_authorise_reseating(
+                first.sharing_keys[first_rank],
+                second.sharing_keys[second_rank],
+            )
         )
     }
     return tuple(sorted(offsets))
@@ -1033,6 +1129,20 @@ def _shared_channel_offsets(
 def _separation(first: _BoundaryReservation, second: _BoundaryReservation) -> float:
     if _shares_channel(first, second):
         return 0.0
+    if (
+        len(first.reservation.claims) == 1
+        and len(second.reservation.claims) == 1
+        and (
+            sibling_separation := _sibling_exit_axis_separation(
+                first,
+                0,
+                second,
+                0,
+            )
+        )
+        is not None
+    ):
+        return sibling_separation
     return (
         first.positive_footprint
         + max(
@@ -1041,6 +1151,75 @@ def _separation(first: _BoundaryReservation, second: _BoundaryReservation) -> fl
         )
         + second.negative_footprint
     )
+
+
+def _canvas_reservations_with_boundary_keepouts(
+    side: CanvasSide,
+    component: tuple[_BoundaryReservation, ...],
+    proof: EnvelopeCapacityProof,
+    settled_boundaries: tuple[tuple[_BoundaryReservation, float], ...],
+) -> tuple[_BoundaryReservation, ...]:
+    coordinate_sign = 1 if side in {CanvasSide.BOTTOM, CanvasSide.RIGHT} else -1
+    allocation_by_id = {
+        allocation.reservation_id: allocation for allocation in proof.reservations
+    }
+    adjusted = []
+    for item in component:
+        realised = item.realised
+        assert isinstance(realised, _CanvasHalfLine)
+        canvas_coordinate = allocation_by_id[item.reservation.id].coordinate
+        lower = (
+            realised.region_start + item.reservation.negative_side_clearance
+            if coordinate_sign > 0
+            else -realised.region_end + item.reservation.positive_side_clearance
+        )
+        blocker_ids = []
+        for boundary, boundary_coordinate in settled_boundaries:
+            if (
+                boundary.realised.allocation_axis is not realised.allocation_axis
+                or not _claims_overlap(boundary, item)
+                or boundary.reservation.direction is item.reservation.direction
+            ):
+                continue
+            if canvas_coordinate >= boundary_coordinate:
+                existing = canvas_coordinate - boundary_coordinate
+                existing_separation = _separation(boundary, item)
+            else:
+                existing = boundary_coordinate - canvas_coordinate
+                existing_separation = _separation(item, boundary)
+            if existing >= existing_separation - COORD_TOLERANCE:
+                continue
+            separation = (
+                _separation(boundary, item)
+                if coordinate_sign > 0
+                else _separation(item, boundary)
+            )
+            required = coordinate_sign * boundary_coordinate + separation
+            if required <= lower + COORD_TOLERANCE:
+                continue
+            lower = required
+            blocker_ids.append(str(boundary.reservation.id))
+        if not blocker_ids:
+            adjusted.append(item)
+            continue
+        if coordinate_sign > 0:
+            realised = replace(
+                realised,
+                region_start=lower - item.reservation.negative_side_clearance,
+                negative_blocker_ids=tuple(
+                    dict.fromkeys((*realised.negative_blocker_ids, *blocker_ids))
+                ),
+            )
+        else:
+            realised = replace(
+                realised,
+                region_end=-lower + item.reservation.positive_side_clearance,
+                positive_blocker_ids=tuple(
+                    dict.fromkeys((*realised.positive_blocker_ids, *blocker_ids))
+                ),
+            )
+        adjusted.append(replace(item, realised=realised))
+    return tuple(adjusted)
 
 
 def _component_region(
@@ -1434,15 +1613,104 @@ def _claim_nodes_share_channel(
             or abs(first.immutable_coordinate - second.immutable_coordinate)
             <= COORD_TOLERANCE
         )
-    return (
-        first_item.reservation.direction is second_item.reservation.direction
-        and abs(first.immutable_coordinate - second.immutable_coordinate)
-        <= COORD_TOLERANCE
+    first_claim = first_item.reservation.claims[first.claim_rank]
+    second_claim = second_item.reservation.claims[second.claim_rank]
+    return first_item.reservation.direction is second_item.reservation.direction and (
+        abs(first.immutable_coordinate - second.immutable_coordinate) <= COORD_TOLERANCE
         and bool(
             first_item.sharing_keys[first.claim_rank].intersection(
                 second_item.sharing_keys[second.claim_rank]
             )
         )
+        or first_claim.member_id != second_claim.member_id
+        and _sharing_keys_authorise_reseating(
+            first_item.sharing_keys[first.claim_rank],
+            second_item.sharing_keys[second.claim_rank],
+        )
+    )
+
+
+def _sibling_exit_axis_separation(
+    first_item: _BoundaryReservation,
+    first_claim_rank: int,
+    second_item: _BoundaryReservation,
+    second_claim_rank: int,
+) -> float | None:
+    first_identity = first_item.exit_turn_axis_identities[first_claim_rank]
+    second_identity = second_item.exit_turn_axis_identities[second_claim_rank]
+    if (
+        first_identity is None
+        or second_identity is None
+        or first_identity.plan_id != second_identity.plan_id
+        or first_identity.axis_id == second_identity.axis_id
+        or first_identity.axis_rank == second_identity.axis_rank
+        or first_identity.lane_rank == second_identity.lane_rank
+        or first_item.reservation.direction is not second_item.reservation.direction
+    ):
+        return None
+    separation = abs(
+        second_item.sharing_coordinates[second_claim_rank]
+        - first_item.sharing_coordinates[first_claim_rank]
+    )
+    return separation if separation > COORD_TOLERANCE else None
+
+
+def _touching_endpoint_separation(
+    first_item: _BoundaryReservation,
+    first_claim_rank: int,
+    second_item: _BoundaryReservation,
+    second_claim_rank: int,
+) -> float | None:
+    first_claim = first_item.reservation.claims[first_claim_rank]
+    second_claim = second_item.reservation.claims[second_claim_rank]
+    longitudinal_overlap = min(
+        first_claim.longitudinal_end,
+        second_claim.longitudinal_end,
+    ) - max(
+        first_claim.longitudinal_start,
+        second_claim.longitudinal_start,
+    )
+    if (
+        first_item.reservation.system_id != second_item.reservation.system_id
+        or first_item.reservation.orientation is not second_item.reservation.orientation
+        or first_item.reservation.direction is not second_item.reservation.direction
+        or abs(longitudinal_overlap) > COORD_TOLERANCE_FINE
+        or not set(first_claim.endpoint_anchor_ids).intersection(
+            second_claim.endpoint_anchor_ids
+        )
+    ):
+        return None
+    return abs(
+        second_item.sharing_coordinates[second_claim_rank]
+        - first_item.sharing_coordinates[first_claim_rank]
+    )
+
+
+def _distinct_claim_separation(
+    first_item: _BoundaryReservation,
+    first_claim_rank: int,
+    second_item: _BoundaryReservation,
+    second_claim_rank: int,
+) -> float:
+    endpoint_separation = _touching_endpoint_separation(
+        first_item,
+        first_claim_rank,
+        second_item,
+        second_claim_rank,
+    )
+    if endpoint_separation is not None:
+        return endpoint_separation
+    exit_axis_separation = _sibling_exit_axis_separation(
+        first_item,
+        first_claim_rank,
+        second_item,
+        second_claim_rank,
+    )
+    if exit_axis_separation is not None:
+        return exit_axis_separation
+    return max(
+        first_item.reservation.peer_clearance,
+        second_item.reservation.peer_clearance,
     )
 
 
@@ -1594,6 +1862,7 @@ def _pack_component_claims(  # noqa: C901
 
     def ordered_group_separation(first_group: int, second_group: int) -> float | None:
         separations: list[float] = []
+        shared_reservations: set[int] = set()
         for first_rank in grouped[first_group]:
             for second_rank in grouped[second_group]:
                 first = nodes[first_rank]
@@ -1605,21 +1874,64 @@ def _pack_component_claims(  # noqa: C901
                 ):
                     continue
                 if first.reservation_rank == second.reservation_rank:
-                    separations.append(
-                        max(
-                            abs(
-                                second.immutable_coordinate - first.immutable_coordinate
-                            ),
-                            ordering_step,
-                        )
-                    )
+                    shared_reservations.add(first.reservation_rank)
                 else:
                     separations.append(
-                        max(
-                            first_item.reservation.peer_clearance,
-                            second_item.reservation.peer_clearance,
+                        _distinct_claim_separation(
+                            first_item,
+                            first.claim_rank,
+                            second_item,
+                            second.claim_rank,
                         )
                     )
+        for reservation_rank in shared_reservations:
+            first_coordinates = tuple(
+                nodes[rank].immutable_coordinate
+                for rank in grouped[first_group]
+                if nodes[rank].reservation_rank == reservation_rank
+                and any(
+                    nodes[other].reservation_rank == reservation_rank
+                    and _claim_interval_overlaps(
+                        component[reservation_rank],
+                        nodes[rank].claim_rank,
+                        component[reservation_rank],
+                        nodes[other].claim_rank,
+                    )
+                    for other in grouped[second_group]
+                )
+            )
+            second_coordinates = tuple(
+                nodes[rank].immutable_coordinate
+                for rank in grouped[second_group]
+                if nodes[rank].reservation_rank == reservation_rank
+                and any(
+                    nodes[other].reservation_rank == reservation_rank
+                    and _claim_interval_overlaps(
+                        component[reservation_rank],
+                        nodes[other].claim_rank,
+                        component[reservation_rank],
+                        nodes[rank].claim_rank,
+                    )
+                    for other in grouped[first_group]
+                )
+            )
+            if not first_coordinates or not second_coordinates:
+                continue
+            directed_distances = (
+                *(
+                    min(abs(first - second) for second in second_coordinates)
+                    for first in first_coordinates
+                ),
+                *(
+                    min(abs(second - first) for first in first_coordinates)
+                    for second in second_coordinates
+                ),
+            )
+            separation = max(ordering_step, *directed_distances)
+            bundle_width = component[reservation_rank].reservation.bundle_width
+            if bundle_width > COORD_TOLERANCE:
+                separation = min(separation, bundle_width)
+            separations.append(separation)
         return max(separations) if separations else None
 
     def cannot_precede_fixed(candidate: int, fixed_group: int) -> bool:
@@ -1783,43 +2095,64 @@ def _pack_component_claims(  # noqa: C901
         preferred.append(nodes[node_ranks[0]].coordinate)
 
     constraints: dict[tuple[int, int], float] = {}
-    offset_step = graph_offset_step(graph)
-    for first_rank, first in enumerate(nodes):
-        for second_rank in range(first_rank + 1, len(nodes)):
-            second = nodes[second_rank]
-            first_group = group_by_node[first_rank]
-            second_group = group_by_node[second_rank]
-            if first_group == second_group:
-                continue
-            earlier_node = first
-            later_node = second
-            if first_group > second_group:
-                first_group, second_group = second_group, first_group
-                earlier_node, later_node = later_node, earlier_node
-            first_item = component[earlier_node.reservation_rank]
-            second_item = component[later_node.reservation_rank]
-            if not _claim_interval_overlaps(
-                first_item,
-                earlier_node.claim_rank,
-                second_item,
-                later_node.claim_rank,
-            ):
-                continue
-            if earlier_node.reservation_rank == later_node.reservation_rank:
-                separation = max(
-                    abs(
-                        later_node.immutable_coordinate
-                        - earlier_node.immutable_coordinate
-                    ),
-                    offset_step,
+    for first_group in range(len(groups)):
+        for second_group in range(first_group + 1, len(groups)):
+            separation = ordered_group_separation(
+                ordered_group_ids[first_group],
+                ordered_group_ids[second_group],
+            )
+            if separation is not None:
+                constraints[first_group, second_group] = separation
+    for reservation_rank, item in enumerate(component):
+        if item.reservation.bundle_width <= COORD_TOLERANCE:
+            continue
+        reservation_nodes = tuple(
+            rank
+            for rank, node in enumerate(nodes)
+            if node.reservation_rank == reservation_rank
+        )
+        witnesses: list[tuple[int, int]] = []
+        for first_offset, first_rank in enumerate(reservation_nodes):
+            first_node = nodes[first_rank]
+            first_claim = item.reservation.claims[first_node.claim_rank]
+            for second_rank in reservation_nodes[first_offset + 1 :]:
+                second_node = nodes[second_rank]
+                second_claim = item.reservation.claims[second_node.claim_rank]
+                overlap = min(
+                    first_claim.longitudinal_end,
+                    second_claim.longitudinal_end,
+                ) - max(
+                    first_claim.longitudinal_start,
+                    second_claim.longitudinal_start,
                 )
-            else:
-                separation = max(
-                    first_item.reservation.peer_clearance,
-                    second_item.reservation.peer_clearance,
+                separation = abs(
+                    first_node.immutable_coordinate - second_node.immutable_coordinate
                 )
+                if (
+                    overlap > COORD_TOLERANCE
+                    and abs(separation - item.reservation.bundle_width)
+                    <= COORD_TOLERANCE
+                ):
+                    witnesses.append((first_rank, second_rank))
+        if not witnesses:
+            raise EnvelopeSettlementError(
+                "immutable reservation bundle has no simultaneous span witness"
+            )
+        for first_rank, second_rank in witnesses:
+            negative_node, positive_node = sorted(
+                (first_rank, second_rank),
+                key=lambda rank: nodes[rank].immutable_coordinate,
+            )
+            negative_group = group_by_node[negative_node]
+            positive_group = group_by_node[positive_node]
+            if negative_group == positive_group:
+                continue
+            first_group, second_group = sorted((negative_group, positive_group))
             key = (first_group, second_group)
-            constraints[key] = max(constraints.get(key, 0.0), separation)
+            constraints[key] = max(
+                constraints.get(key, 0.0),
+                item.reservation.bundle_width,
+            )
 
     if measure_shortfall:
         lower_forms: list[dict[int, float]] = []
@@ -2068,6 +2401,61 @@ def _junction_anchors(plan: RoutePlan) -> dict[str, frozenset[str]]:
     }
 
 
+def _external_route_anchor_ids(
+    graph: MetroGraph,
+    plan: RoutePlan,
+) -> frozenset[str]:
+    anchor_ids = {
+        station_id
+        for convergence in plan.convergence_plans
+        for station_id in convergence.merge_junction_ids
+    }
+    anchor_ids.update(
+        axis.fixed_anchor_id
+        for exit_plan in plan.exit_turn_plans
+        for axis in exit_plan.axes
+        if axis.fixed_anchor_id is not None
+    )
+    external: set[str] = set()
+    for station_id in anchor_ids.intersection(graph.junction_ids):
+        station = graph.stations.get(station_id)
+        if station is None or station.id in graph.ports or station.section_id is None:
+            continue
+        section = graph.sections.get(station.section_id)
+        if section is None:
+            continue
+        inside_x = (
+            section.bbox_x - COORD_TOLERANCE
+            <= station.x
+            <= section.bbox_x + section.bbox_w + COORD_TOLERANCE
+        )
+        inside_y = (
+            section.bbox_y - COORD_TOLERANCE
+            <= station.y
+            <= section.bbox_y + section.bbox_h + COORD_TOLERANCE
+        )
+        if not (inside_x and inside_y):
+            external.add(station_id)
+    return frozenset(external)
+
+
+def _external_anchor_is_positive(
+    graph: MetroGraph,
+    station_id: str,
+    boundary: _AxisBoundary,
+) -> bool:
+    starts = tuple(
+        (section.bbox_x if boundary.axis is EnvelopeAxis.X else section.bbox_y)
+        for section in graph.sections.values()
+        if boundary.starts_after(section)
+    )
+    if not starts:
+        return False
+    station = graph.stations[station_id]
+    coordinate = station.x if boundary.axis is EnvelopeAxis.X else station.y
+    return coordinate >= min(starts) - COORD_TOLERANCE
+
+
 def _translate_sections(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -2078,13 +2466,47 @@ def _translate_sections(
 ) -> None:
     owner_ids = frozenset(section_ids)
     junction_anchors = _junction_anchors(plan)
+    external_route_anchor_ids = _external_route_anchor_ids(graph, plan)
+    if dx:
+        owner_start = min(graph.sections[item].bbox_x for item in section_ids)
+        translated_external_anchor_ids = {
+            station_id
+            for station_id in external_route_anchor_ids
+            if graph.stations[station_id].x >= owner_start - COORD_TOLERANCE
+        }
+    elif dy:
+        owner_start = min(graph.sections[item].bbox_y for item in section_ids)
+        translated_external_anchor_ids = {
+            station_id
+            for station_id in external_route_anchor_ids
+            if graph.stations[station_id].y >= owner_start - COORD_TOLERANCE
+        }
+    else:
+        translated_external_anchor_ids = set()
     shifted_station_ids: set[str] = set()
     for section_id in section_ids:
         section = graph.sections[section_id]
-        shifted_station_ids.update(section.station_ids)
-        shift_section(graph, section, dx=dx, dy=dy)
+        for station_id in section.station_ids:
+            if station_id in external_route_anchor_ids:
+                continue
+            shifted_station_ids.add(station_id)
+            station = graph.stations.get(station_id)
+            if station is not None:
+                station.x += dx
+                station.y += dy
+            port = graph.ports.get(station_id)
+            if port is not None:
+                port.x += dx
+                port.y += dy
+        section.bbox_x += dx
+        section.bbox_y += dy
     for station in graph.stations.values():
         if station.id in shifted_station_ids:
+            continue
+        if station.id in external_route_anchor_ids:
+            if station.id in translated_external_anchor_ids:
+                station.x += dx
+                station.y += dy
             continue
         belongs_to_owner = station.section_id in owner_ids
         anchored_to_owners = (
@@ -2157,6 +2579,7 @@ def project_route_plan_origin(plan: RoutePlan, *, dx: float, dy: float) -> Route
 
 
 def _canvas_origin_adjustment(
+    graph: MetroGraph,
     proofs: tuple[EnvelopeCapacityProof, ...],
 ) -> tuple[float, float]:
     """Return the unique positive origin shift required by TOP/LEFT packs."""
@@ -2178,7 +2601,23 @@ def _canvas_origin_adjustment(
         ),
         default=0.0,
     )
-    return max(0.0, -left_edge), max(0.0, -top_edge)
+    top_lane = min(
+        (
+            lane.coordinate
+            for proof in proofs
+            if isinstance(proof.region, CanvasRegion)
+            and proof.region.side is CanvasSide.TOP
+            for reservation in proof.reservations
+            for lane in reservation.lanes
+        ),
+        default=TITLE_BAND_ROUTE_FLOOR,
+    )
+    title_shortfall = (
+        TITLE_BAND_ROUTE_FLOOR - top_lane
+        if graph.title and graph.reserve_title_band
+        else 0.0
+    )
+    return max(0.0, -left_edge), max(0.0, -top_edge, title_shortfall)
 
 
 def _settle_axis(
@@ -2396,7 +2835,8 @@ def _capacity_proofs(
     }
     incomplete_system_ids.update(excluded_system_ids)
     proofs: list[EnvelopeCapacityProof] = []
-    for boundary, reservations in _boundary_reservations(
+    settled_boundaries: list[tuple[_BoundaryReservation, float]] = []
+    for _boundary, reservations in _boundary_reservations(
         plan, graph, immutable_plan
     ).items():
         for component in _boundary_components(reservations):
@@ -2417,23 +2857,52 @@ def _capacity_proofs(
                     raise
                 continue
             proofs.append(proof)
-    for _side, reservations in _canvas_reservations(
-        plan, graph, immutable_plan
-    ).items():
+            item_by_id = {item.reservation.id: item for item in component}
+            settled_boundaries.extend(
+                (item_by_id[allocation.reservation_id], allocation.coordinate)
+                for allocation in proof.reservations
+            )
+    for side, reservations in _canvas_reservations(plan, graph, immutable_plan).items():
         for component in _boundary_components(reservations):
             if any(
                 item.reservation.system_id in incomplete_system_ids
                 for item in component
             ):
                 continue
-            proofs.append(
-                _component_capacity_proof(
+            proof = _component_capacity_proof(
+                graph,
+                component,
+                immutable_plan,
+                region=component[0].reservation.region,
+            )
+            adjusted = _canvas_reservations_with_boundary_keepouts(
+                side,
+                component,
+                proof,
+                tuple(settled_boundaries),
+            )
+            if adjusted != component:
+                proof = _component_capacity_proof(
                     graph,
-                    component,
+                    adjusted,
                     immutable_plan,
                     region=component[0].reservation.region,
                 )
-            )
+            if (
+                _canvas_reservations_with_boundary_keepouts(
+                    side,
+                    adjusted,
+                    proof,
+                    tuple(settled_boundaries),
+                )
+                != adjusted
+            ):
+                owners = ", ".join(str(item.reservation.id) for item in adjusted)
+                raise EnvelopeSettlementError(
+                    "canvas allocation remains under-separated from a settled "
+                    f"counter-running boundary allocation; claimants {owners}"
+                )
+            proofs.append(proof)
     return tuple(proofs)
 
 
@@ -2472,6 +2941,42 @@ def _capacity_limitations(
                         system_reservations.append(item.reservation.id)
     limitations: list[EnvelopeCapacityLimitation] = []
     for system_id, reservation_ids in deficient_by_system.items():
+        limited_member_ids = {
+            member_id
+            for reservation_id in reservation_ids
+            for member_id in reservation_by_id[reservation_id].claimant_member_ids
+        }
+        convergence_owner_ids = tuple(
+            item.id for item in plan.convergence_plans if item.system_id == system_id
+        )
+        exit_owner_ids = tuple(
+            item.id
+            for item in plan.exit_turn_plans
+            if item.system_id == system_id
+            and item.disposition is ExitTurnDisposition.PLANNED
+            and limited_member_ids.intersection(item.member_ids)
+        )
+        fan_owner_ids = tuple(
+            item.id
+            for item in plan.fan_plans
+            if item.system_id == system_id
+            and limited_member_ids.intersection(item.member_ids)
+        )
+        if convergence_owner_ids:
+            owner_kind = EnvelopeCapacityOwnerKind.CONVERGENCE
+            owner_plan_ids: tuple[
+                ConvergencePlanId | ExitTurnPlanId | FanPlanId, ...
+            ] = convergence_owner_ids
+        elif exit_owner_ids:
+            owner_kind = EnvelopeCapacityOwnerKind.PINNED_EXIT_FAN
+            owner_plan_ids = (*exit_owner_ids, *fan_owner_ids)
+        else:
+            claimant_reservations = ", ".join(str(item) for item in reservation_ids)
+            raise EnvelopeSettlementError(
+                "envelope settlement left a capacity deficit without a final "
+                f"planner owner for system {system_id}; reservations "
+                f"{claimant_reservations}"
+            )
         blocker_ids = tuple(
             dict.fromkeys(
                 blocker_id
@@ -2505,12 +3010,21 @@ def _capacity_limitations(
                 f"system {system_id}; reservations {claimant_reservations}; blockers "
                 f"{', '.join(blocker_ids)}"
             )
+        if (
+            owner_kind is EnvelopeCapacityOwnerKind.PINNED_EXIT_FAN
+            and not pinned_section_ids
+        ):
+            raise EnvelopeSettlementError(
+                "fixed exit/fan capacity ownership has no authored grid pin"
+            )
         limitations.append(
             EnvelopeCapacityLimitation(
                 system_id,
                 tuple(reservation_ids),
                 blocker_ids,
                 pinned_section_ids,
+                owner_kind=owner_kind,
+                owner_plan_ids=owner_plan_ids,
             )
         )
     return tuple(limitations)
@@ -2574,7 +3088,7 @@ def settle_route_envelopes(
             measured_plan,
             frozenset(item.system_id for item in limitations),
         )
-        origin_adjustment = _canvas_origin_adjustment(proofs)
+        origin_adjustment = _canvas_origin_adjustment(graph, proofs)
         if graph.strict and not graph.permissive and limitations:
             limitation = limitations[0]
             reservation = next(

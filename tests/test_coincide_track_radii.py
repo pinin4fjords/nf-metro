@@ -51,6 +51,7 @@ from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.normalize import (
     _fan_opening_reference_radii,
+    _set_htrunk_y,
     _set_vchannel_x,
     _VChannel,
 )
@@ -135,6 +136,8 @@ def _touched_corner_mismatches(
             base_radius=base_radius,
             base_radius_out=base_radius_out,
         )
+        if ch.route.curve_radii is None:
+            return
         outgoing_offset = offset if offset_out is None else offset_out
         radius_out = base_radius if base_radius_out is None else base_radius_out
         touched[(id(ch.route), ch.idx - 1)] = (ch.route, offset, base_radius)
@@ -150,10 +153,23 @@ def _touched_corner_mismatches(
         new_y: float,
         offset_in: float = 0.0,
         offset_out: float = 0.0,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
     ) -> None:
-        _PROD_SET_HTRUNK_Y(rp, k, new_y, offset_in, offset_out)
-        touched[(id(rp), k - 1)] = (rp, offset_in, CURVE_RADIUS)
-        touched[(id(rp), k)] = (rp, offset_out, CURVE_RADIUS)
+        _PROD_SET_HTRUNK_Y(
+            rp,
+            k,
+            new_y,
+            offset_in,
+            offset_out,
+            base_radius,
+            base_radius_out,
+        )
+        if rp.curve_radii is None:
+            return
+        radius_out = base_radius if base_radius_out is None else base_radius_out
+        touched[(id(rp), k - 1)] = (rp, offset_in, base_radius)
+        touched[(id(rp), k)] = (rp, offset_out, radius_out)
 
     def reseat_spy(
         rp: RoutedPath,
@@ -176,6 +192,8 @@ def _touched_corner_mismatches(
             base_radius=base_radius,
             base_radius_out=base_radius_out,
         )
+        if rp.curve_radii is None:
+            return
         radius_out = base_radius if base_radius_out is None else base_radius_out
         touched[(id(rp), k - 1)] = (rp, offset_in, base_radius)
         touched[(id(rp), k)] = (rp, offset_out, radius_out)
@@ -242,6 +260,60 @@ def test_set_vchannel_x_rederives_flanking_corners_from_waypoints() -> None:
     ]
     assert route.curve_radii == expected
     assert route.curve_radii == [CURVE_RADIUS, CURVE_RADIUS]
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        [
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 30.0),
+            (80.0, 30.0),
+            (80.0, 0.0),
+            (100.0, 0.0),
+        ],
+        [
+            (100.0, 0.0),
+            (80.0, 0.0),
+            (80.0, 30.0),
+            (20.0, 30.0),
+            (20.0, 0.0),
+            (0.0, 0.0),
+        ],
+    ],
+    ids=("rightward", "leftward"),
+)
+def test_set_htrunk_y_preserves_each_shared_reference_radius(
+    points: list[tuple[float, float]],
+) -> None:
+    """Both trunk flanks derive from their settled concentric family."""
+    route = RoutedPath(
+        edge=Edge(source="s", target="t", line_id="l"),
+        line_id="l",
+        points=list(points),
+        is_inter_section=True,
+        offset_regime=OffsetRegime.BAKED,
+        curve_radii=[10.0, 10.0, 10.0, 10.0],
+    )
+
+    _set_htrunk_y(
+        route,
+        2,
+        34.0,
+        offset_in=-4.0,
+        offset_out=4.0,
+        base_radius=14.0,
+        base_radius_out=18.0,
+    )
+
+    assert route.curve_radii is not None
+    assert route.curve_radii[1] == concentric_corner_radius_at(
+        route.points[1], route.points[2], route.points[3], -4.0, 14.0
+    )
+    assert route.curve_radii[2] == concentric_corner_radius_at(
+        route.points[2], route.points[3], route.points[4], 4.0, 18.0
+    )
 
 
 def test_terminal_fan_descent_derives_only_its_opening_corner() -> None:

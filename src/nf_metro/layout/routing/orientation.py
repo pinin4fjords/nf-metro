@@ -11,6 +11,7 @@ __all__ = (
     "direction_axis",
     "direction_vector",
     "get_point_coordinate",
+    "heading_for_axis_delta",
     "lateral_axis",
     "lateral_order_sign",
     "turn_handedness",
@@ -42,6 +43,13 @@ def direction_vector(direction: Direction) -> Vector:
         Direction.U: (0, -1),
         Direction.D: (0, 1),
     }[direction]
+
+
+def heading_for_axis_delta(axis: DemandAxis, delta: float) -> Direction:
+    """Return the cardinal heading for a signed displacement on *axis*."""
+    if axis is DemandAxis.X:
+        return Direction.R if delta > 0 else Direction.L
+    return Direction.D if delta > 0 else Direction.U
 
 
 def lateral_order_sign(direction: Direction) -> int:

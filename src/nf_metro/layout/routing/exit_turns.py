@@ -65,6 +65,7 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
 )
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
+from nf_metro.layout.routing.corners import concentric_corner_radius
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
@@ -87,7 +88,9 @@ from nf_metro.layout.routing.offsets import (
 )
 from nf_metro.layout.routing.orientation import (
     direction_axis,
+    direction_vector,
     get_point_coordinate,
+    heading_for_axis_delta,
     lateral_axis,
     lateral_order_sign,
 )
@@ -642,13 +645,39 @@ def _source_turn_requirement(
         assert entry_port is not None
         kind = _merge_entry_route_kind(facts)
         if kind is _MergeEntryRoute.STRAIGHT:
+            if abs(entry_port.x - src.x) <= COORD_TOLERANCE:
+                return _SourceTurnRequirement(
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "unsupported-subshape:degenerate-merge-entry-straight",
+                )
             return _SourceTurnRequirement(
+                heading_for_axis_delta(DemandAxis.X, entry_port.x - src.x),
                 None,
                 None,
                 None,
                 None,
-                None,
-                "unsupported-subshape:merge-entry-straight",
+            )
+        if kind is _MergeEntryRoute.OUTWARD_CROSS_ROW:
+            turn = heading_for_axis_delta(DemandAxis.Y, entry_port.y - src.y)
+            _fan, _size, delta, axis = _wrap_fan_geometry(
+                ctx,
+                edge,
+                src,
+                facts.i,
+                facts.n,
+                turn,
+            )
+            emitted_axis = axis + delta
+            return _SourceTurnRequirement(
+                heading_for_axis_delta(DemandAxis.X, emitted_axis - src.x),
+                turn,
+                src.x,
+                abs(emitted_axis - src.x),
+                emitted_axis,
             )
         if kind is not _MergeEntryRoute.L_SHAPE:
             return _SourceTurnRequirement(
@@ -1192,6 +1221,22 @@ def _classify_assignment_seeds(
     return _AssignmentClassification(seeds, tuple(unclassified), reason)
 
 
+def _planned_corner_radius(
+    run_direction: Direction,
+    turn_direction: Direction,
+    displacement: float,
+    curve_radius: float,
+) -> float:
+    """Return the shared-axis radius in the route's orientation frame."""
+    return concentric_corner_radius(
+        direction_vector(run_direction),
+        direction_vector(turn_direction),
+        displacement,
+        curve_radius,
+        min_radius=COORD_TOLERANCE,
+    )
+
+
 def _plan_turn_axes(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -1242,6 +1287,26 @@ def _plan_turn_axes(
         ranks = tuple(sorted({seed.lane_rank for seed in cohort}))
         cohort_rank = {rank: index for index, rank in enumerate(ranks)}
         progression = lateral_order_sign(turn_direction)
+        relative_coordinates = {
+            rank: progression * cohort_rank[rank] * ctx.offset_step for rank in ranks
+        }
+        reference_coordinate = min(
+            relative_coordinates.values(), key=lambda item: item * run_direction.sign
+        )
+        corner_radius_by_rank = {
+            rank: _planned_corner_radius(
+                run_direction,
+                turn_direction,
+                relative_coordinates[rank] - reference_coordinate,
+                ctx.curve_radius,
+            )
+            for rank in ranks
+        }
+
+        def required_runway(seed: _AssignmentSeed) -> float:
+            assert seed.minimum_runway is not None
+            return max(seed.minimum_runway, corner_radius_by_rank[seed.lane_rank])
+
         fixed_origins = tuple(
             seed.fixed_axis
             - progression * cohort_rank[seed.lane_rank] * ctx.offset_step
@@ -1259,7 +1324,7 @@ def _plan_turn_axes(
         else:
             required_origins = tuple(
                 seed.launch_coordinate
-                + run_direction.sign * seed.minimum_runway
+                + run_direction.sign * required_runway(seed)
                 - progression * cohort_rank[seed.lane_rank] * ctx.offset_step
                 for seed in cohort
                 if seed.launch_coordinate is not None
@@ -1281,7 +1346,7 @@ def _plan_turn_axes(
             and seed.minimum_runway is not None
             and (coordinates[seed.lane_rank] - seed.launch_coordinate)
             * run_direction.sign
-            < seed.minimum_runway - COORD_TOLERANCE
+            < required_runway(seed) - COORD_TOLERANCE
         )
         if insufficient_runway:
             reason = (
@@ -1345,6 +1410,7 @@ def _plan_turn_axes(
                 lane_line,
                 direction_axis(run_direction),
                 coordinate,
+                corner_radius_by_rank[rank],
                 rank,
                 claimant_ids,
                 fixed_anchor_id,
@@ -1354,6 +1420,10 @@ def _plan_turn_axes(
             built_axes.append(axis)
             for seed in rank_seeds:
                 axis_by_member[seed.member_id] = axis
+    minimum_runway = max(
+        minimum_runway,
+        *(axis.corner_radius for axis in built_axes),
+    )
     return _AxisPlan(
         tuple(built_axes), MappingProxyType(axis_by_member), minimum_runway, None
     )
@@ -1635,7 +1705,11 @@ def _build_group_plan(
             seed.run_direction,
             seed.turn_direction,
             seed.launch_coordinate,
-            seed.minimum_runway,
+            (
+                max(seed.minimum_runway, axis_by_member[seed.member_id].corner_radius)
+                if seed.minimum_runway is not None and seed.member_id in axis_by_member
+                else seed.minimum_runway
+            ),
             turn_handedness(seed.run_direction, seed.turn_direction)
             if seed.turn_direction is not None and seed.run_direction is not None
             else None,
@@ -2457,6 +2531,15 @@ def consume_exit_turn_route(
         raise ExitTurnInvariantError(
             _failure(membership.plan, "source turn changed during dispatch")
         )
+    corner_rank = segment_rank - 1
+    corner_count = max(0, len(route.points) - 2)
+    if route.curve_radii is None:
+        route.curve_radii = [ctx.curve_radius for _rank in range(corner_count)]
+    elif len(route.curve_radii) < corner_count:
+        route.curve_radii.extend(
+            ctx.curve_radius for _rank in range(corner_count - len(route.curve_radii))
+        )
+    route.curve_radii[corner_rank] = membership.axis.corner_radius
     route.exit_turn_axis_id = str(membership.axis.id)
     route.exit_turn_segment_rank = segment_rank
 
@@ -2692,6 +2775,7 @@ def validate_exit_turn_plans(
                 assignment.run_direction is None
                 or assignment.launch_coordinate is None
                 or assignment.minimum_runway is None
+                or assignment.minimum_runway < axis.corner_radius - COORD_TOLERANCE
                 or (axis.coordinate - assignment.launch_coordinate)
                 * assignment.run_direction.sign
                 < assignment.minimum_runway - COORD_TOLERANCE
@@ -2759,7 +2843,8 @@ def validate_exit_turn_plans(
                     _failure(exit_turn_plan, "turn assignment metadata is incomplete")
                 )
             rendered_points = apply_route_offsets(route, station_offsets)
-            lead_in = rendered_points[route.exit_turn_segment_rank - 1]
+            corner_rank = route.exit_turn_segment_rank - 1
+            lead_in = rendered_points[corner_rank]
             start, end = rendered_points[
                 route.exit_turn_segment_rank : route.exit_turn_segment_rank + 2
             ]

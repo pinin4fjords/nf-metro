@@ -74,6 +74,7 @@ from nf_metro.layout.routing.common import (
     merge_trunk_force_cross_row,
     needs_perp_approach_fan,
     packed_cell_neighbor_edges,
+    perp_peeloff_from_junction,
     resolve_section,
     row_bottom_edge,
     row_top_edge,
@@ -354,6 +355,16 @@ class _InterFacts:
             self.edge.target,
             self.edge.line_id,
         ) in self.ctx.merge.branch_edges
+
+    @property
+    def has_forward_structural_merge_continuation(self) -> bool:
+        """The target merge continues straight ahead on an explicit carrier."""
+        return (
+            self.merge_ep is not None
+            and self.edge.target in self.ctx.merge.trunk_source
+            and abs(self.merge_ep.y - self.ty) < COORD_TOLERANCE_FINE
+            and (self.merge_ep.x - self.tx) * self.dx > COORD_TOLERANCE_FINE
+        )
 
     @property
     def is_near_vertical_same_col_junction(self) -> bool:
@@ -1422,7 +1433,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         "same-Y straight",
         lambda f: (
             f.same_y
-            and f.merge_ep is None
+            and (f.merge_ep is None or f.has_forward_structural_merge_continuation)
             and not f.needs_bypass
             and not f.right_entry_from_left
             and not f.left_entry_from_right
@@ -1631,8 +1642,10 @@ def _route_inter_section(
     from nf_metro.layout.route_plan import ExitTurnDisposition
     from nf_metro.layout.routing.exit_turns import (
         ExitTurnInvariantError,
+        assert_exit_turn_snapshot,
         consume_exit_turn_route,
         exit_turn_failure,
+        snapshot_exit_turn_segments,
     )
 
     membership = (
@@ -1652,9 +1665,15 @@ def _route_inter_section(
         )
     if route is not None:
         consume_exit_turn_route(route, family_id, ctx)
+        exit_snapshot = snapshot_exit_turn_segments([route])
         from nf_metro.layout.routing.convergences import consume_convergence_route
 
         consume_convergence_route(route, ctx)
+        assert_exit_turn_snapshot(
+            [route],
+            exit_snapshot,
+            "convergence materialization",
+        )
         if ctx.envelope_allocations is not None and route.convergence_plan_id is None:
             ctx.envelope_allocations.consume(route)
     if observer is not None and route is not None:
@@ -2668,12 +2687,45 @@ def _route_bypass(
             gap2_mid = gap2_base - half_g2
         gap2_x = gap2_mid + delta2
 
+    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
+    if _h_segment_crosses_other_section(graph, sx, gap1_x, sy, exclude):
+        travel = 1.0 if gap1_x > sx else -1.0
+        blockers = tuple(
+            section
+            for section in graph.sections.values()
+            if section.id not in exclude
+            and section.bbox_w > 0
+            and section.bbox_h > 0
+            and section.bbox_y - COORD_TOLERANCE
+            <= sy
+            <= section.bbox_y + section.bbox_h + COORD_TOLERANCE
+            and min(sx, gap1_x) - COORD_TOLERANCE
+            <= section.bbox_x + section.bbox_w / 2
+            <= max(sx, gap1_x) + COORD_TOLERANCE
+        )
+        if blockers:
+            blocker = min(
+                blockers,
+                key=lambda section: abs(
+                    sx
+                    - (
+                        section.bbox_x
+                        if travel > 0
+                        else section.bbox_x + section.bbox_w
+                    )
+                ),
+            )
+            gap1_x = (
+                blocker.bbox_x - SECTION_ROUTE_CLEARANCE
+                if travel > 0
+                else blocker.bbox_x + blocker.bbox_w + SECTION_ROUTE_CLEARANCE
+            )
+
     # When the descent crosses other grid rows, the source/target-row gap
     # channel can still pierce an oversized section stacked in a crossed row
     # (its bbox extends into the gap).  Nudge each vertical leg clear of any
     # box its Y-span pierces, bounded to the inter-column gap so the channel
     # stays in clear space.
-    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
     fan_half_width = (fan[1] - 1) * ctx.offset_step / 2 if fan is not None else 0.0
     gap1_fan_offset = fan_delta if fan is not None else 0.0
     gap1_anchor_x = gap1_x - gap1_fan_offset
@@ -3460,18 +3512,18 @@ def _top_entry_below_wrap_riser_x(
 def _perp_entry_junction_straight_drop(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath | None:
-    """A junction feeding a perpendicular (TOP/BOTTOM) entry directly in line
-    with it (shared X) travels straight into the port with no fan.
+    """Route an aligned junction into a perpendicular (TOP/BOTTOM) entry.
 
     The junction stands off-box in the inter-section gap; when its target
     port sits directly above or below it, the line travels that column with
-    no fan -- a 2-point vertical whose ends carry the junction and port
-    lanes.  This avoids the lead-out-and-jog the offset machinery otherwise
-    stitches when the landing column coincides with the lead-in: a lateral
-    out-and-back straddling the boundary.  Running a curve radius outside a
-    flanking box wall is adequate clearance, not a reason to keep the jog;
-    ``check_no_riser_hugs_section_edge`` exempts this junction-fed leg so the
-    near-wall run is not rejected as a wall-hug.
+    no fan. A genuine peel-off from a horizontal fan trunk carries its
+    feeder-side curve lead as part of this emitted shape; a lone drop remains
+    a 2-point vertical. This avoids the lead-out-and-jog the offset machinery
+    otherwise stitches when the landing column coincides with the lead-in: a
+    lateral out-and-back straddling the boundary. Running a curve radius
+    outside a flanking box wall is adequate clearance, not a reason to keep
+    the jog; ``check_no_riser_hugs_section_edge`` exempts this junction-fed
+    leg so the near-wall run is not rejected as a wall-hug.
 
     Returns ``None`` when this shortcut doesn't apply, so the caller
     continues with the ordinary lead-in.
@@ -3493,7 +3545,16 @@ def _perp_entry_junction_straight_drop(
     membership = (
         ctx.exit_turns.membership_for_edge(edge) if ctx.exit_turns is not None else None
     )
-    if membership is not None and membership.axis is not None:
+    peeloff = perp_peeloff_from_junction(
+        ctx.graph,
+        [*ctx.built_routes, drop],
+        drop,
+    )
+    junction = src
+    feeder: Station | None = None
+    if peeloff is not None:
+        junction, feeder, _points = peeloff
+    elif membership is not None and membership.axis is not None:
         feeders = (
             ctx.graph.station_for_edge_source(item)
             for item in ctx.graph.edges_to(src.id)
@@ -3508,11 +3569,11 @@ def _perp_entry_junction_straight_drop(
             key=lambda station: abs(station.x - src.x),
             default=None,
         )
-        if feeder is not None:
-            x0, y0 = drop.points[0]
-            side = -1.0 if feeder.x < src.x else 1.0
-            lead = min(ctx.curve_radius, abs(feeder.x - src.x))
-            drop.points = [(x0 + side * lead, y0), *drop.points]
+    if feeder is not None:
+        x0, y0 = drop.points[0]
+        side = -1.0 if feeder.x < junction.x else 1.0
+        lead = min(ctx.curve_radius, abs(feeder.x - junction.x))
+        drop.points = [(x0 + side * lead, y0), *drop.points]
     return drop
 
 

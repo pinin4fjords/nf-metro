@@ -40,6 +40,7 @@
     "guide/06b_with_hidden.mmd"
   ],
   "corridor_solo": [
+    "gate_1660_below_slot_advance.mmd",
     "target_entry_runway_bypass.mmd",
     "topologies/twoline_fanout_up.mmd",
     "legend_logo_placement.mmd",
@@ -147,6 +148,8 @@
     "guide/03b_fan_in_merge.mmd"
   ],
   "merge_port": [
+    "gate_1660_above_slot_advance.mmd",
+    "gate_1660_below_slot_advance.mmd",
     "opposing_entry_partial_port_line.mmd",
     "topologies/bottom_row_climb_clear_corridor.mmd",
     "topologies/bypass_fan_in_outer_slot.mmd",

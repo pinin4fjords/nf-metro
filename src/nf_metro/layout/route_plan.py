@@ -502,6 +502,20 @@ class RouteFeeder:
 
 
 @dataclass(frozen=True, slots=True)
+class ExitTurnAxisReservationIdentity:
+    """Exact ordered exit-axis owner carried by a corridor allocation."""
+
+    plan_id: ExitTurnPlanId
+    axis_id: ExitTurnAxisId
+    axis_rank: int
+    lane_rank: int
+
+    def __post_init__(self) -> None:
+        if self.axis_rank < 0 or self.lane_rank < 0:
+            raise ValueError("exit-axis reservation ranks must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
 class SharedReference:
     """A shared geometry identity populated by its owning child planner."""
 
@@ -511,6 +525,7 @@ class SharedReference:
     claimant_member_ids: tuple[EmissionMemberId, ...]
     coordinate_regime: CoordinateRegime
     provenance: tuple[ReservationDecisionRef, ...]
+    exit_turn_axis_identities: tuple[ExitTurnAxisReservationIdentity | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -529,6 +544,7 @@ class SymbolicDemand:
     ordered_reference_ids: tuple[SharedReferenceId, ...]
     keep_out_classes: tuple[KeepOutClass, ...]
     provenance: tuple[ReservationDecisionRef, ...]
+    exit_turn_axis_identities: tuple[ExitTurnAxisReservationIdentity | None, ...] = ()
 
     def __post_init__(self) -> None:
         if (self.minimum_size is None) is not (self.minimum_size_regime is None):
@@ -604,6 +620,7 @@ class ExitTurnAxis:
     line_id: str
     axis: DemandAxis
     coordinate: float
+    corner_radius: float
     rank: int
     claimant_member_ids: tuple[EmissionMemberId, ...]
     fixed_anchor_id: str | None
@@ -614,6 +631,8 @@ class ExitTurnAxis:
     def __post_init__(self) -> None:
         if not math.isfinite(self.coordinate):
             raise ValueError("exit-turn axis coordinate must be finite")
+        if not math.isfinite(self.corner_radius) or self.corner_radius <= 0:
+            raise ValueError("exit-turn corner radius must be finite and positive")
         anchor_values = (
             self.fixed_anchor_id,
             self.fixed_anchor_coordinate,

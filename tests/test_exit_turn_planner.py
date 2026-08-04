@@ -57,6 +57,7 @@ from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import LineSpread, PortSide
 from nf_metro.parser.route_topology import build_route_topology_query
+from nf_metro.render.manifest import read_manifest
 from nf_metro.render.plan import freeze_render_value
 from nf_metro.render.svg import station_marker_box
 from nf_metro.themes import NFCORE_THEME
@@ -120,6 +121,87 @@ def test_exit_turn_execution_is_recursively_immutable() -> None:
     )
 
     _assert_recursively_immutable(execution)
+
+
+@pytest.mark.parametrize(
+    ("run", "turn", "displacement"),
+    (
+        (Direction.R, Direction.D, 4.0),
+        (Direction.L, Direction.U, -4.0),
+        (Direction.D, Direction.L, 4.0),
+        (Direction.U, Direction.R, -4.0),
+    ),
+    ids=("lr", "rl-mirror", "tb-transpose", "bt-mirror-transpose"),
+)
+def test_planned_corner_radius_is_mirror_and_transpose_invariant(
+    run: Direction,
+    turn: Direction,
+    displacement: float,
+) -> None:
+    radius = exit_turns._planned_corner_radius(
+        run,
+        turn,
+        displacement,
+        CURVE_RADIUS,
+    )
+
+    assert radius == pytest.approx(CURVE_RADIUS + abs(displacement))
+
+
+def test_staggered_genome_keeps_exit_and_convergence_ownership_disjoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repeated convergence materialization preserves the exit-owned prefix."""
+    path = ROOT / "examples" / "genomeassembly_staggered.mmd"
+    real_consume = convergences.consume_convergence_route
+    coowned: set[tuple[str, str, str]] = set()
+
+    def route_state(route):
+        return (
+            tuple(route.points),
+            tuple(route.curve_radii) if route.curve_radii is not None else None,
+            route.exit_turn_segment_rank,
+            route.convergence_owned_segment_ranks,
+            route.exit_turn_plan_id,
+            route.exit_turn_member_id,
+            route.convergence_plan_id,
+            route.convergence_member_id,
+            route.envelope_allocated_segments,
+        )
+
+    def consume_twice(route, ctx) -> None:
+        real_consume(route, ctx)
+        if route.exit_turn_axis_id is None or route.convergence_plan_id is None:
+            return
+        assert ctx.exit_turns is not None
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        assert membership is not None
+        assert membership.axis is not None
+        assert route.exit_turn_segment_rank == 1
+        assert route.convergence_owned_segment_ranks == (2,)
+        assert route.curve_radii is not None
+        assert route.curve_radii[0] == pytest.approx(membership.axis.corner_radius)
+        before = route_state(route)
+
+        real_consume(route, ctx)
+
+        assert route_state(route) == before
+        coowned.add((route.edge.source, route.edge.target, route.line_id))
+
+    monkeypatch.setattr(convergences, "consume_convergence_route", consume_twice)
+
+    svg = render_string(path.read_text())
+    manifest = read_manifest(svg)
+
+    assert manifest is not None
+    assert manifest["title"] == "sanger-tol/genomeassembly"
+    assert coowned == {
+        ("__junction_9", "__merge_3", "assemblies"),
+        ("__junction_10", "__merge_3", "assemblies"),
+        ("__junction_9", "__merge_4", "assemblies"),
+        ("__junction_9", "__merge_5", "assemblies"),
+        ("__junction_10", "__merge_5", "assemblies"),
+    }
 
 
 def _provisional_groups(path: Path):
@@ -831,6 +913,24 @@ def test_terminated_source_lane_does_not_leave_a_phantom_slot() -> None:
         assignment.member_id == l1.exit_turn_member_id
         for assignment in plan.assignments
     )
+    l0 = next(
+        item
+        for item in observation.routes
+        if item.edge.source == "__junction_37" and item.line_id == "l0"
+    )
+    assignments = {item.member_id: item for item in plan.assignments}
+    assert l0.exit_turn_member_id is not None
+    assert l1.exit_turn_member_id is not None
+    l0_assignment = assignments[l0.exit_turn_member_id]
+    l1_assignment = assignments[l1.exit_turn_member_id]
+    assert l0_assignment.planned_family_id is RouteFamilyId.MERGE_ENTRY
+    assert l1_assignment.planned_family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP
+    assert l0_assignment.axis_id is not None
+    assert l1_assignment.axis_id is not None
+    axes = {item.id: item for item in plan.axes}
+    assert axes[l0_assignment.axis_id].coordinate == pytest.approx(l0.points[1][0])
+    assert axes[l1_assignment.axis_id].coordinate == pytest.approx(l1.points[1][0])
+    assert l0.points[1][0] != pytest.approx(l1.points[1][0])
 
 
 def test_compacted_straight_continuation_keeps_its_lane_across_the_seam() -> None:

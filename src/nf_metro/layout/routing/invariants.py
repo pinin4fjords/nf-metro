@@ -78,7 +78,7 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
-    perp_peeloff_off_horizontal_junction,
+    perp_peeloff_from_junction,
     resolve_section,
     tail_on_slot,
     trunk_segments_cross,
@@ -950,7 +950,7 @@ def check_junction_peeloff_rounded(
     for rp in routes:
         if not rp.is_inter_section or rp.edge.source not in fanouts:
             continue
-        peeloff = perp_peeloff_off_horizontal_junction(graph, routes, rp)
+        peeloff = perp_peeloff_from_junction(graph, routes, rp)
         if peeloff is None:
             continue
         junction, _feeder, pts = peeloff

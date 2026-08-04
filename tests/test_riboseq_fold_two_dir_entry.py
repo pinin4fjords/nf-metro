@@ -18,6 +18,8 @@ import sys
 import warnings
 from pathlib import Path
 
+import pytest
+
 from nf_metro.api import prepare_graph, render_string
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
@@ -31,6 +33,7 @@ from layout_validator import check_section_overlap  # noqa: E402
 
 HINTLESS = "examples/topologies/riboseq_fold_two_dir_entry_hintless.mmd"
 HINTED = "examples/topologies/riboseq_fold_two_dir_entry.mmd"
+SAME_ROW_LEFT_ENTRY = "examples/topologies/samerow_left_exit_far_left_entry.mmd"
 
 
 def _layout(path: str, *, validate: bool, strict: bool = False) -> MetroGraph:
@@ -79,7 +82,8 @@ def test_hinted_renders_without_curve_abort() -> None:
         render_string(open(HINTED).read())
 
 
-def test_hinted_side_fan_branch_traverses_before_dropping() -> None:
+@pytest.mark.parametrize("path", (HINTED, SAME_ROW_LEFT_ENTRY))
+def test_hinted_side_fan_branch_traverses_before_dropping(path: str) -> None:
     """The below-side fan branch reaches its TOP port by one clean drop.
 
     The ``quantification -> orf_calling`` feed must traverse at the source row's
@@ -89,7 +93,7 @@ def test_hinted_side_fan_branch_traverses_before_dropping() -> None:
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        graph = prepare_graph(open(HINTED).read())
+        graph = prepare_graph(open(path).read())
     compute_layout(graph)
     routes = route_edges(graph)
 

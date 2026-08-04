@@ -1501,7 +1501,9 @@ def test_merge_fanout_shares_corner_by_construction(fixture, monkeypatch):
     """
     import nf_metro.layout.routing.normalize as normalize_mod
 
-    monkeypatch.setattr(normalize_mod, "_divergent_source_groups", lambda routes: [])
+    monkeypatch.setattr(
+        normalize_mod, "_divergent_source_groups", lambda routes, graph: []
+    )
     monkeypatch.setattr(normalize_mod, "_merge_feeder_groups", lambda routes, ctx: [])
     graph = _layout(fixture, _cache=False)
     routes = route_edges(graph)
@@ -5862,9 +5864,8 @@ def test_cross_column_perp_entry_stays_in_bbox():
     On a fold-stacked LR sink whose only feed is a perpendicular entry from a
     wider same-column neighbour (the source X sits past the sink's box), the
     run stays on the sink's own column instead of being dragged off it.  The
-    bundle through this forced-perpendicular drop is an unsupported shape, so
-    the render relaxes the curve invariant to a warning rather than aborting,
-    but no station leaves its section bbox (#879).
+    forced-perpendicular bundle has complete planned geometry and no station
+    leaves its section bbox (#879).
     """
     graph = _layout("regressions/cross_column_perp_entry_overflow.mmd")
 
@@ -5873,8 +5874,11 @@ def test_cross_column_perp_entry_stays_in_bbox():
 
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
-    with pytest.warns(UserWarning, match="bridged across grid columns"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
         assert_render_curve_invariants(graph, routes, offsets)
+    graph.strict = True
+    render_svg(graph, THEMES["nfcore"])
 
 
 def test_cross_column_perp_drop_leadin_clears_trunk():

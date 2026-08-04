@@ -9,14 +9,20 @@ from pathlib import Path
 import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout import compute_layout
 from nf_metro.layout.constants import SECTION_Y_GAP, graph_offset_step
-from nf_metro.layout.envelope_settlement import EnvelopeCapacityLimitation
+from nf_metro.layout.envelope_settlement import (
+    EnvelopeCapacityLimitation,
+    EnvelopeCapacityOwnerKind,
+)
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     EmittedPathId,
+    ExitTurnPlanId,
     GridSpan,
     ReservationDecisionKind,
+    RouteSystemId,
     SharedReferenceKind,
     build_route_plan_query,
 )
@@ -31,6 +37,8 @@ from nf_metro.layout.route_reservations import (
     RouteReservationLane,
     RowGapRegion,
     _adjacent_outer_turn_region_is_proven,
+    _exact_pinned_exit_fan_owner,
+    _materialise_immutable_reservations,
     _reservation_claim_witness,
     _reservation_semantic_witness,
     _validate_materialised_realisation,
@@ -40,6 +48,7 @@ from nf_metro.layout.route_reservations import (
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import Direction, apply_route_offsets
 from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.parser import parse_metro_mermaid
 from nf_metro.parser.route_topology import semantic_route_id
 from nf_metro.render.svg import _settle_render_geometry
 
@@ -47,6 +56,10 @@ ROOT = Path(__file__).parents[1]
 REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 TOPOLOGIES = ROOT / "examples" / "topologies"
 ORGANELLAR = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+SEED_77 = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd"
+PERPENDICULAR_PORTS = (
+    ROOT / "tests" / "fixtures" / "regressions" / "lr_perpendicular_ports_overflow.mmd"
+)
 
 
 def _plan(path: Path = REPORT_HO):
@@ -64,6 +77,82 @@ def _replace_record(records, replacement, *, id_field: str = "id"):
         replacement if getattr(item, id_field) == replacement_id else item
         for item in records
     )
+
+
+@pytest.mark.parametrize(
+    ("record_kind", "message"),
+    (
+        ("reservation", "ordered exit-axis identities"),
+        ("reference", "shared reference is inconsistent"),
+        ("demand", "symbolic demand is inconsistent"),
+    ),
+)
+def test_ordered_exit_axis_identities_reject_wrong_plan_rank_or_order(
+    record_kind: str,
+    message: str,
+) -> None:
+    plan = _plan(SEED_77)
+    reservation = next(
+        item
+        for item in plan.reservations
+        if sum(identity is not None for identity in item.exit_turn_axis_identities) >= 2
+    )
+    identities = reservation.exit_turn_axis_identities
+    first_identity = identities[0]
+    assert first_identity is not None
+    if record_kind == "reservation":
+        malformed_identities = (
+            replace(first_identity, plan_id=ExitTurnPlanId("wrong-exit-turn-plan")),
+            *identities[1:],
+        )
+        malformed = replace(
+            plan,
+            reservations=_replace_record(
+                plan.reservations,
+                replace(
+                    reservation,
+                    exit_turn_axis_identities=malformed_identities,
+                ),
+            ),
+        )
+    elif record_kind == "reference":
+        reference = next(
+            item
+            for item in plan.shared_references
+            if item.id == reservation.reference_id
+        )
+        malformed_identities = (
+            replace(first_identity, axis_rank=99),
+            *identities[1:],
+        )
+        malformed = replace(
+            plan,
+            shared_references=_replace_record(
+                plan.shared_references,
+                replace(
+                    reference,
+                    exit_turn_axis_identities=malformed_identities,
+                ),
+            ),
+        )
+    else:
+        demand = next(
+            item for item in plan.demands if item.id in reservation.demand_ids
+        )
+        malformed_identities = tuple(reversed(identities))
+        malformed = replace(
+            plan,
+            demands=_replace_record(
+                plan.demands,
+                replace(
+                    demand,
+                    exit_turn_axis_identities=malformed_identities,
+                ),
+            ),
+        )
+
+    with pytest.raises(ValueError, match=message):
+        build_route_plan_query(malformed)
 
 
 def _settled(path: Path):
@@ -94,6 +183,101 @@ def _organellar_settled():
     )
     assert ledger is not None
     return graph, station_offsets, routes, final, ledger, limitations
+
+
+def _limited_settled(path: Path):
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    theme = resolve_theme(None, graph)
+    station_offsets, routes, _labels, final, ledger, limitations = (
+        _settle_render_geometry(
+            graph,
+            theme,
+            graph_offset_step(graph, theme.line_width),
+            graph.section_y_gap or SECTION_Y_GAP,
+        )
+    )
+    assert ledger is not None
+    assert len(limitations) == 1
+    return graph, station_offsets, routes, final, ledger, limitations[0]
+
+
+def test_endpoint_transition_keeps_exact_symbolic_membership_after_allocation() -> None:
+    graph = parse_metro_mermaid(PERPENDICULAR_PORTS.read_text())
+    graph.center_ports = True
+    compute_layout(graph)
+    theme = resolve_theme(None, graph)
+    _offsets, _routes, _labels, final, ledger, limitations = _settle_render_geometry(
+        graph,
+        theme,
+        graph_offset_step(graph, theme.line_width),
+        graph.section_y_gap or SECTION_Y_GAP,
+    )
+    assert ledger is not None
+    system_id = next(
+        system.id
+        for system in ledger.systems
+        if any("snpeff" in str(connector_id) for connector_id in system.connector_ids)
+    )
+
+    def ids(records):
+        return tuple(item.id for item in records if item.system_id == system_id)
+
+    assert ids(final.reservations) == ids(ledger.reservations)
+    assert ids(final.demands) == ids(ledger.demands)
+    assert ids(final.shared_references) == ids(ledger.shared_references)
+    assert {
+        reservation.orientation
+        for reservation in ledger.reservations
+        if reservation.system_id == system_id
+    } == {CorridorOrientation.HORIZONTAL, CorridorOrientation.VERTICAL}
+    assert limitations == ()
+
+
+def test_endpoint_transition_rejects_clearance_on_the_section_side() -> None:
+    graph = parse_metro_mermaid(PERPENDICULAR_PORTS.read_text())
+    graph.center_ports = True
+    compute_layout(graph)
+    plan = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+    ).plan
+    reservation = next(
+        item
+        for item in plan.reservations
+        if item.orientation is CorridorOrientation.HORIZONTAL
+        and item.region == RowGapRegion(0, 1)
+        and item.claims[0].endpoint_anchor_ids
+    )
+    assert reservation.negative_side_clearance > 0.0
+    assert reservation.positive_side_clearance == 0.0
+    malformed = replace(
+        reservation,
+        negative_side_clearance=0.0,
+        positive_side_clearance=reservation.negative_side_clearance,
+    )
+
+    with pytest.raises(ValueError, match="clearance policy is inconsistent"):
+        build_route_plan_query(
+            replace(
+                plan,
+                reservations=_replace_record(plan.reservations, malformed),
+            )
+        )
+
+    malformed_claim = replace(
+        reservation.claims[0],
+        endpoint_anchor_ids=("not-a-member-endpoint",),
+    )
+    with pytest.raises(ValueError, match="unknown endpoint anchor"):
+        build_route_plan_query(
+            replace(
+                plan,
+                reservations=_replace_record(
+                    plan.reservations,
+                    replace(reservation, claims=(malformed_claim,)),
+                ),
+            )
+        )
 
 
 @pytest.fixture(scope="module")
@@ -267,6 +451,134 @@ def test_delayed_ledger_graft_rejects_an_obsolete_compatibility_owner() -> None:
             canvas_height=2000.0,
             compatibility_limitations=(limitation,),
         )
+
+
+def test_pinned_convergence_limitation_is_the_exact_final_owner() -> None:
+    path = TOPOLOGIES / "merge_pullaway.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    theme = resolve_theme(None, graph)
+    station_offsets, routes, _labels, final, ledger, limitations = (
+        _settle_render_geometry(
+            graph,
+            theme,
+            graph_offset_step(graph, theme.line_width),
+            graph.section_y_gap or SECTION_Y_GAP,
+        )
+    )
+    assert ledger is not None
+    assert len(limitations) == 1
+    limitation = limitations[0]
+    owners = tuple(
+        item
+        for item in final.convergence_plans
+        if item.system_id == limitation.system_id
+    )
+
+    assert limitation.owner_kind is EnvelopeCapacityOwnerKind.CONVERGENCE
+    assert limitation.owner_issue == 1658
+    assert limitation.owner_plan_ids == tuple(item.id for item in owners)
+    assert owners
+    assert all(not item.owns_geometry for item in owners)
+    assert all(
+        item.legacy_reason and "owner #1658" in item.legacy_reason for item in owners
+    )
+    apply_route_reservation_ledger(
+        final,
+        ledger,
+        graph,
+        routes,
+        station_offsets,
+        canvas_width=2000.0,
+        canvas_height=2000.0,
+        compatibility_limitations=limitations,
+    )
+
+
+def test_pinned_exit_fan_limitation_has_an_exact_final_system_owner() -> None:
+    graph, station_offsets, routes, final, ledger, limitation = _limited_settled(
+        TOPOLOGIES / "multicarrier_offrow_exit_climb.mmd"
+    )
+
+    combined = apply_route_reservation_ledger(
+        final,
+        ledger,
+        graph,
+        routes,
+        station_offsets,
+        canvas_width=2000.0,
+        canvas_height=2000.0,
+        compatibility_limitations=(limitation,),
+    )
+
+    assert limitation.owner_issue == 1658
+    assert limitation.owner_kind is EnvelopeCapacityOwnerKind.PINNED_EXIT_FAN
+    assert limitation.owner_plan_ids
+    assert _exact_pinned_exit_fan_owner(final, ledger, limitation)
+    assert combined.reservations == ledger.reservations
+    assert combined.shared_references == ledger.shared_references
+    assert combined.demands == ledger.demands
+
+
+def test_pinned_exit_fan_owner_rejects_changed_classification_or_plan_ids() -> None:
+    graph, station_offsets, routes, final, ledger, limitation = _limited_settled(
+        TOPOLOGIES / "multicarrier_offrow_exit_climb.mmd"
+    )
+
+    for malformed in (
+        replace(limitation, owner_kind=EnvelopeCapacityOwnerKind.CONVERGENCE),
+        replace(limitation, owner_plan_ids=limitation.owner_plan_ids[:-1]),
+    ):
+        with pytest.raises(ValueError, match="capacity limitation is not"):
+            apply_route_reservation_ledger(
+                final,
+                ledger,
+                graph,
+                routes,
+                station_offsets,
+                canvas_width=2000.0,
+                canvas_height=2000.0,
+                compatibility_limitations=(malformed,),
+            )
+
+
+def test_pinned_exit_fan_owner_rejects_changed_system_membership() -> None:
+    _graph, _offsets, _routes, final, ledger, limitation = _limited_settled(
+        TOPOLOGIES / "multicarrier_offrow_exit_climb.mmd"
+    )
+    system = next(item for item in final.systems if item.id == limitation.system_id)
+    malformed_system = replace(system, member_ids=system.member_ids[:-1])
+    malformed = replace(
+        final,
+        systems=_replace_record(final.systems, malformed_system),
+    )
+
+    assert not _exact_pinned_exit_fan_owner(malformed, ledger, limitation)
+
+
+@pytest.mark.parametrize("resource_name", ("shared_references", "demands"))
+def test_pinned_exit_fan_owner_rejects_changed_reservation_resources(
+    resource_name: str,
+) -> None:
+    _graph, _offsets, _routes, final, ledger, limitation = _limited_settled(
+        TOPOLOGIES / "multicarrier_offrow_exit_climb.mmd"
+    )
+    system = next(item for item in final.systems if item.id == limitation.system_id)
+    resource_ids = (
+        system.shared_reference_ids
+        if resource_name == "shared_references"
+        else system.demand_ids
+    )
+    resources = getattr(final, resource_name)
+    resource = next(item for item in resources if item.id in resource_ids)
+    malformed_resource = replace(
+        resource, system_id=RouteSystemId("changed-resource-system")
+    )
+    malformed = replace(
+        final,
+        **{resource_name: _replace_record(resources, malformed_resource)},
+    )
+
+    assert not _exact_pinned_exit_fan_owner(malformed, ledger, limitation)
 
 
 @pytest.mark.parametrize(
@@ -512,109 +824,114 @@ def test_delayed_ledger_graft_accepts_exact_reemission(
     }
 
 
-def _genomeassembly_owned_corridor_extension():
-    path = ROOT / "examples" / "genomeassembly.mmd"
-    graph, station_offsets, routes, final, ledger = _settled(path)
-    immutable_by_witness = {
-        _reservation_claim_witness(claim): reservation
-        for reservation in ledger.reservations
-        for claim in reservation.claims
-    }
-    for reemitted in final.reservations:
-        extras = tuple(
-            claim
-            for claim in reemitted.claims
-            if _reservation_claim_witness(claim) not in immutable_by_witness
-        )
-        owners = {
-            immutable_by_witness[_reservation_claim_witness(claim)].id
-            for claim in reemitted.claims
-            if _reservation_claim_witness(claim) in immutable_by_witness
-        }
-        if not extras or len(owners) != 1:
-            continue
-        immutable = next(item for item in ledger.reservations if item.id in owners)
-        if reemitted.span != immutable.span:
-            return (
-                graph,
-                station_offsets,
-                routes,
-                final,
-                ledger,
-                immutable,
-                reemitted,
-                extras,
-            )
-    raise AssertionError("fixture has no convergence-owned corridor extension")
-
-
-def test_delayed_ledger_graft_accepts_bounded_convergence_corridor_extension() -> None:
+def _synthetic_owned_corridor_extension(exact_convergence_reservations):
     (
-        graph,
         station_offsets,
         routes,
         final,
         ledger,
-        immutable,
-        reemitted,
-        extras,
-    ) = _genomeassembly_owned_corridor_extension()
-    assert len(extras) == 1
-    extra = extras[0]
-    immutable_segment_ranks = {
-        (claim.member_id, claim.path_rank, rank)
-        for reservation in ledger.reservations
-        for claim in reservation.claims
-        for rank in range(claim.segment_rank, claim.segment_end_rank + 1)
-    }
-    assert (
-        extra.member_id,
-        extra.path_rank,
-        extra.segment_rank - 1,
-    ) in immutable_segment_ranks
-    assert (
-        extra.member_id,
-        extra.path_rank,
-        extra.segment_end_rank + 1,
-    ) in immutable_segment_ranks
-    assert set(immutable.connector_ids) < set(reemitted.connector_ids)
+        *_unused,
+    ) = exact_convergence_reservations[1:]
 
-    combined = apply_route_reservation_ledger(
-        final,
-        ledger,
-        graph,
-        routes,
-        station_offsets,
-        canvas_width=2000.0,
-        canvas_height=2000.0,
+    def claimed_without_donor(donor):
+        return {
+            (claim.member_id, claim.path_rank, rank)
+            for reservation in ledger.reservations
+            if reservation is not donor
+            for claim in reservation.claims
+            for rank in range(claim.segment_rank, claim.segment_end_rank + 1)
+        }
+
+    owner, donor, extra = next(
+        (owner, donor, extra)
+        for owner in ledger.reservations
+        for donor in ledger.reservations
+        if owner is not donor
+        and owner.orientation is CorridorOrientation.HORIZONTAL
+        and donor.orientation is CorridorOrientation.HORIZONTAL
+        and donor.system_id == owner.system_id
+        and donor.span.min_column <= owner.span.min_column
+        and owner.span.max_column <= donor.span.max_column
+        and donor.span.min_row <= owner.span.min_row
+        and owner.span.max_row <= donor.span.max_row
+        and donor.span != owner.span
+        for extra in donor.claims
+        if extra.segment_rank > 0
+        and (
+            extra.member_id,
+            extra.path_rank,
+            extra.segment_rank - 1,
+        )
+        in claimed_without_donor(donor)
+        and (
+            extra.member_id,
+            extra.path_rank,
+            extra.segment_end_rank + 1,
+        )
+        in claimed_without_donor(donor)
+    )
+    bracket_ranks = {extra.segment_rank - 1, extra.segment_end_rank + 1}
+    brackets = tuple(
+        reservation
+        for reservation in ledger.reservations
+        if reservation is not donor
+        and any(
+            claim.member_id == extra.member_id
+            and claim.path_rank == extra.path_rank
+            and claim.segment_rank in bracket_ranks
+            for claim in reservation.claims
+        )
+    )
+    synthetic_ledger = replace(ledger, reservations=(owner, *brackets))
+    connector_ids = tuple(dict.fromkeys((*owner.connector_ids, *donor.connector_ids)))
+    reemitted = replace(
+        owner,
+        connector_ids=connector_ids,
+        claims=(*owner.claims, extra),
+        span=donor.span,
+        lanes=(RouteReservationLane((0, 1)),),
+        lane_count=1,
+    )
+    synthetic_final = replace(final, reservations=(reemitted,))
+    return station_offsets, routes, synthetic_final, synthetic_ledger, owner, extra
+
+
+def test_delayed_ledger_graft_accepts_bounded_convergence_corridor_extension(
+    exact_convergence_reservations,
+) -> None:
+    station_offsets, routes, final, ledger, immutable, extra = (
+        _synthetic_owned_corridor_extension(exact_convergence_reservations)
     )
 
-    assert combined.reservations is ledger.reservations
-
-
-def test_delayed_ledger_graft_rejects_unowned_corridor_extension() -> None:
-    (
-        graph,
-        station_offsets,
-        routes,
+    materialised = _materialise_immutable_reservations(
         final,
         ledger,
-        _immutable,
-        _reemitted,
-        extras,
-    ) = _genomeassembly_owned_corridor_extension()
-    route = routes[extras[0].path_rank]
-    route.convergence_plan_id = None
+        routes,
+        station_offsets,
+    )
+    grafted = next(item for item in materialised if item.id == immutable.id)
+
+    assert {_reservation_claim_witness(claim) for claim in grafted.claims} == {
+        *(_reservation_claim_witness(claim) for claim in immutable.claims),
+        _reservation_claim_witness(extra),
+    }
+
+
+def test_delayed_ledger_graft_rejects_unowned_corridor_extension(
+    exact_convergence_reservations,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    station_offsets, routes, final, ledger, _immutable, extra = (
+        _synthetic_owned_corridor_extension(exact_convergence_reservations)
+    )
+    monkeypatch.setattr(routes[extra.path_rank], "convergence_plan_id", None)
 
     with pytest.raises(ValueError, match="unattributed additional direct claim"):
-        apply_route_reservation_ledger(
+        _materialise_immutable_reservations(
             final,
             ledger,
-            graph,
             routes,
             station_offsets,
-            canvas_width=2000.0,
-            canvas_height=2000.0,
         )
 
 

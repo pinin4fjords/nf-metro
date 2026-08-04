@@ -12,14 +12,27 @@ import nf_metro.layout.envelope_settlement as settlement_module
 import nf_metro.layout.route_reservations as reservations_module
 import nf_metro.layout.routing.core as routing_core
 from nf_metro.api import prepare_graph, resolve_theme
-from nf_metro.layout.constants import COORD_TOLERANCE, graph_offset_step
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_TOLERANCE,
+    TITLE_BAND_ROUTE_FLOOR,
+    graph_offset_step,
+)
 from nf_metro.layout.envelope_settlement import (
     EnvelopeAxis,
     EnvelopeSettlementError,
     assert_route_envelopes_satisfied,
     settle_route_envelopes,
 )
-from nf_metro.layout.route_plan import DemandAxis, build_route_plan_query
+from nf_metro.layout.phases.guards import (
+    LayoutInvariantError,
+    assert_render_title_route_clearance,
+)
+from nf_metro.layout.route_plan import (
+    DemandAxis,
+    EmissionMemberId,
+    build_route_plan_query,
+)
 from nf_metro.layout.route_reservations import (
     CanvasRegion,
     CanvasSide,
@@ -38,6 +51,28 @@ CROSS_COLUMN = (
     ROOT / "tests" / "fixtures" / "regressions" / "cross_column_perp_entry_overflow.mmd"
 )
 SEED_41 = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_41.mmd"
+STRAIGHT_DROP = TOPOLOGIES / "straight_drop_below.mmd"
+TITLE_BAND_TOP_ROUTES = tuple(
+    TOPOLOGIES / name
+    for name in (
+        "bt_to_lr.mmd",
+        "cross_col_top_entry.mmd",
+        "cross_column_perp_drop.mmd",
+        "cross_column_perp_drop_far_exit.mmd",
+        "left_exit_sink_below.mmd",
+        "lr_perp_top_exit_perp_entry.mmd",
+        "lr_perp_top_exit_perp_entry_diverging.mmd",
+        "lr_perp_top_exit_side_entry.mmd",
+        "orbit_perp_exit_back_row_entry.mmd",
+        "orbit_perp_exit_flow_entry.mmd",
+        "orbit_perp_exit_perp_entry.mmd",
+        "orbit_perp_exit_turning_entry.mmd",
+        "tb_bottom_entry_flow_start.mmd",
+        "tb_internal_diagonal.mmd",
+        "tb_lr_exit_left.mmd",
+        "tb_lr_exit_right.mmd",
+    )
+)
 
 
 def _observe(graph):
@@ -64,6 +99,218 @@ def _absolute_geometry(graph):
         ),
         tuple((item.id, item.x, item.y) for item in graph.stations.values()),
         tuple((item.id, item.x, item.y) for item in graph.ports.values()),
+    )
+
+
+@pytest.mark.parametrize("fixture", TITLE_BAND_TOP_ROUTES, ids=lambda path: path.stem)
+def test_settled_top_canvas_routes_clear_the_rendered_title(fixture: Path):
+    graph = prepare_graph(fixture.read_text(), source_dir=str(fixture.parent))
+    observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+
+    top_route_coordinate = min(
+        y for route in observed.plan.routes for _x, y in route.points
+    )
+    assert top_route_coordinate >= TITLE_BAND_ROUTE_FLOOR - COORD_TOLERANCE
+
+
+def test_title_route_floor_is_not_reserved_for_bare_output():
+    fixture = TOPOLOGIES / "cross_col_top_entry.mmd"
+    graph = prepare_graph(
+        fixture.read_text(), source_dir=str(fixture.parent), bare=True
+    )
+    observed = build_observed_render_plan(graph, resolve_theme(None, graph), bare=True)
+
+    assert not graph.reserve_title_band
+    assert min(y for route in observed.plan.routes for _x, y in route.points) < (
+        TITLE_BAND_ROUTE_FLOOR
+    )
+
+
+def test_final_title_route_guard_rejects_an_underfloor_route():
+    fixture = TOPOLOGIES / "cross_col_top_entry.mmd"
+    graph = prepare_graph(fixture.read_text(), source_dir=str(fixture.parent))
+    observation = _observe(graph)
+    observation.routes[0].points[0] = (
+        0.0,
+        TITLE_BAND_ROUTE_FLOOR - COORD_TOLERANCE - 1.0,
+    )
+
+    with pytest.raises(LayoutInvariantError, match="inside the rendered title band"):
+        assert_render_title_route_clearance(graph, observation.routes, strict=True)
+
+
+def _straight_drop_canvas_component():
+    graph = prepare_graph(
+        STRAIGHT_DROP.read_text(), source_dir=str(STRAIGHT_DROP.parent)
+    )
+    plan = _observe(graph).plan
+    component = next(
+        component
+        for component in settlement_module._boundary_components(
+            settlement_module._canvas_reservations(plan, graph, plan)[CanvasSide.TOP]
+        )
+        if len(component) == 2
+        and all(
+            claim.endpoint_anchor_ids == ("__junction_3",)
+            for item in component
+            for claim in item.reservation.claims
+        )
+    )
+    return graph, plan, component
+
+
+def test_touching_endpoint_canvas_claims_preserve_authored_lane_separation() -> None:
+    graph, plan, _component = _straight_drop_canvas_component()
+    geometry = _absolute_geometry(graph)
+    graph.strict = True
+
+    first = settle_route_envelopes(graph, plan)
+    second = settle_route_envelopes(graph, plan)
+    canvas = next(
+        proof
+        for proof in first.capacity_proofs
+        if proof.region == CanvasRegion(CanvasSide.TOP)
+    )
+
+    assert first.translations == ()
+    assert first.capacity_limitations == ()
+    assert [
+        allocation.coordinate
+        for reservation in canvas.reservations
+        for allocation in reservation.allocations
+    ] == [120.0, 124.0]
+    assert second.translations == ()
+    assert second.capacity_limitations == ()
+    assert _absolute_geometry(graph) == geometry
+
+
+@pytest.mark.parametrize("coordinate_sign", (-1, 1))
+def test_touching_endpoint_separation_is_canvas_side_symmetric(
+    coordinate_sign: int,
+) -> None:
+    graph, _plan, component = _straight_drop_canvas_component()
+
+    packed = settlement_module._pack_component_claims(
+        graph,
+        component,
+        coordinate_sign=coordinate_sign,
+    )
+
+    assert packed == ((120.0,), (124.0,))
+
+
+@pytest.mark.parametrize(
+    ("orientation", "direction"),
+    (
+        (
+            reservations_module.CorridorOrientation.HORIZONTAL,
+            reservations_module.Direction.R,
+        ),
+        (
+            reservations_module.CorridorOrientation.HORIZONTAL,
+            reservations_module.Direction.L,
+        ),
+        (
+            reservations_module.CorridorOrientation.VERTICAL,
+            reservations_module.Direction.D,
+        ),
+        (
+            reservations_module.CorridorOrientation.VERTICAL,
+            reservations_module.Direction.U,
+        ),
+    ),
+)
+def test_touching_endpoint_separation_is_axis_generic(
+    orientation,
+    direction,
+) -> None:
+    _graph, _plan, component = _straight_drop_canvas_component()
+    kind = (
+        component[0].reservation.kind
+        if orientation is reservations_module.CorridorOrientation.HORIZONTAL
+        else reservations_module.CorridorKind.INTER_COLUMN_CHANNEL
+    )
+    region = (
+        component[0].reservation.region
+        if orientation is reservations_module.CorridorOrientation.HORIZONTAL
+        else CanvasRegion(CanvasSide.LEFT)
+    )
+    first, second = tuple(
+        replace(
+            item,
+            reservation=replace(
+                item.reservation,
+                kind=kind,
+                orientation=orientation,
+                direction=direction,
+                region=region,
+            ),
+        )
+        for item in component
+    )
+
+    assert settlement_module._touching_endpoint_separation(first, 0, second, 0) == (
+        pytest.approx(4.0)
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_relationship",
+    (
+        "overlapping-interiors",
+        "different-anchor",
+        "missing-anchor",
+        "different-system",
+        "opposing-direction",
+    ),
+)
+def test_touching_endpoint_separation_requires_exact_shared_ownership(
+    invalid_relationship: str,
+) -> None:
+    _graph, _plan, component = _straight_drop_canvas_component()
+    first, second = component
+    if invalid_relationship == "overlapping-interiors":
+        claim = first.reservation.claims[0]
+        first = replace(
+            first,
+            reservation=replace(
+                first.reservation,
+                claims=(replace(claim, longitudinal_start=169.0),),
+            ),
+        )
+    elif invalid_relationship in {"different-anchor", "missing-anchor"}:
+        claim = second.reservation.claims[0]
+        second = replace(
+            second,
+            reservation=replace(
+                second.reservation,
+                claims=(
+                    replace(
+                        claim,
+                        endpoint_anchor_ids=("unrelated",)
+                        if invalid_relationship == "different-anchor"
+                        else (),
+                    ),
+                ),
+            ),
+        )
+    elif invalid_relationship == "different-system":
+        second = replace(
+            second,
+            reservation=replace(second.reservation, system_id="unrelated-system"),
+        )
+    else:
+        second = replace(
+            second,
+            reservation=replace(
+                second.reservation,
+                direction=reservations_module.Direction.L,
+            ),
+        )
+
+    assert settlement_module._touching_endpoint_separation(first, 0, second, 0) is None
+    assert settlement_module._distinct_claim_separation(first, 0, second, 0) == (
+        pytest.approx(12.0)
     )
 
 
@@ -277,6 +524,67 @@ def test_symbolic_lane_transition_requires_one_proven_corridor() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("points", "endpoint_index"),
+    (
+        ([(-100.0, 0.0), (0.0, 0.0), (0.0, 10.0)], 1),
+        ([(0.0, -100.0), (0.0, 0.0), (10.0, 0.0)], 1),
+        ([(0.0, 10.0), (0.0, 0.0), (100.0, 0.0)], 0),
+        ([(10.0, 0.0), (0.0, 0.0), (0.0, -100.0)], 0),
+    ),
+)
+def test_symbolic_endpoint_transition_is_stable_under_axis_allocation(
+    points,
+    endpoint_index,
+) -> None:
+    segments = reservations_module._maximal_axis_segments(points)
+    endpoint = segments[endpoint_index]
+    previous = segments[endpoint_index - 1] if endpoint_index else None
+    following = segments[endpoint_index + 1] if endpoint_index == 0 else None
+
+    assert not reservations_module.axis_segment_has_straight_run(
+        points, [10.0], endpoint.rank, endpoint.end_rank + 1
+    )
+    assert reservations_module._segment_is_allocatable_endpoint_transition(
+        endpoint,
+        previous,
+        following,
+        previous is not None,
+        following is not None,
+        ("source" if endpoint_index == 0 else "target",),
+    )
+
+
+def test_symbolic_endpoint_transition_requires_exact_adjacent_ownership() -> None:
+    points = [(-100.0, 0.0), (0.0, 0.0), (0.0, 10.0)]
+    previous, endpoint = reservations_module._maximal_axis_segments(points)
+
+    assert not reservations_module._segment_is_allocatable_endpoint_transition(
+        endpoint,
+        previous,
+        None,
+        False,
+        False,
+        ("target",),
+    )
+    assert not reservations_module._segment_is_allocatable_endpoint_transition(
+        endpoint,
+        previous,
+        None,
+        True,
+        False,
+        (),
+    )
+    assert not reservations_module._segment_is_allocatable_endpoint_transition(
+        replace(endpoint, orientation=previous.orientation),
+        previous,
+        None,
+        True,
+        False,
+        ("target",),
+    )
+
+
 def test_packed_cell_lane_transition_has_immutable_gap_ownership() -> None:
     path = TOPOLOGIES / "packed_cell_right_exit_left_entry_wrap.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -307,40 +615,26 @@ def test_packed_cell_lane_transition_has_immutable_gap_ownership() -> None:
 
 def test_synthetic_endpoint_requires_complete_axis_continuity() -> None:
     graph = prepare_graph(SEED_41.read_text(), source_dir=str(SEED_41.parent))
-    plan = _observe(graph).plan
-    members = {item.id: item for item in plan.members}
-    reservation = next(
-        item
-        for item in plan.reservations
-        if any(claim.endpoint_anchor_ids == ("__merge_11",) for claim in item.claims)
-    )
-    claim = next(
-        claim
-        for claim in reservation.claims
-        if claim.endpoint_anchor_ids == ("__merge_11",)
-    )
-    incident = settlement_module._endpoint_incident_members(plan)[
-        (reservation.orientation, members[claim.member_id].line_id, "__merge_11")
-    ]
+    endpoint_anchor_ids = (min(graph.junction_ids),)
     same_axis = frozenset(
-        member_id
-        for member_id, coordinate in incident
-        if coordinate == pytest.approx(claim.allocation_coordinate)
+        (
+            EmissionMemberId("member:a"),
+            EmissionMemberId("member:b"),
+        )
     )
 
-    assert len(same_axis) == 2
     assert not settlement_module._endpoint_anchor_requires_fixed(
-        graph, claim.endpoint_anchor_ids, (same_axis,), set(same_axis)
+        graph, endpoint_anchor_ids, (same_axis,), set(same_axis)
     )
     assert settlement_module._endpoint_anchor_requires_fixed(
         graph,
-        claim.endpoint_anchor_ids,
+        endpoint_anchor_ids,
         (same_axis,),
-        {claim.member_id},
+        {next(iter(same_axis))},
     )
     assert settlement_module._endpoint_anchor_requires_fixed(
         graph,
-        ("s3__entry_left_16",),
+        (next(item for item in graph.stations if item not in graph.junction_ids),),
         (same_axis,),
         set(same_axis),
     )
@@ -686,14 +980,24 @@ def test_organellar_outer_gap_deficit_settles_without_limitation() -> None:
     plan = _observe(graph).plan
     settlement = settle_route_envelopes(graph, plan)
 
-    assert len(plan.reservation_diagnostics) == 1
-    assert plan.reservation_diagnostics[0].capacity_slack == pytest.approx(-3.0)
-    assert any(
-        translation.axis is EnvelopeAxis.Y
-        and translation.boundary == (3, 4)
-        and translation.amount == pytest.approx(4.0)
+    assert [
+        (
+            diagnostic.capacity_slack,
+            diagnostic.negative_side_slack,
+            diagnostic.positive_side_slack,
+        )
+        for diagnostic in plan.reservation_diagnostics
+    ] == [
+        (44.0, -44.0, 88.0),
+        (-3.0, -48.0, 4.0),
+    ]
+    assert {
+        (translation.axis, translation.boundary, translation.amount)
         for translation in settlement.translations
-    )
+    } == {
+        (EnvelopeAxis.X, (2, 3), 4.0),
+        (EnvelopeAxis.Y, (3, 4), 4.0),
+    }
     assert settlement.capacity_limitations == ()
     assert {
         reservation.reservation_id
@@ -713,6 +1017,144 @@ def test_strict_organellar_settlement_has_complete_capacity_evidence() -> None:
 
     assert settlement.capacity_limitations == ()
     assert_route_envelopes_satisfied(graph, settled_plan)
+
+
+def test_genome_external_convergence_anchor_owns_minimal_suffix_growth() -> None:
+    path = ROOT / "examples" / "genomeassembly.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = _observe(graph).plan
+    snapshot = settlement_module._snapshot(graph)
+    external_anchor_ids = settlement_module._external_route_anchor_ids(graph, plan)
+    anchor = graph.stations["__merge_5"]
+    fixed_axis = next(
+        axis
+        for exit_plan in plan.exit_turn_plans
+        for axis in exit_plan.axes
+        if axis.fixed_anchor_id == anchor.id
+    )
+    local_before = {
+        station.id: (
+            station.x - graph.sections[station.section_id].bbox_x,
+            station.y - graph.sections[station.section_id].bbox_y,
+        )
+        for station in graph.stations.values()
+        if station.section_id in graph.sections
+        and station.id not in external_anchor_ids
+    }
+    anchor_before = (anchor.x, anchor.y)
+
+    settlement = settle_route_envelopes(graph, plan)
+    projected = settlement_module._project_ledger_translations(graph, plan, snapshot)
+    measured = realise_route_reservations(projected, graph, blocker_plan=plan)
+    boundary = settlement_module._AxisBoundary(EnvelopeAxis.X, 2, 3)
+    component = settlement_module._boundary_components(
+        settlement_module._boundary_reservations(measured, graph, plan)[boundary]
+    )[0]
+    packed = settlement_module._pack_component_claims(graph, component)
+
+    assert settlement.translations == (
+        settlement_module.EnvelopeTranslation(
+            EnvelopeAxis.X,
+            (2, 3),
+            4.0,
+            ("genome_statistics", "scaffolding"),
+            tuple(sorted(str(item.reservation.id) for item in component)),
+        ),
+    )
+    assert settlement.capacity_limitations == ()
+    assert anchor.id in external_anchor_ids
+    assert (anchor.x, anchor.y) == anchor_before
+    assert fixed_axis.coordinate == anchor.x
+    assert packed == ((770.0,), (786.0, 782.0))
+    assert {
+        station.id: (
+            station.x - graph.sections[station.section_id].bbox_x,
+            station.y - graph.sections[station.section_id].bbox_y,
+        )
+        for station in graph.stations.values()
+        if station.id in local_before
+    } == local_before
+
+    second = settle_route_envelopes(graph, projected)
+
+    assert second.translations == ()
+    assert second.capacity_limitations == ()
+    assert (anchor.x, anchor.y) == anchor_before
+    assert fixed_axis.coordinate == anchor.x
+
+
+def test_external_convergence_anchor_translation_ownership_transposes() -> None:
+    path = ROOT / "examples" / "genomeassembly.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = _observe(graph).plan
+    anchor = graph.stations["__merge_5"]
+    section = graph.sections[anchor.section_id]
+    anchor_before = (anchor.x, anchor.y)
+    anchor.x = section.bbox_x + section.bbox_w / 2
+    anchor.y = section.bbox_y + section.bbox_h / 2
+    assert anchor.id not in settlement_module._external_route_anchor_ids(graph, plan)
+    anchor.x, anchor.y = anchor_before
+    real_station = graph.stations["asmstats"]
+    port = next(
+        item for item in graph.ports.values() if item.section_id == "genome_statistics"
+    )
+    for station in (real_station, port):
+        station_before = (station.x, station.y)
+        station.x = section.bbox_x - 100.0
+        station.y = section.bbox_y - 100.0
+        assert station.id not in settlement_module._external_route_anchor_ids(
+            graph, plan
+        )
+        station.x, station.y = station_before
+
+    for section in graph.sections.values():
+        section.bbox_x, section.bbox_y = section.bbox_y, section.bbox_x
+        section.bbox_w, section.bbox_h = section.bbox_h, section.bbox_w
+        section.grid_col, section.grid_row = section.grid_row, section.grid_col
+        section.grid_col_span, section.grid_row_span = (
+            section.grid_row_span,
+            section.grid_col_span,
+        )
+    for station in graph.stations.values():
+        station.x, station.y = station.y, station.x
+    for station_id, port in graph.ports.items():
+        if graph.stations.get(station_id) is not port:
+            port.x, port.y = port.y, port.x
+
+    anchor_before = (anchor.x, anchor.y)
+    assert anchor.id in settlement_module._external_route_anchor_ids(graph, plan)
+    boundary = settlement_module._AxisBoundary(EnvelopeAxis.Y, 2, 3)
+    assert not settlement_module._external_anchor_is_positive(
+        graph, anchor.id, boundary
+    )
+    owners = tuple(
+        section.id for section in graph.sections.values() if section.grid_row >= 3
+    )
+
+    settlement_module._translate_sections(
+        graph,
+        plan,
+        owners,
+        dx=0.0,
+        dy=4.0,
+    )
+
+    assert (anchor.x, anchor.y) == anchor_before
+
+    earlier = settlement_module._AxisBoundary(EnvelopeAxis.Y, 1, 2)
+    assert settlement_module._external_anchor_is_positive(graph, anchor.id, earlier)
+    earlier_owners = tuple(
+        section.id for section in graph.sections.values() if section.grid_row >= 2
+    )
+    settlement_module._translate_sections(
+        graph,
+        plan,
+        earlier_owners,
+        dx=0.0,
+        dy=4.0,
+    )
+
+    assert (anchor.x, anchor.y) == (anchor_before[0], anchor_before[1] + 4.0)
 
 
 @pytest.mark.parametrize(
@@ -853,7 +1295,7 @@ def test_joint_allocation_preserves_each_reservations_own_corridor() -> None:
         TOPOLOGIES / "peeloff_straight_drop_near_wall.mmd",
     ),
 )
-def test_fixed_local_corridor_limitations_have_explicit_ownership(
+def test_fixed_local_endpoint_corridors_exit_compatibility(
     path: Path,
 ) -> None:
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -861,19 +1303,13 @@ def test_fixed_local_corridor_limitations_have_explicit_ownership(
 
     settlement = settle_route_envelopes(graph, observed.plan)
 
-    assert settlement.capacity_limitations
-    assert all(item.owner_issue == 1658 for item in settlement.capacity_limitations)
-    limited_ids = {
-        reservation_id
-        for item in settlement.capacity_limitations
-        for reservation_id in item.reservation_ids
-    }
+    assert settlement.capacity_limitations == ()
     proved_ids = {
         reservation.reservation_id
         for proof in settlement.capacity_proofs
         for reservation in proof.reservations
     }
-    assert limited_ids.isdisjoint(proved_ids)
+    assert proved_ids == {reservation.id for reservation in observed.plan.reservations}
 
 
 def test_seed_77_fixed_corridors_exit_compatibility_after_settlement() -> None:
@@ -893,16 +1329,58 @@ def test_seed_77_fixed_corridors_exit_compatibility_after_settlement() -> None:
     } == {reservation.id for reservation in observed.plan.reservations}
 
 
-def test_strict_fixed_local_limitation_rolls_back_transactionally() -> None:
+def test_opposing_resource_does_not_inherit_ordered_exit_axis_clearance() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = _observe(graph).plan
+    snapshot = settlement_module._snapshot(graph)
+    settle_route_envelopes(graph, plan)
+    projected = settlement_module._project_ledger_translations(graph, plan, snapshot)
+    measured = realise_route_reservations(projected, graph, blocker_plan=plan)
+    boundary = settlement_module._AxisBoundary(EnvelopeAxis.X, 8, 9)
+    component = settlement_module._boundary_components(
+        settlement_module._boundary_reservations(measured, graph, plan)[boundary]
+    )[0]
+    first = next(
+        item
+        for item in component
+        if item.fixed
+        and sum(identity is not None for identity in item.exit_turn_axis_identities)
+        >= 2
+    )
+
+    assert settlement_module._sibling_exit_axis_separation(
+        first,
+        0,
+        first,
+        1,
+    ) == pytest.approx(graph_offset_step(graph))
+    opposing = replace(
+        first,
+        reservation=replace(
+            first.reservation,
+            direction=reservations_module.Direction.U,
+        ),
+    )
+    assert (
+        settlement_module._sibling_exit_axis_separation(first, 0, opposing, 1) is None
+    )
+    assert max(
+        first.reservation.peer_clearance,
+        opposing.reservation.peer_clearance,
+    ) == pytest.approx(3 * graph_offset_step(graph))
+
+
+def test_strict_fixed_local_endpoint_corridor_settles_without_mutation() -> None:
     path = TOPOLOGIES / "exit_lane_settlement_without_crossings.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observed = _observe(graph)
     geometry_before = {item.id: (item.x, item.y) for item in graph.stations.values()}
     graph.strict = True
 
-    with pytest.raises(EnvelopeSettlementError, match=r"owner #1658"):
-        settle_route_envelopes(graph, observed.plan)
+    settlement = settle_route_envelopes(graph, observed.plan)
 
+    assert settlement.capacity_limitations == ()
     assert {
         item.id: (item.x, item.y) for item in graph.stations.values()
     } == geometry_before
@@ -1153,6 +1631,64 @@ def test_shared_openings_consume_the_settled_claim_coordinate(path: Path) -> Non
                 landing.opening_turn_coordinate
                 in allocation_coordinates[(landing.member_id, DemandAxis.X)]
             )
+
+
+def test_canvas_trunk_clears_opposing_row_gap_trunk() -> None:
+    path = TOPOLOGIES / "merge_around_below_leftmost.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+
+    render_plan, _route_plan = build_observed_render_plan(
+        graph, resolve_theme(None, graph)
+    )
+
+    def longest_horizontal_y(source: str, target: str) -> float:
+        route = next(
+            item
+            for item in render_plan.routes
+            if item.edge.source == source and item.edge.target == target
+        )
+        horizontal = tuple(
+            (abs(x1 - x0), y0)
+            for (x0, y0), (x1, y1) in zip(route.points, route.points[1:])
+            if abs(y1 - y0) <= COORD_TOLERANCE
+        )
+        return max(horizontal)[1]
+
+    canvas_y = longest_horizontal_y("__junction_4", "__merge_2")
+    row_gap_y = longest_horizontal_y("__junction_5", "__merge_3")
+
+    assert abs(canvas_y - row_gap_y) >= (BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE)
+
+
+def test_genomeassembly_canvas_bundle_keeps_physical_lane_pitch() -> None:
+    path = ROOT / "examples" / "genomeassembly.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+
+    render_plan, _route_plan = build_observed_render_plan(
+        graph, resolve_theme(None, graph)
+    )
+    routes = {
+        (route.edge.source, route.edge.target, route.line_id): route
+        for route in render_plan.routes
+    }
+
+    def longest_horizontal_y(route) -> float:
+        return max(
+            (
+                (abs(x1 - x0), y0)
+                for (x0, y0), (x1, y1) in zip(route.points, route.points[1:])
+                if abs(y1 - y0) <= COORD_TOLERANCE
+            )
+        )[1]
+
+    assemblies_y = longest_horizontal_y(
+        routes[("__junction_8", "__merge_3", "assemblies")]
+    )
+    hic_reads_y = longest_horizontal_y(
+        routes[("__junction_8", "scaffolding__entry_left_5", "hic_reads")]
+    )
+
+    assert abs(assemblies_y - hic_reads_y) == pytest.approx(graph_offset_step(graph))
 
 
 def test_organellar_compatibility_exits_with_complete_capacity_evidence() -> None:

@@ -12,7 +12,7 @@ import pytest
 from layout_metrics import compute_metrics
 
 from nf_metro.api import prepare_graph, resolve_theme
-from nf_metro.layout.constants import CURVE_RADIUS
+from nf_metro.layout.constants import CURVE_RADIUS, graph_offset_step
 from nf_metro.layout.route_plan import (
     BindingKind,
     ExitTurnDisposition,
@@ -619,6 +619,22 @@ def test_stacked_collector_reuses_three_lanes_across_twelve_claims() -> None:
     assert reservation.lane_count == 3
     assert sorted(len(lane.claim_indices) for lane in reservation.lanes) == [4, 4, 4]
     assert reservation.bundle_width == pytest.approx(8.0)
+
+
+def test_chained_same_line_claims_keep_the_physical_bundle_width() -> None:
+    path = ROOT / "examples" / "genomeassembly.mmd"
+    graph, _routes, plan = _observe(path)
+    members = {member.id: member for member in plan.members}
+    reservation = next(
+        item
+        for item in plan.reservations
+        if item.region == CanvasRegion(CanvasSide.BOTTOM)
+        and {members[claim.member_id].line_id for claim in item.claims}
+        == {"assemblies", "hic_reads"}
+    )
+
+    assert reservation.lane_count == 2
+    assert reservation.bundle_width == pytest.approx(graph_offset_step(graph))
 
 
 def test_asymmetric_grid_spans_select_provenance_on_the_canonical_axes() -> None:

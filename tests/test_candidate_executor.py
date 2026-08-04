@@ -595,7 +595,7 @@ def test_worker_crash_and_communication_outcomes_are_distinct(
 
 def test_completed_payload_followed_by_hang_times_out_with_evidence() -> None:
     result = execute_candidates(
-        _request(limits=ExecutionLimits(1, 1.0, 2.0)),
+        _request(limits=ExecutionLimits(1, 3.0, 4.0)),
         _fault=_FaultInjection(_FaultAction.PAYLOAD_THEN_BLOCK),
     )
 

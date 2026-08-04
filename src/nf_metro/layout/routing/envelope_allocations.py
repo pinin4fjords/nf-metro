@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping
 
@@ -48,6 +48,45 @@ class EnvelopeAllocationQuery:
         self, member_id: EmissionMemberId
     ) -> tuple[EnvelopeClaimAllocation, ...]:
         return self._by_member.get(member_id, ())
+
+    def project_point(
+        self,
+        member_id: EmissionMemberId,
+        point_rank: int,
+        point: tuple[float, float],
+    ) -> tuple[float, float]:
+        """Project one immutable waypoint through its exact settled claims."""
+        projected = list(point)
+        assigned: dict[int, float] = {}
+        for allocation in self.allocations_for_member(member_id):
+            if not (
+                allocation.segment_rank <= point_rank <= allocation.segment_end_rank + 1
+            ):
+                continue
+            coordinate_rank = 0 if allocation.axis is DemandAxis.X else 1
+            previous = assigned.get(coordinate_rank)
+            if (
+                previous is not None
+                and abs(previous - allocation.coordinate) > COORD_TOLERANCE
+            ):
+                raise EnvelopeAllocationError(
+                    "settled claims project one waypoint to conflicting coordinates"
+                )
+            assigned[coordinate_rank] = allocation.coordinate
+            projected[coordinate_rank] = allocation.coordinate
+        return projected[0], projected[1]
+
+    def project_segment(
+        self,
+        member_id: EmissionMemberId,
+        segment_rank: int,
+        segment: tuple[tuple[float, float], tuple[float, float]],
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Project one immutable segment through its exact settled claims."""
+        return (
+            self.project_point(member_id, segment_rank, segment[0]),
+            self.project_point(member_id, segment_rank + 1, segment[1]),
+        )
 
     def directly_allocates(self, member_ids: tuple[EmissionMemberId, ...]) -> bool:
         return bool(member_ids) and all(
@@ -112,7 +151,10 @@ class EnvelopeAllocationQuery:
         allocations = self.allocations_for_member(member_id)
         if not allocations:
             return
-        projected_points = list(route.points)
+        projected_points = [
+            self.project_point(member_id, rank, point)
+            for rank, point in enumerate(route.points)
+        ]
         consumed: list[tuple[int, int, float]] = []
         gap_claims: list[tuple[tuple[int, int], int, int]] = []
         for allocation in allocations:
@@ -143,10 +185,6 @@ class EnvelopeAllocationQuery:
                 raise EnvelopeAllocationError(
                     "settled envelope allocation intersects frozen exit geometry"
                 )
-            for rank in range(start, end + 1):
-                point = list(projected_points[rank])
-                point[coordinate_rank] = coordinate
-                projected_points[rank] = (point[0], point[1])
             boundary = self._boundary_by_claim.get(claim_key)
             if boundary is not None and allocation.axis is DemandAxis.X:
                 gap_claims.append((boundary, start, end))
@@ -168,7 +206,21 @@ class EnvelopeAllocationQuery:
                 raise EnvelopeAllocationError(
                     "settled envelope claim disagrees with its emitted segment axis"
                 )
+        expected = tuple(dict.fromkeys(consumed))
+        if route.envelope_allocated_segments and (
+            route.envelope_allocated_segments != expected
+        ):
+            raise EnvelopeAllocationError(
+                "route consumed inconsistent settled envelope allocations"
+            )
+        projected_route = replace(
+            route,
+            points=projected_points,
+            envelope_allocated_segments=expected,
+        )
+        assert_route_allocations((projected_route,), "allocation consumption")
         route.points = projected_points
+        route.envelope_allocated_segments = expected
         for boundary, start, end in gap_claims:
             direction = (
                 Direction.D
@@ -189,15 +241,6 @@ class EnvelopeAllocationQuery:
                     slot_index=0,
                     n_slots=1,
                 )
-        expected = tuple(dict.fromkeys(consumed))
-        if route.envelope_allocated_segments and (
-            route.envelope_allocated_segments != expected
-        ):
-            raise EnvelopeAllocationError(
-                "route consumed inconsistent settled envelope allocations"
-            )
-        route.envelope_allocated_segments = expected
-        assert_route_allocations((route,), "allocation consumption")
 
 
 _ClaimKey = tuple[EmissionMemberId, int, int, int, DemandAxis]
@@ -564,12 +607,28 @@ def build_envelope_allocation_query(
             for proof in proofs
             for reservation in proof.reservations
         )
-        _projection_index(
+        projections_by_id = _projection_index(
             identity_projections,
             immutable_by_id,
             binding_by_member,
             proofed_reservation_ids,
         )
+        for projection in projections_by_id.values():
+            for allocation in projection.allocations:
+                key = (
+                    allocation.member_id,
+                    allocation.path_rank,
+                    allocation.segment_rank,
+                    allocation.segment_end_rank,
+                    allocation.axis,
+                )
+                if key in seen:
+                    raise EnvelopeAllocationError(
+                        "settled envelope contains duplicate claim allocations"
+                    )
+                seen.add(key)
+                by_member[allocation.member_id].append(allocation)
+                boundary_by_claim[key] = None
     return EnvelopeAllocationQuery(
         MappingProxyType(dict(member_by_edge)),
         MappingProxyType(

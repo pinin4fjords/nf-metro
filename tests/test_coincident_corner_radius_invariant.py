@@ -175,6 +175,45 @@ def test_unify_uses_widest_radius_all_shared_legs_can_resolve() -> None:
     assert not check_coincident_corner_radii(graph, routes, {})
 
 
+@pytest.mark.parametrize(
+    ("points", "expected"),
+    [
+        (
+            [(0.0, 0.0), (10.0, 0.0), (10.0, 50.0)],
+            [(0.0, 0.0), (14.0, 0.0), (14.0, 50.0)],
+        ),
+        (
+            [(100.0, 0.0), (90.0, 0.0), (90.0, 50.0)],
+            [(100.0, 0.0), (86.0, 0.0), (86.0, 50.0)],
+        ),
+        (
+            [(0.0, 0.0), (0.0, 10.0), (50.0, 10.0)],
+            [(0.0, 0.0), (0.0, 14.0), (50.0, 14.0)],
+        ),
+        (
+            [(0.0, 100.0), (0.0, 90.0), (50.0, 90.0)],
+            [(0.0, 100.0), (0.0, 86.0), (50.0, 86.0)],
+        ),
+    ],
+    ids=("right", "left", "down", "up"),
+)
+def test_unify_extends_shared_source_runway_on_either_axis(
+    points: list[tuple[float, float]], expected: list[tuple[float, float]]
+) -> None:
+    """A fused source turn expands monotonically to its final common radius."""
+    narrow = _make_route("fan", "narrow", 10.0)
+    wide = _make_route("fan", "wide", 14.0)
+    narrow.points = list(points)
+    wide.points = list(points)
+
+    _unify_coincident_corner_radii([narrow, wide])
+
+    assert narrow.points == expected
+    assert wide.points == expected
+    assert resolve_curve_radii(narrow.points, narrow.curve_radii) == [14.0]
+    assert resolve_curve_radii(wide.points, wide.curve_radii) == [14.0]
+
+
 def test_unify_materialises_the_default_radius_for_a_shared_turn() -> None:
     """An implicit base-radius leg participates in coincident unification."""
     from nf_metro.parser.model import MetroGraph

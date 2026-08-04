@@ -30,6 +30,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     SECTION_Y_PADDING,
     TITLE_BAND_OVERLAP_FLOOR,
+    TITLE_BAND_ROUTE_FLOOR,
     X_SPACING,
     graph_offset_step,
 )
@@ -6260,6 +6261,28 @@ def assert_render_header_clearance(graph: MetroGraph, *, strict: bool = False) -
         f"and are {gap:.1f}px apart, below the {SECTION_HEADER_PROTRUSION:.1f}px "
         "the lower header needs to clear the box above.  Fix the layout (or "
         "directive combination) that produced this geometry."
+    )
+    if strict:
+        raise LayoutInvariantError(msg)
+    warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+
+
+def assert_render_title_route_clearance(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    *,
+    strict: bool = False,
+) -> None:
+    """Guard final emitted routes against the rendered canvas title band."""
+    if not (graph.title and graph.reserve_title_band) or not routes:
+        return
+    top = min(y for route in routes for _x, y in route.points)
+    if top >= TITLE_BAND_ROUTE_FLOOR - COORD_TOLERANCE:
+        return
+    msg = (
+        "the settled layout places a route at "
+        f"y={top:.1f} inside the rendered title band; the route floor is "
+        f"y={TITLE_BAND_ROUTE_FLOOR:.1f}"
     )
     if strict:
         raise LayoutInvariantError(msg)

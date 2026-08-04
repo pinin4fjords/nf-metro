@@ -10,7 +10,7 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergence_routing
 import nf_metro.layout.routing.core as routing_core
-from nf_metro.api import prepare_graph
+from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.envelope_settlement import settle_route_envelopes
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.phases._common import (
@@ -28,6 +28,7 @@ from nf_metro.layout.route_plan import (
     DemandAxis,
     DemandKind,
     KeepOutClass,
+    RouteFamilyId,
     RoutePlan,
     RouteSystemId,
     SharedReferenceId,
@@ -45,6 +46,7 @@ from nf_metro.layout.routing.convergences import (
     ConvergencePlanningError,
     UnsupportedConvergenceError,
     _direct_axis,
+    _extend_axis_segment_to_coordinates,
     _seat_route_on_trunk_flanks,
     validate_convergence_plans,
 )
@@ -58,6 +60,7 @@ from nf_metro.layout.routing.invariants import (
 )
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import build_route_topology_query
+from nf_metro.render.svg import build_observed_render_plan
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -187,10 +190,6 @@ def test_conflicting_route_systems_use_whole_system_compatibility(
             "planned fan arms require opposing opening channels",
         ),
         (
-            TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-            "planned fan arms require opposing opening channels",
-        ),
-        (
             ROOT / "examples" / "genomeassembly.mmd",
             "chained same-line convergences require one shared system settlement",
         ),
@@ -237,6 +236,27 @@ def test_non_conflicting_reviewed_systems_remain_planned(path: Path) -> None:
         == {ownership.member_id for ownership in item.endpoint_ownership}
         for item in observed.plan.convergence_plans
     )
+
+
+def test_shared_terminal_convergence_preserves_unowned_concentric_radii() -> None:
+    _graph, _offsets, observed = _observe(ROOT / "examples" / "genomic_pipeline.mmd")
+    routes = {
+        route.line_id: route
+        for route in observed.routes
+        if route.edge.source == "__junction_8"
+        and route.edge.target in {"__merge_2", "__merge_3", "__merge_4"}
+    }
+
+    assert set(routes) == {"germline", "tumor_only", "somatic"}
+    assert {line_id: route.curve_radii for line_id, route in routes.items()} == {
+        "germline": [18.0, 18.0, 10.0, 10.0],
+        "tumor_only": [14.0, 14.0, 14.0, 14.0],
+        "somatic": [10.0, 10.0, 18.0, 18.0],
+    }
+    for route in routes.values():
+        assert route.convergence_plan_id is not None
+        assert route.convergence_owned_segment_ranks == (4, 1)
+        assert not {2, 3}.intersection(route.convergence_owned_segment_ranks)
 
 
 def test_convergence_plan_is_queryable_through_every_semantic_identity() -> None:
@@ -590,6 +610,13 @@ def test_seed41_right_entry_convergences_clear_sections_and_keep_endpoints() -> 
     )
 
     assert plans
+    opposing_merge_feeder = next(
+        member
+        for member in observed.plan.members
+        if (member.edge.source, member.edge.target, member.line_id)
+        == ("__junction_33", "__merge_11", "l0")
+    )
+    assert opposing_merge_feeder.family_id is RouteFamilyId.MERGE_ENTRY
     assert not routes_through_own_section_interior(
         graph, routes=observed.routes, offsets=offsets
     )
@@ -693,7 +720,7 @@ def test_target_section_orientations_use_one_convergence_model(
         ROOT / "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd",
     ),
 )
-def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> None:
+def test_planned_opening_turns_match_realised_allocations(path: Path) -> None:
     from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
     _graph, _offsets, _preflight, observed = _observe_after_settlement(path)
@@ -718,9 +745,19 @@ def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> N
         ]
         opening = _opening_fanout_descent(route)
         assert opening is not None
-        assert opening.x == pytest.approx(landing.opening_turn_coordinate)
-        assert tuple(route.points[opening.idx : opening.idx + 2]) == (
-            landing.opening_turn_segment
+        assert landing.opening_turn_segment is not None
+        expected = [list(point) for point in landing.opening_turn_segment]
+        for local_rank in range(2):
+            point_rank = opening.idx + local_rank
+            for (
+                segment_rank,
+                coordinate_rank,
+                coordinate,
+            ) in route.envelope_allocated_segments:
+                if segment_rank <= point_rank <= segment_rank + 1:
+                    expected[local_rank][coordinate_rank] = coordinate
+        assert tuple(route.points[opening.idx : opening.idx + 2]) == tuple(
+            tuple(point) for point in expected
         )
         assert opening.idx in route.convergence_owned_segment_ranks
 
@@ -1000,13 +1037,11 @@ def test_incomplete_semantic_membership_is_a_planning_error(
 def test_exit_turn_shared_channel_has_exact_whole_system_ownership() -> None:
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph, offset_step=10.0)
-    observed = observe_route_edges(
+    _render_plan, observed = build_observed_render_plan(
         graph,
-        station_offsets=offsets,
-        offset_step=10.0,
+        resolve_theme(None, graph),
     )
-    plans = observed.plan.convergence_plans
+    plans = observed.convergence_plans
 
     assert plans
     assert all(
@@ -1017,6 +1052,61 @@ def test_exit_turn_shared_channel_has_exact_whole_system_ownership() -> None:
         == {ownership.member_id for ownership in plan.endpoint_ownership}
         for plan in plans
     )
+
+
+@pytest.mark.parametrize(
+    ("axis", "points", "expected"),
+    (
+        (
+            DemandAxis.X,
+            [
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 20.0),
+                (20.0, 20.0),
+                (20.0, 40.0),
+                (30.0, 40.0),
+            ],
+            [
+                (0.0, 0.0),
+                (5.0, 0.0),
+                (5.0, 20.0),
+                (25.0, 20.0),
+                (25.0, 40.0),
+                (30.0, 40.0),
+            ],
+        ),
+        (
+            DemandAxis.Y,
+            [
+                (0.0, 0.0),
+                (0.0, 10.0),
+                (20.0, 10.0),
+                (20.0, 20.0),
+                (40.0, 20.0),
+                (40.0, 30.0),
+            ],
+            [
+                (0.0, 0.0),
+                (0.0, 5.0),
+                (20.0, 5.0),
+                (20.0, 25.0),
+                (40.0, 25.0),
+                (40.0, 30.0),
+            ],
+        ),
+    ),
+)
+def test_trunk_flank_extension_is_axis_generic(
+    axis: DemandAxis,
+    points: list[tuple[float, float]],
+    expected: list[tuple[float, float]],
+) -> None:
+    route = RoutedPath(Edge("source", "target", "line"), "line", points)
+
+    _extend_axis_segment_to_coordinates(route, 2, axis, (5.0, 25.0))
+
+    assert route.points == expected
 
 
 def test_runtime_guard_names_the_plan_member_and_broken_join() -> None:
