@@ -28,6 +28,10 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     graph_offset_step,
 )
+from nf_metro.layout.envelope_settlement import (
+    settle_route_envelopes,
+    settlement_pass_bound,
+)
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
@@ -41,17 +45,18 @@ from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     assert_render_header_clearance,
     assert_render_layout_invariants,
+    assert_reservations_are_settled,
     iter_opposing_line_overlaps,
     render_header_collision,
 )
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.route_plan import RoutePlan
+from nf_metro.layout.route_reservations import realise_route_reservations
 from nf_metro.layout.routing import (
     RoutedPath,
     apply_route_offsets,
     compute_station_offsets,
     observe_route_edges_centred,
-    route_edges_centred,
 )
 from nf_metro.layout.routing.corners import (
     curve_tangents,
@@ -544,10 +549,9 @@ def _build_render_plan_result(
     legend_position: str | None = None,
     chrome_css: bool = True,
     bare: bool = False,
-    observe_routes: bool = False,
     metrics_face: MetricsFace = MetricsFace.FALLBACK,
-) -> tuple[RenderPlan, RoutePlan | None]:
-    """Build a render plan and optionally observe its final routing pass."""
+) -> tuple[RenderPlan, RoutePlan]:
+    """Build a render plan alongside the routing observation that settled it."""
     scaled_theme = _scale_theme_strokes(
         _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
     )
@@ -567,7 +571,6 @@ def _build_render_plan_result(
                 legend_position=legend_position,
                 chrome_css=chrome_css,
                 bare=bare,
-                observe_routes=observe_routes,
             )
         except (CurveInvariantError, SectionHeaderClashError) as exc:
             reframed = _fold_threshold_error(graph)
@@ -635,10 +638,8 @@ def build_observed_render_plan(
         legend_position=legend_position,
         chrome_css=chrome_css,
         bare=bare,
-        observe_routes=True,
         metrics_face=metrics_face,
     )
-    assert route_plan is not None
     return ObservedRenderPlan(plan, route_plan)
 
 
@@ -726,13 +727,11 @@ def _settle_render_geometry(
     theme: Theme,
     offset_step: float,
     section_y_gap: float,
-    *,
-    observe_routes: bool = False,
 ) -> tuple[
     dict[tuple[str, str], float],
     list[RoutedPath],
     list[LabelPlacement],
-    RoutePlan | None,
+    RoutePlan,
 ]:
     """Route, place labels, and reconcile a header collision for the render.
 
@@ -745,6 +744,13 @@ def _settle_render_geometry(
     ``section_y_gap``, then re-settle so routes and labels track the shifted
     sections.  A smaller sub-``section_y_gap`` shortfall draws no overlap and is
     left as laid out.
+
+    Routing is observed so its ``RouteReservation`` ledger can drive
+    :func:`settle_route_envelopes`, which widens any row or column boundary
+    whose reserved corridor the settled envelopes left too narrow.  Settlement
+    runs last of the geometry steps, after label wrapping and the header
+    reconcile have taken their bites out of the gaps; a translation moves whole
+    rows and columns, so routes and labels are derived again from the result.
 
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
@@ -771,22 +777,22 @@ def _settle_render_geometry(
 
     def _route(
         station_offsets: dict[tuple[str, str], float],
-    ) -> tuple[list[RoutedPath], RoutePlan | None]:
-        if not observe_routes:
-            return (
-                route_edges_centred(
-                    graph,
-                    station_offsets=station_offsets,
-                    offset_step=offset_step,
-                ),
-                None,
-            )
+    ) -> tuple[list[RoutedPath], RoutePlan]:
         observation = observe_route_edges_centred(
             graph,
             station_offsets=station_offsets,
             offset_step=offset_step,
         )
         return observation.routes, observation.plan
+
+    def _resettle() -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
+        # The shift moved section-anchored geometry; refresh the bypass-label
+        # obstacle boxes (derived from station Ys, read by the router) so the
+        # re-route does not seat a bypass corner against a stale box.
+        graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
+        offsets = compute_station_offsets(graph, offset_step=offset_step)
+        moved_routes, moved_plan = _route(offsets)
+        return offsets, moved_routes, moved_plan
 
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets)
@@ -799,14 +805,21 @@ def _settle_render_geometry(
     labels = _place(station_offsets, routes)
     if render_header_collision(graph) and not graph.has_rail_sections:
         push_lower_rows_after_bbox_grow(graph, section_y_gap)
-        # The shift moved section-anchored geometry; refresh the bypass-label
-        # obstacle boxes (derived from station Ys, read by the router) so the
-        # re-route does not seat a bypass corner against a stale box.
-        graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
-        station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-        routes, route_plan = _route(station_offsets)
+        station_offsets, routes, route_plan = _resettle()
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
+
+    for _pass in range(settlement_pass_bound(graph)):
+        settlement = settle_route_envelopes(graph, route_plan)
+        if not settlement.translations:
+            break
+        station_offsets, routes, route_plan = _resettle()
+        labels = _place(station_offsets, routes)
+        assert_render_curve_invariants(graph, routes, station_offsets)
+    assert_reservations_are_settled(
+        graph, route_plan, settlement, strict=effective_strict
+    )
+
     assert_render_header_clearance(graph, strict=effective_strict)
     return station_offsets, routes, labels, route_plan
 
@@ -834,8 +847,7 @@ def _build_render_plan_scaled(
     legend_position: str | None,
     chrome_css: bool = True,
     bare: bool = False,
-    observe_routes: bool = False,
-) -> tuple[RenderPlan, RoutePlan | None]:
+) -> tuple[RenderPlan, RoutePlan]:
     """Finish render geometry on a private graph copy and freeze the result."""
     graph = _copy_graph_for_render(source_graph)
     effective_legend_position = (
@@ -851,7 +863,6 @@ def _build_render_plan_scaled(
         theme,
         offset_step,
         section_y_gap,
-        observe_routes=observe_routes,
     )
     line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
     edge_routes = sorted(
@@ -974,15 +985,12 @@ def _build_render_plan_scaled(
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
 
-    if route_plan is not None:
-        from nf_metro.layout.route_reservations import realise_route_reservations
-
-        route_plan = realise_route_reservations(
-            route_plan,
-            graph,
-            canvas_width=svg_width,
-            canvas_height=svg_height,
-        )
+    route_plan = realise_route_reservations(
+        route_plan,
+        graph,
+        canvas_width=svg_width,
+        canvas_height=svg_height,
+    )
 
     positive_fan = tb_positive_fan_sections(graph)
 

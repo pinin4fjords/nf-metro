@@ -100,6 +100,7 @@ from nf_metro.layout.phases.spacing import (
     _residual_label_overlaps,
 )
 from nf_metro.parser.model import (
+    LayoutGeometryWarning,
     LineSpread,
     MetroGraph,
     PermissiveGuardWarning,
@@ -117,6 +118,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from typing import Protocol
 
+    from nf_metro.layout.envelope_settlement import EnvelopeSettlement
+    from nf_metro.layout.route_plan import RoutePlan
     from nf_metro.layout.routing.common import RoutedPath
 
     class _HasMessage(Protocol):
@@ -6264,3 +6267,69 @@ def assert_render_header_clearance(graph: MetroGraph, *, strict: bool = False) -
     if strict:
         raise LayoutInvariantError(msg)
     warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+
+
+def assert_reservations_are_settled(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    settlement: EnvelopeSettlement,
+    *,
+    strict: bool = False,
+) -> None:
+    """Guard that no route is drawn through a corridor narrower than it claimed.
+
+    Runs on the settled geometry, once envelope settlement has widened every row
+    and column boundary it owns.  A deficit settlement already attributed to a
+    blocker outside its ownership -- typically a section spanning across the
+    boundary -- is reported and left to that blocker's owner.  A deficit with no
+    such attribution bounds a corridor settlement was free to widen, which is a
+    broken postcondition rather than a placement someone else owns, so the
+    strict path refuses to draw through it.
+    """
+    from nf_metro.layout.route_reservations import (
+        ColumnGapRegion,
+        RowGapRegion,
+        realise_reservation,
+    )
+
+    explained = {item.reservation_id for item in settlement.obstructions}
+    worst: tuple[float, str] | None = None
+    deferred: list[str] = []
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
+            continue
+        claimants = ", ".join(sorted(reservation.claimant_member_ids))
+        blockers = ", ".join(
+            sorted(realised.negative_blocker_ids + realised.positive_blocker_ids)
+        )
+        detail = (
+            f"{reservation.description} claimed by {claimants} spans "
+            f"columns {reservation.span.min_column}-{reservation.span.max_column} "
+            f"and rows {reservation.span.min_row}-{reservation.span.max_row}, "
+            f"requires {realised.required_width:.1f}px and has "
+            f"{realised.available_width:.1f}px between {blockers}"
+        )
+        if reservation.id in explained:
+            deferred.append(detail)
+        elif worst is None or realised.capacity_slack < worst[0]:
+            worst = (realised.capacity_slack, detail)
+    if worst is not None:
+        msg = (
+            "the settled layout draws a route through a corridor narrower than "
+            f"its reservation requires: {worst[1]}.  Every blocker bounding it "
+            "belongs to a row or column settlement translates, so the corridor "
+            "should have been widened to fit."
+        )
+        if strict:
+            raise LayoutInvariantError(msg)
+        warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+    for detail in deferred:
+        warnings.warn(
+            "a reserved corridor stays narrower than its claim because a "
+            f"blocker outside row and column settlement bounds it: {detail}",
+            category=LayoutGeometryWarning,
+            stacklevel=2,
+        )

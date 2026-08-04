@@ -1411,6 +1411,44 @@ in pipeline order.
   continuation ends at its owned endpoint, and every covered continuation names
   its carrier.
 
+## Post-layout render boundary: envelope settlement
+
+- **Purpose**: Give every reserved corridor the width its `RouteReservation`
+  requires, by translating whole grid rows and whole grid columns and nothing
+  else.
+- **Helpers**: `settle_route_envelopes` (`layout/envelope_settlement.py`),
+  driven from `_settle_render_geometry` in `render/svg.py`. Each pass
+  re-measures live geometry through `realise_reservation`.
+- **Precondition**: `compute_layout` has finished, routing has published the
+  reservation ledger, render-time label wrapping has taken its bbox growth, and
+  the header-collision reconcile has run. Local station geometry, section bbox
+  sizes, port anchors, plan frames, lane orders, and author pins are frozen.
+- **Allowed writes**: `Section.bbox_x` / `Section.bbox_y` and the `x` / `y` of
+  the stations and ports those sections own, all by one shared per-boundary
+  amount. Junctions live in inter-section space and are reproduced by routing.
+- **Postcondition**: Every row-gap and column-gap reservation whose far-side
+  blockers all belong to the translated band has non-negative capacity slack.
+  Any remaining deficit carries a `SettlementObstruction` naming the sections
+  that bound it from outside the translated band.
+- **Invariants preserved**: No row or column separation decreases. Section
+  sizes, a station's position within its section, plan-owned frames, lane
+  order, port sides, and author-pinned grid relationships are unchanged.
+- **Idempotence**: A second pass over settled geometry finds no positive
+  deficit and writes nothing, so running settlement twice is an exact
+  geometry no-op.
+- **Termination**: One pass visits each adjacent-index boundary once in
+  ascending order. Translating everything from boundary `b` onward widens `b`
+  by exactly that amount, leaves earlier boundaries' blockers stationary, and
+  moves later boundaries' blockers together, so boundaries do not interfere and
+  a pass is finite in the number of boundaries. A repeat pass is reachable only
+  when widening let the router admit a further line into a bundle, raising that
+  corridor's demand; `settlement_pass_bound` caps that escalation at the number
+  of lines the graph defines, beyond which no bundle can grow.
+- **Related tests**: `tests/test_envelope_settlement.py`, and
+  `assert_reservations_are_settled` in `layout/phases/guards.py`.
+- **Lifecycle:** invariant - the settled geometry satisfies every reservation
+  settlement owns, and re-running it changes nothing.
+
 ## Cross-stage contract: semantic fan planning
 
 - **Purpose**: Give one immutable owner to a complete authored fan or diamond,

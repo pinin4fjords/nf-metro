@@ -1687,6 +1687,22 @@ def _realise_one(
     )
 
 
+def realise_reservation(
+    graph: MetroGraph,
+    reservation: RouteReservation,
+    *,
+    canvas_width: float | None = None,
+    canvas_height: float | None = None,
+) -> RealisedRouteReservation | None:
+    """Measure one reservation against *graph* as it currently stands.
+
+    Callers that settle geometry re-measure between writes, so the measurement
+    has to read live section envelopes rather than a frozen realisation.
+    Returns ``None`` for a canvas-side corridor when no canvas bounds are known.
+    """
+    return _realise_one(graph, reservation, canvas_width, canvas_height)
+
+
 def _realise_all(
     graph: MetroGraph,
     reservations: tuple[RouteReservation, ...],

@@ -263,7 +263,36 @@ from creating a false deficit without erasing a collapsed topology corridor.
 Negative available width is valid evidence. It means the final blocker
 envelopes overlap. A negative side slack means the route lies too close to, or
 past, one boundary. Observation retains both values and emits an attributed
-diagnostic; it does not move any geometry or approve a fallback route.
+diagnostic; observation itself moves no geometry.
+
+## Envelope settlement
+
+`settle_route_envelopes` turns a negative capacity slack into a translation.
+It runs at the render boundary, after label wrapping and the header reconcile
+have taken their bites out of the gaps, and it owns exactly one kind of write:
+the global offset of a grid row or a grid column, applied to whole sections
+with the stations and ports they contain. Section sizes, a station's place
+inside its section, plan frames, lane order, port sides, and author pins are
+all frozen inputs.
+
+Each pass visits every adjacent-index boundary once in ascending order.
+Translating everything from boundary `b` onward widens `b` by exactly that
+amount, leaves the blockers before `b` stationary, and moves the blockers on
+both sides of any later boundary together. Boundaries therefore do not
+interfere, no separation ever decreases, and the pass is finite in the number
+of boundaries rather than iterating toward a fixpoint. A second pass becomes
+reachable only when the extra width let the router admit a further line into a
+bundle crossing that corridor, raising its demand; `settlement_pass_bound`
+bounds that escalation by the number of lines the graph defines.
+
+Settlement declines a deficit whose far side is bounded by a section outside
+the band it would translate -- typically a row-spanning section straddling the
+corridor. Widening the boundary would add whitespace without widening the
+corridor, so it publishes a `SettlementObstruction` naming those sections
+instead. `assert_reservations_are_settled` reports those as attributed
+warnings and fails the strict path only for a deficit with no such
+attribution, which would mean a corridor settlement was free to widen and did
+not.
 
 The symbolic record gets its complete span from authored connector endpoints,
 including connectors rewritten through synthetic fan and merge nodes. Final
@@ -287,7 +316,7 @@ same reference and demand ledger:
 | Exit-turn planner                                           | Implemented | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes               |
 | [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Implemented | Fan and diamond centrelines, branch transition runways, and hand-off space              |
 | [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Implemented | Convergence trunk extent, feeder landing sequence, and approach space                   |
-| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Planned     | Final row and column allocation, realising demands through monotone envelope settlement |
+| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Implemented | Final row and column allocation, realising demands through monotone envelope settlement |
 | [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) | Planned     | Consolidate plan-driven emission and retire displaced compatibility logic               |
 
 Each planner migrates a complete semantic group. If one member is unsupported,
@@ -299,12 +328,16 @@ The convergence compatibility path is bounded to allocation capabilities that
 the current planner cannot settle atomically: opposing fan openings, shared fan
 channels that require one cross-convergence decision, chained same-line trunks,
 and collisions with an unowned endpoint bundle in the same route system.
-[#1660](https://github.com/seqeralabs/nf-metro/issues/1660) owns the shared row
-and column settlement needed to absorb those cases. Once that allocation is
-available, [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) owns
-removal of the displaced compatibility emission and repair machinery. A
-compatibility diagnostic therefore records a specific missing capability,
-rather than acting as an open-ended fallback for an unfamiliar topology.
+
+Envelope settlement leaves every one of those systems' corridors at or above
+its required width, so what still holds them on the compatibility path is a
+channel decision inside an adequate corridor rather than a corridor that is too
+narrow. That is the evidence assigning them to
+[#1658](https://github.com/seqeralabs/nf-metro/issues/1658), which owns
+plan-driven emission and the removal of the displaced compatibility and repair
+machinery. A compatibility diagnostic therefore records a specific missing
+capability, rather than acting as an open-ended fallback for an unfamiliar
+topology.
 
 ## Canonical order
 
