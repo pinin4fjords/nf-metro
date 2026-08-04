@@ -2,8 +2,8 @@
 
 Each directive maps a ``key: value`` line onto the :class:`MetroGraph` (or the
 enclosing section). Graph-wide directives are routed through a registry; the
-section-scoped (entry/exit/direction) and file/files/dir icon directives need
-extra context and are handled by :func:`_apply_directive`.
+section-scoped (entry/exit/direction/number) and file/files/dir icon directives
+need extra context and are handled by :func:`_apply_directive`.
 """
 
 from __future__ import annotations
@@ -506,7 +506,7 @@ def _make_layout_option_handler(
 # Graph-wide directives, keyed by exact name. The simple scalar/bool/enum
 # knobs are generated from the LAYOUT_OPTIONS registry (shared with the CLI);
 # the bespoke handlers below carry grammar the generic registry can't express.
-# Section-scoped (entry/exit/direction) and icon (file/files/dir) keys are
+# Section-scoped (entry/exit/direction/number) and icon (file/files/dir) keys are
 # dispatched separately in _apply_directive / _apply_scoped_directive.
 _GLOBAL_DIRECTIVE_HANDLERS: dict[str, Callable[[str, MetroGraph], None]] = {
     opt.name: _make_layout_option_handler(opt) for opt in LAYOUT_OPTIONS
@@ -532,13 +532,13 @@ _GLOBAL_DIRECTIVE_HANDLERS.update(
 )
 
 # Directives that act on the enclosing subgraph rather than the whole graph.
-_SCOPED_DIRECTIVES = ("entry", "exit", "direction")
+_SCOPED_DIRECTIVES = ("entry", "exit", "direction", "number")
 
 
 def _apply_scoped_directive(
     key: str, value: str, graph: MetroGraph, section_id: str | None
 ) -> None:
-    """Apply a section-scoped directive (entry/exit/direction).
+    """Apply a section-scoped directive (entry/exit/direction/number).
 
     These only mean anything inside a subgraph; outside one they are warned
     about and ignored.
@@ -552,6 +552,16 @@ def _apply_scoped_directive(
             graph.layout_provenance.record_authored_direction(section_id, direction)
         else:
             _warn_malformed("direction", value, "LR/RL/TB/BT")
+    elif key == "number":
+        try:
+            number = int(value)
+        except ValueError:
+            _warn_malformed("number", value, "a positive integer")
+            return
+        if number < 1:
+            _warn_malformed("number", value, "a positive integer")
+            return
+        graph.sections[section_id].number_override = number
     else:
         _parse_port_hint(value, graph, section_id, is_entry=key == "entry")
 
@@ -575,3 +585,20 @@ def _apply_directive(
         handler(value, graph)
     else:
         _warn_directive(key, "unknown directive; ignoring")
+
+
+def _deduplicate_section_number_overrides(graph: MetroGraph) -> None:
+    """Keep the first section assigned each authored badge number."""
+    owners: dict[int, str] = {}
+    for section in graph.sections.values():
+        number = section.number_override
+        if number is None:
+            continue
+        if conflict := owners.get(number):
+            _warn_directive(
+                "number",
+                f"{number} is already assigned to section {conflict!r}; ignoring",
+            )
+            section.number_override = None
+        else:
+            owners[number] = section.id

@@ -356,6 +356,7 @@ graph LR
 - `%%metro entry: <side> | <line_ids>` - which lines enter and from which side (`left`, `right`, `top`, `bottom`)
 - `%%metro exit: <side> | <line_ids>` - which lines exit and to which side
 - `%%metro direction: <dir>` - section flow direction: `LR` (default), `RL` (right-to-left), or `TB` (top-to-bottom)
+- `%%metro number: <positive_integer>` - override the section's number badge
 
 #### Stations and edges
 
@@ -405,6 +406,7 @@ Edges between stations in different sections go outside all `subgraph`/`end` blo
 | `%%metro entry: <side> \| <lines>`                               | Section          | Entry port hint                                                                                                                                                                                  |
 | `%%metro exit: <side> \| <lines>`                                | Section          | Exit port hint                                                                                                                                                                                   |
 | `%%metro direction: <dir>`                                       | Section          | Flow direction: `LR`, `RL`, `TB`                                                                                                                                                                 |
+| `%%metro number: <positive_integer>`                             | Section          | Override the section's number badge                                                                                                                                                              |
 
 ## Live progress
 

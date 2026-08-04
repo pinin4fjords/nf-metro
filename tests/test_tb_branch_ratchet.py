@@ -14,7 +14,7 @@ from pathlib import Path
 _LAYOUT_DIR = Path(__file__).resolve().parents[1] / "src/nf_metro/layout"
 
 # Lower this (never raise it) when a heuristic migrates onto AxisFrame.
-_BASELINE_TB_BRANCHES = 20
+_BASELINE_TB_BRANCHES = 19
 
 
 def _count_in_file(path: Path) -> int:
@@ -43,7 +43,7 @@ def test_no_new_tb_branches() -> None:
 
     # Guard against the counter silently matching nothing (modules moved, AST
     # walk broken): the engine genuinely carries dozens of TB references today.
-    assert total >= 20, (
+    assert total >= 15, (
         f"expected many TB references, found {total} - the counter may be "
         "broken or the layout package restructured"
     )

@@ -461,6 +461,50 @@ def test_section_numbering():
     assert graph.sections["third"].number == 3
 
 
+def test_section_number_override():
+    text = (
+        "graph LR\n"
+        "    subgraph first [First]\n"
+        "        %%metro number: 7\n"
+        "        a[A]\n"
+        "    end\n"
+    )
+    graph = parse_metro_mermaid(text)
+    assert graph.sections["first"].number_override == 7
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "one"])
+def test_invalid_section_number_override_is_ignored(value):
+    text = (
+        "graph LR\n"
+        "    subgraph first [First]\n"
+        f"        %%metro number: {value}\n"
+        "        a[A]\n"
+        "    end\n"
+    )
+    with pytest.warns(UserWarning, match="expected a positive integer"):
+        graph = parse_metro_mermaid(text)
+    assert graph.sections["first"].number_override is None
+
+
+def test_duplicate_section_number_override_is_ignored():
+    text = (
+        "graph LR\n"
+        "    subgraph first [First]\n"
+        "        %%metro number: 2\n"
+        "        a[A]\n"
+        "    end\n"
+        "    subgraph second [Second]\n"
+        "        %%metro number: 2\n"
+        "        b[B]\n"
+        "    end\n"
+    )
+    with pytest.warns(UserWarning, match="already assigned to section 'first'"):
+        graph = parse_metro_mermaid(text)
+    assert graph.sections["first"].number_override == 2
+    assert graph.sections["second"].number_override is None
+
+
 def test_subgraph_without_display_name():
     """Subgraph without [display name] uses the id as name."""
     text = "graph LR\n    subgraph mysection\n        a[A]\n    end\n"

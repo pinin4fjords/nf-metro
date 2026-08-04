@@ -26,7 +26,10 @@ from nf_metro.parser.commitments import (
     LayoutCommitmentOverlay,
     apply_layout_commitment_overlay,
 )
-from nf_metro.parser.directives import _apply_directive
+from nf_metro.parser.directives import (
+    _apply_directive,
+    _deduplicate_section_number_overrides,
+)
 from nf_metro.parser.grammar import (
     _Comment,
     _Directive,
@@ -284,6 +287,7 @@ def _finalize_graph(
 
     if graph.sections:
         _remove_empty_sections(graph)
+        _deduplicate_section_number_overrides(graph)
 
     # Re-check: _remove_empty_sections may have emptied graph.sections.
     if graph.sections:

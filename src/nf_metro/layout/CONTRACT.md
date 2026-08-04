@@ -387,16 +387,20 @@ in pipeline order.
   non-overlap) holds at the final boundary.
 
 ### Stage 1.4: renumber sections
-- **Purpose**: Renumber sections by visual reading order (sweep, col,
-  row) so legend / debug numbering follows the eye.
-- **Helper**: `_renumber_sections_by_grid` (`phases/canvas.py`).
+- **Purpose**: Renumber sections by connected route continuity, using visual
+  lanes to choose between alternative continuations.
+- **Helper**: `_renumber_sections_by_route` (`phases/canvas.py`).
 - **Precondition**: Section grid positions and directions finalised.
-- **Postcondition**: `section.display_number` reflects sweep-major,
-  column-then-row order.
+- **Postcondition**: Each disconnected flow is numbered completely before the
+  next. The nearest connected section on the current lane is preferred;
+  parallel branch starts remain together; joins wait for aligned or independent
+  predecessor routes. A secondary cross-row route may rejoin a section already
+  numbered on a dominant row. Authored numbers are preserved, and automatic
+  sections take the lowest unused positive numbers.
 - **Invariants preserved**: Section IDs, station coords, bboxes,
   edges. Pure metadata pass.
-- **Related tests**: none directly (cosmetic / debug-only).
-- **Lifecycle:** invariant - `display_number` metadata is final
+- **Related tests**: `tests/test_section_numbering.py`.
+- **Lifecycle:** invariant - `number` metadata is final
   (cosmetic, never recomputed).
 
 ### Stage 1.5: offset overshoot correction

@@ -143,8 +143,12 @@ system, then place the sections on the global grid (still local-coord).
   grid so they agree on pitch and slot count.
 - **Stage 1.3**: Place sections on the canvas grid by topological
   layering of the section DAG.
-- **Stage 1.4**: Renumber sections by visual reading order (column
-  first, then row) so the legend numbering follows the eye.
+- **Stage 1.4**: Renumber sections by connected route continuity. Prefer the
+  nearest connected section on the current visual lane, keep parallel branch
+  starts together, and complete independent merge inputs before their join. A
+  dominant row may finish before a secondary route rejoins it. Preserve any
+  authored `%%metro number:` values and fill automatic sections with the lowest
+  unused positive numbers.
 - **Stage 1.5**: Grow `x_offset` / `y_offset` if section local extents
   overshoot the canvas origin.
 

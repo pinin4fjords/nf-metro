@@ -187,7 +187,7 @@ name** and mapping to a `(value, graph) -> None` handler. Exact-key
 lookup means handler order is irrelevant and a key that is a prefix of
 another (`legend` vs `legend_combo`, `logo` vs `logo_scale`) cannot
 shadow it. Three families are dispatched separately because they need
-more than the value alone: `entry` / `exit` / `direction` need the
+more than the value alone: `entry` / `exit` / `direction` / `number` need the
 enclosing section, and the icon keys `file` / `files` / `dir` need the
 key itself to choose the icon type. A key matching none of these is
 ignored with a `UserWarning`.
@@ -212,6 +212,7 @@ The directives `_apply_directive` recognises:
 | `line_order:`                                                           | `definition` or `span` line ordering                                                            |
 | `entry:` / `exit:` (inside a subgraph)                                  | stored as port **hints** on the section                                                         |
 | `direction:`                                                            | section flow `LR` / `RL` / `TB`                                                                 |
+| `number:` (inside a subgraph)                                           | pin the section's positive-integer number badge                                                 |
 | `grid:`                                                                 | manual section grid placement                                                                   |
 | `compact_offsets:` / `center_ports:`                                    | bundle layout toggles                                                                           |
 | `diamond_style:`                                                        | fork-join layout `straight` / `symmetric`                                                       |

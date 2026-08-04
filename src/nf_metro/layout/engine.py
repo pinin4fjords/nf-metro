@@ -100,7 +100,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     refit_tops_after_entry_resnap,
 )
 from nf_metro.layout.phases.canvas import (  # noqa: F401
-    _renumber_sections_by_grid,
+    _renumber_sections_by_route,
     _shift_graph_into_canvas,
     _translate_graph_y,
 )
@@ -1406,8 +1406,8 @@ def _compute_section_layout(
         _guard_independent_components_disjoint(graph, "after Stage 1.3")
         _guard_multi_section_cell_packed(graph, "after Stage 1.3")
 
-    # Stage 1.4: Renumber sections by visual reading order (row, col)
-    _renumber_sections_by_grid(graph)
+    # Stage 1.4: Renumber sections along connected visual routes
+    _renumber_sections_by_route(graph)
     _snap(graph, "1.4")
 
     # Stage 1.5: Adapt x/y_offset for left/top overshoot.
