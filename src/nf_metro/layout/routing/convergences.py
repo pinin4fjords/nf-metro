@@ -8,7 +8,12 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TypeAlias
 
-from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_TOLERANCE,
+    EDGE_TO_BUNDLE_CLEARANCE,
+    MIN_CORRIDOR_Y_OVERLAP,
+)
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
     ConvergenceContinuation,
@@ -46,10 +51,14 @@ from nf_metro.layout.route_plan import (
 )
 from nf_metro.layout.routing.common import (
     Direction,
+    GapLookupGeometry,
     HTrunkSeg,
     OffsetRegime,
     RoutedPath,
     apply_route_offsets,
+    column_gap_edges,
+    gap_lo_for_x,
+    gap_lookup_geometry,
     iter_horizontal_trunks,
 )
 from nf_metro.layout.routing.context import (
@@ -1155,8 +1164,13 @@ def _move_trunk_flank(
                 else 0.0
             ),
         )
-        runway = abs(join_point[0] - approach_start[0]) + abs(
-            join_point[1] - approach_start[1]
+        # The runway is the length of the approach run, so it is measured along
+        # the approach axis alone: a flank that travels perpendicular to that
+        # axis carries the whole run sideways without lengthening it.
+        runway = (
+            abs(join_point[0] - approach_start[0])
+            if landing.approach_axis is DemandAxis.X
+            else abs(join_point[1] - approach_start[1])
         )
         opening = landing.opening_turn_coordinate
         opening_segment = landing.opening_turn_segment
@@ -1262,6 +1276,243 @@ def _settle_landing_trunk_flanks(
                     trunk_plan = moved
                     axis = moved.trunk_axis
                     assert axis is not None
+    return tuple(settled)
+
+
+@dataclass(frozen=True)
+class _PlanGapChannel:
+    """One vertical leg a convergence plan pins inside an inter-column gap.
+
+    ``flank_rank`` names the trunk flank whose column carries the leg, so a
+    settling move knows which :func:`_move_trunk_flank` call re-seats the whole
+    stack standing on it; ``None`` marks a leg on a column no flank owns, which
+    only ever acts as an obstacle.
+    """
+
+    flank_rank: int | None
+    coordinate: float
+    y_lo: float
+    y_hi: float
+    down: bool
+    gap: tuple[int, int | None]
+
+
+def _plan_gap_channels(
+    plan: ConvergencePlan,
+    graph: MetroGraph,
+    lookup: GapLookupGeometry,
+) -> tuple[_PlanGapChannel, ...]:
+    """Every vertical leg *plan* seats inside an inter-column gap.
+
+    A plan pins two families of vertical geometry: the flanks its trunk turns
+    onto at each end, and the opening turn each landing descends (or climbs)
+    before it meets the trunk.  Both are frozen before the post-routing gap
+    passes run, so they are the plan's whole footprint in a gap.
+    """
+    axis = plan.trunk_axis
+    if axis is None or axis.axis is not DemandAxis.X:
+        return ()
+    trunk = _trunk_segments(axis)
+    spans: list[tuple[int | None, float, float, float]] = []
+    flank_columns: dict[int, float] = {}
+    for flank_rank in (1, 3):
+        (start_x, start_y), (end_x, end_y) = trunk[flank_rank]
+        if (
+            abs(end_x - start_x) > COORD_TOLERANCE
+            or abs(end_y - start_y) <= COORD_TOLERANCE
+        ):
+            continue
+        flank_columns[flank_rank] = start_x
+        spans.append((flank_rank, start_x, start_y, end_y))
+    for landing in plan.landings:
+        segment = landing.opening_turn_segment
+        if segment is None:
+            continue
+        (start_x, start_y), (_end_x, end_y) = segment
+        carrier = next(
+            (
+                rank
+                for rank, column in flank_columns.items()
+                if abs(column - start_x) <= COORD_TOLERANCE
+            ),
+            None,
+        )
+        spans.append((carrier, start_x, start_y, end_y))
+    channels: list[_PlanGapChannel] = []
+    for carrier_rank, x, start_y, end_y in spans:
+        y_lo, y_hi = sorted((start_y, end_y))
+        gap = gap_lo_for_x(graph, x, y_lo, y_hi, lookup=lookup)
+        if gap is None:
+            continue
+        channels.append(
+            _PlanGapChannel(carrier_rank, x, y_lo, y_hi, end_y > start_y, gap)
+        )
+    return tuple(channels)
+
+
+def _gap_channels_crowd(first: _PlanGapChannel, second: _PlanGapChannel) -> bool:
+    """Whether two counter-running legs share one corridor below the bundle floor."""
+    return (
+        first.gap == second.gap
+        and first.down is not second.down
+        and min(first.y_hi, second.y_hi) - max(first.y_lo, second.y_lo)
+        > MIN_CORRIDOR_Y_OVERLAP
+        and abs(first.coordinate - second.coordinate)
+        < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+    )
+
+
+def _flank_lane_coordinate(
+    plan: ConvergencePlan,
+    flank_rank: int,
+    column: float,
+    obstacles: tuple[_PlanGapChannel, ...],
+    graph: MetroGraph,
+    lookup: GapLookupGeometry,
+    curve_radius: float,
+) -> float | None:
+    """Nearest column for *flank_rank* that clears every counter-running obstacle.
+
+    Candidates sit a bundle clearance either side of each obstacle; the chosen
+    one keeps the whole stack standing on the flank inside its gap's usable band,
+    leaves the flank a full corner runway to its endpoint, and re-seats every leg
+    that column carried so nothing is orphaned at the old column.
+    """
+    axis = plan.trunk_axis
+    assert axis is not None
+    # Seating the primary trunk member's opening turn carries its whole tail
+    # along, so a flank sharing that column would drag the member off the
+    # endpoint the plan pins it to. That flank is out of this pass's reach.
+    if any(
+        landing.member_id == plan.primary_trunk_member_id
+        and landing.opening_turn_coordinate is not None
+        and abs(landing.opening_turn_coordinate - column) <= COORD_TOLERANCE
+        for landing in plan.landings
+    ):
+        return None
+    endpoint = (
+        axis.source_endpoint_coordinate
+        if flank_rank == 1
+        else axis.target_endpoint_coordinate
+    )
+    if endpoint is None or abs(endpoint - column) <= curve_radius:
+        return None
+    toward_endpoint = 1.0 if endpoint > column else -1.0
+    # The trunk keeps every join it already carries, so the flank may not slide
+    # back over one: a landing needs its corner's runway along the trunk too.
+    trunk_side = [
+        point[0]
+        for rank, segment in enumerate(_trunk_segments(axis))
+        if rank != flank_rank
+        for point in segment
+    ]
+    trunk_side += [
+        landing.join_point[0]
+        for landing in plan.landings
+        if abs(landing.join_point[1] - axis.coordinate) <= COORD_TOLERANCE
+    ]
+
+    def feasible(candidate: float) -> bool:
+        if (endpoint - candidate) * toward_endpoint <= curve_radius:
+            return False
+        if any(
+            (candidate - other) * toward_endpoint <= curve_radius
+            for other in trunk_side
+            if (column - other) * toward_endpoint > curve_radius
+        ):
+            return False
+        moved = _move_trunk_flank(plan, flank_rank, candidate)
+        seated = _plan_gap_channels(moved, graph, lookup)
+        if any(
+            abs(channel.coordinate - column) <= COORD_TOLERANCE for channel in seated
+        ):
+            return False
+        for channel in seated:
+            if channel.flank_rank != flank_rank:
+                continue
+            gap_left, gap_right = column_gap_edges(
+                graph, channel.gap[0], channel.gap[0] + 1, row=channel.gap[1]
+            )
+            usable_left = gap_left + EDGE_TO_BUNDLE_CLEARANCE
+            usable_right = gap_right - EDGE_TO_BUNDLE_CLEARANCE
+            if (
+                gap_right <= gap_left
+                or channel.coordinate < usable_left - COORD_TOLERANCE
+                or channel.coordinate > usable_right + COORD_TOLERANCE
+            ):
+                return False
+            if any(_gap_channels_crowd(channel, obstacle) for obstacle in obstacles):
+                return False
+        return True
+
+    candidates = sorted(
+        {
+            obstacle.coordinate + sign * BUNDLE_TO_BUNDLE_CLEARANCE
+            for obstacle in obstacles
+            for sign in (-1.0, 1.0)
+        },
+        key=lambda candidate: (abs(candidate - column), candidate),
+    )
+    return next((candidate for candidate in candidates if feasible(candidate)), None)
+
+
+def _settle_opposing_gap_flanks(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> tuple[ConvergencePlan, ...]:
+    """Lane counter-running flank columns that share one inter-column gap.
+
+    Each convergence plan reads its flank column from its own trial route, so two
+    systems whose trunks turn into the same gap toward different entry ports both
+    land near the middle of it and run opposite ways along one column.  The
+    post-routing gap passes cannot lane them apart: a planned flank owns its
+    geometry, so those passes treat it as immovable.  The flank column is a plan
+    decision, so lane it here -- plans settle in order, and a later plan's flank
+    steps to the nearest column giving every earlier leg the bundle clearance.
+    """
+    if len(plans) < 2:
+        return plans
+    settled = list(plans)
+    lookup = gap_lookup_geometry(graph)
+    # Each plan's channels are read once it has settled and never recomputed, so
+    # a plan already past in this order contributes its obstacles as a constant.
+    resident: list[tuple[frozenset[str], tuple[_PlanGapChannel, ...]]] = []
+    for plan_rank, plan in enumerate(plans):
+        lines = frozenset(plan.line_ids)
+        if plan.trunk_axis is None or plan.trunk_axis.axis is not DemandAxis.X:
+            continue
+        obstacles = tuple(
+            channel
+            for earlier_lines, channels in resident
+            if not earlier_lines & lines
+            for channel in channels
+        )
+        channels = _plan_gap_channels(plan, graph, lookup)
+        for flank_rank in (1, 3):
+            seated = [
+                channel for channel in channels if channel.flank_rank == flank_rank
+            ]
+            if not seated or not any(
+                _gap_channels_crowd(channel, obstacle)
+                for channel in seated
+                for obstacle in obstacles
+            ):
+                continue
+            coordinate = _flank_lane_coordinate(
+                settled[plan_rank],
+                flank_rank,
+                seated[0].coordinate,
+                obstacles,
+                graph,
+                lookup,
+                curve_radius,
+            )
+            if coordinate is None:
+                continue
+            settled[plan_rank] = _move_trunk_flank(
+                settled[plan_rank], flank_rank, coordinate
+            )
+            channels = _plan_gap_channels(settled[plan_rank], graph, lookup)
+        resident.append((lines, channels))
     return tuple(settled)
 
 
@@ -1630,6 +1881,9 @@ def build_convergence_plan_execution(
                 for view, membership in zip(views, memberships, strict=True)
             )
             system_plans = _settle_landing_trunk_flanks(
+                system_plans, graph, ctx.curve_radius
+            )
+            system_plans = _settle_opposing_gap_flanks(
                 system_plans, graph, ctx.curve_radius
             )
             conflict_reason = _system_conflict_reason(
