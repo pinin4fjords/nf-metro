@@ -1458,7 +1458,17 @@ in pipeline order.
   fixpoint search over a moving constraint set with no convergence argument.
   A demand only the re-routed geometry reveals is reported by the closing
   guard, not chased.
-- **Related tests**: `tests/test_envelope_settlement.py`, and
+- **Consumed by**: the re-route settlement triggers. `_settle_render_geometry`
+  hands the pre-settlement ledger back to `observe_route_edges_centred`, which
+  builds `ReservedRowBands` (`layout/routing/reserved_bands.py`) by re-measuring
+  each row-gap reservation on the settled geometry.
+  `_center_inter_row_channel` places a claimed channel inside that band rather
+  than deriving one from the row edges, and a published band always holds a
+  channel, so a claimed corridor cannot take the narrow-gap fallback. A
+  boundary whose claims intersect to nothing, and every gap the ledger never
+  reached, keep the row-edge derivation.
+- **Related tests**: `tests/test_envelope_settlement.py`,
+  `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation
   settlement owns, and re-running it changes nothing.

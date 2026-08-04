@@ -1043,6 +1043,18 @@
     "note": "_line_rail_y is only ever called with a real station id (on_rail.id, edge.source/target, or a sibling edge endpoint), all of which exist in graph.stations - the route loop pre-filters None endpoints at the src/tgt guard. The None arm is a contract guard no render-path call reaches.",
     "status": "defensive"
   },
+  "reserved_bands.py::if lower_row is None:::#1": {
+    "note": "Optional-row convenience for callers carrying an unresolved grid row (_left_exit_wrap_over_top_y takes tgt_row: int | None). Such a caller returns before it needs a band -- with no target row there is no gap above it to measure, so the wrap is rejected first -- leaving this arm a type-level accommodation no topology reaches.",
+    "status": "defensive"
+  },
+  "reserved_bands.py::if realised is None:::#1": {
+    "note": "realise_reservation returns None only for a canvas-side corridor measured without canvas bounds; this loop has already narrowed to RowGapRegion claims, which always measure. The arm satisfies the optional return type rather than a reachable state.",
+    "status": "defensive"
+  },
+  "reserved_bands.py::if self.hi < self.lo - COORD_TOLERANCE:::#1": {
+    "note": "The invariant the router relies on: a band handed to _center_inter_row_channel always holds a channel, so the narrow-gap fallback cannot be reached for a claimed corridor. build_reserved_row_bands filters an empty intersection out before constructing a band, so the raise guards direct construction only.",
+    "status": "defensive"
+  },
   "reversal.py::elif src.is_port:::#1": {
     "note": "Edge feeding a LEFT/RIGHT entry port whose source is not a junction; src is then always an exit port (is_port=True), because resolved chains feed entry ports only from exit ports or junctions. The elif is always true, so the implicit fall-through to the loop (->223) is a structural-contract guard no valid topology reaches.",
     "status": "defensive"

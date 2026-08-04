@@ -29,6 +29,7 @@ from nf_metro.layout.route_topology import (
     convergence_junction_ids,
     merge_fanout_junction_ids,
 )
+from nf_metro.layout.routing.reserved_bands import ReservedBand, ReservedRowBands
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 
@@ -1825,6 +1826,7 @@ def bypass_bottom_y(
     src_row: int | None = None,
     cross_row: bool = False,
     tgt_row: int | None = None,
+    reserved: ReservedRowBands | None = None,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
@@ -1856,7 +1858,11 @@ def bypass_bottom_y(
             # and loop back up to the entry port).
             upper_bottom = row_bottom_edge(graph, tgt_row - 1, default=0.0)
             lower_top = row_top_edge(graph, tgt_row, default=upper_bottom)
-            return _center_inter_row_channel(upper_bottom, lower_top)
+            return _center_inter_row_channel(
+                upper_bottom,
+                lower_top,
+                reserved=None if reserved is None else reserved.at(tgt_row),
+            )
         # Route below ALL sections in the column range.
         all_in_range = [
             s
@@ -2091,6 +2097,7 @@ def inter_row_channel_y(
     dy: float,
     max_r: float,
     offset: float = 0.0,
+    reserved: ReservedRowBands | None = None,
 ) -> float:
     """Compute Y for a horizontal channel in an inter-row gap.
 
@@ -2121,7 +2128,14 @@ def inter_row_channel_y(
             else:
                 upper_bottom = row_bottom_edge(graph, tgt_row, default=ty)
                 lower_top = row_top_edge(graph, src_row, default=sy)
-            return _center_inter_row_channel(upper_bottom, lower_top, offset)
+            return _center_inter_row_channel(
+                upper_bottom,
+                lower_top,
+                offset,
+                reserved=(
+                    None if reserved is None else reserved.at(max(src_row, tgt_row))
+                ),
+            )
 
         # Multi-row crossing: an intervening row sits between source and
         # target.  Keep the legacy midpoint so ``_route_around_section_below``
@@ -2209,11 +2223,24 @@ def merge_fanout_pivot_reference(
 
 
 def _center_inter_row_channel(
-    upper_bottom: float, lower_top: float, offset: float = 0.0
+    upper_bottom: float,
+    lower_top: float,
+    offset: float = 0.0,
+    *,
+    reserved: ReservedBand | None = None,
 ) -> float:
     """Y for a horizontal channel in the gap between two stacked rows.
 
-    The channel is centred in the band that keeps
+    A *reserved* band is the allocation the corridor's own
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` realises,
+    already carrying its side clearances.  It wins outright: the reservation
+    measured the blockers that actually bound this corridor over its declared
+    span, whereas ``upper_bottom`` / ``lower_top`` are whichever row edges the
+    caller had to hand.  Because a realised band is never narrower than the
+    bundle it was reserved for, the narrow-gap fallback below is unreachable
+    for a corridor that owns one.
+
+    Without a reservation the channel is centred in the band that keeps
     :data:`INTER_ROW_EDGE_CLEARANCE` above the bbox bottom of the row
     above and :data:`INTER_ROW_HEADER_CLEARANCE` above the row below --
     the latter clears the *header badge* (numbered circle + label) rather
@@ -2228,6 +2255,8 @@ def _center_inter_row_channel(
     too-narrow band the stagger is applied unclamped so co-travelling lines
     stay distinct rather than collapsing onto one Y.
     """
+    if reserved is not None:
+        return reserved.place(offset)
     lo = upper_bottom + INTER_ROW_EDGE_CLEARANCE
     hi = lower_top - INTER_ROW_HEADER_CLEARANCE
     if _inter_row_band_fits(upper_bottom, lower_top):
