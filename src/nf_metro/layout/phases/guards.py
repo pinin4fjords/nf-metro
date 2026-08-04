@@ -6279,22 +6279,38 @@ def assert_reservations_are_settled(
     """Guard that no route is drawn through a corridor narrower than it claimed.
 
     Runs on the settled geometry, once envelope settlement has widened every row
-    and column boundary it owns.  A deficit settlement already attributed to a
-    blocker outside its ownership -- typically a section spanning across the
-    boundary -- is reported and left to that blocker's owner.  A deficit with no
-    such attribution bounds a corridor settlement was free to widen, which is a
-    broken postcondition rather than a placement someone else owns, so the
-    strict path refuses to draw through it.
+    and column boundary it owns.  A route drawn through a corridor narrower than
+    its reservation requires is a violated hard clearance, so the strict path
+    refuses it and names the claimant, the corridor span, the blockers, and both
+    widths.  That holds whether the corridor was one settlement could have
+    widened (a broken postcondition) or one pinned by a section outside the band
+    it translates (an arrangement no offset can satisfy) -- rendering through it
+    is wrong either way.
+
+    The exception is a claim that does not describe a corridor at all: when
+    every section across the span crosses the boundary rather than bounding it,
+    the measured far side lands ahead of the near side.  There is no gap to
+    allocate and no arrangement to reject, so that is reported as a ledger
+    coherence problem rather than failing a map over it.
     """
+    from nf_metro.layout.envelope_settlement import ObstructionKind
     from nf_metro.layout.route_reservations import (
         ColumnGapRegion,
         RowGapRegion,
         realise_reservation,
     )
 
-    explained = {item.reservation_id for item in settlement.obstructions}
+    incoherent = {
+        item.reservation_id
+        for item in settlement.obstructions
+        if item.kind is ObstructionKind.INCOHERENT_CLAIM
+    }
     worst: tuple[float, str] | None = None
-    deferred: list[str] = []
+    deferred = [
+        item.message
+        for item in settlement.obstructions
+        if item.kind is ObstructionKind.INCOHERENT_CLAIM
+    ]
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
@@ -6312,24 +6328,23 @@ def assert_reservations_are_settled(
             f"requires {realised.required_width:.1f}px and has "
             f"{realised.available_width:.1f}px between {blockers}"
         )
-        if reservation.id in explained:
-            deferred.append(detail)
-        elif worst is None or realised.capacity_slack < worst[0]:
+        if reservation.id in incoherent:
+            continue
+        if worst is None or realised.capacity_slack < worst[0]:
             worst = (realised.capacity_slack, detail)
     if worst is not None:
         msg = (
             "the settled layout draws a route through a corridor narrower than "
-            f"its reservation requires: {worst[1]}.  Every blocker bounding it "
-            "belongs to a row or column settlement translates, so the corridor "
-            "should have been widened to fit."
+            f"its reservation requires: {worst[1]}.  Widen the arrangement that "
+            "pins it, or relax the pin, rather than drawing the route through a "
+            "clearance it does not have."
         )
         if strict:
             raise LayoutInvariantError(msg)
         warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
     for detail in deferred:
         warnings.warn(
-            "a reserved corridor stays narrower than its claim because a "
-            f"blocker outside row and column settlement bounds it: {detail}",
+            f"a route reservation does not describe an allocatable gap: {detail}",
             category=LayoutGeometryWarning,
             stacklevel=2,
         )

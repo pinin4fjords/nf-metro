@@ -285,14 +285,35 @@ reachable only when the extra width let the router admit a further line into a
 bundle crossing that corridor, raising its demand; `settlement_pass_bound`
 bounds that escalation by the number of lines the graph defines.
 
+Two residues are outside what row and column offsets can reach, both measured
+rather than assumed. Canvas-side corridors are bounded on one side by the canvas
+edge, so closing one means growing a margin, which is a different translation
+owner: 20 of 411 realised canvas reservations still carry a capacity deficit.
+And the router's narrow-band fallback, which biases a run against the header
+badge it cannot clear, still fires 158 times across 14 fixtures -- every one of
+them at a gap the ledger never claimed, so there is no reservation to consume
+there. Where a reservation does exist the fallback is gone: 160 of 161 realised
+row-gap corridors measure a band that fits outright, the exception being the
+attributed obstruction below.
+
 Settlement declines a deficit whose far side is bounded by a section outside
 the band it would translate -- typically a row-spanning section straddling the
 corridor. Widening the boundary would add whitespace without widening the
 corridor, so it publishes a `SettlementObstruction` naming those sections
-instead. `assert_reservations_are_settled` reports those as attributed
-warnings and fails the strict path only for a deficit with no such
-attribution, which would mean a corridor settlement was free to widen and did
-not.
+instead. `assert_reservations_are_settled` fails the strict path for any surviving
+deficit, whether settlement could have widened the corridor or a pin outside its
+band holds it: a route drawn through a clearance it does not have is wrong
+either way. The one exception is a claim that names the same section as the
+blocker on both sides, which means that section spans across the boundary and
+there is no gap there to allocate; that is reported as a ledger coherence
+problem rather than failing a map.
+
+Settlement also attributes ownership it cannot take. A convergence system left
+on the compatibility path whose corridors all reach their required width gets a
+`CompatibilityOwnership` record carrying its system id, the reason it is still
+on compatibility, its corridor count, its tightest slack, and the owner of the
+decision it is actually short of. That record is the evidence that what limits
+the system is a channel decision rather than envelope allocation.
 
 The symbolic record gets its complete span from authored connector endpoints,
 including connectors rewritten through synthetic fan and merge nodes. Final

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout import envelope_settlement
 from nf_metro.layout.envelope_settlement import (
+    ObstructionKind,
     SettlementAxis,
     settle_route_envelopes,
 )
@@ -19,6 +22,7 @@ from nf_metro.layout.route_reservations import (
     realise_reservation,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
+from nf_metro.layout.routing.common import _inter_row_band_fits
 from nf_metro.render.svg import build_observed_render_plan
 
 ROOT = Path(__file__).parents[1]
@@ -303,6 +307,7 @@ def test_a_corridor_bounded_by_a_row_spanning_section_is_attributed_not_moved() 
     ]
     assert obstructions
     for obstruction in obstructions:
+        assert obstruction.kind is ObstructionKind.INCOHERENT_CLAIM
         assert obstruction.deficit > 0
         assert obstruction.blocking_section_ids
         for section_id in obstruction.blocking_section_ids:
@@ -334,6 +339,114 @@ SHARED_SETTLEMENT_CANDIDATES = (
 def test_compatibility_systems_are_not_short_of_corridor(path: Path) -> None:
     observed = _rendered_plan(path, permissive=True)
     assert _capacity_deficits(observed.route_plan) == {}
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_a_failed_settlement_leaves_the_graph_as_it_found_it(path: Path) -> None:
+    """Settlement writes many sections in sequence; a failure rolls all of it
+    back rather than leaving a part-translated graph."""
+    graph, plan = _observe(path)
+    before = _geometry(graph)
+    boom = RuntimeError("settlement failed")
+
+    def explode(*_args, **_kwargs):
+        raise boom
+
+    with mock.patch.object(envelope_settlement, "realise_reservation", explode):
+        with pytest.raises(RuntimeError) as caught:
+            settle_route_envelopes(graph, plan)
+    assert caught.value is boom
+    assert _geometry(graph) == before
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_settlement_rolls_back_a_failure_that_lands_mid_translation(
+    path: Path,
+) -> None:
+    graph, plan = _observe(path)
+    before = _geometry(graph)
+    moved: list[float] = []
+    real = envelope_settlement.shift_section
+
+    def move_then_fail(*args, **kwargs):
+        real(*args, **kwargs)
+        moved.append(1.0)
+        raise RuntimeError("settlement failed")
+
+    with mock.patch.object(envelope_settlement, "shift_section", move_then_fail):
+        with pytest.raises(RuntimeError):
+            settle_route_envelopes(graph, plan)
+    assert moved, "the fixture never reached a translation, so nothing was rolled back"
+    assert _geometry(graph) == before
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS + SETTLED_CORPUS, ids=lambda i: i.name)
+def test_one_pass_settles_everything_one_ledger_asks_for(path: Path) -> None:
+    """Settlement allocates against fixed demand, so it needs no second pass.
+
+    A second productive pass against the same ledger would mean the first left
+    a deficit it owned, which is the property the single-pass sweep exists to
+    rule out.
+    """
+    graph, plan = _observe(path)
+    first = settle_route_envelopes(graph, plan)
+    second = settle_route_envelopes(graph, plan)
+    assert second.translations == ()
+    assert {item.reservation_id for item in second.obstructions} == {
+        item.reservation_id for item in first.obstructions
+    }
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
+    path: Path,
+) -> None:
+    """Re-routing settled geometry yields a different ledger; that is exactly
+    why settlement must not iterate against it."""
+    graph, plan = _observe(path)
+    before = {item.id for item in plan.reservations}
+    assert settle_route_envelopes(graph, plan).translations
+    rerouted = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    ).plan
+    after = {item.id for item in rerouted.reservations}
+    assert before or after
+    # The ledgers may differ; what must not happen is settlement treating the
+    # new one as more work to do against the old geometry.
+    assert settle_route_envelopes(graph, plan).translations == ()
+
+
+def test_a_compatibility_system_with_adequate_corridors_names_its_owner() -> None:
+    graph, plan = _observe(TOPOLOGIES / "merge_bottom_row_bypass.mmd")
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.compatibility_ownership
+    for item in settlement.compatibility_ownership:
+        assert item.convergence_reason
+        assert item.corridor_count > 0
+        assert item.worst_capacity_slack >= 0.0
+        assert "#1658" in item.owner
+        assert "not what limits it" in item.message
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_a_reserved_inter_row_corridor_never_forces_the_router_to_improvise(
+    path: Path,
+) -> None:
+    """The router's narrow-band fallback biases a run against the header badge
+    it cannot clear.  A corridor that owns a reservation must never leave the
+    router in that position, so the band it measures has to fit outright."""
+    observed = _rendered_plan(path, permissive=True)
+    query = build_route_plan_query(observed.route_plan)
+    checked = 0
+    for reservation in observed.route_plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion):
+            continue
+        realised = query.realised_reservation(reservation.id)
+        if realised is None:
+            continue
+        checked += 1
+        assert _inter_row_band_fits(realised.region_start, realised.region_end)
+    assert checked
 
 
 def _narrow(graph, axis: SettlementAxis, boundary: int, amount: float) -> None:

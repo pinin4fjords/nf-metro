@@ -6,24 +6,30 @@ thing only: the global row and column offsets needed to give every reserved
 corridor the width its ledger entry requires.  It never resizes a box, moves a
 station inside its section, or revisits a route decision.
 
-Termination is structural rather than iterative.  Each adjacent-index boundary
-(the gap between row ``b-1`` and row ``b``, or between column ``b-1`` and column
-``b``) is visited exactly once in ascending order, and translating everything
-from ``b`` onward has three effects and no others:
+Termination is structural, and it depends on settling against ONE ledger.  Each
+adjacent-index boundary (the gap between row ``b-1`` and row ``b``, or between
+column ``b-1`` and column ``b``) is visited exactly once in ascending order, and
+translating everything from ``b`` onward has three effects and no others:
 
 * boundaries before ``b`` keep both blockers stationary, so they are unchanged;
 * boundary ``b`` widens by exactly the translated amount;
 * boundaries after ``b`` move both blockers together, so they are unchanged.
 
 A section spanning across ``b`` stays where it is, which can only increase its
-distance to the content below.  No separation therefore ever decreases, the
-sweep is a single directional pass over a finite set of boundaries, and a second
-run finds no deficit and writes nothing.
+distance to the content below.  No separation therefore ever decreases, and the
+sweep is a single directional pass over a finite set of boundaries.
 
-A boundary whose far-side blocker cannot be translated -- a row-spanning section
-straddling the corridor, or a blocker pinned above the boundary -- is not an
+Re-routing the settled geometry produces a *different* ledger -- corridors
+appear, vanish, and change their required width -- so iterating settlement
+against successive ledgers would be a fixpoint search over a moving constraint
+set, with no convergence argument behind it.  Settlement therefore runs once,
+against the ledger it was handed.  A demand that only the re-routed geometry
+reveals is reported, not chased.
+
+A boundary whose far-side blocker cannot be translated is not an
 envelope-allocation problem.  Settlement records an attributed obstruction
-naming the blocker instead of translating geometry that would not help.
+naming the blocker instead of translating geometry that would not help, and
+distinguishes a claim it cannot act on from a corridor it merely cannot widen.
 """
 
 from __future__ import annotations
@@ -40,12 +46,26 @@ from nf_metro.layout.route_reservations import (
     SECTION_HEADER_BLOCKER,
     SECTION_LEFT_BLOCKER,
     ColumnGapRegion,
+    RealisedRouteReservation,
     RouteReservation,
     RouteReservationId,
     RowGapRegion,
     realise_reservation,
 )
 from nf_metro.parser.model import MetroGraph, Section
+
+
+class ObstructionKind(Enum):
+    """Why a deficit survived a settlement pass."""
+
+    PINNED_BLOCKER = "pinned-blocker"
+    """The corridor is real, but a section outside the translated band bounds
+    it, so no offset this stage owns can widen it."""
+
+    INCOHERENT_CLAIM = "incoherent-claim"
+    """The claim does not describe a corridor: one section bounds both of its
+    sides, because it spans across the boundary instead of sitting either side
+    of it.  There is no gap between a box and itself to allocate."""
 
 
 class SettlementAxis(Enum):
@@ -88,11 +108,19 @@ class SettlementObstruction:
     claimant_member_ids: tuple[EmissionMemberId, ...]
     blocker_ids: tuple[str, ...]
     blocking_section_ids: tuple[str, ...]
+    kind: ObstructionKind
 
     @property
     def message(self) -> str:
         claimants = ", ".join(sorted(self.claimant_member_ids))
         blockers = ", ".join(self.blocking_section_ids)
+        if self.kind is ObstructionKind.INCOHERENT_CLAIM:
+            return (
+                f"the corridor claimed by {claimants} at {self.axis.value} "
+                f"boundary {self.boundary} measures its far side ahead of its "
+                f"near side, because section(s) {blockers} cross the boundary "
+                f"instead of bounding it; there is no gap here to allocate"
+            )
         return (
             f"{self.axis.value} boundary {self.boundary} is short of the "
             f"corridor claimed by {claimants} by {self.deficit:.2f}px, but "
@@ -103,11 +131,39 @@ class SettlementObstruction:
 
 
 @dataclass(frozen=True, slots=True)
+class CompatibilityOwnership:
+    """A route system on the compatibility path whose corridors all fit.
+
+    #1660 may only leave a system on compatibility with evidence that what
+    limits it is not envelope allocation.  Every corridor the system claims
+    reaching its required width is that evidence, and it points at whoever owns
+    the decision the system is actually short of.
+    """
+
+    system_id: str
+    convergence_reason: str
+    corridor_count: int
+    worst_capacity_slack: float
+    owner: str
+
+    @property
+    def message(self) -> str:
+        return (
+            f"route system {self.system_id} stays on compatibility for "
+            f"{self.convergence_reason!r}, but its {self.corridor_count} "
+            f"reserved corridor(s) all fit, the tightest with "
+            f"{self.worst_capacity_slack:.2f}px to spare.  Envelope allocation "
+            f"is not what limits it; {self.owner} owns the decision it needs."
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EnvelopeSettlement:
     """What one settlement pass moved, and what it could not."""
 
     translations: tuple[SettlementTranslation, ...]
     obstructions: tuple[SettlementObstruction, ...]
+    compatibility_ownership: tuple[CompatibilityOwnership, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +244,27 @@ def _obstructing_sections(
     return tuple(sorted(set(stuck)))
 
 
+def _blocker_sections(blocker_ids: Iterable[str]) -> set[str]:
+    return {blocker_id.partition(":")[2] for blocker_id in blocker_ids}
+
+
+def _sections_bounding_both_sides(
+    axis: _Axis, realised: RealisedRouteReservation
+) -> tuple[str, ...]:
+    """Sections named as the blocker on both sides of the same corridor.
+
+    A section can only bound a gap from above and below at once by spanning
+    across it, which means the measurement found no gap there at all.  The
+    axis is irrelevant to the comparison but keeps the helper honest about
+    which measurement it belongs to.
+    """
+    assert axis.axis in SettlementAxis
+    both = _blocker_sections(realised.negative_blocker_ids) & _blocker_sections(
+        realised.positive_blocker_ids
+    )
+    return tuple(sorted(both))
+
+
 def _settle_axis(
     graph: MetroGraph,
     reservations: tuple[RouteReservation, ...],
@@ -211,6 +288,21 @@ def _settle_axis(
             stuck = _obstructing_sections(
                 graph, axis, boundary, realised.positive_blocker_ids
             )
+            shared = _sections_bounding_both_sides(axis, realised)
+            if shared:
+                obstructions.append(
+                    SettlementObstruction(
+                        axis.axis,
+                        boundary,
+                        deficit,
+                        reservation.id,
+                        reservation.claimant_member_ids,
+                        realised.positive_blocker_ids,
+                        shared,
+                        ObstructionKind.INCOHERENT_CLAIM,
+                    )
+                )
+                continue
             if stuck:
                 obstructions.append(
                     SettlementObstruction(
@@ -221,6 +313,7 @@ def _settle_axis(
                         reservation.claimant_member_ids,
                         realised.positive_blocker_ids,
                         stuck,
+                        ObstructionKind.PINNED_BLOCKER,
                     )
                 )
                 continue
@@ -243,17 +336,72 @@ def _settle_axis(
     return translations, obstructions
 
 
-def settlement_pass_bound(graph: MetroGraph) -> int:
-    """How many settle-and-reroute passes a graph can possibly need.
+# Whoever owns the decision a compatibility system is short of, once its
+# corridors are shown to fit.  Plan-driven emission is the programme stage that
+# consolidates those channel and lane decisions.
+_COMPATIBILITY_OWNER = "plan-driven inter-section emission (#1658)"
 
-    One pass settles every boundary against the demand the routed members
-    declared.  A second pass is only reachable when widening a boundary let the
-    router admit a further line into a bundle crossing it, raising that
-    corridor's required width.  A bundle cannot hold more lines than the graph
-    defines, so demand can escalate at most that many times, after which a pass
-    finds no deficit and writes nothing.
-    """
-    return len(graph.lines) + 1
+
+def _compatibility_ownership(
+    graph: MetroGraph, plan: RoutePlan
+) -> tuple[CompatibilityOwnership, ...]:
+    """Attribute every compatibility system whose corridors are all adequate."""
+    slack_by_system: dict[str, list[float]] = {}
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is not None:
+            slack_by_system.setdefault(str(reservation.system_id), []).append(
+                realised.capacity_slack
+            )
+
+    found: dict[str, CompatibilityOwnership] = {}
+    for convergence in plan.convergence_plans:
+        reason = convergence.legacy_reason
+        if reason is None:
+            continue
+        system_id = str(convergence.system_id)
+        slacks = slack_by_system.get(system_id)
+        if not slacks or min(slacks) < -COORD_TOLERANCE:
+            continue
+        found[system_id] = CompatibilityOwnership(
+            system_id, reason, len(slacks), min(slacks), _COMPATIBILITY_OWNER
+        )
+    return tuple(found[key] for key in sorted(found))
+
+
+def _coordinate_state(
+    graph: MetroGraph,
+) -> tuple[tuple[str, float, float], ...]:
+    """Every coordinate settlement is allowed to write, as plain values."""
+    return (
+        *(
+            (f"section:{key}", section.bbox_x, section.bbox_y)
+            for key, section in graph.sections.items()
+        ),
+        *(
+            (f"station:{key}", station.x, station.y)
+            for key, station in graph.stations.items()
+        ),
+        *((f"port:{key}", port.x, port.y) for key, port in graph.ports.items()),
+    )
+
+
+def _restore_coordinate_state(
+    graph: MetroGraph, state: tuple[tuple[str, float, float], ...]
+) -> None:
+    for key, x, y in state:
+        kind, _, item_id = key.partition(":")
+        if kind == "section":
+            section = graph.sections[item_id]
+            section.bbox_x, section.bbox_y = x, y
+        elif kind == "station":
+            station = graph.stations[item_id]
+            station.x, station.y = x, y
+        else:
+            port = graph.ports[item_id]
+            port.x, port.y = x, y
 
 
 def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettlement:
@@ -261,14 +409,27 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
 
     Mutates *graph* in place, translating whole rows and whole columns only.
     Returns what moved and any deficit outside this stage's ownership.
+
+    The write is transactional.  A pass touches many sections in sequence, so a
+    failure part-way through would otherwise leave the graph in a state that is
+    neither the one measured nor the one intended; the pre-settlement
+    coordinates are restored before the error propagates.  The reservation
+    ledger needs no such care: settlement only reads it.
     """
-    row_translations, row_obstructions = _settle_axis(
-        graph, _reservations_on(plan, RowGapRegion), _ROW_AXIS
-    )
-    column_translations, column_obstructions = _settle_axis(
-        graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
-    )
+    restore_point = _coordinate_state(graph)
+    try:
+        row_translations, row_obstructions = _settle_axis(
+            graph, _reservations_on(plan, RowGapRegion), _ROW_AXIS
+        )
+        column_translations, column_obstructions = _settle_axis(
+            graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
+        )
+        ownership = _compatibility_ownership(graph, plan)
+    except Exception:
+        _restore_coordinate_state(graph, restore_point)
+        raise
     return EnvelopeSettlement(
         tuple(row_translations + column_translations),
         tuple(row_obstructions + column_obstructions),
+        ownership,
     )

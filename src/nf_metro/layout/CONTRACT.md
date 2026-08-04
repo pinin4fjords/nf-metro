@@ -1427,23 +1427,37 @@ in pipeline order.
   the stations and ports those sections own, all by one shared per-boundary
   amount. Junctions live in inter-section space and are reproduced by routing.
 - **Postcondition**: Every row-gap and column-gap reservation whose far-side
-  blockers all belong to the translated band has non-negative capacity slack.
-  Any remaining deficit carries a `SettlementObstruction` naming the sections
-  that bound it from outside the translated band.
+  blockers all belong to the translated band has non-negative capacity slack
+  against the ledger settlement was handed. Any remaining deficit carries a
+  `SettlementObstruction` naming the sections responsible, classified as a pin
+  outside the translated band or as a claim whose two sides name the same
+  spanning section and so describe no gap at all. A convergence system left on
+  the compatibility path whose corridors all fit carries a
+  `CompatibilityOwnership` record naming the owner of the decision it is short
+  of.
 - **Invariants preserved**: No row or column separation decreases. Section
   sizes, a station's position within its section, plan-owned frames, lane
   order, port sides, and author-pinned grid relationships are unchanged.
+- **Out of scope**: Canvas-side corridors, whose far boundary is the canvas
+  edge rather than a grid neighbour; closing one grows a margin, which no row
+  or column offset owns.
+- **Transactional**: The pre-settlement coordinates are restored before any
+  exception propagates, so a failure leaves the graph as settlement found it.
+  The reservation ledger is read-only here.
 - **Idempotence**: A second pass over settled geometry finds no positive
   deficit and writes nothing, so running settlement twice is an exact
   geometry no-op.
-- **Termination**: One pass visits each adjacent-index boundary once in
-  ascending order. Translating everything from boundary `b` onward widens `b`
-  by exactly that amount, leaves earlier boundaries' blockers stationary, and
-  moves later boundaries' blockers together, so boundaries do not interfere and
-  a pass is finite in the number of boundaries. A repeat pass is reachable only
-  when widening let the router admit a further line into a bundle, raising that
-  corridor's demand; `settlement_pass_bound` caps that escalation at the number
-  of lines the graph defines, beyond which no bundle can grow.
+- **Termination**: Settlement runs once, against one ledger. That pass visits
+  each adjacent-index boundary once in ascending order; translating everything
+  from boundary `b` onward widens `b` by exactly that amount, leaves earlier
+  boundaries' blockers stationary, and moves later boundaries' blockers
+  together, so boundaries do not interfere and the pass is finite in the number
+  of boundaries. It deliberately does not iterate: re-routing the settled
+  geometry publishes a different ledger (corridors appear, vanish, and change
+  their required width), so settling against successive ledgers would be a
+  fixpoint search over a moving constraint set with no convergence argument.
+  A demand only the re-routed geometry reveals is reported by the closing
+  guard, not chased.
 - **Related tests**: `tests/test_envelope_settlement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation

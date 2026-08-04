@@ -28,10 +28,7 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     graph_offset_step,
 )
-from nf_metro.layout.envelope_settlement import (
-    settle_route_envelopes,
-    settlement_pass_bound,
-)
+from nf_metro.layout.envelope_settlement import settle_route_envelopes
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
@@ -754,6 +751,12 @@ def _settle_render_geometry(
     reconcile have taken their bites out of the gaps; a translation moves whole
     rows and columns, so routes and labels are derived again from the result.
 
+    Settlement runs exactly once, against one ledger.  Re-routing publishes a
+    different ledger -- corridors appear, vanish, and change their required
+    width -- so settling again against it would be a fixpoint search over a
+    moving constraint set rather than an allocation against fixed demand.  The
+    closing guard measures the re-routed ledger and reports what it finds.
+
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
     render-time row shift, so a collision involving one is left for the guard to
@@ -826,10 +829,8 @@ def _settle_render_geometry(
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
 
-    for _pass in range(settlement_pass_bound(graph)):
-        settlement = settle_route_envelopes(graph, route_plan)
-        if not settlement.translations:
-            break
+    settlement = settle_route_envelopes(graph, route_plan)
+    if settlement.translations:
         station_offsets, routes, route_plan = _resettle()
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
@@ -839,6 +840,32 @@ def _settle_render_geometry(
 
     assert_render_header_clearance(graph, strict=effective_strict)
     return station_offsets, routes, labels, route_plan
+
+
+def _settled_render_graph(source_graph: MetroGraph, theme: Theme) -> MetroGraph:
+    """A private copy of *source_graph* carrying the geometry a render draws.
+
+    ``render_svg`` finishes geometry -- label wrapping, the header reconcile,
+    envelope settlement -- on a copy, so the caller's graph keeps the
+    coordinates ``compute_layout`` left.  Callers that need to reason about
+    what was actually drawn ask for the settled copy rather than re-deriving
+    those steps.
+    """
+    graph = _copy_graph_for_render(source_graph)
+    scaled_theme = _scale_theme_strokes(
+        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+    )
+    section_y_gap = (
+        graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
+    )
+    with font_scale_context(graph.font_scale), stroke_scale_context(graph.stroke_scale):
+        _settle_render_geometry(
+            graph,
+            scaled_theme,
+            graph_offset_step(graph, scaled_theme.line_width),
+            section_y_gap,
+        )
+    return graph
 
 
 def _copy_graph_for_render(source_graph: MetroGraph) -> MetroGraph:
