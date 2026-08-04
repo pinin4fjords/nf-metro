@@ -290,11 +290,38 @@ rather than assumed. Canvas-side corridors are bounded on one side by the canvas
 edge, so closing one means growing a margin, which is a different translation
 owner: 20 of 411 realised canvas reservations still carry a capacity deficit.
 And the router's narrow-band fallback, which biases a run against the header
-badge it cannot clear, still fires 158 times across 14 fixtures -- every one of
+badge it cannot clear, still fires 130 times across 13 fixtures -- every one of
 them at a gap the ledger never claimed, so there is no reservation to consume
-there. Where a reservation does exist the fallback is gone: 160 of 161 realised
+there. Where a reservation does exist the fallback is gone: 150 of 151 realised
 row-gap corridors measure a band that fits outright, the exception being the
 attributed obstruction below.
+
+## The router's side of the contract
+
+A translation is only worth making if the re-route lands the corridor in the
+space it bought. `build_reserved_row_bands` (`layout/routing/reserved_bands.py`)
+re-measures the ledger settlement was handed against the geometry it left, and
+turns each row-gap reservation into the clear span its own side clearances
+leave: `region_start + negative_side_clearance` to `region_end -
+positive_side_clearance`. Several corridors can claim one boundary over
+different spans, so the boundary's band is their intersection -- a channel there
+has to satisfy every claim -- and a boundary whose claims intersect to nothing
+describes no single corridor and is left unclaimed.
+
+`_route_edges` takes that lookup as `reserved_bands` on the routing context, and
+`_center_inter_row_channel` places a claimed channel inside the band instead of
+deriving one. The two derivations use the same two clearances; they differ in
+which blockers they measure against. The reservation names the sections that
+bound its corridor over its own declared span, while the row edges name whatever
+sits in the two grid rows -- which over-states the obstruction where a section
+spans the boundary or sits outside the run. Because a published band is never
+narrower than nothing, a claimed corridor cannot reach the narrow-gap fallback.
+
+Only the settled re-route consumes a ledger, since that is the only routing pass
+with one to consume: the first pass is what publishes it. A corridor whose Y is
+fixed by something other than this helper -- a fan's shared corridor band, a
+bundle restack, a handler clamping the channel between its endpoints -- still
+lands where that owner puts it.
 
 Settlement declines a deficit whose far side is bounded by a section outside
 the band it would translate -- typically a row-spanning section straddling the

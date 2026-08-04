@@ -168,6 +168,24 @@ parallel track and the station markers it must pass through.
 
 <Metro src="examples/guide/03_fan_out.mmd" debug mmd={false} />
 
+## Reserved inter-row corridors
+
+The gap between two stacked grid rows holds horizontal channels, and a channel
+placed there normally derives its band from the two rows' bbox edges, keeping
+`INTER_ROW_EDGE_CLEARANCE` below the box above and `INTER_ROW_HEADER_CLEARANCE`
+above the next row's header badge (`_center_inter_row_channel`). Those edges are
+a proxy for the real obstruction: a section spanning the boundary, or one whose
+box sits outside the run's own reach, moves an edge without bounding the
+corridor.
+
+Where the corridor carries a `RouteReservation` that proxy is not used.
+`_RoutingCtx.reserved_bands` maps a grid-row boundary to the clear span the
+reservation realises, measured against the blockers over the corridor's own
+declared span, and the channel is placed inside that. The lookup exists only on
+a re-route driven by an existing ledger -- envelope settlement's, which has just
+widened these boundaries -- so the pass that publishes the ledger is unaffected.
+See the router contract in [route_plan](route_plan.mdx#the-routers-side-of-the-contract).
+
 ## Render-time guards
 
 `validate_exit_turn_plans` runs before the generic render guards. It checks
@@ -261,3 +279,4 @@ dispatcher handles those degenerate cases directly.
 | `reversal.py`               | fold/reversal (serpentine row) routing                                                                                                                                                                                                    |
 | `invariants.py`             | runtime routing guards (`check_bundle_order_preserved`)                                                                                                                                                                                   |
 | `rail.py`                   | `route_rail_edges` straight-rail router for rail mode                                                                                                                                                                                     |
+| `reserved_bands.py`         | realised row-gap corridor bands read off a `RouteReservation` ledger (`build_reserved_row_bands`, `ReservedRowBands`)                                                                                                                     |

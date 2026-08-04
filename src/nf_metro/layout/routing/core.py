@@ -122,6 +122,7 @@ from nf_metro.layout.routing.postprocess import (  # noqa: F401
     _spread_diagonal_bundles,
     _StationMoveCandidate,
 )
+from nf_metro.layout.routing.reserved_bands import build_reserved_row_bands
 from nf_metro.layout.routing.tb_handlers import (  # noqa: F401
     _compute_diagonal_placement,
     _perp_entry_drop_delta,
@@ -153,6 +154,7 @@ def _route_edges(
     *,
     observe_plan: bool,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -211,6 +213,11 @@ def _route_edges(
         curve_radius,
         station_offsets,
         offset_step=offset_step,
+        reserved_bands=(
+            None
+            if reservations is None
+            else build_reserved_row_bands(graph, reservations)
+        ),
     )
     from nf_metro.layout.route_plan import build_route_plan_observer
     from nf_metro.layout.routing.exit_turns import build_exit_turn_execution
@@ -488,6 +495,7 @@ def route_edges_centred(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
 ) -> list[RoutedPath]:
     """Route, then settle the bubble-centred markers onto ``graph.stations``.
 
@@ -509,6 +517,7 @@ def route_edges_centred(
         station_offsets,
         observe_plan=False,
         offset_step=offset_step,
+        reservations=reservations,
     )
     _settle_station_moves(graph, moves)
     return routes
@@ -521,6 +530,7 @@ def observe_route_edges_centred(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -532,6 +542,7 @@ def observe_route_edges_centred(
         station_offsets,
         observe_plan=True,
         offset_step=offset_step,
+        reservations=reservations,
     )
     _settle_station_moves(graph, moves)
     assert plan is not None
