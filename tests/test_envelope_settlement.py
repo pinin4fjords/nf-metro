@@ -171,10 +171,47 @@ def _axis_gaps(graph, axis: SettlementAxis) -> dict[tuple[int, int], float]:
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
-def test_settlement_satisfies_every_gap_region_reservation(path: Path) -> None:
-    """Final geometry gives every reserved corridor its required width."""
+def test_settlement_meets_the_demands_it_was_handed(path: Path) -> None:
+    """Settlement's own contract, measured against its own input.
+
+    The ledger a settled re-route publishes is a different set of claims --
+    corridors appear and vanish across a translation -- so measuring there
+    answers a different question than "did settlement satisfy what it was
+    given".  This measures the input ledger on the geometry settlement left.
+    """
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.translations
+    unmet = [
+        item
+        for item in settlement.shortfalls
+        if item.kind is not ObstructionKind.INCOHERENT_CLAIM
+    ]
+    assert unmet == []
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_the_rerouted_ledger_is_also_free_of_deficits(path: Path) -> None:
+    """A separate, weaker statement than the contract above: the claims the
+    settled geometry goes on to publish are satisfied too."""
     observed = _rendered_plan(path)
     assert _capacity_deficits(observed.route_plan) == {}
+
+
+def test_an_unmet_demand_is_reported_against_the_input_ledger() -> None:
+    """The shortfall record names the reservation settlement could not satisfy,
+    classified by why, rather than leaving it to be rediscovered downstream."""
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.shortfalls
+    for shortfall in settlement.shortfalls:
+        assert shortfall.available_width < shortfall.required_width
+        assert shortfall.claimant_member_ids
+        assert "its reservation requires" in shortfall.message
+    assert any(
+        item.kind is ObstructionKind.INCOHERENT_CLAIM for item in settlement.shortfalls
+    )
 
 
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:

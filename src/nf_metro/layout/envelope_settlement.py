@@ -158,12 +158,39 @@ class CompatibilityOwnership:
 
 
 @dataclass(frozen=True, slots=True)
+class SettlementShortfall:
+    """A demand settlement was handed and did not meet.
+
+    Measured against the ledger settlement was given, on the geometry it left
+    behind.  Re-routing publishes a different ledger, so a deficit found there
+    says something about the new constraint set, not about whether settlement
+    honoured its own.
+    """
+
+    reservation_id: RouteReservationId
+    claimant_member_ids: tuple[EmissionMemberId, ...]
+    required_width: float
+    available_width: float
+    kind: ObstructionKind | None
+
+    @property
+    def message(self) -> str:
+        claimants = ", ".join(sorted(self.claimant_member_ids))
+        return (
+            f"the corridor claimed by {claimants} still has "
+            f"{self.available_width:.2f}px against the {self.required_width:.2f}px "
+            f"its reservation requires"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EnvelopeSettlement:
     """What one settlement pass moved, and what it could not."""
 
     translations: tuple[SettlementTranslation, ...]
     obstructions: tuple[SettlementObstruction, ...]
     compatibility_ownership: tuple[CompatibilityOwnership, ...] = ()
+    shortfalls: tuple[SettlementShortfall, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,17 +275,17 @@ def _blocker_sections(blocker_ids: Iterable[str]) -> set[str]:
     return {blocker_id.partition(":")[2] for blocker_id in blocker_ids}
 
 
-def _sections_bounding_both_sides(
-    axis: _Axis, realised: RealisedRouteReservation
+def sections_bounding_both_sides(
+    realised: RealisedRouteReservation,
 ) -> tuple[str, ...]:
     """Sections named as the blocker on both sides of the same corridor.
 
     A section can only bound a gap from above and below at once by spanning
-    across it, which means the measurement found no gap there at all.  The
-    axis is irrelevant to the comparison but keeps the helper honest about
-    which measurement it belongs to.
+    across it, which means the measurement found no gap there at all.  Derived
+    from the measurement itself rather than from a reservation id, so it stays
+    valid across the re-routed ledger, whose ids need not be the ones
+    settlement saw.
     """
-    assert axis.axis in SettlementAxis
     both = _blocker_sections(realised.negative_blocker_ids) & _blocker_sections(
         realised.positive_blocker_ids
     )
@@ -288,7 +315,7 @@ def _settle_axis(
             stuck = _obstructing_sections(
                 graph, axis, boundary, realised.positive_blocker_ids
             )
-            shared = _sections_bounding_both_sides(axis, realised)
+            shared = sections_bounding_both_sides(realised)
             if shared:
                 obstructions.append(
                     SettlementObstruction(
@@ -371,6 +398,37 @@ def _compatibility_ownership(
     return tuple(found[key] for key in sorted(found))
 
 
+def _verify_against_input_ledger(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    obstructions: list[SettlementObstruction],
+) -> tuple[SettlementShortfall, ...]:
+    """Re-measure the demands settlement was handed, on the geometry it left.
+
+    This is settlement's own postcondition, and it is the only measurement that
+    can state it: the ledger a later re-route publishes is a different set of
+    claims, so a deficit found there answers a different question.
+    """
+    kind_by_id = {item.reservation_id: item.kind for item in obstructions}
+    shortfalls: list[SettlementShortfall] = []
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
+            continue
+        shortfalls.append(
+            SettlementShortfall(
+                reservation.id,
+                reservation.claimant_member_ids,
+                realised.required_width,
+                realised.available_width,
+                kind_by_id.get(reservation.id),
+            )
+        )
+    return tuple(shortfalls)
+
+
 def _coordinate_state(
     graph: MetroGraph,
 ) -> tuple[tuple[str, float, float], ...]:
@@ -425,6 +483,9 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
             graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
         )
         ownership = _compatibility_ownership(graph, plan)
+        shortfalls = _verify_against_input_ledger(
+            graph, plan, row_obstructions + column_obstructions
+        )
     except Exception:
         _restore_coordinate_state(graph, restore_point)
         raise
@@ -432,4 +493,5 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
         tuple(row_translations + column_translations),
         tuple(row_obstructions + column_obstructions),
         ownership,
+        shortfalls,
     )
