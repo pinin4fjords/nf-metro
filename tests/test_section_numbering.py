@@ -1,7 +1,7 @@
-"""Tests for section numbering by visual reading order.
+"""Tests for dependency-aware section numbering.
 
-After layout, automatic sections are numbered top-to-bottom.  Sections within
-a row follow its horizontal flow direction, while authored numbers stay fixed.
+After layout, automatic sections are numbered by dependency wave.  Visual row
+and horizontal flow break ties, while authored numbers stay fixed.
 """
 
 from __future__ import annotations
@@ -33,11 +33,6 @@ def variantprioritization():
 
 
 @pytest.fixture(scope="module")
-def variantbenchmarking():
-    return _load("variantbenchmarking")
-
-
-@pytest.fixture(scope="module")
 def rnaseq_auto():
     return _load("rnaseq_auto")
 
@@ -58,16 +53,16 @@ def asymmetric_tree():
 
 
 class TestSectionNumberingOrder:
-    """Section numbers should follow visual reading order."""
+    """Automatic numbers should follow dependencies, then visual order."""
 
     def test_numbers_are_sequential(self, variantprioritization):
         """Section numbers should be 1..N with no gaps."""
         numbers = sorted(s.number for s in variantprioritization.sections.values())
         assert numbers == list(range(1, len(variantprioritization.sections) + 1))
 
-    def test_all_examples_sequential(self):
-        """Every example with sections should have sequential numbering."""
-        for mmd_path in sorted(EXAMPLES_DIR.glob("*.mmd")):
+    def test_all_examples_sequential_and_dependency_ordered(self):
+        """Every example should number producers before their consumers."""
+        for mmd_path in sorted(EXAMPLES_DIR.rglob("*.mmd")):
             text = mmd_path.read_text()
             g = parse_metro_mermaid(text)
             if not g.sections:
@@ -77,20 +72,14 @@ class TestSectionNumberingOrder:
             assert numbers == list(range(1, len(g.sections) + 1)), (
                 f"{mmd_path.name}: section numbers not sequential: {numbers}"
             )
-
-    def test_rows_are_numbered_top_to_bottom(
-        self, variantprioritization, variantbenchmarking, rnaseq_auto
-    ):
-        for graph in (variantprioritization, variantbenchmarking, rnaseq_auto):
-            rows = [
-                section.grid_row
-                for section in sorted(
-                    graph.sections.values(), key=lambda section: section.number
+            section_edges = g.section_dag.section_edges if g.section_dag else set()
+            for source, target in section_edges:
+                assert g.sections[source].number < g.sections[target].number, (
+                    f"{mmd_path.name}: producer {source!r} is numbered after "
+                    f"consumer {target!r}"
                 )
-            ]
-            assert rows == sorted(rows)
 
-    def test_lr_rows_are_numbered_left_to_right(self, variantprioritization):
+    def test_dependency_waves_precede_visual_row_order(self, variantprioritization):
         ordered_ids = [
             section.id
             for section in sorted(
@@ -100,10 +89,10 @@ class TestSectionNumberingOrder:
         ]
         assert ordered_ids == [
             "preprocessing",
-            "format_files",
-            "run_pcgr",
             "get_reference",
+            "format_files",
             "run_cpsr",
+            "run_pcgr",
         ]
 
     def test_rl_rows_are_numbered_right_to_left(self, longread_variant_calling):
@@ -117,9 +106,7 @@ class TestSectionNumberingOrder:
         )
         assert [section.grid_col for section in return_row] == [5, 4, 3, 2, 1, 0]
 
-    def test_row_edge_sets_flow_when_section_directions_are_mixed(
-        self, leftward_bypass
-    ):
+    def test_connected_flow_precedes_a_disconnected_rowmate(self, leftward_bypass):
         ordered_ids = [
             section.id
             for section in sorted(
@@ -131,7 +118,64 @@ class TestSectionNumberingOrder:
                 key=lambda section: section.number,
             )
         ]
-        assert ordered_ids == ["source", "blocker", "target"]
+        assert ordered_ids == ["source", "target", "blocker"]
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            (
+                "guide/03_fan_out",
+                [
+                    "preprocessing",
+                    "wgs_analysis",
+                    "wes_analysis",
+                    "panel_analysis",
+                    "annotation",
+                ],
+            ),
+            (
+                "guide/04_directions",
+                [
+                    "preprocessing",
+                    "rna_analysis",
+                    "dna_analysis",
+                    "postprocessing",
+                    "reporting",
+                ],
+            ),
+            (
+                "rnaseq_auto",
+                [
+                    "preprocessing",
+                    "genome_align",
+                    "pseudo_align",
+                    "postprocessing",
+                    "qc_report",
+                ],
+            ),
+            (
+                "topologies/around_below_ep_col_gt0",
+                ["source", "middle", "target"],
+            ),
+            (
+                "topologies/around_section_below",
+                ["source", "middle", "target"],
+            ),
+            (
+                "topologies/corridor_narrow_gap_fallback",
+                ["source", "tall", "target"],
+            ),
+        ],
+    )
+    def test_reviewed_render_order(self, name, expected):
+        graph = _load(name)
+        ordered_ids = [
+            section.id
+            for section in sorted(
+                graph.sections.values(), key=lambda section: section.number
+            )
+        ]
+        assert ordered_ids == expected
 
     def test_authored_number_is_reserved_while_automatic_numbers_fill_gaps(self):
         text = (

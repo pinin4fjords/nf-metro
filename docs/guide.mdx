@@ -350,7 +350,7 @@ These go inside `subgraph` blocks.
 
 Entry/exit hints tell the layout engine which side of the section box lines should enter or leave from. Most of the time you can **omit these entirely** and let the auto-layout engine figure it out. They are useful when you want lines to exit from different sides of the same section (e.g., right for some lines, bottom for others).
 
-Section numbers normally follow the visual rows and their horizontal flow. An explicit `number:` stays fixed, and automatic sections use the lowest positive numbers not already reserved. Duplicate or invalid overrides are ignored with a warning.
+Automatic section numbers follow dependency waves, so every producer is numbered before its consumers. Sections in the same wave follow their visual rows and horizontal flow. An explicit `number:` stays fixed, and automatic sections use the lowest positive numbers not already reserved. Duplicate or invalid overrides are ignored with a warning.
 
 ## CLI flags and directive precedence
 

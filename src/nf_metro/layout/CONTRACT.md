@@ -387,13 +387,15 @@ in pipeline order.
   non-overlap) holds at the final boundary.
 
 ### Stage 1.4: renumber sections
-- **Purpose**: Renumber sections by visual reading order (row, then
-  flow-oriented column) so legend / debug numbering follows the eye.
+- **Purpose**: Renumber sections by dependency wave, then visual reading order,
+  so producers precede consumers and ties follow the eye.
 - **Helper**: `_renumber_sections_by_grid` (`phases/canvas.py`).
 - **Precondition**: Section grid positions and directions finalised.
-- **Postcondition**: Automatic `section.number` values increase top-to-bottom
-  between rows and with the horizontal flow within a row. Authored numbers are
-  preserved, and automatic sections take the lowest unused positive numbers.
+- **Postcondition**: Within each disconnected flow, every automatically
+  numbered producer has a lower `section.number` than its consumers. Dependency
+  ties increase top-to-bottom between rows and with horizontal flow within a
+  row. Authored numbers are preserved, and automatic sections take the lowest
+  unused positive numbers.
 - **Invariants preserved**: Section IDs, station coords, bboxes,
   edges. Pure metadata pass.
 - **Related tests**: none directly (cosmetic / debug-only).

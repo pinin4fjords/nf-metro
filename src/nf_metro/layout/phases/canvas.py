@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from nf_metro.graph_views import directed_graph, longest_path_layers
 from nf_metro.layout.constants import (
     TITLE_BAND_CLEARANCE,
     TITLE_BAND_OVERLAP_FLOOR,
@@ -14,22 +15,29 @@ from nf_metro.parser.model import MetroGraph
 
 
 def _renumber_sections_by_grid(graph: MetroGraph) -> None:
-    """Renumber sections by visual reading order.
+    """Renumber sections by dependency wave and visual reading order.
 
-    Rows are numbered top-to-bottom.  Within each row, numbering follows
-    the row's horizontal flow, so ordinary rows read left-to-right and
-    folded return rows read right-to-left.  Authored numbers are reserved;
-    automatic sections receive the lowest unused positive numbers.
+    Each disconnected flow is numbered fully before the next.  Within a flow,
+    every producer wave precedes its consumers; visual row and horizontal flow
+    break ties within a wave.  Authored numbers are reserved, and automatic
+    sections receive the lowest unused positive numbers.
     """
+    from nf_metro.layout.section_placement import _weakly_connected_components
+
     section_rank = {sid: rank for rank, sid in enumerate(graph.sections)}
-    section_edges = graph.section_dag.section_edges if graph.section_dag else set()
+    section_edges = {
+        (src, tgt)
+        for src, tgt in (
+            graph.section_dag.section_edges if graph.section_dag else set()
+        )
+        if src in graph.sections and tgt in graph.sections
+    }
     rows: dict[int, list[str]] = {}
     for sid, section in graph.sections.items():
         rows.setdefault(section.grid_row, []).append(sid)
 
-    ordered_ids: list[str] = []
-    for row in sorted(rows):
-        row_ids = rows[row]
+    row_is_rl: dict[int, bool] = {}
+    for row, row_ids in rows.items():
         row_set = set(row_ids)
         flow_score = sum(
             graph.sections[tgt].grid_col - graph.sections[src].grid_col
@@ -44,19 +52,48 @@ def _renumber_sections_by_grid(graph: MetroGraph) -> None:
                 for sid in row_ids
                 if graph.sections[sid].direction in ("LR", "RL")
             )
+        row_is_rl[row] = flow_score < 0
 
-        right_to_left = flow_score < 0
-        ordered_ids.extend(
-            sorted(
-                row_ids,
-                key=lambda sid: (
-                    -graph.sections[sid].grid_col
-                    if right_to_left
-                    else graph.sections[sid].grid_col,
-                    section_rank[sid],
-                ),
-            )
+    components = sorted(
+        _weakly_connected_components(graph, section_edges),
+        key=lambda component: (
+            min(graph.sections[sid].grid_row for sid in component),
+            min(graph.sections[sid].grid_col for sid in component),
+            min(section_rank[sid] for sid in component),
+        ),
+    )
+
+    ordered_ids: list[str] = []
+    for component in components:
+        component_ids = sorted(component, key=section_rank.__getitem__)
+        component_edges = sorted(
+            (
+                (src, tgt)
+                for src, tgt in section_edges
+                if src in component and tgt in component
+            ),
+            key=lambda edge: (section_rank[edge[0]], section_rank[edge[1]]),
         )
+        layers = longest_path_layers(
+            directed_graph(component_ids, component_edges), component_ids
+        )
+        waves: dict[tuple[int, int], list[str]] = {}
+        for sid in component_ids:
+            section = graph.sections[sid]
+            waves.setdefault((layers[sid], section.grid_row), []).append(sid)
+
+        for (_, row), wave_ids in sorted(waves.items()):
+            ordered_ids.extend(
+                sorted(
+                    wave_ids,
+                    key=lambda sid: (
+                        -graph.sections[sid].grid_col
+                        if row_is_rl[row]
+                        else graph.sections[sid].grid_col,
+                        section_rank[sid],
+                    ),
+                )
+            )
 
     reserved = {
         section.number_override
