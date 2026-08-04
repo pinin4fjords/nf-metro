@@ -252,7 +252,7 @@ def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> 
     assert realised.coordinate == pytest.approx(347.8)
     assert realised.longitudinal_axis.value == "x"
     assert realised.longitudinal_start == pytest.approx(356.0)
-    assert realised.longitudinal_end == pytest.approx(2324.0)
+    assert realised.longitudinal_end == pytest.approx(2314.0)
     assert realised.region_start == pytest.approx(466.0)
     assert realised.region_end == pytest.approx(397.8)
     assert realised.available_width == pytest.approx(-68.2)

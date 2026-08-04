@@ -299,6 +299,24 @@ def _required_channel_clearance(
     return BUNDLE_TO_BUNDLE_CLEARANCE
 
 
+def _overlays_distinct_line(
+    channel: _VChannel, x: float, obstacle: _VChannel, step: float
+) -> bool:
+    """Whether seating *channel* at *x* would fuse it onto *obstacle*'s stroke.
+
+    Co-travelling distinct lines nest one ``OFFSET_STEP`` apart, so a channel
+    parked on another line's column over a shared corridor draws as a single
+    stroke and hides one of the two lines.
+    """
+    return (
+        channel.down is obstacle.down
+        and channel.route.line_id != obstacle.route.line_id
+        and min(channel.y_hi, obstacle.y_hi) - max(channel.y_lo, obstacle.y_lo)
+        > MIN_CORRIDOR_Y_OVERLAP
+        and abs(x - obstacle.x) < step - COORD_TOLERANCE
+    )
+
+
 def _channels_form_symmetric_divergence(a: _VChannel, b: _VChannel) -> bool:
     """Whether same-line siblings split up and down from one trunk endpoint."""
     if (
@@ -445,6 +463,12 @@ def _separate_opposing_gap_bundles(
                 or x > usable_right + COORD_TOLERANCE
                 or _section_intrudes(ctx.graph, x, ch.y_lo, ch.y_hi)
                 for ch, x in targets
+            ):
+                return False
+            if any(
+                _overlays_distinct_line(ch, x, obstacle, ctx.offset_step)
+                for ch, x in targets
+                for obstacle in settled
             ):
                 return False
             return all(
