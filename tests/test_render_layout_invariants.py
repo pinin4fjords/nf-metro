@@ -26,6 +26,7 @@ from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     PhaseInvariantError,
     _guard_inter_section_route_clears_own_section_interior,
+    _guard_ports_on_boundaries,
     assert_render_layout_invariants,
     render_layout_invariant_specs,
 )
@@ -42,6 +43,7 @@ from nf_metro.layout.routing.invariants import (
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, PermissiveGuardWarning
 from nf_metro.render import render_svg
+from nf_metro.render.svg import _settled_render_graph
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -664,6 +666,51 @@ def test_tb_exit_port_stays_on_bbox_boundary(name: str) -> None:
     assert not off_boundary, (
         f"{name}: an exit port drifted off its section boundary: {off_boundary}"
     )
+
+
+# Maps whose render-time label ink grows a section box outward past the edge one
+# of its ports is anchored to.  The Tier-A guards read the settled boxes and the
+# settled routes, so the port travels with the edge that moved and the runs
+# landing on it are re-observed against it.
+LABEL_GROWN_PORT_EDGE_FIXTURES = [
+    "rnaseq_sections.mmd",
+    "variant_calling.mmd",
+    "topologies/bypass_fan_in_outer_slot.mmd",
+    "topologies/fold_stacked_branch.mmd",
+    "topologies/tb_left_exit_step.mmd",
+    "topologies/top_entry_left_neighbour.mmd",
+]
+
+PORT_ANCHOR_GUARDS = (
+    "_guard_ports_on_boundaries",
+    "_guard_inter_section_route_clears_own_section_interior",
+)
+
+
+@pytest.mark.parametrize("name", LABEL_GROWN_PORT_EDGE_FIXTURES)
+def test_label_grown_box_edge_carries_its_port(name: str) -> None:
+    """A box edge grown to seat a label keeps the port anchored to it, and the
+    runs landing on that port keep terminating on it."""
+    graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    compute_layout(graph)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        render_svg(graph, THEMES["nfcore"])
+    stranded = [
+        str(w.message)
+        for w in caught
+        if any(guard in str(w.message) for guard in PORT_ANCHOR_GUARDS)
+    ]
+    assert not stranded, f"{name}: {stranded}"
+
+
+@pytest.mark.parametrize("name", LABEL_GROWN_PORT_EDGE_FIXTURES)
+def test_settled_ports_sit_on_their_section_box_edge(name: str) -> None:
+    """Every port of the drawn geometry is on the box edge its side names."""
+    graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    compute_layout(graph)
+    settled = _settled_render_graph(graph, THEMES["nfcore"])
+    _guard_ports_on_boundaries(settled, "settled")
 
 
 def test_tb_exit_terminal_on_carrier_validates_strict() -> None:

@@ -53,6 +53,11 @@ from nf_metro.layout.phases.guards import (
     render_header_collision,
 )
 from nf_metro.layout.phases.junctions import _position_junctions
+from nf_metro.layout.phases.ports import (
+    carry_ports_with_section_edges,
+    hold_port_anchored_edges,
+    section_box_edges,
+)
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.route_plan import (
     ConvergencePlan,
@@ -1086,17 +1091,32 @@ def _settle_render_geometry(
     reproduce, so it is exempt.
     """
 
+    # Non-empty exactly while a label pass has carried ports off the box edges
+    # it grew and no routing pass has been observed against their new positions;
+    # `carried_from` holds the edges that pass started from.
+    carried_ports: tuple[str, ...] = ()
+    carried_from: dict[str, tuple[float, float, float, float]] = {}
+
     def _place(
         station_offsets: dict[tuple[str, str], float], routes: list[RoutedPath]
     ) -> list[LabelPlacement]:
+        nonlocal carried_ports, carried_from
         icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
-        return place_labels(
+        edges = section_box_edges(graph)
+        placements = place_labels(
             graph,
             station_offsets=station_offsets,
             icon_obstacles=icon_obstacles,
             routes=routes,
             label_angle=graph.label_angle or 0.0,
         )
+        # Seating a label grows its section box outward; a port anchored to the
+        # edge that moved travels with it, so the box keeps bounding the
+        # geometry its own ports describe.
+        carried = carry_ports_with_section_edges(graph, edges)
+        if carried:
+            carried_ports, carried_from = carried, edges
+        return placements
 
     def _route(
         station_offsets: dict[tuple[str, str], float],
@@ -1120,6 +1140,7 @@ def _settle_render_geometry(
         reservations: RoutePlan | None = None,
         reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
+        nonlocal carried_ports
         # The shift moved section-anchored geometry; refresh the bypass-label
         # obstacle boxes (derived from station Ys, read by the router) so the
         # re-route does not seat a bypass corner against a stale box.
@@ -1129,24 +1150,54 @@ def _settle_render_geometry(
         moved_routes, moved_plan = _route(
             offsets, reservations, reservation_translations
         )
+        carried_ports = ()
         return offsets, moved_routes, moved_plan
+
+    def _reconcile_carried_ports(
+        station_offsets: dict[tuple[str, str], float],
+        routes: list[RoutedPath],
+        route_plan: RoutePlan,
+        labels: list[LabelPlacement],
+    ) -> tuple[
+        dict[tuple[str, str], float], list[RoutedPath], RoutePlan, list[LabelPlacement]
+    ]:
+        """Re-observe the routes once, when a label pass has carried a port.
+
+        A route terminates on its port, so a carried port no routing pass has
+        seen leaves the drawn run overshooting into the box interior.  The
+        re-observation is a single step, not a fixpoint: routing centres a
+        station marker on its flat run, and lengthening that run by moving the
+        port moves the marker, hence the label, hence the box edge, hence the
+        port again.  On some topologies that relation has unit gain, so
+        iterating it walks the edge outward without ever settling; a pass whose
+        own carry no re-observation follows gives that growth back instead
+        (:func:`hold_port_anchored_edges`).
+        """
+        if carried_ports:
+            station_offsets, routes, route_plan = _resettle()
+            labels = _place(station_offsets, routes)
+            assert_render_curve_invariants(graph, routes, station_offsets)
+        return station_offsets, routes, route_plan, labels
 
     _reanchor_junctions()
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets)
     effective_strict = graph.strict and not graph.permissive
     assert_render_curve_invariants(graph, routes, station_offsets)
-    assert_render_layout_invariants(
-        graph, routes, station_offsets, strict=effective_strict
-    )
 
     labels = _place(station_offsets, routes)
+    station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
+        station_offsets, routes, route_plan, labels
+    )
     _reserve_group_band_space(graph, theme, station_offsets, labels)
     if render_header_collision(graph) and not graph.has_rail_sections:
         push_lower_rows_after_bbox_grow(graph, section_y_gap)
         station_offsets, routes, route_plan = _resettle()
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
+        station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
+            station_offsets, routes, route_plan, labels
+        )
 
     frozen_routes = routes
     frozen_plan = route_plan
@@ -1192,6 +1243,12 @@ def _settle_render_geometry(
             route_plan = replace(
                 route_plan, diagnostics=route_plan.diagnostics + adopted_dispositions
             )
+    # Settlement measured its corridors against these box edges, so a label
+    # pass behind it gives back whatever it grew them by: a port carried past
+    # the run that lands on it, on an edge a realised reservation is measured
+    # from, would spend clearance the corridor has already been promised.
+    if carried_ports:
+        hold_port_anchored_edges(graph, carried_from, carried_ports)
     route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
     route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     assert_reservations_are_settled(
@@ -1202,6 +1259,13 @@ def _settle_render_geometry(
         strict=effective_strict,
     )
 
+    # The Tier-A layout guards read the settled routes and the settled boxes --
+    # the geometry the renderer is handed -- so a bbox, anchor, elbow,
+    # pass-through, band or crossing defect is judged on what gets drawn rather
+    # than on a first routing pass that later steps move.
+    assert_render_layout_invariants(
+        graph, routes, station_offsets, strict=effective_strict
+    )
     assert_render_header_clearance(graph, strict=effective_strict)
     return (
         station_offsets,
