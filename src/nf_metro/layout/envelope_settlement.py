@@ -677,6 +677,14 @@ def _verify_against_input_ledger(
     return tuple(shortfalls)
 
 
+def _box_extents(section: Section) -> tuple[tuple[float, float], tuple[float, float]]:
+    """One section's box as its horizontal and vertical intervals, in that order."""
+    return (
+        (section.bbox_x, section.bbox_x + section.bbox_w),
+        (section.bbox_y, section.bbox_y + section.bbox_h),
+    )
+
+
 def _axis_gaps(graph: MetroGraph, axis: _Axis) -> dict[tuple[str, str], float]:
     """The signed clearance between every pair of boxes that face each other.
 
@@ -685,28 +693,22 @@ def _axis_gaps(graph: MetroGraph, axis: _Axis) -> dict[tuple[str, str], float]:
     other, so the distance between them is not a separation this stage owes
     anything to.
     """
-    across = (
-        (lambda section: (section.bbox_x, section.bbox_x + section.bbox_w))
-        if axis.axis is SettlementAxis.ROW
-        else (lambda section: (section.bbox_y, section.bbox_y + section.bbox_h))
-    )
-    along = (
-        (lambda section: (section.bbox_y, section.bbox_y + section.bbox_h))
-        if axis.axis is SettlementAxis.ROW
-        else (lambda section: (section.bbox_x, section.bbox_x + section.bbox_w))
-    )
+    along_index = 1 if axis.axis is SettlementAxis.ROW else 0
+    across_index = 1 - along_index
     gaps: dict[tuple[str, str], float] = {}
     sections = sorted(graph.sections.items())
     for first_key, first in sections:
         for second_key, second in sections:
             if first_key >= second_key:
                 continue
-            first_lo, first_hi = across(first)
-            second_lo, second_hi = across(second)
+            first_extents = _box_extents(first)
+            second_extents = _box_extents(second)
+            first_lo, first_hi = first_extents[across_index]
+            second_lo, second_hi = second_extents[across_index]
             if min(first_hi, second_hi) <= max(first_lo, second_lo):
                 continue
-            first_start, first_end = along(first)
-            second_start, second_end = along(second)
+            first_start, first_end = first_extents[along_index]
+            second_start, second_end = second_extents[along_index]
             if first_end <= second_start:
                 gaps[first_key, second_key] = second_start - first_end
             elif second_end <= first_start:
