@@ -1440,10 +1440,32 @@ in pipeline order.
   geometry, together with the monotone claim, by re-measuring every facing pair
   of boxes and every straddling section's corridors.
 - **Postcondition**: Every row-gap and column-gap reservation has non-negative
-  capacity slack against the ledger settlement was handed. No deficit is
-  exempt: a boundary is always widenable by a global translation, so a deficit
-  that survives the sweep is an infeasible arrangement and the closing guard
-  refuses it on the strict path. A boundary that every relevant section spans
+  capacity slack against the ledger settlement was handed. This holds
+  unconditionally, for every arrangement an author can express, by the
+  **ownership lemma**: `_row_region_measurement` splits the sections beside
+  boundary `b` into an upper set `{row_end(s) <= b-1}` and a lower set
+  `{grid_row(s) >= b}`, and `_translation_ownership(b)` moves exactly
+  `{grid_row(s) >= b}` and holds everything else. Those are the same inequality,
+  so a translation raises the corridor's `end` by its full amount and leaves
+  `start` fixed: the corridor widens by exactly what was asked. Columns are the
+  same statement on `grid_col`. The premises are that `amount = ceil(deficit /
+  SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM >= deficit` with translations
+  unbounded above; that no directive pins a canvas coordinate or a maximum
+  separation (`grid:` fixes grid indices, `section_x_gap`/`section_y_gap` are
+  floors, `width`/`height` size the viewport, and `legend:` is not a corridor
+  blocker); that row and column offsets are cumulative sums over ascending
+  index, so "A above B" implies `A.grid_row <= B.grid_row`; and that section
+  sizes are frozen between settlement and the guard, `shift_section` writing only
+  origins. Consequently the strict deficit path is a backstop against ledger or
+  ownership drift rather than an authoring outcome: an "infeasible pinned
+  arrangement" is not a state this model admits. The guard stays because the
+  lemma is a property of two predicates staying in step, which a future edit
+  could break. `tests/test_envelope_settlement.py` measures the lemma directly
+  over one fixture per pin class -- explicit grid, row span, column span,
+  inferred span, fold-driven rows, and all four flow directions -- asserting that
+  a boundary's negative blockers are disjoint from the sections its translation
+  moves, its positive blockers are contained in them, and no blocker straddles
+  the boundary. A boundary that every relevant section spans
   across has no side to measure, so it is never selected as a corridor's region
   in the first place -- the measurement bounds a boundary by the sections lying
   wholly on each side of it, and raises otherwise. Every convergence system left
@@ -1463,13 +1485,16 @@ in pipeline order.
   order, port sides, and author-pinned grid relationships are unchanged.
 - **Out of scope**: Canvas-side corridors, whose far boundary is the canvas
   edge rather than a grid neighbour; closing one grows a margin, which no row
-  or column offset owns. They are measured and reported by the closing guard
-  rather than gated: a `CanvasRegion` names only which canvas side it lies
-  against, with none of the row/column locality its gap-region siblings carry,
-  so claims from unrelated parts of a map group into one reservation whenever
-  their travel intervals touch, and the bundle width and single boundary search
-  that follow describe no drawn corridor. 22 corpus claims carry such a deficit
-  on maps that render correctly.
+  or column offset owns. They are gated separately, by
+  `assert_canvas_corridors_hold_their_claims`, which runs once the render has
+  sized its canvas -- the first point at which the number a canvas claim is
+  measured against exists, and the reason the settlement guard could never
+  measure one. A run is filed against a canvas side only when it lies beyond the
+  extreme of every placed section, so the margin it is measured within is the one
+  it occupies, and its clearance on that side is `CANVAS_EDGE_CLEARANCE`: the
+  stroke's half-width plus a direction chevron, which is what is drawn there. A
+  turn radius is not, because an arc beside the canvas is inscribed inboard of
+  the centreline. The corpus carries no canvas deficit.
 - **Transactional**: The pre-settlement coordinates are restored before any
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.

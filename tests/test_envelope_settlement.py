@@ -340,6 +340,206 @@ def test_a_group_band_render_is_gated_by_the_geometry_it_draws() -> None:
     assert _capacity_deficits(plan) == {}
 
 
+# One fixture per way an arrangement can pin a section's grid placement, which
+# is the only thing an author can pin: no directive fixes a canvas coordinate or
+# a maximum separation, so the ownership lemma below has to hold for all of them.
+PIN_CLASS_CORPUS = {
+    "explicit-grid": ROOT / "examples" / "rnaseq_sections.mmd",
+    "row-span": ROOT / "examples" / "differentialabundance.mmd",
+    "column-span": ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd",
+    "column-span-tb": ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+    "inferred-span": ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
+    "fold-rows": TOPOLOGIES / "convergence_fold_diamond.mmd",
+    "fold-targets": TOPOLOGIES / "fold_split_targets.mmd",
+    **{f"flow-{name}": path for name, path in DIRECTION_CORPUS.items()},
+}
+
+LEMMA_CORPUS = {
+    **PIN_CLASS_CORPUS,
+    **{f"deficit-{path.name}": path for path in DEFICIT_CORPUS},
+    **{f"column-{path.name}": path for path in COLUMN_DEFICIT_CORPUS},
+    **{f"spanning-{path.name}": path for path in SPANNING_CORPUS},
+    # The one member of ``SETTLED_CORPUS`` that publishes a corridor: the other
+    # two share none, so the rule has nothing to say about them.
+    "settled-rnaseq_auto.mmd": ROOT / "examples" / "rnaseq_auto.mmd",
+}
+
+# Fixtures that run a column translation while row corridors exist, so the row
+# phase's result is exposed to the column phase.
+CROSS_AXIS_CORPUS = (
+    TOPOLOGIES / "complex_multipath.mmd",
+    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
+    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd",
+)
+
+
+def _blocker_sections(ids: tuple[str, ...]) -> set[str]:
+    return {item.split(":", 1)[1] for item in ids}
+
+
+def _axis_for(region) -> tuple:
+    """The settlement axis object and boundary index for a gap *region*."""
+    if isinstance(region, RowGapRegion):
+        return envelope_settlement._ROW_AXIS, region.lower_row
+    return envelope_settlement._COLUMN_AXIS, region.right_column
+
+
+@pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))
+def test_a_boundary_translation_owns_exactly_its_positive_blockers(path: Path) -> None:
+    """Why widening a boundary can never fail, whatever the author pinned.
+
+    The measurement splits the sections beside a boundary into those ending
+    above it and those starting at or beyond it; the translation moves the
+    second set and holds everything else.  Both are the same inequality on
+    ``grid_row``/``grid_col``, so a translation raises the corridor's far edge by
+    its full amount and leaves the near edge alone: the corridor widens by
+    exactly what was asked for, and no arrangement of pins can make that false.
+    """
+    graph, plan = _observe(path)
+    query = build_route_plan_query(plan)
+    checked = 0
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = query.realised_reservation(reservation.id)
+        if realised is None:
+            continue
+        axis, boundary = _axis_for(reservation.region)
+        ownership = envelope_settlement._translation_ownership(graph, axis, boundary)
+        moved, spanning = (
+            set(ownership.moved_section_ids),
+            set(ownership.spanning_section_ids),
+        )
+        negative = _blocker_sections(realised.negative_blocker_ids)
+        positive = _blocker_sections(realised.positive_blocker_ids)
+
+        assert negative & moved == set(), (path, reservation.description)
+        assert positive <= moved, (path, reservation.description)
+        assert (negative | positive) & spanning == set(), (
+            path,
+            reservation.description,
+        )
+        checked += 1
+    assert checked, path
+
+
+@pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))
+def test_no_corridor_is_assigned_a_boundary_its_sections_all_span(path: Path) -> None:
+    """A boundary every relevant section straddles has no side to measure, so no
+    corridor may be filed against one: each side names a real blocker."""
+    graph, plan = _observe(path)
+    query = build_route_plan_query(plan)
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = query.realised_reservation(reservation.id)
+        if realised is None:
+            continue
+        axis, boundary = _axis_for(reservation.region)
+        ownership = envelope_settlement._translation_ownership(graph, axis, boundary)
+        assert realised.negative_blocker_ids, (path, reservation.description)
+        assert realised.positive_blocker_ids, (path, reservation.description)
+        bounded = _blocker_sections(
+            realised.negative_blocker_ids + realised.positive_blocker_ids
+        )
+        assert not bounded <= set(ownership.spanning_section_ids), (
+            path,
+            reservation.description,
+        )
+
+
+def test_one_translation_settles_every_claim_on_its_boundary() -> None:
+    """Two corridors starved at one boundary are one widening, not two.
+
+    ``convergent_offrow_exit_climb`` puts a topology-span claim and an
+    observed-run claim in row gap 0/1, each 3px short, and both are satisfied by
+    moving row 1 onward once.
+    """
+    path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
+    graph, plan = _observe(path)
+    starved = _capacity_deficits(plan)
+    assert len(starved) == 2
+    assert set(starved.values()) == {-3.0}
+
+    settlement = settle_route_envelopes(graph, plan)
+    (translation,) = settlement.translations
+    assert translation.axis is SettlementAxis.ROW
+    assert translation.boundary == 1
+    assert translation.amount == pytest.approx(3.0)
+    assert {str(item) for item in translation.reservation_ids} == set(starved)
+
+    for reservation_id in starved:
+        reservation = next(
+            item for item in plan.reservations if str(item.id) == reservation_id
+        )
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=settlement.coordinate_translations,
+        )
+        assert realised is not None
+        assert realised.capacity_slack >= -0.01
+
+
+@pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))
+def test_settlement_never_declines_a_demand_or_raises(path: Path) -> None:
+    """The ratchet on the lemma: an unmet demand or a stage failure would mean
+    an arrangement settlement cannot widen, which the ownership rule forbids."""
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.shortfalls == ()
+    for translation in settlement.translations:
+        assert translation.amount >= 0.0
+
+
+@pytest.mark.parametrize("path", CROSS_AXIS_CORPUS, ids=lambda item: item.name)
+def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
+    path: Path,
+) -> None:
+    """A column translation writes only x, and a row corridor is measured
+    between two y edges, so the column phase reaches one only by changing which
+    sections its run overlaps.  Asserting each corridor is measurable and equal,
+    rather than asserting no corridor narrowed, is what makes a corridor the
+    column phase dropped a failure instead of a vacuous pass.
+    """
+    graph, plan = _observe(path)
+    row_reservations = tuple(
+        item for item in plan.reservations if isinstance(item.region, RowGapRegion)
+    )
+    column_reservations = tuple(
+        item for item in plan.reservations if isinstance(item.region, ColumnGapRegion)
+    )
+    assert row_reservations and column_reservations, path
+
+    _, row_coordinate = envelope_settlement._settle_axis(
+        graph, plan, row_reservations, envelope_settlement._ROW_AXIS
+    )
+    before = {
+        item.id: realise_reservation(
+            graph, item, coordinate_translations=tuple(row_coordinate)
+        )
+        for item in row_reservations
+    }
+    assert all(value is not None for value in before.values())
+
+    column_translations, column_coordinate = envelope_settlement._settle_axis(
+        graph,
+        plan,
+        column_reservations,
+        envelope_settlement._COLUMN_AXIS,
+        tuple(row_coordinate),
+    )
+    assert column_translations, path
+    for reservation in row_reservations:
+        after = realise_reservation(
+            graph, reservation, coordinate_translations=tuple(column_coordinate)
+        )
+        assert after is not None, (path, reservation.description)
+        assert after.available_width == pytest.approx(
+            before[reservation.id].available_width
+        ), (path, reservation.description)
+
+
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
     """The 12 report feeders share one trunk lane needing 78px between rows.
 
