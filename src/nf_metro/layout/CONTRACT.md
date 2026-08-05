@@ -1458,15 +1458,25 @@ in pipeline order.
   fixpoint search over a moving constraint set with no convergence argument.
   A demand only the re-routed geometry reveals is reported by the closing
   guard, not chased.
-- **Consumed by**: the re-route settlement triggers. `_settle_render_geometry`
-  hands the pre-settlement ledger back to `observe_route_edges_centred`, which
-  builds `ReservedRowBands` (`layout/routing/reserved_bands.py`) by re-measuring
-  each row-gap reservation on the settled geometry.
-  `_center_inter_row_channel` places a claimed channel inside that band rather
-  than deriving one from the row edges, and a published band always holds a
-  channel, so a claimed corridor cannot take the narrow-gap fallback. A
-  boundary whose claims intersect to nothing, and every gap the ledger never
-  reached, keep the row-edge derivation.
+- **Consumed by**: the re-route. `_settle_render_geometry` hands the
+  pre-settlement ledger back to `observe_route_edges_centred` whenever it holds
+  any reservation, which builds `ReservedCorridors`
+  (`layout/routing/reserved_bands.py`) by re-measuring each row-gap and
+  column-gap reservation on the settled geometry. One axis-neutral measurement
+  serves both, keyed by the higher grid index the boundary separates (the lower
+  row, the right column). `_center_inter_row_channel` and
+  `centre_inter_column_channel` place a claimed channel inside that band rather
+  than deriving one from the row or column edges, and a published band always
+  holds a channel, so a claimed corridor cannot take the narrow-gap fallback.
+  Where a handler or normalisation pass sizes a channel from the boxes it has to
+  hand -- `bypass_bottom_y`'s trunk depth, the L-shape and wrap clearance
+  floors, `_clamp_inter_row_band_top`'s stack limit -- that proxy is applied
+  through the band (`held_in_reserved_band`) so the reservation's answer wins
+  where the two disagree. A boundary whose claims intersect to nothing, and
+  every gap the ledger never reached, keep the row- or column-edge derivation.
+  A pass that allocates several corridors across one boundary at once
+  (`_materialize_gap_slots`) keeps the raw gap: the per-boundary intersection
+  describes the room one corridor is left, not the room the whole gap holds.
 - **Related tests**: `tests/test_envelope_settlement.py`,
   `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.

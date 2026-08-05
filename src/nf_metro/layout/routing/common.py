@@ -29,7 +29,11 @@ from nf_metro.layout.route_topology import (
     convergence_junction_ids,
     merge_fanout_junction_ids,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedBand, ReservedRowBands
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    ReservedBands,
+    held_in_reserved_band,
+)
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 
@@ -1604,6 +1608,7 @@ def inter_column_channel_x(
     dx: float,
     max_r: float,
     offset_step: float,
+    reserved: ReservedBands | None = None,
 ) -> float:
     """Compute the X position for a vertical channel in an L-shaped route.
 
@@ -1615,7 +1620,9 @@ def inter_column_channel_x(
     tgt_sec = graph.sections.get(tgt.section_id) if tgt.section_id else None
 
     if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
-        return column_gap_midpoint(graph, src_sec.grid_col, tgt_sec.grid_col)
+        return centre_inter_column_channel(
+            graph, src_sec.grid_col, tgt_sec.grid_col, reserved=reserved
+        )
 
     # Extend the same gap-centred placement to junction endpoints (whose
     # section is found by tracing the junction graph) so a junction-sourced
@@ -1626,7 +1633,9 @@ def inter_column_channel_x(
     res_src = src_sec or resolve_section(graph, src)
     res_tgt = tgt_sec or resolve_section(graph, tgt)
     if res_src and res_tgt and abs(res_src.grid_col - res_tgt.grid_col) == 1:
-        return column_gap_midpoint(graph, res_src.grid_col, res_tgt.grid_col)
+        return centre_inter_column_channel(
+            graph, res_src.grid_col, res_tgt.grid_col, reserved=reserved
+        )
 
     # Fallback: place near source (no resolvable adjacent column info)
     if dx > 0:
@@ -1826,7 +1835,7 @@ def bypass_bottom_y(
     src_row: int | None = None,
     cross_row: bool = False,
     tgt_row: int | None = None,
-    reserved: ReservedRowBands | None = None,
+    reserved: ReservedBands | None = None,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
@@ -1919,7 +1928,24 @@ def bypass_bottom_y(
                     else:
                         candidate = (row_bottom + header_top) / 2
 
-    return candidate
+    return held_in_reserved_gap_band(graph, candidate, reserved)
+
+
+def held_in_reserved_gap_band(
+    graph: MetroGraph, y: float, reserved: ReservedBands | None
+) -> float:
+    """*y* held inside the band reserved for whichever inter-row gap holds it.
+
+    Section bottoms plus a clearance describe where a horizontal run may sit
+    given the boxes stacked in the two rows; the reservation for the gap it
+    lands in describes where the corridor's own blockers leave it room.  Where
+    the two disagree the reservation wins.  A run that falls in no inter-row gap
+    (a dive below the bottom row) claims no reservation and is left alone.
+    """
+    if reserved is None:
+        return y
+    upper = inter_row_gap_upper_row(graph, y)
+    return y if upper is None else held_in_reserved_band(y, reserved.at(upper + 1))
 
 
 def merge_trunk_force_cross_row(
@@ -2088,6 +2114,19 @@ def inter_row_wrap_band(n_lines: int, offset_step: float = OFFSET_STEP) -> float
     return INTER_ROW_EDGE_CLEARANCE + span + INTER_ROW_HEADER_CLEARANCE
 
 
+def reserved_row_band_between(
+    reserved: ReservedBands | None, src_row: int, tgt_row: int
+) -> ReservedBand | None:
+    """The band reserved in the gap a run between these two rows travels.
+
+    Only adjacent rows share one boundary; a run crossing further spans several
+    gaps at once and so consumes no single reservation.
+    """
+    if reserved is None or abs(src_row - tgt_row) != 1:
+        return None
+    return reserved.at(max(src_row, tgt_row))
+
+
 def inter_row_channel_y(
     graph: MetroGraph,
     src: Station,
@@ -2097,7 +2136,7 @@ def inter_row_channel_y(
     dy: float,
     max_r: float,
     offset: float = 0.0,
-    reserved: ReservedRowBands | None = None,
+    reserved: ReservedBands | None = None,
 ) -> float:
     """Compute Y for a horizontal channel in an inter-row gap.
 
@@ -2132,9 +2171,7 @@ def inter_row_channel_y(
                 upper_bottom,
                 lower_top,
                 offset,
-                reserved=(
-                    None if reserved is None else reserved.at(max(src_row, tgt_row))
-                ),
+                reserved=reserved_row_band_between(reserved, src_row, tgt_row),
             )
 
         # Multi-row crossing: an intervening row sits between source and
@@ -2267,3 +2304,33 @@ def _center_inter_row_channel(
     # the visually intrusive side -- and the source side keeps whatever
     # the gap allows, rather than the geometric midpoint that grazes both.
     return hi + offset
+
+
+def centre_inter_column_channel(
+    graph: MetroGraph,
+    col_a: int,
+    col_b: int,
+    row: int | None = None,
+    offset: float = 0.0,
+    *,
+    reserved: ReservedBands | None = None,
+) -> float:
+    """X for a vertical channel in the gap between two columns.
+
+    The horizontal twin of :func:`_center_inter_row_channel`, and it reads its
+    *reserved* band the same way: a band is the allocation the corridor's own
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` realises,
+    already carrying its side clearances, and it wins outright because the
+    reservation measured the blockers that actually bound this corridor over its
+    declared span.  Only adjacent columns name one boundary, so a channel
+    spanning further keeps the raw midpoint of :func:`column_gap_midpoint`,
+    which is bounded by whichever sections happen to sit in the two columns.
+    """
+    band = (
+        reserved.at(max(col_a, col_b))
+        if reserved is not None and abs(col_a - col_b) == 1
+        else None
+    )
+    if band is not None:
+        return band.place(offset)
+    return column_gap_midpoint(graph, col_a, col_b, row) + offset

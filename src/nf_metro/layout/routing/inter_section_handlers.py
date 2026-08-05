@@ -54,11 +54,11 @@ from nf_metro.layout.routing.common import (
     _inter_row_band_fits,
     bundle_width,
     bypass_bottom_y,
+    centre_inter_column_channel,
     clear_channel_of_section_edge,
     col_left_edge,
     col_right_edge,
     column_gap_edges,
-    column_gap_midpoint,
     endpoint_port_xs,
     gap_lo_for_x,
     header_corridor_y,
@@ -74,6 +74,7 @@ from nf_metro.layout.routing.common import (
     merge_trunk_force_cross_row,
     needs_perp_approach_fan,
     packed_cell_neighbor_edges,
+    reserved_row_band_between,
     resolve_section,
     row_bottom_edge,
     row_top_edge,
@@ -110,7 +111,7 @@ from nf_metro.layout.routing.perp import (
     _perp_entry_crossing_x,
     _perp_riser_lateral,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedRowBands
+from nf_metro.layout.routing.reserved_bands import ReservedBands, held_in_reserved_band
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -890,7 +891,7 @@ def _route_left_exit_around_below_left_entry(
         src_row=src_row,
         cross_row=cross_row,
         tgt_row=tgt_row,
-        reserved=ctx.reserved_bands,
+        reserved=ctx.reserved_bands.rows,
     )
 
     # Ascent channel left of the target box.  The entry taper fans the lines on
@@ -913,7 +914,7 @@ def _route_left_exit_around_below_left_entry(
     # Run the horizontal over the target's top when viable, else dip below it
     # (see :func:`_left_exit_wrap_over_top_y`).
     over_gy = _left_exit_wrap_over_top_y(
-        graph, src, tgt, cx, vx, tgt_row, ctx.reserved_bands
+        graph, src, tgt, cx, vx, tgt_row, ctx.reserved_bands.rows
     )
     over_top = over_gy is not None
     channel_y = over_gy if over_gy is not None else by
@@ -949,7 +950,7 @@ def _left_exit_wrap_over_top_y(
     cx: float,
     vx: float,
     tgt_row: int | None,
-    reserved: ReservedRowBands,
+    reserved: ReservedBands,
 ) -> float | None:
     """Over-the-top channel Y for a same-row LEFT-exit far-LEFT-entry wrap loop.
 
@@ -1022,7 +1023,7 @@ def _route_right_entry_cross_row(f: _InterFacts) -> RoutedPath | None:
             edge, src, tgt, ctx, pos_n=pos_n, delta=delta, corner_x=corner_x
         )
     if f.tgt_row is not None and _right_entry_gap_above_is_clear(
-        graph, src, tgt, tgt, f.tgt_row, ctx.reserved_bands
+        graph, src, tgt, tgt, f.tgt_row, ctx.reserved_bands.rows
     ):
         return _route_right_entry_via_gap_above(
             edge, src, tgt, tgt, f.i, f.n, ctx, f.tgt_row
@@ -1053,7 +1054,7 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
         f.ty,
         f.dy,
         ctx.curve_radius,
-        reserved=ctx.reserved_bands,
+        reserved=ctx.reserved_bands.rows,
     )
     exclude = {src.section_id} if src.section_id else set[str]()
     if _h_segment_crosses_other_section(graph, f.sx, f.tx, wrap_hy, exclude):
@@ -1693,7 +1694,7 @@ def _tb_bottom_exit_geometry(
             tgt.y,
             tgt.y - src.y,
             ctx.curve_radius,
-            reserved=ctx.reserved_bands,
+            reserved=ctx.reserved_bands.rows,
         )
         lo, hi = sorted((src.y, tgt.y))
         channel_y = min(max(channel_y, lo + ctx.curve_radius), hi - ctx.curve_radius)
@@ -1730,7 +1731,7 @@ def _tb_bottom_exit_geometry(
         tgt.y,
         tgt.y - src.y,
         ctx.curve_radius,
-        reserved=ctx.reserved_bands,
+        reserved=ctx.reserved_bands.rows,
     )
     _members, line_ids, _edge_by_line = gather_member_edges(ctx.graph, edge)
     riser_sign = -run_direction.sign
@@ -1818,7 +1819,14 @@ def _route_tb_bottom_exit_approach_fan(
 
     dy = ty - sy
     hy = inter_row_channel_y(
-        ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius, reserved=ctx.reserved_bands
+        ctx.graph,
+        src,
+        tgt,
+        sy,
+        ty,
+        dy,
+        ctx.curve_radius,
+        reserved=ctx.reserved_bands.rows,
     )
     lo, hi = (sy, ty) if dy >= 0 else (ty, sy)
     hy = min(max(hy, lo + ctx.curve_radius), hi - ctx.curve_radius)
@@ -2125,7 +2133,7 @@ def _route_bottom_exit_junction_via_gap(
         tgt.y,
         tgt.y - src.y,
         ctx.curve_radius,
-        reserved=ctx.reserved_bands,
+        reserved=ctx.reserved_bands.rows,
     )
     route = route_tapered(
         edge,
@@ -2426,7 +2434,7 @@ def _route_bypass(
         src_row=src_row,
         cross_row=cross_row,
         tgt_row=tgt_row,
-        reserved=ctx.reserved_bands,
+        reserved=ctx.reserved_bands.rows,
     )
 
     # A bottommost-row source climbing to a higher-row target keeps its run at
@@ -2871,7 +2879,15 @@ def _l_shape_mid_x(
 
     max_r = outer_lane_radius(n, ctx.curve_radius, ctx.offset_step)
     mid_x = inter_column_channel_x(
-        ctx.graph, src, tgt, sx, tx, dx, max_r, ctx.offset_step
+        ctx.graph,
+        src,
+        tgt,
+        sx,
+        tx,
+        dx,
+        max_r,
+        ctx.offset_step,
+        ctx.reserved_bands.columns,
     )
     half_width = bundle_width(n, ctx.offset_step) / 2
     return clear_channel_of_section_edge(
@@ -3179,7 +3195,9 @@ def _route_perp_exit_over(
         """X of the gap between the source and target columns."""
         src_col = src_sec.grid_col if src_sec is not None else 0
         tgt_col = tgt_sec.grid_col if tgt_sec is not None else src_col
-        return column_gap_midpoint(graph, src_col, tgt_col, row)
+        return centre_inter_column_channel(
+            graph, src_col, tgt_col, row, reserved=ctx.reserved_bands.columns
+        )
 
     # Corridor Y: the header band clearing the source section's near edge.
     cy_base = (
@@ -3316,7 +3334,7 @@ def _top_entry_side_fan_traverse_is_clear(
 
 
 def _corridor_riser_x(
-    graph: MetroGraph, src_sec: Section | None, tgt_sec: Section | None
+    ctx: _RoutingCtx, src_sec: Section | None, tgt_sec: Section | None
 ) -> float | None:
     """X mid-way in the clear inter-column gap between two same-row sections.
 
@@ -3328,8 +3346,12 @@ def _corridor_riser_x(
     """
     if src_sec is None or tgt_sec is None or src_sec.grid_row != tgt_sec.grid_row:
         return None
-    return column_gap_midpoint(
-        graph, src_sec.grid_col, tgt_sec.grid_col, row=src_sec.grid_row
+    return centre_inter_column_channel(
+        ctx.graph,
+        src_sec.grid_col,
+        tgt_sec.grid_col,
+        row=src_sec.grid_row,
+        reserved=ctx.reserved_bands.columns,
     )
 
 
@@ -3632,7 +3654,14 @@ def _route_top_entry_l_shape(
 
     # Y for the horizontal trunk channel in the inter-row gap.
     mid_y = inter_row_channel_y(
-        ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius, reserved=ctx.reserved_bands
+        ctx.graph,
+        src,
+        tgt,
+        sy,
+        ty,
+        dy,
+        ctx.curve_radius,
+        reserved=ctx.reserved_bands.rows,
     )
 
     # For a same-row cross-column producer the generic fallback in
@@ -3666,7 +3695,12 @@ def _route_top_entry_l_shape(
     ):
         src_bottom = src_sec.bbox_y + src_sec.bbox_h
         max_off = (n - 1) * ctx.offset_step
-        mid_y = max(mid_y, src_bottom + INTER_ROW_EDGE_CLEARANCE + max_off)
+        mid_y = held_in_reserved_band(
+            max(mid_y, src_bottom + INTER_ROW_EDGE_CLEARANCE + max_off),
+            reserved_row_band_between(
+                ctx.reserved_bands.rows, src_sec.grid_row, tgt_sec.grid_row
+            ),
+        )
 
     # Horizontal lead-in: a short run so the corner from horizontal to
     # vertical gets a proper curve.  The line leaves the source on the side
@@ -3711,7 +3745,7 @@ def _route_top_entry_l_shape(
     # trunk hard against the source box's exit edge runs the riser up that edge.
     # Seat the riser midway in the clear inter-column corridor instead.
     if exit_side is not None and not straight_drop:
-        corridor_x = _corridor_riser_x(ctx.graph, src_sec, tgt_sec)
+        corridor_x = _corridor_riser_x(ctx, src_sec, tgt_sec)
         if corridor_x is not None:
             lx0 = corridor_x
 
@@ -3872,7 +3906,14 @@ def _route_bottom_entry_l_shape(
 
     # Y for the horizontal trunk channel in the inter-row gap.
     mid_y = inter_row_channel_y(
-        ctx.graph, src, tgt, sy, ty, dy, ctx.curve_radius, reserved=ctx.reserved_bands
+        ctx.graph,
+        src,
+        tgt,
+        sy,
+        ty,
+        dy,
+        ctx.curve_radius,
+        reserved=ctx.reserved_bands.rows,
     )
 
     # For a same-row cross-column producer the generic fallback in
@@ -3900,7 +3941,12 @@ def _route_bottom_entry_l_shape(
     ):
         src_top = src_sec.bbox_y
         max_off = (n - 1) * ctx.offset_step
-        mid_y = min(mid_y, src_top - INTER_ROW_EDGE_CLEARANCE - max_off)
+        mid_y = held_in_reserved_band(
+            min(mid_y, src_top - INTER_ROW_EDGE_CLEARANCE - max_off),
+            reserved_row_band_between(
+                ctx.reserved_bands.rows, src_sec.grid_row, tgt_sec.grid_row
+            ),
+        )
 
     # Horizontal lead-in: a short run so the corner from horizontal to
     # vertical gets a proper curve.  The line leaves the source on the side
@@ -3945,7 +3991,7 @@ def _route_bottom_entry_l_shape(
     # trunk hard against the source box's exit edge runs the riser up that edge.
     # Seat the riser midway in the clear inter-column corridor instead.
     if exit_side is not None and not straight_drop:
-        corridor_x = _corridor_riser_x(ctx.graph, src_sec, tgt_sec)
+        corridor_x = _corridor_riser_x(ctx, src_sec, tgt_sec)
         if corridor_x is not None:
             lx0 = corridor_x
 
@@ -4346,14 +4392,19 @@ def _route_left_entry_wrap(
             ty,
             dy,
             ctx.curve_radius,
-            reserved=ctx.reserved_bands,
+            reserved=ctx.reserved_bands.rows,
         )
         src_sec = resolve_section(ctx.graph, src)
         if src_sec is not None:
             src_bottom = src_sec.bbox_y + src_sec.bbox_h
-            hy = max(
-                hy,
-                src_bottom + INTER_ROW_EDGE_CLEARANCE + (pos_n - 1) * ctx.offset_step,
+            hy = held_in_reserved_band(
+                max(
+                    hy,
+                    src_bottom
+                    + INTER_ROW_EDGE_CLEARANCE
+                    + (pos_n - 1) * ctx.offset_step,
+                ),
+                ctx.reserved_bands.rows.at(src_sec.grid_row + 1),
             )
     else:
         hy = inter_row_channel_y(
@@ -4365,7 +4416,7 @@ def _route_left_entry_wrap(
             dy,
             ctx.curve_radius,
             delta,
-            reserved=ctx.reserved_bands,
+            reserved=ctx.reserved_bands.rows,
         )
         hy -= delta
 
@@ -4428,7 +4479,7 @@ def _route_perp_exit_farside_entry_wrap(f: _InterFacts) -> RoutedPath | None:
         dy,
         ctx.curve_radius,
         delta,
-        reserved=ctx.reserved_bands,
+        reserved=ctx.reserved_bands.rows,
     )
     hy -= delta
     # The channel leaves the source's trailing edge, so hold it a clear band off
@@ -4509,7 +4560,14 @@ def _corridor_descent_x(
     # only when vx + r is constant across the bundle.  r_inner shrinks for
     # the +delta (rightmost) line, so that line must sit at the LARGER vx;
     # the opposite sign delaminates the descent corner.
-    return (gap_left + gap_right) / 2 + delta
+    return centre_inter_column_channel(
+        ctx.graph,
+        ep_col - 1,
+        ep_col,
+        row=ep_row,
+        offset=delta,
+        reserved=ctx.reserved_bands.columns,
+    )
 
 
 def _fan_left_entry_descent_x(
@@ -4673,11 +4731,11 @@ def _route_inter_row_gap_corridor(
         wrap_top = row_bottom_edge(ctx.graph, src_row, default=gap_top)
         wrap_bottom = row_top_edge(ctx.graph, src_row + 1, default=wrap_top)
         gy_base = _center_inter_row_channel(
-            wrap_top, wrap_bottom, reserved=ctx.reserved_bands.at(src_row + 1)
+            wrap_top, wrap_bottom, reserved=ctx.reserved_bands.rows.at(src_row + 1)
         )
     elif gap_bottom > gap_top:
         gy_base = _center_inter_row_channel(
-            gap_top, gap_bottom, reserved=ctx.reserved_bands.at(src_row + 1)
+            gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(src_row + 1)
         )
     else:
         gy_base = gap_top + INTER_ROW_EDGE_CLEARANCE
@@ -4686,9 +4744,12 @@ def _route_inter_row_gap_corridor(
     # next row's header badge.  Skipped for fan feeders, which share the wrap
     # sibling's (unclamped) band so the two bundles' H legs coincide.
     if fan is None and gap_bottom > gap_top:
-        gy_base = min(
-            max(gy_base, gap_top + INTER_ROW_EDGE_CLEARANCE),
-            gap_bottom - INTER_ROW_HEADER_CLEARANCE,
+        gy_base = held_in_reserved_band(
+            min(
+                max(gy_base, gap_top + INTER_ROW_EDGE_CLEARANCE),
+                gap_bottom - INTER_ROW_HEADER_CLEARANCE,
+            ),
+            ctx.reserved_bands.rows.at(src_row + 1),
         )
 
     # Inter-column descent channel left of the target column.  For a fan
@@ -5103,7 +5164,7 @@ def _right_entry_gap_above_is_clear(
     tgt: Station,
     entry_port: Station,
     tgt_row: int,
-    reserved: ReservedRowBands,
+    reserved: ReservedBands,
 ) -> bool:
     """Whether a RIGHT-entry feed from above can use the inter-row gap.
 
@@ -5241,7 +5302,7 @@ def _route_right_entry_via_gap_above(
     """
     gap_top, gap_bottom = _gap_above_target_y(ctx.graph, tgt_row)
     channel_y_base = _center_inter_row_channel(
-        gap_top, gap_bottom, reserved=ctx.reserved_bands.at(tgt_row)
+        gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(tgt_row)
     )
     # When two or more distinct lines converge into this one RIGHT entry port,
     # each independently picks the same descent X just right of the target
@@ -5282,7 +5343,7 @@ def _left_entry_gap_above_is_clear(f: _InterFacts) -> bool:
     if not _inter_row_band_fits(gap_top, gap_bottom):
         return False
     gy = _center_inter_row_channel(
-        gap_top, gap_bottom, reserved=ctx.reserved_bands.at(f.tgt_row)
+        gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(f.tgt_row)
     )
     _fan, pos_n, _delta, corner_x = _wrap_fan_geometry(
         ctx, f.edge, src, f.i, f.n, Direction.D
@@ -5329,7 +5390,7 @@ def _route_left_entry_via_gap_above(
     """
     gap_top, gap_bottom = _gap_above_target_y(ctx.graph, tgt_row)
     channel_y_base = _center_inter_row_channel(
-        gap_top, gap_bottom, reserved=ctx.reserved_bands.at(tgt_row)
+        gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(tgt_row)
     )
     _fan, pos_n, delta, corner_x = _wrap_fan_geometry(ctx, edge, src, i, n, Direction.D)
     vx = _left_entry_descent_x(ctx, tgt.x, pos_n)
@@ -5435,10 +5496,10 @@ def _band_hop_geometry(f: _InterFacts) -> _BandHopGeometry | None:
     if band1_top <= band0_bottom + COORD_TOLERANCE:
         return None  # the hop needs a row between the two bands
     band0_y = _center_inter_row_channel(
-        band0_top, band0_bottom, reserved=ctx.reserved_bands.at(f.src_row + 1)
+        band0_top, band0_bottom, reserved=ctx.reserved_bands.rows.at(f.src_row + 1)
     )
     band1_y = _center_inter_row_channel(
-        band1_top, band1_bottom, reserved=ctx.reserved_bands.at(f.tgt_row)
+        band1_top, band1_bottom, reserved=ctx.reserved_bands.rows.at(f.tgt_row)
     )
     exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
     clearance = SECTION_ROUTE_CLEARANCE + ctx.curve_radius + EDGE_TO_BUNDLE_CLEARANCE

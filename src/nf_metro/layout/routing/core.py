@@ -122,7 +122,7 @@ from nf_metro.layout.routing.postprocess import (  # noqa: F401
     _spread_diagonal_bundles,
     _StationMoveCandidate,
 )
-from nf_metro.layout.routing.reserved_bands import build_reserved_row_bands
+from nf_metro.layout.routing.reserved_bands import build_reserved_corridors
 from nf_metro.layout.routing.tb_handlers import (  # noqa: F401
     _compute_diagonal_placement,
     _perp_entry_drop_delta,
@@ -216,7 +216,7 @@ def _route_edges(
         reserved_bands=(
             None
             if reservations is None
-            else build_reserved_row_bands(graph, reservations)
+            else build_reserved_corridors(graph, reservations)
         ),
     )
     from nf_metro.layout.route_plan import build_route_plan_observer

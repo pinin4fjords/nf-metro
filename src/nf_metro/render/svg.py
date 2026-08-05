@@ -842,7 +842,12 @@ def _settle_render_geometry(
         assert_render_curve_invariants(graph, routes, station_offsets)
 
     settlement = settle_route_envelopes(graph, route_plan)
-    if settlement.translations:
+    # The router can only place a corridor from its reservation on a pass that
+    # is handed one, and the first pass is what publishes the ledger.  So the
+    # re-route runs whenever any corridor was reserved, not only when settlement
+    # had to translate something to make one fit: a reservation that already
+    # fits names blockers the raw row and column edges misjudge.
+    if settlement.translations or route_plan.reservations:
         station_offsets, routes, route_plan = _resettle(route_plan)
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
