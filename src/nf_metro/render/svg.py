@@ -44,6 +44,7 @@ from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     LayoutInvariantError,
+    assert_canvas_corridors_hold_their_claims,
     assert_render_header_clearance,
     assert_render_layout_invariants,
     assert_reservations_are_settled,
@@ -1343,6 +1344,9 @@ def _build_render_plan_scaled(
         graph,
         canvas_width=svg_width,
         canvas_height=svg_height,
+    )
+    assert_canvas_corridors_hold_their_claims(
+        route_plan, strict=graph.strict and not graph.permissive
     )
 
     positive_fan = tb_positive_fan_sections(graph)

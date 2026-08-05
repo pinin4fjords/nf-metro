@@ -100,7 +100,6 @@ from nf_metro.layout.phases.spacing import (
     _residual_label_overlaps,
 )
 from nf_metro.parser.model import (
-    LayoutGeometryWarning,
     LineSpread,
     MetroGraph,
     PermissiveGuardWarning,
@@ -120,6 +119,10 @@ if TYPE_CHECKING:
 
     from nf_metro.layout.envelope_settlement import EnvelopeSettlement
     from nf_metro.layout.route_plan import RoutePlan
+    from nf_metro.layout.route_reservations import (
+        RealisedRouteReservation,
+        RouteReservation,
+    )
     from nf_metro.layout.routing.common import RoutedPath
 
     class _HasMessage(Protocol):
@@ -6269,6 +6272,64 @@ def assert_render_header_clearance(graph: MetroGraph, *, strict: bool = False) -
     warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
 
 
+def _corridor_deficit_detail(
+    reservation: RouteReservation, realised: RealisedRouteReservation
+) -> str:
+    """Name the claimant, the span, the blockers, and both widths."""
+    claimants = ", ".join(sorted(reservation.claimant_member_ids))
+    blockers = ", ".join(
+        sorted(realised.negative_blocker_ids + realised.positive_blocker_ids)
+    )
+    return (
+        f"{reservation.description} claimed by {claimants} spans "
+        f"columns {reservation.span.min_column}-{reservation.span.max_column} "
+        f"and rows {reservation.span.min_row}-{reservation.span.max_row}, "
+        f"requires {realised.required_width:.1f}px and has "
+        f"{realised.available_width:.1f}px between {blockers}"
+    )
+
+
+def assert_canvas_corridors_hold_their_claims(
+    plan: RoutePlan,
+    *,
+    strict: bool = False,
+) -> None:
+    """Guard that a canvas-margin corridor has the clearance it reserved.
+
+    Read from *plan*'s realised records rather than re-measured: a canvas
+    corridor's far boundary is the canvas edge, and the canvas is sized from the
+    content it has to hold, so this is the first point at which the number the
+    claim was measured against exists.  A margin against a canvas edge is
+    widenable by growing the canvas, so a deficit here is an arrangement the
+    render cannot honour rather than a limit of any one stage.
+    """
+    from nf_metro.layout.route_reservations import CanvasRegion
+
+    by_id = {item.id: item for item in plan.reservations}
+    worst: tuple[float, str] | None = None
+    for realised in plan.realised_reservations:
+        reservation = by_id.get(realised.reservation_id)
+        if reservation is None or not isinstance(reservation.region, CanvasRegion):
+            continue
+        if realised.capacity_slack >= -COORD_TOLERANCE:
+            continue
+        if worst is None or realised.capacity_slack < worst[0]:
+            worst = (
+                realised.capacity_slack,
+                _corridor_deficit_detail(reservation, realised),
+            )
+    if worst is None:
+        return
+    msg = (
+        "a canvas-margin corridor is drawn with less clearance than it "
+        f"reserved: {worst[1]}.  Widen the canvas, or move the run off the "
+        "margin, rather than drawing it through a clearance it does not have."
+    )
+    if strict:
+        raise LayoutInvariantError(msg)
+    warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+
+
 def assert_reservations_are_settled(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -6285,32 +6346,24 @@ def assert_reservations_are_settled(
     *settlement.shortfalls* separately records the demands settlement itself
     already knew it had not met.
 
-    A route drawn through a row- or column-gap corridor narrower than its
-    reservation requires is a violated hard clearance, so the strict path
-    refuses it with no exemption and names the claimant, the corridor span, the
-    blockers, and both widths.  A row or column boundary is always widenable by
-    a global translation, so a deficit surviving settlement is an infeasible
-    arrangement rather than a limitation of this stage.
+    A route drawn through a corridor narrower than its reservation requires is a
+    violated hard clearance, so the strict path refuses it with no exemption and
+    names the claimant, the corridor span, the blockers, and both widths.  A row
+    or column boundary is always widenable by a global translation, so a deficit
+    surviving settlement is an infeasible arrangement rather than a limitation of
+    this stage.
 
-    Canvas-side claims are reported rather than enforced.  A ``CanvasRegion``
-    names only which side of the canvas it lies against, with none of the
-    row/column locality its gap-region siblings carry, so claims from unrelated
-    parts of a map group into one reservation whenever their travel intervals
-    touch.  The bundle width that follows spans corridors that are nowhere near
-    each other, and the single boundary search measures against one global edge,
-    so the resulting deficit describes no drawn geometry.  Enforcing it would
-    fail correctly drawn maps, so it is surfaced as a geometry warning naming
-    the claim.
+    A canvas-side corridor is measured against the canvas edge, which is not
+    known until the render has sized its canvas; those claims are checked by
+    :func:`assert_canvas_corridors_hold_their_claims` where that number exists.
     """
     from nf_metro.layout.route_reservations import (
-        CanvasRegion,
         ColumnGapRegion,
         RowGapRegion,
         realise_reservation,
     )
 
     worst: tuple[float, str] | None = None
-    canvas_deficits: list[str] = []
     for shortfall in settlement.shortfalls:
         detail = (
             "envelope settlement did not meet a demand it was handed: "
@@ -6324,9 +6377,7 @@ def assert_reservations_are_settled(
         for item in plan.realised_reservations
     }
     for reservation in plan.reservations:
-        if not isinstance(
-            reservation.region, RowGapRegion | ColumnGapRegion | CanvasRegion
-        ):
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
         realised = realise_reservation(
             graph,
@@ -6337,20 +6388,8 @@ def assert_reservations_are_settled(
         )
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
             continue
-        claimants = ", ".join(sorted(reservation.claimant_member_ids))
-        blockers = ", ".join(
-            sorted(realised.negative_blocker_ids + realised.positive_blocker_ids)
-        )
-        detail = (
-            f"{reservation.description} claimed by {claimants} spans "
-            f"columns {reservation.span.min_column}-{reservation.span.max_column} "
-            f"and rows {reservation.span.min_row}-{reservation.span.max_row}, "
-            f"requires {realised.required_width:.1f}px and has "
-            f"{realised.available_width:.1f}px between {blockers}"
-        )
-        if isinstance(reservation.region, CanvasRegion):
-            canvas_deficits.append(detail)
-        elif worst is None or realised.capacity_slack < worst[0]:
+        detail = _corridor_deficit_detail(reservation, realised)
+        if worst is None or realised.capacity_slack < worst[0]:
             worst = (realised.capacity_slack, detail)
     if worst is not None:
         msg = (
@@ -6362,10 +6401,3 @@ def assert_reservations_are_settled(
         if strict:
             raise LayoutInvariantError(msg)
         warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
-    for detail in canvas_deficits:
-        warnings.warn(
-            "a canvas-side reservation asks for more clearance than the band "
-            f"between its section and the canvas edge holds: {detail}",
-            category=LayoutGeometryWarning,
-            stacklevel=2,
-        )

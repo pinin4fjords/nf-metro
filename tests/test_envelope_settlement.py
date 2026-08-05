@@ -11,6 +11,12 @@ import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout import envelope_settlement, route_reservations
+from nf_metro.layout.constants import (
+    CANVAS_EDGE_CLEARANCE,
+    CURVE_RADIUS,
+    DEFAULT_LINE_WIDTH,
+    DIRECTIONAL_MARKER_HALF_EXTENT,
+)
 from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
@@ -22,10 +28,12 @@ from nf_metro.layout.envelope_settlement import (
 from nf_metro.layout.geometry import shift_section
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
+    assert_canvas_corridors_hold_their_claims,
     assert_reservations_are_settled,
 )
 from nf_metro.layout.route_plan import GridSpan, build_route_plan_query
 from nf_metro.layout.route_reservations import (
+    CanvasRegion,
     ColumnGapRegion,
     CorridorMeasurementScope,
     RowGapRegion,
@@ -38,6 +46,7 @@ from nf_metro.render.svg import _settled_render_graph, build_observed_render_pla
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
 REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
+REGRESSIONS = ROOT / "tests" / "fixtures" / "regressions"
 
 # Fixtures whose reservations carry a capacity deficit on unsettled geometry, so
 # settlement has real work to do.  Every member's deficit falls on a row
@@ -59,6 +68,19 @@ DEFICIT_CORPUS = (
 # to translate rather than merely confirm.
 COLUMN_DEFICIT_CORPUS = (
     ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
+)
+
+# Every map with a left-canvas channel: each draws its leftmost line 6px off the
+# canvas edge, which a turn-radius clearance would call 4px short.
+CANVAS_CLEARANCE_CORPUS = (
+    ROOT / "examples" / "diagonal_labels.mmd",
+    ROOT / "examples" / "genomic_pipeline.mmd",
+    TOPOLOGIES / "fanout_bundle_plus_spurs.mmd",
+    TOPOLOGIES / "inter_row_wrap_clearance.mmd",
+    ROOT / "tests" / "fixtures" / "diagonal_single_trunk_off_track.mmd",
+    REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
+    REGRESSIONS / "stacked_collector_fanin.mmd",
+    ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd",
 )
 
 # Fixtures where a section straddles a boundary settlement widens, so the
@@ -273,9 +295,7 @@ def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
         assert realised.capacity_slack >= -0.01
 
 
-GROUP_BAND_MAP = (
-    ROOT / "tests" / "fixtures" / "regressions" / "group_band_over_row_corridor.mmd"
-)
+GROUP_BAND_MAP = REGRESSIONS / "group_band_over_row_corridor.mmd"
 
 
 def test_a_group_caption_band_does_not_eat_a_settled_row_corridor() -> None:
@@ -881,6 +901,67 @@ def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> Non
         assert blocker in message
     assert f"{squeezed.required_width:.1f}px" in message
     assert f"{squeezed.available_width:.1f}px" in message
+
+
+def test_a_canvas_corridor_narrower_than_it_claims_fails_the_strict_path() -> None:
+    """A canvas margin is widenable too, so its deficit is a rejection.
+
+    Growing the demand past the margin stands in for an arrangement that starves
+    it: the guard has to refuse the render rather than warn and draw it.
+    """
+    path = TOPOLOGIES / "route_around_intervening.mmd"
+    plan = _rendered_plan(path, permissive=True).route_plan
+    target = next(
+        item for item in plan.reservations if isinstance(item.region, CanvasRegion)
+    )
+    realised = next(
+        item for item in plan.realised_reservations if item.reservation_id == target.id
+    )
+    assert realised.capacity_slack >= 0.0
+    assert_canvas_corridors_hold_their_claims(plan, strict=True)
+
+    starved = replace(
+        realised,
+        required_width=realised.available_width + 4.0,
+        capacity_slack=-4.0,
+    )
+    with pytest.raises(LayoutInvariantError, match="less clearance than it reserved"):
+        assert_canvas_corridors_hold_their_claims(
+            replace(plan, realised_reservations=(starved,)), strict=True
+        )
+
+
+def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
+    """The margin a canvas corridor needs is its stroke plus a chevron.
+
+    A turn beside the canvas inscribes its arc inboard of the centreline, so
+    demanding a turn radius there charges the corridor for room nothing occupies
+    -- which flagged seven corpus maps whose runs sit 6px off a canvas edge they
+    never cross.
+    """
+    assert CANVAS_EDGE_CLEARANCE == pytest.approx(
+        DIRECTIONAL_MARKER_HALF_EXTENT + DEFAULT_LINE_WIDTH / 2
+    )
+    assert CANVAS_EDGE_CLEARANCE < CURVE_RADIUS
+
+    for path in CANVAS_CLEARANCE_CORPUS:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+            graph.permissive = True
+            theme = resolve_theme(None, graph)
+            plan = build_observed_render_plan(graph, theme).route_plan
+        query = build_route_plan_query(plan)
+        checked = 0
+        for reservation in plan.reservations:
+            if not isinstance(reservation.region, CanvasRegion):
+                continue
+            realised = query.realised_reservation(reservation.id)
+            if realised is None:
+                continue
+            checked += 1
+            assert realised.capacity_slack >= -0.01, (path, reservation.description)
+        assert checked, path
 
 
 def test_an_unmet_handed_demand_fails_the_strict_path() -> None:

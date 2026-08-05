@@ -12,6 +12,7 @@ from typing import NewType, TypeAlias
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
+    CANVAS_EDGE_CLEARANCE,
     COORD_TOLERANCE,
     CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
@@ -1302,7 +1303,7 @@ def _clearances(
     if orientation is CorridorOrientation.HORIZONTAL:
         if isinstance(region, CanvasRegion) and region.side is CanvasSide.TOP:
             return (
-                CURVE_RADIUS,
+                CANVAS_EDGE_CLEARANCE,
                 INTER_ROW_HEADER_CLEARANCE,
                 (
                     KeepOutClass.CANVAS,
@@ -1315,7 +1316,7 @@ def _clearances(
         if isinstance(region, CanvasRegion):
             return (
                 INTER_ROW_EDGE_CLEARANCE,
-                CURVE_RADIUS,
+                CANVAS_EDGE_CLEARANCE,
                 (
                     KeepOutClass.SECTION,
                     KeepOutClass.HEADER,
@@ -1336,7 +1337,7 @@ def _clearances(
         )
     if isinstance(region, CanvasRegion) and region.side is CanvasSide.LEFT:
         return (
-            CURVE_RADIUS,
+            CANVAS_EDGE_CLEARANCE,
             EDGE_TO_BUNDLE_CLEARANCE,
             (
                 KeepOutClass.CANVAS,
@@ -1348,7 +1349,7 @@ def _clearances(
     if isinstance(region, CanvasRegion):
         return (
             EDGE_TO_BUNDLE_CLEARANCE,
-            CURVE_RADIUS,
+            CANVAS_EDGE_CLEARANCE,
             (
                 KeepOutClass.SECTION,
                 KeepOutClass.LABEL,

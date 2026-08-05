@@ -449,6 +449,24 @@ below the band where TOP-entry channel routes legitimately approach the
 badge, so the segment reads as clearly separate from the header rather than
 grazing it.  Enforced by ``test_routed_paths_clear_next_row_headers``."""
 
+DIRECTIONAL_MARKER_HALF_EXTENT: float = 4.0
+"""Half-extent of a direction chevron about the path point carrying it.
+
+Mirrors ``Theme.directional_marker_size`` (the arm half-length and
+half-width), which the reservation ledger cannot read: a corridor's
+clearances are a property of its region, resolved before any theme is in
+hand."""
+
+CANVAS_EDGE_CLEARANCE: float = DIRECTIONAL_MARKER_HALF_EXTENT + DEFAULT_LINE_WIDTH / 2
+"""Minimum distance between a canvas-margin corridor and the canvas edge.
+
+The only thing drawn beyond a corridor's centreline on its canvas side is
+the stroke's own half-width plus, where ``directional: true`` is set, a
+direction chevron; a corner arc is inscribed *inboard* of the centreline and
+never reaches past it.  So this is what has to fit, not a curve radius:
+demanding one flags every run that turns beside the canvas as short of room
+it does not need."""
+
 INTER_ROW_EDGE_CLEARANCE: float = 26.0
 """Minimum distance between an inter-row wrap channel and the *box edge*
 it runs beneath (the upper section's bbox bottom).
