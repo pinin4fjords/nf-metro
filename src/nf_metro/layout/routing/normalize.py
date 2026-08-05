@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import functools
 import itertools
-from collections import defaultdict
+import math
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple, TypeVar
 
 from nf_metro.layout.constants import (
@@ -22,11 +23,12 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
-from nf_metro.layout.geometry import spans_share_corridor
+from nf_metro.layout.geometry import cotravelling_lanes_fuse, spans_share_corridor
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
 from nf_metro.layout.routing.common import (
+    CorridorLane,
     Direction,
     GapSlot,
     HTrunkSeg,
@@ -35,6 +37,9 @@ from nf_metro.layout.routing.common import (
     _grid_row_bands,
     _h_segment_penetrates_section,
     column_gap_edges,
+    convergence_owns_segment_boundary,
+    corridor_lanes,
+    corridor_runs,
     gap_lo_for_x,
     initial_fanout_descent_span,
     inter_row_gap_upper_row,
@@ -365,17 +370,22 @@ def _overlays_distinct_line(
 ) -> bool:
     """Whether seating *channel* at *x* would fuse it onto *obstacle*'s stroke.
 
-    Co-travelling distinct lines nest one ``OFFSET_STEP`` apart, so a channel
-    parked on another line's column over a shared corridor draws as a single
-    stroke and hides one of the two lines.
+    The candidate-column veto reads the shared fusion predicate at a whole
+    coordinate tolerance: it is choosing between candidate columns rather than
+    judging drawn geometry, so a column within a tolerance of the full step is
+    close enough to count as taken.
     """
     return (
         channel.down is obstacle.down
         and channel.route.line_id != obstacle.route.line_id
-        and spans_share_corridor(
-            channel.y_lo, channel.y_hi, obstacle.y_lo, obstacle.y_hi
+        and cotravelling_lanes_fuse(
+            x,
+            obstacle.x,
+            (channel.y_lo, channel.y_hi),
+            (obstacle.y_lo, obstacle.y_hi),
+            step,
+            slack=COORD_TOLERANCE,
         )
-        and abs(x - obstacle.x) < step - COORD_TOLERANCE
     )
 
 
@@ -599,18 +609,11 @@ def _locate_slot_channel(
     return None
 
 
-def _convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
-    return any(
-        item in route.convergence_owned_segment_ranks
-        for item in (rank - 1, rank, rank + 1)
-    )
-
-
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
     route = channel.route
     return (
-        _convergence_owns_segment_boundary(route, channel.idx)
+        convergence_owns_segment_boundary(route, channel.idx)
         or route.fan_route_emitter is not None
         or (
             route.exit_turn_axis_id is not None
@@ -828,7 +831,7 @@ def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
         for line_id, trunk in trunks.items():
-            if _convergence_owns_segment_boundary(trunk.route, trunk.idx):
+            if convergence_owns_segment_boundary(trunk.route, trunk.idx):
                 continue
             target_y = targets[line_id]
             if abs(trunk.y - target_y) <= COORD_TOLERANCE:
@@ -853,7 +856,7 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
         t
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
-        and not _convergence_owns_segment_boundary(t.route, t.idx)
+        and not convergence_owns_segment_boundary(t.route, t.idx)
     ]
 
 
@@ -1294,7 +1297,7 @@ def _bundle_divergent_distinct_traverses(
     step = ctx.offset_step
     for members in _fanout_traverse_legs(routes).values():
         if any(
-            _convergence_owns_segment_boundary(member.route, member.idx)
+            convergence_owns_segment_boundary(member.route, member.idx)
             for member in members
         ):
             continue
@@ -1688,12 +1691,12 @@ def _stack_distinct_port_descents(
     """
     if any(
         _planner_owns_channel(channel)
-        and not _convergence_owns_segment_boundary(channel.route, channel.idx)
+        and not convergence_owns_segment_boundary(channel.route, channel.idx)
         for _route, channel in cluster
     ):
         return
     has_planned_channel = any(
-        _convergence_owns_segment_boundary(channel.route, channel.idx)
+        convergence_owns_segment_boundary(channel.route, channel.idx)
         for _route, channel in cluster
     )
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
@@ -1777,7 +1780,7 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through and not _convergence_owns_segment_boundary(r, k):
+                elif is_through and not convergence_owns_segment_boundary(r, k):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue
@@ -2171,7 +2174,7 @@ def _bundle_divergent_distinct_descents(
     for chans in by_source.values():
         if any(
             _planner_owns_channel(channel)
-            and not _convergence_owns_segment_boundary(channel.route, channel.idx)
+            and not convergence_owns_segment_boundary(channel.route, channel.idx)
             for channel in chans
         ):
             continue
@@ -2213,7 +2216,7 @@ def _bundle_divergent_distinct_descents(
         tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
         if (
             any(
-                _convergence_owns_segment_boundary(channel.route, channel.idx)
+                convergence_owns_segment_boundary(channel.route, channel.idx)
                 for channel in chans
             )
             and not tight
@@ -3026,7 +3029,7 @@ def _dogleg_off_exempt_trunks(
         return
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or convergence_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
@@ -3079,7 +3082,7 @@ def _dogleg_off_exempt_trunks(
 
     step = ctx.offset_step
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or convergence_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
@@ -3120,6 +3123,129 @@ def _dogleg_off_exempt_trunks(
         else:
             continue
         _restack_htrunk(t, below if use_below else above, 0, 1, step, ctx.curve_radius)
+
+
+def _run_enters_section(
+    graph: MetroGraph, axis: int, coord: float, span: tuple[float, float]
+) -> bool:
+    """Whether a run held at *coord* on *axis* over *span* lands inside a section."""
+    for section in graph.sections.values():
+        edges = (
+            (section.bbox_x, section.bbox_x + section.bbox_w),
+            (section.bbox_y, section.bbox_y + section.bbox_h),
+        )
+        held, crossed = edges[axis], edges[1 - axis]
+        if (
+            held[0] - COORD_TOLERANCE < coord < held[1] + COORD_TOLERANCE
+            and span[0] < crossed[1]
+            and crossed[0] < span[1]
+        ):
+            return True
+    return False
+
+
+def _reseat_lane(lane: CorridorLane, coord: float) -> CorridorLane:
+    """Move every run on *lane* to *coord*, re-forming its flanking corners.
+
+    Each run keeps its own corner radius as the reference the central concentric
+    helper re-derives from the moved waypoints, so the translation preserves the
+    concentric family each corner belongs to.
+    """
+    for run in lane.runs:
+        radius_in, radius_out = run.radii
+        _reseat_concentric_flanking(
+            run.route,
+            run.idx,
+            coord,
+            axis=run.axis,
+            base_radius=radius_in,
+            base_radius_out=radius_out,
+        )
+    return replace(
+        lane, coord=coord, runs=tuple(replace(run, coord=coord) for run in lane.runs)
+    )
+
+
+def _separate_fused_cotravelling_runs(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Restore the nesting step between co-travelling tracks of distinct lines.
+
+    A reserved corridor band states the room a corridor is left, not which lane
+    inside it the corridor takes.  Several independently-placed corridors
+    crossing one boundary are each held in that one band without any of them
+    seeing the others, so two can settle within one ``OFFSET_STEP`` of each
+    other; two distinct lines that close draw as a single two-tone stripe with
+    no separating hairline, hiding one of the two.
+
+    A fused lane travels to the far side of the full step it already leans
+    toward, which restores the pitch without reordering the two.  That move can
+    crowd the lane's other neighbour, so the neighbour is reconsidered in turn
+    and a whole crowded stack re-nests one lane at a time.  Each lane relocates
+    at most once, which bounds the cascade.
+
+    A plan-owned track never moves: a plan is what the closing validators check
+    the geometry against.  A handler-owned track is considered only after every
+    track the normalisation stage owns, so a fusion between the two is resolved
+    by moving the stage's own track and the handler keeps its coordinate wherever
+    that is enough.  It does still move when nothing else will: a handler placing
+    a run has no way to know a later pass would hold another corridor into its
+    lane, and a hidden line costs more than one step of drift.  A move that would
+    put a track inside a section is abandoned rather than forced; the closing
+    ``check_no_fused_cotravelling_lines`` reports whatever is left.
+
+    Every track is read once, before any move.  Moving one shifts the endpoint of
+    the runs flanking it, so a neighbouring track's span can go a step stale --
+    never enough to change which corridor two tracks share, which is the only
+    thing the span is asked.
+    """
+    step = ctx.offset_step
+    lanes = corridor_lanes(
+        run for rp in routes if rp.is_inter_section for run in corridor_runs(rp)
+    )
+    pending = deque(_reseating_order(lanes))
+    relocated: set[int] = set()
+    while pending:
+        i = pending.popleft()
+        if i in relocated:
+            continue
+        lane = lanes[i]
+        obstacle = min(
+            (other for other in lanes if lane.fuses_with(other, step)),
+            key=lambda other: abs(other.coord - lane.coord),
+            default=None,
+        )
+        if obstacle is None or abs(lane.coord - obstacle.coord) <= COORD_TOLERANCE_FINE:
+            continue
+        target = obstacle.coord + math.copysign(step, lane.coord - obstacle.coord)
+        if any(
+            _run_enters_section(ctx.graph, run.axis, target, run.span)
+            for run in lane.runs
+        ):
+            continue
+        lanes[i] = _reseat_lane(lane, target)
+        relocated.add(i)
+        pending.extend(
+            j
+            for j, other in enumerate(lanes)
+            if j not in relocated
+            and not other.pinned
+            and lanes[i].fuses_with(other, step)
+        )
+
+
+def _reseating_order(lanes: list[CorridorLane]) -> list[int]:
+    """Indices of the tracks this pass may re-seat, in the order it considers them.
+
+    Tracks the normalisation stage owns come before handler-owned ones, so a
+    fusion between the two is resolved by moving the stage's own track and the
+    handler's stays where its handler put it.  Within each group the order is by
+    axis then coordinate, which makes the outcome independent of route order.
+    """
+    return sorted(
+        (i for i, lane in enumerate(lanes) if not lane.pinned),
+        key=lambda i: (lanes[i].handler_owned, lanes[i].axis, lanes[i].coord),
+    )
 
 
 def _coincident_trunk_slots(grp: list[_HTrunk]) -> list[list[_HTrunk]]:

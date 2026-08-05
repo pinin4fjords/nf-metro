@@ -63,6 +63,8 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     _vert_horiz_cross,
     apply_route_offsets,
+    corridor_lanes,
+    corridor_runs,
     gap_lo_for_x,
     gap_lookup_geometry,
     horizontal_direction,
@@ -2328,6 +2330,89 @@ def check_no_same_line_parallel_descents(
                     edge_b=eb,
                     axis="V",
                     sep=sep,
+                    span=span,
+                )
+            )
+    return violations
+
+
+@dataclass(frozen=True)
+class FusedCotravellingLanes:
+    """Two distinct lines drawn closer than one nesting step over a shared run.
+
+    Co-travelling distinct lines nest one offset step apart, which leaves a
+    hairline of background showing between their strokes.  A pair closer than
+    that draws as a single two-tone stripe, so along the shared stretch one of
+    the two lines is not there to read.
+    """
+
+    first_line: str
+    second_line: str
+    axis: str
+    first_coord: float
+    second_coord: float
+    separation: float
+    required: float
+    span: tuple[float, float]
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"fused co-travelling lines: {self.first_line!r} at "
+            f"{self.axis}={self.first_coord:.2f} and {self.second_line!r} at "
+            f"{self.axis}={self.second_coord:.2f} travel together "
+            f"{self.separation:.2f}px apart, under the {self.required:.2f}px "
+            f"nesting step, over the "
+            f"{self.span[1] - self.span[0]:.1f}px they share from "
+            f"{self.span[0]:.1f} to {self.span[1]:.1f}"
+        )
+
+
+def check_no_fused_cotravelling_lines(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[FusedCotravellingLanes]:
+    """Return co-travelling tracks of distinct lines drawn within one step.
+
+    The distinct-line counterpart of
+    :func:`check_no_same_line_parallel_descents`, and the postcondition of
+    :func:`~nf_metro.layout.routing.normalize._separate_fused_cotravelling_runs`.
+    A reservation band names the room a corridor is left, not the lane it takes
+    inside it, so independently-placed corridors crossing one boundary can each
+    be held in that one band and close on each other; the two then paint one
+    stripe and hide a line.
+
+    Scanned on the offset-applied polylines, which is what the renderer draws.
+    Reported only where at least one of the two tracks can be re-seated: two
+    plan-owned tracks hold the coordinate their plans state, which nothing on
+    this path may move, so reporting them would abort every render carrying a
+    defect the chokepoint cannot get repaired.
+    """
+    step = graph_offset_step(graph)
+    lanes = corridor_lanes(
+        run
+        for rp in routes
+        if rp.is_inter_section
+        for run in corridor_runs(rp, apply_route_offsets(rp, offsets))
+    )
+    violations: list[FusedCotravellingLanes] = []
+    for i, first in enumerate(lanes):
+        for second in lanes[i + 1 :]:
+            if first.pinned and second.pinned:
+                continue
+            span = first.fused_span(second, step)
+            if span is None:
+                continue
+            violations.append(
+                FusedCotravellingLanes(
+                    first_line=first.line_id,
+                    second_line=second.line_id,
+                    axis="X" if first.axis == 0 else "Y",
+                    first_coord=first.coord,
+                    second_coord=second.coord,
+                    separation=abs(first.coord - second.coord),
+                    required=step,
                     span=span,
                 )
             )
@@ -5960,6 +6045,10 @@ def assert_render_curve_invariants(
             check_no_same_line_parallel_descents(graph, routes, offsets),
         ),
         (
+            "fused co-travelling distinct lines",
+            check_no_fused_cotravelling_lines(graph, routes, offsets),
+        ),
+        (
             "packed-cell same-line handoff divergence",
             check_packed_cell_same_line_handoff(graph, routes, offsets),
         ),
@@ -6115,6 +6204,18 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_coincident_corner_radii, "A"),
     _check_spec(check_collinear_distinct_lines, "A"),
     _check_spec(check_no_same_line_parallel_descents, "A"),
+    _check_spec(
+        check_no_fused_cotravelling_lines,
+        "A",
+        issue_pin=("#1660",),
+        narrow_reason=(
+            "Reported only where at least one of the two tracks can be "
+            "re-seated. Two plan-owned tracks hold the coordinate their plans "
+            "state, which nothing on the render path may move, so reporting "
+            "them would abort every render carrying a defect this chokepoint "
+            "cannot get repaired -- that belongs to the plan, not here."
+        ),
+    ),
     _check_spec(check_packed_cell_same_line_handoff, "A"),
     _check_spec(check_no_riser_hugs_section_edge, "A"),
     _check_spec(check_stacked_right_ports_bow_out, "A"),
@@ -6240,6 +6341,7 @@ __all__ = [
     "FanOpeningFailure",
     "FanOpeningGeometryViolation",
     "FanoutTailGap",
+    "FusedCotravellingLanes",
     "HangingRoute",
     "JunctionPeeloffCorner",
     "MergeBranchHang",
@@ -6286,6 +6388,7 @@ __all__ = [
     "check_merge_port_approach_side",
     "check_no_hanging_routes",
     "check_collinear_distinct_lines",
+    "check_no_fused_cotravelling_lines",
     "check_no_same_line_parallel_descents",
     "check_packed_cell_same_line_handoff",
     "check_no_riser_hugs_section_edge",

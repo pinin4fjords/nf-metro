@@ -714,3 +714,35 @@ def spans_share_corridor(
     from nf_metro.layout.constants import MIN_CORRIDOR_Y_OVERLAP
 
     return min(first_hi, second_hi) - max(first_lo, second_lo) > MIN_CORRIDOR_Y_OVERLAP
+
+
+def cotravelling_lanes_fuse(
+    first_coord: float,
+    second_coord: float,
+    first_span: tuple[float, float],
+    second_span: tuple[float, float],
+    offset_step: float,
+    *,
+    slack: float | None = None,
+) -> bool:
+    """Whether two co-travelling runs of distinct lines draw as one stroke.
+
+    Co-travelling distinct lines nest one *offset_step* apart, so a run parked
+    inside another line's step over a shared corridor draws as a single stroke
+    and hides one of the two lines.  *slack* is how much of the separating
+    hairline the caller tolerates: a placement veto choosing between candidate
+    columns can afford a whole coordinate tolerance, whereas a postcondition
+    read off drawn geometry has only the hairline itself to spend, so it takes
+    the default fine tolerance.
+
+    Direction and line identity are the caller's to check; this is the lateral
+    half of the question, shared so the pitch a pass restores and the pitch a
+    guard demands can never disagree.
+    """
+    from nf_metro.layout.constants import COORD_TOLERANCE_FINE
+
+    tolerance = COORD_TOLERANCE_FINE if slack is None else slack
+    return (
+        spans_share_corridor(*first_span, *second_span)
+        and abs(first_coord - second_coord) < offset_step - tolerance
+    )

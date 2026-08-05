@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import NamedTuple
@@ -24,7 +24,13 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_ROUTE_CLEARANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    cotravelling_lanes_fuse,
+    lanes_run_along_x,
+    lanes_run_along_y,
+    spans_share_corridor,
+)
 from nf_metro.layout.route_topology import (
     convergence_junction_ids,
     merge_fanout_junction_ids,
@@ -2353,3 +2359,200 @@ def centre_inter_column_channel(
     if band is not None:
         return band.place(offset)
     return column_gap_midpoint(graph, col_a, col_b, row) + offset
+
+
+def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a convergence plan owns the boundary at or beside *rank*.
+
+    A plan that owns a segment boundary owns the corner there, so a pass moving
+    either of the two segments meeting at it would contradict the plan the
+    closing validators check the geometry against.
+    """
+    return any(
+        item in route.convergence_owned_segment_ranks
+        for item in (rank - 1, rank, rank + 1)
+    )
+
+
+def _run_is_plan_owned(run: CorridorRun) -> bool:
+    """Whether a pre-routing plan fixes this run's coordinate.
+
+    A convergence-owned segment boundary, a fan emission and a planned exit turn
+    are all resolved against a plan the closing validators check the geometry
+    against, so their coordinate is not a normalisation pass's to choose.
+    """
+    route = run.route
+    return (
+        convergence_owns_segment_boundary(route, run.idx)
+        or route.fan_route_emitter is not None
+        or route.exit_turn_segment_rank == run.idx
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CorridorRun:
+    """One straight interior run of a route, read on whichever axis holds it.
+
+    ``axis`` indexes the coordinate the run holds constant -- ``0`` for a
+    vertical run, ``1`` for a horizontal one -- so ``coord`` and ``span`` read
+    the same way on both and select the moved coordinate for a caller that
+    translates the run.  ``sign`` is the direction of travel along the other
+    axis.
+    """
+
+    route: RoutedPath
+    idx: int
+    axis: int
+    coord: float
+    span: tuple[float, float]
+    sign: int
+
+    @property
+    def radii(self) -> tuple[float, float]:
+        """The run's incoming and outgoing flanking corner radii."""
+        stored = self.route.curve_radii or []
+        return tuple(
+            stored[i] if 0 <= i < len(stored) else CURVE_RADIUS
+            for i in (self.idx - 1, self.idx)
+        )  # type: ignore[return-value]
+
+
+def corridor_runs(
+    rp: RoutedPath, points: Sequence[tuple[float, float]] | None = None
+) -> Iterator[CorridorRun]:
+    """Every interior straight run of *rp* that turns at both ends.
+
+    A run bounded by two perpendicular legs is one a pass may translate whole:
+    both flanking legs stretch to meet it and its two corners re-form.  The
+    route's opening and closing legs are excluded because they are pinned to an
+    endpoint that moving the run would tear away from.
+
+    *points* reads the run coordinates from a projection of the route rather
+    than its waypoints, so a caller judging what is drawn passes the
+    offset-applied polyline while a pass about to move a waypoint omits it.
+    """
+    pts = rp.points if points is None else points
+    for k in range(1, len(pts) - 2):
+        start, end = pts[k], pts[k + 1]
+        axis = 0 if abs(end[0] - start[0]) <= abs(end[1] - start[1]) else 1
+        along = 1 - axis
+        if abs(end[axis] - start[axis]) > COORD_TOLERANCE:
+            continue
+        travel = end[along] - start[along]
+        if abs(travel) <= COORD_TOLERANCE:
+            continue
+        if any(
+            abs(pts[flank][along] - pts[corner][along]) > COORD_TOLERANCE
+            or abs(pts[flank][axis] - pts[corner][axis]) <= COORD_TOLERANCE
+            for flank, corner in ((k - 1, k), (k + 2, k + 1))
+        ):
+            continue
+        yield CorridorRun(
+            route=rp,
+            idx=k,
+            axis=axis,
+            coord=start[axis],
+            span=(min(start[along], end[along]), max(start[along], end[along])),
+            sign=1 if travel > 0 else -1,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CorridorLane:
+    """The runs of one line that share a track through one corridor.
+
+    A line's fan-out legs are fused onto a single drawn track before this, so a
+    lane -- not a run -- is the unit that may be re-seated: moving one leg of a
+    fused track alone would split the line into two parallel same-colour runs.
+    """
+
+    line_id: str
+    axis: int
+    sign: int
+    coord: float
+    runs: tuple[CorridorRun, ...]
+
+    @property
+    def pinned(self) -> bool:
+        """Whether a pre-routing plan fixes this track's coordinate."""
+        return any(_run_is_plan_owned(run) for run in self.runs)
+
+    @property
+    def handler_owned(self) -> bool:
+        """Whether every run on this track carries the coordinate its handler set.
+
+        A track that also carries a normalisation-owned run is a shared channel
+        the normalisation stage already places, so it is not handler-owned --
+        the rule trunk-slot materialisation applies when an exempt trunk shares
+        a channel with a non-exempt one.
+        """
+        return all(run.route.normalize_exempt for run in self.runs)
+
+    def fused_span(
+        self, other: CorridorLane, step: float
+    ) -> tuple[float, float] | None:
+        """The widest stretch over which the two lanes draw as one stroke.
+
+        ``None`` when they do not: different axes or travel directions, one
+        line, or every shared stretch already carrying the full nesting step.
+        """
+        if (
+            self.axis != other.axis
+            or self.sign != other.sign
+            or self.line_id == other.line_id
+        ):
+            return None
+        return max(
+            (
+                (max(mine.span[0], theirs.span[0]), min(mine.span[1], theirs.span[1]))
+                for mine in self.runs
+                for theirs in other.runs
+                if cotravelling_lanes_fuse(
+                    self.coord, other.coord, mine.span, theirs.span, step
+                )
+            ),
+            key=lambda span: span[1] - span[0],
+            default=None,
+        )
+
+    def fuses_with(self, other: CorridorLane, step: float) -> bool:
+        """Whether the two lanes' strokes close into one over a shared corridor."""
+        return self.fused_span(other, step) is not None
+
+
+def corridor_lanes(runs: Iterable[CorridorRun]) -> list[CorridorLane]:
+    """Group *runs* into the tracks they are drawn on.
+
+    Two runs share a track when they carry the same line in the same direction
+    at the same coordinate and overlap along one corridor; runs of one line at
+    the same coordinate in unrelated corridors stay separate lanes so a move
+    here cannot drag geometry a corridor away.
+    """
+    tracks: list[list[CorridorRun]] = []
+    for run in runs:
+        member = next(
+            (
+                track
+                for track in tracks
+                if track[0].axis == run.axis
+                and track[0].sign == run.sign
+                and track[0].route.line_id == run.route.line_id
+                and abs(track[0].coord - run.coord) <= COORD_TOLERANCE_FINE
+                and any(spans_share_corridor(*run.span, *held.span) for held in track)
+            ),
+            None,
+        )
+        if member is None:
+            tracks.append([run])
+        else:
+            member.append(run)
+    return [
+        CorridorLane(
+            line_id=track[0].route.line_id,
+            axis=track[0].axis,
+            sign=track[0].sign,
+            coord=track[0].coord,
+            runs=tuple(track),
+        )
+        for track in tracks
+    ]

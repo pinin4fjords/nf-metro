@@ -186,6 +186,18 @@ a re-route driven by an existing ledger -- envelope settlement's, which has just
 widened these boundaries -- so the pass that publishes the ledger is unaffected.
 See the router contract in [route_plan](/nf-metro/dev/route_plan/#the-routers-side-of-the-contract).
 
+A band says how much room a corridor is left, not which lane inside it the
+corridor takes. Every claim crossing one boundary realises the same band, so
+several independently-placed corridors can each be put in it without any of them
+seeing the others and two can settle less than one `OFFSET_STEP` apart -- close
+enough that two distinct lines paint a single two-tone stripe and one of them is
+not there to read. `_separate_fused_cotravelling_runs` is the closing pass that
+sees every corridor at once and restores the step; the unit it moves is a
+_track_ (every run of one line drawn on one lane through one corridor), so
+re-seating cannot split a fused fan-out into two parallel same-colour runs.
+`check_no_fused_cotravelling_lines` is its postcondition on the render
+chokepoint.
+
 ## Render-time guards
 
 `validate_exit_turn_plans` runs before the generic render guards. It checks
