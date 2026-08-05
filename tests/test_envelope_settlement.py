@@ -296,7 +296,7 @@ def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
         assert realised.capacity_slack >= -0.01
 
 
-GROUP_BAND_MAP = REGRESSIONS / "group_band_over_row_corridor.mmd"
+GROUP_BAND_MAP = ROOT / "tests" / "fixtures" / "group_band_over_row_corridor.mmd"
 
 
 def test_a_group_caption_band_does_not_eat_a_settled_row_corridor() -> None:
