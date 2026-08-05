@@ -31,6 +31,34 @@ with another planner's pinned axis, or a membership that stops calling that
 member unowned, is #1658's "plan-driven whole-system emission", which is the
 owner `ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR` already names.
 
+Two further claims are drawn out of band by exactly one pixel, inside the
+tolerance this bound allows and so not enumerated above: the `hic_reads` lane
+turning up into `scaffolding` in each of the two `genomeassembly` maps.  Its
+column gap is 50px wide and carries three lanes.  The lowest is a
+planned exit turn's descent, whose coordinate is the `ExitTurnAxis`, so no pass
+may reseat it; the two above it are a bundle seated from that descent by
+`cotravelling_lane_clearance` and one `OFFSET_STEP`.  The descent stands 4px
+above the band floor and the stack from it takes 15px of the band's 18, so the
+upper lane ends 1px past the far clearance.
+
+That shortfall is a position rather than a width -- the reservation's own
+`minimum_width` is met with 14px to spare -- so nothing the boundary is asked
+for states it, and reaching it needs the pinned descent to bound the boundary
+the way `launch_anchors` makes a launch station bound it.  Stating it that way
+was built and measured, and settlement cannot pay it: `SETTLEMENT_QUANTUM` is
+`COORD_TOLERANCE`, `_settle_axis` acts only above `COORD_TOLERANCE`, and
+`ReservationCoordinateTranslation` refuses an amount that small, so the least
+translation settlement can express is 2px and a 1px deficit is below the
+resolution the ledger works at.  Lowering all three floors does close both
+claims for +1px of map width each (+0.07%), and costs
+`examples/topologies/exit_run_three_drop_columns.mmd` its render --
+settlement then changes route topology under
+`_assert_settlement_decisions_frozen` -- and puts an
+`ambiguous_exit_continuation` lane 4.5px out of band between two pinned lanes
+17.5px apart that owe each other 22px.  Both claims therefore sit with the
+convergence trunks above under #1658: the coordinate is the plan's, and so is
+the room the lanes beside it need.
+
 Every other claim in the corpus is drawn inside its band at exact precision,
 rather than merely within the tolerance this bound allows.
 """
