@@ -372,19 +372,6 @@ exceeds the curve radius by a meaningful amount so a visible flat is
 drawn through the station (matching how regular fork/join stations
 present a clear horizontal segment through their X coordinate)."""
 
-BYPASS_CLEARANCE: float = 25.0
-"""Vertical clearance below the lowest intervening section for bypass routes."""
-
-ROW_BAND_SLACK: float = BYPASS_CLEARANCE + Y_SPACING
-"""Vertical slack a same-row inter-section route may extend past the row band.
-
-A same-row wrap routes below the row's tallest section through a bypass
-channel sitting ``BYPASS_CLEARANCE`` below the band bottom, then stacks the
-bundle's per-line nest offsets (a few ``OFFSET_STEP`` each) on top, and adds
-up to one ``Y_SPACING`` for the diagonal corner approach.  This slack bounds
-that legitimate excursion so the band guard / invariant test admit a clean
-below-row wrap while still rejecting a route that dips a full row down."""
-
 SECTION_ROUTE_CLEARANCE: float = 16.0
 """Minimum gap between a section bbox edge and an external route channel.
 
@@ -488,6 +475,24 @@ box.  This wider margin gives the run a visibly clear gap below the box.
 It is the box-edge counterpart of ``INTER_ROW_HEADER_CLEARANCE`` on the
 lower side, keeping the channel's two margins symmetric about the real
 obstacles (box edge above, header badge below)."""
+
+BYPASS_CLEARANCE: float = INTER_ROW_EDGE_CLEARANCE
+"""Vertical clearance below the lowest intervening section for bypass routes.
+
+A bypass channel is a horizontal run drawn beneath a section's box edge, which
+is the relationship ``INTER_ROW_EDGE_CLEARANCE`` states, and the reservation
+ledger insets every row-gap corridor by that same margin.  A narrower margin
+here would seat a bypass inside the band its own reservation allocates it."""
+
+ROW_BAND_SLACK: float = BYPASS_CLEARANCE + Y_SPACING
+"""Vertical slack a same-row inter-section route may extend past the row band.
+
+A same-row wrap routes below the row's tallest section through a bypass
+channel sitting ``BYPASS_CLEARANCE`` below the band bottom, then stacks the
+bundle's per-line nest offsets (a few ``OFFSET_STEP`` each) on top, and adds
+up to one ``Y_SPACING`` for the diagonal corner approach.  This slack bounds
+that legitimate excursion so the band guard / invariant test admit a clean
+below-row wrap while still rejecting a route that dips a full row down."""
 
 INTER_ROW_HEADER_CLEARANCE: float = SECTION_HEADER_PROTRUSION + INTER_ROW_EDGE_CLEARANCE
 """Distance from a section's bbox top to an inter-row channel above it.
