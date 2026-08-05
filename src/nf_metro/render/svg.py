@@ -29,6 +29,7 @@ from nf_metro.layout.constants import (
     graph_offset_step,
 )
 from nf_metro.layout.envelope_settlement import (
+    attach_reroute_ledger_delta,
     attach_settlement_diagnostics,
     settle_route_envelopes,
 )
@@ -1038,7 +1039,12 @@ def _settle_render_geometry(
     different ledger -- corridors appear, vanish, and change their required
     width -- so settling again against it would be a fixpoint search over a
     moving constraint set rather than an allocation against fixed demand.  The
-    closing guard measures the re-routed ledger and reports what it finds.
+    plan published here is therefore the frozen ledger projected through the
+    translations, and the closing guard measures that; where the re-routed
+    ledger's gap demand differs from it,
+    :func:`attach_reroute_ledger_delta` records the difference as a non-blocking
+    diagnostic, so a demand this stage cannot chase is named rather than
+    invisible.
 
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
@@ -1150,10 +1156,14 @@ def _settle_render_geometry(
         # across the very step whose contract is coordinate translation only.
         # The routed observation exists to draw and to prove the decisions
         # frozen.
-        route_plan = adopt_route_reservation_ledger(
+        route_plan = attach_reroute_ledger_delta(
+            adopt_route_reservation_ledger(
+                frozen_plan,
+                graph,
+                coordinate_translations=settlement.coordinate_translations,
+            ),
             frozen_plan,
-            graph,
-            coordinate_translations=settlement.coordinate_translations,
+            routed_plan,
         )
     route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
     assert_reservations_are_settled(

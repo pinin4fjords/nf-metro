@@ -2288,9 +2288,13 @@ def _center_inter_row_channel(
     already carrying its side clearances.  It wins outright: the reservation
     measured the blockers that actually bound this corridor over its declared
     span, whereas ``upper_bottom`` / ``lower_top`` are whichever row edges the
-    caller had to hand.  Because a realised band is never narrower than the
-    bundle it was reserved for, the narrow-gap fallback below is unreachable
-    for a corridor that owns one.
+    caller had to hand.  A *reserved* band here is
+    :meth:`ReservedBands.at`'s boundary-wide intersection, which every claim
+    crossing the boundary has to satisfy at once and so can be narrower than any
+    one of them -- 49 of the corpus's published boundary bands are a single
+    coordinate.  :meth:`ReservedBand.place` therefore keeps the stagger rather
+    than collapsing it, and a bundle wider than the intersection overruns it,
+    which the closing guard reports.
 
     Without a reservation the channel is centred in the band that keeps
     :data:`INTER_ROW_EDGE_CLEARANCE` above the bbox bottom of the row
@@ -2298,14 +2302,14 @@ def _center_inter_row_channel(
     the latter clears the *header badge* (numbered circle + label) rather
     than just the bbox edge, so the run doesn't graze the next-row label.
     When the gap is too narrow to satisfy both margins the channel biases
-    to ``hi`` so it still clears the badge.
+    to ``hi``, which keeps the badge clear at the source side's expense.
 
-    A non-zero ``offset`` (a per-line bundle stagger) shifts the run off
-    centre.  When the band has room it is clamped to stay inside, so a
-    stagger sized from a larger bundle than the gap was reserved for can't
-    push the run past the box edge or header badge; in the degenerate
-    too-narrow band the stagger is applied unclamped so co-travelling lines
-    stay distinct rather than collapsing onto one Y.
+    A non-zero ``offset`` (a per-line bundle stagger) shifts the run off centre.
+    Where both margins fit it is clamped inside them, so a stagger sized from a
+    larger bundle than the gap allows cannot push the run past the box edge or
+    header badge; in the degenerate too-narrow gap the stagger is applied
+    unclamped so co-travelling lines stay distinct rather than collapsing onto
+    one Y.
     """
     if reserved is not None:
         return reserved.place(offset)

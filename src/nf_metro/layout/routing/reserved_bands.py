@@ -58,8 +58,19 @@ class ReservedBand:
         return min(max(coordinate, self.lo), self.hi)
 
     def place(self, offset: float) -> float:
-        """The channel coordinate at *offset* from the band centre, held inside it."""
-        return self.hold((self.lo + self.hi) / 2 + offset)
+        """The channel coordinate at *offset* from the band centre.
+
+        The band says where a bundle may run; *offset* is one lane's place
+        within that bundle.  A band narrower than the stagger cannot hold every
+        lane, and clamping each in turn would seat them all on one coordinate,
+        drawing co-travelling distinct lines as a single stroke and hiding one of
+        them.  So the stagger is kept and the overrun is left for the closing
+        guard, which is the same choice :func:`_hold_bundle_in_claim_band` makes
+        for a bundle whose band admits no travel.  Containment of the bundle as a
+        whole belongs to the caller that knows its width; a lone run with no
+        stagger goes through :meth:`hold` instead.
+        """
+        return (self.lo + self.hi) / 2 + offset
 
 
 def held_in_reserved_band(coordinate: float, band: ReservedBand | None) -> float:

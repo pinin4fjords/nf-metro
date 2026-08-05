@@ -152,10 +152,33 @@ def test_a_reserved_band_is_used_without_consulting_the_raw_gap(monkeypatch) -> 
     assert placed == pytest.approx(230.0)
 
 
-def test_a_reserved_band_holds_an_oversized_stagger_inside_itself() -> None:
+def test_a_reserved_band_keeps_an_oversized_stagger_distinct() -> None:
+    """Two lanes of one bundle never resolve onto a single coordinate.
+
+    A boundary band is the intersection of every claim crossing it, so it can be
+    narrower than a bundle claiming it, and clamping each lane into it in turn
+    would seat them all on the same coordinate: the two lines would draw as one
+    stroke and one of them would be invisible.  Distinctness is kept and the
+    overrun is what ``assert_reservations_are_settled`` reports.
+    """
     band = ReservedBand(200.0, 260.0)
-    assert _center_inter_row_channel(0.0, 0.0, 400.0, reserved=band) == band.hi
-    assert _center_inter_row_channel(0.0, 0.0, -400.0, reserved=band) == band.lo
+    centre = _center_inter_row_channel(0.0, 0.0, 0.0, reserved=band)
+    assert centre == pytest.approx(230.0)
+    lanes = [
+        _center_inter_row_channel(0.0, 0.0, offset, reserved=band)
+        for offset in (-400.0, -4.0, 4.0, 400.0)
+    ]
+    assert lanes == sorted(lanes)
+    assert len(set(lanes)) == len(lanes)
+    assert lanes == pytest.approx([-170.0, 226.0, 234.0, 630.0])
+
+
+def test_a_lone_reserved_run_is_held_inside_its_band() -> None:
+    """Containment applies to a run with no stagger to keep distinct."""
+    band = ReservedBand(200.0, 260.0)
+    assert band.hold(400.0) == band.hi
+    assert band.hold(0.0) == band.lo
+    assert band.hold(230.0) == pytest.approx(230.0)
 
 
 def test_a_band_narrower_than_nothing_cannot_be_built() -> None:

@@ -1439,10 +1439,14 @@ in pipeline order.
   if it did, the widening never reached them. That is asserted on the settled
   geometry, together with the monotone claim, by re-measuring every facing pair
   of boxes and every straddling section's corridors.
-- **Postcondition**: Every row-gap and column-gap reservation has non-negative
-  capacity slack against the ledger settlement was handed. This holds
-  unconditionally, for every arrangement an author can express, by the
-  **ownership lemma**: `_row_region_measurement` splits the sections beside
+- **Postcondition**: Every row-gap and column-gap reservation *contains* the run
+  drawn in it, measured against the ledger settlement was handed. Containment is
+  three counts, all of which `assert_reservations_are_settled` refuses on the
+  strict path: non-negative capacity slack (the region is wide enough at all),
+  and non-negative slack on each side (the run is drawn inside it, not seated off
+  centre with one side absorbing the whole surplus and the other overrun).
+  Capacity holds unconditionally, for every arrangement an author can express, by
+  the **ownership lemma**: `_row_region_measurement` splits the sections beside
   boundary `b` into an upper set `{row_end(s) <= b-1}` and a lower set
   `{grid_row(s) >= b}`, and `_translation_ownership(b)` moves exactly
   `{grid_row(s) >= b}` and holds everything else. Those are the same inequality,
@@ -1510,8 +1514,12 @@ in pipeline order.
   geometry publishes a different ledger (corridors appear, vanish, and change
   their required width), so settling against successive ledgers would be a
   fixpoint search over a moving constraint set with no convergence argument.
-  A demand only the re-routed geometry reveals is reported by the closing
-  guard, not chased.
+  The plan the closing guard measures is therefore the frozen ledger projected
+  through the translations, not the re-routed one. A demand only the re-routed
+  geometry reveals is consequently not chased, and `attach_reroute_ledger_delta`
+  records it as a non-blocking plan diagnostic so it is named rather than
+  invisible. Measured on the 219 corpus fixtures that reach the re-route, its
+  gap demand adds no corridor the ledger lacks and drops one.
 - **Consumed by**: the re-route. `_settle_render_geometry` hands the
   pre-settlement ledger back to `observe_route_edges_centred` whenever it holds
   any reservation, which builds `ReservedCorridors`
@@ -1539,8 +1547,10 @@ in pipeline order.
   `_spread_diagonal_bundles`, `_bundle_divergent_distinct_traverses`,
   `_coincide_fanout_opening_descents`, `_stagger_convergent_distinct_lines`,
   `_coincide_same_line_tracks`, `_materialize_gap_slots`. Measured on the
-  corpus, 76 of 560 realised gap corridors are drawn outside the band their own
-  reservation realises. Closing that means keying bands by a claim's
+  corpus, 82 of the 1003 claims carried by 557 realised gap reservations are
+  drawn outside the band their own reservation realises;
+  `tests/test_reserved_claim_consumption.py` holds that count, so the unit here
+  is claims and not corridors. Closing that means keying bands by a claim's
   `(path_rank, segment_rank)` -- which the frozen plan and the settled re-route
   agree on, because the re-route is asserted to reproduce route order and
   topology exactly -- and giving `_layout_gap_bundle` a band per bundle rather

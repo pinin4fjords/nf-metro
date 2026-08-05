@@ -593,6 +593,53 @@ def attach_settlement_diagnostics(
     return replace(plan, diagnostics=plan.diagnostics + added)
 
 
+def attach_reroute_ledger_delta(
+    plan: RoutePlan, frozen: RoutePlan, routed: RoutePlan
+) -> RoutePlan:
+    """Publish where the settled re-route's gap demand differs from the ledger's.
+
+    Settlement allocates against one ledger and deliberately does not iterate, so
+    a corridor the re-routed geometry is the first to demand is one no widening
+    was sized for.  Naming that difference here is what separates "not chased"
+    from "not seen": the published plan carries it, so a future change that starts
+    moving demand across this boundary is visible rather than silent.  The plan
+    the render draws from is the frozen one either way, which is why these are
+    non-blocking records rather than a refusal.
+    """
+
+    def gap_demand(source: RoutePlan) -> set[str]:
+        return {
+            item.description
+            for item in source.reservations
+            if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+        }
+
+    before, after = gap_demand(frozen), gap_demand(routed)
+    added = tuple(
+        RoutePlanDiagnostic(
+            None,
+            "reroute-ledger-demand-appeared",
+            f"the settled re-route demands {description}, which the ledger "
+            "settlement was handed does not carry, so no widening was sized "
+            "for it",
+            blocking=False,
+        )
+        for description in sorted(after - before)
+    ) + tuple(
+        RoutePlanDiagnostic(
+            None,
+            "reroute-ledger-demand-vanished",
+            f"the ledger settlement was handed carries {description}, which "
+            "the settled re-route does not demand",
+            blocking=False,
+        )
+        for description in sorted(before - after)
+    )
+    if not added:
+        return plan
+    return replace(plan, diagnostics=plan.diagnostics + added)
+
+
 def _measured_widths(
     graph: MetroGraph,
     reservations: tuple[RouteReservation, ...],

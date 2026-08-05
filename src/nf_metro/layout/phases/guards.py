@@ -6289,6 +6289,54 @@ def _corridor_deficit_detail(
     )
 
 
+class _ContainmentDeficit(NamedTuple):
+    """One way a realised corridor fails to contain the run drawn in it."""
+
+    rank: int
+    slack: float
+    phrase: str
+
+
+def _corridor_containment_deficit(
+    realised: RealisedRouteReservation,
+) -> _ContainmentDeficit | None:
+    """The worst way *realised* fails to contain its own run, if it does.
+
+    A corridor satisfies its reservation on two counts, and either can fail
+    alone.  ``capacity_slack`` asks whether the region is wide enough at all.
+    The side slacks ask whether the run is drawn *within* it: each measures the
+    occupied interval against one inset edge, so a region of exactly the required
+    width fails them whenever the run is seated off centre inside it, one side
+    absorbing the whole surplus while the other is overrun.
+
+    Capacity ranks above side clearance rather than competing with it on
+    magnitude: a region that cannot hold the run at all admits no seating, so
+    there is nothing to say about where in it the run sits.  Slacks from the two
+    counts are therefore not comparable numbers, and *rank* orders the counts so
+    a caller reporting only the worst corridor reports the more fundamental
+    failure first.
+
+    Returns the deficit's rank, its signed size, and a phrase naming the count
+    that failed, or ``None`` when the corridor holds on all three.
+    """
+    if realised.capacity_slack < -COORD_TOLERANCE:
+        return _ContainmentDeficit(
+            0,
+            realised.capacity_slack,
+            f"is {-realised.capacity_slack:.1f}px narrower than the run needs",
+        )
+    sides = (
+        (realised.negative_side_slack, "lower"),
+        (realised.positive_side_slack, "upper"),
+    )
+    slack, side = min(sides, key=lambda item: item[0])
+    if slack >= -COORD_TOLERANCE:
+        return None
+    return _ContainmentDeficit(
+        1, slack, f"draws the run {-slack:.1f}px past its {side} clearance edge"
+    )
+
+
 def assert_canvas_corridors_hold_their_claims(
     plan: RoutePlan,
     *,
@@ -6346,12 +6394,16 @@ def assert_reservations_are_settled(
     *settlement.shortfalls* separately records the demands settlement itself
     already knew it had not met.
 
-    A route drawn through a corridor narrower than its reservation requires is a
-    violated hard clearance, so the strict path refuses it with no exemption and
-    names the claimant, the corridor span, the blockers, and both widths.  A row
-    or column boundary is always widenable by a global translation, so a deficit
-    surviving settlement is an infeasible arrangement rather than a limitation of
-    this stage.
+    The postcondition is containment, not capacity alone: the drawn corridor has
+    to lie inside the band its own reservation realises, on both sides.  A region
+    wide enough overall with the run seated off centre inside it violates the
+    clearance a blocker was promised just as surely as a region too narrow, so
+    :func:`_corridor_containment_deficit` measures all three counts.  Either
+    failure is a violated hard clearance, so the strict path refuses it with no
+    exemption and names the claimant, the corridor span, the blockers, both
+    widths, and which count failed.  A row or column boundary is always widenable
+    by a global translation, so a deficit surviving settlement is an infeasible
+    arrangement rather than a limitation of this stage.
 
     A canvas-side corridor is measured against the canvas edge, which is not
     known until the render has sized its canvas; those claims are checked by
@@ -6363,7 +6415,7 @@ def assert_reservations_are_settled(
         realise_reservation,
     )
 
-    worst: tuple[float, str] | None = None
+    worst: tuple[tuple[int, float], str] | None = None
     for shortfall in settlement.shortfalls:
         detail = (
             "envelope settlement did not meet a demand it was handed: "
@@ -6386,15 +6438,22 @@ def assert_reservations_are_settled(
                 reservation.id, settlement.coordinate_translations
             ),
         )
-        if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
+        if realised is None:
             continue
-        detail = _corridor_deficit_detail(reservation, realised)
-        if worst is None or realised.capacity_slack < worst[0]:
-            worst = (realised.capacity_slack, detail)
+        deficit = _corridor_containment_deficit(realised)
+        if deficit is None:
+            continue
+        ordering = (deficit.rank, deficit.slack)
+        if worst is None or ordering < worst[0]:
+            worst = (
+                ordering,
+                f"{_corridor_deficit_detail(reservation, realised)}, and "
+                f"{deficit.phrase}",
+            )
     if worst is not None:
         msg = (
-            "the settled layout draws a route through a corridor narrower than "
-            f"its reservation requires: {worst[1]}.  Widen the arrangement that "
+            "the settled layout draws a route outside the corridor its "
+            f"reservation realises: {worst[1]}.  Widen the arrangement that "
             "pins it, or relax the pin, rather than drawing the route through a "
             "clearance it does not have."
         )
