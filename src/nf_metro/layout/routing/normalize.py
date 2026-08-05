@@ -3193,6 +3193,11 @@ def _separate_fused_cotravelling_runs(
     lane, and a hidden line costs more than one step of drift.  A move that would
     put a track inside a section is abandoned rather than forced; the closing
     ``check_no_fused_cotravelling_lines`` reports whatever is left.
+
+    Every track is read once, before any move.  Moving one shifts the endpoint of
+    the runs flanking it, so a neighbouring track's span can go a step stale --
+    never enough to change which corridor two tracks share, which is the only
+    thing the span is asked.
     """
     step = ctx.offset_step
     lanes = corridor_lanes(
