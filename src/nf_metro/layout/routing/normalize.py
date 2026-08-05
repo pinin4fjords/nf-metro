@@ -3130,8 +3130,6 @@ def _run_enters_section(
 ) -> bool:
     """Whether a run held at *coord* on *axis* over *span* lands inside a section."""
     for section in graph.sections.values():
-        if section.bbox_w <= 0 or section.bbox_h <= 0:
-            continue
         edges = (
             (section.bbox_x, section.bbox_x + section.bbox_w),
             (section.bbox_y, section.bbox_y + section.bbox_h),
@@ -3186,21 +3184,21 @@ def _separate_fused_cotravelling_runs(
     and a whole crowded stack re-nests one lane at a time.  Each lane relocates
     at most once, which bounds the cascade.
 
-    A move that would put a lane inside a section is abandoned rather than
-    forced, as is a fusion whose crowded neighbour is geometry this pass may not
-    touch; the closing ``check_no_fused_cotravelling_lines`` reports whatever is
-    left.
+    A plan-owned track never moves: a plan is what the closing validators check
+    the geometry against.  A handler-owned track is considered only after every
+    track the normalisation stage owns, so a fusion between the two is resolved
+    by moving the stage's own track and the handler keeps its coordinate wherever
+    that is enough.  It does still move when nothing else will: a handler placing
+    a run has no way to know a later pass would hold another corridor into its
+    lane, and a hidden line costs more than one step of drift.  A move that would
+    put a track inside a section is abandoned rather than forced; the closing
+    ``check_no_fused_cotravelling_lines`` reports whatever is left.
     """
     step = ctx.offset_step
     lanes = corridor_lanes(
         run for rp in routes if rp.is_inter_section for run in corridor_runs(rp)
     )
-    pending = deque(
-        sorted(
-            (i for i, lane in enumerate(lanes) if lane.movable),
-            key=lambda i: (lanes[i].axis, lanes[i].coord),
-        )
-    )
+    pending = deque(_reseating_order(lanes))
     relocated: set[int] = set()
     while pending:
         i = pending.popleft()
@@ -3225,8 +3223,24 @@ def _separate_fused_cotravelling_runs(
         pending.extend(
             j
             for j, other in enumerate(lanes)
-            if j not in relocated and other.movable and lanes[i].fuses_with(other, step)
+            if j not in relocated
+            and not other.pinned
+            and lanes[i].fuses_with(other, step)
         )
+
+
+def _reseating_order(lanes: list[CorridorLane]) -> list[int]:
+    """Indices of the tracks this pass may re-seat, in the order it considers them.
+
+    Tracks the normalisation stage owns come before handler-owned ones, so a
+    fusion between the two is resolved by moving the stage's own track and the
+    handler's stays where its handler put it.  Within each group the order is by
+    axis then coordinate, which makes the outcome independent of route order.
+    """
+    return sorted(
+        (i for i, lane in enumerate(lanes) if not lane.pinned),
+        key=lambda i: (lanes[i].handler_owned, lanes[i].axis, lanes[i].coord),
+    )
 
 
 def _coincident_trunk_slots(grp: list[_HTrunk]) -> list[list[_HTrunk]]:

@@ -2384,10 +2384,10 @@ def check_no_fused_cotravelling_lines(
     stripe and hide a line.
 
     Scanned on the offset-applied polylines, which is what the renderer draws.
-    Reported only where at least one of the two tracks is the normalisation
-    stage's to place: a pair of handler- or plan-owned tracks carries the
-    coordinate its owner chose, which no pass on this path may move and this
-    check would therefore only re-report every render.
+    Reported only where at least one of the two tracks can be re-seated: two
+    plan-owned tracks hold the coordinate their plans state, which nothing on
+    this path may move, so reporting them would abort every render carrying a
+    defect the chokepoint cannot get repaired.
     """
     step = graph_offset_step(graph)
     lanes = corridor_lanes(
@@ -2399,7 +2399,7 @@ def check_no_fused_cotravelling_lines(
     violations: list[FusedCotravellingLanes] = []
     for i, first in enumerate(lanes):
         for second in lanes[i + 1 :]:
-            if not (first.movable or second.movable):
+            if first.pinned and second.pinned:
                 continue
             span = first.fused_span(second, step)
             if span is None:
@@ -6209,12 +6209,11 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
         "A",
         issue_pin=("#1660",),
         narrow_reason=(
-            "Reported only where at least one of the two tracks is the "
-            "normalisation stage's to place. A pair of handler- or plan-owned "
-            "tracks holds the coordinate its owner chose, which nothing on the "
-            "render path may move, so widening the scope to those would abort "
-            "renders on a defect this chokepoint cannot get repaired -- that "
-            "belongs to the emitting handler, not here."
+            "Reported only where at least one of the two tracks can be "
+            "re-seated. Two plan-owned tracks hold the coordinate their plans "
+            "state, which nothing on the render path may move, so reporting "
+            "them would abort every render carrying a defect this chokepoint "
+            "cannot get repaired -- that belongs to the plan, not here."
         ),
     ),
     _check_spec(check_packed_cell_same_line_handoff, "A"),

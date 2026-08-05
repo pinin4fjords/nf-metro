@@ -2313,16 +2313,18 @@ def _center_inter_row_channel(
     too-narrow band the stagger is applied unclamped so co-travelling lines
     stay distinct rather than collapsing onto one Y.
     """
+    if reserved is not None:
+        return reserved.place(offset)
     lo = upper_bottom + INTER_ROW_EDGE_CLEARANCE
     hi = lower_top - INTER_ROW_HEADER_CLEARANCE
     if _inter_row_band_fits(upper_bottom, lower_top):
-        return held_in_reserved_band(min(max((lo + hi) / 2 + offset, lo), hi), reserved)
+        return min(max((lo + hi) / 2 + offset, lo), hi)
     # Gap too narrow for both margins (typically a heterogeneous-row case
     # where the global row edges over-state the obstruction at this x).
     # Bias to ``hi`` so the run still clears the next-row header badge --
     # the visually intrusive side -- and the source side keeps whatever
     # the gap allows, rather than the geometric midpoint that grazes both.
-    return held_in_reserved_band(hi + offset, reserved)
+    return hi + offset
 
 
 def centre_inter_column_channel(
@@ -2350,9 +2352,9 @@ def centre_inter_column_channel(
         if reserved is not None and abs(col_a - col_b) == 1
         else None
     )
-    return held_in_reserved_band(
-        column_gap_midpoint(graph, col_a, col_b, row) + offset, band
-    )
+    if band is not None:
+        return band.place(offset)
+    return column_gap_midpoint(graph, col_a, col_b, row) + offset
 
 
 def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
@@ -2467,19 +2469,20 @@ class CorridorLane:
     runs: tuple[CorridorRun, ...]
 
     @property
-    def movable(self) -> bool:
-        """Whether the normalisation stage may re-seat the whole track.
+    def pinned(self) -> bool:
+        """Whether a pre-routing plan fixes this track's coordinate."""
+        return any(_run_is_plan_owned(run) for run in self.runs)
 
-        A plan-owned run pins the track outright.  A track of only
-        ``normalize_exempt`` runs keeps the geometry its handler chose, but one
-        that also carries a normalisation-owned run is a shared channel
-        the normalisation stage already places, so it moves as a unit -- the
-        rule trunk-slot materialisation applies when an exempt trunk shares a
-        channel with a non-exempt one.
+    @property
+    def handler_owned(self) -> bool:
+        """Whether every run on this track carries the coordinate its handler set.
+
+        A track that also carries a normalisation-owned run is a shared channel
+        the normalisation stage already places, so it is not handler-owned --
+        the rule trunk-slot materialisation applies when an exempt trunk shares
+        a channel with a non-exempt one.
         """
-        return not any(_run_is_plan_owned(run) for run in self.runs) and any(
-            not run.route.normalize_exempt for run in self.runs
-        )
+        return all(run.route.normalize_exempt for run in self.runs)
 
     def fused_span(
         self, other: CorridorLane, step: float
