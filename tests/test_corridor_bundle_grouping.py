@@ -7,11 +7,19 @@ distance, so a pair the predicate would group is never skipped by the scan.  Whe
 the two disagreed, a pair further apart than the cutoff but closer than the
 predicate's reach was left ungrouped and free to move independently, which
 destroys the spacing that draws them as separate strokes.
+
+Being close laterally is only half of it: the pair also has to share a stretch
+of corridor, read the same way a peer's claim on the gap is read, so two legs
+handing over across an elbow stay free of each other.
 """
 
 from __future__ import annotations
 
-from nf_metro.layout.constants import BUNDLE_TO_BUNDLE_CLEARANCE, OFFSET_STEP
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    MIN_CORRIDOR_Y_OVERLAP,
+    OFFSET_STEP,
+)
 from nf_metro.layout.routing.normalize import (
     _corridor_bundles,
     _CorridorRun,
@@ -19,15 +27,15 @@ from nf_metro.layout.routing.normalize import (
 )
 
 
-def _run(coordinate: float) -> _CorridorRun:
-    """A movable horizontal leg at *coordinate*, spanning one shared interval."""
+def _run(coordinate: float, run: tuple[float, float] = (0.0, 100.0)) -> _CorridorRun:
+    """A movable horizontal leg at *coordinate*, spanning *run* along its corridor."""
     return _CorridorRun(
         route=None,  # type: ignore[arg-type] - grouping reads only geometry
         idx=1,
         axis=1,
         coordinate=coordinate,
-        run_lo=0.0,
-        run_hi=100.0,
+        run_lo=run[0],
+        run_hi=run[1],
         lo=coordinate - 50.0,
         hi=coordinate + 50.0,
         forward=True,
@@ -53,6 +61,24 @@ def test_a_pair_past_the_offset_step_still_groups() -> None:
 def test_a_pair_beyond_the_reach_stays_apart() -> None:
     """Two bundles a full clearance apart are separate and move independently."""
     first, second = _run(0.0), _run(BUNDLE_TO_BUNDLE_CLEARANCE * 2)
+    assert not _legs_co_travel(first, second, OFFSET_STEP)
+    assert [
+        len(bundle) for bundle in _corridor_bundles([first, second], OFFSET_STEP)
+    ] == [1, 1]
+
+
+def test_legs_meeting_only_across_an_elbow_stay_apart() -> None:
+    """A pair inside the reach that hands over at a corner is two bundles.
+
+    Legs whose runs meet only across the elbow band that joins them occupy
+    different stretches of the gap and owe each other no clearance, so each is
+    free to travel to the coordinate its own claim was widened for.
+    """
+    first = _run(0.0)
+    second = _run(
+        BUNDLE_TO_BUNDLE_CLEARANCE - OFFSET_STEP,
+        (100.0 - MIN_CORRIDOR_Y_OVERLAP, 200.0),
+    )
     assert not _legs_co_travel(first, second, OFFSET_STEP)
     assert [
         len(bundle) for bundle in _corridor_bundles([first, second], OFFSET_STEP)

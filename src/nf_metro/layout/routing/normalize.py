@@ -4023,13 +4023,15 @@ def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> b
     them.  Anything closer than that clearance is one group, and every one of
     those relationships is destroyed by moving one member alone.
 
-    Overlap is read as bare interval overlap rather than through
-    :func:`spans_share_corridor`: two legs that share only the length of an elbow
-    are free to spread apart, but they are not free to be driven *together*, and
-    grouping them costs only the freedom to move them independently.
+    Sharing a stretch is :func:`spans_share_corridor`, the same reading
+    :func:`_crowding_windows` measures a peer's claim on the gap by.  Two legs
+    meeting only across the elbow band that joins them occupy different parts of
+    the corridor and owe each other no clearance, so there is no separation
+    between them for a rigid group to preserve -- and holding them together
+    instead denies each of them the band its own claim was widened for.
     """
     return abs(first.coordinate - second.coordinate) <= _co_travel_reach(step) and (
-        min(first.run_hi, second.run_hi) > max(first.run_lo, second.run_lo)
+        spans_share_corridor(first.run_lo, first.run_hi, second.run_lo, second.run_hi)
     )
 
 
