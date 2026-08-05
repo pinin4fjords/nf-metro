@@ -426,6 +426,7 @@ def render_string(
       :class:`~nf_metro.layout.routing.invariants.CurveInvariantError`,
       :class:`~nf_metro.render.section_header.SectionHeaderClashError`,
       :class:`~nf_metro.render.section_header.SectionHeaderOverflowError`,
+      :class:`~nf_metro.render.section_header.SectionHeaderBandError`,
       :class:`~nf_metro.render.bridges.BridgeInvariantError`, or
       :class:`~nf_metro.layout.routing.offsets.OffsetAnchorError`. These are
       deliberately **not** part of the :class:`~nf_metro.NfMetroError`
