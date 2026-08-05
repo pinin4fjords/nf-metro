@@ -145,98 +145,98 @@ Gates with an un-exercised arm:
 
 | Line | Gate | Un-exercised arm(s) | Triage |
 | ---: | --- | --- | --- |
-| 179 | `if owned:` | `->L173` |  |
-| 195 | `if route is None:` | `->L196` |  |
-| 216 | `if route is None:` | `->L217` |  |
-| 230 | `if family is None:` | `->L231` |  |
-| 239 | `if not runs:` | `->L240` |  |
-| 261 | `if axis.axis is not DemandAxis.X:` | `->L262` |  |
-| 278 | `if route.exit_lane_transition_plan_id is not None:` | `->L279` |  |
-| 311 | `if not candidates:` | `->L312` |  |
-| 327 | `if horizontal and abs(endpoint[1] - target[1]) <= COORD_TOLERANCE:` | `->L330` |  |
-| 330 | `if vertical and abs(endpoint[0] - target[0]) <= COORD_TOLERANCE:` | `->L331`, `->L333` |  |
-| 334 | `if elbow != endpoint and elbow != target:` | `->L335`, `->L336` |  |
-| 340 | `if route.offset_regime is OffsetRegime.DEFERRED:` | `->L341` |  |
-| 348 | `for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):` | `->L364` |  |
-| 351 | `runway <= COORD_TOLERANCE` | `->L354` |  |
-| 359 | `if abs(prior[0] - start[0]) + abs(prior[1] - start[1]) > COORD_TOLERANCE:` | `->L363` |  |
-| 361 | `if direction_axis(incoming) is not direction_axis(approach):` | `->L363` |  |
-| 390 | `if exit_turn_geometry != _exit_turn_geometry(route):` | `->L391` |  |
-| 402 | `if approach is None:` | `->L403` |  |
-| 450 | `if direction in {Direction.R, Direction.L}:` | `->L454` |  |
-| 479 | `if len(route.points) < 2:` | `->L480` |  |
-| 489 | `if axis is DemandAxis.X:` | `->L495` |  |
-| 490 | `if abs(start[1] - end[1]) > COORD_TOLERANCE:` | `->L491` |  |
-| 495 | `if abs(start[0] - end[0]) > COORD_TOLERANCE:` | `->L496`, `->L497` |  |
-| 499 | `if extent_end - extent_start > COORD_TOLERANCE:` | `->L478` |  |
-| 510 | `if not segments:` | `->L511` |  |
-| 571 | `if any(edge not in edge_order for edge in edges):` | `->L572` |  |
-| 607 | `if not incoming_edges or not outgoing_edges:` | `->L608` |  |
-| 613 | `if group.line_id not in line_order:` | `->L614` |  |
-| 630 | `if trunk_edge_key is None:` | `->L631` |  |
-| 679 | `if route is not None:` | `->L683` |  |
-| 683 | `if route is None:` | `->L684` |  |
-| 700 | `if any(` | `->L704` |  |
-| 718 | `if (` | `->L723`, `->L735` |  |
-| 723 | `for edge_key in incoming_edges:` | `->L724`, `->L727` |  |
-| 870 | `if (` | `->L882` |  |
-| 911 | `if primary_reason is ConvergenceTrunkReason.OUTGOING_CONTINUATION:` | `->L912` |  |
-| 913 | `if continuation.covered_by_member_id is not None:` | `->L914`, `->L936` |  |
-| 1011 | `if topology is None:` | `->L1012` |  |
-| 1084 | `if all(` | `->L1087` |  |
-| 1178 | `if opening is not None and abs(opening - old_coordinate) <= COORD_TOLERANCE:` | `->L1185` |  |
-| 1266 | `endpoint is None` | `->L1269` |  |
-| 1267 | `or abs(endpoint - flank_coordinate) <= clearance` | `->L1269` |  |
-| 1313 | `if axis is None or axis.axis is not DemandAxis.X:` | `->L1314` |  |
-| 1321 | `abs(end_x - start_x) > COORD_TOLERANCE` | `->L1324` |  |
-| 1398 | `if endpoint is None or abs(endpoint - column) <= curve_radius:` | `->L1399` |  |
-| 1416 | `if (endpoint - candidate) * toward_endpoint <= curve_radius:` | `->L1417` |  |
-| 1418 | `if any(` | `->L1423` |  |
-| 1426 | `if any(` | `->L1429` |  |
-| 1439 | `gap_right <= gap_left` | `->L1443` |  |
-| 1440 | `or channel.coordinate < usable_left - COORD_TOLERANCE` | `->L1443` |  |
-| 1441 | `or channel.coordinate > usable_right + COORD_TOLERANCE` | `->L1443` |  |
-| 1444 | `if any(_gap_channels_crowd(channel, obstacle) for obstacle in obstacles):` | `->L1445` |  |
-| 1481 | `if plan.trunk_axis is None or plan.trunk_axis.axis is not DemandAxis.X:` | `->L1482` |  |
-| 1567 | `if first_plan.trunk_axis.axis is DemandAxis.X:` | `->L1571` |  |
-| 1649 | `if _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius):` | `->L1650` |  |
-| 1668 | `if edge is None:` | `->L1669` |  |
-| 1804 | `if ownership.edge in by_edge:` | `->L1805` |  |
-| 1955 | `if segment_start == segment_end:` | `->L1956` |  |
-| 1961 | `if not horizontal and not vertical:` | `->L1962` |  |
-| 1985 | `if interval[1] - interval[0] > COORD_TOLERANCE:` | `->L1970` |  |
-| 1988 | `for interval_start, interval_end in sorted(intervals):` | `->L1996` |  |
-| 1991 | `if interval_start > covered_until + COORD_TOLERANCE:` | `->L1992` |  |
-| 1994 | `if covered_until >= extent_end - COORD_TOLERANCE:` | `->L1988` |  |
-| 2017 | `if axis.axis is DemandAxis.X:` | `->L2040` |  |
-| 2114 | `if all(` | `->L2118` |  |
-| 2146 | `if not candidates:` | `->L2147` |  |
-| 2155 | `if planned_horizontal:` | `->L2156` |  |
-| 2195 | `if actual is None:` | `->L2196` |  |
-| 2202 | `direction is not landing.approach_direction` | `->L2206` |  |
-| 2203 | `or handedness is not landing.corner_handedness` | `->L2206` |  |
-| 2204 | `or runway < landing.minimum_runway - COORD_TOLERANCE` | `->L2206` |  |
-| 2223 | `opening is None` | `->L2227` |  |
-| 2224 | `or abs(opening.x - landing.opening_turn_coordinate) > COORD_TOLERANCE` | `->L2227` |  |
-| 2225 | `or emitted_segment != landing.opening_turn_segment` | `->L2227` |  |
-| 2236 | `if query is None:` | `->L2237` |  |
-| 2242 | `if not plan.owns_geometry:` | `->L2243` |  |
-| 2247 | `if landing is None:` | `->L2248` |  |
-| 2249 | `if continuation is not None and (` | `->L2260`, `->L2264` |  |
-| 2264 | `if plan.primary_trunk_member_id == membership.member_id:` | `->L2265`, `->L2269` |  |
-| 2284 | `if opening is None:` | `->L2285` |  |
-| 2291 | `if plan.primary_trunk_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:` | `->L2292` |  |
-| 2309 | `elif plan.primary_trunk_reason is ConvergenceTrunkReason.LONGEST_BYPASS:` | `->L2317` |  |
-| 2323 | `if any(` | `->L2327` |  |
-| 2350 | `if trunk_route is None or not _route_covers_trunk(trunk_route, plan.trunk_axis):` | `->L2351` |  |
-| 2360 | `if route is None:` | `->L2361` |  |
-| 2366 | `if (` | `->L2371` |  |
-| 2378 | `if any(` | `->L2382` |  |
-| 2394 | `if continuation.covered_by_member_id is not None:` | `->L2411` |  |
-| 2397 | `if (` | `->L2406` |  |
-| 2412 | `if (` | `->L2391`, `->L2423` |  |
-| 2435 | `if route is None or membership is None:` | `->L2436` |  |
-| 2441 | `if any(` | `->L2445` |  |
+| 181 | `if owned:` | `->L175` |  |
+| 197 | `if route is None:` | `->L198` |  |
+| 218 | `if route is None:` | `->L219` |  |
+| 232 | `if family is None:` | `->L233` |  |
+| 241 | `if not runs:` | `->L242` |  |
+| 263 | `if axis.axis is not DemandAxis.X:` | `->L264` |  |
+| 280 | `if route.exit_lane_transition_plan_id is not None:` | `->L281` |  |
+| 313 | `if not candidates:` | `->L314` |  |
+| 329 | `if horizontal and abs(endpoint[1] - target[1]) <= COORD_TOLERANCE:` | `->L332` |  |
+| 332 | `if vertical and abs(endpoint[0] - target[0]) <= COORD_TOLERANCE:` | `->L333`, `->L335` |  |
+| 336 | `if elbow != endpoint and elbow != target:` | `->L337`, `->L338` |  |
+| 342 | `if route.offset_regime is OffsetRegime.DEFERRED:` | `->L343` |  |
+| 350 | `for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):` | `->L366` |  |
+| 353 | `runway <= COORD_TOLERANCE` | `->L356` |  |
+| 361 | `if abs(prior[0] - start[0]) + abs(prior[1] - start[1]) > COORD_TOLERANCE:` | `->L365` |  |
+| 363 | `if direction_axis(incoming) is not direction_axis(approach):` | `->L365` |  |
+| 392 | `if exit_turn_geometry != _exit_turn_geometry(route):` | `->L393` |  |
+| 404 | `if approach is None:` | `->L405` |  |
+| 452 | `if direction in {Direction.R, Direction.L}:` | `->L456` |  |
+| 481 | `if len(route.points) < 2:` | `->L482` |  |
+| 491 | `if axis is DemandAxis.X:` | `->L497` |  |
+| 492 | `if abs(start[1] - end[1]) > COORD_TOLERANCE:` | `->L493` |  |
+| 497 | `if abs(start[0] - end[0]) > COORD_TOLERANCE:` | `->L498`, `->L499` |  |
+| 501 | `if extent_end - extent_start > COORD_TOLERANCE:` | `->L480` |  |
+| 512 | `if not segments:` | `->L513` |  |
+| 573 | `if any(edge not in edge_order for edge in edges):` | `->L574` |  |
+| 609 | `if not incoming_edges or not outgoing_edges:` | `->L610` |  |
+| 615 | `if group.line_id not in line_order:` | `->L616` |  |
+| 632 | `if trunk_edge_key is None:` | `->L633` |  |
+| 681 | `if route is not None:` | `->L685` |  |
+| 685 | `if route is None:` | `->L686` |  |
+| 702 | `if any(` | `->L706` |  |
+| 720 | `if (` | `->L725`, `->L737` |  |
+| 725 | `for edge_key in incoming_edges:` | `->L726`, `->L729` |  |
+| 872 | `if (` | `->L884` |  |
+| 913 | `if primary_reason is ConvergenceTrunkReason.OUTGOING_CONTINUATION:` | `->L914` |  |
+| 915 | `if continuation.covered_by_member_id is not None:` | `->L916`, `->L938` |  |
+| 1013 | `if topology is None:` | `->L1014` |  |
+| 1086 | `if all(` | `->L1089` |  |
+| 1180 | `if opening is not None and abs(opening - old_coordinate) <= COORD_TOLERANCE:` | `->L1187` |  |
+| 1268 | `endpoint is None` | `->L1271` |  |
+| 1269 | `or abs(endpoint - flank_coordinate) <= clearance` | `->L1271` |  |
+| 1315 | `if axis is None or axis.axis is not DemandAxis.X:` | `->L1316` |  |
+| 1323 | `abs(end_x - start_x) > COORD_TOLERANCE` | `->L1326` |  |
+| 1399 | `if endpoint is None or abs(endpoint - column) <= curve_radius:` | `->L1400` |  |
+| 1417 | `if (endpoint - candidate) * toward_endpoint <= curve_radius:` | `->L1418` |  |
+| 1419 | `if any(` | `->L1424` |  |
+| 1427 | `if any(` | `->L1430` |  |
+| 1440 | `gap_right <= gap_left` | `->L1444` |  |
+| 1441 | `or channel.coordinate < usable_left - COORD_TOLERANCE` | `->L1444` |  |
+| 1442 | `or channel.coordinate > usable_right + COORD_TOLERANCE` | `->L1444` |  |
+| 1445 | `if any(_gap_channels_crowd(channel, obstacle) for obstacle in obstacles):` | `->L1446` |  |
+| 1482 | `if plan.trunk_axis is None or plan.trunk_axis.axis is not DemandAxis.X:` | `->L1483` |  |
+| 1568 | `if first_plan.trunk_axis.axis is DemandAxis.X:` | `->L1572` |  |
+| 1650 | `if _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius):` | `->L1651` |  |
+| 1669 | `if edge is None:` | `->L1670` |  |
+| 1805 | `if ownership.edge in by_edge:` | `->L1806` |  |
+| 1956 | `if segment_start == segment_end:` | `->L1957` |  |
+| 1962 | `if not horizontal and not vertical:` | `->L1963` |  |
+| 1986 | `if interval[1] - interval[0] > COORD_TOLERANCE:` | `->L1971` |  |
+| 1989 | `for interval_start, interval_end in sorted(intervals):` | `->L1997` |  |
+| 1992 | `if interval_start > covered_until + COORD_TOLERANCE:` | `->L1993` |  |
+| 1995 | `if covered_until >= extent_end - COORD_TOLERANCE:` | `->L1989` |  |
+| 2018 | `if axis.axis is DemandAxis.X:` | `->L2041` |  |
+| 2115 | `if all(` | `->L2119` |  |
+| 2147 | `if not candidates:` | `->L2148` |  |
+| 2156 | `if planned_horizontal:` | `->L2157` |  |
+| 2196 | `if actual is None:` | `->L2197` |  |
+| 2203 | `direction is not landing.approach_direction` | `->L2207` |  |
+| 2204 | `or handedness is not landing.corner_handedness` | `->L2207` |  |
+| 2205 | `or runway < landing.minimum_runway - COORD_TOLERANCE` | `->L2207` |  |
+| 2224 | `opening is None` | `->L2228` |  |
+| 2225 | `or abs(opening.x - landing.opening_turn_coordinate) > COORD_TOLERANCE` | `->L2228` |  |
+| 2226 | `or emitted_segment != landing.opening_turn_segment` | `->L2228` |  |
+| 2237 | `if query is None:` | `->L2238` |  |
+| 2243 | `if not plan.owns_geometry:` | `->L2244` |  |
+| 2248 | `if landing is None:` | `->L2249` |  |
+| 2250 | `if continuation is not None and (` | `->L2261`, `->L2265` |  |
+| 2265 | `if plan.primary_trunk_member_id == membership.member_id:` | `->L2266`, `->L2270` |  |
+| 2285 | `if opening is None:` | `->L2286` |  |
+| 2292 | `if plan.primary_trunk_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:` | `->L2293` |  |
+| 2310 | `elif plan.primary_trunk_reason is ConvergenceTrunkReason.LONGEST_BYPASS:` | `->L2318` |  |
+| 2324 | `if any(` | `->L2328` |  |
+| 2351 | `if trunk_route is None or not _route_covers_trunk(trunk_route, plan.trunk_axis):` | `->L2352` |  |
+| 2361 | `if route is None:` | `->L2362` |  |
+| 2367 | `if (` | `->L2372` |  |
+| 2379 | `if any(` | `->L2383` |  |
+| 2395 | `if continuation.covered_by_member_id is not None:` | `->L2412` |  |
+| 2398 | `if (` | `->L2407` |  |
+| 2413 | `if (` | `->L2392`, `->L2424` |  |
+| 2436 | `if route is None or membership is None:` | `->L2437` |  |
+| 2442 | `if any(` | `->L2446` |  |
 
 ## `core.py`
 
@@ -535,97 +535,97 @@ Gates with an un-exercised arm:
 
 | Line | Gate | Un-exercised arm(s) | Triage |
 | ---: | --- | --- | --- |
-| 170 | `if s.bbox_w <= 0:` | `->L171` | **defensive** -- Degenerate-bbox guard in _section_intrudes: a laid-out section always has bbox_w > 0; the skip arm guards a zero/negative-width section the layout never produces. |
-| 217 | `if mid - half < gap_left - COORD_TOLERANCE:` | `->L218` |  |
-| 219 | `if mid + half > gap_right + COORD_TOLERANCE:` | `->L220` |  |
-| 329 | `if abs(overlap) > COORD_TOLERANCE:` | `->L330` | **defensive** -- The symmetric-divergence recognizer rejects opposite vertical legs whose spans overlap instead of meeting at one endpoint. Corpus candidates reaching this helper are same-source branch openings and therefore meet at the shared turn Y; the overlapping arm is a defensive rejection for malformed or independently routed channels. |
-| 335 | `if channel.idx == 0:` | `->L336` | **defensive** -- A declared gap channel participating in a same-source divergence follows the branch's horizontal opening and therefore cannot be the route's first segment. The zero-index arm defensively rejects a vertical-first route shape. |
-| 340 | `if abs(turn[1] - start[1]) > COORD_TOLERANCE or abs(dx) <= COORD_TOLERANCE:` | `->L341` | **defensive** -- The opening segment before a declared same-source divergence channel is a non-degenerate horizontal run by construction. The non-horizontal or zero-length arm defensively rejects a route shape that cannot provide a shared trunk endpoint. |
-| 346 | `if a_trunk is None or b_trunk is None:` | `->L347` | **defensive** -- A symmetric divergence is considered only for declared gap channels produced by a same-source branch opening. Those channels follow a horizontal opening run, so both opening trunks resolve; the missing-trunk arm defensively rejects a different route shape. |
-| 393 | `if any(abs(base - bases[0]) > COORD_TOLERANCE for base in bases[1:]):` | `->L394` |  |
-| 422 | `if not chans:` | `->L423` |  |
-| 452 | `if clearance <= 0:` | `->L453` |  |
-| 468 | `if any(` | `->L473` |  |
-| 535 | `for k, x, y_lo, y_hi, seg_down in iter_vertical_segments(rp):` | `->L538` |  |
-| 632 | `if gap_right <= gap_left:` | `->L633` |  |
-| 682 | `if gap_right <= gap_left:` | `->L683` |  |
-| 770 | `if _convergence_owns_segment_boundary(trunk.route, trunk.idx):` | `->L771` |  |
-| 826 | `go is not None` | `->L832` |  |
-| 827 | `and gt is not None` | `->L832` |  |
-| 864 | `if len(pts) < 2:` | `->L865` |  |
-| 880 | `if abs(y2 - y1) > COORD_TOLERANCE or abs(x2 - x1) <= COORD_TOLERANCE:` | `->L881` |  |
-| 944 | `if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):` | `->L945` |  |
-| 982 | `if channel is None:` | `->L983` |  |
-| 1085 | `if any(_planner_owns_channel(channel) for channel in group.channels):` | `->L1086` |  |
-| 1167 | `if up.route.line_id != descent.route.line_id:` | `->L1168` | **defensive** -- _clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines. |
-| 1172 | `if overlap <= COORD_TOLERANCE:` | `->L1173` | **defensive** -- _clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically. |
-| 1180 | `if abs(ch.x - descent.x) <= COORD_TOLERANCE:` | `->L1179` | **defensive** -- _clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns. |
-| 1207 | `if k == desc.idx + 1:` | `->L1206` | **defensive** -- In _fanout_traverse_spans: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive. |
-| 1235 | `if any(` | `->L1239` |  |
-| 1253 | `if len(turns) != 1:` | `->L1254` | **defensive** -- In _bundle_divergent_distinct_traverses: every fan in the corpus turns its traverses the same way, so the mixed-direction skip is never taken. Defensive. |
-| 1274 | `if any(` | `->L1278` | **defensive** -- Compatibility convergence may not move a planner-owned final channel or reseat a channel through a foreign section. Complete direct-port opposing tails are unplanned and placement reserves their target band; the true arm therefore defends broken ownership or obstruction state. test_planner_owned_opposing_group_is_left_atomic and test_obstructed_opposing_group_is_left_atomic exercise both rejection reasons. |
-| 1338 | `if carrier is None:` | `->L1339` | **defensive** -- A removable merge-entry hop has feeders, none ending at the hop start, and one ending at the hop destination after feeder normalization. A missing carrier therefore signals broken settled geometry; the guard keeps the hop instead of discarding a visible route. |
-| 1404 | `for _ in range(max(1, len(buckets))):` | `->L-1354` | **defensive** -- Bounded fixed-point repair for coincident corner radii. Production routes settle without a second correction pass; the multi-bucket propagation and loop-exhaustion paths are exercised directly by test_unify_refreshes_a_shared_route_after_changing_one_corner. |
-| 1422 | `if actual - common <= COORD_TOLERANCE_FINE:` | `->L1424` | **defensive** -- Production coincident turns have enough shared runway after planning and already resolve to the same radius. The correction arm is a defensive repair for directly supplied or future route geometry and is exercised by the coincident-corner unit tests. |
-| 1427 | `for _step in range(64):` | `->L1428`, `->L1435` | **defensive** -- Fixed-iteration bisection used only when a defensive coincident-radius repair must lower one route. The correction and completed bisection are exercised by test_unify_uses_widest_radius_all_shared_legs_can_resolve. |
-| 1431 | `if resolved < common:` | `->L1432`, `->L1434` | **defensive** -- Both bisection directions belong to the defensive coincident-radius repair rather than ordinary topology dispatch. The short-runway unit case exercises the search and verifies the final common effective radius. |
-| 1438 | `if not changed:` | `->L1404` | **defensive** -- The production corpus reaches the immediate fixed point because coincident members already share an effective radius. The continue-for-propagation arm is a defensive repair path covered by test_unify_refreshes_a_shared_route_after_changing_one_corner. |
-| 1473 | `if not _planner_owns_channel(ch):` | `->L1483` |  |
-| 1537 | `if opposing_bundle is not None and {` | `->L1540` | **defensive** -- iter_opposing_entry_confluences requires the complete direct-port line set, while by_port can only add a member through convergence-junction aliasing. Resolved convergence junctions replace the direct approach rather than coexist with a complete direct-port bundle, so unequal ownership sets require an inconsistent route/context pair. test_opposing_group_with_an_extra_mapped_approach_uses_generic_ownership exercises the defensive fallback. |
-| 1547 | `if any(` | `->L1556` |  |
-| 1628 | `if any(` | `->L1633` |  |
-| 1669 | `if has_planned_channel and any(` | `->L1674` |  |
-| 1725 | `if any(` | `->L1729` |  |
-| 1730 | `if not crossing:` | `->L1737` |  |
-| 1740 | `if abs(delta) <= COORD_TOLERANCE:` | `->L1741`, `->L1745` | **defensive** -- _snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs. |
-| 1745 | `for r, k, _y in crossing:` | `->L1702`, `->L1746` |  |
-| 1867 | `if rp.curve_radii is None:` | `->L1868` | **defensive** -- curve_radii is always a concrete list for inter-section routes (every inter-section handler sets it); the None arm in _reseat_concentric_flanking is a belt-and-suspenders guard. |
-| 2065 | `if route.curve_radii is None:` | `->L2066` | **defensive** -- Fan-opening channels are selected from a real horizontal-to-vertical turn, and production turn builders attach radius metadata to that shape. The None arm protects a synthetic or incomplete RoutedPath. |
-| 2137 | `if port is not None and port.is_entry:` | `->L2139` |  |
-| 2153 | `if (` | `->L2160` |  |
-| 2284 | `if not trunks:` | `->L2285` | **defensive** -- Shape guard in _merge_convergence_run: a trunk routed as a U-shaped bypass always has an interior horizontal leg for iter_horizontal_trunks to find, so the corpus never takes the None arm. Not provably unreachable across every branch of _route_bypass, so it stays a guard rather than an assert (#1597). |
-| 2311 | `if not verticals:` | `->L2312` | **defensive** -- Shape guard in _land_feeder_on_run: a merge branch feeder is built as a descent into a tail, so it always has a vertical leg. Reachable in principle only if a feeder's source Y coincides with the trunk channel level, collapsing the descent below COORD_TOLERANCE (#1597). |
-| 2317 | `if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:` | `->L2318` | **defensive** -- Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, but _round_junction_perp_peeloff prepends one for any route whose source doubles as a fan-out junction, which a merge feeder's junction source can be; and the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597). |
-| 2329 | `if rp.curve_radii is not None:` | `->L2331` | **defensive** -- Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates curve_radii, but _round_junction_perp_peeloff clears it to None for the fan-out-junction routes described above, so the field cannot be treated as always present (#1597). |
-| 2357 | `if len(rp.points) != 2:` | `->L2358` |  |
-| 2360 | `if abs(lane - _get_offset(ctx, rp.edge.target, rp.line_id)) <= COORD_TOLERANCE:` | `->L2362` |  |
-| 2367 | `if not (riser_spans_lane and riser_ahead):` | `->L2368`, `->L2369` | **defensive** -- Reachability guard in _land_lane_changing_feeder_on_trunk_riser: the trunk's riser has to cross the feeder's lane and stand in the feeder's direction of travel before the feeder can terminate on it. Only one corpus fixture reaches the guard at all (exit_run_three_drop_columns, the sole adjacent merge feeder whose direct run changes lane), and there the riser both spans the lane and stands ahead, so the reject arm needs a trunk that turns before the feeder junction or lands short of its lane. |
-| 2394 | `if run is None:` | `->L2395` | **defensive** -- Consumer of the _merge_convergence_run None arm above; unreachable for exactly the same reason and kept for the same reason (#1597). |
-| 2584 | `elif far_y < t.y - COORD_TOLERANCE:` | `->L2578` | **defensive** -- Degenerate-leg guard in _trunk_slot_features: a trunk's flanking legs are genuine vertical legs (far_y differs from the trunk y), so neither the below nor the above classification is skipped; the fall-through arm needs a zero-height leg the layout never produces. |
-| 2614 | `if feats is None:` | `->L2615` | **defensive** -- Unused default-arg branch: all three callers of _band_order_crossings pass feats explicitly, so the feats-is-None compute-it arm is never taken. |
-| 2784 | `if len(trunks) < 2:` | `->L2785`, `->L2786` | **defensive** -- Early-return in _suboptimal_trunk_bands, called only from the _guard_* validator (phases/guards.py) and a unit test, never on the production render path. The coverage sweep renders with validate=False, so neither arm registers. Defensive (exercised via the validate=True guard / test surface; cf. #728 validate-only precedent). |
-| 2788 | `for grp in groups:` | `->L2789`, `->L2807` | **defensive** -- _suboptimal_trunk_bands diagnostic loop: validate-only, not reached by the render-path coverage sweep (see the len(trunks)<2 note). |
-| 2789 | `if len({id(t.route) for t in grp}) < 2:` | `->L2790`, `->L2791` | **defensive** -- Single-route-group skip in _suboptimal_trunk_bands, validate-only: called from the _guard_* validator and a unit test, not the production render path the validate=False sweep exercises. Defensive. |
-| 2791 | `if not any(not t.route.normalize_exempt for t in grp):` | `->L2792`, `->L2793` | **defensive** -- _suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path. |
-| 2793 | `for sign in (1, -1):` | `->L2788`, `->L2794` | **defensive** -- _suboptimal_trunk_bands direction loop: validate-only, not on the render path. |
-| 2796 | `if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:` | `->L2797`, `->L2798` | **defensive** -- _suboptimal_trunk_bands slot-count guard: validate-only, not on the render path. |
-| 2805 | `if best < cur:` | `->L2793`, `->L2806` | **defensive** -- _suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path. |
-| 2939 | `if band is not None:` | `->L2945` | **defensive** -- Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band). |
-| 2960 | `if down_ok and up_ok and (cross_down is None) != (cross_up is None):` | `->L2962` | **defensive** -- Same-line dogleg side selection. The crossing-decided true arm (->1297, pick the side whose riser does not pierce the exempt run) is exercised by dogleg_exempt_sameline. The false fall-through (->1298) needs either an out-of-band side or a crossing-equal tie, neither reachable by a clean topology: the reachable dogleg regime rigidly fixes the inter-row band so down_room/up_room stay >= min_sep=6 (observed 14/26 across the corpus and every constructed variant; perturbing the grid loses the regime), and the only realizable tie is both-cross (a crossing-free tie needs degenerate zero-length exempt risers) which co-occurs with section-crossing / dogleg-crosses-exempt guard failures and is never a shippable render. |
-| 2962 | `elif down_ok and (not up_ok or prefer_down):` | `->L2963`, `->L2964` | **defensive** -- Same-line dogleg tie / out-of-band fallback, reached only after the L1296 if is false, which a clean topology never produces (see that gate): the true arm (->1299, lean down on a tie) needs a crossing-free tie that requires degenerate risers, and the false arm (->1300) needs down_ok False, which the regime's fixed inter-row band (down_room >= min_sep) never yields. |
-| 2964 | `elif up_ok:` | `->L2965`, `->L2967` | **defensive** -- Same-line dogleg move-up / give-up fallback, reached only when both L1296 and L1298 are false. The true arm (->1301, move up because the lower gap is too tight) needs down_ok False and the else arm (->1303, leave fused) needs both rooms below min_sep; the reachable regime's inter-row band is auto-widened so both rooms stay >= min_sep=6 (observed 14/26), so neither is reached by a valid topology. |
-| 2990 | `if band is not None:` | `->L2995` | **defensive** -- Distinct-line dogleg: the band-found arm (->1327) is exercised by dogleg_exempt_distinct (#702). The remaining band-is-None arm (->1331) is defensive: a trunk reaching this second loop collides with an exempt bypass obstacle that lives in an inter-row gap, so _inter_row_gap_band(ctx, t.y) always resolves to a band - the same mechanism already accepted for the sibling 'if band is not None:::#1'. |
-| 3005 | `if below_ok and above_ok and (cross_below is None) != (cross_above is None):` | `->L3007` | **defensive** -- Distinct-line dogleg side selection. The crossing-decided true arm (->1342) is exercised by dogleg_exempt_distinct. The false fall-through (->1343) needs a crossing-equal tie; a crossing-free tie requires degenerate zero-length exempt risers and the only realizable tie is both-cross, which trips _guard_no_dogleg_crosses_exempt_trunk plus the section-crossing guards and is never a shippable render. |
-| 3007 | `elif below_ok and (not above_ok or prefer_below):` | `->L3008`, `->L3009` | **defensive** -- Distinct-line dogleg tie fallback, reached only after L1341 is false (a tie), which a clean topology never produces (see that gate). The true arm (->1344, lean below) would fire on such a tie; the false arm (->1345) is unreachable because below_ok always holds and prefer_below is always true (t.y == hit.y in this regime). |
-| 3009 | `elif above_ok:` | `->L3010`, `->L3012` | **defensive** -- Distinct-line dogleg move-up/skip branch: unreachable because the below branch is always taken (t.y == hit.y, below_ok true); covers both the move-up and the gap-too-tight continue. |
-| 3032 | `if sg[0].sign_x != t.sign_x:` | `->L3033` | **defensive** -- Both callers of _coincident_trunk_slots pre-filter input to a single traversal direction (band = [t for t in grp if t.sign_x == sign]), so within the function sg[0].sign_x != t.sign_x is always False; the opposing-direction continue is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
-| 3063 | `if rp.curve_radii is None:` | `->L3064` | **defensive** -- curve_radii is always set for inter-section routes; the None arm in _restack_htrunk is a defensive guard. |
-| 3075 | `if 0 <= k - 1 < len(rp.curve_radii):` | `->L3077` | **defensive** -- Bounds guard in _restack_htrunk: trunk index k >= 1 so k-1 >= 0 is always in range; the skip arm is defensive. |
-| 3077 | `if k < len(rp.curve_radii) and k + 2 < len(pts):` | `->L-3042` | **defensive** -- Bounds guard in _restack_htrunk: for a real interior trunk k and k+2 are in range; the skip arm is defensive. |
-| 3136 | `if down is None or len(up.points) < 2:` | `->L3137` | **defensive** -- Every line entering a fan-out junction also exits it to an entry port, so _fanout_route_maps always pairs a downstream route for each (jid, line_id) upstream; all handlers emit >=2-point routes. The skip arm in _join_fanout_upstream_tails is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
-| 3234 | `if col is None:` | `->L3235` | **defensive** -- Defensive guard in _convergence_line_order: a peel-off riser channel always resolves to a source-section column, so the unresolved-column early return is never taken on the corpus. |
-| 3275 | `if not 0 <= far < len(pts):` | `->L3276` |  |
-| 3278 | `if abs(dx) > COORD_TOLERANCE:` | `->L3272` |  |
-| 3280 | `if not votes:` | `->L3281` |  |
-| 3384 | `if ca != cb:` | `->L3386` |  |
-| 3386 | `if rep_x[a] != rep_x[b]:` | `->L3387`, `->L3388` | **defensive** -- The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
-| 3423 | `if rp.curve_radii is None:` | `->L3424` | **defensive** -- curve_radii is always set for inter-section routes; the None arm in _restack_channel is a defensive guard. |
-| 3434 | `if 0 <= k - 1 < len(rp.curve_radii):` | `->L3436` | **defensive** -- Bounds guard in _restack_channel: the skip arm fires only for k==0 (channel at the route start), which the restacked gap channels (interior verticals after a horizontal lead-in) never are. |
-| 3436 | `if k < len(rp.curve_radii) and k + 2 < len(pts):` | `->L3446` | **defensive** -- Bounds guard in _restack_channel: the skip arm guards k or k+2 out of range for a real interior channel; defensive. |
-| 3448 | `if abs(ly - pts[1][1]) < COORD_TOLERANCE:` | `->L-3393` | **defensive** -- A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
-| 3478 | `if anchor_section_id is not None and anchor_side is not None:` | `->L3480` | **defensive** -- _gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint. |
-| 3533 | `elif right_ok:` | `->L3536` |  |
-| 3582 | `if s.bbox_w <= 0:` | `->L3583` | **defensive** -- Degenerate-bbox guard in _v_segment_crosses_other_section: mirror of the _h_segment_penetrates_section guard; sections always have positive width. |
+| 168 | `if s.bbox_w <= 0:` | `->L169` | **defensive** -- Degenerate-bbox guard in _section_intrudes: a laid-out section always has bbox_w > 0; the skip arm guards a zero/negative-width section the layout never produces. |
+| 215 | `if mid - half < gap_left - COORD_TOLERANCE:` | `->L216` |  |
+| 217 | `if mid + half > gap_right + COORD_TOLERANCE:` | `->L218` |  |
+| 328 | `if abs(overlap) > COORD_TOLERANCE:` | `->L329` | **defensive** -- The symmetric-divergence recognizer rejects opposite vertical legs whose spans overlap instead of meeting at one endpoint. Corpus candidates reaching this helper are same-source branch openings and therefore meet at the shared turn Y; the overlapping arm is a defensive rejection for malformed or independently routed channels. |
+| 334 | `if channel.idx == 0:` | `->L335` | **defensive** -- A declared gap channel participating in a same-source divergence follows the branch's horizontal opening and therefore cannot be the route's first segment. The zero-index arm defensively rejects a vertical-first route shape. |
+| 339 | `if abs(turn[1] - start[1]) > COORD_TOLERANCE or abs(dx) <= COORD_TOLERANCE:` | `->L340` | **defensive** -- The opening segment before a declared same-source divergence channel is a non-degenerate horizontal run by construction. The non-horizontal or zero-length arm defensively rejects a route shape that cannot provide a shared trunk endpoint. |
+| 345 | `if a_trunk is None or b_trunk is None:` | `->L346` | **defensive** -- A symmetric divergence is considered only for declared gap channels produced by a same-source branch opening. Those channels follow a horizontal opening run, so both opening trunks resolve; the missing-trunk arm defensively rejects a different route shape. |
+| 391 | `if any(abs(base - bases[0]) > COORD_TOLERANCE for base in bases[1:]):` | `->L392` |  |
+| 420 | `if not chans:` | `->L421` |  |
+| 450 | `if clearance <= 0:` | `->L451` |  |
+| 466 | `if any(` | `->L471` |  |
+| 533 | `for k, x, y_lo, y_hi, seg_down in iter_vertical_segments(rp):` | `->L536` |  |
+| 630 | `if gap_right <= gap_left:` | `->L631` |  |
+| 680 | `if gap_right <= gap_left:` | `->L681` |  |
+| 768 | `if _convergence_owns_segment_boundary(trunk.route, trunk.idx):` | `->L769` |  |
+| 824 | `go is not None` | `->L830` |  |
+| 825 | `and gt is not None` | `->L830` |  |
+| 862 | `if len(pts) < 2:` | `->L863` |  |
+| 878 | `if abs(y2 - y1) > COORD_TOLERANCE or abs(x2 - x1) <= COORD_TOLERANCE:` | `->L879` |  |
+| 942 | `if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):` | `->L943` |  |
+| 980 | `if channel is None:` | `->L981` |  |
+| 1083 | `if any(_planner_owns_channel(channel) for channel in group.channels):` | `->L1084` |  |
+| 1165 | `if up.route.line_id != descent.route.line_id:` | `->L1166` | **defensive** -- _clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines. |
+| 1170 | `if overlap <= COORD_TOLERANCE:` | `->L1171` | **defensive** -- _clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically. |
+| 1178 | `if abs(ch.x - descent.x) <= COORD_TOLERANCE:` | `->L1177` | **defensive** -- _clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns. |
+| 1205 | `if k == desc.idx + 1:` | `->L1204` | **defensive** -- In _fanout_traverse_spans: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive. |
+| 1233 | `if any(` | `->L1237` |  |
+| 1251 | `if len(turns) != 1:` | `->L1252` | **defensive** -- In _bundle_divergent_distinct_traverses: every fan in the corpus turns its traverses the same way, so the mixed-direction skip is never taken. Defensive. |
+| 1272 | `if any(` | `->L1276` |  |
+| 1336 | `if carrier is None:` | `->L1337` | **defensive** -- A removable merge-entry hop has feeders, none ending at the hop start, and one ending at the hop destination after feeder normalization. A missing carrier therefore signals broken settled geometry; the guard keeps the hop instead of discarding a visible route. |
+| 1402 | `for _ in range(max(1, len(buckets))):` | `->L-1352` | **defensive** -- Bounded fixed-point repair for coincident corner radii. Production routes settle without a second correction pass; the multi-bucket propagation and loop-exhaustion paths are exercised directly by test_unify_refreshes_a_shared_route_after_changing_one_corner. |
+| 1420 | `if actual - common <= COORD_TOLERANCE_FINE:` | `->L1422` | **defensive** -- Production coincident turns have enough shared runway after planning and already resolve to the same radius. The correction arm is a defensive repair for directly supplied or future route geometry and is exercised by the coincident-corner unit tests. |
+| 1425 | `for _step in range(64):` | `->L1426`, `->L1433` | **defensive** -- Fixed-iteration bisection used only when a defensive coincident-radius repair must lower one route. The correction and completed bisection are exercised by test_unify_uses_widest_radius_all_shared_legs_can_resolve. |
+| 1429 | `if resolved < common:` | `->L1430`, `->L1432` | **defensive** -- Both bisection directions belong to the defensive coincident-radius repair rather than ordinary topology dispatch. The short-runway unit case exercises the search and verifies the final common effective radius. |
+| 1436 | `if not changed:` | `->L1402` | **defensive** -- The production corpus reaches the immediate fixed point because coincident members already share an effective radius. The continue-for-propagation arm is a defensive repair path covered by test_unify_refreshes_a_shared_route_after_changing_one_corner. |
+| 1471 | `if not _planner_owns_channel(ch):` | `->L1481` |  |
+| 1535 | `if opposing_bundle is not None and {` | `->L1538` | **defensive** -- iter_opposing_entry_confluences requires the complete direct-port line set, while by_port can only add a member through convergence-junction aliasing. Resolved convergence junctions replace the direct approach rather than coexist with a complete direct-port bundle, so unequal ownership sets require an inconsistent route/context pair. test_opposing_group_with_an_extra_mapped_approach_uses_generic_ownership exercises the defensive fallback. |
+| 1545 | `if any(` | `->L1554` | **defensive** -- Compatibility convergence may not move a planner-owned final channel or reseat a channel through a foreign section. Complete direct-port opposing tails are unplanned and placement reserves their target band; the true arm therefore defends broken ownership or obstruction state. test_planner_owned_opposing_group_is_left_atomic and test_obstructed_opposing_group_is_left_atomic exercise both rejection reasons. |
+| 1626 | `if any(` | `->L1631` |  |
+| 1667 | `if has_planned_channel and any(` | `->L1672` |  |
+| 1723 | `if any(` | `->L1727` |  |
+| 1728 | `if not crossing:` | `->L1735` |  |
+| 1738 | `if abs(delta) <= COORD_TOLERANCE:` | `->L1739`, `->L1743` | **defensive** -- _snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs. |
+| 1743 | `for r, k, _y in crossing:` | `->L1700`, `->L1744` |  |
+| 1865 | `if rp.curve_radii is None:` | `->L1866` | **defensive** -- curve_radii is always a concrete list for inter-section routes (every inter-section handler sets it); the None arm in _reseat_concentric_flanking is a belt-and-suspenders guard. |
+| 2063 | `if route.curve_radii is None:` | `->L2064` | **defensive** -- Fan-opening channels are selected from a real horizontal-to-vertical turn, and production turn builders attach radius metadata to that shape. The None arm protects a synthetic or incomplete RoutedPath. |
+| 2135 | `if port is not None and port.is_entry:` | `->L2137` |  |
+| 2151 | `if (` | `->L2158` |  |
+| 2282 | `if not trunks:` | `->L2283` | **defensive** -- Shape guard in _merge_convergence_run: a trunk routed as a U-shaped bypass always has an interior horizontal leg for iter_horizontal_trunks to find, so the corpus never takes the None arm. Not provably unreachable across every branch of _route_bypass, so it stays a guard rather than an assert (#1597). |
+| 2309 | `if not verticals:` | `->L2310` | **defensive** -- Shape guard in _land_feeder_on_run: a merge branch feeder is built as a descent into a tail, so it always has a vertical leg. Reachable in principle only if a feeder's source Y coincides with the trunk channel level, collapsing the descent below COORD_TOLERANCE (#1597). |
+| 2315 | `if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:` | `->L2316` | **defensive** -- Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, but _round_junction_perp_peeloff prepends one for any route whose source doubles as a fan-out junction, which a merge feeder's junction source can be; and the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597). |
+| 2327 | `if rp.curve_radii is not None:` | `->L2329` | **defensive** -- Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates curve_radii, but _round_junction_perp_peeloff clears it to None for the fan-out-junction routes described above, so the field cannot be treated as always present (#1597). |
+| 2355 | `if len(rp.points) != 2:` | `->L2356` |  |
+| 2358 | `if abs(lane - _get_offset(ctx, rp.edge.target, rp.line_id)) <= COORD_TOLERANCE:` | `->L2360` |  |
+| 2365 | `if not (riser_spans_lane and riser_ahead):` | `->L2366`, `->L2367` | **defensive** -- Reachability guard in _land_lane_changing_feeder_on_trunk_riser: the trunk's riser has to cross the feeder's lane and stand in the feeder's direction of travel before the feeder can terminate on it. Only one corpus fixture reaches the guard at all (exit_run_three_drop_columns, the sole adjacent merge feeder whose direct run changes lane), and there the riser both spans the lane and stands ahead, so the reject arm needs a trunk that turns before the feeder junction or lands short of its lane. |
+| 2392 | `if run is None:` | `->L2393` | **defensive** -- Consumer of the _merge_convergence_run None arm above; unreachable for exactly the same reason and kept for the same reason (#1597). |
+| 2582 | `elif far_y < t.y - COORD_TOLERANCE:` | `->L2576` | **defensive** -- Degenerate-leg guard in _trunk_slot_features: a trunk's flanking legs are genuine vertical legs (far_y differs from the trunk y), so neither the below nor the above classification is skipped; the fall-through arm needs a zero-height leg the layout never produces. |
+| 2612 | `if feats is None:` | `->L2613` | **defensive** -- Unused default-arg branch: all three callers of _band_order_crossings pass feats explicitly, so the feats-is-None compute-it arm is never taken. |
+| 2782 | `if len(trunks) < 2:` | `->L2783`, `->L2784` | **defensive** -- Early-return in _suboptimal_trunk_bands, called only from the _guard_* validator (phases/guards.py) and a unit test, never on the production render path. The coverage sweep renders with validate=False, so neither arm registers. Defensive (exercised via the validate=True guard / test surface; cf. #728 validate-only precedent). |
+| 2786 | `for grp in groups:` | `->L2787`, `->L2805` | **defensive** -- _suboptimal_trunk_bands diagnostic loop: validate-only, not reached by the render-path coverage sweep (see the len(trunks)<2 note). |
+| 2787 | `if len({id(t.route) for t in grp}) < 2:` | `->L2788`, `->L2789` | **defensive** -- Single-route-group skip in _suboptimal_trunk_bands, validate-only: called from the _guard_* validator and a unit test, not the production render path the validate=False sweep exercises. Defensive. |
+| 2789 | `if not any(not t.route.normalize_exempt for t in grp):` | `->L2790`, `->L2791` | **defensive** -- _suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path. |
+| 2791 | `for sign in (1, -1):` | `->L2786`, `->L2792` | **defensive** -- _suboptimal_trunk_bands direction loop: validate-only, not on the render path. |
+| 2794 | `if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:` | `->L2795`, `->L2796` | **defensive** -- _suboptimal_trunk_bands slot-count guard: validate-only, not on the render path. |
+| 2803 | `if best < cur:` | `->L2791`, `->L2804` | **defensive** -- _suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path. |
+| 2937 | `if band is not None:` | `->L2943` | **defensive** -- Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band). |
+| 2958 | `if down_ok and up_ok and (cross_down is None) != (cross_up is None):` | `->L2960` | **defensive** -- Same-line dogleg side selection. The crossing-decided true arm (->1297, pick the side whose riser does not pierce the exempt run) is exercised by dogleg_exempt_sameline. The false fall-through (->1298) needs either an out-of-band side or a crossing-equal tie, neither reachable by a clean topology: the reachable dogleg regime rigidly fixes the inter-row band so down_room/up_room stay >= min_sep=6 (observed 14/26 across the corpus and every constructed variant; perturbing the grid loses the regime), and the only realizable tie is both-cross (a crossing-free tie needs degenerate zero-length exempt risers) which co-occurs with section-crossing / dogleg-crosses-exempt guard failures and is never a shippable render. |
+| 2960 | `elif down_ok and (not up_ok or prefer_down):` | `->L2961`, `->L2962` | **defensive** -- Same-line dogleg tie / out-of-band fallback, reached only after the L1296 if is false, which a clean topology never produces (see that gate): the true arm (->1299, lean down on a tie) needs a crossing-free tie that requires degenerate risers, and the false arm (->1300) needs down_ok False, which the regime's fixed inter-row band (down_room >= min_sep) never yields. |
+| 2962 | `elif up_ok:` | `->L2963`, `->L2965` | **defensive** -- Same-line dogleg move-up / give-up fallback, reached only when both L1296 and L1298 are false. The true arm (->1301, move up because the lower gap is too tight) needs down_ok False and the else arm (->1303, leave fused) needs both rooms below min_sep; the reachable regime's inter-row band is auto-widened so both rooms stay >= min_sep=6 (observed 14/26), so neither is reached by a valid topology. |
+| 2988 | `if band is not None:` | `->L2993` | **defensive** -- Distinct-line dogleg: the band-found arm (->1327) is exercised by dogleg_exempt_distinct (#702). The remaining band-is-None arm (->1331) is defensive: a trunk reaching this second loop collides with an exempt bypass obstacle that lives in an inter-row gap, so _inter_row_gap_band(ctx, t.y) always resolves to a band - the same mechanism already accepted for the sibling 'if band is not None:::#1'. |
+| 3003 | `if below_ok and above_ok and (cross_below is None) != (cross_above is None):` | `->L3005` | **defensive** -- Distinct-line dogleg side selection. The crossing-decided true arm (->1342) is exercised by dogleg_exempt_distinct. The false fall-through (->1343) needs a crossing-equal tie; a crossing-free tie requires degenerate zero-length exempt risers and the only realizable tie is both-cross, which trips _guard_no_dogleg_crosses_exempt_trunk plus the section-crossing guards and is never a shippable render. |
+| 3005 | `elif below_ok and (not above_ok or prefer_below):` | `->L3006`, `->L3007` | **defensive** -- Distinct-line dogleg tie fallback, reached only after L1341 is false (a tie), which a clean topology never produces (see that gate). The true arm (->1344, lean below) would fire on such a tie; the false arm (->1345) is unreachable because below_ok always holds and prefer_below is always true (t.y == hit.y in this regime). |
+| 3007 | `elif above_ok:` | `->L3008`, `->L3010` | **defensive** -- Distinct-line dogleg move-up/skip branch: unreachable because the below branch is always taken (t.y == hit.y, below_ok true); covers both the move-up and the gap-too-tight continue. |
+| 3030 | `if sg[0].sign_x != t.sign_x:` | `->L3031` | **defensive** -- Both callers of _coincident_trunk_slots pre-filter input to a single traversal direction (band = [t for t in grp if t.sign_x == sign]), so within the function sg[0].sign_x != t.sign_x is always False; the opposing-direction continue is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
+| 3061 | `if rp.curve_radii is None:` | `->L3062` | **defensive** -- curve_radii is always set for inter-section routes; the None arm in _restack_htrunk is a defensive guard. |
+| 3073 | `if 0 <= k - 1 < len(rp.curve_radii):` | `->L3075` | **defensive** -- Bounds guard in _restack_htrunk: trunk index k >= 1 so k-1 >= 0 is always in range; the skip arm is defensive. |
+| 3075 | `if k < len(rp.curve_radii) and k + 2 < len(pts):` | `->L-3040` | **defensive** -- Bounds guard in _restack_htrunk: for a real interior trunk k and k+2 are in range; the skip arm is defensive. |
+| 3134 | `if down is None or len(up.points) < 2:` | `->L3135` | **defensive** -- Every line entering a fan-out junction also exits it to an entry port, so _fanout_route_maps always pairs a downstream route for each (jid, line_id) upstream; all handlers emit >=2-point routes. The skip arm in _join_fanout_upstream_tails is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
+| 3232 | `if col is None:` | `->L3233` | **defensive** -- Defensive guard in _convergence_line_order: a peel-off riser channel always resolves to a source-section column, so the unresolved-column early return is never taken on the corpus. |
+| 3273 | `if not 0 <= far < len(pts):` | `->L3274` |  |
+| 3276 | `if abs(dx) > COORD_TOLERANCE:` | `->L3270` |  |
+| 3278 | `if not votes:` | `->L3279` |  |
+| 3382 | `if ca != cb:` | `->L3384` |  |
+| 3384 | `if rep_x[a] != rep_x[b]:` | `->L3385`, `->L3386` | **defensive** -- The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
+| 3421 | `if rp.curve_radii is None:` | `->L3422` | **defensive** -- curve_radii is always set for inter-section routes; the None arm in _restack_channel is a defensive guard. |
+| 3432 | `if 0 <= k - 1 < len(rp.curve_radii):` | `->L3434` | **defensive** -- Bounds guard in _restack_channel: the skip arm fires only for k==0 (channel at the route start), which the restacked gap channels (interior verticals after a horizontal lead-in) never are. |
+| 3434 | `if k < len(rp.curve_radii) and k + 2 < len(pts):` | `->L3444` | **defensive** -- Bounds guard in _restack_channel: the skip arm guards k or k+2 out of range for a real interior channel; defensive. |
+| 3446 | `if abs(ly - pts[1][1]) < COORD_TOLERANCE:` | `->L-3391` | **defensive** -- A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
+| 3476 | `if anchor_section_id is not None and anchor_side is not None:` | `->L3478` | **defensive** -- _gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint. |
+| 3531 | `elif right_ok:` | `->L3534` |  |
+| 3580 | `if s.bbox_w <= 0:` | `->L3581` | **defensive** -- Degenerate-bbox guard in _v_segment_crosses_other_section: mirror of the _h_segment_penetrates_section guard; sections always have positive width. |
 
 ## `offsets.py`
 

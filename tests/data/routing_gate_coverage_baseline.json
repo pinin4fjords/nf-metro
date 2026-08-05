@@ -433,7 +433,7 @@
   "normalize.py::if actual - common <= COORD_TOLERANCE_FINE:::#1",
   "normalize.py::if anchor_section_id is not None and anchor_side is not None:::#1",
   "normalize.py::if any(::#10",
-  "normalize.py::if any(::#11",
+  "normalize.py::if any(::#5",
   "normalize.py::if any(::#6",
   "normalize.py::if any(::#7",
   "normalize.py::if any(::#8",
