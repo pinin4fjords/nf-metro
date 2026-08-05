@@ -185,9 +185,15 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
     if not graph.sections:
         return False
 
-    from nf_metro.layout.section_placement import _inter_row_routing_minimums
+    from nf_metro.layout.section_placement import (
+        _inter_row_routing_minimums,
+        _merge_trunk_row_minimums,
+    )
 
     routing_min = _inter_row_routing_minimums(graph)
+    # A bottommost-row merge trunk's channel is bounded by the row envelopes
+    # rather than by the columns it travels, so it is held separately below.
+    envelope_min = _merge_trunk_row_minimums(graph)
 
     sections_by_row_start: dict[int, list[Section]] = defaultdict(list)
     for s in graph.sections.values():
@@ -248,6 +254,11 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
                 d = (bypass_bot + target_gap) - ls.bbox_y
                 if d > deficit:
                     deficit = d
+        envelope_gap = envelope_min.get((r - 1, r), 0.0)
+        if envelope_gap:
+            envelope_bottom = max(s.bbox_y + s.bbox_h for s in ending_at_prev)
+            envelope_top = min(ls.bbox_y for ls in lower if ls.bbox_h > 0)
+            deficit = max(deficit, (envelope_bottom + envelope_gap) - envelope_top)
         if deficit <= SAME_COORD_TOLERANCE:
             continue
 
@@ -1213,7 +1224,10 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
     if not graph.sections:
         return
 
-    from nf_metro.layout.section_placement import _inter_row_routing_minimums
+    from nf_metro.layout.section_placement import (
+        _inter_row_routing_minimums,
+        _merge_trunk_row_minimums,
+    )
 
     # A horizontal run an inter-row gap must host -- an entry-wrap bundle or a
     # bottommost-row merge-trunk channel -- needs a wider gap than the bare
@@ -1221,6 +1235,7 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
     # minimum here so tightening doesn't reclaim the space
     # ``_enforce_min_row_gaps`` reserved at placement.
     routing_min = _inter_row_routing_minimums(graph)
+    envelope_min = _merge_trunk_row_minimums(graph)
 
     sections_by_start_row: dict[int, list[Section]] = defaultdict(list)
     sections_by_end_row: dict[int, list[Section]] = defaultdict(list)
@@ -1310,6 +1325,14 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
         if not constrained:
             constrained = [(ls, global_floor) for ls in lower]
         slack = min(ls.bbox_y - (floor + target_gap) for ls, floor in constrained)
+        envelope_gap = envelope_min.get((r - 1, r), 0.0)
+        if envelope_gap:
+            # A merge trunk's channel spans the boundary between the two row
+            # envelopes, so no column-overlapping pair bounds it -- and the
+            # parser rewrote its connectors through fan and merge nodes, so no
+            # section pair records the two rows as related at all.
+            envelope_top = min(ls.bbox_y for ls in lower)
+            slack = min(slack, envelope_top - (global_floor + envelope_gap))
         if slack <= SAME_COORD_TOLERANCE:
             continue
 
