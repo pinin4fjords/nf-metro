@@ -3824,13 +3824,21 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
 def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> bool:
     """Whether two legs are drawn as one bundle of co-travelling runs.
 
-    Legs within one nesting *step* of each other over a shared stretch of their
-    corridor are what a reader sees as a single bundle: fused same-line tracks
-    sit on one coordinate and nested distinct lines exactly a step apart, and
-    either relationship is destroyed by moving one member alone.
+    Legs within one bundle-to-bundle clearance of each other over a shared
+    stretch of their corridor are what a reader sees as a single bundle: fused
+    same-line tracks sit on one coordinate, nested distinct lines sit a *step*
+    apart, and separate bundles keep :data:`BUNDLE_TO_BUNDLE_CLEARANCE` between
+    them.  Anything closer than that clearance is one group, and every one of
+    those relationships is destroyed by moving one member alone.
+
+    Overlap is read as bare interval overlap rather than through
+    :func:`spans_share_corridor`: two legs that share only the length of an elbow
+    are free to spread apart, but they are not free to be driven *together*, and
+    grouping them costs only the freedom to move them independently.
     """
-    return abs(first.coordinate - second.coordinate) <= step + COORD_TOLERANCE and (
-        spans_share_corridor(first.run_lo, first.run_hi, second.run_lo, second.run_hi)
+    reach = max(step, BUNDLE_TO_BUNDLE_CLEARANCE) + COORD_TOLERANCE
+    return abs(first.coordinate - second.coordinate) <= reach and (
+        min(first.run_hi, second.run_hi) > max(first.run_lo, second.run_lo)
     )
 
 
@@ -3874,21 +3882,21 @@ def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | Non
 
     ``None`` where a member may not move at all: a bundle keeps the spacing that
     draws its members as separate strokes, so one pinned member pins all of them.
-
-    Where no single shift satisfies every member -- a boundary narrower than the
-    clearances its corridors ask of it, or two lanes each owed one coordinate --
-    the range collapses onto the negative edge rather than vanishing.  That edge
-    is the one a widening of the boundary holds still: envelope settlement
-    translates everything from the boundary onward, which moves the positive
-    blocker away and leaves the negative one where it stands.  So a bundle seated
-    against the negative edge is the seating that widening makes correct, and one
-    seated anywhere else keeps its shortfall on the side no widening reaches.
+    ``None`` too where no single shift satisfies every member, which is a boundary
+    narrower than the clearances its corridors ask of it, or two lanes each owed
+    one coordinate.  Such a bundle stands where the passes above put it, and the
+    shortfall is left to the closing guard to report: seating it against either
+    edge picks which blocker to crowd, and the one a later widening of the
+    boundary would repair is not the one a reader would forgive -- the positive
+    side of a row gap is the next row's title badge.
     """
     if any(not run.movable for run in bundle):
         return None
     lower = max(run.lo - run.coordinate for run in bundle)  # type: ignore[operator]
     upper = min(run.hi - run.coordinate for run in bundle)  # type: ignore[operator]
-    return lower, max(lower, upper)
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return None
+    return lower, upper
 
 
 def _hold_runs_in_corridor_clearance(

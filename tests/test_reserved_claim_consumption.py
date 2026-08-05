@@ -9,23 +9,25 @@ positive_side_clearance]``.  A claimed corridor drawn outside that band was
 positioned by a geometry-derived fallback instead of its reservation, which is
 exactly what the reservation ledger exists to forbid.
 
-Most of the corpus already satisfies that outright, and those fixtures are held
-to it.  The rest are enumerated in ``KNOWN_UNCONSUMED`` with the count each one
-carries, which ratchets two ways: a fixture that gains an out-of-band claim
-fails, and so does one that loses every one of them without the entry being
-removed.
+Most of the corpus satisfies that outright, and those fixtures are held to it.
+The rest are enumerated in ``KNOWN_UNCONSUMED`` with the count each one carries,
+which ratchets two ways: a fixture that gains an out-of-band claim fails, and so
+does one that loses every one of them without the entry being removed.
 
-What those remaining claims are is measured, not assumed.  In every one of them
-the drawn coordinate equals the coordinate the claim itself recorded, and the
-claim's own coordinate is what lies outside the band -- there is no case of an
-allocation sitting inside its band with the route drawn elsewhere.  So the
-router consumes the ledger faithfully; what is short is the demand's side
-clearance.  Settlement guarantees capacity, and does: these reservations carry
-non-negative ``capacity_slack``, the region is wide enough for the bundle.  The
-bundle is seated off-centre within it, so one ``*_side_slack`` goes negative
-while the other absorbs the whole surplus.  Closing one therefore means moving
-where a handler seats its bundle inside an allocation it already honours, which
-changes drawn geometry, rather than teaching the router to read the ledger.
+What those remaining claims are is measured, not assumed.  Each one is a leg
+:func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
+cannot reseat, and there are exactly three reasons for that:
+
+* A pre-routing plan owns the segment's coordinates and validates the emitted
+  geometry against them, so no post-pass may write it.
+* The leg is a route's end leg, whose coordinate is the port marker it lands on.
+* Two corridors crossing one boundary over one stretch each need a coordinate
+  the other cannot leave them: the boundary is sized for one lane and carries
+  two, so no seating satisfies both and separating them takes a wider gap than
+  either reservation asks for on its own.
+
+None of the three is a router that fails to read the ledger, and none is closed
+by moving a leg the pass already reaches.
 """
 
 from __future__ import annotations
@@ -57,52 +59,26 @@ _CORPUS = _corpus()
 # Fixture -> how many of its realised gap claims are drawn outside their own
 # reservation's band by more than ``COORD_TOLERANCE``.  Regenerate by running
 # this module's ``_out_of_band_claims`` over ``_CORPUS``; closing a fixture means
-# deleting its entry.  Seven further claims sit exactly one tolerance outside
-# their band, which is the width this codebase treats two coordinates as equal
-# within, so they are not counted here.
+# deleting its entry.  Two further claims sit within one tolerance of their band,
+# which is the width this codebase treats two coordinates as equal within, so
+# they are not counted here.
 KNOWN_UNCONSUMED = {
     "examples/longread_variant_calling.mmd": 2,
     "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": 2,
     "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": 3,
-    "examples/topologies/bypass_left_entry_from_right.mmd": 1,
-    "examples/topologies/bypass_leftward_far_side_entry.mmd": 1,
-    "examples/topologies/convergence_fold_diamond.mmd": 2,
-    "examples/topologies/convergence_sink_fold.mmd": 4,
-    "examples/topologies/convergence_stacked_sink.mmd": 2,
-    "examples/topologies/cross_row_gap_wrap.mmd": 1,
+    "examples/topologies/convergence_stacked_sink.mmd": 1,
     "examples/topologies/dogleg_exempt_distinct.mmd": 1,
     "examples/topologies/dogleg_exempt_sameline.mmd": 1,
     "examples/topologies/exit_lane_settlement_without_crossings.mmd": 1,
     "examples/topologies/fan_bypass_shared_band.mmd": 1,
-    "examples/topologies/fold_split_targets.mmd": 2,
-    "examples/topologies/leftward_up_exit_turn_order.mmd": 2,
-    "examples/topologies/merge_right_entry.mmd": 2,
-    "examples/topologies/merge_trunk_out_of_range_section.mmd": 1,
     "examples/topologies/opposing_bypass_corridor.mmd": 2,
     "examples/topologies/opposing_return_row_pair.mmd": 1,
-    "examples/topologies/packed_cell_right_exit_left_entry_wrap.mmd": 1,
-    "examples/topologies/packed_multiline_serpentine_grid.mmd": 1,
     "examples/topologies/peeloff_straight_drop_near_wall.mmd": 1,
-    "examples/topologies/right_entry_over_top_tall_upstream.mmd": 2,
-    "examples/topologies/right_entry_wrap_no_fan.mmd": 1,
-    "examples/topologies/same_line_fan_distinct_descent.mmd": 1,
-    "examples/topologies/same_side_culdesac.mmd": 1,
-    "examples/topologies/samerow_left_exit_far_left_entry.mmd": 1,
-    "examples/topologies/straddling_fanout_junction.mmd": 2,
-    "examples/topologies/tb_bottom_exit_fork_diamond.mmd": 1,
-    "examples/topologies/tb_left_exit_step.mmd": 2,
-    "examples/topologies/tb_right_entry_stack.mmd": 1,
     "examples/topologies/top_entry_bundle_offset_seam.mmd": 1,
-    "examples/variantbenchmarking.mmd": 1,
-    "examples/variantbenchmarking_auto.mmd": 2,
-    "tests/fixtures/opposing_entry_partial_port_line.mmd": 2,
-    "tests/fixtures/planned_compatibility_channel_collision.mmd": 8,
-    "tests/fixtures/regressions/away_exit_wrap_interior_left.mmd": 1,
+    "examples/variantbenchmarking_auto.mmd": 1,
     "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": 2,
     "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd": 1,
-    "tests/fixtures/target_entry_runway_bypass.mmd": 3,
     "tests/fixtures/tb_exit_terminal_on_carrier.mmd": 2,
-    "tests/fixtures/through_section/riboseq_packed_lr.mmd": 1,
 }
 
 
@@ -164,4 +140,3 @@ def test_the_unconsumed_ledger_names_only_fixtures_that_render() -> None:
     known = set(KNOWN_UNCONSUMED)
     corpus = {str(path.relative_to(_ROOT)) for path in _CORPUS}
     assert known <= corpus, known - corpus
-    assert sum(KNOWN_UNCONSUMED.values()) == 71
