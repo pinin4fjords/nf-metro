@@ -55,6 +55,17 @@ DEFICIT_CORPUS = (
     ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
 )
 
+# Fixtures where a section straddles a boundary settlement widens, so the
+# translation cannot own it and has to hold it in place.  ``data_prep`` is pinned
+# at row 0 with a span of 2; ``scaffolding`` and ``psite_id`` straddle by
+# inference.
+SPANNING_CORPUS = (
+    ROOT / "examples" / "differentialabundance.mmd",
+    ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
+    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+    ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+)
+
 # Fixtures with no positive deficit anywhere: settlement must not touch them.
 SETTLED_CORPUS = (
     ROOT / "examples" / "rnaseq_sections.mmd",
@@ -292,6 +303,133 @@ def test_settlement_never_narrows_a_row_or_column_gap(path: Path) -> None:
         assert gap >= before_rows[key] - 0.01, f"row gap {key} narrowed"
     for key, gap in _column_gaps(graph).items():
         assert gap >= before_columns[key] - 0.01, f"column gap {key} narrowed"
+
+
+@pytest.mark.parametrize("path", SPANNING_CORPUS, ids=lambda item: item.name)
+def test_a_straddling_section_is_named_and_held_by_the_translation(
+    path: Path,
+) -> None:
+    """A boundary translation owns the sections starting at or beyond it.
+
+    A section straddling the boundary starts above it, so the translation
+    cannot carry it without narrowing the gap above; it stays, and the record
+    names it rather than leaving its exclusion implicit.
+    """
+    graph, plan = _observe(path)
+    before = {key: section.bbox_y for key, section in graph.sections.items()}
+    settlement = settle_route_envelopes(graph, plan)
+    straddling = tuple(
+        item for item in settlement.translations if item.spanning_section_ids
+    )
+    assert straddling, "fixture no longer straddles a settled boundary"
+    for translation in straddling:
+        assert translation.axis is SettlementAxis.ROW
+        for section_id in translation.spanning_section_ids:
+            section = graph.sections[section_id]
+            assert section.grid_row < translation.boundary
+            assert section.grid_row + section.grid_row_span > translation.boundary
+            assert section_id not in translation.section_ids
+            assert section.bbox_y == before[section_id]
+        for section_id in translation.section_ids:
+            assert graph.sections[section_id].grid_row >= translation.boundary
+
+
+@pytest.mark.parametrize("path", SPANNING_CORPUS, ids=lambda item: item.name)
+def test_a_held_straddling_section_bounds_nothing_the_translation_settled(
+    path: Path,
+) -> None:
+    """What makes holding a straddling section sound.
+
+    The widening cannot reach a corridor the held section bounds, so a
+    translation that claims to settle such a corridor is making a false record.
+    """
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    reservation_by_id = {item.id: item for item in plan.reservations}
+    checked = 0
+    for translation in settlement.translations:
+        if not translation.spanning_section_ids:
+            continue
+        for reservation_id in translation.reservation_ids:
+            realised = realise_reservation(
+                graph,
+                reservation_by_id[reservation_id],
+                coordinate_translations=settlement.coordinate_translations,
+            )
+            assert realised is not None
+            bounding = {
+                blocker.partition(":")[2]
+                for blocker in (
+                    realised.negative_blocker_ids + realised.positive_blocker_ids
+                )
+            }
+            assert not bounding & set(translation.spanning_section_ids)
+            checked += 1
+    assert checked, "fixture no longer settles a corridor across a straddled boundary"
+
+
+def test_a_straddling_section_that_bounds_its_corridor_is_rejected() -> None:
+    """The unsound arrangement is rejected rather than recorded as a success.
+
+    Widening a boundary buys a corridor nothing when a section straddling that
+    boundary is what bounds the corridor.  The sweep's own measurement rejects
+    that arrangement before translating, because a straddling section is
+    measured on both sides of the boundary; this covers the case only the final
+    geometry reveals, where a column translation moved the horizontal intervals
+    a row corridor's blockers are selected by.
+    """
+    path = SPANNING_CORPUS[0]
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    translation = next(
+        item for item in settlement.translations if item.spanning_section_ids
+    )
+    reservation = next(
+        item for item in plan.reservations if item.id in translation.reservation_ids
+    )
+    realised = realise_reservation(
+        graph, reservation, coordinate_translations=settlement.coordinate_translations
+    )
+    assert realised is not None
+    held = translation.spanning_section_ids[0]
+
+    def bound_by_the_straddling_section(target, item, **kwargs):
+        return replace(realised, positive_blocker_ids=(f"section-header:{held}",))
+
+    with mock.patch.object(
+        envelope_settlement,
+        "realise_reservation",
+        side_effect=bound_by_the_straddling_section,
+    ):
+        with pytest.raises(ValueError, match="straddle that boundary"):
+            envelope_settlement._assert_spanning_sections_bound_nothing_settled(
+                graph,
+                plan,
+                (translation,),
+                settlement.coordinate_translations,
+            )
+
+
+def test_settlement_rejects_a_translation_that_narrows_a_separation() -> None:
+    """The monotone claim is checked, not assumed.
+
+    Every facing pair of boxes is re-measured after the sweep, so a
+    translation that closed a satisfied gap fails instead of shipping.
+    """
+    path = DEFICIT_CORPUS[0]
+    graph, plan = _observe(path)
+    before = _geometry(graph)
+    real_shift = envelope_settlement.shift_section
+
+    def shift_the_wrong_way(target, section, dx=0.0, dy=0.0):
+        real_shift(target, section, dx=-dx, dy=-dy)
+
+    with mock.patch.object(
+        envelope_settlement, "shift_section", side_effect=shift_the_wrong_way
+    ):
+        with pytest.raises(ValueError, match="narrowed the row separation"):
+            settle_route_envelopes(graph, plan)
+    assert _geometry(graph) == before
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)

@@ -15,9 +15,16 @@ translating everything from ``b`` onward has three effects and no others:
 * boundary ``b`` widens by exactly the translated amount;
 * boundaries after ``b`` move both blockers together, so they are unchanged.
 
-A section spanning across ``b`` stays where it is, which can only increase its
-distance to the content below.  No separation therefore ever decreases, and the
-sweep is a single directional pass over a finite set of boundaries.
+A section belongs to the band holding its grid start, so boundary ``b`` owns
+every section starting at or beyond it.  A section straddling ``b`` starts above
+it and stays: carrying it would take its upper portion into the gap above and
+narrow that separation, and no step here may shrink a satisfied gap.  Holding it
+is sound exactly when it does not bound a corridor the translation widened -- if
+it did, the widening never reached that corridor.  Both halves of that are
+asserted on the settled geometry rather than argued: every facing pair is
+re-measured for monotonicity, and every straddling section is checked against the
+blockers of each corridor its boundary settled.  The sweep is therefore a single
+directional pass over a finite set of boundaries.
 
 Re-routing the settled geometry produces a *different* ledger -- corridors
 appear, vanish, and change their required width -- so iterating settlement
@@ -91,16 +98,23 @@ class SettlementTranslation:
     blocker_ids: tuple[str, ...]
     section_ids: tuple[str, ...]
     reservation_ids: tuple[RouteReservationId, ...]
+    spanning_section_ids: tuple[str, ...] = ()
+    """Sections straddling the boundary, which this translation cannot own."""
 
     @property
     def message(self) -> str:
         claimants = ", ".join(sorted(self.claimant_member_ids))
         blockers = ", ".join(sorted(self.blocker_ids))
+        held = (
+            f", holding {', '.join(self.spanning_section_ids)} in place across it"
+            if self.spanning_section_ids
+            else ""
+        )
         return (
             f"{self.axis.value} boundary {self.boundary} widened by "
             f"{self.amount:.2f}px for the corridor claimed by {claimants}, "
             f"held from below by {blockers}; it moved "
-            f"{len(self.section_ids)} section(s) and settled "
+            f"{len(self.section_ids)} section(s){held} and settled "
             f"{len(self.reservation_ids)} claim(s)"
         )
 
@@ -276,47 +290,70 @@ class _Axis:
     axis: SettlementAxis
     boundary_of: Callable[[RouteReservation], int]
     start_index: Callable[[Section], int]
+    span: Callable[[Section], int]
     origin: Callable[[Section], float]
     blocker_prefix: str
-    translate: Callable[[MetroGraph, int, float], tuple[str, ...]]
+    shift: Callable[[MetroGraph, Section, float], None]
 
 
-def _translate_rows(graph: MetroGraph, boundary: int, amount: float) -> tuple[str, ...]:
-    moved = []
+@dataclass(frozen=True, slots=True)
+class _TranslationOwnership:
+    """Which sections one boundary translation owns, and which it cannot.
+
+    A section belongs to the band holding its grid start, so a boundary
+    translation owns every section starting at or beyond it.  A section
+    straddling the boundary starts above it and stays: carrying it would take
+    its upper portion into the gap above and narrow that separation, which no
+    settlement step may do.  Naming both sets makes the ownership a computed
+    fact rather than a side effect of the comparison that applies it.
+    """
+
+    moved_section_ids: tuple[str, ...]
+    spanning_section_ids: tuple[str, ...]
+
+
+def _translation_ownership(
+    graph: MetroGraph, axis: _Axis, boundary: int
+) -> _TranslationOwnership:
+    moved: list[str] = []
+    spanning: list[str] = []
     for key, section in graph.sections.items():
-        if section.grid_row >= boundary:
-            shift_section(graph, section, dy=amount)
+        start = axis.start_index(section)
+        if start >= boundary:
             moved.append(key)
-    return tuple(sorted(moved))
+        elif start + axis.span(section) > boundary:
+            spanning.append(key)
+    return _TranslationOwnership(tuple(sorted(moved)), tuple(sorted(spanning)))
 
 
-def _translate_columns(
-    graph: MetroGraph, boundary: int, amount: float
-) -> tuple[str, ...]:
-    moved = []
-    for key, section in graph.sections.items():
-        if section.grid_col >= boundary:
-            shift_section(graph, section, dx=amount)
-            moved.append(key)
-    return tuple(sorted(moved))
+def _apply_translation(
+    graph: MetroGraph,
+    axis: _Axis,
+    ownership: _TranslationOwnership,
+    amount: float,
+) -> None:
+    for section_id in ownership.moved_section_ids:
+        axis.shift(graph, graph.sections[section_id], amount)
 
 
 _ROW_AXIS = _Axis(
     SettlementAxis.ROW,
     lambda reservation: _row_region(reservation).lower_row,
     lambda section: section.grid_row,
+    lambda section: section.grid_row_span,
     lambda section: section.bbox_y,
     SECTION_HEADER_BLOCKER,
-    _translate_rows,
+    lambda graph, section, amount: shift_section(graph, section, dy=amount),
 )
 
 _COLUMN_AXIS = _Axis(
     SettlementAxis.COLUMN,
     lambda reservation: _column_region(reservation).right_column,
     lambda section: section.grid_col,
+    lambda section: section.grid_col_span,
     lambda section: section.bbox_x,
     SECTION_LEFT_BLOCKER,
-    _translate_columns,
+    lambda graph, section, amount: shift_section(graph, section, dx=amount),
 )
 
 
@@ -467,20 +504,17 @@ def _settle_axis(
             continue
         deficit, reservation, blockers = max(claims, key=lambda item: item[0])
         amount = math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
-        band_start = min(
-            (
-                axis.origin(section)
-                for section in graph.sections.values()
-                if axis.start_index(section) >= boundary
-            ),
-            default=None,
-        )
-        moved = axis.translate(graph, boundary, amount)
-        if not moved or band_start is None:
+        ownership = _translation_ownership(graph, axis, boundary)
+        if not ownership.moved_section_ids:
             raise ValueError(
                 f"{axis.axis.value} boundary {boundary} has no translation "
                 "owner: nothing sits at or beyond it to move"
             )
+        band_start = min(
+            axis.origin(graph.sections[section_id])
+            for section_id in ownership.moved_section_ids
+        )
+        _apply_translation(graph, axis, ownership, amount)
         translations.append(
             SettlementTranslation(
                 axis.axis,
@@ -490,8 +524,9 @@ def _settle_axis(
                 reservation.id,
                 reservation.claimant_member_ids,
                 blockers,
-                moved,
+                ownership.moved_section_ids,
                 tuple(item[1].id for item in claims),
+                ownership.spanning_section_ids,
             )
         )
         coordinate_translations.append(
@@ -683,6 +718,111 @@ def _verify_against_input_ledger(
     return tuple(shortfalls)
 
 
+def _axis_gaps(graph: MetroGraph, axis: _Axis) -> dict[tuple[str, str], float]:
+    """The signed clearance between every pair of boxes that face each other.
+
+    Keyed by the ordered pair, so the same pair is comparable before and after a
+    translation.  Boxes that do not overlap across the axis never face each
+    other, so the distance between them is not a separation this stage owes
+    anything to.
+    """
+    across = (
+        (lambda section: (section.bbox_x, section.bbox_x + section.bbox_w))
+        if axis.axis is SettlementAxis.ROW
+        else (lambda section: (section.bbox_y, section.bbox_y + section.bbox_h))
+    )
+    along = (
+        (lambda section: (section.bbox_y, section.bbox_y + section.bbox_h))
+        if axis.axis is SettlementAxis.ROW
+        else (lambda section: (section.bbox_x, section.bbox_x + section.bbox_w))
+    )
+    gaps: dict[tuple[str, str], float] = {}
+    sections = sorted(graph.sections.items())
+    for first_key, first in sections:
+        for second_key, second in sections:
+            if first_key >= second_key:
+                continue
+            first_lo, first_hi = across(first)
+            second_lo, second_hi = across(second)
+            if min(first_hi, second_hi) <= max(first_lo, second_lo):
+                continue
+            first_start, first_end = along(first)
+            second_start, second_end = along(second)
+            if first_end <= second_start:
+                gaps[first_key, second_key] = second_start - first_end
+            elif second_end <= first_start:
+                gaps[second_key, first_key] = first_start - second_end
+    return gaps
+
+
+def _assert_no_separation_decreased(
+    before: dict[tuple[str, str], float],
+    after: dict[tuple[str, str], float],
+    axis: _Axis,
+) -> None:
+    """Every pair facing each other in both states is at least as far apart.
+
+    The monotone claim this stage rests on.  A pair facing each other in only
+    one of the two states has no separation to compare.
+    """
+    for pair, gap in after.items():
+        held = before.get(pair)
+        if held is not None and gap < held - COORD_TOLERANCE:
+            first, second = pair
+            raise ValueError(
+                f"envelope settlement narrowed the {axis.axis.value} separation "
+                f"between sections {first!r} and {second!r} from {held:.2f}px to "
+                f"{gap:.2f}px; no settlement step may shrink a satisfied gap"
+            )
+
+
+def _assert_spanning_sections_bound_nothing_settled(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    translations: Iterable[SettlementTranslation],
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...],
+) -> None:
+    """A section a translation could not move must not bound what it settled.
+
+    This is what makes holding a straddling section in place sound.  If such a
+    section bounds one of the corridors the translation widened, the widening
+    never reached that corridor and the translation's record of settling it is
+    false.  Measured on the final geometry, after both axes, so a row
+    translation invalidated by a later column translation -- which moves the
+    horizontal intervals a row corridor's blockers are selected by -- is caught
+    here rather than assumed away.
+    """
+    reservation_by_id = {item.id: item for item in plan.reservations}
+    for translation in translations:
+        if not translation.spanning_section_ids:
+            continue
+        held = frozenset(translation.spanning_section_ids)
+        for reservation_id in translation.reservation_ids:
+            reservation = reservation_by_id.get(reservation_id)
+            if reservation is None:
+                continue
+            realised = realise_reservation(
+                graph, reservation, coordinate_translations=coordinate_translations
+            )
+            if realised is None:
+                continue
+            blockers = {
+                blocker_id.partition(":")[2]
+                for blocker_id in (
+                    realised.negative_blocker_ids + realised.positive_blocker_ids
+                )
+            }
+            trespassing = sorted(held & blockers)
+            if trespassing:
+                raise ValueError(
+                    f"{translation.axis.value} boundary {translation.boundary} was "
+                    f"widened by {translation.amount:.2f}px for the corridor "
+                    f"{reservation.description!r}, but section(s) "
+                    f"{', '.join(trespassing)} straddle that boundary and bound "
+                    "the corridor, so the translation could not have widened it"
+                )
+
+
 def _coordinate_state(
     graph: MetroGraph,
 ) -> tuple[tuple[str, float, float], ...]:
@@ -729,6 +869,8 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
     ledger needs no such care: settlement only reads it.
     """
     restore_point = _coordinate_state(graph)
+    row_gaps_before = _axis_gaps(graph, _ROW_AXIS)
+    column_gaps_before = _axis_gaps(graph, _COLUMN_AXIS)
     try:
         row_translations, row_obstructions, row_coordinate = _settle_axis(
             graph, plan, _reservations_on(plan, RowGapRegion), _ROW_AXIS
@@ -741,12 +883,22 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
             tuple(row_coordinate),
         )
         coordinate_translations = tuple(row_coordinate + column_coordinate)
+        translations = tuple(row_translations + column_translations)
+        _assert_no_separation_decreased(
+            row_gaps_before, _axis_gaps(graph, _ROW_AXIS), _ROW_AXIS
+        )
+        _assert_no_separation_decreased(
+            column_gaps_before, _axis_gaps(graph, _COLUMN_AXIS), _COLUMN_AXIS
+        )
+        _assert_spanning_sections_bound_nothing_settled(
+            graph, plan, translations, coordinate_translations
+        )
         shortfalls = _verify_against_input_ledger(graph, plan, coordinate_translations)
     except Exception:
         _restore_coordinate_state(graph, restore_point)
         raise
     return EnvelopeSettlement(
-        tuple(row_translations + column_translations),
+        translations,
         tuple(row_obstructions + column_obstructions),
         shortfalls,
         coordinate_translations,
