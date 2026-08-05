@@ -6285,29 +6285,33 @@ def assert_reservations_are_settled(
     *settlement.shortfalls* separately records the demands settlement itself
     already knew it had not met.
 
-    A route drawn through a corridor narrower than its reservation requires is
-    a violated hard clearance, so the strict path refuses it and names the
-    claimant, the corridor span, the blockers, and both widths.
+    A route drawn through a row- or column-gap corridor narrower than its
+    reservation requires is a violated hard clearance, so the strict path
+    refuses it with no exemption and names the claimant, the corridor span, the
+    blockers, and both widths.  A row or column boundary is always widenable by
+    a global translation, so a deficit surviving settlement is an infeasible
+    arrangement rather than a limitation of this stage.
 
-    The exception is a claim that does not describe a corridor at all: when the
-    section bounding the far side spans across the boundary rather than sitting
-    beyond it, that section is measured on the near side too and the far side
-    lands ahead of the near side.  There is no gap to allocate and no
-    arrangement to reject, so that is reported as a ledger coherence problem
-    rather than failing a map over it.
+    Canvas-side claims are reported rather than enforced.  A ``CanvasRegion``
+    names only which side of the canvas it lies against, with none of the
+    row/column locality its gap-region siblings carry, so claims from unrelated
+    parts of a map group into one reservation whenever their travel intervals
+    touch.  The bundle width that follows spans corridors that are nowhere near
+    each other, and the single boundary search measures against one global edge,
+    so the resulting deficit describes no drawn geometry.  Enforcing it would
+    fail correctly drawn maps, so it is surfaced as a geometry warning naming
+    the claim.
     """
-    from nf_metro.layout.envelope_settlement import sections_spanning_the_gap
     from nf_metro.layout.route_reservations import (
+        CanvasRegion,
         ColumnGapRegion,
         RowGapRegion,
         realise_reservation,
     )
 
     worst: tuple[float, str] | None = None
-    deferred = [item.message for item in settlement.obstructions]
+    canvas_deficits: list[str] = []
     for shortfall in settlement.shortfalls:
-        if not shortfall.describes_a_gap:
-            continue
         detail = (
             "envelope settlement did not meet a demand it was handed: "
             f"{shortfall.message}"
@@ -6320,7 +6324,9 @@ def assert_reservations_are_settled(
         for item in plan.realised_reservations
     }
     for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+        if not isinstance(
+            reservation.region, RowGapRegion | ColumnGapRegion | CanvasRegion
+        ):
             continue
         realised = realise_reservation(
             graph,
@@ -6330,8 +6336,6 @@ def assert_reservations_are_settled(
             ),
         )
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
-            continue
-        if sections_spanning_the_gap(graph, reservation, realised):
             continue
         claimants = ", ".join(sorted(reservation.claimant_member_ids))
         blockers = ", ".join(
@@ -6344,7 +6348,9 @@ def assert_reservations_are_settled(
             f"requires {realised.required_width:.1f}px and has "
             f"{realised.available_width:.1f}px between {blockers}"
         )
-        if worst is None or realised.capacity_slack < worst[0]:
+        if isinstance(reservation.region, CanvasRegion):
+            canvas_deficits.append(detail)
+        elif worst is None or realised.capacity_slack < worst[0]:
             worst = (realised.capacity_slack, detail)
     if worst is not None:
         msg = (
@@ -6356,9 +6362,10 @@ def assert_reservations_are_settled(
         if strict:
             raise LayoutInvariantError(msg)
         warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
-    for detail in deferred:
+    for detail in canvas_deficits:
         warnings.warn(
-            f"a route reservation does not describe an allocatable gap: {detail}",
+            "a canvas-side reservation asks for more clearance than the band "
+            f"between its section and the canvas edge holds: {detail}",
             category=LayoutGeometryWarning,
             stacklevel=2,
         )

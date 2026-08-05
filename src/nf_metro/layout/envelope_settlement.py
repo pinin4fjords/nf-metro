@@ -26,6 +26,19 @@ re-measured for monotonicity, and every straddling section is checked against th
 blockers of each corridor its boundary settled.  The sweep is therefore a single
 directional pass over a finite set of boundaries.
 
+The two axes settle in sequence -- every row boundary, then every column
+boundary -- and the row phase is never revisited.  That is sound because a
+column translation writes only x, so it cannot move an edge a row corridor is
+measured between; it can reach a row corridor only by changing which sections
+the corridor's run overlaps.  A corridor scoped to its topology span selects by
+grid index, which no translation moves.  A run-scoped corridor selects by
+x-overlap, and sections at or beyond the translated boundary move together with
+whatever part of the run reaches them, so a section clear of the run cannot be
+drawn into it -- unless it spans across the translated boundary, in which case it
+stays put while a crossing run lengthens.  That single exception is checked
+rather than assumed: every row corridor is re-measured after the column phase
+and a narrowed one fails.  Nothing is retried.
+
 Re-routing the settled geometry produces a *different* ledger -- corridors
 appear, vanish, and change their required width -- so iterating settlement
 against successive ledgers would be a fixpoint search over a moving constraint
@@ -33,12 +46,12 @@ set, with no convergence argument behind it.  Settlement therefore runs once,
 against the ledger it was handed.  A demand that only the re-routed geometry
 reveals is reported, not chased.
 
-A claim whose far side is bounded by a section spanning across the boundary is
-not a corridor at all.  The measurement puts a spanning section on the near side
-as well, so the section's own box lies inside the width the claim asks for, and
-the far side lands ahead of the near side.  Settlement records an attributed
-obstruction naming that section instead of translating geometry that cannot
-help.
+Every row- and column-gap claim this stage is handed is therefore allocatable:
+the measurement bounds a boundary by the sections that lie wholly on each side
+of it, so a boundary every relevant section straddles has no side to measure and
+is never chosen as a corridor's region.  A deficit that survives the sweep is an
+infeasible arrangement, not a claim outside this stage's reach, and the closing
+guard refuses it on the strict path.
 """
 
 from __future__ import annotations
@@ -63,7 +76,6 @@ from nf_metro.layout.route_reservations import (
     SECTION_HEADER_BLOCKER,
     SECTION_LEFT_BLOCKER,
     ColumnGapRegion,
-    RealisedRouteReservation,
     ReservationCoordinateTranslation,
     RouteReservation,
     RouteReservationId,
@@ -116,41 +128,6 @@ class SettlementTranslation:
             f"held from below by {blockers}; it moved "
             f"{len(self.section_ids)} section(s){held} and settled "
             f"{len(self.reservation_ids)} claim(s)"
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class SettlementObstruction:
-    """A claim that does not describe an allocatable gap.
-
-    The far side is bounded by a section spanning across the boundary, which
-    the measurement also puts on the near side.  There is no width between a
-    box and itself, so no offset opens one.
-    """
-
-    axis: SettlementAxis
-    boundary: int
-    deficit: float
-    reservation_id: RouteReservationId
-    claimant_member_ids: tuple[EmissionMemberId, ...]
-    blocker_ids: tuple[str, ...]
-    blocking_section_ids: tuple[str, ...]
-    pinned_section_ids: tuple[str, ...] = ()
-
-    @property
-    def message(self) -> str:
-        claimants = ", ".join(sorted(self.claimant_member_ids))
-        blockers = ", ".join(self.blocking_section_ids)
-        pins = (
-            f"; the authored grid pins {', '.join(self.pinned_section_ids)} across it"
-            if self.pinned_section_ids
-            else ""
-        )
-        return (
-            f"the corridor claimed by {claimants} at {self.axis.value} "
-            f"boundary {self.boundary} measures its far side ahead of its "
-            f"near side, because section(s) {blockers} span across the boundary "
-            f"instead of bounding it; there is no gap here to allocate{pins}"
         )
 
 
@@ -256,7 +233,6 @@ class SettlementShortfall:
     claimant_member_ids: tuple[EmissionMemberId, ...]
     required_width: float
     available_width: float
-    describes_a_gap: bool
 
     @property
     def message(self) -> str:
@@ -278,7 +254,6 @@ class EnvelopeSettlement:
     """
 
     translations: tuple[SettlementTranslation, ...]
-    obstructions: tuple[SettlementObstruction, ...]
     shortfalls: tuple[SettlementShortfall, ...] = ()
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = ()
 
@@ -377,53 +352,6 @@ def _reservations_on(
     )
 
 
-def _axis_of(reservation: RouteReservation) -> _Axis | None:
-    if isinstance(reservation.region, RowGapRegion):
-        return _ROW_AXIS
-    if isinstance(reservation.region, ColumnGapRegion):
-        return _COLUMN_AXIS
-    return None
-
-
-def sections_spanning_the_gap(
-    graph: MetroGraph,
-    reservation: RouteReservation,
-    realised: RealisedRouteReservation,
-) -> tuple[str, ...]:
-    """Far-side blockers that span across the boundary instead of bounding it.
-
-    A section reaches the far side of a boundary either by starting at or after
-    it, or by spanning across it; only the first kind moves when settlement
-    translates the boundary onward.  The second kind is also measured on the
-    near side, so its own box lies inside the width the claim asks for and the
-    far side is measured ahead of the near side.  Naming it says both things at
-    once: nothing here is allocatable, and no translation would help.
-
-    Recomputed from the graph and the measurement rather than remembered
-    against a reservation id, so it stays valid across a re-route, whose ledger
-    need not carry the ids settlement saw.
-    """
-    axis = _axis_of(reservation)
-    if axis is None:
-        return ()
-    boundary = axis.boundary_of(reservation)
-    spanning = set()
-    for blocker_id in realised.positive_blocker_ids:
-        section = graph.sections.get(blocker_id.removeprefix(f"{axis.blocker_prefix}:"))
-        if section is not None and axis.start_index(section) < boundary:
-            spanning.add(section.id)
-    return tuple(sorted(spanning))
-
-
-def _author_pinned(graph: MetroGraph, section_ids: Iterable[str]) -> tuple[str, ...]:
-    provenance = graph.layout_provenance
-    return tuple(
-        section_id
-        for section_id in section_ids
-        if provenance.author_owns_grid(section_id)
-    )
-
-
 def _reservation_coordinate_translation(
     translation: SettlementTranslation,
     plan: RoutePlan,
@@ -462,7 +390,6 @@ def _settle_axis(
     prior_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> tuple[
     list[SettlementTranslation],
-    list[SettlementObstruction],
     list[ReservationCoordinateTranslation],
 ]:
     by_boundary: dict[int, list[RouteReservation]] = {}
@@ -470,7 +397,6 @@ def _settle_axis(
         by_boundary.setdefault(axis.boundary_of(reservation), []).append(reservation)
 
     translations: list[SettlementTranslation] = []
-    obstructions: list[SettlementObstruction] = []
     coordinate_translations = list(prior_translations)
     for boundary in sorted(by_boundary):
         projected_prefix = tuple(coordinate_translations)
@@ -483,21 +409,6 @@ def _settle_axis(
                 continue
             deficit = -realised.capacity_slack
             if deficit <= COORD_TOLERANCE:
-                continue
-            spanning = sections_spanning_the_gap(graph, reservation, realised)
-            if spanning:
-                obstructions.append(
-                    SettlementObstruction(
-                        axis.axis,
-                        boundary,
-                        deficit,
-                        reservation.id,
-                        reservation.claimant_member_ids,
-                        realised.positive_blocker_ids,
-                        spanning,
-                        _author_pinned(graph, spanning),
-                    )
-                )
                 continue
             claims.append((deficit, reservation, realised.negative_blocker_ids))
         if not claims:
@@ -534,7 +445,6 @@ def _settle_axis(
         )
     return (
         translations,
-        obstructions,
         coordinate_translations[len(prior_translations) :],
     )
 
@@ -683,6 +593,56 @@ def attach_settlement_diagnostics(
     return replace(plan, diagnostics=plan.diagnostics + added)
 
 
+def _measured_widths(
+    graph: MetroGraph,
+    reservations: tuple[RouteReservation, ...],
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...],
+) -> dict[RouteReservationId, float]:
+    widths: dict[RouteReservationId, float] = {}
+    for reservation in reservations:
+        realised = realise_reservation(
+            graph, reservation, coordinate_translations=coordinate_translations
+        )
+        if realised is not None:
+            widths[reservation.id] = realised.available_width
+    return widths
+
+
+def _assert_the_column_phase_left_the_row_phase_standing(
+    before: dict[RouteReservationId, float],
+    after: dict[RouteReservationId, float],
+) -> None:
+    """No row corridor is narrower after the column phase than before it.
+
+    Rows settle first and columns second, with no row recheck, which is sound
+    because a column translation writes only x: the edges a row corridor is
+    measured between are y values it never touches.  It can reach a row corridor
+    only by changing which sections the corridor's own run overlaps, and for a
+    corridor scoped to the topology span there is nothing to change -- grid
+    indices do not move.  For a run-scoped corridor, sections at or beyond the
+    translated column boundary move with the part of the run that reaches them,
+    and sections before it move with neither, so a section outside the run
+    cannot be drawn into it.
+
+    The exception is a section spanning across the translated column boundary:
+    it stays put while a run crossing that boundary lengthens, so such a section
+    can end up inside a run that clears it before the translation.  That is a
+    real narrowing, which is why the conclusion is checked here on every settled
+    layout rather than taken from the argument alone.  A layout that hits it
+    fails inside the transactional scope rather than being re-settled: a second
+    pass would be settling against a constraint set the first pass moved.
+    """
+    for reservation_id, width in after.items():
+        held = before.get(reservation_id)
+        if held is not None and width < held - COORD_TOLERANCE:
+            raise ValueError(
+                f"the column phase narrowed the row corridor {reservation_id} "
+                f"from {held:.2f}px to {width:.2f}px: a section spanning across a "
+                "translated column boundary was drawn into the corridor's run, "
+                "so the two axes are not independent for this layout"
+            )
+
+
 def _verify_against_input_ledger(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -712,7 +672,6 @@ def _verify_against_input_ledger(
                 reservation.claimant_member_ids,
                 realised.required_width,
                 realised.available_width,
-                not sections_spanning_the_gap(graph, reservation, realised),
             )
         )
     return tuple(shortfalls)
@@ -871,11 +830,13 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
     restore_point = _coordinate_state(graph)
     row_gaps_before = _axis_gaps(graph, _ROW_AXIS)
     column_gaps_before = _axis_gaps(graph, _COLUMN_AXIS)
+    row_reservations = _reservations_on(plan, RowGapRegion)
     try:
-        row_translations, row_obstructions, row_coordinate = _settle_axis(
-            graph, plan, _reservations_on(plan, RowGapRegion), _ROW_AXIS
+        row_translations, row_coordinate = _settle_axis(
+            graph, plan, row_reservations, _ROW_AXIS
         )
-        column_translations, column_obstructions, column_coordinate = _settle_axis(
+        row_widths = _measured_widths(graph, row_reservations, tuple(row_coordinate))
+        column_translations, column_coordinate = _settle_axis(
             graph,
             plan,
             _reservations_on(plan, ColumnGapRegion),
@@ -884,6 +845,10 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
         )
         coordinate_translations = tuple(row_coordinate + column_coordinate)
         translations = tuple(row_translations + column_translations)
+        _assert_the_column_phase_left_the_row_phase_standing(
+            row_widths,
+            _measured_widths(graph, row_reservations, coordinate_translations),
+        )
         _assert_no_separation_decreased(
             row_gaps_before, _axis_gaps(graph, _ROW_AXIS), _ROW_AXIS
         )
@@ -899,7 +864,6 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
         raise
     return EnvelopeSettlement(
         translations,
-        tuple(row_obstructions + column_obstructions),
         shortfalls,
         coordinate_translations,
     )

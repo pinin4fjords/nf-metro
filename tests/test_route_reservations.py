@@ -28,6 +28,7 @@ from nf_metro.layout.route_reservations import (
     CorridorMeasurementScope,
     CorridorOrientation,
     RowGapRegion,
+    realise_reservation,
 )
 from nf_metro.layout.routing import (
     compute_station_offsets,
@@ -471,17 +472,33 @@ def test_coincident_concurrent_approaches_share_one_physical_lane() -> None:
 
 
 def test_stacked_collector_reuses_three_lanes_across_twelve_claims() -> None:
+    """Twelve claims share one three-line channel in the column 0/1 gap.
+
+    They are recorded as more than one reservation because the evidence that
+    bounds them differs -- a topology span for the claims whose span has a
+    section on each side of the boundary, the observed run for the rest -- so
+    what the ledger holds is several records of one physical bundle.
+    """
     path = ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd"
-    _graph, _routes, plan = _observe(path)
-    reservation = next(
+    graph, _routes, plan = _observe(path)
+    channel = tuple(
         item
         for item in plan.reservations
-        if item.kind is CorridorKind.INTER_COLUMN_CHANNEL and len(item.claims) == 12
+        if item.kind is CorridorKind.INTER_COLUMN_CHANNEL
+        and isinstance(item.region, ColumnGapRegion)
+        and (item.region.left_column, item.region.right_column) == (0, 1)
     )
-
-    assert reservation.lane_count == 3
-    assert sorted(len(lane.claim_indices) for lane in reservation.lanes) == [4, 4, 4]
-    assert reservation.bundle_width == pytest.approx(8.0)
+    assert sum(len(item.claims) for item in channel) == 12
+    for reservation in channel:
+        assert reservation.lane_count == 3
+        assert reservation.bundle_width == pytest.approx(8.0)
+        assert {
+            round(claim.allocation_coordinate, 1) for claim in reservation.claims
+        } == {464.0, 468.0, 472.0}
+        realised = realise_reservation(graph, reservation)
+        assert realised is not None
+        assert realised.available_width > 0
+        assert realised.capacity_slack >= -0.01
 
 
 def test_asymmetric_grid_spans_select_provenance_on_the_canonical_axes() -> None:

@@ -627,6 +627,14 @@ def _row_region_measurement(
     longitudinal_start: float,
     longitudinal_end: float,
 ) -> _RegionMeasurement:
+    """Measure the clear width between the two rows *region* separates.
+
+    A section spanning across the boundary bounds neither side of it: its
+    bottom edge lies below the boundary and its header above, so it occupies
+    the boundary rather than bounding it.  Where every relevant section spans
+    across, the boundary has no side to measure and this raises, which is what
+    tells the region search that this corridor does not run in a row gap here.
+    """
     relevant = tuple(
         section
         for section in graph.sections.values()
@@ -637,18 +645,11 @@ def _row_region_measurement(
             else _section_x_overlaps(section, longitudinal_start, longitudinal_end)
         )
     )
-    crossing = tuple(
-        section
-        for section in relevant
-        if section.grid_row <= region.upper_row < _row_end(section)
+    upper = tuple(
+        section for section in relevant if _row_end(section) <= region.upper_row
     )
-    upper = (
-        tuple(section for section in relevant if _row_end(section) <= region.upper_row)
-        + crossing
-    )
-    lower = (
-        tuple(section for section in relevant if section.grid_row >= region.lower_row)
-        + crossing
+    lower = tuple(
+        section for section in relevant if section.grid_row >= region.lower_row
     )
     start, negative = _edge_blockers(
         (
@@ -685,24 +686,11 @@ def _column_region_measurement(
             else _section_y_overlaps(section, longitudinal_start, longitudinal_end)
         )
     )
-    crossing = tuple(
-        section
-        for section in relevant
-        if section.grid_col <= region.left_column < _column_end(section)
+    left = tuple(
+        section for section in relevant if _column_end(section) <= region.left_column
     )
-    left = (
-        tuple(
-            section
-            for section in relevant
-            if _column_end(section) <= region.left_column
-        )
-        + crossing
-    )
-    right = (
-        tuple(
-            section for section in relevant if section.grid_col >= region.right_column
-        )
-        + crossing
+    right = tuple(
+        section for section in relevant if section.grid_col >= region.right_column
     )
     start, negative = _edge_blockers(
         (

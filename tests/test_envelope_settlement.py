@@ -10,14 +10,13 @@ from unittest import mock
 import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
-from nf_metro.layout import envelope_settlement
+from nf_metro.layout import envelope_settlement, route_reservations
 from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
     SettlementReach,
     SettlementShortfall,
     attribute_compatibility_systems,
-    sections_spanning_the_gap,
     settle_route_envelopes,
 )
 from nf_metro.layout.geometry import shift_section
@@ -25,9 +24,10 @@ from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     assert_reservations_are_settled,
 )
-from nf_metro.layout.route_plan import build_route_plan_query
+from nf_metro.layout.route_plan import GridSpan, build_route_plan_query
 from nf_metro.layout.route_reservations import (
     ColumnGapRegion,
+    CorridorMeasurementScope,
     RowGapRegion,
     realise_reservation,
 )
@@ -57,12 +57,10 @@ DEFICIT_CORPUS = (
 
 # Fixtures where a section straddles a boundary settlement widens, so the
 # translation cannot own it and has to hold it in place.  ``data_prep`` is pinned
-# at row 0 with a span of 2; ``scaffolding`` and ``psite_id`` straddle by
-# inference.
+# at row 0 with a span of 2; ``psite_id`` straddles by inference.
 SPANNING_CORPUS = (
     ROOT / "examples" / "differentialabundance.mmd",
     ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
-    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
     ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
 )
 
@@ -224,8 +222,7 @@ def test_settlement_meets_the_demands_it_was_handed(path: Path) -> None:
     graph, plan = _observe(path)
     settlement = settle_route_envelopes(graph, plan)
     assert settlement.translations
-    unmet = [item for item in settlement.shortfalls if item.describes_a_gap]
-    assert unmet == []
+    assert settlement.shortfalls == ()
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
@@ -234,19 +231,6 @@ def test_the_rerouted_ledger_is_also_free_of_deficits(path: Path) -> None:
     settled geometry goes on to publish are satisfied too."""
     observed = _rendered_plan(path)
     assert _capacity_deficits(observed.route_plan) == {}
-
-
-def test_an_unmet_demand_is_reported_against_the_input_ledger() -> None:
-    """The shortfall record names the reservation settlement could not satisfy,
-    classified by why, rather than leaving it to be rediscovered downstream."""
-    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
-    graph, plan = _observe(path)
-    settlement = settle_route_envelopes(graph, plan)
-    assert settlement.shortfalls
-    for shortfall in settlement.shortfalls:
-        assert shortfall.available_width < shortfall.required_width
-        assert shortfall.claimant_member_ids
-    assert any(not item.describes_a_gap for item in settlement.shortfalls)
 
 
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
@@ -433,6 +417,61 @@ def test_settlement_rejects_a_translation_that_narrows_a_separation() -> None:
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_the_column_phase_never_narrows_a_row_corridor(path: Path) -> None:
+    """Why the row phase needs no recheck after the columns settle.
+
+    A column translation writes only x, so it cannot move an edge a row corridor
+    is measured between; it reaches one only by changing which sections the
+    corridor's run overlaps.  Measured on the settled geometry, no row corridor
+    comes out narrower than the row phase left it.
+    """
+    graph, plan = _observe(path)
+    row_reservations = tuple(
+        item for item in plan.reservations if isinstance(item.region, RowGapRegion)
+    )
+    assert row_reservations, "fixture publishes no row corridor"
+    settlement = settle_route_envelopes(graph, plan)
+    row_translations = tuple(
+        item for item in settlement.translations if item.axis is SettlementAxis.ROW
+    )
+    for reservation in row_reservations:
+        after = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=settlement.coordinate_translations,
+        )
+        row_only = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=tuple(
+                envelope_settlement._reservation_coordinate_translation(item, plan)
+                for item in row_translations
+            ),
+        )
+        if after is None or row_only is None:
+            continue
+        assert after.available_width >= row_only.available_width - 0.01
+
+
+def test_a_column_phase_that_narrows_a_row_corridor_is_rejected() -> None:
+    """The one case the independence argument does not cover fails loudly.
+
+    A section spanning across a translated column boundary stays put while a
+    run crossing that boundary lengthens, so it can end up inside a corridor
+    that cleared it.  Settlement refuses that layout rather than re-settling
+    against a constraint set its own column phase moved.
+    """
+    graph, plan = _observe(DEFICIT_CORPUS[0])
+    reservation = next(
+        item for item in plan.reservations if isinstance(item.region, RowGapRegion)
+    )
+    with pytest.raises(ValueError, match="narrowed the row corridor"):
+        envelope_settlement._assert_the_column_phase_left_the_row_phase_standing(
+            {reservation.id: 96.0}, {reservation.id: 48.0}
+        )
+
+
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
 def test_settlement_preserves_frozen_local_geometry(path: Path) -> None:
     """Only whole-row and whole-column offsets move; nothing moves inside a
     section, and no bbox is resized."""
@@ -490,55 +529,82 @@ def test_one_axis_based_implementation_covers_every_flow_direction(path: Path) -
     assert recovered.capacity_slack >= 0.0
 
 
-def test_a_corridor_bounded_by_a_row_spanning_section_is_attributed_not_moved() -> None:
-    """Row-spanning sections straddle the boundary, so no translation helps.
+def test_a_section_straddling_a_boundary_bounds_neither_side_of_it() -> None:
+    """A straddling section occupies a boundary rather than bounding it.
 
-    Settlement declines the deficit and names the sections that bound it,
-    rather than translating rows that would add whitespace without widening the
-    corridor.
+    Its bottom edge lies below the boundary and its header above, so neither
+    edge is a clearance the boundary offers.  Counting it on both sides
+    manufactures a width measured from a box to itself, which is negative by
+    that box's own height.
+    """
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, _plan = _observe(path)
+    straddling = {
+        key
+        for key, section in graph.sections.items()
+        if section.grid_row <= 1 < section.grid_row + section.grid_row_span - 1
+    }
+    assert straddling, "fixture no longer straddles the row 1/2 boundary"
+    measurement = route_reservations._row_region_measurement(
+        graph,
+        RowGapRegion(1, 2),
+        CorridorMeasurementScope.TOPOLOGY_SPAN,
+        GridSpan(0, 4, 0, 3),
+        0.0,
+        10_000.0,
+    )
+    named = {
+        blocker.partition(":")[2]
+        for blocker in (
+            measurement.negative_blocker_ids + measurement.positive_blocker_ids
+        )
+    }
+    assert not named & straddling
+    assert measurement.end > measurement.start
+
+
+def test_a_boundary_every_section_straddles_is_not_a_corridor_region() -> None:
+    """A boundary with no section wholly on one side has no width to offer.
+
+    The measurement raises rather than inventing one, which is what tells the
+    region search to look for the region the corridor actually runs in.
+    """
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, _plan = _observe(path)
+    with pytest.raises(ValueError, match="no settled blocker"):
+        route_reservations._row_region_measurement(
+            graph,
+            RowGapRegion(0, 1),
+            CorridorMeasurementScope.TOPOLOGY_SPAN,
+            GridSpan(0, 4, 0, 3),
+            0.0,
+            10_000.0,
+        )
+
+
+def test_every_corridor_the_organellar_map_publishes_is_allocatable() -> None:
+    """Five sections straddle this map's row 0/1 boundary at once.
+
+    Every row and column corridor it publishes names a boundary with sides to
+    measure, and every one of them fits, so settlement declines nothing.
     """
     path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
     graph, plan = _observe(path)
     settlement = settle_route_envelopes(graph, plan)
-
-    obstructions = [
-        item for item in settlement.obstructions if item.axis is SettlementAxis.ROW
-    ]
-    assert obstructions
-    for obstruction in obstructions:
-        assert obstruction.deficit > 0
-        assert obstruction.blocking_section_ids
-        for section_id in obstruction.blocking_section_ids:
-            section = graph.sections[section_id]
-            assert section.grid_row < obstruction.boundary
-            assert section.grid_row + section.grid_row_span - 1 >= obstruction.boundary
-
-
-def test_a_span_across_the_boundary_leaves_no_width_to_allocate() -> None:
-    """Why settlement reports one kind of obstruction rather than two.
-
-    A far-side blocker settlement cannot translate is exactly a section
-    spanning across the boundary, and the row measurement puts every spanning
-    section on the near side as well.  The section's own box therefore lies
-    inside the width the claim asks for and the far side is measured ahead of
-    the near side, so such a claim can never be a genuine corridor that
-    settlement merely fails to widen.
-    """
-    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
-    graph, plan = _observe(path)
+    assert settlement.shortfalls == ()
     checked = 0
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
-        realised = realise_reservation(graph, reservation)
-        if realised is None:
-            continue
-        spanning = sections_spanning_the_gap(graph, reservation, realised)
-        if not spanning:
-            continue
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=settlement.coordinate_translations,
+        )
+        assert realised is not None
+        assert realised.available_width > 0
+        assert realised.capacity_slack >= -0.01
         checked += 1
-        tallest = max(graph.sections[section_id].bbox_h for section_id in spanning)
-        assert realised.available_width <= -tallest
     assert checked
 
 
@@ -618,8 +684,8 @@ def test_one_pass_settles_everything_one_ledger_asks_for(path: Path) -> None:
     first = settle_route_envelopes(graph, plan)
     second = settle_route_envelopes(graph, plan)
     assert second.translations == ()
-    assert {item.reservation_id for item in second.obstructions} == {
-        item.reservation_id for item in first.obstructions
+    assert {item.reservation_id for item in second.shortfalls} == {
+        item.reservation_id for item in first.shortfalls
     }
 
 
@@ -656,6 +722,30 @@ COMPATIBILITY_SYSTEMS = (
 )
 
 
+def _widest_slack_row_reservation(graph, plan):
+    """The row reservation with the most spare width, and its boundary.
+
+    Every corridor at one boundary shares its translation, so squeezing the
+    roomiest boundary by the least-roomy resident's slack is what makes exactly
+    one claim short.
+    """
+    by_boundary: dict[int, list] = {}
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is not None:
+            by_boundary.setdefault(reservation.region.lower_row, []).append(
+                (reservation, realised)
+            )
+    boundary, residents = max(
+        by_boundary.items(),
+        key=lambda item: min(got.capacity_slack for _res, got in item[1]),
+    )
+    target, _ = min(residents, key=lambda pair: pair[1].capacity_slack)
+    return target, boundary
+
+
 @pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
 def test_every_compatibility_system_is_attributed_in_the_published_plan(
     path: Path,
@@ -677,22 +767,6 @@ def test_every_compatibility_system_is_attributed_in_the_published_plan(
     for item in published:
         assert item.blocking is False
         assert "#1658" in item.message
-
-
-def test_an_unallocatable_claim_names_the_author_pin_that_spans_it() -> None:
-    """The section swallowing the claimed gap is one the author's grid placed,
-    so the diagnostic names the pin rather than reporting a missing corridor
-    nobody owns."""
-    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
-    graph, plan = _observe(path)
-    settlement = settle_route_envelopes(graph, plan)
-    pinned = [item for item in settlement.obstructions if item.pinned_section_ids]
-    assert pinned, "fixture no longer exercises an author-pinned span"
-    for item in pinned:
-        assert "the authored grid pins" in item.message
-        for section_id in item.pinned_section_ids:
-            assert graph.layout_provenance.author_owns_grid(section_id)
-            assert section_id in item.blocking_section_ids
 
 
 def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> None:
@@ -732,9 +806,9 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
         if isinstance(item.region, RowGapRegion | ColumnGapRegion)
     )
     shortfall = SettlementShortfall(
-        reservation.id, reservation.claimant_member_ids, 64.0, 12.0, True
+        reservation.id, reservation.claimant_member_ids, 64.0, 12.0
     )
-    settlement = EnvelopeSettlement((), (), (shortfall,))
+    settlement = EnvelopeSettlement((), (shortfall,))
 
     with pytest.raises(LayoutInvariantError) as caught:
         assert_reservations_are_settled(graph, plan, settlement, strict=True)
@@ -748,44 +822,6 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
         warnings.simplefilter("always")
         assert_reservations_are_settled(graph, plan, settlement, strict=False)
     assert any(shortfall.message in str(item.message) for item in caught_warnings)
-
-
-def test_a_claim_with_no_allocatable_gap_does_not_fail_the_strict_path() -> None:
-    """The counterpart to the two rejections above.  A span across the boundary
-    is a ledger coherence problem with no arrangement to reject, so it is
-    reported without failing a map that is otherwise drawable."""
-    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
-    graph, plan = _observe(path)
-    settlement = settle_route_envelopes(graph, plan)
-    assert settlement.obstructions
-    assert any(not item.describes_a_gap for item in settlement.shortfalls)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        assert_reservations_are_settled(graph, plan, settlement, strict=True)
-
-
-def _widest_slack_row_reservation(graph, plan):
-    """The row reservation with the most spare width, and its boundary.
-
-    Every corridor at one boundary shares its translation, so squeezing the
-    roomiest boundary by the least-roomy resident's slack is what makes exactly
-    one claim short.
-    """
-    by_boundary: dict[int, list] = {}
-    for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion):
-            continue
-        realised = realise_reservation(graph, reservation)
-        if realised is not None:
-            by_boundary.setdefault(reservation.region.lower_row, []).append(
-                (reservation, realised)
-            )
-    boundary, residents = max(
-        by_boundary.items(),
-        key=lambda item: min(got.capacity_slack for _res, got in item[1]),
-    )
-    target, _ = min(residents, key=lambda pair: pair[1].capacity_slack)
-    return target, boundary
 
 
 @pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
