@@ -15,37 +15,14 @@ segment_rank)`` of the claim itself, so the bound names which leg is out rather
 than how many are: an unrecorded claim fails, a recorded one that comes into
 band fails until its entry goes, and swapping one leg for another fails too.
 
-What those remaining claims are is measured, not assumed.  Each one is a leg
-:func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
-cannot reseat, and there are exactly five reasons for that:
-
-* A pre-routing plan owns the segment's coordinates and validates the emitted
-  geometry against them, so no post-pass may write it (9 claims).  Handing the
-  band back to the reservation ledger, so a planner cannot choose one
-  independently, is #1658.
-* A diagonal flanks the leg, and moving its coordinate would change that
-  diagonal's angle (2 claims).
-* Two legs need one coordinate between them, and their bands are measured at
-  two *different* boundaries, so no one boundary's width states the room the
-  pair takes (1 claim).
-* The band the pass measures from the leg's own endpoint sections is wider than
-  the band its reservation realises from the corridor's topology span, so the
-  pass holds the leg inside a band the ledger scores it outside of (1 claim).
-* Two same-line trunks counter-run through one boundary: the band is widened for
-  the pair, the first is re-centred in it, and the second is then held at the
-  band edge because the centring reads a band rather than the peer sharing it
-  (1 claim, ``dogleg_exempt_sameline``).
-
-None of the five is a router that fails to read the ledger, and none is closed
-by moving a leg the pass already reaches.  Two corridors confined at one
-boundary, each needing a coordinate the other cannot leave it, are absent from
-that list because ``RouteReservation.peer_width`` states the room the pair takes
-and settlement widens the boundary for both.
-
-Longitudinal blindness in the band's blockers is measured and is *not* among the
-reasons: on the violated side of all 14 claims, 13 have every blocker overlapping
-or abutting the drawn leg, and the one that does not (``fan_bypass_shared_band``)
-has its violated edge set by a blocker that abuts it.
+What those remaining claims are is measured, not assumed.  Nine are legs whose
+coordinate a pre-routing plan fixes and validates the emitted geometry against,
+so no post-pass may write them: the fan traverse of a planned bottom-exit
+landing (5 claims), a planned exit turn's column (2), and a convergence trunk
+(2).  Each plan has to choose that coordinate inside the band its own
+reservation realises, which is work at the plan, not a repair after it.  The
+remaining two are legs the hold pass reaches but declines to move because a
+peer denies every shift its band allows.
 """
 
 from __future__ import annotations
@@ -118,10 +95,7 @@ KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
     "examples/topologies/exit_lane_settlement_without_crossings.mmd": frozenset(
         {(25, 1)}
     ),
-    "examples/topologies/fan_bypass_shared_band.mmd": frozenset({(9, 3)}),
     "examples/topologies/peeloff_straight_drop_near_wall.mmd": frozenset({(12, 1)}),
-    "examples/topologies/top_entry_bundle_offset_seam.mmd": frozenset({(17, 2)}),
-    "examples/variantbenchmarking_auto.mmd": frozenset({(93, 2)}),
     "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
         {(216, 2), (217, 2)}
     ),

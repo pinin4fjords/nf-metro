@@ -3914,6 +3914,50 @@ def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str,
     )
 
 
+def _corridor_run_band(
+    ctx: _RoutingCtx,
+    route: RoutedPath,
+    idx: int,
+    axis: int,
+    section_ids: tuple[str, ...],
+    coordinate: float,
+    run_lo: float,
+    run_hi: float,
+) -> tuple[float, float] | None:
+    """The band this leg must be held inside, or ``None`` where it may not move.
+
+    A leg the ledger claims is held inside *its own claim's* realised band --
+    the identity the closing guard scores it against -- so containment consumes
+    the reservation rather than confirming wherever the leg already sits.  That
+    is the whole point of a reservation: settlement widened the boundary for
+    this corridor over the corridor's own declared span, and reading the band
+    back off live geometry would discard that allocation and re-derive whatever
+    the drawn coordinate happens to fall inside.
+
+    A leg no claim names has no reservation to consume, and its clearance is
+    measured from the gap it runs in
+    (:func:`~nf_metro.layout.routing.reserved_bands.corridor_clearance_band`).
+    That covers the first routing pass, which publishes the ledger and so has
+    none to read, and unclaimed geometry on the re-route.
+    """
+    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
+
+    if not section_ids or _planner_owns_segment(route, idx):
+        return None
+    claimed = _segment_claim_band(ctx, route, idx)
+    if claimed is not None:
+        return claimed.lo, claimed.hi
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=coordinate,
+        run_start=run_lo,
+        run_end=run_hi,
+    )
+    return None if band is None else (band.lo, band.hi)
+
+
 def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_CorridorRun]:
     """Every straight leg of every inter-section route, with the band it may hold.
 
@@ -3921,8 +3965,6 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
     band: the bundles are read off the drawn geometry, so a leg left out of the
     reading is one whose mates could be moved off it.
     """
-    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
-
     graph = ctx.graph
     out: list[_CorridorRun] = []
     for rp in routes:
@@ -3932,15 +3974,10 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
         for idx, axis, coordinate, start, end, turning in _iter_axis_aligned_legs(rp):
             run_lo, run_hi = min(start, end), max(start, end)
             band = (
-                corridor_clearance_band(
-                    graph,
-                    axis=axis,
-                    section_ids=section_ids,
-                    coordinate=coordinate,
-                    run_start=run_lo,
-                    run_end=run_hi,
+                _corridor_run_band(
+                    ctx, rp, idx, axis, section_ids, coordinate, run_lo, run_hi
                 )
-                if turning and section_ids and not _planner_owns_segment(rp, idx)
+                if turning
                 else None
             )
             out.append(
@@ -3951,8 +3988,8 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
                     coordinate,
                     run_lo,
                     run_hi,
-                    band.lo if band is not None else None,
-                    band.hi if band is not None else None,
+                    band[0] if band is not None else None,
+                    band[1] if band is not None else None,
                 )
             )
     return out
