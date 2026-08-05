@@ -1059,6 +1059,7 @@ def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
 
 
 COMPATIBILITY_SYSTEMS = (
+    REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
     TOPOLOGIES / "merge_around_below_leftmost.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
@@ -1117,6 +1118,24 @@ def test_every_compatibility_system_is_attributed_in_the_published_plan(
     for item in published:
         assert item.blocking is False
         assert "#1658" in item.message
+
+
+@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
+def test_no_compatibility_system_is_held_by_something_settlement_can_reach(
+    path: Path,
+) -> None:
+    """#1660 may hand a system on only where its limit is out of its own reach.
+
+    A conflict whose two runs an offset this stage owns would pull apart is an
+    envelope allocation to make here, not a channel decision to attribute
+    elsewhere, so finding one within reach withdraws the exit rather than
+    publishing it.
+    """
+    graph, plan = _settled(path)
+    published = attribute_compatibility_systems(graph, plan)
+    assert published
+    for item in published:
+        assert item.reach is not SettlementReach.WITHIN_REACH
 
 
 def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> None:

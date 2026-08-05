@@ -74,9 +74,10 @@ def _position_junctions(graph: MetroGraph) -> None:
     It sits horizontally between the exit port and the entry ports, at the
     exit port's Y coordinate so lines travel straight from exit to junction.
 
-    Merge junctions (N>1 predecessors, 1 entry port successor) are positioned
-    at ``max(pred.x) + _required_junction_margin(n)``, y = entry_port.y to
-    create a visible single-line segment from merge point to entry.
+    Merge junctions (N>1 predecessors, 1 entry port successor) are positioned by
+    :func:`_position_merge_junction`, a margin back along the lead-in their entry
+    port receives, so the merge point and the port are joined by a visible
+    single-line segment.
     """
     topology = build_route_topology_query(graph)
     for jid in graph.junctions:
@@ -122,6 +123,7 @@ def _position_junctions(graph: MetroGraph) -> None:
                     junction,
                     predecessors,
                     entry_port,
+                    entry_side=entry_port_obj.side,
                     n=_junction_incoming_line_count(graph, jid),
                 )
                 continue
@@ -176,17 +178,27 @@ def _position_merge_junction(
     junction: Station,
     predecessors: list[Station],
     entry_port: Station,
+    entry_side: PortSide | None = None,
     n: int = 1,
 ) -> None:
-    """Position a merge junction near the entry port it feeds.
+    """Position a merge junction on the lead-in its entry port receives.
 
-    Places at x = max(predecessor.x) + _required_junction_margin(n),
-    y = entry_port.y so all converging lines share a visible single-line
-    segment into the entry port.  *n* is the number of distinct lines
-    merging at the junction; passing 1 falls back to the baseline margin.
+    The junction is where the converging lines become one stroke, so it has to
+    stand on the segment that stroke travels: a LEFT/RIGHT port is approached
+    horizontally, so the junction shares the port's Y and stands a margin back
+    along X; a TOP/BOTTOM port is approached down (or up) its own column, so the
+    junction shares the port's X and stands a margin back along Y.  Seating a
+    merge for a perpendicular port on the horizontal instead puts the shared
+    segment along the section's top or bottom edge rather than in the inter-row
+    gap the feeders reserve.  *n* is the number of distinct lines merging at the
+    junction; passing 1 falls back to the baseline margin.
     """
-    max_pred_x = max(p.x for p in predecessors)
     margin = _required_junction_margin(n)
+    if entry_side in (PortSide.TOP, PortSide.BOTTOM):
+        junction.x = entry_port.x
+        junction.y = entry_port.y + (-margin if entry_side is PortSide.TOP else margin)
+        return
+    max_pred_x = max(p.x for p in predecessors)
     # Normal forward fan-in: merge just past the right-most predecessor on its
     # way into a target to the right.  But when the target sits well to the LEFT
     # of the predecessors (a collector like MultiQC fed from across the map),

@@ -1454,7 +1454,7 @@ in pipeline order.
   every run sharing the corridor ends inside it, and a box one of them merely
   passes bounds it for all of them. Region *selection* is unaffected -- it
   asks which boundary a run occupies, not what that boundary has room for -- so
-  the corpus raises exactly the same 1003 claims on the same 557 reservations.
+  the corpus raises exactly the same claims on the same 557 reservations.
 - **A corridor is bounded by the station its own runs launch from**: a
   pre-routing plan that emits its runs out of a station standing inside the gap
   fixes the length of the opening leg and refuses emitted geometry that shortens
@@ -1687,25 +1687,30 @@ in pipeline order.
   peers denying it as one rigid group: two corridors owed one boundary between
   them are seated by the same widening and neither can reach it alone, and a
   rigid move leaves every separation inside the group exactly as drawn.
-  Measured on the corpus, 3 of the 1003 claims carried by 557 realised gap
-  reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 6 outside it at exact precision;
-  `tests/test_reserved_claim_consumption.py` holds each one by its own
-  `(path_rank, segment_rank)` so the bound names the leg rather than a count. Each
-  is a leg the pass may not reseat: 2 are segments a pre-routing plan owns and
-  validates, 2 are flanked by a diagonal whose angle a reseat would change, 1 is a
-  pair needing one coordinate between them whose bands are measured at two
-  *different* boundaries, so no single boundary's width states the room the pair
-  takes, 1 is a leg the pass holds inside the band its own endpoint sections
-  measure, which is wider than the band its reservation realises from the
-  corridor's topology span, and 1 is the second of two same-line trunks
-  counter-running through one boundary: the band is widened for the pair, the
-  first is re-centred in it, and the second is held at the band edge because the
-  centring reads a band rather than the peer sharing it. The planner-owned
-  segments need the planners and the ledger to read the same band. Two corridors
-  confined at one boundary are not among them: `peer_width`
+  Measured on the corpus, every one of the 1007 claims carried by 557 realised
+  gap reservations is drawn inside the band its own reservation realises, and
+  `tests/test_reserved_claim_consumption.py` holds the whole corpus to that with
+  no exceptions. All but two are exact: the pair are one junction fan's descent
+  into `scaffolding`'s LEFT entry in `examples/genomeassembly.mmd` and in its
+  organellar twin, each drawn 1.00px past its inter-column channel's positive
+  edge, which is inside the `COORD_TOLERANCE` the bound allows.
+  The last claims to come into band were the merge trunks of
+  `tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd`, and what it
+  cost is a disposition rather than a coordinate: a merge feeding a TOP or BOTTOM
+  entry port is seated on the vertical lead-in that port receives
+  (`_position_merge_junction`), which puts its six feeders in the row corridor
+  they claim and puts the merged trunk in the very column an *unowned* member of
+  the same route system already uses to enter that port, so
+  `UNOWNED_MEMBER_CORRIDOR` refuses a planned corridor there and all three of the
+  fixture's convergences take the compatibility disposition as one group. #1660
+  admits that only against evidence, and the evidence is measured on the settled
+  map: the two conflicting runs are the same column, 0.00px apart in one
+  translated column band (`SettlementReach.SEPARATION_FIXED`), so no offset this
+  stage owns separates them, and the corpus publishes no `WITHIN_REACH`
+  compatibility system at all. Two corridors confined at one boundary are not a source of
+  residue either: `peer_width`
   states the room they take together, so settlement widens the boundary for both.
-  Neither is longitudinal blindness in the band's blockers, which was measured
+  Nor is it longitudinal blindness in the band's blockers, which was measured
   and ruled out: of the 14 out-of-band claims that measurement covered, 13 have
   every blocking section on their violated side overlapping or abutting the
   drawn leg, and the one that does not
