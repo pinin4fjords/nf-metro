@@ -44,6 +44,7 @@
     "topologies/twoline_fanout_up.mmd",
     "legend_logo_placement.mmd",
     "variant_calling_tuned.mmd",
+    "group_band_over_row_corridor.mmd",
     "topologies/around_below_ep_col_gt0.mmd",
     "topologies/around_section_below.mmd",
     "topologies/asymmetric_tree.mmd",
