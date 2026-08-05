@@ -264,26 +264,36 @@ def test_the_rerouted_ledger_is_also_free_of_deficits(path: Path) -> None:
 
 @pytest.mark.parametrize("path", COLUMN_DEFICIT_CORPUS, ids=lambda item: item.name)
 def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
-    """The column axis is settled by translating columns, not rows.
+    """A starved column gap is settled by translating the column that bounds it.
 
     Held separately from ``DEFICIT_CORPUS`` because a fixture large enough to
     starve a column gap also carries unrelated row-corridor defects, so the
-    statement worth making here is only about the axis that translates.
+    statement worth making here is only about the axis that translates: each
+    column deficit is answered by a translation of its own right-hand column,
+    and a row translation could not have widened it, writing only y.
     """
     graph, plan = _observe(path)
-    demanded = {
-        str(item.id)
+    column_deficits = {
+        str(item.id): item
         for item in plan.reservations
         if isinstance(item.region, ColumnGapRegion)
+        and str(item.id) in _capacity_deficits(plan)
     }
-    deficits = _capacity_deficits(plan)
-    assert deficits
-    assert set(deficits) <= demanded, "fixture must starve a column gap only"
+    assert column_deficits, "fixture must starve a column gap"
 
     settlement = settle_route_envelopes(graph, plan)
     assert settlement.shortfalls == ()
-    assert {item.axis for item in settlement.translations} == {SettlementAxis.COLUMN}
-    for reservation_id in deficits:
+    translated_columns = {
+        item.boundary
+        for item in settlement.translations
+        if item.axis is SettlementAxis.COLUMN
+    }
+    assert translated_columns >= {
+        item.region.right_column
+        for item in column_deficits.values()
+        if isinstance(item.region, ColumnGapRegion)
+    }
+    for reservation_id in column_deficits:
         reservation = next(
             item for item in plan.reservations if str(item.id) == reservation_id
         )

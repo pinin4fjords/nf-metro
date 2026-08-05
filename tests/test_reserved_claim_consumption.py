@@ -16,18 +16,26 @@ does one that loses every one of them without the entry being removed.
 
 What those remaining claims are is measured, not assumed.  Each one is a leg
 :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
-cannot reseat, and there are exactly three reasons for that:
+cannot reseat, and there are exactly five reasons for that:
 
 * A pre-routing plan owns the segment's coordinates and validates the emitted
-  geometry against them, so no post-pass may write it.
-* The leg is a route's end leg, whose coordinate is the port marker it lands on.
-* Two corridors crossing one boundary over one stretch each need a coordinate
-  the other cannot leave them: the boundary is sized for one lane and carries
-  two, so no seating satisfies both and separating them takes a wider gap than
-  either reservation asks for on its own.
+  geometry against them, so no post-pass may write it (9 claims).
+* The leg is a route's end leg, whose coordinate is the port marker it lands on
+  (3 claims).
+* A diagonal flanks the leg, and moving its coordinate would change that
+  diagonal's angle (2 claims).
+* Two legs need one coordinate between them, and their bands are measured at
+  two *different* boundaries, so no one boundary's width states the room the
+  pair takes (1 claim).
+* The band the pass measures from the leg's own endpoint sections is wider than
+  the band its reservation realises from the corridor's topology span, so the
+  pass holds the leg inside a band the ledger scores it outside of (1 claim).
 
-None of the three is a router that fails to read the ledger, and none is closed
-by moving a leg the pass already reaches.
+None of the five is a router that fails to read the ledger, and none is closed
+by moving a leg the pass already reaches.  Two corridors confined at one
+boundary, each needing a coordinate the other cannot leave it, are absent from
+that list because ``RouteReservation.peer_width`` states the room the pair takes
+and settlement widens the boundary for both.
 """
 
 from __future__ import annotations
@@ -63,16 +71,11 @@ _CORPUS = _corpus()
 # which is the width this codebase treats two coordinates as equal within, so
 # they are not counted here.
 KNOWN_UNCONSUMED = {
-    "examples/longread_variant_calling.mmd": 2,
     "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": 2,
     "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": 3,
     "examples/topologies/convergence_stacked_sink.mmd": 1,
-    "examples/topologies/dogleg_exempt_distinct.mmd": 1,
-    "examples/topologies/dogleg_exempt_sameline.mmd": 1,
     "examples/topologies/exit_lane_settlement_without_crossings.mmd": 1,
     "examples/topologies/fan_bypass_shared_band.mmd": 1,
-    "examples/topologies/opposing_bypass_corridor.mmd": 2,
-    "examples/topologies/opposing_return_row_pair.mmd": 1,
     "examples/topologies/peeloff_straight_drop_near_wall.mmd": 1,
     "examples/topologies/top_entry_bundle_offset_seam.mmd": 1,
     "examples/variantbenchmarking_auto.mmd": 1,
