@@ -1513,7 +1513,10 @@ in pipeline order.
   clearance is a longitudinally blind envelope, and it assumes the badge
   protrudes above `bbox_y` as `section_header_top` states; where a section draws
   its caption below its box, or at an x the band does not reach, the reserved
-  band holds no badge. Measured over all 29, the count of fixtures in which route
+  band holds no badge. Of the 18, 12 have an attributed header blocker whose
+  caption is drawn outside the band entirely and 6 have every attributed blocker
+  drawn inside it, so for those 6 the longitudinal blindness is the whole of the
+  remaining cause. Measured over all 29, the count of fixtures in which route
   ink enters a drawn badge's own box is zero, so gating this side would refuse 29
   renders for clearance from something not drawn there. Each is instead published
   as an attributed `reservation-deficit` record on the plan for the box-edge and

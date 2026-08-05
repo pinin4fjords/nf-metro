@@ -21,13 +21,16 @@ import pytest
 
 import nf_metro.render.section_header as section_header
 from nf_metro.api import resolve_theme
+from nf_metro.layout.constants import SECTION_HEADER_PROTRUSION
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, Section
+from nf_metro.render.constants import SECTION_NUM_CIRCLE_R_LARGE
 from nf_metro.render.section_header import (
     check_section_headers_clear_routes,
     check_section_headers_fit_box_width,
+    check_section_headers_hold_the_reserved_band,
     resolve_all_section_headers,
     resolve_section_header_placement,
 )
@@ -161,6 +164,75 @@ def test_section_header_never_crosses_box_border_in_gallery(path: Path) -> None:
             if placement.keepout[1] < box_bottom - 0.01:
                 crossings.append(section_id)
     assert not crossings, f"headers crossing their box border: {crossings}"
+
+
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_relocated_headers_had_no_room_in_the_reserved_band(path: Path) -> None:
+    """A header only leaves its reserved band when the band has no room for it.
+
+    ``SECTION_HEADER_PROTRUSION`` above a box top is the only room reserved for
+    that box's header, so a header drawn below or beside the box sits where
+    nothing reserved room while reserved room holds nothing."""
+    graph, polylines, font_size, title_font_size = _polylines_and_font(path)
+    placements = resolve_all_section_headers(
+        graph, font_size, polylines, title_font_size
+    )
+    stranded = check_section_headers_hold_the_reserved_band(
+        graph, placements, font_size, polylines, title_font_size
+    )
+    assert not stranded, f"headers that vacated a band with room left: {stranded}"
+
+
+def test_a_header_that_could_stay_in_the_band_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Denying the resolver its in-band shift strands headers the check reports,
+    so the check is what holds the ranking rather than coincidence."""
+    path = EXAMPLE_TOPOLOGIES / "cross_col_top_entry.mmd"
+    graph, polylines, font_size, title_font_size = _polylines_and_font(path)
+
+    real = section_header._reserved_band_placements
+
+    def _no_room(*args, **kwargs):
+        above, nudged, _ = real(*args, **kwargs)
+        return above, nudged, False
+
+    monkeypatch.setattr(section_header, "_reserved_band_placements", _no_room)
+    placements = resolve_all_section_headers(
+        graph, font_size, polylines, title_font_size
+    )
+    monkeypatch.undo()
+
+    assert placements["consumer"].mode == "below"
+    stranded = check_section_headers_hold_the_reserved_band(
+        graph, placements, font_size, polylines, title_font_size
+    )
+    assert "consumer" in stranded
+
+
+def test_in_band_shift_outranks_leaving_the_band() -> None:
+    """A route crossing the header's default position shifts it along the band
+    rather than dropping it below the box, while the shift fits the box width."""
+    graph = MetroGraph()
+    section = Section(id="s", name="Work")
+    section.bbox_x, section.bbox_y = 0.0, 100.0
+    section.bbox_w, section.bbox_h = 400.0, 80.0
+    graph.sections["s"] = section
+
+    # Descends through the default header's footprint into the box top.
+    riser = [(10.0, 60.0), (10.0, 140.0)]
+    placement = resolve_section_header_placement(
+        graph, section, label_font_size=13.0, polylines=[riser], title_font_size=13.0
+    )
+
+    assert placement.mode == "nudge"
+    assert placement.badge_cy - SECTION_NUM_CIRCLE_R_LARGE >= (
+        section.bbox_y - SECTION_HEADER_PROTRUSION - 0.01
+    )
+    assert placement.keepout[3] <= section.bbox_y + 0.01
+    assert placement.keepout[2] <= section.bbox_x + section.bbox_w + 0.5
 
 
 def test_narrow_section_header_wraps_onto_multiple_lines() -> None:

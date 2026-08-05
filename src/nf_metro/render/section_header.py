@@ -6,16 +6,21 @@ enters the box through an edge under the header it would cross the title text.
 clear of routes, never moving a route to do so, following the priority chain:
 
 1. ``above`` - the default top-left position, when the top edge is clear.
-2. ``below`` - mirror at the bottom-left, when the top is blocked but the bottom
-   is clear.
-3. ``left`` / ``right`` - the title rotated to run down a vertical edge, when
+2. ``nudge`` - the top-left header shifted right past the clashing routes,
+   eligible at this rank only while the shift leaves the header inside its own
+   box width.  The layout reserves ``SECTION_HEADER_PROTRUSION`` above every box
+   top for this band and nothing else, so a header that can stay in the band
+   must, rather than vacate a reserved band for one nothing reserves.
+3. ``below`` - mirror at the bottom-left, when the band above holds no slot the
+   box width contains but the bottom is clear.
+4. ``left`` / ``right`` - the title rotated to run down a vertical edge, when
    both horizontal edges are blocked but a side edge is clear.  ``left`` anchors
    the badge at the bottom of the edge and reads upward; ``right`` anchors it at
    the top and reads downward.  A title longer than the box height overhangs
    past the box ends rather than being ruled out, since a rotated header is
    never wrapped.
-4. ``nudge`` - the top-left header shifted right past the clashing routes, the
-   last resort when no side edge is clear; it always clears.
+5. ``nudge`` again, unbounded - the last resort when no other position is clear;
+   it always clears, at the cost of overhanging the box to the right.
 """
 
 from __future__ import annotations
@@ -309,6 +314,52 @@ def _wrapped_header_geometry(
     return lines, badge_span + text_width, extra_height, height_capped
 
 
+def _reserved_band_placements(
+    graph: MetroGraph,
+    section: Section,
+    label_font_size: float,
+    title_font_size: float | None,
+    polylines: list[Polyline],
+) -> tuple[SectionHeaderPlacement, SectionHeaderPlacement, bool]:
+    """The two positions inside the band the layout reserves above ``section``.
+
+    Returns the unshifted top-left header, its leftmost route-clear rightward
+    shift, and whether that shift ends inside the box width.  A shift that does
+    outranks every position leaving the band; one that does not is the resolver's
+    terminal fallback.  :func:`check_section_headers_hold_the_reserved_band`
+    re-derives all three to hold the resolver to that ranking.
+    """
+    x0, y0 = section.bbox_x, section.bbox_y
+    circle_r = SECTION_NUM_CIRCLE_R_LARGE
+    num_y = SECTION_NUM_Y_OFFSET
+    half_text = SECTION_LABEL_HALF_HEIGHT_RATIO * label_font_size
+    side_length = _header_length(section.name, label_font_size)
+    up_max_lines = _max_lines_upward(graph, section, title_font_size, label_font_size)
+    lines, length, extra_height, height_capped = _wrapped_header_geometry(
+        section.name, label_font_size, section.bbox_w, side_length, up_max_lines
+    )
+    above = _above(
+        x0, y0, circle_r, num_y, length, half_text, lines, extra_height, height_capped
+    )
+    nudged = _nudge(
+        x0,
+        y0,
+        circle_r,
+        num_y,
+        length,
+        half_text,
+        lines,
+        extra_height,
+        height_capped,
+        above,
+        polylines,
+    )
+    ends_in_box = (
+        nudged.keepout[2] <= section.bbox_x + section.bbox_w + SAME_COORD_TOLERANCE
+    )
+    return above, nudged, ends_in_box
+
+
 def resolve_section_header_placement(
     graph: MetroGraph,
     section: Section,
@@ -340,16 +391,27 @@ def resolve_section_header_placement(
     # growing away from the box - upward for above/nudge, downward for below -
     # capped at however many lines fit before whatever is nearest that way.
     side_length = _header_length(section.name, label_font_size)
-    up_max_lines = _max_lines_upward(graph, section, title_font_size, label_font_size)
-    lines, length, extra_height, height_capped = _wrapped_header_geometry(
-        section.name, label_font_size, section.bbox_w, side_length, up_max_lines
-    )
 
-    above = _above(
-        x0, y0, circle_r, num_y, length, half_text, lines, extra_height, height_capped
-    )
     if polylines is None:
+        up_max_lines = _max_lines_upward(
+            graph, section, title_font_size, label_font_size
+        )
+        lines, length, extra, capped = _wrapped_header_geometry(
+            section.name, label_font_size, section.bbox_w, side_length, up_max_lines
+        )
+        return _above(x0, y0, circle_r, num_y, length, half_text, lines, extra, capped)
+
+    above, nudged, nudge_ends_in_box = _reserved_band_placements(
+        graph, section, label_font_size, title_font_size, polylines
+    )
+    if _placement_clear(above, polylines):
         return above
+    # A nudge is clear of every route by construction and is deliberately not
+    # re-tested: it leaves exactly ``SECTION_HEADER_ROUTE_PAD``, which
+    # :func:`_placement_clear` counts as a clash for a route lying along the
+    # padded boundary.
+    if nudge_ends_in_box:
+        return nudged
 
     down_max_lines = _max_lines_downward(graph, section, label_font_size)
     lines_dn, length_dn, extra_dn, capped_dn = _wrapped_header_geometry(
@@ -365,7 +427,6 @@ def resolve_section_header_placement(
     badge_diameter = 2.0 * circle_r
     side_room = section.bbox_h >= badge_diameter
     candidates = [
-        above,
         _below(
             x0,
             box_bottom,
@@ -394,19 +455,7 @@ def resolve_section_header_placement(
     for candidate in candidates:
         if _placement_clear(candidate, polylines):
             return candidate
-    return _nudge(
-        x0,
-        y0,
-        circle_r,
-        num_y,
-        length,
-        half_text,
-        lines,
-        extra_height,
-        height_capped,
-        above,
-        polylines,
-    )
+    return nudged
 
 
 def resolve_all_section_headers(
@@ -549,15 +598,16 @@ def _nudge(
 ) -> SectionHeaderPlacement:
     """Shift the above-left header right until it clears every route crossing
     the band it would occupy.  Always clears, at the cost of a header that may
-    overhang the box to the right.
+    overhang the box to the right; the caller ranks the result by whether it
+    does (see module docstring).
 
     The shift is a fixpoint over the header's own footprint ``[start, start +
     length]``, not a single pass over the un-nudged box-width extent: stepping
     right to clear a route can slide a route that was beyond the old footprint
     into the new one, so the step is repeated against the shifted footprint
-    until nothing crosses it.  This is what makes nudge a true last-resort
-    clear, while stopping at the leftmost clear position rather than sweeping
-    past routes the finite-width header would never reach."""
+    until nothing crosses it.  This is what makes nudge a guaranteed clear,
+    while stopping at the leftmost clear position rather than sweeping past
+    routes the finite-width header would never reach."""
     pad = SECTION_HEADER_ROUTE_PAD
     bx0, by0, _, by1 = above.keepout
     y_lo, y_hi = by0 - pad, by1 + pad
@@ -586,6 +636,53 @@ def _nudge(
         keepout=(start, cy - half_text - extra_height, start + length, y0),
         height_capped=height_capped,
     )
+
+
+_BAND_MODES: frozenset[HeaderMode] = frozenset({"above", "nudge"})
+"""Modes that draw the header inside the band the layout reserves above the box."""
+
+
+def check_section_headers_hold_the_reserved_band(
+    graph: MetroGraph,
+    placements: dict[str, SectionHeaderPlacement],
+    label_font_size: float,
+    polylines: list[Polyline],
+    title_font_size: float | None = None,
+) -> list[str]:
+    """Report every section whose header left the reserved band while an in-box
+    position inside it was clear.
+
+    ``SECTION_HEADER_PROTRUSION`` above a box top is the only room the layout
+    reserves for that box's header, and ``section_header_top`` states every
+    clearance claim against it, so a header drawn below or beside the box is
+    drawn where nothing reserved room and leaves reserved room holding nothing.
+    That is permitted (a route crossing the band has no arrowhead to move) but
+    only as a last resort, which is what this measures: for each relocated
+    header, re-derive the leftmost route-clear shift along the band and report
+    the section when that shift would have ended inside the box width.
+    """
+    stranded: list[str] = []
+    for section_id, placement in placements.items():
+        if placement.mode in _BAND_MODES:
+            continue
+        section = graph.sections.get(section_id)
+        if section is None or section.bbox_w <= 0 or section.bbox_h <= 0:
+            continue
+        _, _, ends_in_box = _reserved_band_placements(
+            graph, section, label_font_size, title_font_size, polylines
+        )
+        if ends_in_box:
+            stranded.append(section_id)
+    return stranded
+
+
+class SectionHeaderBandError(RuntimeError):
+    """A section header left its reserved band while a position inside it was free.
+
+    Raised on the render path so a caption can never silently drift below or
+    beside its box out of a reserved band that had room for it, independent of
+    ``compute_layout``'s validation.
+    """
 
 
 class SectionHeaderClashError(RuntimeError):
@@ -703,8 +800,9 @@ def check_section_headers_fit_box_width(
 ) -> list[str]:
     """Report every section whose horizontal header overhangs its box width.
 
-    A ``nudge`` header is exempt: it deliberately overhangs the box to clear a
-    route ahead of it (see :func:`_nudge`).  A rotated (``left``/``right``)
+    A ``nudge`` header is exempt: the resolver only settles for one that
+    overhangs when no in-box position clears the routes (see :func:`_nudge`).  A
+    rotated (``left``/``right``)
     header reads down the box height rather than across its width, so it is
     exempt too.  A ``height_capped`` header is exempt as well: it traded extra
     width for fewer lines to stay clear of whatever bounded its growth

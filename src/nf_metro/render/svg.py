@@ -182,11 +182,13 @@ from nf_metro.render.plan import (
     thaw_render_value,
 )
 from nf_metro.render.section_header import (
+    SectionHeaderBandError,
     SectionHeaderClashError,
     SectionHeaderOverflowError,
     SectionHeaderPlacement,
     check_section_headers_clear_routes,
     check_section_headers_fit_box_width,
+    check_section_headers_hold_the_reserved_band,
     resolve_all_section_headers,
 )
 from nf_metro.render.style import Theme
@@ -1307,6 +1309,13 @@ def _build_render_plan_scaled(
     )
     _guard_section_headers_clear_routes(header_placements, header_polylines)
     _guard_section_headers_fit_box_width(graph, header_placements)
+    _guard_section_headers_hold_the_reserved_band(
+        graph,
+        header_placements,
+        theme.section_label_font_size,
+        header_polylines,
+        theme.title_font_size,
+    )
 
     max_x, max_y = _compute_canvas_bounds(graph, routes, debug, header_placements)
 
@@ -2060,6 +2069,25 @@ def _guard_section_headers_fit_box_width(
         raise SectionHeaderOverflowError(
             "section header(s) overhang their box width after wrapping: "
             + ", ".join(sorted(overflowing))
+        )
+
+
+def _guard_section_headers_hold_the_reserved_band(
+    graph: MetroGraph,
+    placements: dict[str, SectionHeaderPlacement],
+    label_font_size: float,
+    polylines: list[list[tuple[float, float]]],
+    title_font_size: float,
+) -> None:
+    """Fail loudly if a header left its reserved band with room left inside it."""
+    stranded = check_section_headers_hold_the_reserved_band(
+        graph, placements, label_font_size, polylines, title_font_size
+    )
+    if stranded:
+        raise SectionHeaderBandError(
+            "section header(s) drawn outside the band reserved above their box "
+            "while a position inside it was clear of every route: "
+            + ", ".join(sorted(stranded))
         )
 
 
