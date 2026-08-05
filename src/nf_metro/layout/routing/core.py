@@ -144,6 +144,7 @@ if TYPE_CHECKING:
         RoutePlan,
         RoutePlanObserver,
     )
+    from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
 
 
 def _route_edges(
@@ -155,6 +156,7 @@ def _route_edges(
     observe_plan: bool,
     offset_step: float | None = None,
     reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -216,7 +218,12 @@ def _route_edges(
         reserved_bands=(
             None
             if reservations is None
-            else build_reserved_corridors(graph, reservations)
+            else build_reserved_corridors(graph, reservations, reservation_translations)
+        ),
+        prior_exit_turn_dispositions=(
+            None
+            if reservations is None
+            else {plan.id: plan.legacy_reason for plan in reservations.exit_turn_plans}
         ),
     )
     from nf_metro.layout.route_plan import build_route_plan_observer
@@ -496,6 +503,7 @@ def route_edges_centred(
     *,
     offset_step: float | None = None,
     reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> list[RoutedPath]:
     """Route, then settle the bubble-centred markers onto ``graph.stations``.
 
@@ -518,6 +526,7 @@ def route_edges_centred(
         observe_plan=False,
         offset_step=offset_step,
         reservations=reservations,
+        reservation_translations=reservation_translations,
     )
     _settle_station_moves(graph, moves)
     return routes
@@ -531,6 +540,7 @@ def observe_route_edges_centred(
     *,
     offset_step: float | None = None,
     reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -543,6 +553,7 @@ def observe_route_edges_centred(
         observe_plan=True,
         offset_step=offset_step,
         reservations=reservations,
+        reservation_translations=reservation_translations,
     )
     _settle_station_moves(graph, moves)
     assert plan is not None

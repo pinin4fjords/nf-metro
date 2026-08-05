@@ -62,6 +62,7 @@ from nf_metro.parser.route_topology import (
 )
 
 if TYPE_CHECKING:
+    from nf_metro.layout.route_plan import ExitTurnPlanId
     from nf_metro.layout.routing.convergences import ConvergencePlanExecutionQuery
     from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
 
@@ -229,6 +230,14 @@ class _RoutingCtx:
     diagonal_run: float
     curve_radius: float
     reserved_bands: ReservedCorridors = field(default_factory=ReservedCorridors)
+    prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None
+    """Frozen exit-turn dispositions a settlement re-route must redraw.
+
+    Keyed by plan id; the value is the frozen ``legacy_reason`` (``None`` for a
+    planned frame).  A re-route re-derives its geometry checks on translated
+    coordinates, and a verdict that flips there is settlement changing a
+    disposition, which it does not own; ``None`` (the default) means this pass
+    is the one that decides."""
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
@@ -381,6 +390,7 @@ def _build_routing_context(
     *,
     offset_step: float | None = None,
     reserved_bands: ReservedCorridors | None = None,
+    prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
     bands = ReservedCorridors() if reserved_bands is None else reserved_bands
@@ -472,6 +482,7 @@ def _build_routing_context(
         bypass_gap_idx=bypass_gap_idx,
         station_offsets=station_offsets,
         reserved_bands=bands,
+        prior_exit_turn_dispositions=prior_exit_turn_dispositions,
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
         junction_fan_info=junction_fan_info,

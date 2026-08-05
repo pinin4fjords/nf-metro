@@ -57,6 +57,7 @@ from nf_metro.layout.route_reservations import (
     SECTION_LEFT_BLOCKER,
     ColumnGapRegion,
     RealisedRouteReservation,
+    ReservationCoordinateTranslation,
     RouteReservation,
     RouteReservationId,
     RowGapRegion,
@@ -74,10 +75,16 @@ class SettlementAxis(Enum):
 
 @dataclass(frozen=True, slots=True)
 class SettlementTranslation:
-    """One applied global translation of everything from *boundary* onward."""
+    """One applied global translation of everything from *boundary* onward.
+
+    ``coordinate`` is where the translated band started before the move -- the
+    smallest origin among the moved sections -- so a frozen claim coordinate can
+    be told apart as sitting inside or ahead of the band.
+    """
 
     axis: SettlementAxis
     boundary: int
+    coordinate: float
     amount: float
     reservation_id: RouteReservationId
     claimant_member_ids: tuple[EmissionMemberId, ...]
@@ -249,11 +256,17 @@ class SettlementShortfall:
 
 @dataclass(frozen=True, slots=True)
 class EnvelopeSettlement:
-    """What one settlement pass moved, and what it could not."""
+    """What one settlement pass moved, and what it could not.
+
+    ``coordinate_translations`` is the same set of moves expressed as they act
+    on frozen claim coordinates, for every later measurement of the ledger
+    settlement consumed.
+    """
 
     translations: tuple[SettlementTranslation, ...]
     obstructions: tuple[SettlementObstruction, ...]
     shortfalls: tuple[SettlementShortfall, ...] = ()
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,21 +387,61 @@ def _author_pinned(graph: MetroGraph, section_ids: Iterable[str]) -> tuple[str, 
     )
 
 
+def _reservation_coordinate_translation(
+    translation: SettlementTranslation,
+    plan: RoutePlan,
+) -> ReservationCoordinateTranslation:
+    """Express one applied settlement move as it acts on frozen claim coordinates.
+
+    A member whose endpoints both sit in moved sections had its whole run
+    carried, so every coordinate it claimed moves; a member with one endpoint
+    in the moved band was stretched across the boundary, so only the
+    coordinates at or beyond the band's start move.
+    """
+    section_ids = frozenset(translation.section_ids)
+    fully_owned: list[EmissionMemberId] = []
+    crossing: list[EmissionMemberId] = []
+    for member in plan.members:
+        source_owned = member.source.section_id in section_ids
+        target_owned = member.target.section_id in section_ids
+        if source_owned and target_owned:
+            fully_owned.append(member.id)
+        elif source_owned != target_owned:
+            crossing.append(member.id)
+    return ReservationCoordinateTranslation(
+        DemandAxis.Y if translation.axis is SettlementAxis.ROW else DemandAxis.X,
+        translation.coordinate,
+        translation.amount,
+        tuple(fully_owned),
+        tuple(crossing),
+    )
+
+
 def _settle_axis(
     graph: MetroGraph,
+    plan: RoutePlan,
     reservations: tuple[RouteReservation, ...],
     axis: _Axis,
-) -> tuple[list[SettlementTranslation], list[SettlementObstruction]]:
+    prior_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+) -> tuple[
+    list[SettlementTranslation],
+    list[SettlementObstruction],
+    list[ReservationCoordinateTranslation],
+]:
     by_boundary: dict[int, list[RouteReservation]] = {}
     for reservation in reservations:
         by_boundary.setdefault(axis.boundary_of(reservation), []).append(reservation)
 
     translations: list[SettlementTranslation] = []
     obstructions: list[SettlementObstruction] = []
+    coordinate_translations = list(prior_translations)
     for boundary in sorted(by_boundary):
+        projected_prefix = tuple(coordinate_translations)
         claims: list[tuple[float, RouteReservation, tuple[str, ...]]] = []
         for reservation in sorted(by_boundary[boundary], key=lambda item: item.id):
-            realised = realise_reservation(graph, reservation)
+            realised = realise_reservation(
+                graph, reservation, coordinate_translations=projected_prefix
+            )
             if realised is None:
                 continue
             deficit = -realised.capacity_slack
@@ -414,8 +467,16 @@ def _settle_axis(
             continue
         deficit, reservation, blockers = max(claims, key=lambda item: item[0])
         amount = math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+        band_start = min(
+            (
+                axis.origin(section)
+                for section in graph.sections.values()
+                if axis.start_index(section) >= boundary
+            ),
+            default=None,
+        )
         moved = axis.translate(graph, boundary, amount)
-        if not moved:
+        if not moved or band_start is None:
             raise ValueError(
                 f"{axis.axis.value} boundary {boundary} has no translation "
                 "owner: nothing sits at or beyond it to move"
@@ -424,6 +485,7 @@ def _settle_axis(
             SettlementTranslation(
                 axis.axis,
                 boundary,
+                band_start,
                 amount,
                 reservation.id,
                 reservation.claimant_member_ids,
@@ -432,7 +494,14 @@ def _settle_axis(
                 tuple(item[1].id for item in claims),
             )
         )
-    return translations, obstructions
+        coordinate_translations.append(
+            _reservation_coordinate_translation(translations[-1], plan)
+        )
+    return (
+        translations,
+        obstructions,
+        coordinate_translations[len(prior_translations) :],
+    )
 
 
 # A compatibility system whose planner recorded no measurement has nothing to
@@ -508,22 +577,29 @@ def attribute_compatibility_systems(
 ) -> tuple[CompatibilityOwnership, ...]:
     """Measure every compatibility system in *plan* against what settlement moves.
 
-    Both measurements have to come from the geometry the map actually draws, so
-    this reads the plan that survived the re-route rather than the one
-    settlement was handed: a translated layout publishes new corridors and new
-    conflict coordinates, and an exit quoting the pre-translation frame would be
-    describing a map nobody sees.
+    Both measurements come from the geometry the map actually draws: the
+    conflict coordinates are read from the published frames, and each corridor
+    slack is measured against the live graph with the projection its published
+    realisation records.
     """
     compatibility = tuple(
         item for item in plan.convergence_plans if item.legacy_reason is not None
     )
     if not compatibility:
         return ()
+    held_translations = {
+        item.reservation_id: item.coordinate_translations
+        for item in plan.realised_reservations
+    }
     slack_by_system: dict[RouteSystemId, list[float]] = {}
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
-        realised = realise_reservation(graph, reservation)
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=held_translations.get(reservation.id, ()),
+        )
         if realised is not None:
             slack_by_system.setdefault(reservation.system_id, []).append(
                 realised.capacity_slack
@@ -575,18 +651,24 @@ def attach_settlement_diagnostics(
 def _verify_against_input_ledger(
     graph: MetroGraph,
     plan: RoutePlan,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...],
 ) -> tuple[SettlementShortfall, ...]:
     """Re-measure the demands settlement was handed, on the geometry it left.
 
     This is settlement's own postcondition, and it is the only measurement that
     can state it: the ledger a later re-route publishes is a different set of
-    claims, so a deficit found there answers a different question.
+    claims, so a deficit found there answers a different question.  Every
+    reservation on both axes is measured here with the complete translation
+    set, so a row demand whose blockers a later column translation changed is
+    caught rather than assumed independent.
     """
     shortfalls: list[SettlementShortfall] = []
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
-        realised = realise_reservation(graph, reservation)
+        realised = realise_reservation(
+            graph, reservation, coordinate_translations=coordinate_translations
+        )
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
             continue
         shortfalls.append(
@@ -648,13 +730,18 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
     """
     restore_point = _coordinate_state(graph)
     try:
-        row_translations, row_obstructions = _settle_axis(
-            graph, _reservations_on(plan, RowGapRegion), _ROW_AXIS
+        row_translations, row_obstructions, row_coordinate = _settle_axis(
+            graph, plan, _reservations_on(plan, RowGapRegion), _ROW_AXIS
         )
-        column_translations, column_obstructions = _settle_axis(
-            graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
+        column_translations, column_obstructions, column_coordinate = _settle_axis(
+            graph,
+            plan,
+            _reservations_on(plan, ColumnGapRegion),
+            _COLUMN_AXIS,
+            tuple(row_coordinate),
         )
-        shortfalls = _verify_against_input_ledger(graph, plan)
+        coordinate_translations = tuple(row_coordinate + column_coordinate)
+        shortfalls = _verify_against_input_ledger(graph, plan, coordinate_translations)
     except Exception:
         _restore_coordinate_state(graph, restore_point)
         raise
@@ -662,4 +749,5 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
         tuple(row_translations + column_translations),
         tuple(row_obstructions + column_obstructions),
         shortfalls,
+        coordinate_translations,
     )

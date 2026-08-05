@@ -43,6 +43,7 @@ from nf_metro.layout.phases._common import _station_bundle_offset_span
 from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
+    LayoutInvariantError,
     assert_render_header_clearance,
     assert_render_layout_invariants,
     assert_reservations_are_settled,
@@ -51,8 +52,17 @@ from nf_metro.layout.phases.guards import (
 )
 from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
-from nf_metro.layout.route_plan import RoutePlan
-from nf_metro.layout.route_reservations import realise_route_reservations
+from nf_metro.layout.route_plan import (
+    ConvergencePlan,
+    ExitTurnPlan,
+    RoutePlan,
+    RouteSystem,
+)
+from nf_metro.layout.route_reservations import (
+    ReservationCoordinateTranslation,
+    adopt_route_reservation_ledger,
+    realise_route_reservations,
+)
 from nf_metro.layout.routing import (
     RoutedPath,
     apply_route_offsets,
@@ -724,6 +734,270 @@ def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
     )
 
 
+def _route_segment_signature(
+    points: list[tuple[float, float]],
+) -> tuple[tuple[str, int, int], ...]:
+    """Describe a route's turns without retaining absolute coordinates."""
+    result: list[tuple[str, int, int]] = []
+    for start, end in zip(points, points[1:], strict=False):
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        x_sign = 0 if abs(dx) <= SAME_COORD_TOLERANCE else (1 if dx > 0 else -1)
+        y_sign = 0 if abs(dy) <= SAME_COORD_TOLERANCE else (1 if dy > 0 else -1)
+        kind = "point" if not x_sign and not y_sign else "segment"
+        result.append((kind, x_sign, y_sign))
+    return tuple(result)
+
+
+def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
+    """Route topology and ownership facts a settlement translation cannot change.
+
+    Corner radii are deliberately absent: a re-route across widened gaps sizes
+    each formed curve from the runway it actually has, and holding it to the
+    pre-settlement radius would undo exactly that.
+    """
+    return tuple(
+        (
+            route.edge.source,
+            route.edge.target,
+            route.line_id,
+            route.is_inter_section,
+            _route_segment_signature(route.points),
+            route.offset_regime,
+            route.normalize_exempt,
+            tuple(route.gap_slots),
+            route.trunk_slot is not None,
+            route.exit_turn_plan_id,
+            route.exit_turn_member_id,
+            route.exit_turn_family_id,
+            route.exit_turn_axis_id,
+            route.fan_plan_id,
+            route.fan_route_emitter,
+            route.convergence_plan_id,
+            route.convergence_member_id,
+            route.convergence_owned_segment_ranks,
+            route.exit_turn_segment_rank,
+            route.exit_lane_transition_plan_id,
+        )
+        for route in routes
+    )
+
+
+def _route_system_decision(system: RouteSystem) -> RouteSystem:
+    """Exclude resource indexes while retaining semantic system membership."""
+    return replace(
+        system,
+        shared_reference_ids=(),
+        demand_ids=(),
+        reservation_ids=(),
+    )
+
+
+def _exit_turn_decision(plan: ExitTurnPlan) -> tuple[object, ...]:
+    """An exit-turn decision without its translated coordinates.
+
+    Runway lengths are measured distances between launch points and turn
+    axes, so like curve radii they re-derive from wherever the reserved
+    corridor actually seats the axis; only the ownership and ordering facts
+    around them are decisions.
+    """
+    lane_transitions = tuple(
+        (
+            item.edge,
+            item.claimant_member_ids,
+            item.source_offset,
+            item.target_offset,
+            item.source_lane_offset,
+            item.target_lane_offset,
+            item.run_direction,
+            item.placement,
+            item.coordinate_regime,
+        )
+        for item in plan.lane_transitions
+    )
+    axes = tuple(
+        (
+            item.id,
+            item.line_id,
+            item.axis,
+            item.rank,
+            item.claimant_member_ids,
+            item.fixed_anchor_id,
+            item.fixed_anchor_offset,
+            item.coordinate_regime,
+        )
+        for item in plan.axes
+    )
+    assignments = tuple(
+        (
+            item.member_id,
+            item.entry_group_id,
+            item.destination_section_id,
+            item.destination_column,
+            item.destination_row,
+            item.destination_side,
+            item.source_lane_rank,
+            item.planned_family_id,
+            item.roles,
+            item.run_direction,
+            item.turn_direction,
+            item.handedness,
+            item.axis_id,
+        )
+        for item in plan.assignments
+    )
+    return (
+        plan.id,
+        plan.system_id,
+        plan.exit_group_id,
+        plan.exit_port_id,
+        plan.divergence_id,
+        plan.source_id,
+        plan.source_run_direction,
+        plan.source_axis,
+        plan.connector_ids,
+        plan.system_member_ids,
+        plan.member_ids,
+        plan.source_lanes,
+        plan.lane_order_source,
+        lane_transitions,
+        axes,
+        assignments,
+        plan.unclassified_member_ids,
+        plan.spacing,
+        plan.disposition,
+        plan.legacy_reason,
+        plan.provenance,
+    )
+
+
+def _convergence_decision(plan: ConvergencePlan) -> tuple[object, ...]:
+    """Convergence ownership and ordering without absolute geometry.
+
+    The recorded conflict is not part of the decision: its kind is a function
+    of ``legacy_reason``, and its sites and separation are measured on
+    whichever frame the planner last saw, which a translation legitimately
+    moves.
+    """
+    trunk = (
+        None
+        if plan.trunk_axis is None
+        else (
+            plan.trunk_axis.axis,
+            plan.trunk_axis.direction,
+            plan.trunk_axis.coordinate_regime,
+        )
+    )
+    landings = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.source_junction_id,
+            item.approach_axis,
+            item.approach_direction,
+            item.source_column,
+            item.source_row,
+            item.lane_rank,
+            item.order,
+            item.corner_handedness,
+            item.opening_turn_coordinate is not None,
+            item.bypass,
+            item.long_haul,
+            item.multiple_row,
+        )
+        for item in plan.landings
+    )
+    continuations = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.entry_port_id,
+            item.lane_rank,
+            item.covered_by_member_id,
+        )
+        for item in plan.outgoing_continuations
+    )
+    endpoint_ownership = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.connector_ids,
+            item.role,
+            item.covered_by_member_id,
+        )
+        for item in plan.endpoint_ownership
+    )
+    return (
+        plan.id,
+        plan.system_id,
+        plan.convergence_ids,
+        plan.entry_group_ids,
+        plan.merge_junction_ids,
+        plan.target_entry_port_ids,
+        plan.connector_ids,
+        plan.member_ids,
+        plan.resolved_member_paths,
+        plan.resolved_member_edges,
+        plan.line_ids,
+        plan.upstream_exit_turn_plan_ids,
+        plan.upstream_fan_plan_ids,
+        plan.primary_trunk_member_id,
+        plan.primary_trunk_reason,
+        trunk,
+        landings,
+        continuations,
+        plan.lane_order,
+        endpoint_ownership,
+        plan.disposition,
+        plan.legacy_reason,
+    )
+
+
+def _plan_decision_fingerprint(plan: RoutePlan) -> tuple[object, ...]:
+    """The immutable semantic decisions in a route observation."""
+    return (
+        tuple(_route_system_decision(item) for item in plan.systems),
+        plan.endpoint_groups,
+        plan.divergences,
+        plan.convergences,
+        plan.members,
+        plan.branches,
+        plan.feeders,
+        tuple(_exit_turn_decision(item) for item in plan.exit_turn_plans),
+        plan.fan_plans,
+        tuple(_convergence_decision(item) for item in plan.convergence_plans),
+        plan.bindings,
+        plan.provenance,
+    )
+
+
+def _assert_settlement_decisions_frozen(
+    frozen_routes: list[RoutedPath],
+    frozen_plan: RoutePlan,
+    realised_routes: list[RoutedPath],
+    realised_plan: RoutePlan,
+) -> None:
+    """Reject a settlement re-route that changed semantic routing.
+
+    Settlement may translate coordinates and nothing else: plan membership,
+    dispositions, lane orders, and turn, fan, convergence, and bundle frames
+    must all survive.  Comparing decision fingerprints makes that a checked
+    invariant of every settled render rather than a design intention.
+    """
+    if _route_decision_fingerprint(realised_routes) != _route_decision_fingerprint(
+        frozen_routes
+    ):
+        raise LayoutInvariantError(
+            "envelope settlement changed route topology or geometry ownership"
+        )
+    if _plan_decision_fingerprint(realised_plan) != _plan_decision_fingerprint(
+        frozen_plan
+    ):
+        raise LayoutInvariantError(
+            "envelope settlement changed route-system planning decisions"
+        )
+
+
 def _settle_render_geometry(
     graph: MetroGraph,
     theme: Theme,
@@ -800,12 +1074,14 @@ def _settle_render_geometry(
     def _route(
         station_offsets: dict[tuple[str, str], float],
         reservations: RoutePlan | None = None,
+        reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     ) -> tuple[list[RoutedPath], RoutePlan]:
         observation = observe_route_edges_centred(
             graph,
             station_offsets=station_offsets,
             offset_step=offset_step,
             reservations=reservations,
+            reservation_translations=reservation_translations,
         )
         return observation.routes, observation.plan
 
@@ -815,6 +1091,7 @@ def _settle_render_geometry(
 
     def _resettle(
         reservations: RoutePlan | None = None,
+        reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
         # The shift moved section-anchored geometry; refresh the bypass-label
         # obstacle boxes (derived from station Ys, read by the router) so the
@@ -822,7 +1099,9 @@ def _settle_render_geometry(
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
         _reanchor_junctions()
         offsets = compute_station_offsets(graph, offset_step=offset_step)
-        moved_routes, moved_plan = _route(offsets, reservations)
+        moved_routes, moved_plan = _route(
+            offsets, reservations, reservation_translations
+        )
         return offsets, moved_routes, moved_plan
 
     _reanchor_junctions()
@@ -841,19 +1120,39 @@ def _settle_render_geometry(
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
 
-    settlement = settle_route_envelopes(graph, route_plan)
+    frozen_routes = routes
+    frozen_plan = route_plan
+    settlement = settle_route_envelopes(graph, frozen_plan)
     # The router can only place a corridor from its reservation on a pass that
     # is handed one, and the first pass is what publishes the ledger.  So the
     # re-route runs whenever any corridor was reserved, not only when settlement
     # had to translate something to make one fit: a reservation that already
     # fits names blockers the raw row and column edges misjudge.
-    if settlement.translations or route_plan.reservations:
-        station_offsets, routes, route_plan = _resettle(route_plan)
+    if settlement.translations or frozen_plan.reservations:
+        station_offsets, routes, routed_plan = _resettle(
+            frozen_plan, settlement.coordinate_translations
+        )
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
+        _assert_settlement_decisions_frozen(
+            frozen_routes, frozen_plan, routes, routed_plan
+        )
+        # The published ledger is the one settlement consumed.  Re-observing
+        # would let corridors appear, vanish, and change their required width
+        # across the very step whose contract is coordinate translation only.
+        # The routed observation exists to draw and to prove the decisions
+        # frozen.
+        route_plan = adopt_route_reservation_ledger(
+            frozen_plan,
+            graph,
+            coordinate_translations=settlement.coordinate_translations,
+        )
     route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
     assert_reservations_are_settled(
-        graph, route_plan, settlement, strict=effective_strict
+        graph,
+        route_plan,
+        settlement,
+        strict=effective_strict,
     )
 
     assert_render_header_clearance(graph, strict=effective_strict)

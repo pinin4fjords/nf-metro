@@ -6279,11 +6279,11 @@ def assert_reservations_are_settled(
     """Guard that no route is drawn through a corridor narrower than it claimed.
 
     Runs on the settled geometry, once envelope settlement has widened every row
-    and column boundary it owns.  Two different statements are made here, and
-    they must not be conflated: *settlement.shortfalls* records demands from the
-    ledger settlement was handed that it did not meet, while the loop below
-    measures the ledger the settled re-route published -- a different set of
-    claims, since corridors appear and vanish across a translation.
+    and column boundary it owns.  *plan* is the published plan carrying the
+    frozen ledger settlement consumed, so each claim is projected through the
+    recorded settlement translations before it is measured;
+    *settlement.shortfalls* separately records the demands settlement itself
+    already knew it had not met.
 
     A route drawn through a corridor narrower than its reservation requires is
     a violated hard clearance, so the strict path refuses it and names the
@@ -6315,10 +6315,20 @@ def assert_reservations_are_settled(
         if strict:
             raise LayoutInvariantError(detail)
         warnings.warn(detail, category=PermissiveGuardWarning, stacklevel=2)
+    held_translations = {
+        item.reservation_id: item.coordinate_translations
+        for item in plan.realised_reservations
+    }
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
-        realised = realise_reservation(graph, reservation)
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=held_translations.get(
+                reservation.id, settlement.coordinate_translations
+            ),
+        )
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
             continue
         if sections_spanning_the_gap(graph, reservation, realised):

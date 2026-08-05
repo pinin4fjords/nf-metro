@@ -34,7 +34,10 @@ from nf_metro.layout.constants import COORD_TOLERANCE
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
-    from nf_metro.layout.route_reservations import CorridorRegion
+    from nf_metro.layout.route_reservations import (
+        CorridorRegion,
+        ReservationCoordinateTranslation,
+    )
     from nf_metro.parser.model import MetroGraph
 
 
@@ -99,6 +102,7 @@ def _axis_bands(
     graph: MetroGraph,
     plan: RoutePlan,
     boundary_of: Callable[[CorridorRegion], int | None],
+    translations: tuple[ReservationCoordinateTranslation, ...],
 ) -> ReservedBands:
     """Measure the reservations *boundary_of* recognises against live geometry.
 
@@ -116,7 +120,9 @@ def _axis_bands(
         boundary = boundary_of(reservation.region)
         if boundary is None:
             continue
-        realised = realise_reservation(graph, reservation)
+        realised = realise_reservation(
+            graph, reservation, coordinate_translations=translations
+        )
         if realised is None:
             continue
         lo = realised.region_start + reservation.negative_side_clearance
@@ -134,8 +140,16 @@ def _axis_bands(
     )
 
 
-def build_reserved_corridors(graph: MetroGraph, plan: RoutePlan) -> ReservedCorridors:
-    """Measure *plan*'s row- and column-gap reservations against live *graph*."""
+def build_reserved_corridors(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    translations: tuple[ReservationCoordinateTranslation, ...] = (),
+) -> ReservedCorridors:
+    """Measure *plan*'s row- and column-gap reservations against live *graph*.
+
+    *plan* is the frozen ledger settlement consumed, so its claim coordinates
+    are projected through *translations* before measurement.
+    """
     from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 
     return ReservedCorridors(
@@ -145,6 +159,7 @@ def build_reserved_corridors(graph: MetroGraph, plan: RoutePlan) -> ReservedCorr
             lambda region: (
                 region.lower_row if isinstance(region, RowGapRegion) else None
             ),
+            translations,
         ),
         _axis_bands(
             graph,
@@ -152,5 +167,6 @@ def build_reserved_corridors(graph: MetroGraph, plan: RoutePlan) -> ReservedCorr
             lambda region: (
                 region.right_column if isinstance(region, ColumnGapRegion) else None
             ),
+            translations,
         ),
     )
