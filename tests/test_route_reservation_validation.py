@@ -329,17 +329,23 @@ def test_reservation_rejects_direction_on_the_wrong_axis() -> None:
         replace(reservation, direction=direction)
 
 
-def test_canvas_reservation_kind_follows_its_side() -> None:
-    plan = _plan()
+@pytest.mark.parametrize(
+    ("name", "side"),
+    (
+        ("cross_col_top_entry.mmd", CanvasSide.TOP),
+        ("route_around_intervening.mmd", CanvasSide.BOTTOM),
+    ),
+)
+def test_canvas_reservation_kind_follows_its_side(name: str, side: CanvasSide) -> None:
+    plan = _plan(TOPOLOGIES / name)
     reservation = next(
         item
         for item in plan.reservations
-        if isinstance(item.region, CanvasRegion)
-        and item.region.side in {CanvasSide.TOP, CanvasSide.BOTTOM}
+        if isinstance(item.region, CanvasRegion) and item.region.side is side
     )
     wrong_kind = (
         CorridorKind.BYPASS_BAND
-        if reservation.region.side is CanvasSide.TOP
+        if side is CanvasSide.TOP
         else CorridorKind.OVER_TOP_BAND
     )
 

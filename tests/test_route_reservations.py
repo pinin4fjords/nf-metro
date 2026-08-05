@@ -75,20 +75,17 @@ EXPECTED_RESERVATION_CLAIMS = {
         (23, 2),
         (23, 3),
     ),
-    "cross_row_gap_wrap.mmd": ((20, 1), (20, 2), (21, 1), (21, 2), (22, 0)),
+    "cross_row_gap_wrap.mmd": ((20, 1), (20, 2), (21, 1), (21, 2)),
     "merge_bottom_row_bypass.mmd": (
         (11, 1),
-        (12, 1),
         (12, 2),
         (12, 3),
         (14, 1),
     ),
     "corridor_narrow_gap_fallback.mmd": (
-        (12, 0),
         (12, 1),
         (12, 2),
         (12, 3),
-        (13, 0),
         (13, 1),
         (13, 2),
         (13, 3),
@@ -96,48 +93,31 @@ EXPECTED_RESERVATION_CLAIMS = {
         (14, 2),
         (14, 3),
     ),
-    "fan_bypass_shared_band.mmd": ((9, 1), (9, 2), (9, 3), (9, 4)),
+    "fan_bypass_shared_band.mmd": ((9, 1), (9, 3)),
     "packed_cell_right_exit_left_entry_wrap.mmd": (
         (57, 1),
-        (57, 2),
         (58, 1),
-        (58, 2),
         (59, 1),
-        (59, 2),
         (60, 1),
-        (60, 2),
-        (61, 0),
         (61, 1),
         (61, 2),
         (61, 3),
         (61, 4),
-        (62, 0),
         (62, 1),
         (62, 2),
         (62, 3),
-        (63, 0),
-        (64, 0),
-        (65, 0),
-        (66, 0),
-        (67, 0),
-        (68, 0),
         (68, 2),
         (68, 3),
-        (69, 0),
         (69, 2),
         (69, 3),
         (70, 1),
         (70, 2),
         (70, 3),
-        (71, 0),
         (71, 1),
     ),
     "opposing_bypass_corridor.mmd": (
         (19, 1),
         (19, 2),
-        (20, 0),
-        (21, 0),
-        (22, 0),
         (22, 1),
         (22, 2),
         (23, 1),
@@ -146,34 +126,16 @@ EXPECTED_RESERVATION_CLAIMS = {
         (25, 2),
     ),
     "opposing_return_row_pair.mmd": (
-        (8, 0),
-        (9, 0),
-        (10, 0),
         (10, 1),
         (10, 2),
-        (11, 0),
         (11, 1),
         (11, 2),
     ),
     "lr_to_tb_top_near_vertical.mmd": ((4, 1), (4, 2)),
     "stacked_collector_fanin.mmd": (
-        *((rank, 0) for rank in range(200, 212)),
-        (213, 0),
-        (215, 0),
-        (217, 0),
-        (197, 1),
-        (198, 1),
-        (199, 1),
-        *((rank, 1) for rank in range(206, 218)),
-        (197, 2),
-        (198, 2),
-        (199, 2),
-        *((rank, 2) for rank in range(206, 218)),
-        (197, 3),
-        (198, 3),
-        (199, 3),
-        *((rank, 3) for rank in range(206, 218)),
-        *((rank, 4) for rank in range(206, 218)),
+        *((rank, 1) for rank in (197, 198, 199, 212, 214, 216)),
+        *((rank, 2) for rank in (197, 198, 199, *range(206, 218))),
+        *((rank, 3) for rank in (197, 198, 199, *range(206, 218))),
     ),
 }
 
@@ -198,6 +160,35 @@ def _report_reservation(plan):
     )
     assert len(matches) == 1
     return matches[0]
+
+
+def _assert_runs_in_the_canvas_margin(graph, reservation) -> None:
+    """A canvas corridor's claims lie beyond every placed section's extreme.
+
+    A run merely outside the sections it happens to pass beside is an interior
+    corridor, so the comparison is against the whole map's content: without it a
+    canvas record cannot be told apart from a misfiled gap record.
+    """
+    placed = tuple(
+        section
+        for section in graph.sections.values()
+        if section.bbox_w > 0 and section.bbox_h > 0
+    )
+    assert placed
+    side = reservation.region.side
+    if side is CanvasSide.TOP:
+        limit, beyond = min(item.bbox_y for item in placed), -1.0
+    elif side is CanvasSide.BOTTOM:
+        limit, beyond = max(item.bbox_y + item.bbox_h for item in placed), 1.0
+    elif side is CanvasSide.LEFT:
+        limit, beyond = min(item.bbox_x for item in placed), -1.0
+    else:
+        limit, beyond = max(item.bbox_x + item.bbox_w for item in placed), 1.0
+    for claim in reservation.claims:
+        assert (claim.allocation_coordinate - limit) * beyond > 0, (
+            f"{side.value} canvas claim at {claim.allocation_coordinate} "
+            f"is inside the content extreme {limit}"
+        )
 
 
 def _reservation_order(plan, reservation):
@@ -320,8 +311,8 @@ def test_reportho_ownership_does_not_depend_on_resolved_section_pairs() -> None:
             CorridorKind.DIRECT_INTER_ROW_BAND,
             RowGapRegion,
         ),
-        ("fan_bypass_shared_band.mmd", CorridorKind.BYPASS_BAND, CanvasRegion),
-        ("cross_row_gap_wrap.mmd", CorridorKind.OVER_TOP_BAND, CanvasRegion),
+        ("route_around_intervening.mmd", CorridorKind.BYPASS_BAND, CanvasRegion),
+        ("cross_col_top_entry.mmd", CorridorKind.OVER_TOP_BAND, CanvasRegion),
         (
             "merge_bottom_row_bypass.mmd",
             CorridorKind.INTER_COLUMN_CHANNEL,
@@ -332,7 +323,7 @@ def test_reportho_ownership_does_not_depend_on_resolved_section_pairs() -> None:
 def test_supported_corridor_families_publish_complete_records(
     name: str, kind: CorridorKind, region_type: type
 ) -> None:
-    _graph, _routes, plan = _observe(TOPOLOGIES / name)
+    graph, _routes, plan = _observe(TOPOLOGIES / name)
     query = build_route_plan_query(plan)
     reservation = next(
         item
@@ -340,6 +331,8 @@ def test_supported_corridor_families_publish_complete_records(
         if item.kind is kind and isinstance(item.region, region_type)
     )
 
+    if isinstance(reservation.region, CanvasRegion):
+        _assert_runs_in_the_canvas_margin(graph, reservation)
     assert reservation.connector_ids
     assert reservation.claimant_member_ids
     assert reservation.claims
@@ -364,20 +357,28 @@ def test_supported_corridor_families_publish_complete_records(
 
 
 def test_narrow_corridor_fallback_retains_the_original_demand() -> None:
-    _graph, _routes, plan = _observe(TOPOLOGIES / "corridor_narrow_gap_fallback.mmd")
+    """A wrap run whose nearest topology gap is too narrow keeps its full demand.
+
+    The fallback lands the corridor in the adjacent grid boundary rather than
+    shrinking the band to whatever fits, so the record reports the shortfall
+    instead of certifying a corridor narrower than the bundle occupies.
+    """
+    path = ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
+    _graph, _routes, plan = _observe(path)
     reservation = next(
         item
         for item in plan.reservations
-        if item.kind is CorridorKind.BYPASS_BAND
+        if RouteFamilyId.LEFT_ENTRY_WRAP in item.route_family_ids
         and isinstance(item.region, RowGapRegion)
+        and item.measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
     )
     realised = build_route_plan_query(plan).realised_reservation(reservation.id)
     assert realised is not None
 
-    assert reservation.measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
-    assert realised.available_width == pytest.approx(reservation.minimum_width)
-    assert realised.coordinate > realised.region_end
-    assert realised.positive_side_slack < 0
+    assert realised.available_width < reservation.minimum_width
+    assert realised.required_width == pytest.approx(reservation.minimum_width)
+    assert min(realised.negative_side_slack, realised.positive_side_slack) < 0
+    assert realised.capacity_slack < 0
     assert any(
         item.reservation_id == reservation.id for item in plan.reservation_diagnostics
     )
@@ -386,14 +387,14 @@ def test_narrow_corridor_fallback_retains_the_original_demand() -> None:
 @pytest.mark.parametrize(
     "name",
     (
-        "bottom_row_climb_clear_corridor.mmd",
-        "divergent_fanout_split.mmd",
+        "route_around_intervening.mmd",
+        "packed_cell_cellmate_bypass.mmd",
     ),
 )
 def test_native_canvas_detours_do_not_manufacture_topology_gap_intent(
     name: str,
 ) -> None:
-    _graph, _routes, plan = _observe(TOPOLOGIES / name)
+    graph, _routes, plan = _observe(TOPOLOGIES / name)
     bypasses = tuple(
         item
         for item in plan.reservations
@@ -406,6 +407,8 @@ def test_native_canvas_detours_do_not_manufacture_topology_gap_intent(
         item.measurement_scope is CorridorMeasurementScope.OBSERVED_RUN
         for item in bypasses
     )
+    for reservation in bypasses:
+        _assert_runs_in_the_canvas_margin(graph, reservation)
 
 
 @pytest.mark.parametrize(

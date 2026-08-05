@@ -40,19 +40,25 @@ TOPOLOGIES = ROOT / "examples" / "topologies"
 REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 
 # Fixtures whose reservations carry a capacity deficit on unsettled geometry, so
-# settlement has real work to do.  Spread across the four flow directions and
-# both corridor axes.
+# settlement has real work to do.  Every member's deficit falls on a row
+# boundary, which is where the corpus puts one; ``COLUMN_DEFICIT_CORPUS`` carries
+# the column axis, and the ownership lemma below is measured on both.
 DEFICIT_CORPUS = (
     TOPOLOGIES / "convergence_fold_diamond.mmd",
     TOPOLOGIES / "convergence_sink_fold.mmd",
     TOPOLOGIES / "fold_split_targets.mmd",
-    TOPOLOGIES / "merge_right_entry.mmd",
     TOPOLOGIES / "off_track_input_above_consumer.mmd",
     TOPOLOGIES / "right_entry_over_top_tall_upstream.mmd",
     TOPOLOGIES / "same_line_fan_distinct_descent.mmd",
     ROOT / "examples" / "differentialabundance.mmd",
     ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
     ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+)
+
+# Fixtures whose only deficit falls on a column boundary, so the column phase has
+# to translate rather than merely confirm.
+COLUMN_DEFICIT_CORPUS = (
+    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
 )
 
 # Fixtures where a section straddles a boundary settlement widens, so the
@@ -231,6 +237,40 @@ def test_the_rerouted_ledger_is_also_free_of_deficits(path: Path) -> None:
     settled geometry goes on to publish are satisfied too."""
     observed = _rendered_plan(path)
     assert _capacity_deficits(observed.route_plan) == {}
+
+
+@pytest.mark.parametrize("path", COLUMN_DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
+    """The column axis is settled by translating columns, not rows.
+
+    Held separately from ``DEFICIT_CORPUS`` because a fixture large enough to
+    starve a column gap also carries unrelated row-corridor defects, so the
+    statement worth making here is only about the axis that translates.
+    """
+    graph, plan = _observe(path)
+    demanded = {
+        str(item.id)
+        for item in plan.reservations
+        if isinstance(item.region, ColumnGapRegion)
+    }
+    deficits = _capacity_deficits(plan)
+    assert deficits
+    assert set(deficits) <= demanded, "fixture must starve a column gap only"
+
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.shortfalls == ()
+    assert {item.axis for item in settlement.translations} == {SettlementAxis.COLUMN}
+    for reservation_id in deficits:
+        reservation = next(
+            item for item in plan.reservations if str(item.id) == reservation_id
+        )
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=settlement.coordinate_translations,
+        )
+        assert realised is not None
+        assert realised.capacity_slack >= -0.01
 
 
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
@@ -893,12 +933,15 @@ def test_a_compatibility_exit_stops_claiming_a_limit_settlement_can_reach() -> N
 
 def test_a_compatibility_exit_republishes_the_slack_it_finds() -> None:
     """The corridor half of the evidence is a live measurement: widening the
-    boundary the corridor stands in has to change the number it publishes."""
+    boundary the corridor stands in has to change the number it publishes.
+
+    Every corridor this system owns stands in a column gap, and the number is
+    the worst of them, so the widening has to reach all of them at once.
+    """
     graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
     before = _sole(attribute_compatibility_systems(graph, plan))
-    for section in graph.sections.values():
-        if section.grid_row >= 1:
-            shift_section(graph, section, dy=90.0)
+    for section in tuple(graph.sections.values()):
+        shift_section(graph, section, dx=90.0 * section.grid_col)
     after = _sole(attribute_compatibility_systems(graph, plan))
     assert after.worst_capacity_slack > before.worst_capacity_slack
     assert f"{after.worst_capacity_slack:.2f}px to spare" in after.message
