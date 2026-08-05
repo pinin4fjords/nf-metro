@@ -1454,7 +1454,7 @@ in pipeline order.
   every run sharing the corridor ends inside it, and a box one of them merely
   passes bounds it for all of them. Region *selection* is unaffected -- it
   asks which boundary a run occupies, not what that boundary has room for -- so
-  the corpus raises exactly the same 1003 claims on the same 557 reservations.
+  the corpus raises exactly the same claims on the same 557 reservations.
 - **A corridor is bounded by the station its own runs launch from**: a
   pre-routing plan that emits its runs out of a station standing inside the gap
   fixes the length of the opening leg and refuses emitted geometry that shortens
@@ -1687,35 +1687,48 @@ in pipeline order.
   peers denying it as one rigid group: two corridors owed one boundary between
   them are seated by the same widening and neither can reach it alone, and a
   rigid move leaves every separation inside the group exactly as drawn.
-  Measured on the corpus, 2 of the 1003 claims carried by 557 realised gap
-  reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 4 outside it at exact precision;
-  `tests/test_reserved_claim_consumption.py` holds each one by its own
-  `(path_rank, segment_rank)` so the bound names the leg rather than a count.
-  The 2 beyond tolerance are one convergence trunk on
-  `cross_column_perp_entry_overflow`, blocked at the plan rather than at the
-  geometry: seating its merge junction on the perpendicular port's lead-in does
-  put all six feeders in band, but the trunk then occupies the column an
-  *unowned* same-line member already uses to enter that port,
-  `UNOWNED_MEMBER_CORRIDOR` refuses it, and all three of the fixture's
-  convergences fall back to compatibility. Exempting that one separation was
-  tried and falsified: the render then dies in `_coincide_same_line_tracks` on
-  two planners pinning different columns for one same-line stroke. The owner is
-  the one `ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR` already names,
-  #1658's plan-driven whole-system emission. The other 2 are exactly one
-  `COORD_TOLERANCE` out, on a column channel whose lowest lane a fan route
-  emitter freezes, so the stack resting on that seat ends one pixel past the
-  band's far edge.
-  Longitudinal blindness in the band's blockers was measured and ruled out as a
-  cause: of the 14 out-of-band claims that measurement covered, 13 had every
-  blocking section on their violated side overlapping or abutting the drawn leg,
-  and the one that did not (`fan_bypass_shared_band`, whose two 148px-away
-  blockers bound the side it holds) had its violated edge set by a section
-  abutting the run. Selecting blockers by longitudinal overlap alone was measured
-  over the corpus and is a regression, not a fix: it drops the box a corridor's
-  own elbow turns beside (16 to 26px past the run's end in 4 of those 14), whose
-  removal widens the band enough that the re-route re-centres the run in it,
-  changing 8 renders and flipping one vertical leg's direction, which
+  Measured on the corpus, every one of the 1007 claims carried by 557 realised
+  gap reservations is drawn inside the band its own reservation realises, and
+  `tests/test_reserved_claim_consumption.py` holds the whole corpus to that with
+  no exceptions. All but two are exact: the pair are the `hic_reads` lane turning up
+  into `scaffolding` in `examples/genomeassembly.mmd` and in its organellar twin,
+  each drawn 1.00px past its inter-column channel's positive edge, which is
+  inside the `COORD_TOLERANCE` the bound allows. Their channel's lowest lane is a
+  planned exit turn's descent, standing 4px above the band floor, and the stack
+  seated from it takes 15px of the band's 18. That shortfall is a position rather
+  than a width -- the reservation's own `minimum_width` is met with 14px to spare
+  -- and settlement cannot pay it in any case: `SETTLEMENT_QUANTUM` is
+  `COORD_TOLERANCE`, `_settle_axis` acts only above it, and
+  `ReservationCoordinateTranslation` refuses an amount that small, so the least
+  translation this stage can express is 2px and a 1px deficit is below the
+  resolution the ledger works at.
+  The last claims to come into band were the merge trunks of
+  `tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd`, and what it
+  cost is a disposition rather than a coordinate: a merge feeding a TOP or BOTTOM
+  entry port is seated on the vertical lead-in that port receives
+  (`_position_merge_junction`), which puts its six feeders in the row corridor
+  they claim and puts the merged trunk in the very column an *unowned* member of
+  the same route system already uses to enter that port, so
+  `UNOWNED_MEMBER_CORRIDOR` refuses a planned corridor there and all three of the
+  fixture's convergences take the compatibility disposition as one group. #1660
+  admits that only against evidence, and the evidence is measured on the settled
+  map: the two conflicting runs are the same column, 0.00px apart in one
+  translated column band (`SettlementReach.SEPARATION_FIXED`), so no offset this
+  stage owns separates them, and the corpus publishes no `WITHIN_REACH`
+  compatibility system at all. Two corridors confined at one boundary are not a source of
+  residue either: `peer_width`
+  states the room they take together, so settlement widens the boundary for both.
+  Nor is it longitudinal blindness in the band's blockers, which was measured
+  and ruled out: of the 14 out-of-band claims that measurement covered, 13 have
+  every blocking section on their violated side overlapping or abutting the
+  drawn leg, and the one that does not
+  (`fan_bypass_shared_band`, whose two 148px-away blockers bound the side it
+  holds) has its violated edge set by a section abutting the run. Selecting
+  blockers by longitudinal overlap alone was measured over the corpus and is a
+  regression, not a fix: it drops the box a corridor's own elbow turns beside
+  (16 to 26px past the run's end in 4 of those 14), whose removal widens the band
+  enough that the re-route re-centres the run in it, changing 8 renders and
+  flipping one vertical leg's direction, which
   `_assert_settlement_decisions_frozen` refuses outright; out-of-band claims rise
   from 21 to 32 as region selection reclassifies corridors onto other boundaries.
 - **Related tests**: `tests/test_envelope_settlement.py`,

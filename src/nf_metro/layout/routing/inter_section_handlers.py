@@ -1284,6 +1284,7 @@ class _MergeEntryRoute(Enum):
     STRAIGHT = "straight"
     CORRIDOR = "corridor"
     AROUND_BELOW = "around_below"
+    PERPENDICULAR_ENTRY = "perpendicular_entry"
     L_SHAPE = "l_shape"
 
 
@@ -1292,8 +1293,11 @@ def _merge_entry_route_kind(f: _InterFacts) -> _MergeEntryRoute:
 
     A near-collinear feed connects ``STRAIGHT`` to avoid a cramped curve.  A
     LEFT entry whose L-shape horizontal would cross a foreign section descends
-    the clear ``CORRIDOR`` if one exists, else loops ``AROUND_BELOW``;
-    otherwise a standard ``L_SHAPE`` into the entry port.
+    the clear ``CORRIDOR`` if one exists, else loops ``AROUND_BELOW``.  A
+    TOP/BOTTOM entry is approached down its own column, so its feeders take the
+    ``PERPENDICULAR_ENTRY`` staircase whose horizontal leg runs in the inter-row
+    gap; the ``L_SHAPE`` would instead turn onto the port's own Y, which for a
+    perpendicular port is the section's own top or bottom edge.
     """
     src, ctx, graph = f.src, f.ctx, f.graph
     ep = f.merge_ep
@@ -1301,6 +1305,8 @@ def _merge_entry_route_kind(f: _InterFacts) -> _MergeEntryRoute:
     if abs(ep.y - f.sy) < ctx.curve_radius:
         return _MergeEntryRoute.STRAIGHT
     ep_port = graph.ports.get(ep.id)
+    if ep_port and ep_port.side in (PortSide.TOP, PortSide.BOTTOM):
+        return _MergeEntryRoute.PERPENDICULAR_ENTRY
     if ep_port and ep_port.side == PortSide.LEFT:
         exclude = {src.section_id} if src.section_id else set[str]()
         if _h_segment_crosses_other_section(graph, f.sx, ep.x, ep.y, exclude):
@@ -1308,6 +1314,39 @@ def _merge_entry_route_kind(f: _InterFacts) -> _MergeEntryRoute:
                 return _MergeEntryRoute.CORRIDOR
             return _MergeEntryRoute.AROUND_BELOW
     return _MergeEntryRoute.L_SHAPE
+
+
+def _route_perpendicular_entry_stair(
+    edge: Edge, src: Station, entry_port: Station, n: int, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Feed a merge whose entry port sits on a TOP or BOTTOM section edge.
+
+    The same staircase the direct feeders of that port take, so a merged feeder
+    and an unmerged one reach the port down one column through one inter-row
+    channel rather than along two different shapes.
+
+    The channel is pinned to the gap touching the port's own edge.  A merge
+    feeder starts at a junction, which stands off the section grid and so names
+    no row of its own; left to derive the channel from its source the staircase
+    would traverse the gap under the feeder's origin and then run the shared
+    column the whole way down, through every box between.
+    """
+    port = ctx.graph.ports.get(entry_port.id)
+    assert port is not None and port.side in (PortSide.TOP, PortSide.BOTTOM)
+    tgt_sec = resolve_section(ctx.graph, entry_port)
+    if tgt_sec is None:
+        return None
+    if port.side is PortSide.TOP:
+        channel_y = held_in_reserved_band(
+            _top_entry_above_channel_y(ctx, tgt_sec),
+            ctx.reserved_bands.rows.at(tgt_sec.grid_row),
+        )
+        return _route_top_entry_l_shape(edge, src, entry_port, n, ctx, channel_y)
+    channel_y = held_in_reserved_band(
+        _bottom_entry_below_channel_y(ctx, tgt_sec),
+        ctx.reserved_bands.rows.at(tgt_sec.grid_row + 1),
+    )
+    return _route_bottom_entry_l_shape(edge, src, entry_port, n, ctx, channel_y)
 
 
 def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
@@ -1327,6 +1366,9 @@ def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
         ),
         _MergeEntryRoute.AROUND_BELOW: lambda: _route_around_section_below(
             edge, src, tgt, ep, f.i, f.n, ctx
+        ),
+        _MergeEntryRoute.PERPENDICULAR_ENTRY: lambda: _route_perpendicular_entry_stair(
+            edge, src, ep, f.n, ctx
         ),
         _MergeEntryRoute.L_SHAPE: lambda: _route_l_shape(edge, src, ep, f.i, f.n, ctx),
     }
@@ -3647,11 +3689,23 @@ def _perp_entry_bundle_members(
         ]
     else:
         final_x = tx
+        # A merge feeder's boundary is the port the merge feeds, not the merge
+        # station standing on that port's lead-in.
+        entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
+        # Where a merge converges on this port, its trunk and the port's direct
+        # feeders draw one line as one stroke, so they cannot land on lanes the
+        # port's own drop into the section does not depart from: every feeder
+        # lands on that drop's lane.  The landing leg runs into the port, and
+        # its stagger rides that leg's normal, so it takes the opposite sign to
+        # the lane's own draw.
+        merge_fed = entry_port_id in ctx.merge.entry_port_for.values()
 
         def tgt_offset(line_id: str) -> float:
+            if merge_fed:
+                return -_get_offset(ctx, entry_port_id, line_id)
             if len(line_ids) > 1:
                 return src_geom(line_id)
-            crossing = _perp_entry_crossing_x(ctx, edge.target, line_id, tx)
+            crossing = _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
             return src_geom(line_id) if crossing is None else tx - crossing
 
         members = [
@@ -3661,7 +3715,12 @@ def _perp_entry_bundle_members(
 
 
 def _route_top_entry_l_shape(
-    edge: Edge, src: Station, tgt: Station, n: int, ctx: _RoutingCtx
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    n: int,
+    ctx: _RoutingCtx,
+    channel_y: float | None = None,
 ) -> RoutedPath:
     """Staircase route into a TOP entry port, fanned along one centreline.
 
@@ -3676,6 +3735,10 @@ def _route_top_entry_l_shape(
     as a per-leg offset of it (rigid for an LR/RL drop, tapering into a TB/BT
     trunk), mirroring how LEFT entry ports receive a vertical run in the
     inter-column gap.
+
+    *channel_y* pins ``hy``; without it the channel is derived from the gap the
+    source's own row names, which a source standing off the section grid does
+    not have.
     """
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
@@ -3683,16 +3746,18 @@ def _route_top_entry_l_shape(
     dy = ty - sy
 
     # Y for the horizontal trunk channel in the inter-row gap.
-    mid_y = inter_row_channel_y(
-        ctx.graph,
-        src,
-        tgt,
-        sy,
-        ty,
-        dy,
-        ctx.curve_radius,
-        reserved=ctx.reserved_bands.rows,
-    )
+    mid_y = channel_y
+    if mid_y is None:
+        mid_y = inter_row_channel_y(
+            ctx.graph,
+            src,
+            tgt,
+            sy,
+            ty,
+            dy,
+            ctx.curve_radius,
+            reserved=ctx.reserved_bands.rows,
+        )
 
     # For a same-row cross-column producer the generic fallback in
     # inter_row_channel_y places the channel at ty + clearance (inside the
@@ -3707,7 +3772,8 @@ def _route_top_entry_l_shape(
     src_sec = resolve_section(ctx.graph, src)
     tgt_sec = resolve_section(ctx.graph, tgt)
     if (
-        src_sec is not None
+        channel_y is None
+        and src_sec is not None
         and tgt_sec is not None
         and src_sec.grid_row == tgt_sec.grid_row
         and mid_y > ty
@@ -3718,7 +3784,8 @@ def _route_top_entry_l_shape(
     # nearest it sits a bundle-width above the centre); keep the centre low
     # enough that even that line clears the source section's bottom edge.
     if (
-        n > 1
+        channel_y is None
+        and n > 1
         and src_sec is not None
         and tgt_sec is not None
         and src_sec.grid_row != tgt_sec.grid_row
@@ -3816,7 +3883,7 @@ def _route_top_entry_l_shape(
     if fan_single is not None:
         _pos_i, pos_n = fan_single
         corridor = ctx.fan_corridors.get(edge.source)
-        if corridor is not None and corridor.band_y is not None:
+        if channel_y is None and corridor is not None and corridor.band_y is not None:
             # Drop into the fan's shared traverse band, so this branch and its
             # wrap siblings turn at one Y rather than a few px apart.
             mid_y = corridor.band_y
@@ -3912,7 +3979,12 @@ def _bottom_entry_above_wrap_riser_x(
 
 
 def _route_bottom_entry_l_shape(
-    edge: Edge, src: Station, tgt: Station, n: int, ctx: _RoutingCtx
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    n: int,
+    ctx: _RoutingCtx,
+    channel_y: float | None = None,
 ) -> RoutedPath:
     """Staircase route into a BOTTOM entry port, fanned along one centreline.
 
@@ -3928,6 +4000,10 @@ def _route_bottom_entry_l_shape(
     as a per-leg offset of it (rigid for an LR/RL drop, tapering into a TB/BT
     trunk), mirroring how LEFT entry ports receive a vertical run in the
     inter-column gap.
+
+    *channel_y* pins ``hy``; without it the channel is derived from the gap the
+    source's own row names, which a source standing off the section grid does
+    not have.
     """
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
@@ -3935,16 +4011,18 @@ def _route_bottom_entry_l_shape(
     dy = ty - sy
 
     # Y for the horizontal trunk channel in the inter-row gap.
-    mid_y = inter_row_channel_y(
-        ctx.graph,
-        src,
-        tgt,
-        sy,
-        ty,
-        dy,
-        ctx.curve_radius,
-        reserved=ctx.reserved_bands.rows,
-    )
+    mid_y = channel_y
+    if mid_y is None:
+        mid_y = inter_row_channel_y(
+            ctx.graph,
+            src,
+            tgt,
+            sy,
+            ty,
+            dy,
+            ctx.curve_radius,
+            reserved=ctx.reserved_bands.rows,
+        )
 
     # For a same-row cross-column producer the generic fallback in
     # inter_row_channel_y places the channel above the boundary (inside the
@@ -3953,7 +4031,8 @@ def _route_bottom_entry_l_shape(
     src_sec = resolve_section(ctx.graph, src)
     tgt_sec = resolve_section(ctx.graph, tgt)
     if (
-        src_sec is not None
+        channel_y is None
+        and src_sec is not None
         and tgt_sec is not None
         and src_sec.grid_row == tgt_sec.grid_row
         and mid_y < ty
@@ -3964,7 +4043,8 @@ def _route_bottom_entry_l_shape(
     # nearest it sits a bundle-width below the centre); keep the centre high
     # enough that even that line clears the source section's top edge.
     if (
-        n > 1
+        channel_y is None
+        and n > 1
         and src_sec is not None
         and tgt_sec is not None
         and src_sec.grid_row != tgt_sec.grid_row
@@ -4062,7 +4142,7 @@ def _route_bottom_entry_l_shape(
     if fan_single is not None:
         _pos_i, pos_n = fan_single
         corridor = ctx.fan_corridors.get(edge.source)
-        if corridor is not None and corridor.band_y is not None:
+        if channel_y is None and corridor is not None and corridor.band_y is not None:
             # Drop into the fan's shared traverse band, so this branch and its
             # wrap siblings turn at one Y rather than a few px apart.
             mid_y = corridor.band_y

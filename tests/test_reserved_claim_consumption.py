@@ -9,58 +9,34 @@ positive_side_clearance]``.  A claimed corridor drawn outside that band was
 positioned by a geometry-derived fallback instead of its reservation, which is
 exactly what the reservation ledger exists to forbid.
 
-Most of the corpus satisfies that outright, and those fixtures are held to it.
-The rest are enumerated in ``KNOWN_UNCONSUMED`` by the ``(path_rank,
-segment_rank)`` of the claim itself, so the bound names which leg is out rather
-than how many are: an unrecorded claim fails, a recorded one that comes into
-band fails until its entry goes, and swapping one leg for another fails too.
+The whole corpus satisfies that, and every fixture is held to it with no
+exceptions.  All but two claims are drawn inside their band at exact precision,
+rather than merely within the tolerance this bound allows.
 
-What those remaining claims are is measured, not assumed.  Both are one
-convergence trunk, whose coordinate the convergence plan fixes and validates the
-emitted geometry against, so no post-pass may write it.  Moving it is blocked at
-the plan rather than at the geometry, and which is which was established by
-building the geometry fix and measuring what it cost: seating the merge junction
-on the perpendicular port's lead-in does put all six feeders in band, but the
-trunk then occupies the same column an *unowned* same-line member already uses to
-enter that port, `UNOWNED_MEMBER_CORRIDOR` refuses it, and all three of the
-fixture's convergences fall back from planned to compatibility.  Exempting that
-one separation was tried and falsified: the plans become planned and the render
-then dies in `_coincide_same_line_tracks` on two planners pinning different
-columns for one same-line stroke.  A plan that may state a trunk sharing a stroke
-with another planner's pinned axis, or a membership that stops calling that
-member unowned, is #1658's "plan-driven whole-system emission", which is the
-owner `ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR` already names.
-
-Two further claims are drawn out of band by exactly one pixel, inside the
-tolerance this bound allows and so not enumerated above: the `hic_reads` lane
-turning up into `scaffolding` in each of the two `genomeassembly` maps.  Its
-column gap is 50px wide and carries three lanes.  The lowest is a
-planned exit turn's descent, whose coordinate is the `ExitTurnAxis`, so no pass
-may reseat it; the two above it are a bundle seated from that descent by
-`cotravelling_lane_clearance` and one `OFFSET_STEP`.  The descent stands 4px
-above the band floor and the stack from it takes 15px of the band's 18, so the
-upper lane ends 1px past the far clearance.
+Those two are out by exactly one pixel: the ``hic_reads`` lane turning up into
+``scaffolding`` in each of the two ``genomeassembly`` maps.  Its column gap is
+50px wide and carries three lanes.  The lowest is a planned exit turn's descent,
+whose coordinate is the ``ExitTurnAxis``, so no pass may reseat it; the two above
+it are a bundle seated from that descent by :func:`cotravelling_lane_clearance`
+and one ``OFFSET_STEP``.  The descent stands 4px above the band floor and the
+stack from it takes 15px of the band's 18, so the upper lane ends 1px past the
+far clearance.
 
 That shortfall is a position rather than a width -- the reservation's own
-`minimum_width` is met with 14px to spare -- so nothing the boundary is asked
-for states it, and reaching it needs the pinned descent to bound the boundary
-the way `launch_anchors` makes a launch station bound it.  Stating it that way
-was built and measured, and settlement cannot pay it: `SETTLEMENT_QUANTUM` is
-`COORD_TOLERANCE`, `_settle_axis` acts only above `COORD_TOLERANCE`, and
-`ReservationCoordinateTranslation` refuses an amount that small, so the least
+``minimum_width`` is met with 14px to spare -- so nothing the boundary is asked
+for states it, and reaching it needs the pinned descent to bound the boundary the
+way ``launch_anchors`` makes a launch station bound it.  Stating it that way was
+built and measured, and settlement cannot pay it: ``SETTLEMENT_QUANTUM`` is
+``COORD_TOLERANCE``, ``_settle_axis`` acts only above ``COORD_TOLERANCE``, and
+``ReservationCoordinateTranslation`` refuses an amount that small, so the least
 translation settlement can express is 2px and a 1px deficit is below the
-resolution the ledger works at.  Lowering all three floors does close both
-claims for +1px of map width each (+0.07%), and costs
-`examples/topologies/exit_run_three_drop_columns.mmd` its render --
-settlement then changes route topology under
-`_assert_settlement_decisions_frozen` -- and puts an
-`ambiguous_exit_continuation` lane 4.5px out of band between two pinned lanes
-17.5px apart that owe each other 22px.  Both claims therefore sit with the
-convergence trunks above under #1658: the coordinate is the plan's, and so is
-the room the lanes beside it need.
-
-Every other claim in the corpus is drawn inside its band at exact precision,
-rather than merely within the tolerance this bound allows.
+resolution the ledger works at.  Lowering all three floors does close both claims
+for +1px of map width each, and costs
+``examples/topologies/exit_run_three_drop_columns.mmd`` its render -- settlement
+then changes route topology under ``_assert_settlement_decisions_frozen`` -- and
+puts an ``ambiguous_exit_continuation`` lane 4.5px out of band between two pinned
+lanes 17.5px apart that owe each other 22px.  The coordinate is the exit-turn
+plan's, and so is the room the lanes beside it need.
 """
 
 from __future__ import annotations
@@ -114,16 +90,6 @@ KNOWN_NOT_RENDERING = frozenset(
         "tests/fixtures/topologies/twoline_fanout_up.mmd",
     }
 )
-
-# Fixture -> the ``(path_rank, segment_rank)`` of each realised gap claim drawn
-# outside its own reservation's band by more than ``COORD_TOLERANCE``.
-# Regenerate by running this module's ``_out_of_band_claims`` over ``_CORPUS``;
-# closing a fixture means deleting its entry.
-KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
-    "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
-        {(216, 2), (217, 2)}
-    ),
-}
 
 
 def _out_of_band_claims(path: Path) -> dict[tuple[int, int], str] | None:
@@ -186,27 +152,8 @@ def test_realised_gap_claims_are_drawn_in_their_reserved_band(path: Path) -> Non
             "the regression or add it to KNOWN_NOT_RENDERING with the reason it "
             "cannot render."
         )
-    recorded = KNOWN_UNCONSUMED.get(rel, frozenset())
-    assert set(violations) == recorded, (
-        "the claims drawn outside their reserved band are not the ones recorded: "
-        f"unrecorded {sorted(set(violations) - recorded)}, recorded but in band "
-        f"{sorted(recorded - set(violations))}. An unrecorded claim is a "
-        "regression; one that comes into band means dropping its "
-        "KNOWN_UNCONSUMED entry, and the fixture's key once the set empties:\n"
+    assert not violations, (
+        "a claim drawn outside its reserved band was positioned by a "
+        "geometry-derived fallback rather than by its reservation:\n"
         + "\n".join(violations[key] for key in sorted(violations))
     )
-
-
-def test_the_unconsumed_ledger_names_only_fixtures_that_render() -> None:
-    """A stale entry would silently loosen the bound for a live fixture.
-
-    ``test_realised_gap_claims_are_drawn_in_their_reserved_band`` fails outright
-    for any ``KNOWN_UNCONSUMED`` entry that stops rendering, so the disjointness
-    checked here is what makes that guarantee actually apply to every entry:
-    a fixture cannot hide behind ``KNOWN_NOT_RENDERING`` while also carrying a
-    claim-consumption bound.
-    """
-    known = set(KNOWN_UNCONSUMED)
-    corpus = {str(path.relative_to(_ROOT)) for path in _CORPUS}
-    assert known <= corpus, known - corpus
-    assert not (known & KNOWN_NOT_RENDERING), known & KNOWN_NOT_RENDERING

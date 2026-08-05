@@ -13,6 +13,7 @@ from nf_metro.api import prepare_graph
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
     BindingKind,
+    ConvergenceConflictKind,
     ConvergenceDisposition,
     ConvergenceEndpointRole,
     ConvergencePlanId,
@@ -495,17 +496,10 @@ def test_target_section_orientations_use_one_convergence_model(
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
 
-@pytest.mark.parametrize(
-    "path",
-    (
-        FROZEN / "seed_15.mmd",
-        ROOT / "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd",
-    ),
-)
-def test_planned_opening_turns_remain_exact_after_normalization(path: Path) -> None:
+def test_planned_opening_turns_remain_exact_after_normalization() -> None:
     from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
-    _graph, _offsets, observed = _observe(path)
+    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
     planned = {
         landing.member_id: landing
         for plan in observed.plan.convergence_plans
@@ -646,7 +640,17 @@ def test_trunk_flank_settlement_rederives_curve_radii(
         assert route.curve_radii[radius_rank] != 99.0
 
 
-def test_perpendicular_entry_convergences_emit_both_vertical_directions() -> None:
+def test_perpendicular_entry_convergences_take_whole_system_compatibility() -> None:
+    """Three merges into one TOP port are one route system, and it is compatible.
+
+    Each merge is seated on the vertical lead-in its perpendicular port
+    receives, so the trunk runs down the port's own column -- the column an
+    unowned member of the same system and the same line already uses to enter
+    that port.  ``UNOWNED_MEMBER_CORRIDOR`` refuses a planned corridor there,
+    and a logical group migrates whole or not at all, so all three take the
+    compatibility disposition together rather than one of them planning a trunk
+    the other two would have to route around.
+    """
     path = (
         ROOT
         / "tests"
@@ -655,24 +659,21 @@ def test_perpendicular_entry_convergences_emit_both_vertical_directions() -> Non
         / "cross_column_perp_entry_overflow.mmd"
     )
     _graph, _offsets, observed = _observe(path)
-    vertical = [
-        plan
-        for plan in observed.plan.convergence_plans
-        if plan.trunk_axis is not None and plan.trunk_axis.axis is DemandAxis.Y
-    ]
+    plans = observed.plan.convergence_plans
 
-    assert {plan.trunk_axis.direction.value for plan in vertical} == {"U", "D"}
-    for plan in vertical:
-        continuation = plan.outgoing_continuations[0]
-        assert continuation.covered_by_member_id is not None
-        assert continuation.start_point != continuation.end_point
-        carrier = next(
-            route
-            for route in observed.routes
-            if route.convergence_member_id == str(continuation.covered_by_member_id)
-        )
-        assert point_to_polyline_distance(continuation.start_point, carrier.points) == 0
-        assert point_to_polyline_distance(continuation.end_point, carrier.points) == 0
+    assert len(plans) == 3
+    assert len({plan.system_id for plan in plans}) == 1
+    assert {plan.disposition for plan in plans} == {ConvergenceDisposition.LEGACY}
+    assert {plan.conflict.kind for plan in plans} == {
+        ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR
+    }
+    # A fallback is transactional: nothing of the abandoned plan survives it.
+    for plan in plans:
+        assert not plan.owns_geometry
+        assert plan.trunk_axis is None
+        assert plan.landings == ()
+        assert plan.outgoing_continuations == ()
+    assert not any(route.convergence_member_id for route in observed.routes)
 
 
 def test_planned_landing_facts_match_emitted_terminal_geometry() -> None:
