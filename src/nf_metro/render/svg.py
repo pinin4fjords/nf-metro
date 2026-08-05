@@ -1159,6 +1159,19 @@ def _settle_render_geometry(
             graph,
             coordinate_translations=settlement.coordinate_translations,
         )
+        # adopt_route_reservation_ledger rebuilds the published plan from the
+        # frozen pass, which never saw the re-route's own diagnostics; carry
+        # forward the one class that names a decision the re-route was itself
+        # forced to discard (_adopt_prior_dispositions).
+        adopted_dispositions = tuple(
+            item
+            for item in routed_plan.diagnostics
+            if item.code == "exit-turn-disposition-adopted"
+        )
+        if adopted_dispositions:
+            route_plan = replace(
+                route_plan, diagnostics=route_plan.diagnostics + adopted_dispositions
+            )
     route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
     assert_reservations_are_settled(
         graph,
