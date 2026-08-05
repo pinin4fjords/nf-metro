@@ -1430,15 +1430,24 @@ in pipeline order.
 - **Allowed writes**: `Section.bbox_x` / `Section.bbox_y` and the `x` / `y` of
   the stations and ports those sections own, all by one shared per-boundary
   amount. Junctions live in inter-section space and are reproduced by routing.
-- **Postcondition**: Every row-gap and column-gap reservation whose far-side
-  blockers all belong to the translated band has non-negative capacity slack
-  against the ledger settlement was handed. The only deficit that can survive
-  is a claim whose far side is bounded by a section spanning across the
-  boundary; the measurement puts such a section on the near side too, so its
-  own box lies inside the claimed width and there is no gap there to allocate.
-  Those carry a `SettlementObstruction` naming the spanning sections and any
-  author pin behind them. Every convergence system left on the compatibility
-  path carries a `CompatibilityOwnership` record measured by
+- **Translation ownership**: A section belongs to the band holding its grid
+  start, so a boundary owns every section starting at or beyond it. A section
+  straddling the boundary starts above it and stays: carrying it would take its
+  upper portion into the gap above and narrow that separation. Both sets are
+  recorded on the `SettlementTranslation`, and holding a straddling section is
+  sound exactly when it bounds none of the corridors the translation settled --
+  if it did, the widening never reached them. That is asserted on the settled
+  geometry, together with the monotone claim, by re-measuring every facing pair
+  of boxes and every straddling section's corridors.
+- **Postcondition**: Every row-gap and column-gap reservation has non-negative
+  capacity slack against the ledger settlement was handed. No deficit is
+  exempt: a boundary is always widenable by a global translation, so a deficit
+  that survives the sweep is an infeasible arrangement and the closing guard
+  refuses it on the strict path. A boundary that every relevant section spans
+  across has no side to measure, so it is never selected as a corridor's region
+  in the first place -- the measurement bounds a boundary by the sections lying
+  wholly on each side of it, and raises otherwise. Every convergence system left
+  on the compatibility path carries a `CompatibilityOwnership` record measured by
   `attribute_compatibility_systems` on the plan the map draws: the tightest
   capacity slack across the corridors that system reserved, the
   `ConvergenceConflict` its planner recorded (kind, axis, both run coordinates,
@@ -1454,7 +1463,13 @@ in pipeline order.
   order, port sides, and author-pinned grid relationships are unchanged.
 - **Out of scope**: Canvas-side corridors, whose far boundary is the canvas
   edge rather than a grid neighbour; closing one grows a margin, which no row
-  or column offset owns.
+  or column offset owns. They are measured and reported by the closing guard
+  rather than gated: a `CanvasRegion` names only which canvas side it lies
+  against, with none of the row/column locality its gap-region siblings carry,
+  so claims from unrelated parts of a map group into one reservation whenever
+  their travel intervals touch, and the bundle width and single boundary search
+  that follow describe no drawn corridor. 22 corpus claims carry such a deficit
+  on maps that render correctly.
 - **Transactional**: The pre-settlement coordinates are restored before any
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.
@@ -1488,9 +1503,23 @@ in pipeline order.
   through the band (`held_in_reserved_band`) so the reservation's answer wins
   where the two disagree. A boundary whose claims intersect to nothing, and
   every gap the ledger never reached, keep the row- or column-edge derivation.
-  A pass that allocates several corridors across one boundary at once
-  (`_materialize_gap_slots`) keeps the raw gap: the per-boundary intersection
-  describes the room one corridor is left, not the room the whole gap holds.
+- **Consumption is not yet claim-level**: `ReservedCorridors` answers "what is
+  clear at this boundary", which is the intersection of every claim crossing it.
+  That cannot separate two corridors crossing one boundary in opposite
+  directions -- their intersection is narrower than either, sometimes a single
+  coordinate -- so a pass allocating several corridors across one boundary at
+  once (`_materialize_gap_slots`) keeps the raw gap instead. Eight post-passes
+  therefore still position channels without reading the ledger:
+  `_separate_opposing_inter_row_trunks`, `_materialize_trunk_slots`,
+  `_spread_diagonal_bundles`, `_bundle_divergent_distinct_traverses`,
+  `_coincide_fanout_opening_descents`, `_stagger_convergent_distinct_lines`,
+  `_coincide_same_line_tracks`, `_materialize_gap_slots`. Measured on the
+  corpus, 76 of 560 realised gap corridors are drawn outside the band their own
+  reservation realises. Closing that means keying bands by a claim's
+  `(path_rank, segment_rank)` -- which the frozen plan and the settled re-route
+  agree on, because the re-route is asserted to reproduce route order and
+  topology exactly -- and giving `_layout_gap_bundle` a band per bundle rather
+  than one pair of gap edges for all of them.
 - **Related tests**: `tests/test_envelope_settlement.py`,
   `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
