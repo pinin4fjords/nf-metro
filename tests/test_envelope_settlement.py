@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -13,10 +14,13 @@ from nf_metro.layout import envelope_settlement
 from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
+    SettlementReach,
     SettlementShortfall,
+    attribute_compatibility_systems,
     sections_spanning_the_gap,
     settle_route_envelopes,
 )
+from nf_metro.layout.geometry import shift_section
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     assert_reservations_are_settled,
@@ -29,7 +33,7 @@ from nf_metro.layout.route_reservations import (
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import _inter_row_band_fits
-from nf_metro.render.svg import build_observed_render_plan
+from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -85,6 +89,27 @@ def _rendered_plan(path: Path, *, permissive: bool = False):
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
         graph.permissive = permissive
         return build_observed_render_plan(graph, resolve_theme(None, graph))
+
+
+def _settled(path: Path):
+    """The geometry a render of *path* draws, and the plan drawn on it."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        graph.permissive = True
+        theme = resolve_theme(None, graph)
+        route_plan = build_observed_render_plan(graph, theme).route_plan
+        return _settled_render_graph(graph, theme), route_plan
+
+
+def _sole(items: tuple):
+    assert len(items) == 1, f"expected one compatibility system, found {len(items)}"
+    return items[0]
+
+
+def _sole_compatibility_exit(path: Path):
+    graph, plan = _settled(path)
+    return _sole(attribute_compatibility_systems(graph, plan))
 
 
 def _capacity_deficits(plan) -> dict[str, float]:
@@ -571,7 +596,7 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
     shortfall = SettlementShortfall(
         reservation.id, reservation.claimant_member_ids, 64.0, 12.0, True
     )
-    settlement = EnvelopeSettlement((), (), (), (shortfall,))
+    settlement = EnvelopeSettlement((), (), (shortfall,))
 
     with pytest.raises(LayoutInvariantError) as caught:
         assert_reservations_are_settled(graph, plan, settlement, strict=True)
@@ -625,15 +650,84 @@ def _widest_slack_row_reservation(graph, plan):
     return target, boundary
 
 
-def test_a_compatibility_system_with_adequate_corridors_names_its_owner() -> None:
-    graph, plan = _observe(TOPOLOGIES / "merge_bottom_row_bypass.mmd")
-    settlement = settle_route_envelopes(graph, plan)
-    assert settlement.compatibility_ownership
-    for item in settlement.compatibility_ownership:
-        assert item.convergence_reason
-        assert item.corridor_count > 0
-        assert item.worst_capacity_slack >= 0.0
-        assert "#1658" in item.owner
+@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
+def test_a_compatibility_exit_quotes_the_geometry_it_was_measured_on(
+    path: Path,
+) -> None:
+    """Every number in the exit has to be re-derivable from the settled map.
+
+    The published sentence is the evidence #1660 accepts, so each quantity in it
+    is checked against the geometry it claims to describe rather than against a
+    remembered wording.
+    """
+    graph, plan = _settled(path)
+    published = attribute_compatibility_systems(graph, plan)
+    assert published
+    for item in published:
+        assert item.conflict is not None
+        slacks = [
+            realised.capacity_slack
+            for reservation in plan.reservations
+            if reservation.system_id == item.system_id
+            and isinstance(reservation.region, RowGapRegion | ColumnGapRegion)
+            and (realised := realise_reservation(graph, reservation)) is not None
+        ]
+        assert item.corridor_count == len(slacks)
+        assert item.worst_capacity_slack == min(slacks)
+        assert f"{item.conflict.separation:.2f}px" in item.message
+        for site in item.conflict.sites:
+            for x, y in site:
+                assert f"({x:.1f},{y:.1f})" in item.message
+        assert item.owner == item.conflict.kind.owner
+        assert "#1658" in item.message
+
+
+def test_one_compatibility_reason_yields_different_evidence_on_different_maps() -> None:
+    """Two systems the planner rejected for the same reason are not the same
+    case, and an exit derived from geometry says so."""
+    fixed = _sole_compatibility_exit(ROOT / "examples" / "genomeassembly.mmd")
+    grows = _sole_compatibility_exit(ROOT / "examples" / "genomeassembly_staggered.mmd")
+    assert fixed.conflict is not None and grows.conflict is not None
+    assert fixed.conflict.kind is grows.conflict.kind
+    assert fixed.reach is SettlementReach.SEPARATION_FIXED
+    assert grows.reach is SettlementReach.SEPARATION_ONLY_GROWS
+    assert fixed.conflict.separation != grows.conflict.separation
+    assert fixed.message != grows.message
+
+
+def test_a_compatibility_exit_stops_claiming_a_limit_settlement_can_reach() -> None:
+    """The exit is a claim about what row and column offsets cannot move, so
+    putting a boundary between the conflicting runs has to withdraw it."""
+    path = TOPOLOGIES / "merge_right_entry.mmd"
+    graph, plan = _settled(path)
+    before = _sole(attribute_compatibility_systems(graph, plan))
+    assert before.reach is SettlementReach.SEPARATION_FIXED
+    conflict = before.conflict
+    assert conflict is not None
+
+    lower, upper = sorted(site[0][1] for site in conflict.sites)
+    for section in graph.sections.values():
+        if section.grid_row >= before.bands[0]:
+            section.bbox_y = max(section.bbox_y, (lower + upper) / 2)
+
+    reach, bands = envelope_settlement._settlement_reach(graph, conflict)
+    assert reach is SettlementReach.WITHIN_REACH
+    assert bands[0] != bands[1]
+    after = replace(before, reach=reach, bands=bands)
+    assert "not attributed away from settlement" in after.message
+
+
+def test_a_compatibility_exit_republishes_the_slack_it_finds() -> None:
+    """The corridor half of the evidence is a live measurement: widening the
+    boundary the corridor stands in has to change the number it publishes."""
+    graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
+    before = _sole(attribute_compatibility_systems(graph, plan))
+    for section in graph.sections.values():
+        if section.grid_row >= 1:
+            shift_section(graph, section, dy=90.0)
+    after = _sole(attribute_compatibility_systems(graph, plan))
+    assert after.worst_capacity_slack > before.worst_capacity_slack
+    assert f"{after.worst_capacity_slack:.2f}px to spare" in after.message
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
