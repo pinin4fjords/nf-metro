@@ -6285,26 +6285,18 @@ def assert_reservations_are_settled(
     measures the ledger the settled re-route published -- a different set of
     claims, since corridors appear and vanish across a translation.
 
-    A route drawn through a corridor narrower than
-    its reservation requires is a violated hard clearance, so the strict path
-    refuses it and names the claimant, the corridor span, the blockers, and both
-    widths.  That holds whether the corridor was one settlement could have
-    widened (a broken postcondition) or one pinned by a section outside the band
-    it translates (an arrangement no offset can satisfy) -- rendering through it
-    is wrong either way.
+    A route drawn through a corridor narrower than its reservation requires is
+    a violated hard clearance, so the strict path refuses it and names the
+    claimant, the corridor span, the blockers, and both widths.
 
-    The exception is a claim that does not describe a corridor at all: when
-    every section across the span crosses the boundary rather than bounding it,
-    the measured far side lands ahead of the near side.  There is no gap to
-    allocate and no arrangement to reject, so that is reported as a ledger
-    coherence problem rather than failing a map over it.
+    The exception is a claim that does not describe a corridor at all: when the
+    section bounding the far side spans across the boundary rather than sitting
+    beyond it, that section is measured on the near side too and the far side
+    lands ahead of the near side.  There is no gap to allocate and no
+    arrangement to reject, so that is reported as a ledger coherence problem
+    rather than failing a map over it.
     """
-    from nf_metro.layout.envelope_settlement import (
-        ObstructionKind,
-    )
-    from nf_metro.layout.envelope_settlement import (
-        sections_bounding_both_sides as _sections_bounding_both_sides,
-    )
+    from nf_metro.layout.envelope_settlement import sections_spanning_the_gap
     from nf_metro.layout.route_reservations import (
         ColumnGapRegion,
         RowGapRegion,
@@ -6312,24 +6304,14 @@ def assert_reservations_are_settled(
     )
 
     worst: tuple[float, str] | None = None
-    deferred = [
-        item.message
-        for item in settlement.obstructions
-        if item.kind is ObstructionKind.INCOHERENT_CLAIM
-    ]
+    deferred = [item.message for item in settlement.obstructions]
     for shortfall in settlement.shortfalls:
-        if shortfall.kind is ObstructionKind.INCOHERENT_CLAIM:
+        if not shortfall.describes_a_gap:
             continue
         detail = (
             "envelope settlement did not meet a demand it was handed: "
             f"{shortfall.message}"
         )
-        if shortfall.pinned_section_ids:
-            detail += (
-                "; the authored grid pins section(s) "
-                f"{', '.join(shortfall.pinned_section_ids)} across it, so no row "
-                "or column offset can supply the clearance"
-            )
         if strict:
             raise LayoutInvariantError(detail)
         warnings.warn(detail, category=PermissiveGuardWarning, stacklevel=2)
@@ -6338,6 +6320,8 @@ def assert_reservations_are_settled(
             continue
         realised = realise_reservation(graph, reservation)
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
+            continue
+        if sections_spanning_the_gap(graph, reservation, realised):
             continue
         claimants = ", ".join(sorted(reservation.claimant_member_ids))
         blockers = ", ".join(
@@ -6350,8 +6334,6 @@ def assert_reservations_are_settled(
             f"requires {realised.required_width:.1f}px and has "
             f"{realised.available_width:.1f}px between {blockers}"
         )
-        if _sections_bounding_both_sides(realised):
-            continue
         if worst is None or realised.capacity_slack < worst[0]:
             worst = (realised.capacity_slack, detail)
     if worst is not None:

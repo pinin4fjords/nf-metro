@@ -1428,13 +1428,14 @@ in pipeline order.
   amount. Junctions live in inter-section space and are reproduced by routing.
 - **Postcondition**: Every row-gap and column-gap reservation whose far-side
   blockers all belong to the translated band has non-negative capacity slack
-  against the ledger settlement was handed. Any remaining deficit carries a
-  `SettlementObstruction` naming the sections responsible, classified as a pin
-  outside the translated band or as a claim whose two sides name the same
-  spanning section and so describe no gap at all. A convergence system left on
-  the compatibility path whose corridors all fit carries a
-  `CompatibilityOwnership` record naming the owner of the decision it is short
-  of.
+  against the ledger settlement was handed. The only deficit that can survive
+  is a claim whose far side is bounded by a section spanning across the
+  boundary; the measurement puts such a section on the near side too, so its
+  own box lies inside the claimed width and there is no gap there to allocate.
+  Those carry a `SettlementObstruction` naming the spanning sections and any
+  author pin behind them. A convergence system left on the compatibility path
+  whose corridors all fit carries a `CompatibilityOwnership` record naming the
+  owner of the decision it is short of.
 - **Invariants preserved**: No row or column separation decreases. Section
   sizes, a station's position within its section, plan-owned frames, lane
   order, port sides, and author-pinned grid relationships are unchanged.

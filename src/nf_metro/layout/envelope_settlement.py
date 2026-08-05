@@ -26,10 +26,12 @@ set, with no convergence argument behind it.  Settlement therefore runs once,
 against the ledger it was handed.  A demand that only the re-routed geometry
 reveals is reported, not chased.
 
-A boundary whose far-side blocker cannot be translated is not an
-envelope-allocation problem.  Settlement records an attributed obstruction
-naming the blocker instead of translating geometry that would not help, and
-distinguishes a claim it cannot act on from a corridor it merely cannot widen.
+A claim whose far side is bounded by a section spanning across the boundary is
+not a corridor at all.  The measurement puts a spanning section on the near side
+as well, so the section's own box lies inside the width the claim asks for, and
+the far side lands ahead of the near side.  Settlement records an attributed
+obstruction naming that section instead of translating geometry that cannot
+help.
 """
 
 from __future__ import annotations
@@ -58,19 +60,6 @@ from nf_metro.layout.route_reservations import (
     realise_reservation,
 )
 from nf_metro.parser.model import MetroGraph, Section
-
-
-class ObstructionKind(Enum):
-    """Why a deficit survived a settlement pass."""
-
-    PINNED_BLOCKER = "pinned-blocker"
-    """The corridor is real, but a section outside the translated band bounds
-    it, so no offset this stage owns can widen it."""
-
-    INCOHERENT_CLAIM = "incoherent-claim"
-    """The claim does not describe a corridor: one section bounds both of its
-    sides, because it spans across the boundary instead of sitting either side
-    of it.  There is no gap between a box and itself to allocate."""
 
 
 class SettlementAxis(Enum):
@@ -108,7 +97,12 @@ class SettlementTranslation:
 
 @dataclass(frozen=True, slots=True)
 class SettlementObstruction:
-    """A deficit no translation this stage owns is able to close."""
+    """A claim that does not describe an allocatable gap.
+
+    The far side is bounded by a section spanning across the boundary, which
+    the measurement also puts on the near side.  There is no width between a
+    box and itself, so no offset opens one.
+    """
 
     axis: SettlementAxis
     boundary: int
@@ -117,25 +111,22 @@ class SettlementObstruction:
     claimant_member_ids: tuple[EmissionMemberId, ...]
     blocker_ids: tuple[str, ...]
     blocking_section_ids: tuple[str, ...]
-    kind: ObstructionKind
+    pinned_section_ids: tuple[str, ...] = ()
 
     @property
     def message(self) -> str:
         claimants = ", ".join(sorted(self.claimant_member_ids))
         blockers = ", ".join(self.blocking_section_ids)
-        if self.kind is ObstructionKind.INCOHERENT_CLAIM:
-            return (
-                f"the corridor claimed by {claimants} at {self.axis.value} "
-                f"boundary {self.boundary} measures its far side ahead of its "
-                f"near side, because section(s) {blockers} cross the boundary "
-                f"instead of bounding it; there is no gap here to allocate"
-            )
+        pins = (
+            f"; the authored grid pins {', '.join(self.pinned_section_ids)} across it"
+            if self.pinned_section_ids
+            else ""
+        )
         return (
-            f"{self.axis.value} boundary {self.boundary} is short of the "
-            f"corridor claimed by {claimants} by {self.deficit:.2f}px, but "
-            f"section(s) {blockers} bound the far side without belonging to "
-            f"the translated {self.axis.value}s, so widening the boundary "
-            f"cannot supply it"
+            f"the corridor claimed by {claimants} at {self.axis.value} "
+            f"boundary {self.boundary} measures its far side ahead of its "
+            f"near side, because section(s) {blockers} span across the boundary "
+            f"instead of bounding it; there is no gap here to allocate{pins}"
         )
 
 
@@ -190,8 +181,7 @@ class SettlementShortfall:
     claimant_member_ids: tuple[EmissionMemberId, ...]
     required_width: float
     available_width: float
-    kind: ObstructionKind | None
-    pinned_section_ids: tuple[str, ...] = ()
+    describes_a_gap: bool
 
     @property
     def message(self) -> str:
@@ -281,43 +271,51 @@ def _reservations_on(
     )
 
 
-def _obstructing_sections(
-    graph: MetroGraph, axis: _Axis, boundary: int, blocker_ids: Iterable[str]
-) -> tuple[str, ...]:
-    """Far-side blockers that stay put when *boundary* onward translates.
-
-    A blocker outside the translated band still bounds the corridor after the
-    translation, so the boundary gains nothing.  Row-spanning sections that
-    straddle the boundary are the usual case.
-    """
-    stuck: list[str] = []
-    for blocker_id in blocker_ids:
-        section_id = blocker_id.removeprefix(f"{axis.blocker_prefix}:")
-        section = graph.sections.get(section_id)
-        if section is None or axis.start_index(section) < boundary:
-            stuck.append(section_id)
-    return tuple(sorted(set(stuck)))
+def _axis_of(reservation: RouteReservation) -> _Axis | None:
+    if isinstance(reservation.region, RowGapRegion):
+        return _ROW_AXIS
+    if isinstance(reservation.region, ColumnGapRegion):
+        return _COLUMN_AXIS
+    return None
 
 
-def _blocker_sections(blocker_ids: Iterable[str]) -> set[str]:
-    return {blocker_id.partition(":")[2] for blocker_id in blocker_ids}
-
-
-def sections_bounding_both_sides(
+def sections_spanning_the_gap(
+    graph: MetroGraph,
+    reservation: RouteReservation,
     realised: RealisedRouteReservation,
 ) -> tuple[str, ...]:
-    """Sections named as the blocker on both sides of the same corridor.
+    """Far-side blockers that span across the boundary instead of bounding it.
 
-    A section can only bound a gap from above and below at once by spanning
-    across it, which means the measurement found no gap there at all.  Derived
-    from the measurement itself rather than from a reservation id, so it stays
-    valid across the re-routed ledger, whose ids need not be the ones
-    settlement saw.
+    A section reaches the far side of a boundary either by starting at or after
+    it, or by spanning across it; only the first kind moves when settlement
+    translates the boundary onward.  The second kind is also measured on the
+    near side, so its own box lies inside the width the claim asks for and the
+    far side is measured ahead of the near side.  Naming it says both things at
+    once: nothing here is allocatable, and no translation would help.
+
+    Recomputed from the graph and the measurement rather than remembered
+    against a reservation id, so it stays valid across a re-route, whose ledger
+    need not carry the ids settlement saw.
     """
-    both = _blocker_sections(realised.negative_blocker_ids) & _blocker_sections(
-        realised.positive_blocker_ids
+    axis = _axis_of(reservation)
+    if axis is None:
+        return ()
+    boundary = axis.boundary_of(reservation)
+    spanning = set()
+    for blocker_id in realised.positive_blocker_ids:
+        section = graph.sections.get(blocker_id.removeprefix(f"{axis.blocker_prefix}:"))
+        if section is not None and axis.start_index(section) < boundary:
+            spanning.add(section.id)
+    return tuple(sorted(spanning))
+
+
+def _author_pinned(graph: MetroGraph, section_ids: Iterable[str]) -> tuple[str, ...]:
+    provenance = graph.layout_provenance
+    return tuple(
+        section_id
+        for section_id in section_ids
+        if provenance.author_owns_grid(section_id)
     )
-    return tuple(sorted(both))
 
 
 def _settle_axis(
@@ -340,11 +338,8 @@ def _settle_axis(
             deficit = -realised.capacity_slack
             if deficit <= COORD_TOLERANCE:
                 continue
-            stuck = _obstructing_sections(
-                graph, axis, boundary, realised.positive_blocker_ids
-            )
-            shared = sections_bounding_both_sides(realised)
-            if shared:
+            spanning = sections_spanning_the_gap(graph, reservation, realised)
+            if spanning:
                 obstructions.append(
                     SettlementObstruction(
                         axis.axis,
@@ -353,22 +348,8 @@ def _settle_axis(
                         reservation.id,
                         reservation.claimant_member_ids,
                         realised.positive_blocker_ids,
-                        shared,
-                        ObstructionKind.INCOHERENT_CLAIM,
-                    )
-                )
-                continue
-            if stuck:
-                obstructions.append(
-                    SettlementObstruction(
-                        axis.axis,
-                        boundary,
-                        deficit,
-                        reservation.id,
-                        reservation.claimant_member_ids,
-                        realised.positive_blocker_ids,
-                        stuck,
-                        ObstructionKind.PINNED_BLOCKER,
+                        spanning,
+                        _author_pinned(graph, spanning),
                     )
                 )
                 continue
@@ -494,7 +475,6 @@ def attach_settlement_diagnostics(
 def _verify_against_input_ledger(
     graph: MetroGraph,
     plan: RoutePlan,
-    obstructions: list[SettlementObstruction],
 ) -> tuple[SettlementShortfall, ...]:
     """Re-measure the demands settlement was handed, on the geometry it left.
 
@@ -502,11 +482,6 @@ def _verify_against_input_ledger(
     can state it: the ledger a later re-route publishes is a different set of
     claims, so a deficit found there answers a different question.
     """
-    kind_by_id = {item.reservation_id: item.kind for item in obstructions}
-    blockers_by_id = {
-        item.reservation_id: item.blocking_section_ids for item in obstructions
-    }
-    provenance = graph.layout_provenance
     shortfalls: list[SettlementShortfall] = []
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
@@ -514,19 +489,13 @@ def _verify_against_input_ledger(
         realised = realise_reservation(graph, reservation)
         if realised is None or realised.capacity_slack >= -COORD_TOLERANCE:
             continue
-        pinned = tuple(
-            section_id
-            for section_id in blockers_by_id.get(reservation.id, ())
-            if provenance.author_owns_grid(section_id)
-        )
         shortfalls.append(
             SettlementShortfall(
                 reservation.id,
                 reservation.claimant_member_ids,
                 realised.required_width,
                 realised.available_width,
-                kind_by_id.get(reservation.id),
-                pinned,
+                not sections_spanning_the_gap(graph, reservation, realised),
             )
         )
     return tuple(shortfalls)
@@ -586,9 +555,7 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
             graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
         )
         ownership = _compatibility_ownership(graph, plan)
-        shortfalls = _verify_against_input_ledger(
-            graph, plan, row_obstructions + column_obstructions
-        )
+        shortfalls = _verify_against_input_ledger(graph, plan)
     except Exception:
         _restore_coordinate_state(graph, restore_point)
         raise

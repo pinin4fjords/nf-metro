@@ -313,17 +313,19 @@ fixed by something other than this helper -- a fan's shared corridor band, a
 bundle restack, a handler clamping the channel between its endpoints -- still
 lands where that owner puts it.
 
-Settlement declines a deficit whose far side is bounded by a section outside
-the band it would translate -- typically a row-spanning section straddling the
-corridor. Widening the boundary would add whitespace without widening the
-corridor, so it publishes a `SettlementObstruction` naming those sections
-instead. `assert_reservations_are_settled` fails the strict path for any surviving
-deficit, whether settlement could have widened the corridor or a pin outside its
-band holds it: a route drawn through a clearance it does not have is wrong
-either way. The one exception is a claim that names the same section as the
-blocker on both sides, which means that section spans across the boundary and
-there is no gap there to allocate; that is reported as a ledger coherence
-problem rather than failing a map.
+Settlement declines a deficit whose far side is bounded by a section spanning
+across the boundary rather than sitting beyond it -- typically a row-spanning
+sidebar. That section is measured on the near side too, so its own box lies
+inside the width the claim asks for and the claim describes no gap at all;
+settlement publishes a `SettlementObstruction` naming it, and the author pin
+behind it where the grid is authored, instead of translating rows that could
+not help. That is the only deficit settlement can leave behind, because a
+far-side blocker it cannot translate is exactly a spanning one.
+`assert_reservations_are_settled` fails the strict path for every other
+surviving deficit -- one settlement was handed and did not meet, and one the
+settled re-route publishes -- since a route drawn through a clearance it does
+not have is wrong either way. A claim with no allocatable gap is reported as a
+ledger coherence problem rather than failing a map.
 
 Settlement also attributes ownership it cannot take. A convergence system left
 on the compatibility path whose corridors all reach their required width gets a

@@ -11,9 +11,15 @@ import pytest
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout import envelope_settlement
 from nf_metro.layout.envelope_settlement import (
-    ObstructionKind,
+    EnvelopeSettlement,
     SettlementAxis,
+    SettlementShortfall,
+    sections_spanning_the_gap,
     settle_route_envelopes,
+)
+from nf_metro.layout.phases.guards import (
+    LayoutInvariantError,
+    assert_reservations_are_settled,
 )
 from nf_metro.layout.route_plan import build_route_plan_query
 from nf_metro.layout.route_reservations import (
@@ -182,11 +188,7 @@ def test_settlement_meets_the_demands_it_was_handed(path: Path) -> None:
     graph, plan = _observe(path)
     settlement = settle_route_envelopes(graph, plan)
     assert settlement.translations
-    unmet = [
-        item
-        for item in settlement.shortfalls
-        if item.kind is not ObstructionKind.INCOHERENT_CLAIM
-    ]
+    unmet = [item for item in settlement.shortfalls if item.describes_a_gap]
     assert unmet == []
 
 
@@ -208,9 +210,7 @@ def test_an_unmet_demand_is_reported_against_the_input_ledger() -> None:
     for shortfall in settlement.shortfalls:
         assert shortfall.available_width < shortfall.required_width
         assert shortfall.claimant_member_ids
-    assert any(
-        item.kind is ObstructionKind.INCOHERENT_CLAIM for item in settlement.shortfalls
-    )
+    assert any(not item.describes_a_gap for item in settlement.shortfalls)
 
 
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
@@ -343,13 +343,40 @@ def test_a_corridor_bounded_by_a_row_spanning_section_is_attributed_not_moved() 
     ]
     assert obstructions
     for obstruction in obstructions:
-        assert obstruction.kind is ObstructionKind.INCOHERENT_CLAIM
         assert obstruction.deficit > 0
         assert obstruction.blocking_section_ids
         for section_id in obstruction.blocking_section_ids:
             section = graph.sections[section_id]
             assert section.grid_row < obstruction.boundary
             assert section.grid_row + section.grid_row_span - 1 >= obstruction.boundary
+
+
+def test_a_span_across_the_boundary_leaves_no_width_to_allocate() -> None:
+    """Why settlement reports one kind of obstruction rather than two.
+
+    A far-side blocker settlement cannot translate is exactly a section
+    spanning across the boundary, and the row measurement puts every spanning
+    section on the near side as well.  The section's own box therefore lies
+    inside the width the claim asks for and the far side is measured ahead of
+    the near side, so such a claim can never be a genuine corridor that
+    settlement merely fails to widen.
+    """
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, plan = _observe(path)
+    checked = 0
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is None:
+            continue
+        spanning = sections_spanning_the_gap(graph, reservation, realised)
+        if not spanning:
+            continue
+        checked += 1
+        tallest = max(graph.sections[section_id].bbox_h for section_id in spanning)
+        assert realised.available_width <= -tallest
+    assert checked
 
 
 # Route systems the convergence planner puts on its compatibility disposition
@@ -489,16 +516,113 @@ def test_every_compatibility_system_is_attributed_in_the_published_plan(
         assert "#1658" in item.message
 
 
-def test_a_demand_pinned_by_the_authored_grid_fails_the_strict_path() -> None:
-    """An arrangement no offset can satisfy is rejected, not drawn through."""
+def test_an_unallocatable_claim_names_the_author_pin_that_spans_it() -> None:
+    """The section swallowing the claimed gap is one the author's grid placed,
+    so the diagnostic names the pin rather than reporting a missing corridor
+    nobody owns."""
     path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
     graph, plan = _observe(path)
     settlement = settle_route_envelopes(graph, plan)
-    pinned = [item for item in settlement.shortfalls if item.pinned_section_ids]
-    assert pinned, "fixture no longer exercises an author-pinned shortfall"
+    pinned = [item for item in settlement.obstructions if item.pinned_section_ids]
+    assert pinned, "fixture no longer exercises an author-pinned span"
     for item in pinned:
+        assert "the authored grid pins" in item.message
         for section_id in item.pinned_section_ids:
             assert graph.layout_provenance.author_owns_grid(section_id)
+            assert section_id in item.blocking_section_ids
+
+
+def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> None:
+    """A route drawn through a violated hard clearance is rejected, and the
+    rejection names everything needed to act on it: who claimed the corridor,
+    the span it claimed, what bounds it, and both widths."""
+    graph, plan = _observe(TOPOLOGIES / "convergence_fold_diamond.mmd")
+    settlement = settle_route_envelopes(graph, plan)
+    target, boundary = _widest_slack_row_reservation(graph, plan)
+    realised = realise_reservation(graph, target)
+    assert realised is not None
+    _narrow(graph, SettlementAxis.ROW, boundary, realised.capacity_slack + 4.0)
+
+    squeezed = realise_reservation(graph, target)
+    assert squeezed is not None and squeezed.capacity_slack < 0
+    with pytest.raises(LayoutInvariantError) as caught:
+        assert_reservations_are_settled(graph, plan, settlement, strict=True)
+
+    message = str(caught.value)
+    for claimant in target.claimant_member_ids:
+        assert claimant in message
+    assert f"columns {target.span.min_column}-{target.span.max_column}" in message
+    assert f"rows {target.span.min_row}-{target.span.max_row}" in message
+    for blocker in squeezed.negative_blocker_ids + squeezed.positive_blocker_ids:
+        assert blocker in message
+    assert f"{squeezed.required_width:.1f}px" in message
+    assert f"{squeezed.available_width:.1f}px" in message
+
+
+def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
+    """Settlement's own postcondition is enforced, not just reported: a demand
+    it was handed and did not meet stops the render rather than being drawn."""
+    graph, plan = _observe(ROOT / "examples" / "rnaseq_sections.mmd")
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+    )
+    shortfall = SettlementShortfall(
+        reservation.id, reservation.claimant_member_ids, 64.0, 12.0, True
+    )
+    settlement = EnvelopeSettlement((), (), (), (shortfall,))
+
+    with pytest.raises(LayoutInvariantError) as caught:
+        assert_reservations_are_settled(graph, plan, settlement, strict=True)
+    message = str(caught.value)
+    for claimant in reservation.claimant_member_ids:
+        assert claimant in message
+    assert "64.00px" in message
+    assert "12.00px" in message
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        assert_reservations_are_settled(graph, plan, settlement, strict=False)
+    assert any(shortfall.message in str(item.message) for item in caught_warnings)
+
+
+def test_a_claim_with_no_allocatable_gap_does_not_fail_the_strict_path() -> None:
+    """The counterpart to the two rejections above.  A span across the boundary
+    is a ledger coherence problem with no arrangement to reject, so it is
+    reported without failing a map that is otherwise drawable."""
+    path = ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd"
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.obstructions
+    assert any(not item.describes_a_gap for item in settlement.shortfalls)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert_reservations_are_settled(graph, plan, settlement, strict=True)
+
+
+def _widest_slack_row_reservation(graph, plan):
+    """The row reservation with the most spare width, and its boundary.
+
+    Every corridor at one boundary shares its translation, so squeezing the
+    roomiest boundary by the least-roomy resident's slack is what makes exactly
+    one claim short.
+    """
+    by_boundary: dict[int, list] = {}
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is not None:
+            by_boundary.setdefault(reservation.region.lower_row, []).append(
+                (reservation, realised)
+            )
+    boundary, residents = max(
+        by_boundary.items(),
+        key=lambda item: min(got.capacity_slack for _res, got in item[1]),
+    )
+    target, _ = min(residents, key=lambda pair: pair[1].capacity_slack)
+    return target, boundary
 
 
 def test_a_compatibility_system_with_adequate_corridors_names_its_owner() -> None:
