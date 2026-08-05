@@ -10,7 +10,7 @@ combinatorial space documented in ``docs/dev/inter_section_dispatch.mdx``.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple
@@ -2020,6 +2020,32 @@ def _route_bottom_exit_junction(
     )
 
 
+def _planned_fan_launch_y(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    fork_y: float,
+    runway: float,
+    source_offsets: Mapping[str, float],
+    source_lines: Sequence[str],
+) -> float:
+    """The traverse height the fan's own row-gap reservation allocates it.
+
+    The traverse's lanes are drawn at this height plus their own source offsets,
+    so the band has to hold the whole spread: the leading lane seats it and the
+    trailing one holds it.  The runway floors the result, and the reservation
+    states that floor as its own negative-side edge, so the two agree wherever
+    the boundary is settled and the runway wins wherever it is not.  The first
+    routing pass publishes the ledger and so reads no band, which leaves the
+    floor alone to place the traverse.
+    """
+    floor = fork_y + runway
+    band = ctx.reserved_bands.claimed_row_band(edge.source, edge.target, edge.line_id)
+    if band is None:
+        return floor
+    lanes = [source_offsets[line_id] for line_id in source_lines]
+    return max(floor, min(band.lo - min(lanes), band.hi - max(lanes)))
+
+
 def _route_planned_bottom_exit_right_landings(
     edge: Edge,
     src: Station,
@@ -2069,8 +2095,10 @@ def _route_planned_bottom_exit_right_landings(
     if not source_lines or edge.line_id not in source_lines:
         raise RuntimeError(f"planned fan {plan.id!s} lost its source lane order")
     corridor_x = _right_entry_descent_x(ctx, right_edge, len(source_lines))
-    launch_y = src.y + plan.entry_runway
     source_offsets = {line_id: -exit_x_offset(line_id) for line_id in source_lines}
+    launch_y = _planned_fan_launch_y(
+        ctx, edge, src.y, plan.entry_runway, source_offsets, source_lines
+    )
     target_offsets = {
         line_id: target_offset
         for _member_edge, line_id, _source_offset, target_offset in members

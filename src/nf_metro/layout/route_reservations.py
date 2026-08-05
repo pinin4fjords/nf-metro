@@ -75,6 +75,12 @@ SECTION_BOTTOM_BLOCKER = "section-bottom"
 SECTION_HEADER_BLOCKER = "section-header"
 SECTION_LEFT_BLOCKER = "section-left"
 SECTION_RIGHT_BLOCKER = "section-right"
+LAUNCH_ANCHOR_BLOCKER = "launch-anchor"
+"""Names the station a corridor's own runs launch from, when it bounds them.
+
+Settlement translates sections, never this: the anchor stands on the side the
+translation holds still, so a boundary widened for the corridor widens away
+from it."""
 
 
 class CorridorKind(str, Enum):
@@ -196,6 +202,29 @@ class RouteReservationClaim:
 
 
 @dataclass(frozen=True, slots=True)
+class RouteLaunchAnchor:
+    """A station inside the boundary that a corridor's own runs launch from.
+
+    A pre-routing plan that emits its runs from a station standing in the gap
+    owes that station a lead-in of at least *runway* before the run may turn
+    along the corridor, and validates the emitted geometry against it.  The
+    station therefore bounds the boundary on the side the plan launches from,
+    exactly as a section edge does: no widening of the far side brings the run
+    any nearer to it, so a measurement that reads only the section edges states
+    a band the plan is not free to occupy.
+    """
+
+    station_id: str
+    runway: float
+
+    def __post_init__(self) -> None:
+        if not self.station_id:
+            raise ValueError("a launch anchor requires the station it launches from")
+        if not math.isfinite(self.runway) or self.runway < 0:
+            raise ValueError("a launch anchor runway must be finite and non-negative")
+
+
+@dataclass(frozen=True, slots=True)
 class RouteReservationLane:
     """Claims that reuse one simultaneous physical corridor lane."""
 
@@ -235,6 +264,12 @@ class RouteReservation:
     reservation states one measurement, so a box only counts here when every run
     sharing the corridor ends inside it; a box one run merely passes bounds the
     boundary for all of them."""
+    launch_anchors: tuple[RouteLaunchAnchor, ...]
+    """Stations every one of this corridor's runs launches from, and their runways.
+
+    The intersection over the claims, for the same reason
+    ``landing_section_ids`` is one: a station only one run leaves from does not
+    bound the boundary for the runs that never touch it."""
     lanes: tuple[RouteReservationLane, ...]
     lane_count: int
     bundle_width: float
@@ -536,6 +571,7 @@ class _ObservedClaim:
     span: GridSpan
     measurement_scope: CorridorMeasurementScope
     landing_section_ids: tuple[str, ...]
+    launch_anchors: tuple[RouteLaunchAnchor, ...]
     travel_start: float
     travel_end: float
     coordinate: float
@@ -1272,6 +1308,27 @@ def _route_landing_section(graph: MetroGraph, route: RoutedPath) -> str | None:
     return None if station is None else station.section_id
 
 
+def _route_launch_anchor(
+    graph: MetroGraph, route: RoutedPath
+) -> RouteLaunchAnchor | None:
+    """The fork *route*'s planned fan launches it from, with its runway.
+
+    Only a route a fan plan emits carries one: the plan fixes the length of the
+    opening leg and refuses any emitted geometry that shortens it, so the fork
+    bounds the corridor the second leg turns into.  A route no plan owns is free
+    to be reseated by the post-passes, and states no such floor.
+    """
+    if route.fan_plan_id is None or route.fan_route_emitter is None:
+        return None
+    for plan in graph.fan_plans:
+        if plan.id != route.fan_plan_id or not plan.owns_geometry:
+            continue
+        if plan.entry_runway is None or plan.fork_station_id not in graph.stations:
+            return None
+        return RouteLaunchAnchor(plan.fork_station_id, plan.entry_runway)
+    return None
+
+
 def _observed_claims(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -1304,6 +1361,7 @@ def _observed_claims(
         points = apply_route_offsets(route, station_offsets)
         segments = _maximal_axis_segments(points)
         landing_section = _route_landing_section(graph, route)
+        launch_anchor = _route_launch_anchor(graph, route)
         for segment in segments:
             if (
                 segment.orientation is CorridorOrientation.HORIZONTAL
@@ -1320,6 +1378,11 @@ def _observed_claims(
                 (landing_section,)
                 if landing_section is not None
                 and segment.end_rank + 1 == len(points) - 1
+                else ()
+            )
+            launch_anchors = (
+                (launch_anchor,)
+                if launch_anchor is not None and segment.rank == 1
                 else ()
             )
             kind = (
@@ -1350,6 +1413,7 @@ def _observed_claims(
                     span,
                     measurement_scope,
                     landing_section_ids,
+                    launch_anchors,
                     segment.span_start,
                     segment.span_end,
                     segment.coordinate,
@@ -1873,6 +1937,16 @@ def _shared_landing_sections(group: tuple[_ObservedClaim, ...]) -> tuple[str, ..
     return tuple(sorted(shared))
 
 
+def _shared_launch_anchors(
+    group: tuple[_ObservedClaim, ...],
+) -> tuple[RouteLaunchAnchor, ...]:
+    """Launch anchors every claim in *group* leaves from."""
+    shared = set(group[0].launch_anchors)
+    for item in group[1:]:
+        shared &= set(item.launch_anchors)
+    return tuple(sorted(shared, key=lambda item: (item.station_id, item.runway)))
+
+
 def _build_symbolic_records(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -1960,6 +2034,7 @@ def _build_symbolic_records(
             span,
             first.measurement_scope,
             _shared_landing_sections(group),
+            _shared_launch_anchors(group),
             lanes,
             lane_count,
             bundle_width,
@@ -2119,6 +2194,49 @@ def _projected_claim_bounds(
     )
 
 
+def _launch_anchored_measurement(
+    graph: MetroGraph,
+    reservation: RouteReservation,
+    measurement: _RegionMeasurement,
+    occupied_start: float,
+    occupied_end: float,
+) -> _RegionMeasurement:
+    """*measurement* with each launch anchor folded into the side it bounds.
+
+    An anchor is a station the corridor's own runs leave, so the side it bounds
+    is the side of the run it stands on.  It is folded in as the region edge
+    that would leave the run its runway under the boundary's own clearance
+    policy, so the band the reservation states is the band the plan emitting
+    those runs is free to occupy, and the width the boundary is asked for is the
+    width that band needs.
+    """
+    if not reservation.launch_anchors:
+        return measurement
+    allocates_y = reservation.orientation is CorridorOrientation.HORIZONTAL
+    start, end = measurement.start, measurement.end
+    negative = list(measurement.negative_blocker_ids)
+    positive = list(measurement.positive_blocker_ids)
+    for anchor in reservation.launch_anchors:
+        station = graph.stations.get(anchor.station_id)
+        if station is None:
+            continue
+        coordinate = station.y if allocates_y else station.x
+        blocker_id = f"{LAUNCH_ANCHOR_BLOCKER}:{anchor.station_id}"
+        if coordinate <= (occupied_start + occupied_end) / 2:
+            edge = coordinate + anchor.runway - reservation.negative_side_clearance
+            if edge > start + COORD_TOLERANCE:
+                start, negative = edge, [blocker_id]
+            elif edge > start - COORD_TOLERANCE:
+                negative.append(blocker_id)
+        else:
+            edge = coordinate - anchor.runway + reservation.positive_side_clearance
+            if edge < end - COORD_TOLERANCE:
+                end, positive = edge, [blocker_id]
+            elif edge < end + COORD_TOLERANCE:
+                positive.append(blocker_id)
+    return _RegionMeasurement(start, end, tuple(negative), tuple(positive))
+
+
 def _realise_one(
     graph: MetroGraph,
     reservation: RouteReservation,
@@ -2166,6 +2284,9 @@ def _realise_one(
             canvas_width,
             canvas_height,
         )
+    measurement = _launch_anchored_measurement(
+        graph, reservation, measurement, occupied_start, occupied_end
+    )
     available = measurement.end - measurement.start
     return RealisedRouteReservation(
         reservation.id,
@@ -2631,23 +2752,43 @@ def _valid_section_blockers(
     return True
 
 
+def _section_blocker_ids(
+    reservation: RouteReservation, blocker_ids: tuple[str, ...]
+) -> tuple[str, ...] | None:
+    """*blocker_ids* less this corridor's own launch anchors.
+
+    An anchor bounds the boundary without being a section edge, so it is not
+    held to the section-edge rules.  ``None`` where one names a station the
+    reservation never declared, which is an edge published by no claim.
+    """
+    marker = f"{LAUNCH_ANCHOR_BLOCKER}:"
+    declared = {f"{marker}{anchor.station_id}" for anchor in reservation.launch_anchors}
+    if any(item not in declared for item in blocker_ids if item.startswith(marker)):
+        return None
+    return tuple(item for item in blocker_ids if not item.startswith(marker))
+
+
 def _validate_blocker_ids(
     plan: RoutePlan,
     reservation: RouteReservation,
     realised: RealisedRouteReservation,
 ) -> None:
     region = reservation.region
+    negative_ids = _section_blocker_ids(reservation, realised.negative_blocker_ids)
+    positive_ids = _section_blocker_ids(reservation, realised.positive_blocker_ids)
+    if negative_ids is None or positive_ids is None:
+        raise ValueError("realised reservation has invalid boundary blocker ids")
     if isinstance(region, RowGapRegion):
         valid = _valid_section_blockers(
             plan,
             reservation,
-            realised.negative_blocker_ids,
+            negative_ids,
             prefix=SECTION_BOTTOM_BLOCKER,
             negative_side=True,
         ) and _valid_section_blockers(
             plan,
             reservation,
-            realised.positive_blocker_ids,
+            positive_ids,
             prefix=SECTION_HEADER_BLOCKER,
             negative_side=False,
         )
@@ -2655,23 +2796,21 @@ def _validate_blocker_ids(
         valid = _valid_section_blockers(
             plan,
             reservation,
-            realised.negative_blocker_ids,
+            negative_ids,
             prefix=SECTION_RIGHT_BLOCKER,
             negative_side=True,
         ) and _valid_section_blockers(
             plan,
             reservation,
-            realised.positive_blocker_ids,
+            positive_ids,
             prefix=SECTION_LEFT_BLOCKER,
             negative_side=False,
         )
     elif region.side is CanvasSide.TOP:
-        valid = realised.negative_blocker_ids == (
-            "canvas:top",
-        ) and _valid_section_blockers(
+        valid = negative_ids == ("canvas:top",) and _valid_section_blockers(
             plan,
             reservation,
-            realised.positive_blocker_ids,
+            positive_ids,
             prefix=SECTION_HEADER_BLOCKER,
             negative_side=False,
         )
@@ -2679,17 +2818,15 @@ def _validate_blocker_ids(
         valid = _valid_section_blockers(
             plan,
             reservation,
-            realised.negative_blocker_ids,
+            negative_ids,
             prefix=SECTION_BOTTOM_BLOCKER,
             negative_side=True,
-        ) and realised.positive_blocker_ids == ("canvas:bottom",)
+        ) and positive_ids == ("canvas:bottom",)
     elif region.side is CanvasSide.LEFT:
-        valid = realised.negative_blocker_ids == (
-            "canvas:left",
-        ) and _valid_section_blockers(
+        valid = negative_ids == ("canvas:left",) and _valid_section_blockers(
             plan,
             reservation,
-            realised.positive_blocker_ids,
+            positive_ids,
             prefix=SECTION_LEFT_BLOCKER,
             negative_side=False,
         )
@@ -2697,10 +2834,10 @@ def _validate_blocker_ids(
         valid = _valid_section_blockers(
             plan,
             reservation,
-            realised.negative_blocker_ids,
+            negative_ids,
             prefix=SECTION_RIGHT_BLOCKER,
             negative_side=True,
-        ) and realised.positive_blocker_ids == ("canvas:right",)
+        ) and positive_ids == ("canvas:right",)
     if not valid:
         raise ValueError("realised reservation has invalid boundary blocker ids")
 

@@ -15,13 +15,12 @@ segment_rank)`` of the claim itself, so the bound names which leg is out rather
 than how many are: an unrecorded claim fails, a recorded one that comes into
 band fails until its entry goes, and swapping one leg for another fails too.
 
-What those remaining claims are is measured, not assumed.  Nine are legs whose
+What those remaining claims are is measured, not assumed.  Four are legs whose
 coordinate a pre-routing plan fixes and validates the emitted geometry against,
-so no post-pass may write them: the fan traverse of a planned bottom-exit
-landing (5 claims), a planned exit turn's column (2), and a convergence trunk
-(2).  Each plan has to choose that coordinate inside the band its own
-reservation realises, which is work at the plan, not a repair after it.  The
-remaining two are legs the hold pass reaches but declines to move because a
+so no post-pass may write them: a planned exit turn's column (2) and a
+convergence trunk (2).  Each plan has to choose that coordinate inside the band
+its own reservation realises, which is work at the plan, not a repair after it.
+The remaining two are legs the hold pass reaches but declines to move because a
 peer denies every shift its band allows.
 """
 
@@ -80,16 +79,10 @@ KNOWN_NOT_RENDERING = frozenset(
 # Fixture -> the ``(path_rank, segment_rank)`` of each realised gap claim drawn
 # outside its own reservation's band by more than ``COORD_TOLERANCE``.
 # Regenerate by running this module's ``_out_of_band_claims`` over ``_CORPUS``;
-# closing a fixture means deleting its entry.  Four further claims sit within one
+# closing a fixture means deleting its entry.  Three further claims sit within one
 # tolerance of their band, which is the width this codebase treats two
 # coordinates as equal within, so they are not recorded here.
 KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
-    "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": frozenset(
-        {(10, 1), (11, 1)}
-    ),
-    "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": (
-        frozenset({(15, 1), (16, 1), (17, 1)})
-    ),
     "examples/topologies/convergence_stacked_sink.mmd": frozenset({(21, 2)}),
     "examples/topologies/dogleg_exempt_sameline.mmd": frozenset({(8, 2)}),
     "examples/topologies/exit_lane_settlement_without_crossings.mmd": frozenset(
