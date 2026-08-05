@@ -904,35 +904,42 @@ def _geometric_column_gap(
 def _canvas_region_for_segment(
     graph: MetroGraph, segment: _AxisSegment
 ) -> CanvasRegion | None:
+    """The canvas margin *segment* runs in, or ``None`` for an interior run.
+
+    A canvas corridor lies between the map's content and the canvas edge, so
+    the coordinate is compared against the extreme of EVERY placed section,
+    not only the sections the run passes beside: an inter-row or inter-column
+    run overlaps neither of its own bounding sections longitudinally, and
+    judging it against whatever unrelated section pokes into its window would
+    call an interior corridor a margin one.  The overlap precondition keeps a
+    run outside all content longitudinally (an empty map edge) unclassified.
+    """
+    placed = tuple(
+        section
+        for section in graph.sections.values()
+        if section.bbox_w > 0 and section.bbox_h > 0
+    )
     if segment.orientation is CorridorOrientation.HORIZONTAL:
-        sections = tuple(
-            section
-            for section in graph.sections.values()
-            if section.bbox_w > 0
-            and _section_x_overlaps(section, segment.span_start, segment.span_end)
-        )
-        if not sections:
+        if not any(
+            _section_x_overlaps(section, segment.span_start, segment.span_end)
+            for section in placed
+        ):
             return None
-        if segment.coordinate < min(section.bbox_y for section in sections):
+        if segment.coordinate < min(section.bbox_y for section in placed):
             return CanvasRegion(CanvasSide.TOP)
         if segment.coordinate > max(
-            section.bbox_y + section.bbox_h for section in sections
+            section.bbox_y + section.bbox_h for section in placed
         ):
             return CanvasRegion(CanvasSide.BOTTOM)
         return None
-    sections = tuple(
-        section
-        for section in graph.sections.values()
-        if section.bbox_h > 0
-        and _section_y_overlaps(section, segment.span_start, segment.span_end)
-    )
-    if not sections:
-        return None
-    if segment.coordinate < min(section.bbox_x for section in sections):
-        return CanvasRegion(CanvasSide.LEFT)
-    if segment.coordinate > max(
-        section.bbox_x + section.bbox_w for section in sections
+    if not any(
+        _section_y_overlaps(section, segment.span_start, segment.span_end)
+        for section in placed
     ):
+        return None
+    if segment.coordinate < min(section.bbox_x for section in placed):
+        return CanvasRegion(CanvasSide.LEFT)
+    if segment.coordinate > max(section.bbox_x + section.bbox_w for section in placed):
         return CanvasRegion(CanvasSide.RIGHT)
     return None
 
@@ -956,6 +963,14 @@ def _corridor_region(
         )
         if region is not None:
             return region, CorridorMeasurementScope.TOPOLOGY_SPAN
+        # A run drawn outside every section beside it is a canvas corridor, and
+        # the router consumes a gap claim where its band lies.  Assigning such a
+        # run the nearest topology gap would demand a corridor the frozen route
+        # shape cannot reach -- the drawn dip cannot become a between-rows run
+        # by translation -- so the canvas classification precedes the fallback.
+        canvas_region = _canvas_region_for_segment(graph, segment)
+        if canvas_region is not None:
+            return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
         if candidates and _topology_gap_fallback_is_proven(member, segment, segments):
             region = _nearest_topology_region(graph, segment, span, candidates)
             if region is not None:
@@ -963,8 +978,6 @@ def _corridor_region(
         observed_region: CorridorRegion | None = _geometric_row_gap(
             graph, segment, span
         )
-        if observed_region is None:
-            observed_region = _canvas_region_for_segment(graph, segment)
         return (
             (observed_region, CorridorMeasurementScope.OBSERVED_RUN)
             if observed_region is not None
@@ -980,6 +993,9 @@ def _corridor_region(
     )
     if region is not None:
         return region, CorridorMeasurementScope.TOPOLOGY_SPAN
+    canvas_column_region = _canvas_region_for_segment(graph, segment)
+    if canvas_column_region is not None:
+        return canvas_column_region, CorridorMeasurementScope.OBSERVED_RUN
     if column_candidates and _topology_gap_fallback_is_proven(
         member, segment, segments
     ):
@@ -987,8 +1003,6 @@ def _corridor_region(
         if region is not None:
             return region, CorridorMeasurementScope.TOPOLOGY_SPAN
     observed_region = _geometric_column_gap(graph, segment, span)
-    if observed_region is None:
-        observed_region = _canvas_region_for_segment(graph, segment)
     return (
         (observed_region, CorridorMeasurementScope.OBSERVED_RUN)
         if observed_region is not None

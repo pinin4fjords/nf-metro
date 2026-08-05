@@ -221,6 +221,61 @@ def _anchored_bundle_midpoint(
     return mid
 
 
+def _segment_claim_band(
+    ctx: _RoutingCtx, route: RoutedPath, idx: int
+) -> ReservedBand | None:
+    """The reserved band the ledger claims for this route segment, if any."""
+    return ctx.reserved_bands.for_segment(
+        route.edge.source, route.edge.target, route.line_id, idx
+    )
+
+
+def _bundle_claim_band(
+    ctx: _RoutingCtx, segments: Iterable[tuple[RoutedPath, int]]
+) -> ReservedBand | None:
+    """The band a bundle's own claimed segments allocate, if consistent.
+
+    A bundle moves as one unit, so every claimed member's band must admit the
+    shared placement: the bands intersect, and an empty intersection (or a
+    bundle with no claimed member) publishes nothing, leaving the caller on
+    its gap-edge derivation.
+    """
+    bands = [
+        band
+        for route, idx in segments
+        if (band := _segment_claim_band(ctx, route, idx)) is not None
+    ]
+    if not bands:
+        return None
+    lo = max(band.lo for band in bands)
+    hi = min(band.hi for band in bands)
+    return ReservedBand(lo, hi) if hi >= lo - COORD_TOLERANCE else None
+
+
+def _hold_bundle_in_claim_band(
+    ctx: _RoutingCtx,
+    mid: float,
+    chans: list[_VChannel],
+    width: float,
+) -> float:
+    """*mid* held so a *width*-wide bundle sits inside its own claim's band.
+
+    A reservation states where its corridor may run, not where in that span it
+    should sit, so a placement the gap edges already put inside the band is
+    kept.  The whole bundle has to fit, so the midpoint is held a half-width
+    inboard of each edge; a band narrower than the bundle centres it, leaving
+    the deficit for the closing guard to report rather than picking an edge.
+    """
+    band = _bundle_claim_band(ctx, ((ch.route, ch.idx) for ch in chans))
+    if band is None:
+        return mid
+    half = width / 2
+    lo, hi = band.lo + half, band.hi - half
+    if hi < lo:
+        return (band.lo + band.hi) / 2
+    return min(max(mid, lo), hi)
+
+
 def _layout_gap_bundle(
     bundles: list[tuple[bool, list[_VChannel]]],
     gap_left: float,
@@ -228,7 +283,13 @@ def _layout_gap_bundle(
     ctx: _RoutingCtx,
     pins: dict[tuple[bool, str], float] | None = None,
 ) -> None:
-    """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap."""
+    """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap.
+
+    A bundle whose members claim a reserved corridor is then held inside that
+    claim's own band, which settlement sized for exactly this bundle over the
+    corridor's own span -- the shared gap edges name whichever sections happen
+    to sit in the two columns, which is a different and wider set of blockers.
+    """
     step = ctx.offset_step
     # Stable left-to-right order: by current bundle centre.
     bundles.sort(key=lambda b: sum(c.x for c in b[1]) / len(b[1]))
@@ -266,6 +327,7 @@ def _layout_gap_bundle(
             mid = (gap_left + gap_right) / 2
         else:
             mid = symmetric_bundle_midpoint(gap_left, gap_right, widths, bi)
+        mid = _hold_bundle_in_claim_band(ctx, mid, chans, widths[bi])
         n = len(order)
         # line_id -> (slot index, x); every segment of that line overlays
         # at its single slot rather than claiming an OFFSET_STEP each.
@@ -2482,11 +2544,43 @@ def _stack_trunk_bands(
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
     top = min(t.y for b in bands for t in b)
     band_top = _clamp_inter_row_band_top(ctx, top, total)
+    band_top = _hold_stack_in_claim_bands(ctx, band_top, planned, bands, step, gap)
     for (order, track_of, n), band in zip(planned, bands):
         _restack_trunk_band(
             order, track_of, n, band_top, band[0].dips_down, step, ctx, bundled
         )
         band_top += (n - 1) * step + gap
+
+
+def _hold_stack_in_claim_bands(
+    ctx: _RoutingCtx,
+    band_top: float,
+    planned: list[tuple[list[list[_HTrunk]], dict[int, int], int]],
+    bands: list[list[_HTrunk]],
+    step: float,
+    gap: float,
+) -> float:
+    """The stack top holding every claimed direction band inside its own band.
+
+    Each direction band sits at a fixed offset within the stack, so a claim on
+    one band constrains where the whole stack may start.  The intersection of
+    every claimed band's feasible interval holds the stack; jointly infeasible
+    claims (or a stack with no claimed trunk) leave *band_top* as derived.
+    """
+    lo_bound = hi_bound = None
+    offset = 0.0
+    for (_order, _track_of, n), band in zip(planned, bands):
+        height = (n - 1) * step
+        claim = _bundle_claim_band(ctx, ((t.route, t.idx) for t in band))
+        if claim is not None:
+            lo = claim.lo - offset
+            hi = claim.hi - height - offset
+            lo_bound = lo if lo_bound is None else max(lo_bound, lo)
+            hi_bound = hi if hi_bound is None else min(hi_bound, hi)
+        offset += height + gap
+    if lo_bound is None or hi_bound is None or hi_bound < lo_bound - COORD_TOLERANCE:
+        return band_top
+    return min(max(band_top, lo_bound), hi_bound)
 
 
 def _separate_opposing_inter_row_trunks(

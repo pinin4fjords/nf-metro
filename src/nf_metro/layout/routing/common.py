@@ -1836,6 +1836,7 @@ def bypass_bottom_y(
     cross_row: bool = False,
     tgt_row: int | None = None,
     reserved: ReservedBands | None = None,
+    claim: ReservedBand | None = None,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
@@ -1856,7 +1857,17 @@ def bypass_bottom_y(
     falls back to the shorter of the source/target endpoint sections
     so the route hugs the smaller box rather than being pushed down
     by a tall neighbour.
+
+    *claim* is the band this route's own reservation realises for its trunk.
+    It holds the result unconditionally: the section edges consulted here are
+    a proxy for the blockers the reservation measured over the corridor's own
+    run, and where the two disagree -- including a candidate so deep it falls
+    in no inter-row gap at all -- the allocation wins.
     """
+
+    def _hold(candidate: float) -> float:
+        return candidate if claim is None else claim.hold(candidate)
+
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
 
     if cross_row:
@@ -1867,10 +1878,12 @@ def bypass_bottom_y(
             # and loop back up to the entry port).
             upper_bottom = row_bottom_edge(graph, tgt_row - 1, default=0.0)
             lower_top = row_top_edge(graph, tgt_row, default=upper_bottom)
-            return _center_inter_row_channel(
-                upper_bottom,
-                lower_top,
-                reserved=None if reserved is None else reserved.at(tgt_row),
+            return _hold(
+                _center_inter_row_channel(
+                    upper_bottom,
+                    lower_top,
+                    reserved=None if reserved is None else reserved.at(tgt_row),
+                )
             )
         # Route below ALL sections in the column range.
         all_in_range = [
@@ -1879,8 +1892,8 @@ def bypass_bottom_y(
             if s.bbox_w > 0 and lo <= s.grid_col <= hi
         ]
         if all_in_range:
-            return max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance
-        return clearance
+            return _hold(max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance)
+        return _hold(clearance)
 
     def _in_row(s: Section) -> bool:
         return src_row is None or s.grid_row == src_row
@@ -1906,7 +1919,7 @@ def bypass_bottom_y(
         if endpoints:
             candidate = max(s.bbox_y + s.bbox_h for s in endpoints) + clearance
         else:
-            return clearance
+            return _hold(clearance)
 
     # Keep the bypass at least HEADER_CLEARANCE above any LOWER-row
     # section header_top; the stacked-line bundle otherwise crowds the
@@ -1928,7 +1941,7 @@ def bypass_bottom_y(
                     else:
                         candidate = (row_bottom + header_top) / 2
 
-    return held_in_reserved_gap_band(graph, candidate, reserved)
+    return _hold(held_in_reserved_gap_band(graph, candidate, reserved))
 
 
 def held_in_reserved_gap_band(
