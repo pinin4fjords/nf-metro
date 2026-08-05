@@ -4000,6 +4000,19 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
     return out
 
 
+def _co_travel_reach(step: float) -> float:
+    """The furthest apart two legs may sit and still read as one bundle.
+
+    Stated once because two callers depend on it agreeing: the predicate that
+    decides whether a pair co-travels, and the ordered scan that stops looking
+    once no later leg can reach the one it is testing.  A scan that stopped
+    earlier than the predicate accepts would leave pairs it would have grouped
+    untested, and they would move independently and break the relationship the
+    grouping exists to hold.
+    """
+    return max(step, BUNDLE_TO_BUNDLE_CLEARANCE) + COORD_TOLERANCE
+
+
 def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> bool:
     """Whether two legs are drawn as one bundle of co-travelling runs.
 
@@ -4015,8 +4028,7 @@ def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> b
     are free to spread apart, but they are not free to be driven *together*, and
     grouping them costs only the freedom to move them independently.
     """
-    reach = max(step, BUNDLE_TO_BUNDLE_CLEARANCE) + COORD_TOLERANCE
-    return abs(first.coordinate - second.coordinate) <= reach and (
+    return abs(first.coordinate - second.coordinate) <= _co_travel_reach(step) and (
         min(first.run_hi, second.run_hi) > max(first.run_lo, second.run_lo)
     )
 
@@ -4044,7 +4056,7 @@ def _corridor_bundles(
     for i, first in enumerate(ordered):
         for j in range(i + 1, len(ordered)):
             second = ordered[j]
-            if second.coordinate - first.coordinate > step + COORD_TOLERANCE:
+            if second.coordinate - first.coordinate > _co_travel_reach(step):
                 break
             if _legs_co_travel(first, second, step):
                 owner[root(j)] = root(i)

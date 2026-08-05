@@ -1687,35 +1687,35 @@ in pipeline order.
   peers denying it as one rigid group: two corridors owed one boundary between
   them are seated by the same widening and neither can reach it alone, and a
   rigid move leaves every separation inside the group exactly as drawn.
-  Measured on the corpus, 3 of the 1003 claims carried by 557 realised gap
+  Measured on the corpus, 2 of the 1003 claims carried by 557 realised gap
   reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 6 outside it at exact precision;
+  reservation realises, and 4 outside it at exact precision;
   `tests/test_reserved_claim_consumption.py` holds each one by its own
-  `(path_rank, segment_rank)` so the bound names the leg rather than a count. Each
-  is a leg the pass may not reseat: 2 are segments a pre-routing plan owns and
-  validates, 2 are flanked by a diagonal whose angle a reseat would change, 1 is a
-  pair needing one coordinate between them whose bands are measured at two
-  *different* boundaries, so no single boundary's width states the room the pair
-  takes, 1 is a leg the pass holds inside the band its own endpoint sections
-  measure, which is wider than the band its reservation realises from the
-  corridor's topology span, and 1 is the second of two same-line trunks
-  counter-running through one boundary: the band is widened for the pair, the
-  first is re-centred in it, and the second is held at the band edge because the
-  centring reads a band rather than the peer sharing it. The planner-owned
-  segments need the planners and the ledger to read the same band. Two corridors
-  confined at one boundary are not among them: `peer_width`
-  states the room they take together, so settlement widens the boundary for both.
-  Neither is longitudinal blindness in the band's blockers, which was measured
-  and ruled out: of the 14 out-of-band claims that measurement covered, 13 have
-  every blocking section on their violated side overlapping or abutting the
-  drawn leg, and the one that does not
-  (`fan_bypass_shared_band`, whose two 148px-away blockers bound the side it
-  holds) has its violated edge set by a section abutting the run. Selecting
-  blockers by longitudinal overlap alone was measured over the corpus and is a
-  regression, not a fix: it drops the box a corridor's own elbow turns beside
-  (16 to 26px past the run's end in 4 of those 14), whose removal widens the band
-  enough that the re-route re-centres the run in it, changing 8 renders and
-  flipping one vertical leg's direction, which
+  `(path_rank, segment_rank)` so the bound names the leg rather than a count.
+  The 2 beyond tolerance are one convergence trunk on
+  `cross_column_perp_entry_overflow`, blocked at the plan rather than at the
+  geometry: seating its merge junction on the perpendicular port's lead-in does
+  put all six feeders in band, but the trunk then occupies the column an
+  *unowned* same-line member already uses to enter that port,
+  `UNOWNED_MEMBER_CORRIDOR` refuses it, and all three of the fixture's
+  convergences fall back to compatibility. Exempting that one separation was
+  tried and falsified: the render then dies in `_coincide_same_line_tracks` on
+  two planners pinning different columns for one same-line stroke. The owner is
+  the one `ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR` already names,
+  #1658's plan-driven whole-system emission. The other 2 are exactly one
+  `COORD_TOLERANCE` out, on a column channel whose lowest lane a fan route
+  emitter freezes, so the stack resting on that seat ends one pixel past the
+  band's far edge.
+  Longitudinal blindness in the band's blockers was measured and ruled out as a
+  cause: of the 14 out-of-band claims that measurement covered, 13 had every
+  blocking section on their violated side overlapping or abutting the drawn leg,
+  and the one that did not (`fan_bypass_shared_band`, whose two 148px-away
+  blockers bound the side it holds) had its violated edge set by a section
+  abutting the run. Selecting blockers by longitudinal overlap alone was measured
+  over the corpus and is a regression, not a fix: it drops the box a corridor's
+  own elbow turns beside (16 to 26px past the run's end in 4 of those 14), whose
+  removal widens the band enough that the re-route re-centres the run in it,
+  changing 8 renders and flipping one vertical leg's direction, which
   `_assert_settlement_decisions_frozen` refuses outright; out-of-band claims rise
   from 21 to 32 as region selection reclassifies corridors onto other boundaries.
 - **Related tests**: `tests/test_envelope_settlement.py`,
