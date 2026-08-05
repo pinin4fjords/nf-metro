@@ -20,7 +20,9 @@ What those remaining claims are is measured, not assumed.  Each one is a leg
 cannot reseat, and there are exactly five reasons for that:
 
 * A pre-routing plan owns the segment's coordinates and validates the emitted
-  geometry against them, so no post-pass may write it (9 claims).
+  geometry against them, so no post-pass may write it (9 claims).  Handing the
+  band back to the reservation ledger, so a planner cannot choose one
+  independently, is #1658.
 * A diagonal flanks the leg, and moving its coordinate would change that
   diagonal's angle (2 claims).
 * Two legs need one coordinate between them, and their bands are measured at
