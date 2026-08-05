@@ -3773,7 +3773,7 @@ def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str,
         station.section_id
         for station_id in (rp.edge.source, rp.edge.target)
         if (station := graph.stations.get(station_id)) is not None
-        and station.section_id is not None
+        and station.section_id in graph.sections
     )
 
 
@@ -3999,6 +3999,4 @@ def _held_corner_radius(
     radii: list[float] | None, index: int, fallback: float
 ) -> float:
     """The radius already drawn at *index*, or *fallback* where there is none."""
-    if radii is None or not 0 <= index < len(radii):
-        return fallback
-    return radii[index]
+    return radii[index] if radii and 0 <= index < len(radii) else fallback
