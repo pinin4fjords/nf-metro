@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import multiprocessing
 import os
 import struct
 import subprocess
@@ -535,7 +536,7 @@ def test_per_attempt_timeout_reaps_the_worker() -> None:
     assert result.baseline.status is CandidateStatus.TIMEOUT
     assert result.baseline.failure is not None
     assert result.baseline.failure.message == "per-attempt deadline exceeded"
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 def test_total_deadline_stops_dispatch_without_inventing_attempts() -> None:
@@ -644,7 +645,7 @@ def test_completed_payload_followed_by_hang_times_out_with_evidence(
     assert result.baseline.failure.message == "per-attempt deadline exceeded"
     assert result.baseline.evidence.svg is not None
     assert result.baseline.worker_exit_code is not None
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 def test_coordinator_failure_reaps_the_worker(
@@ -662,7 +663,7 @@ def test_coordinator_failure_reaps_the_worker(
     assert result.status is CandidateStatus.INFRASTRUCTURE_FAILURE
     assert result.failure is not None
     assert result.failure.infrastructure_code == "coordinator-failure"
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 def test_protocol_rejects_reset_and_wrong_chunk_size() -> None:
@@ -740,7 +741,7 @@ def test_injected_stage_failures_retain_completed_evidence(
         assert getattr(result.evidence, present)
     assert not getattr(result.evidence, absent)
     assert result.worker_exit_code == 0
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 @pytest.mark.parametrize("message", ["geometry warning one", "renamed warning"])

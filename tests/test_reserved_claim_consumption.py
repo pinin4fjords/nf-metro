@@ -148,15 +148,12 @@ def test_realised_gap_claims_are_drawn_in_their_reserved_band(path: Path) -> Non
     if violations is None:
         pytest.skip("fixture does not render")
     allowed = KNOWN_UNCONSUMED.get(str(path.relative_to(_ROOT)), 0)
-    assert len(violations) <= allowed, (
+    assert len(violations) == allowed, (
         f"{len(violations)} claimed corridor(s) drawn outside their reserved band, "
-        f"{allowed} recorded:\n" + "\n".join(violations)
+        f"{allowed} recorded. Gaining one is a regression; losing one means "
+        "tightening this fixture's KNOWN_UNCONSUMED count, or deleting the entry "
+        "once it reaches zero:\n" + "\n".join(violations)
     )
-    if allowed:
-        assert violations, (
-            "every claimed corridor here is now consumed; delete this fixture's "
-            "KNOWN_UNCONSUMED entry"
-        )
 
 
 def test_the_unconsumed_ledger_names_only_fixtures_that_render() -> None:

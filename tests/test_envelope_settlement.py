@@ -14,8 +14,8 @@ from nf_metro.layout import envelope_settlement, route_reservations
 from nf_metro.layout.constants import (
     CANVAS_EDGE_CLEARANCE,
     CURVE_RADIUS,
-    DEFAULT_LINE_WIDTH,
     DIRECTIONAL_MARKER_HALF_EXTENT,
+    WIDEST_THEME_LINE_WIDTH,
 )
 from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
@@ -42,6 +42,7 @@ from nf_metro.layout.route_reservations import (
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import _inter_row_band_fits
 from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
+from nf_metro.themes import THEMES
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -1151,6 +1152,17 @@ def test_a_canvas_corridor_narrower_than_it_claims_fails_the_strict_path() -> No
         )
 
 
+def test_the_canvas_edge_clearance_bounds_every_theme() -> None:
+    """No brand draws a stroke the canvas-margin demand fails to cover.
+
+    The clearance is resolved before a theme is chosen, so it has to hold for
+    the widest stroke any brand sets rather than the default one.
+    """
+    widest = max(theme.line_width for theme in THEMES.values())
+    assert WIDEST_THEME_LINE_WIDTH == pytest.approx(widest)
+    assert CANVAS_EDGE_CLEARANCE >= DIRECTIONAL_MARKER_HALF_EXTENT + widest / 2
+
+
 def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
     """The margin a canvas corridor needs is its stroke plus a chevron.
 
@@ -1159,9 +1171,6 @@ def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
     -- which flagged seven corpus maps whose runs sit 6px off a canvas edge they
     never cross.
     """
-    assert CANVAS_EDGE_CLEARANCE == pytest.approx(
-        DIRECTIONAL_MARKER_HALF_EXTENT + DEFAULT_LINE_WIDTH / 2
-    )
     assert CANVAS_EDGE_CLEARANCE < CURVE_RADIUS
 
     for path in CANVAS_CLEARANCE_CORPUS:

@@ -457,7 +457,17 @@ half-width), which the reservation ledger cannot read: a corridor's
 clearances are a property of its region, resolved before any theme is in
 hand."""
 
-CANVAS_EDGE_CLEARANCE: float = DIRECTIONAL_MARKER_HALF_EXTENT + DEFAULT_LINE_WIDTH / 2
+WIDEST_THEME_LINE_WIDTH: float = 4.0
+"""The widest ``Theme.line_width`` any registered brand sets.
+
+A corridor's clearances are a property of its region, resolved before a theme
+is in hand, so a demand that has to hold for every brand takes the widest
+stroke rather than the default one.  Pinned to the registry by
+``test_the_canvas_edge_clearance_bounds_every_theme``."""
+
+CANVAS_EDGE_CLEARANCE: float = (
+    DIRECTIONAL_MARKER_HALF_EXTENT + WIDEST_THEME_LINE_WIDTH / 2
+)
 """Minimum distance between a canvas-margin corridor and the canvas edge.
 
 The only thing drawn beyond a corridor's centreline on its canvas side is

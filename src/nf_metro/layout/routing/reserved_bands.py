@@ -26,7 +26,7 @@ rows or columns as a whole.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
 
@@ -115,19 +115,16 @@ class ReservedCorridors:
     this specific emitted segment own": several independent corridors crossing
     one boundary each keep their own reservation's band, so a pass allocating
     them together reads each bundle's allocation instead of one boundary-wide
-    intersection.  ``row_bands_by_edge`` / ``column_bands_by_edge`` answer the
-    same question before the segment rank exists -- a handler computing a
-    trunk's depth ahead of routing -- and are only decisive when the edge
-    claims a single gap corridor on that axis.
+    intersection.  ``row_bands_by_edge`` answers the same question before the
+    segment rank exists -- a bypass trunk whose depth is computed ahead of the
+    route that carries it -- and is decisive only where the edge's row claims
+    agree on one band.
     """
 
     rows: ReservedBands = field(default_factory=ReservedBands)
     columns: ReservedBands = field(default_factory=ReservedBands)
     per_claim: Mapping[ClaimSegmentKey, ReservedBand] = field(default_factory=dict)
     row_bands_by_edge: Mapping[EdgeKey, tuple[ReservedBand, ...]] = field(
-        default_factory=dict
-    )
-    column_bands_by_edge: Mapping[EdgeKey, tuple[ReservedBand, ...]] = field(
         default_factory=dict
     )
 
@@ -142,13 +139,6 @@ class ReservedCorridors:
     ) -> ReservedBand | None:
         """The edge's row-gap band, when it claims exactly one row corridor."""
         bands = self.row_bands_by_edge.get((source, target, line_id), ())
-        return bands[0] if len(bands) == 1 else None
-
-    def claimed_column_band(
-        self, source: str, target: str, line_id: str
-    ) -> ReservedBand | None:
-        """The edge's column-gap band, when it claims exactly one column."""
-        bands = self.column_bands_by_edge.get((source, target, line_id), ())
         return bands[0] if len(bands) == 1 else None
 
 
@@ -186,12 +176,10 @@ def _measured_gap_bands(
 
 
 def _axis_bands(
-    graph: MetroGraph,
-    plan: RoutePlan,
+    measured: Sequence[tuple[RouteReservation, float, float]],
     boundary_of: Callable[[CorridorRegion], int | None],
-    translations: tuple[ReservationCoordinateTranslation, ...],
 ) -> ReservedBands:
-    """Measure the reservations *boundary_of* recognises against live geometry.
+    """Reduce *measured* to the band each boundary *boundary_of* recognises.
 
     Several corridors can claim one boundary over different spans, so a
     boundary's band is the intersection of what each of them leaves clear: a
@@ -201,7 +189,7 @@ def _axis_bands(
     ledger never reached.
     """
     spans: dict[int, tuple[float, float]] = {}
-    for reservation, lo, hi in _measured_gap_bands(graph, plan, translations):
+    for reservation, lo, hi in measured:
         boundary = boundary_of(reservation.region)
         if boundary is None:
             continue
@@ -224,22 +212,19 @@ class _ClaimViews:
 
     per_claim: dict[ClaimSegmentKey, ReservedBand]
     row_bands_by_edge: dict[EdgeKey, tuple[ReservedBand, ...]]
-    column_bands_by_edge: dict[EdgeKey, tuple[ReservedBand, ...]]
 
 
 def _claim_views(
-    graph: MetroGraph,
-    plan: RoutePlan,
-    translations: tuple[ReservationCoordinateTranslation, ...],
+    plan: RoutePlan, measured: Sequence[tuple[RouteReservation, float, float]]
 ) -> _ClaimViews:
     """Each gap claim's own realised band, keyed by the segments it covers.
 
     Two claims naming one segment must both hold there, so a duplicate key
     keeps the intersection; an empty intersection publishes no band for that
     segment, exactly as :func:`_axis_bands` treats a contested boundary.  The
-    per-edge views collect each edge's distinct bands per axis; equal bands
-    collapse, so an edge whose corridor several reservations describe alike
-    reads as one allocation.
+    per-edge view collects each edge's distinct row bands; equal bands collapse,
+    so an edge whose corridor several reservations describe alike reads as one
+    allocation.
     """
     from nf_metro.layout.route_reservations import RowGapRegion
 
@@ -247,14 +232,15 @@ def _claim_views(
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}
     # Keyed by the band quantised to the comparison tolerance, so two
     # reservations describing one corridor alike collapse to a single band.
-    by_edge: dict[tuple[EdgeKey, bool], dict[tuple[int, int], tuple[float, float]]] = {}
-    for reservation, lo, hi in _measured_gap_bands(graph, plan, translations):
+    by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
+    for reservation, lo, hi in measured:
         is_row = isinstance(reservation.region, RowGapRegion)
         band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
         for claim in reservation.claims:
             edge = edge_by_member[claim.member_id]
             edge_key = (edge.source, edge.target, edge.line_id)
-            by_edge.setdefault((edge_key, is_row), {}).setdefault(band_key, (lo, hi))
+            if is_row:
+                by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
             for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
                 key = (*edge_key, rank)
                 held = spans.get(key)
@@ -266,16 +252,15 @@ def _claim_views(
         for key, (lo, hi) in spans.items()
         if hi >= lo - COORD_TOLERANCE
     }
-    row_bands: dict[EdgeKey, tuple[ReservedBand, ...]] = {}
-    column_bands: dict[EdgeKey, tuple[ReservedBand, ...]] = {}
-    for (edge_key, is_row), bands in by_edge.items():
-        view = row_bands if is_row else column_bands
-        view[edge_key] = tuple(
+    row_bands = {
+        edge_key: tuple(
             ReservedBand(lo, hi)
             for lo, hi in bands.values()
             if hi >= lo - COORD_TOLERANCE
         )
-    return _ClaimViews(per_claim, row_bands, column_bands)
+        for edge_key, bands in by_edge.items()
+    }
+    return _ClaimViews(per_claim, row_bands)
 
 
 def build_reserved_corridors(
@@ -286,29 +271,28 @@ def build_reserved_corridors(
     """Measure *plan*'s row- and column-gap reservations against live *graph*.
 
     *plan* is the frozen ledger settlement consumed, so its claim coordinates
-    are projected through *translations* before measurement.
+    are projected through *translations* before measurement.  Every view here
+    reduces one measurement of the ledger against live geometry, so it is taken
+    once: re-deriving it per view would re-measure each corridor's blockers
+    against every section three times over.
     """
     from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 
-    views = _claim_views(graph, plan, translations)
+    measured = tuple(_measured_gap_bands(graph, plan, translations))
+    views = _claim_views(plan, measured)
     return ReservedCorridors(
         _axis_bands(
-            graph,
-            plan,
+            measured,
             lambda region: (
                 region.lower_row if isinstance(region, RowGapRegion) else None
             ),
-            translations,
         ),
         _axis_bands(
-            graph,
-            plan,
+            measured,
             lambda region: (
                 region.right_column if isinstance(region, ColumnGapRegion) else None
             ),
-            translations,
         ),
         views.per_claim,
         views.row_bands_by_edge,
-        views.column_bands_by_edge,
     )
