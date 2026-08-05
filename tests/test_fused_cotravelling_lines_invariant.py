@@ -14,10 +14,11 @@ Covers:
 * Happy-path: every shipped topology and example routes with no fused pair.
 * Targeted: the three corridors a reservation band pulled together
   (``rl_return_row_convergence``, ``convergence_fold_diamond``,
-  ``seed72_cross_family_fan``) keep the full step on the settled geometry, and
-  land on it exactly rather than merely clear of the check.
-* Meaningfulness: with the separation pass disabled the checker fires on those
-  fixtures, so the invariant genuinely encodes the defect.
+  ``seed72_cross_family_fan``) keep the full step on the settled geometry.
+* Meaningfulness: on the fixtures whose bands leave the pair short of the step
+  the checker fires once the separation pass is disabled, and the pass lands
+  each of those pairs exactly on the step rather than merely clear of the
+  check, so the invariant genuinely encodes the defect.
 """
 
 from __future__ import annotations
@@ -40,11 +41,21 @@ TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
 EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 CURVE_REPROS = REPO_ROOT / "tests" / "fixtures" / "curve_invariant_repros"
+REGRESSIONS = REPO_ROOT / "tests" / "fixtures" / "regressions"
 
 REPORTED = [
     CURVE_REPROS / "rl_return_row_convergence.mmd",
     EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd",
     EXAMPLE_TOPOLOGIES / "seed72_cross_family_fan.mmd",
+]
+
+# Fixtures whose reservation band seats the pair closer than one step, so the
+# separation pass is what puts them back on it.  Read off the corpus by routing
+# it with the pass disabled and collecting the fixtures the checker reports.
+FUSED_WITHOUT_THE_PASS = [
+    EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd",
+    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd",
+    REGRESSIONS / "entry_trunk_row_bow.mmd",
 ]
 
 
@@ -138,7 +149,7 @@ def test_reported_corridors_keep_the_nesting_step(
     assert not violations, "\n".join(v.message() for v in violations)
 
 
-@pytest.mark.parametrize("path", REPORTED, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
 def test_checker_fires_without_the_separation_pass(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -152,7 +163,7 @@ def test_checker_fires_without_the_separation_pass(
     assert all(v.separation < step for v in violations)
 
 
-@pytest.mark.parametrize("path", REPORTED, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
 def test_separated_pairs_land_on_the_step(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

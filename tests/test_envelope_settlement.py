@@ -475,20 +475,20 @@ def test_one_translation_settles_every_claim_on_its_boundary() -> None:
     """Two corridors starved at one boundary are one widening, not two.
 
     ``convergent_offrow_exit_climb`` puts a topology-span claim and an
-    observed-run claim in row gap 0/1, each 3px short, and both are satisfied by
+    observed-run claim in row gap 0/1, each 2px short, and both are satisfied by
     moving row 1 onward once.
     """
     path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
     graph, plan = _observe(path)
     starved = _capacity_deficits(plan)
     assert len(starved) == 2
-    assert set(starved.values()) == {-3.0}
+    assert set(starved.values()) == {-2.0}
 
     settlement = settle_route_envelopes(graph, plan)
     (translation,) = settlement.translations
     assert translation.axis is SettlementAxis.ROW
     assert translation.boundary == 1
-    assert translation.amount == pytest.approx(3.0)
+    assert translation.amount == pytest.approx(2.0)
     assert {str(item) for item in translation.reservation_ids} == set(starved)
 
     for reservation_id in starved:
