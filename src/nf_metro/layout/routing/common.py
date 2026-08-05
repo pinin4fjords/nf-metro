@@ -1865,9 +1865,6 @@ def bypass_bottom_y(
     in no inter-row gap at all -- the allocation wins.
     """
 
-    def _hold(candidate: float) -> float:
-        return candidate if claim is None else claim.hold(candidate)
-
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
 
     if cross_row:
@@ -1878,12 +1875,13 @@ def bypass_bottom_y(
             # and loop back up to the entry port).
             upper_bottom = row_bottom_edge(graph, tgt_row - 1, default=0.0)
             lower_top = row_top_edge(graph, tgt_row, default=upper_bottom)
-            return _hold(
+            return held_in_reserved_band(
                 _center_inter_row_channel(
                     upper_bottom,
                     lower_top,
                     reserved=None if reserved is None else reserved.at(tgt_row),
-                )
+                ),
+                claim,
             )
         # Route below ALL sections in the column range.
         all_in_range = [
@@ -1892,8 +1890,10 @@ def bypass_bottom_y(
             if s.bbox_w > 0 and lo <= s.grid_col <= hi
         ]
         if all_in_range:
-            return _hold(max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance)
-        return _hold(clearance)
+            return held_in_reserved_band(
+                max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance, claim
+            )
+        return held_in_reserved_band(clearance, claim)
 
     def _in_row(s: Section) -> bool:
         return src_row is None or s.grid_row == src_row
@@ -1919,7 +1919,7 @@ def bypass_bottom_y(
         if endpoints:
             candidate = max(s.bbox_y + s.bbox_h for s in endpoints) + clearance
         else:
-            return _hold(clearance)
+            return held_in_reserved_band(clearance, claim)
 
     # Keep the bypass at least HEADER_CLEARANCE above any LOWER-row
     # section header_top; the stacked-line bundle otherwise crowds the
@@ -1941,7 +1941,9 @@ def bypass_bottom_y(
                     else:
                         candidate = (row_bottom + header_top) / 2
 
-    return _hold(held_in_reserved_gap_band(graph, candidate, reserved))
+    return held_in_reserved_band(
+        held_in_reserved_gap_band(graph, candidate, reserved), claim
+    )
 
 
 def held_in_reserved_gap_band(

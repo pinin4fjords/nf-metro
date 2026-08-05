@@ -576,6 +576,26 @@ def test_settlement_run_twice_is_an_exact_geometry_no_op(path: Path) -> None:
     assert _geometry(graph) == settled
 
 
+@pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
+def test_the_whole_route_settle_route_pipeline_reaches_a_fixpoint(path: Path) -> None:
+    """Re-running the render's own geometry steps on their output changes nothing.
+
+    Running settlement twice against one ledger only shows that the sweep has no
+    second move to make.  The stage that has to be idempotent is the whole
+    render boundary -- observe a plan, settle against it, re-route to consume it
+    -- because that is what a caller re-entering a settled graph exercises, and
+    the re-route publishes a ledger the first pass never saw.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        graph.permissive = True
+        theme = resolve_theme(None, graph)
+        once = _settled_render_graph(graph, theme)
+        twice = _settled_render_graph(once, theme)
+    assert _geometry(twice) == _geometry(once)
+
+
 @pytest.mark.parametrize("path", SETTLED_CORPUS, ids=lambda item: item.name)
 def test_settlement_leaves_a_deficit_free_layout_untouched(path: Path) -> None:
     graph, plan = _observe(path)

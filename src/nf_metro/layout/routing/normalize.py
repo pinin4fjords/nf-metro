@@ -272,7 +272,7 @@ def _hold_bundle_in_claim_band(
         return mid
     centre = (band.lo + band.hi) / 2
     reach = max(band.hi - band.lo - width, 0.0) / 2
-    return min(max(mid, centre - reach), centre + reach)
+    return ReservedBand(centre - reach, centre + reach).hold(mid)
 
 
 def _layout_gap_bundle(
@@ -2579,7 +2579,7 @@ def _hold_stack_in_claim_bands(
         offset += height + gap
     if lo_bound is None or hi_bound is None or hi_bound < lo_bound - COORD_TOLERANCE:
         return band_top
-    return min(max(band_top, lo_bound), hi_bound)
+    return ReservedBand(lo_bound, hi_bound).hold(band_top)
 
 
 def _separate_opposing_inter_row_trunks(
