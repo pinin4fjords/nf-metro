@@ -5,8 +5,9 @@ from __future__ import annotations
 import functools
 import itertools
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from math import inf, isfinite
 from typing import NamedTuple, TypeVar
 
 from nf_metro.layout.constants import (
@@ -3915,60 +3916,119 @@ def _hold_runs_in_corridor_clearance(
     reservation raised over it on the pass that publishes the ledger as well as
     the pass that reads it.
 
-    A bundle travels only through the space its neighbours leave it, each of them
-    taken at its settled position, so no move fuses two bundles onto one
-    coordinate or reorders them.  Bundles are visited in coordinate order, which
-    is what makes an already-moved neighbour a settled obstacle for the rest.
+    A bundle travels only through the shifts its peers leave it, each of them
+    taken at its settled position, so no move crowds another lane or leapfrogs
+    it into a different order.  Bundles are visited in coordinate order, which is
+    what makes an already-moved peer a settled obstacle for the rest.
     """
-    step = ctx.offset_step
     by_axis: defaultdict[int, list[_CorridorRun]] = defaultdict(list)
     for run in _corridor_runs(routes, ctx):
         by_axis[run.axis].append(run)
     for runs in by_axis.values():
-        bundles = _corridor_bundles(runs, step)
-        seats = [
-            (
-                min(run.coordinate for run in bundle),
-                max(run.coordinate for run in bundle),
-            )
-            for bundle in bundles
-        ]
+        bundles = _corridor_bundles(runs, ctx.offset_step)
+        settled = [0.0] * len(bundles)
         for index, bundle in enumerate(bundles):
             allowed = _bundle_shift_range(bundle)
             if allowed is None:
                 continue
+            peers = [
+                (peer, settled[other])
+                for other, other_bundle in enumerate(bundles)
+                if other != index
+                for peer in other_bundle
+            ]
             lower, upper = allowed
-            start, end = seats[index]
-            for other, (other_start, other_end) in enumerate(seats):
-                if other == index or not _bundles_share_corridor(
-                    bundle, bundles[other]
-                ):
-                    continue
-                if other < index:
-                    lower = max(lower, other_end + step - start)
-                else:
-                    upper = min(upper, other_start - step - end)
-            if lower > upper + COORD_TOLERANCE_FINE:
-                continue
-            shift = min(max(0.0, lower), upper)
-            if abs(shift) <= COORD_TOLERANCE_FINE:
+            shift = _least_uncrowded_shift(
+                lower, upper, _crowding_windows(bundle, peers, ctx)
+            )
+            if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
                 continue
             _shift_corridor_bundle(bundle, shift, ctx)
-            seats[index] = (start + shift, end + shift)
+            settled[index] = shift
 
 
-def _bundles_share_corridor(
-    bundle: list[_CorridorRun], other: list[_CorridorRun]
-) -> bool:
-    """Whether two bundles run alongside each other far enough to separate.
+class _CrowdingWindow(NamedTuple):
+    """The open range of shifts one peer leg denies a bundle.
 
-    Legs that merely pass each other's ends occupy different stretches of the
-    gap, so neither constrains where the other sits.
+    The range reaches away past its peer, so it denies crowding the peer's lane
+    and leapfrogging it into another order alike; the finite end is the closest
+    the two may settle, and is itself allowed.
     """
-    return any(
-        spans_share_corridor(first.run_lo, first.run_hi, second.run_lo, second.run_hi)
-        for first in bundle
-        for second in other
+
+    lo: float
+    hi: float
+
+    def excludes(self, shift: float) -> bool:
+        return self.lo < shift < self.hi
+
+    @property
+    def bound(self) -> float:
+        return self.hi if isfinite(self.hi) else self.lo
+
+
+def _crowding_windows(
+    bundle: list[_CorridorRun],
+    peers: Sequence[tuple[_CorridorRun, float]],
+    ctx: _RoutingCtx,
+) -> list[_CrowdingWindow]:
+    """One window per pair of legs that would crowd each other, over all *peers*.
+
+    A peer constrains only the legs it shares a stretch of corridor with: legs
+    that merely pass each other's ends occupy different parts of the gap.  How
+    close a pair may settle is what the two of them have to read as: distinct
+    lines nest one offset step apart, which is what draws them as neighbouring
+    tracks, while two legs of one line are duplicates of a single stroke and draw
+    as one thick doubled corner anywhere inside a curve radius of each other.
+    Two such legs in separate bundles were not fused onto one coordinate by the
+    passes that fuse same-line tracks, so a curve radius is the whole of the room
+    they need.
+
+    *peers* carry the shift already applied to them, since a peer's lane is where
+    it has settled rather than where the passes above left it.
+    """
+    windows: list[_CrowdingWindow] = []
+    for run in bundle:
+        for peer, applied in peers:
+            if not spans_share_corridor(
+                run.run_lo, run.run_hi, peer.run_lo, peer.run_hi
+            ):
+                continue
+            keep = (
+                ctx.curve_radius + COORD_TOLERANCE
+                if peer.route.edge.line_id == run.route.edge.line_id
+                else ctx.offset_step
+            )
+            onto = peer.coordinate + applied - run.coordinate
+            windows.append(
+                _CrowdingWindow(-inf, onto + keep)
+                if onto < 0
+                else _CrowdingWindow(onto - keep, inf)
+            )
+    return windows
+
+
+def _least_uncrowded_shift(
+    lower: float, upper: float, windows: Sequence[_CrowdingWindow]
+) -> float | None:
+    """The smallest shift in ``[lower, upper]`` no window in *windows* denies.
+
+    ``None`` where every shift the band asks for is denied: the bundle then holds
+    its place, and the shortfall is left to the closing guard to report rather
+    than paid for by drawing two lanes as one.  The feasible shifts form a closed
+    set whose extremes are the band's own ends, the windows' finite bounds and the
+    least move the band asks for, so the smallest of those is the smallest of all.
+    """
+    candidates = {min(max(0.0, lower), upper), lower, upper}
+    candidates.update(window.bound for window in windows)
+    return min(
+        (
+            candidate
+            for candidate in sorted(candidates)
+            if lower - COORD_TOLERANCE_FINE <= candidate <= upper + COORD_TOLERANCE_FINE
+            and not any(window.excludes(candidate) for window in windows)
+        ),
+        key=abs,
+        default=None,
     )
 
 
