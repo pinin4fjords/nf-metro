@@ -262,18 +262,17 @@ def _hold_bundle_in_claim_band(
 
     A reservation states where its corridor may run, not where in that span it
     should sit, so a placement the gap edges already put inside the band is
-    kept.  The whole bundle has to fit, so the midpoint is held a half-width
-    inboard of each edge; a band narrower than the bundle centres it, leaving
-    the deficit for the closing guard to report rather than picking an edge.
+    kept.  The whole bundle has to fit, so the midpoint may travel a half-width
+    inboard of each edge, which for a band narrower than the bundle is no travel
+    at all: it centres, leaving the deficit for the closing guard to report
+    rather than picking an edge to overhang.
     """
     band = _bundle_claim_band(ctx, ((ch.route, ch.idx) for ch in chans))
     if band is None:
         return mid
-    half = width / 2
-    lo, hi = band.lo + half, band.hi - half
-    if hi < lo:
-        return (band.lo + band.hi) / 2
-    return min(max(mid, lo), hi)
+    centre = (band.lo + band.hi) / 2
+    reach = max(band.hi - band.lo - width, 0.0) / 2
+    return min(max(mid, centre - reach), centre + reach)
 
 
 def _layout_gap_bundle(

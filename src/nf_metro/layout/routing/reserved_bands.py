@@ -26,7 +26,7 @@ rows or columns as a whole.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_reservations import (
         CorridorRegion,
         ReservationCoordinateTranslation,
+        RouteReservation,
     )
     from nf_metro.parser.model import MetroGraph
 
@@ -151,6 +152,39 @@ class ReservedCorridors:
         return bands[0] if len(bands) == 1 else None
 
 
+def _measured_gap_bands(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    translations: tuple[ReservationCoordinateTranslation, ...],
+) -> Iterator[tuple[RouteReservation, float, float]]:
+    """Every gap reservation in *plan* with the band it leaves clear.
+
+    A band is the corridor region inset by each side's clearance, which is what
+    a channel placed there may occupy.  Canvas corridors are excluded: their
+    region is a margin against the canvas edge rather than a boundary a channel
+    is allocated within.
+    """
+    from nf_metro.layout.route_reservations import (
+        ColumnGapRegion,
+        RowGapRegion,
+        realise_reservation,
+    )
+
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(
+            graph, reservation, coordinate_translations=translations
+        )
+        if realised is None:
+            continue
+        yield (
+            reservation,
+            realised.region_start + reservation.negative_side_clearance,
+            realised.region_end - reservation.positive_side_clearance,
+        )
+
+
 def _axis_bands(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -166,20 +200,11 @@ def _axis_bands(
     unclaimed and the router derives its own band as it does for any gap the
     ledger never reached.
     """
-    from nf_metro.layout.route_reservations import realise_reservation
-
     spans: dict[int, tuple[float, float]] = {}
-    for reservation in plan.reservations:
+    for reservation, lo, hi in _measured_gap_bands(graph, plan, translations):
         boundary = boundary_of(reservation.region)
         if boundary is None:
             continue
-        realised = realise_reservation(
-            graph, reservation, coordinate_translations=translations
-        )
-        if realised is None:
-            continue
-        lo = realised.region_start + reservation.negative_side_clearance
-        hi = realised.region_end - reservation.positive_side_clearance
         held = spans.get(boundary)
         spans[boundary] = (
             (lo, hi) if held is None else (max(held[0], lo), min(held[1], hi))
@@ -216,36 +241,20 @@ def _claim_views(
     collapse, so an edge whose corridor several reservations describe alike
     reads as one allocation.
     """
-    from nf_metro.layout.route_reservations import (
-        ColumnGapRegion,
-        RowGapRegion,
-        realise_reservation,
-    )
+    from nf_metro.layout.route_reservations import RowGapRegion
 
     edge_by_member = {member.id: member.edge for member in plan.members}
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}
-    by_edge: dict[tuple[EdgeKey, bool], list[tuple[float, float]]] = {}
-    for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
-            continue
-        realised = realise_reservation(
-            graph, reservation, coordinate_translations=translations
-        )
-        if realised is None:
-            continue
-        lo = realised.region_start + reservation.negative_side_clearance
-        hi = realised.region_end - reservation.positive_side_clearance
+    # Keyed by the band quantised to the comparison tolerance, so two
+    # reservations describing one corridor alike collapse to a single band.
+    by_edge: dict[tuple[EdgeKey, bool], dict[tuple[int, int], tuple[float, float]]] = {}
+    for reservation, lo, hi in _measured_gap_bands(graph, plan, translations):
         is_row = isinstance(reservation.region, RowGapRegion)
+        band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
         for claim in reservation.claims:
             edge = edge_by_member[claim.member_id]
             edge_key = (edge.source, edge.target, edge.line_id)
-            edge_bands = by_edge.setdefault((edge_key, is_row), [])
-            if not any(
-                abs(held_lo - lo) <= COORD_TOLERANCE
-                and abs(held_hi - hi) <= COORD_TOLERANCE
-                for held_lo, held_hi in edge_bands
-            ):
-                edge_bands.append((lo, hi))
+            by_edge.setdefault((edge_key, is_row), {}).setdefault(band_key, (lo, hi))
             for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
                 key = (*edge_key, rank)
                 held = spans.get(key)
@@ -262,7 +271,9 @@ def _claim_views(
     for (edge_key, is_row), bands in by_edge.items():
         view = row_bands if is_row else column_bands
         view[edge_key] = tuple(
-            ReservedBand(lo, hi) for lo, hi in bands if hi >= lo - COORD_TOLERANCE
+            ReservedBand(lo, hi)
+            for lo, hi in bands.values()
+            if hi >= lo - COORD_TOLERANCE
         )
     return _ClaimViews(per_claim, row_bands, column_bands)
 
