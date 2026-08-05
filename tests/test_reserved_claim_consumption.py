@@ -15,9 +15,9 @@ segment_rank)`` of the claim itself, so the bound names which leg is out rather
 than how many are: an unrecorded claim fails, a recorded one that comes into
 band fails until its entry goes, and swapping one leg for another fails too.
 
-What those remaining claims are is measured, not assumed.  Two are a convergence
-trunk, whose coordinate a pre-routing plan fixes and validates the emitted
-geometry against, so no post-pass may write them; that plan has to choose the
+What those remaining claims are is measured, not assumed.  Two are legs whose
+coordinate a pre-routing plan fixes and validates the emitted geometry against,
+so no post-pass may write them: a convergence trunk.  That plan has to choose the
 coordinate inside the band its own reservation realises, which is work at the
 plan, not a repair after it.  The remaining one is a leg whose boundary is a lane
 too narrow for the pair standing in it, because the two claims' declared travel

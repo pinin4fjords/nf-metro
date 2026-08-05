@@ -1687,12 +1687,12 @@ in pipeline order.
   peers denying it as one rigid group: two corridors owed one boundary between
   them are seated by the same widening and neither can reach it alone, and a
   rigid move leaves every separation inside the group exactly as drawn.
-  Measured on the corpus, 14 of the 1003 claims carried by 557 realised gap
+  Measured on the corpus, 3 of the 1003 claims carried by 557 realised gap
   reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 9 outside it at exact precision;
+  reservation realises, and 6 outside it at exact precision;
   `tests/test_reserved_claim_consumption.py` holds each one by its own
   `(path_rank, segment_rank)` so the bound names the leg rather than a count. Each
-  is a leg the pass may not reseat: 4 are segments a pre-routing plan owns and
+  is a leg the pass may not reseat: 2 are segments a pre-routing plan owns and
   validates, 2 are flanked by a diagonal whose angle a reseat would change, 1 is a
   pair needing one coordinate between them whose bands are measured at two
   *different* boundaries, so no single boundary's width states the room the pair
