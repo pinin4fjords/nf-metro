@@ -273,6 +273,53 @@ def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
         assert realised.capacity_slack >= -0.01
 
 
+GROUP_BAND_MAP = (
+    ROOT / "tests" / "fixtures" / "regressions" / "group_band_over_row_corridor.mmd"
+)
+
+
+def test_a_group_caption_band_does_not_eat_a_settled_row_corridor() -> None:
+    """A ``below`` band grows the bottom edge that bounds the corridor under it.
+
+    ``source`` sits in row 0 above ``middle`` in row 1 with a 78px inter-row
+    bundle between them, and its two captions claim 14.35px of the box, so the
+    band and the corridor compete for the same pixels.
+    """
+    graph, plan = _settled(GROUP_BAND_MAP)
+    source, middle = graph.sections["source"], graph.sections["middle"]
+    assert source.bbox_h > 100.0, "the band has to have grown the box"
+
+    query = build_route_plan_query(plan)
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.upper_row == 0
+    )
+    realised = query.realised_reservation(reservation.id)
+    assert realised is not None
+    assert realised.capacity_slack >= 0.0
+    assert middle.bbox_y - (source.bbox_y + source.bbox_h) >= reservation.minimum_width
+
+
+def test_a_group_band_render_is_gated_by_the_geometry_it_draws() -> None:
+    """Strict renders certify the boxes the group bands grew, not the boxes
+    layout left, so a band that starves a corridor cannot pass unmeasured."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(
+            GROUP_BAND_MAP.read_text(), source_dir=str(GROUP_BAND_MAP.parent)
+        )
+        graph.strict = True
+        theme = resolve_theme(None, graph)
+        drawn = _settled_render_graph(graph, theme)
+        plan = build_observed_render_plan(graph, theme).route_plan
+
+    assert drawn.sections["source"].bbox_h == pytest.approx(
+        graph.sections["source"].bbox_h + 14.35, abs=0.01
+    )
+    assert _capacity_deficits(plan) == {}
+
+
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
     """The 12 report feeders share one trunk lane needing 78px between rows.
 

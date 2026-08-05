@@ -1049,6 +1049,12 @@ def _settle_render_geometry(
     would otherwise flag); the header-clearance guard runs last, on the settled
     geometry.
 
+    A ``group`` caption band below a section grows that section's bottom edge,
+    and that edge is the blocker bounding the row corridor beneath it, so the
+    growth happens here rather than at draw time: settlement then widens the
+    boundary to keep the corridor it certified, and the closing guards measure
+    the geometry the render actually draws.
+
     Junction coordinates are a function of the ports they join rather than
     independent data, so they are re-derived from the incoming section geometry
     before anything is routed.  That keeps routing self-consistent no matter
@@ -1114,6 +1120,7 @@ def _settle_render_geometry(
     )
 
     labels = _place(station_offsets, routes)
+    _reserve_group_band_space(graph, theme, station_offsets, labels)
     if render_header_collision(graph) and not graph.has_rail_sections:
         push_lower_rows_after_bbox_grow(graph, section_y_gap)
         station_offsets, routes, route_plan = _resettle()
@@ -1244,24 +1251,9 @@ def _build_render_plan_scaled(
 
     header_polylines = route_polylines
 
-    # Per-station rendered label (top, bottom) Y, so group bands clear the
-    # (possibly diagonal) station labels rather than just the markers.
-    label_extents: dict[str, tuple[float, float]] = {}
-    for p in labels:
-        if p.station_id:
-            _, ly0, _, ly1 = _label_bbox(p)
-            label_extents[p.station_id] = (ly0, ly1)
-
-    group_bands = (
-        _group_bands(graph, theme, station_offsets, label_extents)
-        if graph.groups
-        else []
-    )
-
-    # Reserve room inside section boxes for below group bands before bboxes
-    # feed the section render and the canvas-bounds computation.
-    if group_bands:
-        _reserve_section_space_for_groups(graph, group_bands)
+    # Drawn against the settled coordinates; the box room a below band needs was
+    # reserved before settlement, which measured the grown edge.
+    group_bands = _resolve_group_bands(graph, theme, station_offsets, labels)
 
     # Resolve headers against the final section bboxes (label and group
     # reservations above can grow a box, moving where its header sits).
@@ -3629,6 +3621,43 @@ def _group_caption_bounds(bands: list[_GroupBand], theme: Theme) -> tuple[float,
         max_x = max(max_x, band.x_right, caption_right)
         max_y = max(max_y, band.rule_y, band.text_y, band.band_far_y)
     return max_x, max_y
+
+
+def _resolve_group_bands(
+    graph: MetroGraph,
+    theme: Theme,
+    station_offsets: dict[tuple[str, str], float],
+    labels: list[LabelPlacement],
+) -> list[_GroupBand]:
+    """Band geometry for *graph*'s station groups against the given coordinates.
+
+    A band clears the (possibly diagonal) station labels rather than just the
+    markers, so it is resolved from the rendered label extents.
+    """
+    if not graph.groups:
+        return []
+    label_extents: dict[str, tuple[float, float]] = {}
+    for placement in labels:
+        if placement.station_id:
+            _, low, _, high = _label_bbox(placement)
+            label_extents[placement.station_id] = (low, high)
+    return _group_bands(graph, theme, station_offsets, label_extents)
+
+
+def _reserve_group_band_space(
+    graph: MetroGraph,
+    theme: Theme,
+    station_offsets: dict[tuple[str, str], float],
+    labels: list[LabelPlacement],
+) -> None:
+    """Grow section boxes for their ``below`` group bands, before settlement.
+
+    Settlement translates whole rows rigidly, so a band holds its offset inside
+    its own box and one reservation covers the drawn geometry.
+    """
+    bands = _resolve_group_bands(graph, theme, station_offsets, labels)
+    if bands:
+        _reserve_section_space_for_groups(graph, bands)
 
 
 def _reserve_section_space_for_groups(
