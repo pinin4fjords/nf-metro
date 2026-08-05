@@ -1474,6 +1474,42 @@ in pipeline order.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation
   settlement owns, and re-running it changes nothing.
 
+### Row, bbox-top and canvas responsibilities settlement does not take over
+
+Settlement translates whole rows and whole columns, which is also what several
+older passes do as part of their job. Each one below was bypassed at source
+(body stubbed, or its engine call site removed) and the whole render corpus --
+368 fixtures under `examples/` and `tests/fixtures/` -- was re-rendered and
+compared by md5 against the unmodified tree. A pass that changed no render
+would be doing work settlement now covers, and could be deleted; none of them
+is. The counts are the evidence for keeping every one of them, and for
+settlement owning only the translation it adds.
+
+| Pass (bypass point) | What it writes | Scope | Renders changed | Verdict |
+| --- | --- | --- | --- | --- |
+| `_shrink_bboxes_to_content_bottom` (`phases/bbox.py`) | each `bbox_h` down to its own content | local | 59 | keep |
+| `_tighten_lower_rows_after_shrink` (`phases/bbox.py`) | rows `>= r` up by the slack the shrink revealed | global | 37 | keep |
+| `_fit_bboxes_to_content_top` (`phases/bbox.py`) | each `bbox_y` / `bbox_h` around its own content top | local | 39, plus 1 fixture newly aborting on a curve invariant | keep |
+| `_reserve_row_gap_for_top_padding` (`phases/bbox.py`) | rows `>= r` down by a blocked section's padding shortfall | global | 5 | keep |
+| `push_lower_rows_after_bbox_grow` (`phases/bbox.py`) | rows `>= r` down by the gap a bbox grow ate | global | 18 | keep |
+| `_shift_graph_into_canvas` (`phases/canvas.py`) | every section down by the canvas-top shortfall | global | 44 | keep |
+| `_snap_canvas_y_to_grid` (`phases/grid_snap.py`) | every section by the canvas-wide off-grid residue | global | 33 | keep |
+| Stage 4.7 `_top_align_row_sections` | row-mate bbox tops flush, stations carried along | local | 8 | keep |
+| Stage 5.3 `_top_align_row_bboxes_only` | row-mate bbox tops flush, stations left alone | local | 8 | keep |
+| Stage 6.6 `_reanchor_off_track_to_consumer` | off-track station Ys, and the bbox top they push up | local | 11 | keep |
+| Stage 6.8 `_reanchor_off_track_to_consumer` | as 6.6, against post-recenter consumers | local | 4 | keep |
+| Stage 6.9 `_top_align_row_bboxes_only` | row-mate bbox tops flush after the 6.8 grow | local | 1 | keep |
+| Stage 6.16 `_align_entry_ports` + `_position_junctions` | perpendicular entry-port and junction Ys | local | 6, plus 2 fixtures newly aborting on a curve invariant | keep |
+
+The two global row pushes (`_reserve_row_gap_for_top_padding`,
+`push_lower_rows_after_bbox_grow`) are the nearest neighbours of settlement's
+own translation and the obvious migration candidates. They stay because they
+answer a different question: they restore a gap that a *local* bbox change ate,
+which settlement cannot see -- its ledger records what routes claimed, not what
+padding a box is owed. Settlement therefore adds a translation owner rather
+than replacing one.
+
+
 ## Cross-stage contract: semantic fan planning
 
 - **Purpose**: Give one immutable owner to a complete authored fan or diamond,
