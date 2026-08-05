@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TypeAlias
@@ -18,6 +18,8 @@ from nf_metro.layout.geometry import (
     spans_share_corridor,
 )
 from nf_metro.layout.route_plan import (
+    ConvergenceConflict,
+    ConvergenceConflictKind,
     ConvergenceContinuation,
     ConvergenceDisposition,
     ConvergenceEndpointOwnership,
@@ -68,7 +70,7 @@ from nf_metro.layout.routing.context import (
     _resolve_section_colrow,
     _RoutingCtx,
 )
-from nf_metro.layout.routing.orientation import direction_axis
+from nf_metro.layout.routing.orientation import direction_axis, lateral_axis
 from nf_metro.parser.model import Edge, MetroGraph, Station
 from nf_metro.parser.route_topology import (
     EndpointGroupId,
@@ -83,7 +85,18 @@ class ConvergenceInvariantError(RuntimeError):
 
 
 class UnsupportedConvergenceError(ValueError):
-    """Canonical templates cannot represent a complete convergence system."""
+    """Canonical templates cannot represent a complete convergence system.
+
+    A rejection raised from a whole-system check carries the measurement behind
+    it, so the compatibility record it produces can state where the limit was
+    found instead of only what it was called.
+    """
+
+    def __init__(
+        self, reason: str, conflict: ConvergenceConflict | None = None
+    ) -> None:
+        super().__init__(reason)
+        self.conflict = conflict
 
 
 class ConvergencePlanningError(RuntimeError):
@@ -973,6 +986,7 @@ def _legacy_plan(
     view: ResolvedConvergenceView,
     membership: _PlanMembership,
     reason: str,
+    conflict: ConvergenceConflict | None,
 ) -> ConvergencePlan:
     group = view.group
     paths, edges, member_ids = membership
@@ -1005,6 +1019,7 @@ def _legacy_plan(
         foreign_reference_ids=(),
         disposition=ConvergenceDisposition.LEGACY,
         legacy_reason=reason,
+        conflict=conflict,
     )
 
 
@@ -1090,9 +1105,9 @@ def _landing_cross_segment(
     return segment
 
 
-def _has_opposing_landing_approaches(
+def _opposing_landing_approaches(
     plans: tuple[ConvergencePlan, ...], graph: MetroGraph
-) -> bool:
+) -> ConvergenceConflict | None:
     landing_crosses = tuple(
         (plan, landing, segment, _direction(*segment))
         for plan in plans
@@ -1113,8 +1128,13 @@ def _has_opposing_landing_approaches(
                     first_segment, second_segment, COORD_TOLERANCE
                 )
             ):
-                return True
-    return False
+                return _conflict(
+                    ConvergenceConflictKind.SHARED_APPROACH_CHANNEL,
+                    first_segment,
+                    second_segment,
+                    (first.edge.line_id,),
+                )
+    return None
 
 
 def _move_trunk_flank(
@@ -1517,30 +1537,60 @@ def _settle_opposing_gap_flanks(
     return tuple(settled)
 
 
-def _landing_trunk_flank_conflict(
-    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
-) -> bool:
-    return any(
-        landing_plan.id != trunk_plan.id
-        and landing.edge.line_id in trunk_plan.line_ids
-        and _direction(*landing_segment) is not _direction(*flank)
-        and _parallel_segments_conflict(landing_segment, flank, curve_radius)
-        for landing_plan in plans
-        for landing in landing_plan.landings
-        if (landing_segment := _landing_cross_segment(landing, graph)) is not None
-        for trunk_plan in plans
-        if trunk_plan.trunk_axis is not None
-        for rank, flank in enumerate(_trunk_segments(trunk_plan.trunk_axis))
-        if rank in {1, 3}
+_Segment: TypeAlias = tuple[tuple[float, float], tuple[float, float]]
+
+
+def _conflict(
+    kind: ConvergenceConflictKind,
+    first: _Segment,
+    second: _Segment,
+    line_ids: Iterable[str],
+) -> ConvergenceConflict:
+    """Record where two runs the planner could not reconcile actually sit."""
+    axis = lateral_axis(_direction(*first))
+    index = 1 if axis is DemandAxis.Y else 0
+    return ConvergenceConflict(
+        kind,
+        axis,
+        (first, second),
+        abs(first[0][index] - second[0][index]),
+        _ordered_unique(line_ids),
     )
 
 
-def _system_conflict_reason(
+def _landing_trunk_flank_conflict(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> ConvergenceConflict | None:
+    return next(
+        (
+            _conflict(
+                ConvergenceConflictKind.NO_APPROACH_SETTLEMENT_ROOM,
+                landing_segment,
+                flank,
+                (landing.edge.line_id, *trunk_plan.line_ids),
+            )
+            for landing_plan in plans
+            for landing in landing_plan.landings
+            if (landing_segment := _landing_cross_segment(landing, graph)) is not None
+            for trunk_plan in plans
+            if trunk_plan.trunk_axis is not None
+            for rank, flank in enumerate(_trunk_segments(trunk_plan.trunk_axis))
+            if rank in {1, 3}
+            and landing_plan.id != trunk_plan.id
+            and landing.edge.line_id in trunk_plan.line_ids
+            and _direction(*landing_segment) is not _direction(*flank)
+            and _parallel_segments_conflict(landing_segment, flank, curve_radius)
+        ),
+        None,
+    )
+
+
+def _system_conflict(
     plans: tuple[ConvergencePlan, ...],
     system_edges: tuple[ResolvedEdge, ...],
     scaffold: RouteSemanticScaffold,
     ctx: _RoutingCtx,
-) -> str | None:
+) -> ConvergenceConflict | None:
     complete_pairwise_system = len(plans) == 2
     complete_isolated_system = len(plans) == 1
     opening_arms = tuple(
@@ -1571,8 +1621,18 @@ def _system_conflict_reason(
             else:
                 first_delta = first_plan.trunk_axis.coordinate - first_source.x
                 second_delta = second_plan.trunk_axis.coordinate - second_source.x
+            lines = (first.edge.line_id, second.edge.line_id)
             if first_delta * second_delta < 0:
-                return "planned fan arms require opposing opening channels"
+                # The arms turn on one coordinate and then open opposite ways,
+                # so the shared turn is the geometry that cannot be resolved.
+                assert first.opening_turn_segment is not None
+                assert second.opening_turn_segment is not None
+                return _conflict(
+                    ConvergenceConflictKind.OPPOSING_OPENING_CHANNEL,
+                    first.opening_turn_segment,
+                    second.opening_turn_segment,
+                    lines,
+                )
             if (
                 first_plan.line_ids == second_plan.line_ids
                 and abs(
@@ -1580,15 +1640,16 @@ def _system_conflict_reason(
                 )
                 > ctx.offset_step + COORD_TOLERANCE
             ):
-                return (
-                    "chained same-line convergences require one shared system "
-                    "settlement"
+                return _conflict(
+                    ConvergenceConflictKind.CHAINED_SAME_LINE,
+                    _trunk_segments(first_plan.trunk_axis)[0],
+                    _trunk_segments(second_plan.trunk_axis)[0],
+                    lines,
                 )
 
-    if _has_opposing_landing_approaches(plans, ctx.graph):
-        return (
-            "planned convergence feeder approaches require one shared channel decision"
-        )
+    opposing_approaches = _opposing_landing_approaches(plans, ctx.graph)
+    if opposing_approaches is not None:
+        return opposing_approaches
 
     trunks = tuple(
         (
@@ -1623,9 +1684,15 @@ def _system_conflict_reason(
                 first_segment, second_segment, ctx.curve_radius
             ):
                 continue
+            shared_channel = _conflict(
+                ConvergenceConflictKind.SHARED_TRUNK_CHANNEL,
+                first_segment,
+                second_segment,
+                (*first_plan.line_ids, *second_plan.line_ids),
+            )
             same_line = first_plan.line_ids == second_plan.line_ids
             if same_line and first_direction is not second_direction:
-                return "planned convergence trunks require one shared channel decision"
+                return shared_channel
             if (
                 not first_central
                 and not second_central
@@ -1633,22 +1700,13 @@ def _system_conflict_reason(
                 and first_plan.entry_group_ids != second_plan.entry_group_ids
                 and primary_source[first_plan.id] == primary_source[second_plan.id]
                 and complete_pairwise_system
+                and shared_channel.separation > COORD_TOLERANCE
             ):
-                first_horizontal = (
-                    abs(first_segment[0][1] - first_segment[1][1]) <= COORD_TOLERANCE
-                )
-                separation = abs(
-                    first_segment[0][1] - second_segment[0][1]
-                    if first_horizontal
-                    else first_segment[0][0] - second_segment[0][0]
-                )
-                if separation > COORD_TOLERANCE:
-                    return (
-                        "planned convergence trunks require one shared channel decision"
-                    )
+                return shared_channel
 
-    if _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius):
-        return "planned convergence approaches and trunks have no settlement room"
+    flank_conflict = _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius)
+    if flank_conflict is not None:
+        return flank_conflict
 
     owned_edges = {edge for plan in plans for edge in plan.resolved_member_edges}
     unowned_system_edges: list[ResolvedEdge] = []
@@ -1680,9 +1738,11 @@ def _system_conflict_reason(
                 ) and _parallel_segments_conflict(
                     trunk_segment, route_segment, ctx.curve_radius
                 ):
-                    return (
-                        "planned convergence corridor conflicts with unowned "
-                        "route-system member"
+                    return _conflict(
+                        ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR,
+                        trunk_segment,
+                        route_segment,
+                        (edge_key.line_id,),
                     )
     if not complete_isolated_system:
         return None
@@ -1707,11 +1767,24 @@ def _system_conflict_reason(
                 _ordered_unique(item.entry_group_id for item in connectors),
             )
         ].add(foreign_edge.line_id)
-    if any(len(line_ids) > 1 for line_ids in foreign_groups.values()):
-        return (
-            "planned convergence corridor conflicts with unowned route-system members"
-        )
-    return None
+    shared_group = next(
+        (
+            (source_id, tuple(sorted(line_ids)))
+            for (source_id, _exits, _entries), line_ids in foreign_groups.items()
+            if len(line_ids) > 1
+        ),
+        None,
+    )
+    if shared_group is None:
+        return None
+    # The members leave one junction through one endpoint-group pair, so their
+    # runs start from the same point: the site is that shared origin, recorded
+    # twice because there are two runs standing on it.
+    source = ctx.graph.stations[shared_group[0]]
+    origin = ((source.x, source.y), (source.x, source.y))
+    return _conflict(
+        ConvergenceConflictKind.UNOWNED_MEMBER_GROUP, origin, origin, shared_group[1]
+    )
 
 
 def _resources(
@@ -1887,18 +1960,18 @@ def build_convergence_plan_execution(
             system_plans = _settle_opposing_gap_flanks(
                 system_plans, graph, ctx.curve_radius
             )
-            conflict_reason = _system_conflict_reason(
+            conflict = _system_conflict(
                 system_plans,
                 tuple(edges_by_system.get(system_id, ())),
                 scaffold,
                 ctx,
             )
-            if conflict_reason is not None:
-                raise UnsupportedConvergenceError(conflict_reason)
+            if conflict is not None:
+                raise UnsupportedConvergenceError(conflict.kind.reason, conflict)
         except UnsupportedConvergenceError as error:
             reason = str(error) or type(error).__name__
             system_plans = tuple(
-                _legacy_plan(scaffold, view, membership, reason)
+                _legacy_plan(scaffold, view, membership, reason, error.conflict)
                 for view, membership in zip(views, memberships, strict=True)
             )
             for item in system_plans:

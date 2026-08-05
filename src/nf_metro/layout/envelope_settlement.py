@@ -42,6 +42,9 @@ from enum import Enum
 from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
 from nf_metro.layout.geometry import shift_section
 from nf_metro.layout.route_plan import (
+    ConflictRelief,
+    ConvergenceConflict,
+    DemandAxis,
     EmissionMemberId,
     RoutePlan,
     RoutePlanDiagnostic,
@@ -139,21 +142,47 @@ class SettlementObstruction:
         )
 
 
+class SettlementReach(Enum):
+    """Whether settlement's own translations can reach a compatibility limit."""
+
+    SEPARATION_FIXED = "separation-fixed"
+    """Both conflicting runs sit in one translated band, so every offset this
+    stage owns moves them together and the distance between them never
+    changes."""
+
+    SEPARATION_ONLY_GROWS = "separation-only-grows"
+    """The runs sit in different bands, so an offset does move them apart --
+    which is the wrong direction for a conflict that needs one shared channel,
+    and settlement is forbidden from moving them together."""
+
+    WITHIN_REACH = "within-reach"
+    """An offset this stage owns changes the separation in the direction the
+    conflict needs.  The limit is not attributed away from settlement."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompatibilityOwnership:
-    """A route system on the compatibility path whose corridors all fit.
+    """A route system on the compatibility path, measured against settlement.
 
     #1660 may only leave a system on compatibility with evidence that what
-    limits it is not envelope allocation.  Every corridor the system claims
-    reaching its required width is that evidence, and it points at whoever owns
-    the decision the system is actually short of.
+    limits it is not envelope allocation.  The evidence is two measurements on
+    the settled geometry: every corridor the system reserved reaching its
+    required width, and the conflict that still holds it standing where no
+    global row or column offset can move it.
     """
 
     system_id: RouteSystemId
-    convergence_reason: str
+    conflict: ConvergenceConflict | None
+    reach: SettlementReach | None
+    bands: tuple[int, int] | None
     corridor_count: int
     worst_capacity_slack: float
-    owner: str
+
+    @property
+    def owner(self) -> str:
+        if self.conflict is None:
+            return _UNATTRIBUTED_OWNER
+        return self.conflict.kind.owner
 
     @property
     def message(self) -> str:
@@ -166,13 +195,38 @@ class CompatibilityOwnership:
         else:
             fit = (
                 f"its {self.corridor_count} reserved corridor(s) all fit, the "
-                f"tightest with {self.worst_capacity_slack:.2f}px to spare, so "
-                f"envelope allocation is not what limits it"
+                f"tightest with {self.worst_capacity_slack:.2f}px to spare"
+            )
+        if self.conflict is None or self.bands is None:
+            return (
+                f"route system {self.system_id} stays on compatibility: {fit}, but "
+                f"its planner recorded no measured conflict, so what limits it is "
+                f"unattributed"
+            )
+        axis = _settlement_axis(self.conflict).axis.value
+        first, second = self.bands
+        if self.reach is SettlementReach.SEPARATION_FIXED:
+            proof = (
+                f"both runs sit in {axis} band {first}, which every offset this "
+                f"stage owns moves together, so that {self.conflict.separation:.2f}px "
+                f"is not an envelope allocation"
+            )
+        elif self.reach is SettlementReach.SEPARATION_ONLY_GROWS:
+            proof = (
+                f"the runs sit in {axis} bands {first} and {second}, and settlement "
+                f"never shrinks a separation, so widening moves them further from "
+                f"the one shared channel this conflict needs"
+            )
+        else:
+            proof = (
+                f"the runs sit in {axis} bands {first} and {second}, so an offset "
+                f"this stage owns does change the {self.conflict.separation:.2f}px "
+                f"between them; the limit is not attributed away from settlement"
             )
         return (
-            f"route system {self.system_id} stays on compatibility for "
-            f"{self.convergence_reason!r}: {fit}.  {self.owner} owns the "
-            f"decision it needs."
+            f"route system {self.system_id} stays on compatibility: {fit}; what "
+            f"holds it is {self.conflict.measurement}, and {proof}.  "
+            f"{self.owner} owns the decision it needs."
         )
 
 
@@ -209,7 +263,6 @@ class EnvelopeSettlement:
 
     translations: tuple[SettlementTranslation, ...]
     obstructions: tuple[SettlementObstruction, ...]
-    compatibility_ownership: tuple[CompatibilityOwnership, ...] = ()
     shortfalls: tuple[SettlementShortfall, ...] = ()
 
 
@@ -220,6 +273,7 @@ class _Axis:
     axis: SettlementAxis
     boundary_of: Callable[[RouteReservation], int]
     start_index: Callable[[Section], int]
+    origin: Callable[[Section], float]
     blocker_prefix: str
     translate: Callable[[MetroGraph, int, float], tuple[str, ...]]
 
@@ -248,6 +302,7 @@ _ROW_AXIS = _Axis(
     SettlementAxis.ROW,
     lambda reservation: _row_region(reservation).lower_row,
     lambda section: section.grid_row,
+    lambda section: section.bbox_y,
     SECTION_HEADER_BLOCKER,
     _translate_rows,
 )
@@ -256,6 +311,7 @@ _COLUMN_AXIS = _Axis(
     SettlementAxis.COLUMN,
     lambda reservation: _column_region(reservation).right_column,
     lambda section: section.grid_col,
+    lambda section: section.bbox_x,
     SECTION_LEFT_BLOCKER,
     _translate_columns,
 )
@@ -398,43 +454,90 @@ def _settle_axis(
     return translations, obstructions
 
 
-# Whoever owns the decision a compatibility system is short of, once its
-# corridors are shown to fit.  Plan-driven emission is the programme stage that
-# consolidates those channel and lane decisions.
-_COMPATIBILITY_OWNER = "plan-driven inter-section emission (#1658)"
-
-# Each compatibility reason the convergence planner can record, mapped to the
-# emission decision the system is actually short of.  An unmapped reason falls
-# back to the generic owner rather than being dropped.
-_COMPATIBILITY_OWNER_BY_REASON = {
-    "planned convergence trunks require one shared channel decision": (
-        "plan-driven shared-channel emission (#1658)"
-    ),
-    "planned convergence feeder approaches require one shared channel decision": (
-        "plan-driven shared-channel emission (#1658)"
-    ),
-    "planned fan arms require opposing opening channels": (
-        "plan-driven opposing-opening emission (#1658)"
-    ),
-    "planned convergence corridor conflicts with unowned route-system member": (
-        "plan-driven whole-system emission (#1658)"
-    ),
-    "planned convergence corridor conflicts with unowned route-system members": (
-        "plan-driven whole-system emission (#1658)"
-    ),
-    "chained same-line convergences require one shared system settlement": (
-        "plan-driven chained-convergence emission (#1658)"
-    ),
-    "planned convergence approaches and trunks have no settlement room": (
-        "plan-driven chained-convergence emission (#1658)"
-    ),
-}
+# A compatibility system whose planner recorded no measurement has nothing to
+# attribute it by, so it is named as unattributed rather than assigned an owner
+# the evidence does not support.
+_UNATTRIBUTED_OWNER = "unattributed"
 
 
-def _compatibility_ownership(
+def _settlement_axis(conflict: ConvergenceConflict) -> _Axis:
+    """The one axis whose translations can change *conflict*'s separation.
+
+    A row translation writes y and a column translation writes x, so a distance
+    measured along one of those axes is out of the other's reach entirely.
+    """
+    return _ROW_AXIS if conflict.axis is DemandAxis.Y else _COLUMN_AXIS
+
+
+def _translated_bands(graph: MetroGraph, axis: _Axis) -> dict[int, float]:
+    """The first coordinate each boundary's translation would carry with it.
+
+    Widening boundary ``b`` translates every section from index ``b`` onward, so
+    the topmost (or leftmost) of those boxes is where its effect starts.  Taken
+    as a running minimum from the last boundary backwards, those starts are
+    non-decreasing in ``b``, which makes the boundaries that move a given
+    coordinate a prefix, and their count the band that coordinate sits in.
+    """
+    origin_by_index: dict[int, float] = {}
+    for section in graph.sections.values():
+        index = axis.start_index(section)
+        origin = axis.origin(section)
+        origin_by_index[index] = min(origin_by_index.get(index, origin), origin)
+    bands: dict[int, float] = {}
+    onward = math.inf
+    for boundary in sorted(origin_by_index, reverse=True):
+        onward = min(onward, origin_by_index[boundary])
+        bands[boundary] = onward
+    return bands
+
+
+def _band_of(bands: dict[int, float], coordinate: float) -> int:
+    moved = [
+        boundary
+        for boundary, start in bands.items()
+        if coordinate >= start - COORD_TOLERANCE
+    ]
+    return max(moved, default=min(bands, default=0) - 1)
+
+
+def _settlement_reach(
+    graph: MetroGraph, conflict: ConvergenceConflict
+) -> tuple[SettlementReach, tuple[int, int]]:
+    """Whether any offset this stage owns changes a measured conflict.
+
+    A separation along y moves only when whole rows move, and one along x only
+    when whole columns do, so exactly one axis is capable of touching it.  Two
+    runs the same axis translation carries together keep the distance between
+    them whatever settlement does; runs it carries apart only ever get further
+    apart, because no step may shrink a separation.
+    """
+    axis = _settlement_axis(conflict)
+    index = 1 if conflict.axis is DemandAxis.Y else 0
+    bands = _translated_bands(graph, axis)
+    first, second = (_band_of(bands, site[0][index]) for site in conflict.sites)
+    if first == second:
+        return SettlementReach.SEPARATION_FIXED, (first, second)
+    if conflict.kind.relief is ConflictRelief.SHARED_CHANNEL:
+        return SettlementReach.SEPARATION_ONLY_GROWS, (first, second)
+    return SettlementReach.WITHIN_REACH, (first, second)
+
+
+def attribute_compatibility_systems(
     graph: MetroGraph, plan: RoutePlan
 ) -> tuple[CompatibilityOwnership, ...]:
-    """Attribute every compatibility system whose corridors are all adequate."""
+    """Measure every compatibility system in *plan* against what settlement moves.
+
+    Both measurements have to come from the geometry the map actually draws, so
+    this reads the plan that survived the re-route rather than the one
+    settlement was handed: a translated layout publishes new corridors and new
+    conflict coordinates, and an exit quoting the pre-translation frame would be
+    describing a map nobody sees.
+    """
+    compatibility = tuple(
+        item for item in plan.convergence_plans if item.legacy_reason is not None
+    )
+    if not compatibility:
+        return ()
     slack_by_system: dict[RouteSystemId, list[float]] = {}
     for reservation in plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
@@ -446,26 +549,23 @@ def _compatibility_ownership(
             )
 
     found: dict[RouteSystemId, CompatibilityOwnership] = {}
-    for convergence in plan.convergence_plans:
-        reason = convergence.legacy_reason
-        if reason is None:
-            continue
+    for convergence in compatibility:
         system_id = convergence.system_id
         slacks = slack_by_system.get(system_id)
         if not slacks:
             continue
+        conflict = convergence.conflict
+        reach, bands = (
+            (None, None) if conflict is None else _settlement_reach(graph, conflict)
+        )
         found[system_id] = CompatibilityOwnership(
-            system_id,
-            reason,
-            len(slacks),
-            min(slacks),
-            _COMPATIBILITY_OWNER_BY_REASON.get(reason, _COMPATIBILITY_OWNER),
+            system_id, conflict, reach, bands, len(slacks), min(slacks)
         )
     return tuple(found[key] for key in sorted(found))
 
 
 def attach_settlement_diagnostics(
-    plan: RoutePlan, settlement: EnvelopeSettlement
+    graph: MetroGraph, plan: RoutePlan, settlement: EnvelopeSettlement
 ) -> RoutePlan:
     """Publish what settlement moved and what it attributed, into *plan*.
 
@@ -484,7 +584,7 @@ def attach_settlement_diagnostics(
         RoutePlanDiagnostic(
             None, "convergence-settlement-exit", item.message, blocking=False
         )
-        for item in settlement.compatibility_ownership
+        for item in attribute_compatibility_systems(graph, plan)
     )
     if not added:
         return plan
@@ -585,7 +685,6 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
         column_translations, column_obstructions = _settle_axis(
             graph, _reservations_on(plan, ColumnGapRegion), _COLUMN_AXIS
         )
-        ownership = _compatibility_ownership(graph, plan)
         shortfalls = _verify_against_input_ledger(
             graph, plan, row_obstructions + column_obstructions
         )
@@ -595,6 +694,5 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
     return EnvelopeSettlement(
         tuple(row_translations + column_translations),
         tuple(row_obstructions + column_obstructions),
-        ownership,
         shortfalls,
     )

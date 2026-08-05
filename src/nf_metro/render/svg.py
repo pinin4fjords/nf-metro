@@ -846,7 +846,7 @@ def _settle_render_geometry(
         station_offsets, routes, route_plan = _resettle(route_plan)
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
-    route_plan = attach_settlement_diagnostics(route_plan, settlement)
+    route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
     assert_reservations_are_settled(
         graph, route_plan, settlement, strict=effective_strict
     )

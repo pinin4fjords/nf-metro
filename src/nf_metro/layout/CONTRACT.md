@@ -1431,10 +1431,18 @@ in pipeline order.
   against the ledger settlement was handed. Any remaining deficit carries a
   `SettlementObstruction` naming the sections responsible, classified as a pin
   outside the translated band or as a claim whose two sides name the same
-  spanning section and so describe no gap at all. A convergence system left on
-  the compatibility path whose corridors all fit carries a
-  `CompatibilityOwnership` record naming the owner of the decision it is short
-  of.
+  spanning section and so describe no gap at all. Every convergence system left
+  on the compatibility path carries a `CompatibilityOwnership` record measured
+  by `attribute_compatibility_systems` on the plan the map draws: the tightest
+  capacity slack across the corridors that system reserved, the
+  `ConvergenceConflict` its planner recorded (kind, axis, both run coordinates,
+  and the distance between them), and the `SettlementReach` verdict deciding
+  whether any offset this stage owns changes that distance. Two runs one
+  translated band carries together keep their distance whatever settlement
+  does; runs in different bands only ever get further apart, which is the wrong
+  direction for a conflict whose relief is one shared channel. The owner comes
+  from `ConvergenceConflictKind`, so it follows from the check that fired rather
+  than from re-reading its wording.
 - **Invariants preserved**: No row or column separation decreases. Section
   sizes, a station's position within its section, plan-owned frames, lane
   order, port sides, and author-pinned grid relationships are unchanged.
