@@ -1737,6 +1737,52 @@ in pipeline order.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation
   settlement owns, and re-running it changes nothing.
 
+### A port travels with the box edge it is anchored to
+
+Seating a label grows its section box outward (`_clamp_label_to_section`,
+`_place_tb_label`, `_grow_section_for_box`), and that growth is render-time: the
+wrapped text and the marker positions routing centres are not known until the
+render path has both. A port's side names the edge it is pinned to, so an edge
+that moves without it leaves the port inside its own box, its inbound run
+crossing the drawn border and traversing the interior to reach it.
+`carry_ports_with_section_edges` (`phases/ports.py`) therefore moves every port
+already on a moved edge by that edge's displacement, at the step that moves it,
+and `_settle_render_geometry` re-observes the routes so each still terminates on
+its port.
+
+The re-observation is one step, not a fixpoint. Routing centres a station marker
+on its flat run, so lengthening that run by moving the port moves the marker,
+hence its label, hence the edge, hence the port again. That relation is a
+contraction on some topologies and has unit gain on others
+(`top_entry_left_neighbour` walks its `producer` box right by 6px per round
+without settling, `bypass_fan_in_outer_slot` halves), so iterating it is not
+bounded. A label pass with no re-observation behind it instead gives its growth
+back on the anchored edges (`hold_port_anchored_edges`), leaving the port where
+the drawn runs land and the label seated within its bbox margin. That is also
+what keeps growth out of a settled corridor: settlement measured its boundaries
+against these edges, so a post-settlement pass that pushed one further out would
+spend clearance already promised -- `bypass_fan_in_outer_slot`'s
+inter-column-channel has 40.5px of the 40px it reserved, and 5.6px of unheld
+growth takes it below.
+
+Across `examples/` and `tests/fixtures/`, 38 fixtures grow a port-bearing edge
+at render time and 4 do so on a pass with nothing behind it.
+
+### Tier-A layout guards read the settled geometry
+
+`assert_render_layout_invariants` runs once per render, next to
+`assert_render_header_clearance`, on the routes and offsets the renderer is
+handed. Measured on the first routing pass instead, it certifies geometry that
+label placement, the header reconcile and settlement then move: 27 of the 356
+rendering fixtures failed it on their settled geometry while passing it there,
+23 on `_guard_inter_section_route_clears_own_section_interior` and 11 on
+`_guard_ports_on_boundaries`. 26 of the 27 were a port its box had grown away
+from rather than the wrapped bundle those guards were written for; the 27th,
+`cross_column_perp_entry_overflow`, already refuses on the first pass. No
+fixture fails on the first pass and passes on the settled routes, so the single
+settled evaluation loses no coverage and the earlier call was redundant rather
+than complementary.
+
 ### Row, bbox-top and canvas responsibilities settlement does not take over
 
 Settlement translates whole rows and whole columns, which is also what several
