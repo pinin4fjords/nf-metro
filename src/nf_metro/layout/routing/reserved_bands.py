@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
     from nf_metro.layout.route_reservations import (
         CorridorRegion,
+        GapCorridorBand,
         ReservationCoordinateTranslation,
         RouteReservation,
     )
@@ -89,47 +90,38 @@ def corridor_clearance_band(
     graph: MetroGraph,
     *,
     axis: int,
-    boundary: int,
     section_ids: Sequence[str],
+    coordinate: float,
     run_start: float,
     run_end: float,
-) -> tuple[float, float] | None:
-    """The clearance band a run crossing one grid boundary owes its blockers.
+) -> GapCorridorBand | None:
+    """The gap boundary a run occupies, and the clearance band it owes there.
 
     Read from live geometry through the ledger's own arithmetic
     (:func:`~nf_metro.layout.route_reservations.gap_corridor_clearance_band`), so
-    a run held inside it satisfies the reservation raised over it on either
+    a run held inside the band satisfies the reservation raised over it on either
     routing pass -- including the first, which publishes the ledger and so has
     none to read.
 
     *axis* is the run's own coordinate index, which is what picks the boundary's
-    orientation: a horizontal run (``1``) crosses the row gap below grid row
-    *boundary*, a vertical one (``0``) the column gap right of grid column
-    *boundary*.  *section_ids* are the run's own endpoint sections, whose grid
-    extent is the span the boundary's blockers are selected over.
-
-    The returned pair may be inverted, meaning the boundary is too narrow to hold
-    both clearances at once.
+    orientation: a horizontal run (``1``) sits in a row gap, a vertical one
+    (``0``) in a column gap.  *section_ids* are the run's own endpoint sections,
+    whose grid extent is the span the boundary's blockers are selected over.
     """
     from nf_metro.layout.route_plan import grid_span_for_sections
     from nf_metro.layout.route_reservations import (
-        ColumnGapRegion,
-        RowGapRegion,
+        CorridorOrientation,
         gap_corridor_clearance_band,
     )
 
     known = tuple(item for item in section_ids if item in graph.sections)
     if not known:
         return None
-    region: RowGapRegion | ColumnGapRegion = (
-        RowGapRegion(boundary, boundary + 1)
-        if axis == 1
-        else ColumnGapRegion(boundary, boundary + 1)
-    )
     return gap_corridor_clearance_band(
         graph,
-        region,
+        CorridorOrientation.HORIZONTAL if axis == 1 else CorridorOrientation.VERTICAL,
         grid_span_for_sections(graph, known),
+        coordinate,
         min(run_start, run_end),
         max(run_start, run_end),
     )

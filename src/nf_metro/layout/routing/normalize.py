@@ -36,7 +36,6 @@ from nf_metro.layout.routing.common import (
     _h_segment_penetrates_section,
     column_gap_edges,
     gap_lo_for_x,
-    gap_lookup_geometry,
     initial_fanout_descent_span,
     inter_row_gap_upper_row,
     is_orthogonal_turn,
@@ -3705,17 +3704,18 @@ def _v_segment_crosses_other_section(
 
 
 class _CorridorRun(NamedTuple):
-    """One straight leg of a route running in a grid gap, and where it may sit.
+    """One straight leg of a route, and the band its corridor leaves it.
 
-    ``lo``/``hi`` bound the coordinate the leg's boundary leaves it, and are
-    ``None`` for a leg no post-pass may move: it still occupies the corridor, so
-    its neighbours are separated from it, but it is never itself reseated.
+    ``lo``/``hi`` are ``None`` for a leg that may not be reseated -- one whose
+    coordinate a plan owns, whose flanks would break, or whose boundary offers no
+    coordinate satisfying both clearances -- and for a leg in no gap at all.  It
+    takes part all the same: it occupies a stretch of its corridor, and so bounds
+    where the legs beside it may sit.
     """
 
     route: RoutedPath
     idx: int
     axis: int
-    boundary: int
     coordinate: float
     run_lo: float
     run_hi: float
@@ -3727,34 +3727,40 @@ class _CorridorRun(NamedTuple):
         return self.lo is not None and self.hi is not None
 
 
-def _iter_straight_interior_legs(
+def _iter_axis_aligned_legs(
     rp: RoutedPath,
 ) -> Iterator[tuple[int, int, float, float, float, bool]]:
-    """``(idx, axis, coordinate, run_start, run_end, turning)`` per interior leg.
+    """``(idx, axis, coordinate, run_start, run_end, turning)`` for each straight leg.
 
+    Every axis-aligned leg is yielded: a leg that may not move occupies its
+    corridor all the same, and so bounds where the legs around it may sit.
     *axis* is the leg's own coordinate index (``1`` for a horizontal leg's Y,
-    ``0`` for a vertical leg's X).  *turning* says both flanking legs run
-    perpendicular to this one, which is the condition for moving the leg's
+    ``0`` for a vertical leg's X).
+
+    *turning* says the leg is interior and both its flanking legs run
+    perpendicular to it, which together are the condition for moving its
     coordinate: the flanks then stretch along their own length and stay
-    straight.  A leg flanked by a diagonal has no such freedom, so it reports
-    ``False`` and is read as an obstacle rather than a candidate.
+    straight.  A leg flanked by a diagonal would break that diagonal's angle,
+    and an end leg is attached to a port or station marker, so neither may
+    move.
     """
     pts = rp.points
-    for k in range(1, len(pts) - 2):
+    for k in range(len(pts) - 1):
         x0, y0 = pts[k]
         x1, y1 = pts[k + 1]
         along_x = abs(x1 - x0) > COORD_TOLERANCE
         along_y = abs(y1 - y0) > COORD_TOLERANCE
         if along_x is along_y:
             continue
+        interior = 1 <= k <= len(pts) - 3
         if along_x:
-            turning = (
+            turning = interior and (
                 abs(pts[k - 1][0] - x0) <= COORD_TOLERANCE
                 and abs(pts[k + 2][0] - x1) <= COORD_TOLERANCE
             )
             yield k, 1, y0, x0, x1, turning
         else:
-            turning = (
+            turning = interior and (
                 abs(pts[k - 1][1] - y0) <= COORD_TOLERANCE
                 and abs(pts[k + 2][1] - y1) <= COORD_TOLERANCE
             )
@@ -3772,88 +3778,96 @@ def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str,
 
 
 def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_CorridorRun]:
-    """Every straight interior leg that runs in a row or column gap."""
+    """Every straight leg of every inter-section route, with the band it may hold.
+
+    Legs outside any gap, and legs nothing may reseat, are collected without a
+    band: the bundles are read off the drawn geometry, so a leg left out of the
+    reading is one whose mates could be moved off it.
+    """
     from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
 
     graph = ctx.graph
-    lookup = gap_lookup_geometry(graph)
     out: list[_CorridorRun] = []
     for rp in routes:
         if not rp.is_inter_section:
             continue
         section_ids = _route_endpoint_section_ids(graph, rp)
-        if not section_ids:
-            continue
-        for idx, axis, coordinate, start, end, turning in _iter_straight_interior_legs(
-            rp
-        ):
+        for idx, axis, coordinate, start, end, turning in _iter_axis_aligned_legs(rp):
             run_lo, run_hi = min(start, end), max(start, end)
-            if axis == 1:
-                upper = inter_row_gap_upper_row(graph, coordinate)
-                if upper is None:
-                    continue
-                boundary = upper
-            else:
-                matched = gap_lo_for_x(graph, coordinate, run_lo, run_hi, lookup=lookup)
-                if matched is None:
-                    continue
-                boundary = matched[0]
-            band = corridor_clearance_band(
-                graph,
-                axis=axis,
-                boundary=boundary,
-                section_ids=section_ids,
-                run_start=run_lo,
-                run_end=run_hi,
+            band = (
+                corridor_clearance_band(
+                    graph,
+                    axis=axis,
+                    section_ids=section_ids,
+                    coordinate=coordinate,
+                    run_start=run_lo,
+                    run_end=run_hi,
+                )
+                if turning and section_ids and not _planner_owns_segment(rp, idx)
+                else None
             )
-            # A planner owns the coordinates of the segments it validates, and a
-            # boundary too narrow to hold both clearances offers no coordinate to
-            # aim at; either way the leg stands where it is and only bounds its
-            # neighbours.
-            held = (
-                band is not None
-                and band[1] >= band[0] - COORD_TOLERANCE_FINE
-                and turning
-                and not _planner_owns_segment(rp, idx)
-            )
+            held = band is not None and band.hi >= band.lo - COORD_TOLERANCE_FINE
             out.append(
                 _CorridorRun(
                     rp,
                     idx,
                     axis,
-                    boundary,
                     coordinate,
                     run_lo,
                     run_hi,
-                    band[0] if held and band is not None else None,
-                    band[1] if held and band is not None else None,
+                    band.lo if held and band is not None else None,
+                    band.hi if held and band is not None else None,
                 )
             )
     return out
 
 
-def _corridor_bundles(
-    corridor: list[_CorridorRun], step: float
-) -> list[list[_CorridorRun]]:
-    """Split one gap's legs into the bundles that have to travel together.
+def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> bool:
+    """Whether two legs are drawn as one bundle of co-travelling runs.
 
-    Legs no more than one nesting *step* apart are the co-travelling runs whose
-    spacing is the only thing drawing them as separate strokes: fused same-line
-    tracks sit on one coordinate and nested distinct lines exactly a step apart,
-    and either relationship is destroyed by moving one member alone.  So a
-    bundle is a maximal chain under that spacing, and it moves rigidly or not at
-    all.
+    Legs within one nesting *step* of each other over a shared stretch of their
+    corridor are what a reader sees as a single bundle: fused same-line tracks
+    sit on one coordinate and nested distinct lines exactly a step apart, and
+    either relationship is destroyed by moving one member alone.
     """
-    bundles: list[list[_CorridorRun]] = []
-    for run in sorted(corridor, key=lambda item: item.coordinate):
-        if (
-            bundles
-            and run.coordinate - bundles[-1][-1].coordinate <= step + COORD_TOLERANCE
-        ):
-            bundles[-1].append(run)
-        else:
-            bundles.append([run])
-    return bundles
+    return abs(first.coordinate - second.coordinate) <= step + COORD_TOLERANCE and (
+        spans_share_corridor(first.run_lo, first.run_hi, second.run_lo, second.run_hi)
+    )
+
+
+def _corridor_bundles(
+    runs: list[_CorridorRun], step: float
+) -> list[list[_CorridorRun]]:
+    """Group one axis's legs into the bundles that have to travel together.
+
+    Bundles are the connected components of :func:`_legs_co_travel`, so a bundle
+    holds every leg transitively co-travelling with any of its members and moves
+    rigidly or not at all.  Grouping on geometry rather than on which boundary
+    each leg was assigned is what keeps two fused tracks together when they were
+    measured against different boundaries.
+    """
+    ordered = sorted(runs, key=lambda item: item.coordinate)
+    owner = list(range(len(ordered)))
+
+    def root(index: int) -> int:
+        while owner[index] != index:
+            owner[index] = owner[owner[index]]
+            index = owner[index]
+        return index
+
+    for i, first in enumerate(ordered):
+        for j in range(i + 1, len(ordered)):
+            second = ordered[j]
+            if second.coordinate - first.coordinate > step + COORD_TOLERANCE:
+                break
+            if _legs_co_travel(first, second, step):
+                owner[root(j)] = root(i)
+    grouped: dict[int, list[_CorridorRun]] = {}
+    for index, run in enumerate(ordered):
+        grouped.setdefault(root(index), []).append(run)
+    return sorted(
+        grouped.values(), key=lambda bundle: min(run.coordinate for run in bundle)
+    )
 
 
 def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | None:
@@ -3888,18 +3902,17 @@ def _hold_runs_in_corridor_clearance(
     reservation raised over it on the pass that publishes the ledger as well as
     the pass that reads it.
 
-    A bundle travels only through the space its neighbours in the same gap leave
-    it, each of them taken at its settled position, so no move fuses two bundles
-    onto one coordinate or reorders them.  A gap's bundles are visited in
-    coordinate order, which is what makes an already-moved neighbour a settled
-    obstacle for the rest.
+    A bundle travels only through the space its neighbours leave it, each of them
+    taken at its settled position, so no move fuses two bundles onto one
+    coordinate or reorders them.  Bundles are visited in coordinate order, which
+    is what makes an already-moved neighbour a settled obstacle for the rest.
     """
     step = ctx.offset_step
-    by_corridor: defaultdict[tuple[int, int], list[_CorridorRun]] = defaultdict(list)
+    by_axis: defaultdict[int, list[_CorridorRun]] = defaultdict(list)
     for run in _corridor_runs(routes, ctx):
-        by_corridor[(run.axis, run.boundary)].append(run)
-    for corridor in by_corridor.values():
-        bundles = _corridor_bundles(corridor, step)
+        by_axis[run.axis].append(run)
+    for runs in by_axis.values():
+        bundles = _corridor_bundles(runs, step)
         seats = [
             (
                 min(run.coordinate for run in bundle),

@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import NewType, TypeAlias
+from typing import NamedTuple, NewType, TypeAlias
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -707,62 +707,120 @@ def _column_region_measurement(
     return _RegionMeasurement(start, end, negative, positive)
 
 
-def gap_corridor_clearance_band(
+def _region_measurements(
     graph: MetroGraph,
     region: RowGapRegion | ColumnGapRegion,
     span: GridSpan,
     longitudinal_start: float,
     longitudinal_end: float,
-) -> tuple[float, float] | None:
-    """Where a run crossing *region* may sit to keep the clearances it earns.
-
-    The router places a corridor before any ledger describes it, so this states
-    the reservation's own arithmetic -- the region between the boundary's
-    blockers, inset by :func:`_clearances` -- against nothing but live geometry.
-    Routing and the ledger therefore measure one corridor the same way, and a
-    run held inside this band satisfies the reservation the observation will
-    raise over it.
-
-    A reservation measures its blockers under a single
-    :class:`CorridorMeasurementScope`, and which one it gets is decided after
-    the run is drawn.  Both are measured here and the narrower band returned, so
-    the answer is inside whichever scope the observation goes on to choose.
-
-    Returns ``None`` where the boundary has no side to measure -- every relevant
-    section straddles it -- which is the same condition that stops a corridor
-    from being assigned this region at all.  The pair is returned as measured
-    and may be inverted: a boundary too narrow to hold both clearances has no
-    satisfying coordinate, and picking which one to break belongs to the caller
-    that knows which side a later widening can reach.
-    """
-    negative, positive, _keepouts = _clearances(
-        CorridorOrientation.HORIZONTAL
-        if isinstance(region, RowGapRegion)
-        else CorridorOrientation.VERTICAL,
-        region,
-    )
-    measure = (
-        _row_region_measurement
-        if isinstance(region, RowGapRegion)
-        else _column_region_measurement
-    )
-    bounds: list[tuple[float, float]] = []
+) -> list[_RegionMeasurement]:
+    """*region* measured under every scope that has a side to measure it on."""
+    measured: list[_RegionMeasurement] = []
     for scope in CorridorMeasurementScope:
         try:
-            measured = measure(
-                graph,
-                region,  # type: ignore[arg-type]
-                scope,
-                span,
-                longitudinal_start,
-                longitudinal_end,
+            measured.append(
+                _row_region_measurement(
+                    graph,
+                    region,
+                    scope,
+                    span,
+                    longitudinal_start,
+                    longitudinal_end,
+                )
+                if isinstance(region, RowGapRegion)
+                else _column_region_measurement(
+                    graph,
+                    region,
+                    scope,
+                    span,
+                    longitudinal_start,
+                    longitudinal_end,
+                )
             )
         except ValueError:
             continue
-        bounds.append((measured.start + negative, measured.end - positive))
-    if not bounds:
-        return None
-    return (max(lo for lo, _hi in bounds), min(hi for _lo, hi in bounds))
+    return measured
+
+
+def _adjacent_gap_regions(
+    graph: MetroGraph, orientation: CorridorOrientation
+) -> tuple[RowGapRegion | ColumnGapRegion, ...]:
+    """Every adjacent grid boundary a run of *orientation* could occupy."""
+    if orientation is CorridorOrientation.HORIZONTAL:
+        rows = sorted({section.grid_row for section in graph.sections.values()})
+        return tuple(RowGapRegion(upper, upper + 1) for upper in rows[:-1])
+    columns = sorted({section.grid_col for section in graph.sections.values()})
+    return tuple(ColumnGapRegion(left, left + 1) for left in columns[:-1])
+
+
+class GapCorridorBand(NamedTuple):
+    """The boundary a run occupies and the clearance band it leaves the run.
+
+    ``lo``/``hi`` may be inverted, which says the boundary cannot hold both of
+    the run's clearances at once; picking which one to break belongs to the
+    caller, since only it knows which side a later widening can reach.
+    """
+
+    boundary: int
+    lo: float
+    hi: float
+
+
+def gap_corridor_clearance_band(
+    graph: MetroGraph,
+    orientation: CorridorOrientation,
+    span: GridSpan,
+    coordinate: float,
+    longitudinal_start: float,
+    longitudinal_end: float,
+) -> GapCorridorBand | None:
+    """The gap a straight run sits in, and where in it the run may sit.
+
+    The router places a corridor before any ledger describes it, so this states
+    the reservation's own arithmetic -- the boundary a run's coordinate falls
+    inside, the region between that boundary's blockers, and the
+    :func:`_clearances` inset from each of them -- against nothing but live
+    geometry.  Routing and the ledger therefore measure one corridor the same
+    way, and a run held inside this band satisfies the reservation the
+    observation will raise over it.
+
+    The boundary is selected exactly as :func:`_region_containing_coordinate`
+    selects it: among the boundaries whose region contains *coordinate*, the one
+    whose region is narrowest.  A reservation then measures that boundary under
+    a single :class:`CorridorMeasurementScope`, and which one it gets is decided
+    after the run is drawn, so the band is the narrower of both -- inside
+    whichever scope the observation goes on to choose.
+
+    Returns ``None`` where no boundary's region contains the run: it is a canvas
+    corridor, or a dive past every row, and neither is a gap allocation.
+    """
+    best: tuple[float, GapCorridorBand] | None = None
+    for region in _adjacent_gap_regions(graph, orientation):
+        negative, positive, _keepouts = _clearances(orientation, region)
+        measured = _region_measurements(
+            graph, region, span, longitudinal_start, longitudinal_end
+        )
+        containing = [
+            item
+            for item in measured
+            if item.start - COORD_TOLERANCE <= coordinate <= item.end + COORD_TOLERANCE
+        ]
+        if not containing:
+            continue
+        width = min(item.end - item.start for item in containing)
+        boundary = (
+            region.lower_row
+            if isinstance(region, RowGapRegion)
+            else region.right_column
+        )
+        band = GapCorridorBand(
+            boundary,
+            max(item.start + negative for item in measured),
+            min(item.end - positive for item in measured),
+        )
+        if best is None or width < best[0]:
+            best = (width, band)
+    return None if best is None else best[1]
 
 
 def _candidate_row_gaps(
