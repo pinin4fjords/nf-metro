@@ -14,7 +14,6 @@ import warnings
 from pathlib import Path
 
 import pytest
-from conftest import drawn_claim_coordinates
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import (
@@ -22,7 +21,11 @@ from nf_metro.layout.constants import (
     INTER_ROW_HEADER_CLEARANCE,
 )
 from nf_metro.layout.route_plan import build_route_plan_query
-from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
+from nf_metro.layout.route_reservations import (
+    ColumnGapRegion,
+    RowGapRegion,
+    drawn_corridor_containment,
+)
 from nf_metro.layout.routing import common
 from nf_metro.layout.routing.common import (
     _center_inter_row_channel,
@@ -68,10 +71,11 @@ def _rendered(path: Path):
         return build_observed_render_plan(graph, resolve_theme(None, graph))
 
 
-def _drawn_claim_coordinates(observed, reservation):
-    """Every drawn allocation-axis coordinate across all of *reservation*'s claims."""
-    for claim in reservation.claims:
-        yield from drawn_claim_coordinates(observed, reservation, claim)
+def _containment(observed, reservation, realised):
+    """Where *reservation*'s drawn run sits inside the band it realises."""
+    return drawn_corridor_containment(
+        reservation, realised, observed.plan.route_polylines, reservation.claims
+    )
 
 
 def _column_gap_realisations(route_plan, right_column: int):
@@ -104,11 +108,10 @@ def test_reserved_row_corridor_lands_on_the_band_its_reservation_realises() -> N
     found = list(_row_gap_realisations(observed.route_plan, SPANNING_BLOCKER_BOUNDARY))
     assert found, "fixture no longer reserves the corridor under test"
     for reservation, realised in found:
-        lo = realised.region_start + reservation.negative_side_clearance
-        hi = realised.region_end - reservation.positive_side_clearance
-        drawn = list(_drawn_claim_coordinates(observed, reservation))
-        assert drawn
-        assert (min(drawn) + max(drawn)) / 2 == pytest.approx((lo + hi) / 2, abs=0.01)
+        drawn = _containment(observed, reservation, realised)
+        assert (drawn.drawn_start + drawn.drawn_end) / 2 == pytest.approx(
+            (drawn.band_start + drawn.band_end) / 2, abs=0.01
+        )
 
 
 def test_reserved_row_corridor_keeps_both_of_its_declared_clearances() -> None:
@@ -123,14 +126,9 @@ def test_reserved_row_corridor_keeps_both_of_its_declared_clearances() -> None:
     for reservation, realised in _row_gap_realisations(
         observed.route_plan, SPANNING_BLOCKER_BOUNDARY
     ):
-        drawn = list(_drawn_claim_coordinates(observed, reservation))
-        assert drawn
-        assert min(drawn) >= (
-            realised.region_start + reservation.negative_side_clearance - 0.01
-        )
-        assert max(drawn) <= (
-            realised.region_end - reservation.positive_side_clearance + 0.01
-        )
+        drawn = _containment(observed, reservation, realised)
+        assert drawn.negative_side_slack >= -0.01
+        assert drawn.positive_side_slack >= -0.01
 
 
 def test_a_reserved_band_is_used_without_consulting_the_raw_gap(monkeypatch) -> None:
@@ -245,14 +243,14 @@ def test_a_reserved_column_corridor_lands_on_the_band_its_reservation_realises()
         observed.plan.graph, RESERVED_COLUMN_BOUNDARY - 1, RESERVED_COLUMN_BOUNDARY
     )
     for reservation, realised in found:
-        lo = realised.region_start + reservation.negative_side_clearance
-        hi = realised.region_end - reservation.positive_side_clearance
-        assert raw != pytest.approx((lo + hi) / 2, abs=0.01), (
+        drawn = _containment(observed, reservation, realised)
+        centre = (drawn.band_start + drawn.band_end) / 2
+        assert raw != pytest.approx(centre, abs=0.01), (
             "fixture no longer distinguishes the reservation from the raw gap"
         )
-        drawn = list(_drawn_claim_coordinates(observed, reservation))
-        assert drawn
-        assert (min(drawn) + max(drawn)) / 2 == pytest.approx((lo + hi) / 2, abs=0.01)
+        assert (drawn.drawn_start + drawn.drawn_end) / 2 == pytest.approx(
+            centre, abs=0.01
+        )
 
 
 def test_a_reserved_column_band_is_used_without_consulting_the_raw_gap() -> None:
@@ -292,8 +290,6 @@ def test_a_bypass_trunk_is_held_on_the_band_its_reservation_realises() -> None:
     found = list(_row_gap_realisations(observed.route_plan, OFF_BAND_TRUNK_BOUNDARY))
     assert found, "fixture no longer reserves the corridor under test"
     for reservation, realised in found:
-        lo = realised.region_start + reservation.negative_side_clearance
-        hi = realised.region_end - reservation.positive_side_clearance
-        drawn = list(_drawn_claim_coordinates(observed, reservation))
-        assert drawn
-        assert lo - 0.01 <= min(drawn) and max(drawn) <= hi + 0.01
+        drawn = _containment(observed, reservation, realised)
+        assert drawn.negative_side_slack >= -0.01
+        assert drawn.positive_side_slack >= -0.01

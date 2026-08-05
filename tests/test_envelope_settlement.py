@@ -43,7 +43,7 @@ from nf_metro.layout.route_reservations import (
     realise_reservation,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
-from nf_metro.layout.routing.common import _inter_row_band_fits
+from nf_metro.layout.routing.common import _inter_row_band_fits, apply_route_offsets
 from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
 from nf_metro.themes import THEMES
 
@@ -117,14 +117,20 @@ DIRECTION_CORPUS = {
 }
 
 
-def _observe(path: Path):
+def _observe_drawn(path: Path):
+    """*path*'s graph and plan, plus the polylines its observation would draw."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-        observation = observe_route_edges(
-            graph, station_offsets=compute_station_offsets(graph)
-        )
-    return graph, observation.plan
+        offsets = compute_station_offsets(graph)
+        observation = observe_route_edges(graph, station_offsets=offsets)
+    polylines = [apply_route_offsets(route, offsets) for route in observation.routes]
+    return graph, observation.plan, polylines
+
+
+def _observe(path: Path):
+    graph, plan, _polylines = _observe_drawn(path)
+    return graph, plan
 
 
 def _rendered_plan(path: Path, *, permissive: bool = False):
@@ -1117,7 +1123,7 @@ def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> Non
     """A route drawn through a violated hard clearance is rejected, and the
     rejection names everything needed to act on it: who claimed the corridor,
     the span it claimed, what bounds it, and both widths."""
-    graph, plan = _observe(TOPOLOGIES / "convergence_fold_diamond.mmd")
+    graph, plan, polylines = _observe_drawn(TOPOLOGIES / "convergence_fold_diamond.mmd")
     settlement = settle_route_envelopes(graph, plan)
     target, boundary = _widest_slack_row_reservation(graph, plan)
     realised = realise_reservation(graph, target)
@@ -1127,7 +1133,7 @@ def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> Non
     squeezed = realise_reservation(graph, target)
     assert squeezed is not None and squeezed.capacity_slack < 0
     with pytest.raises(LayoutInvariantError) as caught:
-        assert_reservations_are_settled(graph, plan, settlement, strict=True)
+        assert_reservations_are_settled(graph, plan, settlement, polylines, strict=True)
 
     message = str(caught.value)
     for claimant in target.claimant_member_ids:
@@ -1316,7 +1322,7 @@ def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
 def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
     """Settlement's own postcondition is enforced, not just reported: a demand
     it was handed and did not meet stops the render rather than being drawn."""
-    graph, plan = _observe(ROOT / "examples" / "rnaseq_sections.mmd")
+    graph, plan, polylines = _observe_drawn(ROOT / "examples" / "rnaseq_sections.mmd")
     reservation = next(
         item
         for item in plan.reservations
@@ -1328,7 +1334,7 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
     settlement = EnvelopeSettlement((), (shortfall,))
 
     with pytest.raises(LayoutInvariantError) as caught:
-        assert_reservations_are_settled(graph, plan, settlement, strict=True)
+        assert_reservations_are_settled(graph, plan, settlement, polylines, strict=True)
     message = str(caught.value)
     for claimant in reservation.claimant_member_ids:
         assert claimant in message
@@ -1337,7 +1343,9 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
 
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
-        assert_reservations_are_settled(graph, plan, settlement, strict=False)
+        assert_reservations_are_settled(
+            graph, plan, settlement, polylines, strict=False
+        )
     assert any(shortfall.message in str(item.message) for item in caught_warnings)
 
 

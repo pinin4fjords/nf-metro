@@ -2160,6 +2160,63 @@ def realise_reservation(
     )
 
 
+class DrawnCorridorContainment(NamedTuple):
+    """Where the drawn run sits inside the band a realised corridor allows it.
+
+    The band is the realised region inset by the clearances the reservation owes
+    its two blockers; the drawn interval is read from the emitted polylines.  A
+    negative slack on either side is ink drawn through a clearance a blocker was
+    promised.
+    """
+
+    band_start: float
+    band_end: float
+    drawn_start: float
+    drawn_end: float
+
+    @property
+    def negative_side_slack(self) -> float:
+        return self.drawn_start - self.band_start
+
+    @property
+    def positive_side_slack(self) -> float:
+        return self.band_end - self.drawn_end
+
+
+def drawn_corridor_containment(
+    reservation: RouteReservation,
+    realised: RealisedRouteReservation,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    claims: Sequence[RouteReservationClaim],
+) -> DrawnCorridorContainment:
+    """Measure *claims* of *reservation* as they were finally drawn.
+
+    A published ledger records the demand -- frozen claims, projected through
+    settlement -- so ``RealisedRouteReservation.occupied_start`` and its partner
+    state where the first pass observed the run, not where the settled re-route
+    put it.  Reading each claim's own ``(path_rank, segment_rank ..
+    segment_end_rank + 1)`` point range out of *route_polylines* is the only way
+    to score the coordinate a viewer sees, so widening a boundary that lets a
+    run move into the new room shows up as the slack it earned.
+
+    *route_polylines* must be the offset-applied geometry the renderer draws,
+    indexed as the claims were bound.
+    """
+    allocation_axis, _longitudinal_axis = _reservation_axes(reservation)
+    index = 0 if allocation_axis is DemandAxis.X else 1
+    drawn = tuple(
+        route_polylines[claim.path_rank][rank][index]
+        for claim in claims
+        for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
+    )
+    return DrawnCorridorContainment(
+        realised.region_start + reservation.negative_side_clearance,
+        realised.region_end - reservation.positive_side_clearance,
+        min(drawn),
+        max(drawn),
+    )
+
+
 def _realise_all(
     graph: MetroGraph,
     reservations: tuple[RouteReservation, ...],

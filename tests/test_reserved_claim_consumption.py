@@ -44,12 +44,15 @@ import warnings
 from pathlib import Path
 
 import pytest
-from conftest import drawn_claim_coordinates
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.route_plan import build_route_plan_query
-from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
+from nf_metro.layout.route_reservations import (
+    ColumnGapRegion,
+    RowGapRegion,
+    drawn_corridor_containment,
+)
 from nf_metro.render.svg import build_observed_render_plan
 
 _ROOT = Path(__file__).parents[1]
@@ -122,6 +125,7 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
     if route_plan is None:
         return []
     query = build_route_plan_query(route_plan)
+    polylines = observed.plan.route_polylines
     violations: list[str] = []
     for reservation in route_plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
@@ -129,18 +133,21 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
         realised = query.realised_reservation(reservation.id)
         if realised is None:
             continue
-        lo = realised.region_start + reservation.negative_side_clearance
-        hi = realised.region_end - reservation.positive_side_clearance
         for claim in reservation.claims:
-            drawn = drawn_claim_coordinates(observed, reservation, claim)
-            if all(lo - COORD_TOLERANCE <= v <= hi + COORD_TOLERANCE for v in drawn):
+            drawn = drawn_corridor_containment(
+                reservation, realised, polylines, (claim,)
+            )
+            if (
+                min(drawn.negative_side_slack, drawn.positive_side_slack)
+                >= -COORD_TOLERANCE
+            ):
                 continue
             violations.append(
                 f"{reservation.id} claim {claim.member_id} "
                 f"(path {claim.path_rank}, segments {claim.segment_rank}.."
                 f"{claim.segment_end_rank}): drawn "
-                f"[{min(drawn):.2f}, {max(drawn):.2f}] outside band "
-                f"[{lo:.2f}, {hi:.2f}]"
+                f"[{drawn.drawn_start:.2f}, {drawn.drawn_end:.2f}] outside band "
+                f"[{drawn.band_start:.2f}, {drawn.band_end:.2f}]"
             )
     return violations
 

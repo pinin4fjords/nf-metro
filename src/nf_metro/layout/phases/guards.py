@@ -121,6 +121,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
     from nf_metro.layout.route_reservations import (
         CanvasRegion,
+        DrawnCorridorContainment,
         RealisedRouteReservation,
         RouteReservation,
     )
@@ -6314,15 +6315,17 @@ class _ContainmentDeficit(NamedTuple):
 
 def _corridor_containment_deficit(
     realised: RealisedRouteReservation,
+    containment: DrawnCorridorContainment,
 ) -> _ContainmentDeficit | None:
-    """The worst way *realised* fails to contain its own run, if it does.
+    """The worst way *realised* fails to contain the run drawn in it, if it does.
 
     A corridor satisfies its reservation on two counts, and either can fail
-    alone.  ``capacity_slack`` asks whether the region is wide enough at all.
-    The side slacks ask whether the run is drawn *within* it: each measures the
-    occupied interval against one inset edge, so a region of exactly the required
-    width fails them whenever the run is seated off centre inside it, one side
-    absorbing the whole surplus while the other is overrun.
+    alone.  ``capacity_slack`` asks whether the region is wide enough at all,
+    which is a property of the reservation and the settled envelopes.
+    *containment* asks whether the drawn run lies *within* it: each side slack
+    measures the drawn interval against one inset edge, so a region of exactly
+    the required width fails them whenever the run is seated off centre inside
+    it, one side absorbing the whole surplus while the other is overrun.
 
     Capacity ranks above side clearance rather than competing with it on
     magnitude: a region that cannot hold the run at all admits no seating, so
@@ -6341,8 +6344,8 @@ def _corridor_containment_deficit(
             f"is {-realised.capacity_slack:.1f}px narrower than the run needs",
         )
     sides = (
-        (realised.negative_side_slack, "lower"),
-        (realised.positive_side_slack, "upper"),
+        (containment.negative_side_slack, "lower"),
+        (containment.positive_side_slack, "upper"),
     )
     slack, side = min(sides, key=lambda item: item[0])
     if slack >= -COORD_TOLERANCE:
@@ -6412,6 +6415,7 @@ def assert_reservations_are_settled(
     graph: MetroGraph,
     plan: RoutePlan,
     settlement: EnvelopeSettlement,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
     *,
     strict: bool = False,
 ) -> None:
@@ -6419,21 +6423,26 @@ def assert_reservations_are_settled(
 
     Runs on the settled geometry, once envelope settlement has widened every row
     and column boundary it owns.  *plan* is the published plan carrying the
-    frozen ledger settlement consumed, so each claim is projected through the
-    recorded settlement translations before it is measured;
+    frozen ledger settlement consumed, so each claim's region is re-measured
+    against the settled envelopes through the recorded translations;
     *settlement.shortfalls* separately records the demands settlement itself
-    already knew it had not met.
+    already knew it had not met.  *route_polylines* is the offset-applied
+    geometry the renderer is about to draw.
 
-    The postcondition is containment, not capacity alone: the drawn corridor has
-    to lie inside the band its own reservation realises, on both sides.  A region
-    wide enough overall with the run seated off centre inside it violates the
-    clearance a blocker was promised just as surely as a region too narrow, so
-    :func:`_corridor_containment_deficit` measures all three counts.  Either
-    failure is a violated hard clearance, so the strict path refuses it with no
-    exemption and names the claimant, the corridor span, the blockers, both
-    widths, and which count failed.  A row or column boundary is always widenable
-    by a global translation, so a deficit surviving settlement is an infeasible
-    arrangement rather than a limitation of this stage.
+    The postcondition is containment, not capacity alone: the corridor as drawn
+    has to lie inside the band its own reservation realises, on both sides.  A
+    region wide enough overall with the run seated off centre inside it violates
+    the clearance a blocker was promised just as surely as a region too narrow,
+    so :func:`_corridor_containment_deficit` measures all three counts.  The two
+    counts read different evidence and must: capacity is a property of the
+    region, while where the run sits inside it is only knowable from the drawn
+    polylines, the frozen ledger recording where the *first* pass observed the
+    run rather than where the settled re-route put it.  Either failure is a
+    violated hard clearance, so the strict path refuses it with no exemption and
+    names the claimant, the corridor span, the blockers, both widths, and which
+    count failed.  A row or column boundary is always widenable by a global
+    translation, so a deficit surviving settlement is an infeasible arrangement
+    rather than a limitation of this stage.
 
     A canvas-side corridor is measured against the canvas edge, which is not
     known until the render has sized its canvas; those claims are checked by
@@ -6442,6 +6451,7 @@ def assert_reservations_are_settled(
     from nf_metro.layout.route_reservations import (
         ColumnGapRegion,
         RowGapRegion,
+        drawn_corridor_containment,
         realise_reservation,
     )
 
@@ -6470,7 +6480,12 @@ def assert_reservations_are_settled(
         )
         if realised is None:
             continue
-        deficit = _corridor_containment_deficit(realised)
+        deficit = _corridor_containment_deficit(
+            realised,
+            drawn_corridor_containment(
+                reservation, realised, route_polylines, reservation.claims
+            ),
+        )
         if deficit is None:
             continue
         ordering = (deficit.rank, deficit.slack)

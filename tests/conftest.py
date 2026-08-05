@@ -98,28 +98,6 @@ COMPENSATION_PASSES = (
 )
 
 
-# --- Reservation claim geometry ---
-
-
-def drawn_claim_coordinates(observed, reservation, claim) -> list[float]:
-    """The drawn allocation-axis coordinates of every point *claim* covers.
-
-    The published ledger records the demand -- frozen claims, projected -- so
-    where the router actually put the corridor has to be read from the drawn
-    polylines through the claim's own path and segment ranks, never by routing
-    again.  Callers filter to gap-region reservations first, so the allocation
-    axis follows from whether the region is a row gap.
-    """
-    from nf_metro.layout.route_reservations import RowGapRegion
-
-    axis = 1 if isinstance(reservation.region, RowGapRegion) else 0
-    points = observed.plan.route_polylines[claim.path_rank]
-    return [
-        points[rank][axis]
-        for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
-    ]
-
-
 # --- Render corpus ---
 
 _ROOT = Path(__file__).parent.parent

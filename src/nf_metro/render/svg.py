@@ -1010,16 +1010,20 @@ def _settle_render_geometry(
 ) -> tuple[
     dict[tuple[str, str], float],
     list[RoutedPath],
+    list[list[tuple[float, float]]],
     list[LabelPlacement],
     RoutePlan,
     tuple[ReservationCoordinateTranslation, ...],
 ]:
     """Route, place labels, and reconcile a header collision for the render.
 
-    Returns settled station offsets, routes, labels, the route plan, and the
-    settlement translations the plan's claims are frozen ahead of -- a canvas
-    claim is measured only once the render has sized its canvas, and needs that
-    projection to land on the geometry the canvas encloses.
+    Returns settled station offsets, routes, the drawable polylines those routes
+    become, labels, the route plan, and the settlement translations the plan's
+    claims are frozen ahead of -- a canvas claim is measured only once the render
+    has sized its canvas, and needs that projection to land on the geometry the
+    canvas encloses.  The polylines are built here because the settlement guard
+    scores the coordinate a viewer sees, so it and the renderer have to read one
+    set of points rather than two derivations of them.
     Label wrapping
     needs the theme's font/icon metrics, so it runs here rather than in
     ``compute_layout``; when it grows a section's bbox downward it can push the
@@ -1189,10 +1193,12 @@ def _settle_render_geometry(
                 route_plan, diagnostics=route_plan.diagnostics + adopted_dispositions
             )
     route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
+    route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     assert_reservations_are_settled(
         graph,
         route_plan,
         settlement,
+        route_polylines,
         strict=effective_strict,
     )
 
@@ -1200,6 +1206,7 @@ def _settle_render_geometry(
     return (
         station_offsets,
         routes,
+        route_polylines,
         labels,
         route_plan,
         settlement.coordinate_translations,
@@ -1269,6 +1276,7 @@ def _build_render_plan_scaled(
     (
         station_offsets,
         routes,
+        route_polylines,
         labels,
         route_plan,
         settlement_translations,
@@ -1284,7 +1292,6 @@ def _build_render_plan_scaled(
     )
     route_indices = {id(route): index for index, route in enumerate(routes)}
     edge_route_indices = tuple(route_indices[id(route)] for route in edge_routes)
-    route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     edge_polylines = [route_polylines[index] for index in edge_route_indices]
     bridges = (
         compute_bridges(
