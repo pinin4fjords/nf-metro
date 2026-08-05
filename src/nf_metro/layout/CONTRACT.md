@@ -1528,6 +1528,16 @@ in pipeline order.
   through the band (`held_in_reserved_band`) so the reservation's answer wins
   where the two disagree. A boundary whose claims intersect to nothing, and
   every gap the ledger never reached, keep the row- or column-edge derivation.
+- **A band bounds a corridor, it does not assign it a lane**: every claim
+  crossing one boundary realises the same band, so corridors placed in it
+  independently cannot see each other and two can settle less than one
+  `OFFSET_STEP` apart, which draws two distinct lines as a single two-tone
+  stripe. `_separate_fused_cotravelling_runs` closes the pass chain by
+  restoring the step across every corridor at once, moving a whole track (each
+  run of one line on one lane through one corridor) so a fused fan-out cannot
+  be split, and never moving a track a plan owns.
+  `check_no_fused_cotravelling_lines` is its postcondition on the render
+  chokepoint.
 - **Consumption is not yet claim-level**: `ReservedCorridors` answers "what is
   clear at this boundary", which is the intersection of every claim crossing it.
   That cannot separate two corridors crossing one boundary in opposite
