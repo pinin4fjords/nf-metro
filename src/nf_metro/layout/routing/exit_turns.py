@@ -1742,7 +1742,7 @@ def _adopt_prior_dispositions(
     ctx: _RoutingCtx,
     plans: Iterable[ExitTurnPlan],
     reasons: dict[ExitTurnPlanId, str],
-) -> None:
+) -> frozenset[ExitTurnPlanId]:
     """Redraw the frozen pass's exit-turn dispositions on a settlement re-route.
 
     The cross-plan fallback verdicts are measured on live coordinates, so a
@@ -1750,21 +1750,27 @@ def _adopt_prior_dispositions(
     pass whose plan was frozen -- wider gaps clear an overlap, or a consumed
     reserved band creates one.  Those verdicts are decisions, and settlement
     does not own decisions: the frozen reason stands, in both directions.
+
+    Returns the plan ids where the frozen reason actually differed from this
+    pass's own fresh verdict, for the caller to publish as a diagnostic.
     """
     prior = ctx.prior_exit_turn_dispositions
     if prior is None:
-        return
+        return frozenset()
     planned = {
         plan.id for plan in plans if plan.disposition is ExitTurnDisposition.PLANNED
     }
+    shared = planned & prior.keys()
+    overridden = frozenset(
+        plan_id for plan_id in shared if reasons.get(plan_id) != prior.get(plan_id)
+    )
     held = {
-        plan_id: reason
-        for plan_id in planned & prior.keys()
-        if (reason := prior[plan_id]) is not None
+        plan_id: reason for plan_id in shared if (reason := prior[plan_id]) is not None
     }
-    for plan_id in planned & prior.keys():
+    for plan_id in shared:
         reasons.pop(plan_id, None)
     reasons.update(held)
+    return overridden
 
 
 def _cross_plan_fallback_reasons(
@@ -2144,7 +2150,21 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
         assignments_by_plan,
         frame_ownership,
     )
-    _adopt_prior_dispositions(ctx, plans, cross_plan_reasons)
+    overridden_dispositions = _adopt_prior_dispositions(ctx, plans, cross_plan_reasons)
+    if overridden_dispositions:
+        adopted_by_id = {plan.id: plan for plan in plans}
+        for plan_id in overridden_dispositions:
+            adopted_plan = adopted_by_id[plan_id]
+            diagnostics.append(
+                RoutePlanDiagnostic(
+                    adopted_plan.member_ids[0] if adopted_plan.member_ids else None,
+                    "exit-turn-disposition-adopted",
+                    f"exit group {adopted_plan.exit_group_id} disposition adopted "
+                    "from the frozen settlement pass, overriding this pass's own "
+                    "fresh cross-plan verdict",
+                    blocking=False,
+                )
+            )
     plans, references, demands = _apply_cross_plan_fallbacks(
         plans,
         references,

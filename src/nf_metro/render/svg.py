@@ -1059,8 +1059,12 @@ def _settle_render_geometry(
     A ``group`` caption band below a section grows that section's bottom edge,
     and that edge is the blocker bounding the row corridor beneath it, so the
     growth happens here rather than at draw time: settlement then widens the
-    boundary to keep the corridor it certified, and the closing guards measure
-    the geometry the render actually draws.
+    boundary to keep the corridor it certified.  Like label growth, this
+    happens after the Tier-A bbox/port guards run, so a group-grown box is
+    never checked against them -- only the curve, settlement-freeze, and
+    header-clearance guards that follow see it.  A separate draw-time
+    assertion (``_assert_group_band_room_drawn``) covers the box this
+    reservation grows: it rejects a band drawn past the room reserved for it.
 
     Junction coordinates are a function of the ports they join rather than
     independent data, so they are re-derived from the incoming section geometry
@@ -1165,6 +1169,19 @@ def _settle_render_geometry(
             frozen_plan,
             routed_plan,
         )
+        # adopt_route_reservation_ledger rebuilds the published plan from the
+        # frozen pass, which never saw the re-route's own diagnostics; carry
+        # forward the one class that names a decision the re-route was itself
+        # forced to discard (_adopt_prior_dispositions).
+        adopted_dispositions = tuple(
+            item
+            for item in routed_plan.diagnostics
+            if item.code == "exit-turn-disposition-adopted"
+        )
+        if adopted_dispositions:
+            route_plan = replace(
+                route_plan, diagnostics=route_plan.diagnostics + adopted_dispositions
+            )
     route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
     assert_reservations_are_settled(
         graph,
@@ -1265,6 +1282,7 @@ def _build_render_plan_scaled(
     # Drawn against the settled coordinates; the box room a below band needs was
     # reserved before settlement, which measured the grown edge.
     group_bands = _resolve_group_bands(graph, theme, station_offsets, labels)
+    _assert_group_band_room_drawn(graph, group_bands)
 
     # Resolve headers against the final section bboxes (label and group
     # reservations above can grow a box, moving where its header sits).
@@ -3700,6 +3718,31 @@ def _reserve_section_space_for_groups(
         target_bottom = far_y + GROUP_LABEL_BAND_PADDING
         if target_bottom > sec.bbox_y + sec.bbox_h:
             sec.bbox_h = target_bottom - sec.bbox_y
+
+
+def _assert_group_band_room_drawn(graph: MetroGraph, bands: list[_GroupBand]) -> None:
+    """Reject a ``below`` band drawn past the room ``_reserve_group_band_space``
+    grew for it.
+
+    The reservation is sized from the label placement in effect when it ran;
+    a section relabelled afterwards (a header-collision resettle re-places
+    labels without re-reserving) can grow a band this box was never widened
+    for.
+    """
+    for band in bands:
+        if band.section_id is None or band.tick_dy >= 0:
+            continue
+        sec = graph.sections.get(band.section_id)
+        if sec is None or sec.is_implicit:
+            continue
+        overhang = (
+            band.band_far_y + GROUP_LABEL_BAND_PADDING - (sec.bbox_y + sec.bbox_h)
+        )
+        if overhang > SAME_COORD_TOLERANCE:
+            raise LayoutInvariantError(
+                f"section '{band.section_id}' group band overhangs the room "
+                f"reserved for it by {overhang:.2f}px"
+            )
 
 
 def _render_station_groups(
