@@ -55,8 +55,11 @@ def _corpus() -> list[Path]:
 _CORPUS = _corpus()
 
 # Fixture -> how many of its realised gap claims are drawn outside their own
-# reservation's band.  Regenerate by running this module's ``_out_of_band_claims``
-# over ``_CORPUS``; closing a fixture means deleting its entry.
+# reservation's band by more than ``COORD_TOLERANCE``.  Regenerate by running
+# this module's ``_out_of_band_claims`` over ``_CORPUS``; closing a fixture means
+# deleting its entry.  Seven further claims sit exactly one tolerance outside
+# their band, which is the width this codebase treats two coordinates as equal
+# within, so they are not counted here.
 KNOWN_UNCONSUMED = {
     "examples/longread_variant_calling.mmd": 2,
     "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": 2,
