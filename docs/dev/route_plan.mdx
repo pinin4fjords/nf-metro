@@ -278,25 +278,29 @@ all frozen inputs.
 Two residues are outside what row and column offsets can reach, both measured
 rather than assumed. Canvas-side corridors are bounded on one side by the canvas
 edge, so closing one means growing a margin, which is a different translation
-owner: 20 of 411 realised canvas reservations still carry a capacity deficit.
+owner: 22 of 397 realised canvas reservations carry a capacity deficit, and a
+`CanvasRegion` carries none of the row/column locality its gap-region siblings
+do, so claims from unrelated parts of a map group into one reservation and the
+width that follows describes no drawn corridor. Those are reported, not gated.
 And the router's narrow-band fallback, which biases a run against the header
-badge it cannot clear, still fires 130 times across 13 fixtures -- every one of
-them at a gap the ledger never claimed, so there is no reservation to consume
-there. Where a reservation does exist the fallback is gone: 150 of 151 realised
-row-gap corridors measure a band that fits outright, the exception being the
-attributed obstruction below.
+badge it cannot clear, fires only at gaps the ledger never claimed, so there is
+no reservation to consume there.
 
 ## The router's side of the contract
 
 A translation is only worth making if the re-route lands the corridor in the
-space it bought. `build_reserved_row_bands` (`layout/routing/reserved_bands.py`)
+space it bought. `build_reserved_corridors` (`layout/routing/reserved_bands.py`)
 re-measures the ledger settlement was handed against the geometry it left, and
 turns each row-gap reservation into the clear span its own side clearances
 leave: `region_start + negative_side_clearance` to `region_end -
 positive_side_clearance`. Several corridors can claim one boundary over
-different spans, so the boundary's band is their intersection -- a channel there
-has to satisfy every claim -- and a boundary whose claims intersect to nothing
-describes no single corridor and is left unclaimed.
+different spans, so the boundary's band is their intersection -- a channel
+placed without knowing which corridor it belongs to has to satisfy every claim
+-- and a boundary whose claims intersect to nothing describes no single corridor
+and is left unclaimed. That view cannot separate two corridors crossing one
+boundary in opposite directions, whose intersection is narrower than either and
+sometimes a single coordinate, which is why the passes allocating several
+corridors across one boundary at once still keep the raw gap.
 
 `_route_edges` takes that lookup as `reserved_bands` on the routing context, and
 `_center_inter_row_channel` places a claimed channel inside the band instead of
@@ -313,19 +317,16 @@ fixed by something other than this helper -- a fan's shared corridor band, a
 bundle restack, a handler clamping the channel between its endpoints -- still
 lands where that owner puts it.
 
-Settlement declines a deficit whose far side is bounded by a section spanning
-across the boundary rather than sitting beyond it -- typically a row-spanning
-sidebar. That section is measured on the near side too, so its own box lies
-inside the width the claim asks for and the claim describes no gap at all;
-settlement publishes a `SettlementObstruction` naming it, and the author pin
-behind it where the grid is authored, instead of translating rows that could
-not help. That is the only deficit settlement can leave behind, because a
-far-side blocker it cannot translate is exactly a spanning one.
-`assert_reservations_are_settled` fails the strict path for every other
-surviving deficit -- one settlement was handed and did not meet, and one the
-settled re-route publishes -- since a route drawn through a clearance it does
-not have is wrong either way. A claim with no allocatable gap is reported as a
-ledger coherence problem rather than failing a map.
+A section spanning across a boundary occupies that boundary rather than
+bounding either side of it: its far edge lies beyond the boundary and its near
+edge before it, so neither is a clearance the boundary offers. The measurement
+therefore bounds a boundary by the sections lying wholly on each side, and a
+boundary every relevant section spans across has no side to measure and raises
+-- which is how the region search learns the corridor does not run in that gap.
+No deficit is left behind for that reason, so none is exempt:
+`assert_reservations_are_settled` fails the strict path for every surviving
+row- or column-gap deficit, because a route drawn through a clearance it does
+not have is wrong however the claim arose.
 
 Settlement also attributes ownership it cannot take. A convergence system left
 on the compatibility path whose corridors all reach their required width gets a
