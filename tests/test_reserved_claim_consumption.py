@@ -15,14 +15,14 @@ segment_rank)`` of the claim itself, so the bound names which leg is out rather
 than how many are: an unrecorded claim fails, a recorded one that comes into
 band fails until its entry goes, and swapping one leg for another fails too.
 
-What those remaining claims are is measured, not assumed.  All nine are legs
+What those remaining claims are is measured, not assumed.  All seven are legs
 whose coordinate a pre-routing plan fixes and validates the emitted geometry
 against, so no post-pass may write them: the fan traverse of a planned
-bottom-exit landing (5 claims), a planned exit turn's column (2), and a
-convergence trunk (2).  Each plan has to choose that coordinate inside the band
-its own reservation realises, which is work at the plan, not a repair after it.
-Every other claim in the corpus is drawn inside its band at exact precision,
-rather than merely within the tolerance this bound allows.
+bottom-exit landing (5 claims) and a convergence trunk (2).  Each plan has to
+choose that coordinate inside the band its own reservation realises, which is
+work at the plan, not a repair after it.  Every other claim in the corpus is
+drawn inside its band at exact precision, rather than merely within the
+tolerance this bound allows.
 """
 
 from __future__ import annotations
@@ -88,10 +88,6 @@ KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
     "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": (
         frozenset({(15, 1), (16, 1), (17, 1)})
     ),
-    "examples/topologies/exit_lane_settlement_without_crossings.mmd": frozenset(
-        {(25, 1)}
-    ),
-    "examples/topologies/peeloff_straight_drop_near_wall.mmd": frozenset({(12, 1)}),
     "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
         {(216, 2), (217, 2)}
     ),

@@ -4112,7 +4112,7 @@ def _hold_runs_in_corridor_clearance(
     for runs in by_axis.values():
         bundles = _corridor_bundles(runs, ctx.offset_step)
         settled = [0.0] * len(bundles)
-        for index, bundle in enumerate(bundles):
+        for index in range(len(bundles)):
             group = _seatable_group(bundles, settled, index, ctx)
             if group is None:
                 continue
@@ -4122,32 +4122,40 @@ def _hold_runs_in_corridor_clearance(
                 settled[other] += shift
 
 
+def _remaining_shift_range(
+    bundle: list[_CorridorRun], applied: float
+) -> tuple[float, float] | None:
+    """How much further *bundle* may travel, having already moved by *applied*.
+
+    A run's recorded coordinate is where the passes above left it, so a bundle's
+    band-derived range is measured from there; what is left of it is that range
+    less the distance already taken.
+    """
+    allowed = _bundle_shift_range(bundle)
+    return None if allowed is None else (allowed[0] - applied, allowed[1] - applied)
+
+
 def _group_shift(
     bundles: Sequence[list[_CorridorRun]],
     settled: Sequence[float],
     members: Collection[int],
     ctx: _RoutingCtx,
 ) -> float | None:
-    """The least shift seating every bundle in *members* inside its own band.
+    """The least further shift seating every bundle in *members* in its own band.
 
-    The group moves rigidly, so one shift has to satisfy every member's band and
-    clear every peer outside the group; a member already shifted carries that
-    into its own range, since its band is fixed and its coordinate is not.
+    The group moves rigidly, so one shift has to satisfy what every member has
+    left of its own range and clear every peer outside the group.
     """
-    ranges = [_bundle_shift_range(bundles[index]) for index in members]
+    ranges = [
+        _remaining_shift_range(bundles[index], settled[index]) for index in members
+    ]
     if any(item is None for item in ranges):
         return None
-    lower = max(
-        item[0] - settled[index]  # type: ignore[index]
-        for index, item in zip(members, ranges, strict=True)
-    )
-    upper = min(
-        item[1] - settled[index]  # type: ignore[index]
-        for index, item in zip(members, ranges, strict=True)
-    )
+    lower = max(item[0] for item in ranges if item is not None)
+    upper = min(item[1] for item in ranges if item is not None)
     if lower > upper + COORD_TOLERANCE_FINE:
         return None
-    group = [run for index in members for run in bundles[index]]
+    group = [(run, settled[index]) for index in members for run in bundles[index]]
     peers = [
         (peer, settled[other])
         for other, bundle in enumerate(bundles)
@@ -4169,16 +4177,13 @@ def _seatable_group(
     group reachable from it has a seating: the shortfall is then left to the
     closing guard to report rather than paid for by crowding a lane.
     """
-    allowed = _bundle_shift_range(bundles[index])
-    if allowed is None:
+    if _remaining_shift_range(bundles[index], settled[index]) is None:
         return None
     shift = _group_shift(bundles, settled, (index,), ctx)
     if shift is None:
-        blockers = _denying_bundles(bundles, settled, index, allowed, ctx)
-        if not blockers:
-            return None
+        blockers = _denying_bundles(bundles, settled, index, ctx)
         members = frozenset({index, *blockers})
-        shift = _group_shift(bundles, settled, members, ctx)
+        shift = None if not blockers else _group_shift(bundles, settled, members, ctx)
         if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
             return None
         return members, shift
@@ -4191,11 +4196,13 @@ def _denying_bundles(
     bundles: Sequence[list[_CorridorRun]],
     settled: Sequence[float],
     index: int,
-    allowed: tuple[float, float],
     ctx: _RoutingCtx,
 ) -> frozenset[int]:
     """The bundles that deny *index* every shift its own band asks for."""
-    lower, upper = allowed
+    remaining = _remaining_shift_range(bundles[index], settled[index])
+    assert remaining is not None
+    lower, upper = remaining
+    mine = [(run, settled[index]) for run in bundles[index]]
     return frozenset(
         other
         for other, bundle in enumerate(bundles)
@@ -4203,9 +4210,7 @@ def _denying_bundles(
         and _least_uncrowded_shift(
             lower,
             upper,
-            _crowding_windows(
-                bundles[index], [(peer, settled[other]) for peer in bundle], ctx
-            ),
+            _crowding_windows(mine, [(peer, settled[other]) for peer in bundle], ctx),
         )
         is None
     )
@@ -4231,7 +4236,7 @@ class _CrowdingWindow(NamedTuple):
 
 
 def _crowding_windows(
-    bundle: list[_CorridorRun],
+    bundle: Sequence[tuple[_CorridorRun, float]],
     peers: Sequence[tuple[_CorridorRun, float]],
     ctx: _RoutingCtx,
 ) -> list[_CrowdingWindow]:
@@ -4247,11 +4252,12 @@ def _crowding_windows(
     stroke by construction, and the window then stops the bundle at its peer's
     lane rather than short of it, which is what keeps the drawn order.
 
-    *peers* carry the shift already applied to them, since a peer's lane is where
-    it has settled rather than where the passes above left it.
+    Both sides carry the shift already applied to them, since a lane is where it
+    has settled rather than where the passes above left it, and the windows are
+    in terms of the *further* shift the bundle may take from there.
     """
     windows: list[_CrowdingWindow] = []
-    for run in bundle:
+    for run, moved in bundle:
         for peer, applied in peers:
             if not spans_share_corridor(
                 run.run_lo, run.run_hi, peer.run_lo, peer.run_hi
@@ -4262,7 +4268,7 @@ def _crowding_windows(
                 counter_running=peer.forward is not run.forward,
                 curve_radius=ctx.curve_radius,
             )
-            onto = peer.coordinate + applied - run.coordinate
+            onto = (peer.coordinate + applied) - (run.coordinate + moved)
             windows.append(
                 _CrowdingWindow(-inf, onto + keep)
                 if onto < 0
