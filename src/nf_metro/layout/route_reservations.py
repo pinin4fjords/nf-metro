@@ -227,6 +227,14 @@ class RouteReservation:
     region: CorridorRegion
     span: GridSpan
     measurement_scope: CorridorMeasurementScope
+    landing_section_ids: tuple[str, ...]
+    """Sections every one of this corridor's runs ends inside.
+
+    Such a box occupies the boundary rather than bounding it: the runs stop at a
+    station within it, so its edge is not a clearance they can be held off.  One
+    reservation states one measurement, so a box only counts here when every run
+    sharing the corridor ends inside it; a box one run merely passes bounds the
+    boundary for all of them."""
     lanes: tuple[RouteReservationLane, ...]
     lane_count: int
     bundle_width: float
@@ -527,6 +535,7 @@ class _ObservedClaim:
     region: CorridorRegion
     span: GridSpan
     measurement_scope: CorridorMeasurementScope
+    landing_section_ids: tuple[str, ...]
     travel_start: float
     travel_end: float
     coordinate: float
@@ -670,6 +679,7 @@ def _row_region_measurement(
     span: GridSpan,
     longitudinal_start: float,
     longitudinal_end: float,
+    landing_section_ids: frozenset[str] = frozenset(),
 ) -> _RegionMeasurement:
     """Measure the clear width between the two rows *region* separates.
 
@@ -678,11 +688,17 @@ def _row_region_measurement(
     the boundary rather than bounding it.  Where every relevant section spans
     across, the boundary has no side to measure and this raises, which is what
     tells the region search that this corridor does not run in a row gap here.
+
+    *landing_section_ids* names the sections the corridor's own run ends inside,
+    which occupy the boundary for the same reason: a run whose last leg stops at
+    a station of that box has entered it, so the box's edge is not a clearance
+    the run can be held off.
     """
     relevant = tuple(
         section
         for section in graph.sections.values()
         if section.bbox_w > 0
+        and section.id not in landing_section_ids
         and (
             _span_overlaps_section_columns(span, section)
             if measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
@@ -719,11 +735,13 @@ def _column_region_measurement(
     span: GridSpan,
     longitudinal_start: float,
     longitudinal_end: float,
+    landing_section_ids: frozenset[str] = frozenset(),
 ) -> _RegionMeasurement:
     relevant = tuple(
         section
         for section in graph.sections.values()
         if section.bbox_h > 0
+        and section.id not in landing_section_ids
         and (
             _span_overlaps_section_rows(span, section)
             if measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
@@ -1242,6 +1260,18 @@ def _sharing_ids(member: EmissionMember) -> tuple[str, ...]:
     )
 
 
+def _route_landing_section(graph: MetroGraph, route: RoutedPath) -> str | None:
+    """The section *route* stops inside, or ``None`` when it stops outside one.
+
+    A route's last point is the station it lands on, so that station's own box
+    encloses the end of the run whichever side the port sits on.  A corridor
+    cannot be bounded by a box its run ends inside, so the boundary measurement
+    treats this section as occupying the boundary rather than bounding it.
+    """
+    station = graph.stations.get(route.edge.target)
+    return None if station is None else station.section_id
+
+
 def _observed_claims(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -1270,9 +1300,10 @@ def _observed_claims(
             if connector_id in connector_membership
         )
         span = _connector_span(graph, connector_ids)
-        segments = _maximal_axis_segments(
-            apply_route_offsets(routes[binding.path_rank], station_offsets)
-        )
+        route = routes[binding.path_rank]
+        points = apply_route_offsets(route, station_offsets)
+        segments = _maximal_axis_segments(points)
+        landing_section = _route_landing_section(graph, route)
         for segment in segments:
             if (
                 segment.orientation is CorridorOrientation.HORIZONTAL
@@ -1285,6 +1316,12 @@ def _observed_claims(
             if corridor is None:
                 continue
             region, measurement_scope = corridor
+            landing_section_ids = (
+                (landing_section,)
+                if landing_section is not None
+                and segment.end_rank + 1 == len(points) - 1
+                else ()
+            )
             kind = (
                 _horizontal_kind(segment, region, member)
                 if segment.orientation is CorridorOrientation.HORIZONTAL
@@ -1312,6 +1349,7 @@ def _observed_claims(
                     region,
                     span,
                     measurement_scope,
+                    landing_section_ids,
                     segment.span_start,
                     segment.span_end,
                     segment.coordinate,
@@ -1822,6 +1860,19 @@ def _peer_widths(
     return dict(widths)
 
 
+def _shared_landing_sections(group: tuple[_ObservedClaim, ...]) -> tuple[str, ...]:
+    """Sections every claim in *group* ends inside.
+
+    Intersecting rather than uniting is what lets one boundary measurement stand
+    for the whole reservation: a box only one claim's run ends inside bounds the
+    boundary for the claims that merely pass it.
+    """
+    shared = set(group[0].landing_section_ids)
+    for item in group[1:]:
+        shared &= set(item.landing_section_ids)
+    return tuple(sorted(shared))
+
+
 def _build_symbolic_records(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -1908,6 +1959,7 @@ def _build_symbolic_records(
             first.region,
             span,
             first.measurement_scope,
+            _shared_landing_sections(group),
             lanes,
             lane_count,
             bundle_width,
@@ -2083,6 +2135,7 @@ def _realise_one(
     longitudinal_end = projected.longitudinal_end
     occupied_start = projected.occupied_start
     occupied_end = projected.occupied_end
+    landing_section_ids = frozenset(reservation.landing_section_ids)
     if isinstance(reservation.region, RowGapRegion):
         measurement = _row_region_measurement(
             graph,
@@ -2091,6 +2144,7 @@ def _realise_one(
             reservation.span,
             longitudinal_start,
             longitudinal_end,
+            landing_section_ids,
         )
     elif isinstance(reservation.region, ColumnGapRegion):
         measurement = _column_region_measurement(
@@ -2100,6 +2154,7 @@ def _realise_one(
             reservation.span,
             longitudinal_start,
             longitudinal_end,
+            landing_section_ids,
         )
     else:
         assert canvas_width is not None and canvas_height is not None

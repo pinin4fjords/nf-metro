@@ -17,12 +17,10 @@ band fails until its entry goes, and swapping one leg for another fails too.
 
 What those remaining claims are is measured, not assumed.  Each one is a leg
 :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
-cannot reseat, and there are exactly six reasons for that:
+cannot reseat, and there are exactly five reasons for that:
 
 * A pre-routing plan owns the segment's coordinates and validates the emitted
   geometry against them, so no post-pass may write it (9 claims).
-* The leg is a route's end leg, whose coordinate is the port marker it lands on
-  (3 claims).
 * A diagonal flanks the leg, and moving its coordinate would change that
   diagonal's angle (2 claims).
 * Two legs need one coordinate between them, and their bands are measured at
@@ -36,14 +34,14 @@ cannot reseat, and there are exactly six reasons for that:
   band edge because the centring reads a band rather than the peer sharing it
   (1 claim, ``dogleg_exempt_sameline``).
 
-None of the six is a router that fails to read the ledger, and none is closed
+None of the five is a router that fails to read the ledger, and none is closed
 by moving a leg the pass already reaches.  Two corridors confined at one
 boundary, each needing a coordinate the other cannot leave it, are absent from
 that list because ``RouteReservation.peer_width`` states the room the pair takes
 and settlement widens the boundary for both.
 
 Longitudinal blindness in the band's blockers is measured and is *not* among the
-reasons: on the violated side of all 17 claims, 16 have every blocker overlapping
+reasons: on the violated side of all 14 claims, 13 have every blocker overlapping
 or abutting the drawn leg, and the one that does not (``fan_bypass_shared_band``)
 has its violated edge set by a blocker that abuts it.
 """
@@ -125,10 +123,6 @@ KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
     "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
         {(216, 2), (217, 2)}
     ),
-    "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd": frozenset(
-        {(9, 2)}
-    ),
-    "tests/fixtures/tb_exit_terminal_on_carrier.mmd": frozenset({(34, 2), (35, 2)}),
 }
 
 
