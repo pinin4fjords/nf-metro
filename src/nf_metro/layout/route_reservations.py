@@ -902,46 +902,69 @@ def _geometric_column_gap(
     return region if isinstance(region, ColumnGapRegion) else None
 
 
+@dataclass(frozen=True, slots=True)
+class _ContentExtents:
+    """Every placed section, and the four extremes their boxes reach.
+
+    Section geometry is frozen while claims are observed, so a corridor's
+    margin is decided against one measurement of the map's content rather than
+    re-deriving it for each segment.
+    """
+
+    sections: tuple[Section, ...]
+    top: float
+    bottom: float
+    left: float
+    right: float
+
+    @classmethod
+    def of(cls, graph: MetroGraph) -> _ContentExtents:
+        placed = tuple(
+            section
+            for section in graph.sections.values()
+            if section.bbox_w > 0 and section.bbox_h > 0
+        )
+        if not placed:
+            return cls((), math.inf, -math.inf, math.inf, -math.inf)
+        return cls(
+            placed,
+            min(section.bbox_y for section in placed),
+            max(section.bbox_y + section.bbox_h for section in placed),
+            min(section.bbox_x for section in placed),
+            max(section.bbox_x + section.bbox_w for section in placed),
+        )
+
+
 def _canvas_region_for_segment(
-    graph: MetroGraph, segment: _AxisSegment
+    extents: _ContentExtents, segment: _AxisSegment
 ) -> CanvasRegion | None:
     """The canvas margin *segment* runs in, or ``None`` for an interior run.
 
     A canvas corridor lies between the map's content and the canvas edge, so
-    the coordinate is compared against the extreme of EVERY placed section,
-    not only the sections the run passes beside: an inter-row or inter-column
-    run overlaps neither of its own bounding sections longitudinally, and
-    judging it against whatever unrelated section pokes into its window would
-    call an interior corridor a margin one.  The overlap precondition keeps a
-    run outside all content longitudinally (an empty map edge) unclassified.
+    the coordinate is compared against the extreme of EVERY placed section, not
+    only the sections the run passes beside: an inter-row or inter-column run
+    overlaps neither of its own bounding sections longitudinally, and judging it
+    against whatever unrelated section pokes into its window would call an
+    interior corridor a margin one.  The overlap precondition keeps a run
+    outside all content longitudinally (an empty map edge) unclassified.
     """
-    placed = tuple(
-        section
-        for section in graph.sections.values()
-        if section.bbox_w > 0 and section.bbox_h > 0
-    )
     if segment.orientation is CorridorOrientation.HORIZONTAL:
-        if not any(
-            _section_x_overlaps(section, segment.span_start, segment.span_end)
-            for section in placed
-        ):
-            return None
-        if segment.coordinate < min(section.bbox_y for section in placed):
-            return CanvasRegion(CanvasSide.TOP)
-        if segment.coordinate > max(
-            section.bbox_y + section.bbox_h for section in placed
-        ):
-            return CanvasRegion(CanvasSide.BOTTOM)
-        return None
+        overlaps = _section_x_overlaps
+        near, far = extents.top, extents.bottom
+        near_side, far_side = CanvasSide.TOP, CanvasSide.BOTTOM
+    else:
+        overlaps = _section_y_overlaps
+        near, far = extents.left, extents.right
+        near_side, far_side = CanvasSide.LEFT, CanvasSide.RIGHT
     if not any(
-        _section_y_overlaps(section, segment.span_start, segment.span_end)
-        for section in placed
+        overlaps(section, segment.span_start, segment.span_end)
+        for section in extents.sections
     ):
         return None
-    if segment.coordinate < min(section.bbox_x for section in placed):
-        return CanvasRegion(CanvasSide.LEFT)
-    if segment.coordinate > max(section.bbox_x + section.bbox_w for section in placed):
-        return CanvasRegion(CanvasSide.RIGHT)
+    if segment.coordinate < near:
+        return CanvasRegion(near_side)
+    if segment.coordinate > far:
+        return CanvasRegion(far_side)
     return None
 
 
@@ -952,6 +975,7 @@ def _corridor_region(
     span: GridSpan,
     connector_ids: tuple[ConnectorId, ...],
     member: EmissionMember,
+    extents: _ContentExtents,
 ) -> tuple[CorridorRegion, CorridorMeasurementScope] | None:
     horizontal = segment.orientation is CorridorOrientation.HORIZONTAL
     candidates: tuple[RowGapRegion | ColumnGapRegion, ...] = (
@@ -973,7 +997,7 @@ def _corridor_region(
     # nearest topology gap would demand a corridor the frozen route shape cannot
     # reach -- the drawn dip cannot become a between-rows run by translation --
     # so the canvas classification precedes the fallback.
-    canvas_region = _canvas_region_for_segment(graph, segment)
+    canvas_region = _canvas_region_for_segment(extents, segment)
     if canvas_region is not None:
         return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
     if candidates and _topology_gap_fallback_is_proven(member, segment, segments):
@@ -1066,6 +1090,7 @@ def _observed_claims(
     member_by_id = {member.id: member for member in plan.members}
     binding_by_member = {binding.member_id: binding for binding in plan.bindings}
     system_by_id = {system.id: system for system in plan.systems}
+    extents = _ContentExtents.of(graph)
     claims: list[_ObservedClaim] = []
     for member in plan.members:
         binding = binding_by_member[member.id]
@@ -1094,7 +1119,7 @@ def _observed_claims(
             ):
                 continue
             corridor = _corridor_region(
-                graph, segment, segments, span, connector_ids, member
+                graph, segment, segments, span, connector_ids, member, extents
             )
             if corridor is None:
                 continue
