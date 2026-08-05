@@ -54,6 +54,29 @@ def _corpus() -> list[Path]:
 
 _CORPUS = _corpus()
 
+# Fixtures that never reach a route plan at all: fixtures under `invalid/`
+# and `nextflow/` are exercised by their own tests for the error they raise,
+# and the frozen determinism/topology fixtures abort on a routing invariant
+# tracked by other tests. None of them can be held to a claim-consumption
+# bound, so their failure to render is not itself a finding here.
+KNOWN_NOT_RENDERING = frozenset(
+    {
+        "tests/fixtures/hash_seed_determinism/seed_15.mmd",
+        "tests/fixtures/hash_seed_determinism/seed_41.mmd",
+        "tests/fixtures/hash_seed_determinism/seed_77.mmd",
+        "tests/fixtures/invalid/backward_feed_rl.mmd",
+        "tests/fixtures/invalid/merge_trunk_rightward_source.mmd",
+        "tests/fixtures/invalid/mixed_entry_opposing.mmd",
+        "tests/fixtures/invalid/mixed_entry_perpendicular.mmd",
+        "tests/fixtures/nextflow/duplicate_processes.mmd",
+        "tests/fixtures/nextflow/flat_pipeline.mmd",
+        "tests/fixtures/nextflow/unquoted_labels.mmd",
+        "tests/fixtures/nextflow/variant_calling.mmd",
+        "tests/fixtures/nextflow/with_subworkflows.mmd",
+        "tests/fixtures/topologies/twoline_fanout_up.mmd",
+    }
+)
+
 # Fixture -> how many of its realised gap claims are drawn outside their own
 # reservation's band by more than ``COORD_TOLERANCE``.  Regenerate by running
 # this module's ``_out_of_band_claims`` over ``_CORPUS``; closing a fixture means
@@ -147,10 +170,18 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
     "path", _CORPUS, ids=[str(p.relative_to(_ROOT)) for p in _CORPUS]
 )
 def test_realised_gap_claims_are_drawn_in_their_reserved_band(path: Path) -> None:
+    rel = str(path.relative_to(_ROOT))
     violations = _out_of_band_claims(path)
     if violations is None:
-        pytest.skip("fixture does not render")
-    allowed = KNOWN_UNCONSUMED.get(str(path.relative_to(_ROOT)), 0)
+        if rel in KNOWN_NOT_RENDERING:
+            pytest.skip("fixture does not render")
+        pytest.fail(
+            f"{rel} raised while building its render plan. A fixture that stops "
+            "rendering cannot be held to a claim-consumption bound; either fix "
+            "the regression or add it to KNOWN_NOT_RENDERING with the reason it "
+            "cannot render."
+        )
+    allowed = KNOWN_UNCONSUMED.get(rel, 0)
     assert len(violations) == allowed, (
         f"{len(violations)} claimed corridor(s) drawn outside their reserved band, "
         f"{allowed} recorded. Gaining one is a regression; losing one means "
@@ -160,8 +191,16 @@ def test_realised_gap_claims_are_drawn_in_their_reserved_band(path: Path) -> Non
 
 
 def test_the_unconsumed_ledger_names_only_fixtures_that_render() -> None:
-    """A stale entry would silently loosen the bound for a live fixture."""
+    """A stale entry would silently loosen the bound for a live fixture.
+
+    ``test_realised_gap_claims_are_drawn_in_their_reserved_band`` fails outright
+    for any ``KNOWN_UNCONSUMED`` entry that stops rendering, so the disjointness
+    checked here is what makes that guarantee actually apply to every entry:
+    a fixture cannot hide behind ``KNOWN_NOT_RENDERING`` while also carrying a
+    claim-consumption bound.
+    """
     known = set(KNOWN_UNCONSUMED)
     corpus = {str(path.relative_to(_ROOT)) for path in _CORPUS}
     assert known <= corpus, known - corpus
+    assert not (known & KNOWN_NOT_RENDERING), known & KNOWN_NOT_RENDERING
     assert sum(KNOWN_UNCONSUMED.values()) == 71
