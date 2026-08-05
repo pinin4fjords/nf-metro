@@ -85,6 +85,56 @@ def held_in_reserved_band(coordinate: float, band: ReservedBand | None) -> float
     return coordinate if band is None else band.hold(coordinate)
 
 
+def corridor_clearance_band(
+    graph: MetroGraph,
+    *,
+    axis: int,
+    boundary: int,
+    section_ids: Sequence[str],
+    run_start: float,
+    run_end: float,
+) -> tuple[float, float] | None:
+    """The clearance band a run crossing one grid boundary owes its blockers.
+
+    Read from live geometry through the ledger's own arithmetic
+    (:func:`~nf_metro.layout.route_reservations.gap_corridor_clearance_band`), so
+    a run held inside it satisfies the reservation raised over it on either
+    routing pass -- including the first, which publishes the ledger and so has
+    none to read.
+
+    *axis* is the run's own coordinate index, which is what picks the boundary's
+    orientation: a horizontal run (``1``) crosses the row gap below grid row
+    *boundary*, a vertical one (``0``) the column gap right of grid column
+    *boundary*.  *section_ids* are the run's own endpoint sections, whose grid
+    extent is the span the boundary's blockers are selected over.
+
+    The returned pair may be inverted, meaning the boundary is too narrow to hold
+    both clearances at once.
+    """
+    from nf_metro.layout.route_plan import grid_span_for_sections
+    from nf_metro.layout.route_reservations import (
+        ColumnGapRegion,
+        RowGapRegion,
+        gap_corridor_clearance_band,
+    )
+
+    known = tuple(item for item in section_ids if item in graph.sections)
+    if not known:
+        return None
+    region: RowGapRegion | ColumnGapRegion = (
+        RowGapRegion(boundary, boundary + 1)
+        if axis == 1
+        else ColumnGapRegion(boundary, boundary + 1)
+    )
+    return gap_corridor_clearance_band(
+        graph,
+        region,
+        grid_span_for_sections(graph, known),
+        min(run_start, run_end),
+        max(run_start, run_end),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ReservedBands:
     """Realised gap corridors on one axis, keyed by the boundary they cross."""

@@ -36,6 +36,7 @@ from nf_metro.layout.routing.common import (
     _h_segment_penetrates_section,
     column_gap_edges,
     gap_lo_for_x,
+    gap_lookup_geometry,
     initial_fanout_descent_span,
     inter_row_gap_upper_row,
     is_orthogonal_turn,
@@ -606,17 +607,20 @@ def _convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     )
 
 
-def _planner_owns_channel(channel: _VChannel) -> bool:
-    """Whether a pre-routing plan owns this channel's final geometry."""
-    route = channel.route
+def _planner_owns_segment(route: RoutedPath, rank: int) -> bool:
+    """Whether a pre-routing plan owns the final geometry of one route segment."""
     return (
-        _convergence_owns_segment_boundary(route, channel.idx)
+        _convergence_owns_segment_boundary(route, rank)
         or route.fan_route_emitter is not None
         or (
-            route.exit_turn_axis_id is not None
-            and route.exit_turn_segment_rank == channel.idx
+            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
     )
+
+
+def _planner_owns_channel(channel: _VChannel) -> bool:
+    """Whether a pre-routing plan owns this channel's final geometry."""
+    return _planner_owns_segment(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -3698,3 +3702,277 @@ def _v_segment_crosses_other_section(
         if s.bbox_x - margin <= x <= s.bbox_x + s.bbox_w + margin:
             return True
     return False
+
+
+class _CorridorRun(NamedTuple):
+    """One straight leg of a route running in a grid gap, and where it may sit.
+
+    ``lo``/``hi`` bound the coordinate the leg's boundary leaves it, and are
+    ``None`` for a leg no post-pass may move: it still occupies the corridor, so
+    its neighbours are separated from it, but it is never itself reseated.
+    """
+
+    route: RoutedPath
+    idx: int
+    axis: int
+    boundary: int
+    coordinate: float
+    run_lo: float
+    run_hi: float
+    lo: float | None
+    hi: float | None
+
+    @property
+    def movable(self) -> bool:
+        return self.lo is not None and self.hi is not None
+
+
+def _iter_straight_interior_legs(
+    rp: RoutedPath,
+) -> Iterator[tuple[int, int, float, float, float, bool]]:
+    """``(idx, axis, coordinate, run_start, run_end, turning)`` per interior leg.
+
+    *axis* is the leg's own coordinate index (``1`` for a horizontal leg's Y,
+    ``0`` for a vertical leg's X).  *turning* says both flanking legs run
+    perpendicular to this one, which is the condition for moving the leg's
+    coordinate: the flanks then stretch along their own length and stay
+    straight.  A leg flanked by a diagonal has no such freedom, so it reports
+    ``False`` and is read as an obstacle rather than a candidate.
+    """
+    pts = rp.points
+    for k in range(1, len(pts) - 2):
+        x0, y0 = pts[k]
+        x1, y1 = pts[k + 1]
+        along_x = abs(x1 - x0) > COORD_TOLERANCE
+        along_y = abs(y1 - y0) > COORD_TOLERANCE
+        if along_x is along_y:
+            continue
+        if along_x:
+            turning = (
+                abs(pts[k - 1][0] - x0) <= COORD_TOLERANCE
+                and abs(pts[k + 2][0] - x1) <= COORD_TOLERANCE
+            )
+            yield k, 1, y0, x0, x1, turning
+        else:
+            turning = (
+                abs(pts[k - 1][1] - y0) <= COORD_TOLERANCE
+                and abs(pts[k + 2][1] - y1) <= COORD_TOLERANCE
+            )
+            yield k, 0, x0, y0, y1, turning
+
+
+def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str, ...]:
+    """The sections this route runs between, which span its corridor claims."""
+    return tuple(
+        station.section_id
+        for station_id in (rp.edge.source, rp.edge.target)
+        if (station := graph.stations.get(station_id)) is not None
+        and station.section_id is not None
+    )
+
+
+def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_CorridorRun]:
+    """Every straight interior leg that runs in a row or column gap."""
+    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
+
+    graph = ctx.graph
+    lookup = gap_lookup_geometry(graph)
+    out: list[_CorridorRun] = []
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        section_ids = _route_endpoint_section_ids(graph, rp)
+        if not section_ids:
+            continue
+        for idx, axis, coordinate, start, end, turning in _iter_straight_interior_legs(
+            rp
+        ):
+            run_lo, run_hi = min(start, end), max(start, end)
+            if axis == 1:
+                upper = inter_row_gap_upper_row(graph, coordinate)
+                if upper is None:
+                    continue
+                boundary = upper
+            else:
+                matched = gap_lo_for_x(graph, coordinate, run_lo, run_hi, lookup=lookup)
+                if matched is None:
+                    continue
+                boundary = matched[0]
+            band = corridor_clearance_band(
+                graph,
+                axis=axis,
+                boundary=boundary,
+                section_ids=section_ids,
+                run_start=run_lo,
+                run_end=run_hi,
+            )
+            # A planner owns the coordinates of the segments it validates, and a
+            # boundary too narrow to hold both clearances offers no coordinate to
+            # aim at; either way the leg stands where it is and only bounds its
+            # neighbours.
+            held = (
+                band is not None
+                and band[1] >= band[0] - COORD_TOLERANCE_FINE
+                and turning
+                and not _planner_owns_segment(rp, idx)
+            )
+            out.append(
+                _CorridorRun(
+                    rp,
+                    idx,
+                    axis,
+                    boundary,
+                    coordinate,
+                    run_lo,
+                    run_hi,
+                    band[0] if held and band is not None else None,
+                    band[1] if held and band is not None else None,
+                )
+            )
+    return out
+
+
+def _corridor_bundles(
+    corridor: list[_CorridorRun], step: float
+) -> list[list[_CorridorRun]]:
+    """Split one gap's legs into the bundles that have to travel together.
+
+    Legs no more than one nesting *step* apart are the co-travelling runs whose
+    spacing is the only thing drawing them as separate strokes: fused same-line
+    tracks sit on one coordinate and nested distinct lines exactly a step apart,
+    and either relationship is destroyed by moving one member alone.  So a
+    bundle is a maximal chain under that spacing, and it moves rigidly or not at
+    all.
+    """
+    bundles: list[list[_CorridorRun]] = []
+    for run in sorted(corridor, key=lambda item: item.coordinate):
+        if (
+            bundles
+            and run.coordinate - bundles[-1][-1].coordinate <= step + COORD_TOLERANCE
+        ):
+            bundles[-1].append(run)
+        else:
+            bundles.append([run])
+    return bundles
+
+
+def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | None:
+    """How far *bundle* may travel with every member inside its own band.
+
+    ``None`` where a member may not move at all, or where no single shift
+    satisfies them all: the bundle then stands where it is rather than breaking
+    the spacing that keeps its members legible as separate strokes.
+    """
+    if any(not run.movable for run in bundle):
+        return None
+    lower = max(run.lo - run.coordinate for run in bundle)  # type: ignore[operator]
+    upper = min(run.hi - run.coordinate for run in bundle)  # type: ignore[operator]
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return None
+    return lower, upper
+
+
+def _hold_runs_in_corridor_clearance(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Hold every gap-crossing run inside the clearance its corridor owes.
+
+    A leg drawn in a row or column gap earns a
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` over that
+    boundary, and that reservation's band is measurable from live geometry alone
+    (:func:`~nf_metro.layout.routing.reserved_bands.corridor_clearance_band`).
+    Handlers and the passes above derive a channel's depth from whichever grid
+    edges they have to hand, which over-states the obstruction wherever a
+    section spans the boundary or sits outside the corridor's run.  This closes
+    that difference on the drawn geometry, so a corridor is contained by the
+    reservation raised over it on the pass that publishes the ledger as well as
+    the pass that reads it.
+
+    A bundle travels only through the space its neighbours in the same gap leave
+    it, each of them taken at its settled position, so no move fuses two bundles
+    onto one coordinate or reorders them.  A gap's bundles are visited in
+    coordinate order, which is what makes an already-moved neighbour a settled
+    obstacle for the rest.
+    """
+    step = ctx.offset_step
+    by_corridor: defaultdict[tuple[int, int], list[_CorridorRun]] = defaultdict(list)
+    for run in _corridor_runs(routes, ctx):
+        by_corridor[(run.axis, run.boundary)].append(run)
+    for corridor in by_corridor.values():
+        bundles = _corridor_bundles(corridor, step)
+        seats = [
+            (
+                min(run.coordinate for run in bundle),
+                max(run.coordinate for run in bundle),
+            )
+            for bundle in bundles
+        ]
+        for index, bundle in enumerate(bundles):
+            allowed = _bundle_shift_range(bundle)
+            if allowed is None:
+                continue
+            lower, upper = allowed
+            start, end = seats[index]
+            for other, (other_start, other_end) in enumerate(seats):
+                if other == index or not _bundles_share_corridor(
+                    bundle, bundles[other]
+                ):
+                    continue
+                if other < index:
+                    lower = max(lower, other_end + step - start)
+                else:
+                    upper = min(upper, other_start - step - end)
+            if lower > upper + COORD_TOLERANCE_FINE:
+                continue
+            shift = min(max(0.0, lower), upper)
+            if abs(shift) <= COORD_TOLERANCE_FINE:
+                continue
+            _shift_corridor_bundle(bundle, shift, ctx)
+            seats[index] = (start + shift, end + shift)
+
+
+def _bundles_share_corridor(
+    bundle: list[_CorridorRun], other: list[_CorridorRun]
+) -> bool:
+    """Whether two bundles run alongside each other far enough to separate.
+
+    Legs that merely pass each other's ends occupy different stretches of the
+    gap, so neither constrains where the other sits.
+    """
+    return any(
+        spans_share_corridor(first.run_lo, first.run_hi, second.run_lo, second.run_hi)
+        for first in bundle
+        for second in other
+    )
+
+
+def _shift_corridor_bundle(
+    bundle: list[_CorridorRun], shift: float, ctx: _RoutingCtx
+) -> None:
+    """Translate one bundle of co-travelling legs by *shift*.
+
+    A leg's flanking corners are re-derived against the radius each already
+    carries as their reference, which is what keeps a concentric loop -- every
+    corner sized as one family -- a single family across the move.  Taking the
+    base radius instead would pinch two corners of such a loop to a radius the
+    rest of the loop does not share.
+    """
+    for run in bundle:
+        radii = run.route.curve_radii
+        _reseat_concentric_flanking(
+            run.route,
+            run.idx,
+            run.coordinate + shift,
+            axis=run.axis,
+            base_radius=_held_corner_radius(radii, run.idx - 1, ctx.curve_radius),
+            base_radius_out=_held_corner_radius(radii, run.idx, ctx.curve_radius),
+        )
+
+
+def _held_corner_radius(
+    radii: list[float] | None, index: int, fallback: float
+) -> float:
+    """The radius already drawn at *index*, or *fallback* where there is none."""
+    if radii is None or not 0 <= index < len(radii):
+        return fallback
+    return radii[index]

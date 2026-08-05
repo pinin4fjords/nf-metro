@@ -707,6 +707,64 @@ def _column_region_measurement(
     return _RegionMeasurement(start, end, negative, positive)
 
 
+def gap_corridor_clearance_band(
+    graph: MetroGraph,
+    region: RowGapRegion | ColumnGapRegion,
+    span: GridSpan,
+    longitudinal_start: float,
+    longitudinal_end: float,
+) -> tuple[float, float] | None:
+    """Where a run crossing *region* may sit to keep the clearances it earns.
+
+    The router places a corridor before any ledger describes it, so this states
+    the reservation's own arithmetic -- the region between the boundary's
+    blockers, inset by :func:`_clearances` -- against nothing but live geometry.
+    Routing and the ledger therefore measure one corridor the same way, and a
+    run held inside this band satisfies the reservation the observation will
+    raise over it.
+
+    A reservation measures its blockers under a single
+    :class:`CorridorMeasurementScope`, and which one it gets is decided after
+    the run is drawn.  Both are measured here and the narrower band returned, so
+    the answer is inside whichever scope the observation goes on to choose.
+
+    Returns ``None`` where the boundary has no side to measure -- every relevant
+    section straddles it -- which is the same condition that stops a corridor
+    from being assigned this region at all.  The pair is returned as measured
+    and may be inverted: a boundary too narrow to hold both clearances has no
+    satisfying coordinate, and picking which one to break belongs to the caller
+    that knows which side a later widening can reach.
+    """
+    negative, positive, _keepouts = _clearances(
+        CorridorOrientation.HORIZONTAL
+        if isinstance(region, RowGapRegion)
+        else CorridorOrientation.VERTICAL,
+        region,
+    )
+    measure = (
+        _row_region_measurement
+        if isinstance(region, RowGapRegion)
+        else _column_region_measurement
+    )
+    bounds: list[tuple[float, float]] = []
+    for scope in CorridorMeasurementScope:
+        try:
+            measured = measure(
+                graph,
+                region,  # type: ignore[arg-type]
+                scope,
+                span,
+                longitudinal_start,
+                longitudinal_end,
+            )
+        except ValueError:
+            continue
+        bounds.append((measured.start + negative, measured.end - positive))
+    if not bounds:
+        return None
+    return (max(lo for lo, _hi in bounds), min(hi for _lo, hi in bounds))
+
+
 def _candidate_row_gaps(
     graph: MetroGraph, connector_ids: tuple[ConnectorId, ...]
 ) -> tuple[RowGapRegion, ...]:
