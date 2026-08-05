@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from nf_metro.layout.constants import (
+    EDGE_TO_BUNDLE_CLEARANCE,
     JUNCTION_MARGIN,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Station
@@ -26,6 +27,34 @@ def _required_junction_margin(n: int) -> float:
     """
     del n  # currently unused; see docstring
     return JUNCTION_MARGIN
+
+
+def _turns_a_branch_perpendicular(graph: MetroGraph, jid: str) -> bool:
+    """Whether a branch leaves *jid* through a TOP/BOTTOM entry port.
+
+    Such a branch turns at the junction and runs the rest of the way as a
+    vertical channel, so the junction's own X is that channel's column.
+    """
+    return any(
+        (port := graph.ports.get(edge.target)) is not None
+        and port.side in (PortSide.TOP, PortSide.BOTTOM)
+        for edge in graph.edges_from(jid)
+    )
+
+
+def _flow_side_junction_margin(graph: MetroGraph, jid: str, baseline: float) -> float:
+    """Distance a junction on a LEFT/RIGHT exit keeps from the section wall.
+
+    The exit port sits on that wall, so the margin is also the clearance the
+    junction's column has from it.  Where a branch turns perpendicular there
+    (:func:`_turns_a_branch_perpendicular`) the column is a channel running
+    down the inter-column gap, and a channel in a gap owes
+    ``EDGE_TO_BUNDLE_CLEARANCE`` from the edges bounding it -- more than the
+    curve runway *baseline* covers.
+    """
+    if not _turns_a_branch_perpendicular(graph, jid):
+        return baseline
+    return max(baseline, EDGE_TO_BUNDLE_CLEARANCE)
 
 
 def _junction_outgoing_line_count(graph: MetroGraph, jid: str) -> int:
@@ -132,7 +161,9 @@ def _position_junctions(graph: MetroGraph) -> None:
                 PortSide.LEFT,
             ):
                 direction = 1.0 if exit_port_obj.side == PortSide.RIGHT else -1.0
-                junction.x = exit_port_x + direction * margin
+                junction.x = exit_port_x + direction * _flow_side_junction_margin(
+                    graph, jid, margin
+                )
                 junction.y = exit_port_y
             else:
                 nearest_entry_x = min(entry_port_xs, key=lambda x: abs(x - exit_port_x))
@@ -237,10 +268,10 @@ def _resolve_source_xy(
         )
         if exit_port_obj.side == PortSide.BOTTOM:
             return exit_st.x, exit_st.y + margin
-        elif exit_port_obj.side == PortSide.RIGHT:
-            return exit_st.x + margin, exit_st.y
-        elif exit_port_obj.side == PortSide.LEFT:
-            return exit_st.x - margin, exit_st.y
+        elif exit_port_obj.side in (PortSide.RIGHT, PortSide.LEFT):
+            flow_margin = _flow_side_junction_margin(graph, edge_source, margin)
+            direction = 1.0 if exit_port_obj.side == PortSide.RIGHT else -1.0
+            return exit_st.x + direction * flow_margin, exit_st.y
         else:
             return exit_st.x + margin, exit_st.y
 

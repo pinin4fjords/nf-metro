@@ -498,16 +498,22 @@ def _source_turn_requirement(
             <= COORD_TOLERANCE
         ):
             axis = ctx.graph.stations[edge.target].x
-            launch = (
+            feeder_x = (
                 ctx.graph.stations[exit_port_id].x
                 if exit_port_id is not None
                 else src.x
             )
-            run = horizontal_direction(axis - launch)
+            run = horizontal_direction(axis - feeder_x)
+            # The drop peels off the trunk one corner radius before the turn
+            # column, or at the feeder itself when that is the nearer of the
+            # two (``_perp_entry_junction_straight_drop``).  Asking a whole
+            # radius of the shorter launch is what refuses a turn column too
+            # close to its feeder to open a full corner.
+            lead_in = min(ctx.curve_radius, abs(axis - feeder_x))
             return _SourceTurnRequirement(
                 run,
                 vertical_direction(tgt.y - src.y),
-                launch,
+                axis - run.sign * lead_in,
                 ctx.curve_radius,
                 axis,
             )

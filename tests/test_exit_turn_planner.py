@@ -2404,15 +2404,14 @@ def test_aligned_top_entry_peeloff_keeps_its_structural_axis() -> None:
         if item.exit_turn_member_id == str(assignment.member_id)
     )
 
+    port_x = graph.stations["novel_transcripts__entry_top_5"].x
     assert plan.disposition is ExitTurnDisposition.PLANNED
     assert assignment.run_direction is Direction.R
     assert assignment.turn_direction is Direction.D
-    assert axis.coordinate == pytest.approx(
-        graph.stations["novel_transcripts__entry_top_5"].x
-    )
+    assert axis.coordinate == pytest.approx(port_x)
     assert axis.fixed_anchor_id == "novel_transcripts__entry_top_5"
     assert plan.minimum_runway == pytest.approx(10.0)
-    assert route.points[:2] == [(340.0, 124.0), (350.0, 124.0)]
+    assert route.points[:2] == [(port_x - 10.0, 124.0), (port_x, 124.0)]
     assert route.exit_turn_segment_rank == 1
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
