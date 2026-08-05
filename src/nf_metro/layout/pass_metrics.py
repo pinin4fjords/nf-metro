@@ -20,6 +20,7 @@ from __future__ import annotations
 __all__ = [
     "active_font_scale",
     "active_stroke_scale",
+    "canvas_edge_clearance",
     "font_scale_context",
     "station_radius_approx",
     "station_stroke_approx",
@@ -30,7 +31,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator
 
-from nf_metro.layout.constants import STATION_RADIUS_APPROX, STATION_STROKE_APPROX
+from nf_metro.layout.constants import (
+    CANVAS_EDGE_CLEARANCE,
+    STATION_RADIUS_APPROX,
+    STATION_STROKE_APPROX,
+    WIDEST_THEME_LINE_WIDTH,
+)
 
 _ACTIVE_FONT_SCALE: ContextVar[float] = ContextVar("active_font_scale", default=1.0)
 _ACTIVE_STROKE_SCALE: ContextVar[float] = ContextVar("active_stroke_scale", default=1.0)
@@ -74,3 +80,16 @@ def station_radius_approx() -> float:
 def station_stroke_approx() -> float:
     """Station marker stroke width to reserve against, under the active scale."""
     return STATION_STROKE_APPROX * active_stroke_scale()
+
+
+def canvas_edge_clearance() -> float:
+    """Canvas-margin clearance to reserve against, under the active stroke scale.
+
+    ``stroke_scale`` multiplies the stroke a route is drawn with but not the
+    direction chevron's arms, so only the half-stroke term of
+    :data:`~nf_metro.layout.constants.CANVAS_EDGE_CLEARANCE` scales.  Reading the
+    unscaled constant would leave a coarsened render short of the margin by half
+    the extra stroke weight.
+    """
+    extra_stroke = WIDEST_THEME_LINE_WIDTH * (active_stroke_scale() - 1.0)
+    return CANVAS_EDGE_CLEARANCE + extra_stroke / 2

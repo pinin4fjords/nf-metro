@@ -14,12 +14,14 @@ from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     CANVAS_EDGE_CLEARANCE,
     COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
     CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
     SAME_COORD_TOLERANCE,
 )
+from nf_metro.layout.pass_metrics import canvas_edge_clearance
 from nf_metro.layout.route_plan import (
     BindingKind,
     ConvergenceDisposition,
@@ -145,6 +147,15 @@ class CanvasRegion:
 
 
 CorridorRegion: TypeAlias = RowGapRegion | ColumnGapRegion | CanvasRegion
+
+CANVAS_EDGE_ON_NEGATIVE_SIDE: frozenset[CanvasSide] = frozenset(
+    (CanvasSide.TOP, CanvasSide.LEFT)
+)
+"""Canvas sides a corridor faces across its *negative*-side clearance.
+
+Allocation coordinates grow away from the top and left canvas edges, so those
+two margins are a corridor's negative-side clearance and the bottom and right
+margins are its positive-side one."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +369,24 @@ class RealisedRouteReservation:
             raise ValueError("realised available width disagrees with its edges")
         if not self.negative_blocker_ids or not self.positive_blocker_ids:
             raise ValueError("realised corridor requires both boundary blockers")
+
+
+def canvas_edge_slack(
+    region: CanvasRegion, realised: RealisedRouteReservation
+) -> float:
+    """*realised*'s clearance between the ink it draws and the canvas edge.
+
+    A canvas corridor has a canvas edge on one side and content on the other, so
+    only one of its two side slacks measures the margin the canvas owns.  Total
+    capacity does not measure it: a corridor holding every pixel it reserved can
+    spend all of that room on its content side and be drawn hard against the
+    edge.
+    """
+    return (
+        realised.negative_side_slack
+        if region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE
+        else realised.positive_side_slack
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1309,7 +1338,7 @@ def _clearances(
     if orientation is CorridorOrientation.HORIZONTAL:
         if isinstance(region, CanvasRegion) and region.side is CanvasSide.TOP:
             return (
-                CANVAS_EDGE_CLEARANCE,
+                canvas_edge_clearance(),
                 INTER_ROW_HEADER_CLEARANCE,
                 (
                     KeepOutClass.CANVAS,
@@ -1322,7 +1351,7 @@ def _clearances(
         if isinstance(region, CanvasRegion):
             return (
                 INTER_ROW_EDGE_CLEARANCE,
-                CANVAS_EDGE_CLEARANCE,
+                canvas_edge_clearance(),
                 (
                     KeepOutClass.SECTION,
                     KeepOutClass.HEADER,
@@ -1343,7 +1372,7 @@ def _clearances(
         )
     if isinstance(region, CanvasRegion) and region.side is CanvasSide.LEFT:
         return (
-            CANVAS_EDGE_CLEARANCE,
+            canvas_edge_clearance(),
             EDGE_TO_BUNDLE_CLEARANCE,
             (
                 KeepOutClass.CANVAS,
@@ -1355,7 +1384,7 @@ def _clearances(
     if isinstance(region, CanvasRegion):
         return (
             EDGE_TO_BUNDLE_CLEARANCE,
-            CANVAS_EDGE_CLEARANCE,
+            canvas_edge_clearance(),
             (
                 KeepOutClass.SECTION,
                 KeepOutClass.LABEL,
@@ -1853,9 +1882,7 @@ def _realise_all(
             reservation,
             canvas_width,
             canvas_height,
-            ()
-            if isinstance(reservation.region, CanvasRegion)
-            else coordinate_translations,
+            coordinate_translations,
         )
         for reservation in reservations
     )
@@ -2005,6 +2032,23 @@ def _validate_reservation_record(
     expected_negative, expected_positive, expected_keepouts = _clearances(
         reservation.orientation, reservation.region
     )
+    if isinstance(reservation.region, CanvasRegion):
+        # The margin against the canvas edge is the one policy term that tracks
+        # the render's ``stroke_scale``: the stroke widens with it, the direction
+        # chevron's arms do not.  A query is built without knowing which pass
+        # measured the ledger, so this term is held to its unscaled floor.
+        on_negative = reservation.region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE
+        reserved_margin = (
+            reservation.negative_side_clearance
+            if on_negative
+            else reservation.positive_side_clearance
+        )
+        if reserved_margin + COORD_TOLERANCE_FINE < CANVAS_EDGE_CLEARANCE:
+            raise ValueError("reservation clearance policy is inconsistent")
+        if on_negative:
+            expected_negative = reserved_margin
+        else:
+            expected_positive = reserved_margin
     expected_minimum = expected_negative + expected_bundle_width + expected_positive
     if (
         not _same_measurement(reservation.negative_side_clearance, expected_negative)
@@ -2997,9 +3041,11 @@ def adopt_route_reservation_ledger(
     realised ledger is re-measured the same way.  The drawn corridor positions
     live in the routes, which may place a corridor anywhere inside its
     reservation's band -- the published ledger records the demand and its
-    measured band, not the drawn outcome.  Canvas claims are the exception:
-    they are measured against live canvas bounds, so they refresh rather than
-    project.
+    measured band, not the drawn outcome.  A canvas claim has no realisation to
+    publish here because no canvas bounds exist yet; the render measures it
+    against the canvas it sizes, projecting the claim through these same
+    translations so the occupied coordinates and the region describe one
+    geometry.
     """
     projected = replace(
         frozen_plan,
@@ -3025,12 +3071,16 @@ def realise_route_reservations(
     *,
     canvas_width: float,
     canvas_height: float,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RoutePlan:
     """Refresh the realised ledger against final render canvas bounds.
 
     Each reservation keeps the projection its realisation was measured with:
     re-realising a frozen claim without its settlement translations would
-    measure geometry the translations moved out from under it.
+    measure geometry the translations moved out from under it.  A canvas claim
+    has no such realisation to inherit from, so *coordinate_translations* is its
+    projection, and its occupied coordinates land in the same geometry as the
+    region measured around them.
     """
     held_translations = {
         item.reservation_id: item.coordinate_translations
@@ -3045,7 +3095,7 @@ def realise_route_reservations(
                 reservation,
                 canvas_width,
                 canvas_height,
-                held_translations.get(reservation.id, ()),
+                held_translations.get(reservation.id, coordinate_translations),
             )
         )
         is not None

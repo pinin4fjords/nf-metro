@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import fields
 from pathlib import Path
 
@@ -10,15 +11,28 @@ import pytest
 from nf_metro.api import RenderConfig, prepare_graph, render_graph, resolve_theme
 from nf_metro.layout.constants import (
     DEFAULT_LINE_WIDTH,
+    DIRECTIONAL_MARKER_HALF_EXTENT,
+    EDGE_TO_BUNDLE_CLEARANCE,
     OFFSET_STEP,
     STATION_RADIUS_APPROX,
+    WIDEST_THEME_LINE_WIDTH,
     graph_offset_step,
     resolve_offset_step,
 )
 from nf_metro.layout.pass_metrics import station_radius_approx, stroke_scale_context
+from nf_metro.layout.route_plan import build_route_plan_query
+from nf_metro.layout.route_reservations import (
+    CANVAS_EDGE_ON_NEGATIVE_SIDE,
+    CanvasRegion,
+    CanvasSide,
+)
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.render.constants import RAIL_KNOB_RADIUS_RATIO
-from nf_metro.render.svg import _scale_theme_fonts, _scale_theme_strokes
+from nf_metro.render.svg import (
+    _scale_theme_fonts,
+    _scale_theme_strokes,
+    build_observed_render_plan,
+)
 
 _SRC = """%%metro title: Bundle
 %%metro line: a | A | #e41a1c
@@ -166,6 +180,50 @@ def test_pass_scales_do_not_leak() -> None:
     with stroke_scale_context(2.0):
         assert station_radius_approx() == pytest.approx(STATION_RADIUS_APPROX * 2.0)
     assert station_radius_approx() == pytest.approx(STATION_RADIUS_APPROX)
+
+
+def test_a_coarsened_canvas_margin_reads_back_outside_its_pass() -> None:
+    """A coarsened canvas claim survives a query built with no scale in effect.
+
+    The stroke half-width a canvas-margin corridor reserves tracks the scale, so
+    the ledger's clearance for one is the only policy term a reader outside the
+    measuring pass cannot re-derive.  A query is exactly such a reader.
+    """
+    path = Path("examples/diagonal_labels.mmd")
+    graph = prepare_graph(
+        path.read_text(), source_dir="examples", layout_options={"stroke_scale": 2.0}
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
+    query = build_route_plan_query(plan)
+
+    canvas = [
+        item for item in plan.reservations if isinstance(item.region, CanvasRegion)
+    ]
+    assert canvas
+    scaled = DIRECTIONAL_MARKER_HALF_EXTENT + WIDEST_THEME_LINE_WIDTH * 2.0 / 2
+    assert {
+        item.negative_side_clearance
+        if item.region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE
+        else item.positive_side_clearance
+        for item in canvas
+    } == {scaled}
+    assert all(query.realised_reservation(item.id) is not None for item in canvas)
+
+    # The map's left channel is placed for the unscaled stroke, so a coarsened
+    # render of it is genuinely short of the wider margin -- and the guard's
+    # attribution carries the scaled demand rather than the constant.
+    left = next(item for item in canvas if item.region.side is CanvasSide.LEFT)
+    assert left.minimum_width == pytest.approx(
+        scaled + left.bundle_width + EDGE_TO_BUNDLE_CLEARANCE
+    )
+    margin = next(
+        str(item.message)
+        for item in caught
+        if "left canvas margin" in str(item.message)
+    )
+    assert f"requires {left.minimum_width:.1f}px" in margin
 
 
 def test_unit_scale_returns_the_same_theme() -> None:

@@ -32,6 +32,7 @@ from nf_metro.layout.constants import (
     NEXT_ROW_HEADER_BADGE_CLEARANCE,
     SECTION_ROUTE_CLEARANCE,
 )
+from nf_metro.layout.pass_metrics import canvas_edge_clearance
 from nf_metro.layout.routing.bundle import build_tapered_bundle
 from nf_metro.layout.routing.centrelines import (
     _TaperedMember,
@@ -4105,11 +4106,21 @@ def _left_entry_descent_x(
     pass the per-line stagger as *signed_delta* (``+delta`` when the channel
     sits on the bundle's right, ``-delta`` when on its left) to keep the
     concentric-corner handedness local to each handler.
+
+    The bump is spent leftward, which for a channel descending the map's left
+    margin is spent toward the canvas edge.  It is therefore capped at the room
+    the margin leaves outboard of ``canvas_edge_clearance()``: a stroke and its
+    direction chevron drawn past that are clipped by the viewport, whereas
+    ``SECTION_ROUTE_CLEARANCE`` is a legibility gap beside a box edge that a run
+    can give up.
     """
     base_gap = ctx.curve_radius + ctx.offset_step
     max_delta = (n_outer - 1) * ctx.offset_step / 2
     extra_clearance = max(0.0, SECTION_ROUTE_CLEARANCE - (base_gap - max_delta))
-    return anchor_x - base_gap - extra_clearance + signed_delta
+    outboard_room = max(
+        0.0, anchor_x - base_gap + signed_delta - canvas_edge_clearance()
+    )
+    return anchor_x - base_gap - min(extra_clearance, outboard_room) + signed_delta
 
 
 def _right_entry_descent_x(

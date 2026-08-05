@@ -26,6 +26,7 @@ from nf_metro.layout.envelope_settlement import (
     settle_route_envelopes,
 )
 from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.pass_metrics import canvas_edge_clearance, stroke_scale_context
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     assert_canvas_corridors_hold_their_claims,
@@ -34,9 +35,11 @@ from nf_metro.layout.phases.guards import (
 from nf_metro.layout.route_plan import GridSpan, build_route_plan_query
 from nf_metro.layout.route_reservations import (
     CanvasRegion,
+    CanvasSide,
     ColumnGapRegion,
     CorridorMeasurementScope,
     RowGapRegion,
+    canvas_edge_slack,
     realise_reservation,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
@@ -72,7 +75,10 @@ COLUMN_DEFICIT_CORPUS = (
 )
 
 # Every map with a left-canvas channel: each draws its leftmost line 6px off the
-# canvas edge, which a turn-radius clearance would call 4px short.
+# canvas edge, which a turn-radius clearance would call 4px short.  The margin
+# each corridor keeps against the edge is measured, not its total room: a canvas
+# corridor's other side faces content, and room banked there does not keep ink
+# inside the viewport.
 CANVAS_CLEARANCE_CORPUS = (
     ROOT / "examples" / "diagonal_labels.mmd",
     ROOT / "examples" / "genomic_pipeline.mmd",
@@ -1160,7 +1166,108 @@ def test_the_canvas_edge_clearance_bounds_every_theme() -> None:
     """
     widest = max(theme.line_width for theme in THEMES.values())
     assert WIDEST_THEME_LINE_WIDTH == pytest.approx(widest)
+    assert DIRECTIONAL_MARKER_HALF_EXTENT == pytest.approx(
+        max(theme.directional_marker_size for theme in THEMES.values())
+    )
     assert CANVAS_EDGE_CLEARANCE >= DIRECTIONAL_MARKER_HALF_EXTENT + widest / 2
+
+
+def test_a_coarsened_stroke_widens_the_canvas_margin_it_reserves() -> None:
+    """``stroke_scale`` multiplies the stroke, so the margin it needs multiplies.
+
+    The chevron's arms are drawn at a fixed size, so only the half-stroke term of
+    the clearance tracks the scale.  Reading the unscaled constant would leave a
+    coarsened render short by half the extra stroke weight.
+    """
+    assert canvas_edge_clearance() == pytest.approx(CANVAS_EDGE_CLEARANCE)
+    with stroke_scale_context(2.0):
+        assert canvas_edge_clearance() == pytest.approx(
+            DIRECTIONAL_MARKER_HALF_EXTENT + WIDEST_THEME_LINE_WIDTH
+        )
+        assert canvas_edge_clearance() - CANVAS_EDGE_CLEARANCE == pytest.approx(
+            WIDEST_THEME_LINE_WIDTH / 2
+        )
+
+
+def test_a_short_canvas_margin_fails_the_strict_path_at_full_capacity() -> None:
+    """A corridor with every pixel it reserved can be drawn hard against the edge.
+
+    Total capacity is spent across both of a canvas corridor's sides, so a
+    corridor banking its whole surplus on the content side measures as having
+    exactly the room it asked for while its ink is drawn through the canvas
+    margin.  The margin is what a stroke and a direction chevron are clipped
+    against, so it is the number the strict path refuses.
+    """
+    path = ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, CanvasRegion) and item.region.side is CanvasSide.LEFT
+    )
+    realised = next(
+        item
+        for item in plan.realised_reservations
+        if item.reservation_id == reservation.id
+    )
+    hugging = replace(
+        realised,
+        negative_side_slack=-4.0,
+        positive_side_slack=realised.positive_side_slack + 4.0,
+    )
+    assert hugging.capacity_slack >= 0.0
+    assert canvas_edge_slack(reservation.region, hugging) == pytest.approx(-4.0)
+
+    with pytest.raises(LayoutInvariantError) as caught:
+        assert_canvas_corridors_hold_their_claims(
+            replace(plan, realised_reservations=(hugging,)), strict=True
+        )
+    message = str(caught.value)
+    assert "less clearance than it reserved" in message
+    assert "left canvas margin" in message
+    assert "-4.0px" in message
+
+
+def test_a_canvas_corridor_short_of_its_content_side_is_recorded_not_silent() -> None:
+    """A canvas corridor's content-facing side is evidence, not a hard stop.
+
+    That side is a section box edge or header badge, which no growth of the
+    canvas moves, so it is published as an attributed ``reservation-deficit``
+    record and left to the box-edge and header guards rather than aborting the
+    render for a margin the canvas does not own.
+    """
+    path = TOPOLOGIES / "bt_to_lr.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
+    query = build_route_plan_query(plan)
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, CanvasRegion) and item.region.side is CanvasSide.TOP
+    )
+    realised = query.realised_reservation(reservation.id)
+    assert realised is not None
+    assert realised.positive_side_slack < -1.0
+    assert canvas_edge_slack(reservation.region, realised) >= -0.01
+
+    diagnostic = next(
+        item
+        for item in plan.reservation_diagnostics
+        if item.reservation_id == reservation.id
+    )
+    assert diagnostic.code == "reservation-deficit"
+    assert diagnostic.positive_side_slack == pytest.approx(realised.positive_side_slack)
+
+    assert_canvas_corridors_hold_their_claims(plan, strict=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert_canvas_corridors_hold_their_claims(plan, strict=False)
+    assert not [str(item.message) for item in caught]
 
 
 def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
@@ -1189,7 +1296,10 @@ def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
             if realised is None:
                 continue
             checked += 1
-            assert realised.capacity_slack >= -0.01, (path, reservation.description)
+            assert canvas_edge_slack(reservation.region, realised) >= -0.01, (
+                path,
+                reservation.description,
+            )
         assert checked, path
 
 

@@ -1009,10 +1009,14 @@ def _settle_render_geometry(
     list[RoutedPath],
     list[LabelPlacement],
     RoutePlan,
+    tuple[ReservationCoordinateTranslation, ...],
 ]:
     """Route, place labels, and reconcile a header collision for the render.
 
-    Returns settled station offsets, routes, labels, and the route plan.
+    Returns settled station offsets, routes, labels, the route plan, and the
+    settlement translations the plan's claims are frozen ahead of -- a canvas
+    claim is measured only once the render has sized its canvas, and needs that
+    projection to land on the geometry the canvas encloses.
     Label wrapping
     needs the theme's font/icon metrics, so it runs here rather than in
     ``compute_layout``; when it grows a section's bbox downward it can push the
@@ -1164,7 +1168,13 @@ def _settle_render_geometry(
     )
 
     assert_render_header_clearance(graph, strict=effective_strict)
-    return station_offsets, routes, labels, route_plan
+    return (
+        station_offsets,
+        routes,
+        labels,
+        route_plan,
+        settlement.coordinate_translations,
+    )
 
 
 def _settled_render_graph(source_graph: MetroGraph, theme: Theme) -> MetroGraph:
@@ -1227,7 +1237,13 @@ def _build_render_plan_scaled(
     section_y_gap = (
         graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
     )
-    station_offsets, routes, labels, route_plan = _settle_render_geometry(
+    (
+        station_offsets,
+        routes,
+        labels,
+        route_plan,
+        settlement_translations,
+    ) = _settle_render_geometry(
         graph,
         theme,
         offset_step,
@@ -1344,6 +1360,7 @@ def _build_render_plan_scaled(
         graph,
         canvas_width=svg_width,
         canvas_height=svg_height,
+        coordinate_translations=settlement_translations,
     )
     assert_canvas_corridors_hold_their_claims(
         route_plan, strict=graph.strict and not graph.permissive
