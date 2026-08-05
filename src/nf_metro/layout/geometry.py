@@ -714,3 +714,30 @@ def spans_share_corridor(
     from nf_metro.layout.constants import MIN_CORRIDOR_Y_OVERLAP
 
     return min(first_hi, second_hi) - max(first_lo, second_lo) > MIN_CORRIDOR_Y_OVERLAP
+
+
+def cotravelling_lane_clearance(
+    *, same_line: bool, counter_running: bool, curve_radius: float
+) -> float:
+    """The separation two lanes sharing one corridor need to draw as two strokes.
+
+    Two tracks of one line travelling the same way are fused deliberately, so
+    they ask for nothing.  Distinct lines nest one ``OFFSET_STEP`` apart, the
+    width at which both colours read as separate strokes.  Counter-running lanes
+    are separate bundles: one line's own return leg has to clear the turn it came
+    out of, so it needs the turn's radius, and two distinct lines take the full
+    bundle-to-bundle clearance.
+
+    Stated once here because two places have to agree on it: the router
+    separating channels it has already drawn, and the reservation ledger stating
+    how much room a boundary carrying several corridors has to be given.
+    """
+    from nf_metro.layout.constants import (
+        BUNDLE_TO_BUNDLE_CLEARANCE,
+        COORD_TOLERANCE,
+        OFFSET_STEP,
+    )
+
+    if not counter_running:
+        return 0.0 if same_line else OFFSET_STEP
+    return curve_radius + COORD_TOLERANCE if same_line else BUNDLE_TO_BUNDLE_CLEARANCE
