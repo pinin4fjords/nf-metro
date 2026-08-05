@@ -788,8 +788,11 @@ def gap_corridor_clearance_band(
     selects it: among the boundaries whose region contains *coordinate*, the one
     whose region is narrowest.  A reservation then measures that boundary under
     a single :class:`CorridorMeasurementScope`, and which one it gets is decided
-    after the run is drawn, so the band is the narrower of both -- inside
-    whichever scope the observation goes on to choose.
+    after the run is drawn, so the band is the narrowest across the scopes that
+    place the run in this gap at all -- inside whichever of those the observation
+    goes on to choose.  A scope whose region lies elsewhere entirely is describing
+    a different corridor, and folding its edges in would name a band the run
+    could only reach by abandoning its own gap.
 
     Returns ``None`` where no boundary's region contains the run: it is a canvas
     corridor, or a dive past every row, and neither is a gap allocation.
@@ -797,12 +800,11 @@ def gap_corridor_clearance_band(
     best: tuple[float, GapCorridorBand] | None = None
     for region in _adjacent_gap_regions(graph, orientation):
         negative, positive, _keepouts = _clearances(orientation, region)
-        measured = _region_measurements(
-            graph, region, span, longitudinal_start, longitudinal_end
-        )
         containing = [
             item
-            for item in measured
+            for item in _region_measurements(
+                graph, region, span, longitudinal_start, longitudinal_end
+            )
             if item.start - COORD_TOLERANCE <= coordinate <= item.end + COORD_TOLERANCE
         ]
         if not containing:
@@ -815,8 +817,8 @@ def gap_corridor_clearance_band(
         )
         band = GapCorridorBand(
             boundary,
-            max(item.start + negative for item in measured),
-            min(item.end - positive for item in measured),
+            max(item.start + negative for item in containing),
+            min(item.end - positive for item in containing),
         )
         if best is None or width < best[0]:
             best = (width, band)
